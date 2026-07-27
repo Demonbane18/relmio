@@ -46,7 +46,7 @@ export function createComposeFile({ networkName }) {
         - CMD
         - node
         - -e
-        - fetch("http://127.0.0.1:10531/health").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))
+        - 'fetch("http://127.0.0.1:10531/health").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))'
       interval: 30s
       timeout: 5s
       retries: 3

@@ -91,6 +91,15 @@ test("the generated Compose file is internal-only and uses an external network",
   assert.doesNotMatch(compose, /n8nio\/n8n/);
 });
 
+test("the generated Compose healthcheck command is a quoted YAML string", () => {
+  const compose = createComposeFile({ networkName: "proxy" });
+
+  assert.match(
+    compose,
+    /^\s+- 'fetch\("http:\/\/127\.0\.0\.1:10531\/health"\).*'$/m,
+  );
+});
+
 test("the generated Dockerfile pins openai-oauth and runs as a non-root user", () => {
   const dockerfile = createDockerfile();
 
