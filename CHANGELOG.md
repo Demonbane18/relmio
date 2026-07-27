@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.3] - 2026-07-27
+
+### Fixed
+
+- Let the explicit **Refresh ChatGPT sign-in** action confirm replacement of
+  an existing local OAuth credential. Previously, the bridge CLI prompt had
+  no input stream, defaulted to “No,” and the wizard reported that sign-in did
+  not finish.
+- Clarify when the wizard will reuse an existing credential and when to
+  refresh it.
+
 ## [0.1.2] - 2026-07-27
 
 ### Fixed

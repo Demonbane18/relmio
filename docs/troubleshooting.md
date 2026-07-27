@@ -26,6 +26,7 @@ docker compose \
 | Symptom | Meaning | Fix |
 |---|---|---|
 | `This sign-in request expired` | The OAuth tab is old or the five-minute callback window ended. | Close the old tab and start a fresh login from the wizard or `npx --yes openai-oauth@2.0.0 login --open`. |
+| `ChatGPT sign-in did not finish` appears immediately when refreshing an existing credential | Wizard versions before `0.1.3` could not answer the bridge CLI's overwrite confirmation. | Update the wizard, choose **Refresh ChatGPT sign-in**, and complete the new browser login. |
 | `zsh: no matches found: root@**...**` | The hidden-IP asterisks were copied literally. | Use the real IP with no asterisks: `root@YOUR_VPS_IP`. |
 | SSH appears frozen while typing a password | Terminals intentionally show no password characters. | Type the password carefully and press Return. Do not test by typing random visible text. |
 | SSH appears to do nothing | The IP may be incomplete, port 22 may be blocked, or SSH is waiting. | Copy the complete IP from Hostinger. Wait up to 15 seconds, then press Control+C and retry. |

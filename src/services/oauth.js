@@ -88,10 +88,11 @@ export async function runOAuthLogin({
     const child = spawnProcess(command, args, {
       env,
       shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     });
 
+    child.stdin?.end("y\n");
     child.stdout?.resume();
     child.stderr?.resume();
 

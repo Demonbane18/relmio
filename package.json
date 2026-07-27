@@ -1,6 +1,6 @@
 {
   "name": "n8n-openai-oauth-setup",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A local browser wizard for installing an OpenAI OAuth sidecar beside self-hosted n8n.",
   "type": "module",
   "license": "MIT",

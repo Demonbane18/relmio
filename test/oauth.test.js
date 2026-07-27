@@ -76,14 +76,20 @@ test("readAuthContents rejects invalid or oversized credential files", async () 
   );
 });
 
-test("runOAuthLogin invokes the pinned local login command without a shell", async () => {
+test("runOAuthLogin invokes the pinned login and confirms the requested refresh", async () => {
   const calls = [];
   const fileSystem = createMemoryFileSystem({
     "/home/user/.codex/auth.json": '{"fixture":true}',
   });
   const spawnProcess = (command, args, options) => {
-    calls.push({ command, args, options });
+    const call = { command, args, options, stdin: "" };
+    calls.push(call);
     const child = new EventEmitter();
+    child.stdin = {
+      end(contents) {
+        call.stdin = contents;
+      },
+    };
     child.stdout = { resume() {} };
     child.stderr = { resume() {} };
     queueMicrotask(() => child.emit("exit", 0));
@@ -109,4 +115,6 @@ test("runOAuthLogin invokes the pinned local login command without a shell", asy
     "300000",
   ]);
   assert.equal(calls[0].options.shell, false);
+  assert.deepEqual(calls[0].options.stdio, ["pipe", "pipe", "pipe"]);
+  assert.equal(calls[0].stdin, "y\n");
 });

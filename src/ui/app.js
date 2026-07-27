@@ -96,9 +96,9 @@ async function refreshAuthStatus() {
     indicator.classList.add("ready");
     element("auth-title").textContent = "Local credential found";
     element("auth-detail").textContent =
-      "Ready to upload after you approve the VPS plan.";
-    element("login-button").textContent = "Sign in again";
-    element("login-button").dataset.label = "Sign in again";
+      "Continue uses it as-is. Refresh the sign-in if it is expired or was created by another client.";
+    element("login-button").textContent = "Refresh ChatGPT sign-in";
+    element("login-button").dataset.label = "Refresh ChatGPT sign-in";
     next.disabled = false;
     setMessage("Local sign-in is ready.");
   } else {
@@ -169,7 +169,9 @@ element("login-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
   setBusy(button, true, "Waiting for browser sign-in…");
-  setMessage("Complete the fresh sign-in page within five minutes.");
+  setMessage(
+    "Complete the fresh sign-in page within five minutes. The existing local credential will be replaced only after sign-in succeeds.",
+  );
   try {
     await api("/api/oauth/login", { method: "POST", body: {} });
     await refreshAuthStatus();
