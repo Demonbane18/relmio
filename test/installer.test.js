@@ -9,6 +9,7 @@ import {
 import { installSidecar } from "../src/services/installer.js";
 
 function createFakeRemote({
+  managedDirectory = false,
   unmanagedDirectory = false,
   publishedPortResult = { stdout: "", stderr: "", code: 1 },
 } = {}) {
@@ -24,6 +25,13 @@ function createFakeRemote({
 
       if (command === PRECHECK_COMMAND && unmanagedDirectory) {
         return { stdout: "", stderr: "", code: 42 };
+      }
+      if (command === PRECHECK_COMMAND) {
+        return {
+          stdout: managedDirectory ? "managed\n" : "new\n",
+          stderr: "",
+          code: 0,
+        };
       }
       if (command === verification.models) {
         return {
@@ -100,9 +108,10 @@ test("installSidecar uploads secrets separately and starts only the sidecar", as
     confirmed: true,
   });
 
-  assert.equal(result.baseUrl, "http://openai-oauth:10531/v1");
+  assert.equal(result.baseUrl, "http://n8n-openai-oauth:10531/v1");
   assert.equal(result.apiKeyPlaceholder, "local-only");
   assert.equal(result.useResponsesApi, true);
+  assert.equal(result.deploymentMode, "installed");
   assert.deepEqual(result.models, ["gpt-5.6-sol", "gpt-5.6-terra"]);
 
   assert.ok(remote.uploads.some((upload) => upload.path === MANAGED_MARKER_PATH));
@@ -118,6 +127,26 @@ test("installSidecar uploads secrets separately and starts only the sidecar", as
       (command) =>
         !command.includes("/docker/n8n/docker-compose") &&
         !/\bdocker (?:restart|stop|rm)\s+n8n/.test(command),
+    ),
+  );
+});
+
+test("installSidecar refreshes OAuth for an existing managed deployment", async () => {
+  const remote = createFakeRemote({ managedDirectory: true });
+
+  const result = await installSidecar({
+    remote,
+    networkName: "proxy",
+    authContents,
+    confirmed: true,
+  });
+
+  assert.equal(result.deploymentMode, "updated");
+  assert.ok(
+    remote.uploads.some(
+      (upload) =>
+        upload.path === "/docker/n8n-openai-oauth/auth/auth.json" &&
+        upload.mode === 0o600,
     ),
   );
 });

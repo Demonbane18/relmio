@@ -112,7 +112,7 @@ services:
     networks:
       n8n-shared:
         aliases:
-          - openai-oauth
+          - n8n-openai-oauth
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -120,6 +120,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
+      - /home/node/.local:uid=1000,gid=1000,mode=0700
     pids_limit: 128
     mem_limit: 512m
     cpus: 1.0
@@ -251,12 +252,13 @@ In the n8n OpenAI credential:
 ```text
 API Key: local-only
 Organization ID: leave empty
-Base URL: http://openai-oauth:10531/v1
+Base URL: http://n8n-openai-oauth:10531/v1
 Add Custom Header: off
 ```
 
 Do not use `http://127.0.0.1:10531/v1` in n8n. Inside the n8n container,
-`127.0.0.1` means n8n itself. The Docker service name is `openai-oauth`.
+`127.0.0.1` means n8n itself. The private Docker hostname is
+`n8n-openai-oauth`.
 
 In the OpenAI Chat Model, keep **Use Responses API** on. Choose a model from the
 verified list and test a simple prompt before adding tools.

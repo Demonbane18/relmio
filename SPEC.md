@@ -130,7 +130,8 @@ export function createDeploymentPlan({ networkName }) {
 - It detects the running n8n container and its Docker networks using read-only commands.
 - It displays an exact deployment plan before any write.
 - It deploys only the separate sidecar and validates `/health` plus `/v1/models`.
-- It shows `http://openai-oauth:10531/v1` and a placeholder API key for n8n.
+- It shows `http://n8n-openai-oauth:10531/v1` and a placeholder API key for
+  n8n.
 - Automated tests prove no generated install command can modify or restart n8n.
 - Documentation covers the successful path, security limits, uninstall, and observed troubleshooting cases.
 

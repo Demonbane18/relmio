@@ -232,9 +232,13 @@
           <section aria-labelledby="will-title">
             <h3 id="will-title">The wizard will</h3>
             <ul class="check-list">
-              <li>Create <code>/docker/n8n-openai-oauth</code></li>
+              <li>Create or update <code>/docker/n8n-openai-oauth</code></li>
               <li>Build and start only the <code>openai-oauth</code> sidecar</li>
               <li>Attach the sidecar to <strong id="review-network">—</strong></li>
+              <li>
+                Use the private hostname
+                <code id="review-endpoint">n8n-openai-oauth</code>
+              </li>
               <li>Upload the OAuth file with owner-only permissions</li>
             </ul>
           </section>
@@ -278,7 +282,7 @@
         <dl class="result-list">
           <div>
             <dt>Base URL</dt>
-            <dd><code id="result-url">http://openai-oauth:10531/v1</code></dd>
+            <dd><code id="result-url">http://n8n-openai-oauth:10531/v1</code></dd>
           </div>
           <div>
             <dt>API key</dt>

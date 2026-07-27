@@ -17,6 +17,7 @@ import {
   validateHostname,
   validatePort,
 } from "../domain/validation.js";
+import { SIDECAR_HOSTNAME } from "../domain/templates.js";
 
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
@@ -293,6 +294,7 @@ async function handleApi(request, response, path, state) {
     sendJson(response, 200, {
       installDirectory: "/docker/n8n-openai-oauth",
       sidecarProject: "n8n-openai-oauth",
+      endpointHostname: SIDECAR_HOSTNAME,
       networkName: body.networkName,
       existingN8nChanges: [],
       existingN8nRestarts: 0,

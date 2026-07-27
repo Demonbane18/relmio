@@ -7,6 +7,7 @@ import {
   createVerificationCommands,
 } from "../domain/safety.js";
 import {
+  SIDECAR_HOSTNAME,
   createComposeFile,
   createDockerfile,
 } from "../domain/templates.js";
@@ -98,6 +99,12 @@ export async function installSidecar({
   if (precheck.code !== 0) {
     throw new Error("The VPS install-directory check failed.");
   }
+  const precheckState = precheck.stdout.trim();
+  if (!["managed", "new"].includes(precheckState)) {
+    throw new Error("The VPS install-directory check returned an invalid state.");
+  }
+  const deploymentMode =
+    precheckState === "managed" ? "updated" : "installed";
 
   await runOrThrow(remote, deploymentCommands[0], "Sidecar directory creation");
   await runOrThrow(remote, deploymentCommands[1], "Auth directory creation");
@@ -145,9 +152,10 @@ export async function installSidecar({
   );
 
   return {
-    baseUrl: "http://openai-oauth:10531/v1",
+    baseUrl: `http://${SIDECAR_HOSTNAME}:10531/v1`,
     apiKeyPlaceholder: "local-only",
     useResponsesApi: true,
     models: parseModels(models.stdout),
+    deploymentMode,
   };
 }

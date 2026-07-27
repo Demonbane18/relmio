@@ -101,7 +101,7 @@ Create or edit an **OpenAI** credential:
 |---|---|
 | API Key | `local-only` |
 | Organization ID | Leave empty |
-| Base URL | `http://openai-oauth:10531/v1` |
+| Base URL | `http://n8n-openai-oauth:10531/v1` |
 | Add Custom Header | Off |
 
 For an **OpenAI Chat Model**:
@@ -113,7 +113,7 @@ For an **OpenAI Chat Model**:
 For an **HTTP Request** node, call an endpoint such as:
 
 ```text
-POST http://openai-oauth:10531/v1/responses
+POST http://n8n-openai-oauth:10531/v1/responses
 ```
 
 No real API key is required by the bridge. n8n may still send

@@ -6,7 +6,7 @@ export const MANAGED_MARKER_PATH = `${INSTALL_ROOT}/.managed-by-n8n-openai-oauth
 const COMPOSE_PREFIX =
   "docker compose --project-name n8n-openai-oauth --file /docker/n8n-openai-oauth/docker-compose.yml";
 
-export const PRECHECK_COMMAND = `if [ -e ${INSTALL_ROOT} ] && [ ! -f ${MANAGED_MARKER_PATH} ]; then exit 42; fi`;
+export const PRECHECK_COMMAND = `if [ -e ${INSTALL_ROOT} ]; then if [ -f ${MANAGED_MARKER_PATH} ]; then printf '%s\\n' managed; else exit 42; fi; else printf '%s\\n' new; fi`;
 
 const DEPLOYMENT_COMMANDS = Object.freeze([
   `install -d -m 0755 ${INSTALL_ROOT}`,

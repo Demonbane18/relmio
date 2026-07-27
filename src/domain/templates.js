@@ -1,5 +1,7 @@
 import { validateDockerName } from "./validation.js";
 
+export const SIDECAR_HOSTNAME = "n8n-openai-oauth";
+
 export function createDockerfile() {
   return `FROM node:22-bookworm-slim
 
@@ -30,7 +32,7 @@ export function createComposeFile({ networkName }) {
     networks:
       n8n-shared:
         aliases:
-          - openai-oauth
+          - ${SIDECAR_HOSTNAME}
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -38,6 +40,7 @@ export function createComposeFile({ networkName }) {
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
+      - /home/node/.local:uid=1000,gid=1000,mode=0700
     pids_limit: 128
     mem_limit: 512m
     cpus: 1.0

@@ -13,7 +13,7 @@ flowchart LR
   W -->|verified SSH + SFTP| V["VPS"]
   V --> N["Existing n8n container<br>unchanged"]
   V --> S["New openai-oauth sidecar"]
-  N -->|Docker DNS<br>openai-oauth:10531| S
+  N -->|Docker DNS<br>n8n-openai-oauth:10531| S
   S --> C["ChatGPT / Codex backend"]
 ```
 
@@ -61,7 +61,7 @@ Containers on that network can use Docker DNS to reach a service by name.
 That is why n8n uses:
 
 ```text
-http://openai-oauth:10531/v1
+http://n8n-openai-oauth:10531/v1
 ```
 
 It must not use `127.0.0.1`, and the VPS does not need a public port. See
@@ -100,4 +100,3 @@ sidecar authenticates upstream with the mounted OAuth file.
 - A failed build or start does not trigger an n8n action.
 - An unexpected host-port mapping causes verification to fail.
 - The SSH connection closes after installation or when the wizard stops.
-

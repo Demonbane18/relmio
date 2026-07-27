@@ -91,6 +91,22 @@ test("the generated Compose file is internal-only and uses an external network",
   assert.doesNotMatch(compose, /n8nio\/n8n/);
 });
 
+test("the generated Compose file provides a writable non-root local directory", () => {
+  const compose = createComposeFile({ networkName: "proxy" });
+
+  assert.match(
+    compose,
+    /^\s+- \/home\/node\/\.local:uid=1000,gid=1000,mode=0700$/m,
+  );
+});
+
+test("the generated Compose file uses a collision-resistant network alias", () => {
+  const compose = createComposeFile({ networkName: "proxy" });
+
+  assert.match(compose, /aliases:\n\s+- n8n-openai-oauth/);
+  assert.doesNotMatch(compose, /aliases:\n\s+- openai-oauth/);
+});
+
 test("the generated Compose healthcheck command is a quoted YAML string", () => {
   const compose = createComposeFile({ networkName: "proxy" });
 

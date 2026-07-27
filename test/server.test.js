@@ -52,10 +52,11 @@ function createServices() {
       },
       async installSidecar() {
         return {
-          baseUrl: "http://openai-oauth:10531/v1",
+          baseUrl: "http://n8n-openai-oauth:10531/v1",
           apiKeyPlaceholder: "local-only",
           useResponsesApi: true,
           models: ["gpt-5.6-sol"],
+          deploymentMode: "installed",
         };
       },
     },
@@ -168,6 +169,19 @@ test("wizard flow validates discovered selections and never echoes a password", 
   });
   assert.deepEqual((await networks.json()).networks, ["proxy"]);
 
+  const plan = await api(wizard.origin, "/api/plan", {
+    method: "POST",
+    headers: originHeader,
+    body: JSON.stringify({
+      containerName: "n8n-n8n-1",
+      networkName: "proxy",
+    }),
+  });
+  assert.equal(
+    (await plan.json()).endpointHostname,
+    "n8n-openai-oauth",
+  );
+
   const install = await api(wizard.origin, "/api/install", {
     method: "POST",
     headers: originHeader,
@@ -178,7 +192,10 @@ test("wizard flow validates discovered selections and never echoes a password", 
     }),
   });
   assert.equal(install.status, 200);
-  assert.equal((await install.json()).baseUrl, "http://openai-oauth:10531/v1");
+  assert.equal(
+    (await install.json()).baseUrl,
+    "http://n8n-openai-oauth:10531/v1",
+  );
   assert.equal(remote.closed, true);
 });
 

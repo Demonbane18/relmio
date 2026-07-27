@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.2] - 2026-07-27
+
+### Fixed
+
+- Provide a writable `/home/node/.local` tmpfs so the non-root bridge can
+  start while the container root filesystem remains read-only.
+- Use the collision-resistant Docker hostname `n8n-openai-oauth` so an
+  existing manual `openai-oauth` sidecar cannot capture n8n requests.
+- Treat a wizard-managed deployment as an update, allowing a fresh local
+  ChatGPT sign-in to refresh its OAuth credential safely.
+
 ## [0.1.1] - 2026-07-27
 
 ### Fixed

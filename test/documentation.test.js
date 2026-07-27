@@ -16,7 +16,7 @@ test("manual guide copies the generated sidecar files exactly", async () => {
     guide,
     /up -d --wait --wait-timeout 60 --no-deps openai-oauth/,
   );
-  assert.match(guide, /http:\/\/openai-oauth:10531\/v1/);
+  assert.match(guide, /http:\/\/n8n-openai-oauth:10531\/v1/);
   assert.doesNotMatch(guide, /148\.230\.103\.145/);
 });
 

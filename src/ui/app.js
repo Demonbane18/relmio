@@ -267,7 +267,7 @@ element("review-button").addEventListener("click", async (event) => {
   setBusy(button, true, "Preparing plan…");
   try {
     const networkName = element("network-select").value;
-    await api("/api/plan", {
+    const plan = await api("/api/plan", {
       method: "POST",
       body: {
         containerName: element("container-select").value,
@@ -275,6 +275,7 @@ element("review-button").addEventListener("click", async (event) => {
       },
     });
     element("review-network").textContent = networkName;
+    element("review-endpoint").textContent = plan.endpointHostname;
     element("install-confirm").checked = false;
     element("install-button").disabled = true;
     showStep(4);
@@ -308,7 +309,11 @@ element("install-button").addEventListener("click", async (event) => {
     element("result-key").textContent = result.apiKeyPlaceholder;
     element("result-models").textContent = result.models.join(", ");
     showStep(5);
-    setMessage("Installation verified. Your existing n8n was not restarted.");
+    setMessage(
+      result.deploymentMode === "updated"
+        ? "OAuth refreshed on the existing wizard-managed sidecar. n8n was not restarted."
+        : "Installation verified. Your existing n8n was not restarted.",
+    );
   } catch (error) {
     showError(error);
   } finally {
