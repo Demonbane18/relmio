@@ -55,7 +55,7 @@
   - Verify: security checklist review.
   - Files: `docs/security.md`, `docs/architecture.md`, `docs/maintenance.md`
 
-- [ ] Task 12: Verify and publish privately
+- [x] Task 12: Verify and publish privately
   - Acceptance: tests, lint, audit, package preview, and secret scan pass; private repository exists.
   - Verify: GitHub visibility is `PRIVATE` and local tree is clean.
   - Files: repository metadata and Git history
