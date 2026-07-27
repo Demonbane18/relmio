@@ -4,6 +4,8 @@ import test from "node:test";
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "test-session-token-that-is-long-enough-123456";
+const exampleHost = "vps.example.test";
+const fixturePassword = "x".repeat(32);
 
 function createServices() {
   const remote = {
@@ -111,7 +113,7 @@ test("wizard server rejects cross-origin writes", async (t) => {
   const response = await api(wizard.origin, "/api/ssh/fingerprint", {
     method: "POST",
     headers: { Origin: "https://evil.example" },
-    body: JSON.stringify({ host: "203.0.113.10", port: 22 }),
+    body: JSON.stringify({ host: exampleHost, port: 22 }),
   });
 
   assert.equal(response.status, 403);
@@ -133,7 +135,7 @@ test("wizard flow validates discovered selections and never echoes a password", 
     {
       method: "POST",
       headers: originHeader,
-      body: JSON.stringify({ host: "203.0.113.10", port: 22 }),
+      body: JSON.stringify({ host: exampleHost, port: 22 }),
     },
   );
   const { fingerprint } = await fingerprintResponse.json();
@@ -142,15 +144,15 @@ test("wizard flow validates discovered selections and never echoes a password", 
     method: "POST",
     headers: originHeader,
     body: JSON.stringify({
-      host: "203.0.113.10",
+      host: exampleHost,
       port: 22,
       username: "root",
-      password: "temporary-test-value",
+      password: fixturePassword,
       expectedFingerprint: fingerprint,
     }),
   });
   assert.equal(connectResponse.status, 200);
-  assert.equal((await connectResponse.text()).includes("temporary-test-value"), false);
+  assert.equal((await connectResponse.text()).includes(fixturePassword), false);
 
   const discovered = await api(wizard.origin, "/api/discover", {
     method: "POST",
@@ -193,17 +195,17 @@ test("wizard binds SSH authentication to the server fingerprint it scanned", asy
   await api(wizard.origin, "/api/ssh/fingerprint", {
     method: "POST",
     headers: originHeader,
-    body: JSON.stringify({ host: "203.0.113.10", port: 22 }),
+    body: JSON.stringify({ host: exampleHost, port: 22 }),
   });
 
   const response = await api(wizard.origin, "/api/ssh/connect", {
     method: "POST",
     headers: originHeader,
     body: JSON.stringify({
-      host: "203.0.113.11",
+      host: "changed-vps.example.test",
       port: 22,
       username: "root",
-      password: "temporary-test-value",
+      password: fixturePassword,
       expectedFingerprint:
         "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     }),

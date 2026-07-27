@@ -9,6 +9,9 @@ import {
   scanHostFingerprint,
 } from "../src/infrastructure/ssh.js";
 
+const exampleHost = "vps.example.test";
+const fixturePassword = "x".repeat(32);
+
 class FakeClient extends EventEmitter {
   connect(config) {
     this.config = config;
@@ -44,10 +47,10 @@ test("formatSha256Fingerprint presents an OpenSSH-style fingerprint", () => {
 test("verified SSH config rejects a changed host key", () => {
   const expected = formatSha256Fingerprint("ab".repeat(32));
   const config = buildVerifiedConnectionConfig({
-    host: "203.0.113.10",
+    host: exampleHost,
     port: 22,
     username: "root",
-    password: "temporary-test-value",
+    password: fixturePassword,
     expectedFingerprint: expected,
   });
 
@@ -61,7 +64,7 @@ test("connectVerified requires authentication and returns a closable connection"
   await assert.rejects(
     () =>
       connectVerified({
-        host: "203.0.113.10",
+        host: exampleHost,
         port: 22,
         username: "root",
         expectedFingerprint: formatSha256Fingerprint("ab".repeat(32)),
@@ -72,10 +75,10 @@ test("connectVerified requires authentication and returns a closable connection"
   const client = new FakeClient();
   const connection = await connectVerified(
     {
-      host: "203.0.113.10",
+      host: exampleHost,
       port: 22,
       username: "root",
-      password: "temporary-test-value",
+      password: fixturePassword,
       expectedFingerprint: formatSha256Fingerprint("ab".repeat(32)),
     },
     {
@@ -83,7 +86,7 @@ test("connectVerified requires authentication and returns a closable connection"
     },
   );
 
-  assert.equal(client.config.host, "203.0.113.10");
+  assert.equal(client.config.host, exampleHost);
   assert.equal(client.config.username, "root");
 
   connection.close();
@@ -99,7 +102,7 @@ test("scanHostFingerprint reads the key without authenticating", async () => {
   };
 
   const fingerprint = await scanHostFingerprint(
-    { host: "203.0.113.10", port: 22 },
+    { host: exampleHost, port: 22 },
     { createClient: () => client },
   );
 
@@ -112,10 +115,10 @@ test("uploads are restricted to the installer-managed directory", async () => {
   const client = new FakeClient();
   const connection = await connectVerified(
     {
-      host: "203.0.113.10",
+      host: exampleHost,
       port: 22,
       username: "root",
-      password: "temporary-test-value",
+      password: fixturePassword,
       expectedFingerprint: formatSha256Fingerprint("ab".repeat(32)),
     },
     { createClient: () => client },

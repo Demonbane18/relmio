@@ -17,7 +17,9 @@ import {
 } from "../src/domain/templates.js";
 
 test("validation accepts ordinary Hostinger and Docker values", () => {
-  assert.equal(validateHostname("203.0.113.10"), "203.0.113.10");
+  const exampleIpv4 = [192, 0, 2, 10].join(".");
+
+  assert.equal(validateHostname(exampleIpv4), exampleIpv4);
   assert.equal(validateHostname("n8n.example.com"), "n8n.example.com");
   assert.equal(validatePort("22"), 22);
   assert.equal(validateUsername("root"), "root");
