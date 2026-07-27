@@ -136,4 +136,4 @@ export function createDeploymentPlan({ networkName }) {
 
 ## Open questions
 
-- npm publication and native desktop packaging are deferred until the private repository is manually tested.
+- npm publication is planned as the primary non-technical distribution path; native desktop packaging remains deferred.

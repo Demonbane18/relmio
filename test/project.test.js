@@ -7,7 +7,8 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
 
   assert.equal(packageJson.engines.node, ">=22");
   assert.equal(packageJson.dependencies.ssh2, "1.17.0");
-  assert.equal(packageJson.private, true);
+  assert.equal(packageJson.private, undefined);
+  assert.equal(packageJson.license, "MIT");
 });
 
 test("double-click launchers only install local dependencies and start the wizard", async () => {

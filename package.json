@@ -3,8 +3,15 @@
   "version": "0.1.0",
   "description": "A local browser wizard for installing an OpenAI OAuth sidecar beside self-hosted n8n.",
   "type": "module",
-  "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Demonbane18/n8n-openai-oauth-setup.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Demonbane18/n8n-openai-oauth-setup/issues"
+  },
+  "homepage": "https://github.com/Demonbane18/n8n-openai-oauth-setup#readme",
   "engines": {
     "node": ">=22"
   },
@@ -16,7 +23,9 @@
     "src",
     "docs",
     "README.md",
-    "SPEC.md"
+    "SPEC.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "scripts": {
     "start": "node src/cli.js",

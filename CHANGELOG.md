@@ -1,0 +1,21 @@
+# Changelog
+
+## [0.1.0] - 2026-07-27
+
+### Added
+
+- Local browser wizard for installing the OpenAI OAuth sidecar beside a
+  self-hosted n8n Docker deployment.
+- Read-only n8n and Docker-network discovery.
+- Explicit review and confirmation before remote sidecar writes.
+- Safety checks that prevent changes to the existing n8n Compose project,
+  image, container, or host port mappings.
+- `npx`-friendly CLI entry point and beginner documentation.
+
+### Security
+
+- OAuth credentials stay on the local computer until the user approves an
+  SFTP upload to the installer-managed sidecar directory.
+- SSH host-key confirmation is required before password authentication.
+- The sidecar uses an internal-only Docker network endpoint and no published
+  VPS port.

@@ -48,7 +48,21 @@ boundary.
 - The VPS address and root SSH password
 - Docker Compose v2 on the VPS
 
-### Private pilot: double-click
+### Fastest setup: run the local wizard
+
+After the package is published, the simplest method is to open Terminal
+(macOS/Linux) or PowerShell (Windows) on your own computer and run:
+
+```bash
+npx --yes n8n-openai-oauth-setup
+```
+
+The wizard runs on your computer, opens a browser, and connects to the VPS
+over SSH. It does not install Node, npm, or this wizard on the VPS. The VPS
+only receives the separate sidecar files after you review and approve the
+plan.
+
+### Private-repository fallback: double-click
 
 1. Clone this private repository with GitHub Desktop.
 2. Open the repository folder.
@@ -60,21 +74,12 @@ The launcher installs the one pinned local dependency when needed, opens the
 wizard on `127.0.0.1`, and leaves the Terminal window open only while the
 wizard is running.
 
-### Developer start
+If you are using the private GitHub repository instead of npm:
 
 ```bash
 npm ci --ignore-scripts
 npm start
 ```
-
-The private pilot is not published to npm. After it has been tested on more
-VPS configurations, the intended public command is:
-
-```bash
-npx n8n-openai-oauth-setup
-```
-
-Do not use that command until an npm release is actually published.
 
 ## The five wizard screens
 
@@ -121,6 +126,7 @@ No real API key is required by the bridge. n8n may still send
 - [Security and limitations](docs/security.md)
 - [Architecture and n8n safety boundary](docs/architecture.md)
 - [Refresh, upgrade, rollback, and uninstall](docs/maintenance.md)
+- [npm maintainer publishing guide](docs/npm-publish.md)
 
 ## Supported bridge endpoints
 
@@ -137,9 +143,9 @@ history it needs.
 
 ## Project status
 
-This is a private MVP. The wizard and fake-data browser flow are tested, but a
-native signed desktop build and npm publication are intentionally deferred.
-See [SPEC.md](SPEC.md) for the approved scope.
+This is a local wizard for a separate sidecar. A native signed desktop build
+is intentionally deferred; `npx` is the supported non-technical distribution
+path. See [SPEC.md](SPEC.md) for the approved scope.
 
 ## Sources
 
