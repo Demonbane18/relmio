@@ -1,0 +1,343 @@
+const token = new URLSearchParams(window.location.search).get("session");
+window.history.replaceState(null, "", window.location.pathname);
+
+const state = {
+  step: 1,
+  fingerprint: null,
+  discovery: null,
+  networks: null,
+};
+
+const element = (id) => document.getElementById(id);
+const message = element("global-message");
+const errorBox = element("global-error");
+
+function resetFingerprint() {
+  state.fingerprint = null;
+  element("fingerprint-box").hidden = true;
+  element("fingerprint-confirm").checked = false;
+  element("password").value = "";
+  element("password").disabled = true;
+  element("connect-button").disabled = true;
+}
+
+function setMessage(text) {
+  message.textContent = text;
+}
+
+function showError(error) {
+  errorBox.textContent = error.message ?? "Something went wrong.";
+  errorBox.hidden = false;
+  errorBox.focus();
+}
+
+function clearError() {
+  errorBox.hidden = true;
+  errorBox.textContent = "";
+}
+
+function setBusy(button, busy, busyText) {
+  if (!button.dataset.label) {
+    button.dataset.label = button.textContent;
+  }
+  button.disabled = busy;
+  button.setAttribute("aria-busy", String(busy));
+  button.textContent = busy ? busyText : button.dataset.label;
+}
+
+function showStep(step) {
+  state.step = step;
+  for (const panel of document.querySelectorAll("[data-step]")) {
+    const active = Number(panel.dataset.step) === step;
+    panel.hidden = !active;
+    if (active) {
+      panel.querySelector("h2")?.focus({ preventScroll: true });
+    }
+  }
+  for (const marker of document.querySelectorAll("[data-step-marker]")) {
+    const markerStep = Number(marker.dataset.stepMarker);
+    marker.classList.toggle("complete", markerStep < step);
+    if (markerStep === step) {
+      marker.setAttribute("aria-current", "step");
+    } else {
+      marker.removeAttribute("aria-current");
+    }
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function api(path, { method = "GET", body } = {}) {
+  if (!token) {
+    throw new Error("This wizard link is incomplete. Restart the setup command.");
+  }
+
+  const response = await fetch(path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Setup-Token": token,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    throw new Error(result.error ?? "The request failed.");
+  }
+  return result;
+}
+
+async function refreshAuthStatus() {
+  clearError();
+  const status = await api("/api/status");
+  const indicator = element("auth-indicator");
+  const next = element("signin-next");
+
+  if (status.authExists) {
+    indicator.classList.add("ready");
+    element("auth-title").textContent = "Local credential found";
+    element("auth-detail").textContent =
+      "Ready to upload after you approve the VPS plan.";
+    element("login-button").textContent = "Sign in again";
+    element("login-button").dataset.label = "Sign in again";
+    next.disabled = false;
+    setMessage("Local sign-in is ready.");
+  } else {
+    indicator.classList.remove("ready");
+    element("auth-title").textContent = "Sign-in needed";
+    element("auth-detail").textContent =
+      "A browser sign-in will open and wait for up to five minutes.";
+    element("login-button").textContent = "Sign in with ChatGPT";
+    element("login-button").dataset.label = "Sign in with ChatGPT";
+    next.disabled = true;
+    setMessage("Sign in with ChatGPT to continue.");
+  }
+}
+
+function fillSelect(select, items, selectedValue) {
+  select.replaceChildren();
+  for (const item of items) {
+    const option = document.createElement("option");
+    option.value = item.value;
+    option.textContent = item.label;
+    option.selected = item.value === selectedValue;
+    select.append(option);
+  }
+}
+
+async function loadNetworks() {
+  clearError();
+  const containerName = element("container-select").value;
+  const result = await api("/api/networks", {
+    method: "POST",
+    body: { containerName },
+  });
+  state.networks = result;
+  fillSelect(
+    element("network-select"),
+    result.networks.map((network) => ({ value: network, label: network })),
+    result.recommended,
+  );
+}
+
+async function discover() {
+  setMessage("Inspecting Docker with read-only commands…");
+  const result = await api("/api/discover", {
+    method: "POST",
+    body: {},
+  });
+  if (result.containers.length === 0) {
+    throw new Error("No running official n8n container was found.");
+  }
+
+  state.discovery = result;
+  element("docker-version").textContent = result.dockerVersion;
+  element("compose-version").textContent = result.composeVersion;
+  fillSelect(
+    element("container-select"),
+    result.containers.map((container) => ({
+      value: container.name,
+      label: `${container.name} — ${container.image}`,
+    })),
+    result.containers[0].name,
+  );
+  await loadNetworks();
+  showStep(3);
+  setMessage("n8n was found. Choose the network it shares with the sidecar.");
+}
+
+element("login-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  setBusy(button, true, "Waiting for browser sign-in…");
+  setMessage("Complete the fresh sign-in page within five minutes.");
+  try {
+    await api("/api/oauth/login", { method: "POST", body: {} });
+    await refreshAuthStatus();
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("signin-next").addEventListener("click", () => {
+  clearError();
+  showStep(2);
+  setMessage("Enter the VPS address exactly as Hostinger shows it.");
+});
+
+element("fingerprint-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  setBusy(button, true, "Checking identity…");
+  try {
+    const result = await api("/api/ssh/fingerprint", {
+      method: "POST",
+      body: {
+        host: element("host").value,
+        port: element("port").value,
+      },
+    });
+    state.fingerprint = result.fingerprint;
+    element("fingerprint-value").textContent = result.fingerprint;
+    element("fingerprint-box").hidden = false;
+    element("fingerprint-confirm").checked = false;
+    element("password").value = "";
+    element("password").disabled = true;
+    element("connect-button").disabled = true;
+    setMessage("Confirm the VPS identity before sending a password.");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("fingerprint-confirm").addEventListener("change", (event) => {
+  const confirmed = event.currentTarget.checked;
+  element("password").disabled = !confirmed;
+  element("connect-button").disabled = !confirmed;
+  if (confirmed) {
+    element("password").focus();
+  } else {
+    element("password").value = "";
+  }
+});
+
+element("host").addEventListener("input", resetFingerprint);
+element("port").addEventListener("input", resetFingerprint);
+
+element("vps-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = element("connect-button");
+  clearError();
+  setBusy(button, true, "Connecting safely…");
+  try {
+    await api("/api/ssh/connect", {
+      method: "POST",
+      body: {
+        host: element("host").value,
+        port: element("port").value,
+        username: element("username").value,
+        password: element("password").value,
+        expectedFingerprint: state.fingerprint,
+      },
+    });
+    element("password").value = "";
+    await discover();
+  } catch (error) {
+    element("password").value = "";
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("container-select").addEventListener("change", async () => {
+  try {
+    await loadNetworks();
+  } catch (error) {
+    showError(error);
+  }
+});
+
+element("review-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  setBusy(button, true, "Preparing plan…");
+  try {
+    const networkName = element("network-select").value;
+    await api("/api/plan", {
+      method: "POST",
+      body: {
+        containerName: element("container-select").value,
+        networkName,
+      },
+    });
+    element("review-network").textContent = networkName;
+    element("install-confirm").checked = false;
+    element("install-button").disabled = true;
+    showStep(4);
+    setMessage("Review the plan. The VPS has not been changed.");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("install-confirm").addEventListener("change", (event) => {
+  element("install-button").disabled = !event.currentTarget.checked;
+});
+
+element("install-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  setBusy(button, true, "Building the sidecar…");
+  setMessage("Installing only the separate OAuth sidecar. This can take a minute.");
+  try {
+    const result = await api("/api/install", {
+      method: "POST",
+      body: {
+        containerName: element("container-select").value,
+        networkName: element("network-select").value,
+        confirmed: element("install-confirm").checked,
+      },
+    });
+    element("result-url").textContent = result.baseUrl;
+    element("result-key").textContent = result.apiKeyPlaceholder;
+    element("result-models").textContent = result.models.join(", ");
+    showStep(5);
+    setMessage("Installation verified. Your existing n8n was not restarted.");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("copy-settings").addEventListener("click", async (event) => {
+  const settings = [
+    `Base URL: ${element("result-url").textContent}`,
+    `API Key: ${element("result-key").textContent}`,
+    "Organization ID: leave empty",
+    "Use Responses API: on",
+  ].join("\n");
+  try {
+    await navigator.clipboard.writeText(settings);
+    event.currentTarget.textContent = "Copied";
+    setMessage("n8n settings copied.");
+  } catch {
+    showError(new Error("Copy failed. Select the values manually."));
+  }
+});
+
+for (const button of document.querySelectorAll(".back-button")) {
+  button.addEventListener("click", () => {
+    clearError();
+    showStep(Number(button.dataset.back));
+    setMessage("No VPS changes have been made.");
+  });
+}
+
+refreshAuthStatus().catch(showError);

@@ -1,0 +1,31 @@
+{
+  "name": "n8n-openai-oauth-setup",
+  "version": "0.1.0",
+  "description": "A local browser wizard for installing an OpenAI OAuth sidecar beside self-hosted n8n.",
+  "type": "module",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@10.9.8",
+  "bin": {
+    "n8n-openai-oauth-setup": "./src/cli.js"
+  },
+  "files": [
+    "src",
+    "docs",
+    "README.md",
+    "SPEC.md"
+  ],
+  "scripts": {
+    "start": "node src/cli.js",
+    "preview": "node scripts/preview.js",
+    "test": "node --test",
+    "lint": "node scripts/check-syntax.js",
+    "check": "npm run lint && npm test"
+  },
+  "dependencies": {
+    "ssh2": "1.17.0"
+  }
+}
