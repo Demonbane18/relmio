@@ -17,7 +17,7 @@
   },
   "packageManager": "npm@10.9.8",
   "bin": {
-    "n8n-openai-oauth-setup": "./src/cli.js"
+    "n8n-openai-oauth-setup": "src/cli.js"
   },
   "files": [
     "src",
