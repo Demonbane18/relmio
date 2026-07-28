@@ -32,7 +32,8 @@
     "preview": "node scripts/preview.js",
     "test": "node --test",
     "lint": "node scripts/check-syntax.js",
-    "check": "npm run lint && npm test"
+    "release:check": "node scripts/check-release-metadata.js",
+    "check": "npm run lint && npm run release:check && npm test"
   },
   "dependencies": {
     "ssh2": "1.17.0"
