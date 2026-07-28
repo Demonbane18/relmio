@@ -9,7 +9,7 @@ checks the registry separately after publication.
 
 ### Fixed
 
-- Stop and remove only the wizard-managed sidecar when its final safety check
+- Stop and remove only the named wizard-managed sidecar service when its final safety check
   detects an unexpected host-port publication; report an explicit manual
   cleanup path if that removal cannot be confirmed.
 - Rate-limit install attempts, close the VPS connection after every install

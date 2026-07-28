@@ -10,6 +10,7 @@ import {
 import {
   assertSidecarOnlyCommands,
   createDeploymentCommands,
+  createVerificationCommands,
 } from "../src/domain/safety.js";
 import {
   createComposeFile,
@@ -63,6 +64,15 @@ test("generated commands operate only on the sidecar project", () => {
         command.includes("up -d --wait --wait-timeout 60 --no-deps openai-oauth"),
     ),
   );
+});
+
+test("unsafe-port cleanup targets only the named sidecar service", () => {
+  const cleanup = createVerificationCommands().cleanup;
+
+  assert.match(cleanup, /rm --force --stop openai-oauth$/);
+  assert.doesNotMatch(cleanup, /--remove-orphans/);
+  assert.doesNotMatch(cleanup, /docker (?:restart|stop|rm) n8n\b/);
+  assert.doesNotThrow(() => assertSidecarOnlyCommands([cleanup]));
 });
 
 test("the safety policy rejects attempts to mutate n8n", () => {

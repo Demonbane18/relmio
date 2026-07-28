@@ -104,6 +104,23 @@ function hasPublishedHostPort(output) {
   }
 }
 
+async function failPublicationSafetyCheck(remote, cleanupCommand, reason) {
+  let cleanupSucceeded = false;
+  try {
+    cleanupSucceeded = (await remote.exec(cleanupCommand)).code === 0;
+  } catch {
+    cleanupSucceeded = false;
+  }
+  if (!cleanupSucceeded) {
+    throw new Error(
+      `${reason} Automatic cleanup could not be confirmed. Do not use the sidecar until it is removed from /docker/n8n-openai-oauth.`,
+    );
+  }
+  throw new Error(
+    `${reason} The sidecar was removed; the existing n8n deployment was not changed.`,
+  );
+}
+
 export async function installSidecar({
   remote,
   networkName,
@@ -173,22 +190,27 @@ export async function installSidecar({
 
   const publication = await remote.exec(verification.publicationState);
   if (publication.code !== 0) {
-    throw new Error("The published-port safety check failed.");
+    await failPublicationSafetyCheck(
+      remote,
+      verification.cleanup,
+      "The published-port safety check failed.",
+    );
   }
-  if (hasPublishedHostPort(publication.stdout)) {
-    let cleanupSucceeded = false;
-    try {
-      cleanupSucceeded = (await remote.exec(verification.cleanup)).code === 0;
-    } catch {
-      cleanupSucceeded = false;
-    }
-    if (!cleanupSucceeded) {
-      throw new Error(
-        "Safety check failed: the sidecar unexpectedly published a host port, and automatic cleanup could not be confirmed. Do not use the sidecar until it is removed from /docker/n8n-openai-oauth.",
-      );
-    }
-    throw new Error(
-      "Safety check failed: the sidecar unexpectedly published a host port. The sidecar was removed; the existing n8n deployment was not changed.",
+  let publishedHostPort;
+  try {
+    publishedHostPort = hasPublishedHostPort(publication.stdout);
+  } catch {
+    await failPublicationSafetyCheck(
+      remote,
+      verification.cleanup,
+      "The published-port safety check failed.",
+    );
+  }
+  if (publishedHostPort) {
+    await failPublicationSafetyCheck(
+      remote,
+      verification.cleanup,
+      "Safety check failed: the sidecar unexpectedly published a host port.",
     );
   }
 

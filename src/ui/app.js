@@ -8,6 +8,7 @@ const state = {
   fingerprint: null,
   discovery: null,
   networks: null,
+  installAttempted: false,
 };
 
 const element = (id) => document.getElementById(id);
@@ -152,6 +153,11 @@ async function api(path, { method = "GET", body } = {}) {
   } catch {
     throw new Error(
       "The wizard returned an unreadable response. Restart the setup command and try again.",
+    );
+  }
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error(
+      "The wizard returned an unexpected response. Restart the setup command and try again.",
     );
   }
   if (!response.ok) {
@@ -348,6 +354,12 @@ element("fingerprint-button").addEventListener("click", async (event) => {
     element("connect-button").disabled = true;
     setMessage("Confirm the VPS identity before sending a password.");
   } catch (error) {
+    element("install-confirm").checked = false;
+    button.disabled = true;
+    showStep(2);
+    setMessage(
+      "The install stopped and the VPS connection was closed. Reconnect to inspect the sidecar before retrying.",
+    );
     showError(error);
   } finally {
     setBusy(button, false);
@@ -437,6 +449,7 @@ element("install-button").addEventListener("click", async (event) => {
   clearError();
   setBusy(button, true, "Building the sidecar…");
   setMessage("Installing only the separate OAuth sidecar. This can take a minute.");
+  state.installAttempted = true;
   try {
     const result = await api("/api/install", {
       method: "POST",
@@ -502,7 +515,11 @@ for (const button of document.querySelectorAll(".back-button")) {
   button.addEventListener("click", () => {
     clearError();
     showStep(Number(button.dataset.back));
-    setMessage("No VPS changes have been made.");
+    setMessage(
+      state.installAttempted
+        ? "The install was attempted. Reconnect to inspect the sidecar; n8n was not restarted."
+        : "No VPS changes have been made.",
+    );
   });
 }
 

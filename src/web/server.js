@@ -355,10 +355,10 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/install") {
-    enforceRateLimit(state, path);
     const connection = requireConnection(state);
     let result;
     try {
+      enforceRateLimit(state, path);
       requireDiscoveredNetwork(
         state,
         body.containerName,

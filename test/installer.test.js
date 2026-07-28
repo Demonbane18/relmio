@@ -203,6 +203,7 @@ test("installSidecar does not ignore a failed published-port safety check", asyn
       }),
     /port|safety/i,
   );
+  assert.ok(remote.commands.includes(createVerificationCommands().cleanup));
 });
 
 test("installSidecar rejects a positive published host port", async () => {
@@ -287,6 +288,7 @@ test("installSidecar fails closed on malformed publication metadata", async () =
       }),
     /published-port safety check/i,
   );
+  assert.ok(remote.commands.includes(createVerificationCommands().cleanup));
 });
 
 test("installSidecar rejects a model response with no usable IDs", async () => {
