@@ -27,6 +27,7 @@ function createFakeRemote({
     code: 0,
   },
   cleanupResult = { stdout: "", stderr: "", code: 0 },
+  publicationStateError = null,
 } = {}) {
   const commands = [];
   const uploads = [];
@@ -59,6 +60,9 @@ function createFakeRemote({
         return { stdout: "openai-oauth\n", stderr: "", code: 0 };
       }
       if (command === verification.publicationState) {
+        if (publicationStateError) {
+          throw publicationStateError;
+        }
         return publicationStateResult;
       }
       if (command === verification.cleanup) {
@@ -287,6 +291,24 @@ test("installSidecar fails closed on malformed publication metadata", async () =
         confirmed: true,
       }),
     /published-port safety check/i,
+  );
+  assert.ok(remote.commands.includes(createVerificationCommands().cleanup));
+});
+
+test("installSidecar cleans up when publication inspection cannot start", async () => {
+  const remote = createFakeRemote({
+    publicationStateError: new Error("SSH stream failed"),
+  });
+
+  await assert.rejects(
+    () =>
+      installSidecar({
+        remote,
+        networkName: "proxy",
+        authContents,
+        confirmed: true,
+      }),
+    /published-port safety check could not be completed|cleanup/i,
   );
   assert.ok(remote.commands.includes(createVerificationCommands().cleanup));
 });

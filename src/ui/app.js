@@ -354,12 +354,6 @@ element("fingerprint-button").addEventListener("click", async (event) => {
     element("connect-button").disabled = true;
     setMessage("Confirm the VPS identity before sending a password.");
   } catch (error) {
-    element("install-confirm").checked = false;
-    button.disabled = true;
-    showStep(2);
-    setMessage(
-      "The install stopped and the VPS connection was closed. Reconnect to inspect the sidecar before retrying.",
-    );
     showError(error);
   } finally {
     setBusy(button, false);
@@ -410,6 +404,12 @@ element("container-select").addEventListener("change", async () => {
   try {
     await loadNetworks();
   } catch (error) {
+    element("install-confirm").checked = false;
+    button.disabled = true;
+    showStep(2);
+    setMessage(
+      "The install stopped and the VPS connection was closed. Reconnect to inspect the sidecar before retrying.",
+    );
     showError(error);
   }
 });

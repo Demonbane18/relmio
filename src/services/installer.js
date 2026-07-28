@@ -188,7 +188,16 @@ export async function installSidecar({
     throw new Error("The sidecar did not reach the running state.");
   }
 
-  const publication = await remote.exec(verification.publicationState);
+  let publication;
+  try {
+    publication = await remote.exec(verification.publicationState);
+  } catch {
+    await failPublicationSafetyCheck(
+      remote,
+      verification.cleanup,
+      "The published-port safety check could not be completed.",
+    );
+  }
   if (publication.code !== 0) {
     await failPublicationSafetyCheck(
       remote,
