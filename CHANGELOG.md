@@ -33,6 +33,8 @@ checks the registry separately after publication.
   `npx` invocation.
 - Separate OpenAI credential fields from OpenAI Chat Model settings and explain
   the Responses API compatibility behavior for Chat Model node version 1.3.
+- Polish the public README with a collapsible contents list, clickable project
+  links, experimental-use disclaimers, and a contributor guide.
 
 ### Fixed
 

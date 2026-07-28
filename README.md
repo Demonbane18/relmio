@@ -1,9 +1,21 @@
-# n8n OpenAI OAuth Setup
-
-[![npm version](https://img.shields.io/npm/v/n8n-openai-oauth-setup.svg)](https://www.npmjs.com/package/n8n-openai-oauth-setup)
-[![CI](https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml/badge.svg)](https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml)
-[![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-43853d.svg)](package.json)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<div align="center">
+  <h1>n8n OpenAI OAuth Setup</h1>
+  <p>Connect self-hosted n8n to a private, OpenAI-compatible OAuth sidecar without changing your existing n8n deployment.</p>
+  <p>
+    <a href="#quick-start-with-the-npm-package">Get started</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/issues/new">Report an issue</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers">Leave a star</a>
+  </p>
+  <p>
+    <a href="https://www.npmjs.com/package/n8n-openai-oauth-setup"><img src="https://img.shields.io/npm/v/n8n-openai-oauth-setup.svg" alt="npm version"></a>
+    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml"><img src="https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+    <a href="package.json"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d.svg" alt="Node.js 22 or newer"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT license"></a>
+    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers"><img src="https://img.shields.io/github/stars/Demonbane18/n8n-openai-oauth-setup?style=flat" alt="GitHub stars"></a>
+  </p>
+</div>
 
 A local browser wizard that installs
 [`openai-oauth@2.0.0`](https://github.com/EvanZhouDev/openai-oauth/releases/tag/v2.0.0)
@@ -25,6 +37,41 @@ The existing n8n image, Compose file, container, and workflows stay untouched.
 > limits depend on the signed-in ChatGPT account and can change. Use this only
 > for personal, experimental workflows; protect the OAuth file like a
 > password; and follow OpenAI's current terms and usage policies.
+
+> [!CAUTION]
+> This is experimental software provided without warranty. You use it at your
+> own risk. To the fullest extent permitted by applicable law, the maintainer
+> is not responsible for account restrictions, lost access, data loss, service
+> interruption, financial loss, or any direct, indirect, incidental, or
+> consequential loss resulting from use of this project. Review OpenAI's
+> [Terms of Use](https://openai.com/policies/terms-of-use/), usage policies,
+> ChatGPT/Codex terms, your n8n terms, and the upstream project's license and
+> legal notices before using it. OpenAI may change or restrict the underlying
+> service at any time.
+
+> Similar community tools may use related OAuth/Codex flows, including Hermes
+> Agent, but that similarity is not an OpenAI endorsement or a guarantee that
+> every use is permitted. This project is not intended to bypass quotas,
+> safeguards, account controls, or service restrictions.
+
+<details>
+<summary><strong>Table of contents</strong></summary>
+
+- [Quick start with the npm package](#quick-start-with-the-npm-package)
+- [Run from a repository clone](#run-from-a-repository-clone)
+- [How it works behind the scenes](#how-it-works-behind-the-scenes)
+- [What the wizard can and cannot change](#what-the-wizard-can-and-cannot-change)
+- [Refresh, update, and remove](#refresh-update-and-remove)
+- [Troubleshooting first steps](#troubleshooting-first-steps)
+- [Release and version synchronization](#release-and-version-synchronization)
+- [Documentation](#documentation)
+- [Supported bridge behavior](#supported-bridge-behavior)
+- [Contributing](#contributing)
+- [Security and responsible disclosure](#security-and-responsible-disclosure)
+- [Sources and further reading](#sources-and-further-reading)
+- [License](#license)
+
+</details>
 
 ## Quick start with the npm package
 
@@ -319,6 +366,7 @@ procedure.
 - [Refresh, upgrade, rollback, and uninstall](docs/maintenance.md)
 - [YouTube walkthrough outline](docs/video-outline.md)
 - [npm maintainer publishing guide](docs/npm-publish.md)
+- [Contributing](CONTRIBUTING.md)
 - [Approved scope](SPEC.md)
 
 ## Supported bridge behavior
@@ -333,6 +381,31 @@ The pinned upstream `2.0.0` release documents:
 Available models depend on the ChatGPT account and may change. The upstream
 Responses implementation is stateless, so callers must send the conversation
 history needed for each request.
+
+## Contributing
+
+Pull requests and focused issue reports are welcome. Before opening a PR,
+please read [CONTRIBUTING.md](CONTRIBUTING.md), run the local checks, and keep
+the change scoped to one improvement. Never commit OAuth files, passwords,
+private keys, live session URLs, real VPS addresses, or screenshots containing
+account or infrastructure details.
+
+<p>
+  <a href="CONTRIBUTING.md">Contribution guide</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/compare">Submit a pull request</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/issues/new">Open an issue</a>
+</p>
+
+## Security and responsible disclosure
+
+Please use the private reporting path described in
+[Security and limitations](docs/security.md) for suspected vulnerabilities.
+Do not publish credentials, OAuth material, host details, or an exploit in a
+public issue.
+
+If this project saves you time, please consider [starring the repository](https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers).
 
 ## Sources and further reading
 
