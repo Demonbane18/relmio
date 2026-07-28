@@ -187,6 +187,15 @@ h3 {
   color: #355a54;
 }
 
+.backup-note {
+  border-color: #d7b98d;
+  background: var(--warning-soft);
+}
+
+.backup-note span {
+  color: var(--warning);
+}
+
 .steps {
   margin: 2rem 0 1rem;
 }

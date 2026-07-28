@@ -5,6 +5,13 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
+## [0.1.7] - 2026-07-28
+
+### Changed
+
+- Add prominent workflow-backup reminders to the README, manual guide,
+  troubleshooting guide, and browser wizard before VPS access.
+
 ## [0.1.6] - 2026-07-28
 
 ### Added
@@ -29,6 +36,9 @@ checks the registry separately after publication.
   ignore policy.
 - Disable npm lifecycle scripts explicitly in every documented and nested
   `npx` invocation.
+- Add a prominent workflow-backup reminder before local setup and inside the
+  wizard because VPS access remains a real write boundary even with sidecar-only
+  commands.
 - Separate OpenAI credential fields from OpenAI Chat Model settings and explain
   the Responses API compatibility behavior for Chat Model node version 1.3.
 - Polish the public README with a collapsible contents list, clickable project
@@ -133,6 +143,7 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
+[0.1.7]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.3...v0.1.4

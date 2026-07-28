@@ -21,6 +21,8 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   assert.match(html, /<html lang="en">/);
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
   assert.match(html, /class="skip-link"/);
+  assert.match(html, /Back up first/);
+  assert.match(html, /Export your n8n workflows before connecting/);
   assert.match(html, /role="status"/);
   assert.match(html, /role="alert" tabindex="-1"/);
   assert.match(

@@ -4,6 +4,11 @@ Start with the exact symptom you see. Do not delete or rebuild n8n while
 troubleshooting this sidecar. Do not remove an already working manual OAuth
 sidecar until the wizard-managed endpoint has passed a real n8n request.
 
+Always keep a current export or backup of your n8n workflows before using the
+wizard or any manual VPS command. The documented commands are sidecar-only and
+do not delete, restart, or rebuild n8n, but they still access your VPS and write
+files there.
+
 ## Confirm the local package first
 
 Run these commands on your own computer, not on the VPS:

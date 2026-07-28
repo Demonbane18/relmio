@@ -85,6 +85,13 @@ The existing n8n image, Compose file, container, and workflows stay untouched.
 - The VPS address, SSH port, and root password
 - A Docker network that n8n and the new sidecar can share
 
+> [!WARNING]
+> Export or otherwise back up your n8n workflows before using the wizard.
+> The wizard is designed to create or update only its separate sidecar and
+> does not issue n8n deletion, restart, or rebuild commands, but it still
+> authenticates to your VPS and writes files there. Keep a recoverable backup
+> before granting it access.
+
 Do **not** run the npm command on the VPS. Run it on the computer where you
 will complete the browser sign-in.
 

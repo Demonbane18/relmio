@@ -17,7 +17,13 @@ The commands in this fallback use a POSIX shell. You need:
 - the VPS root password;
 - the name of the running n8n container;
 - an existing Docker network shared by n8n and the reverse proxy, commonly
-  named `proxy`.
+named `proxy`.
+
+Before connecting to the VPS, export or otherwise back up every n8n workflow.
+The commands below are intentionally limited to the separate
+`n8n-openai-oauth` project and contain no n8n deletion, restart, or rebuild
+command, but they still authenticate to your VPS and write files. Keep a
+recoverable backup before proceeding.
 
 Replace every example such as `YOUR_VPS_IP` and `n8n-n8n-1` with the value
 shown on your own VPS. Never type the asterisks used to hide an IP in a
