@@ -5,19 +5,6 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
-## [Unreleased]
-
-### Fixed
-
-- Stop and remove only the named wizard-managed sidecar service when its final safety check
-  detects an unexpected host-port publication; report an explicit manual
-  cleanup path if that removal cannot be confirmed.
-- Rate-limit install attempts, close the VPS connection after every install
-  outcome, and show actionable local-server/invalid-response messages in the
-  browser wizard.
-- Document Graphify as an optional local maintainer map while keeping raw graph
-  exports out of Git and npm.
-
 ## [0.1.6] - 2026-07-28
 
 ### Added
@@ -46,6 +33,8 @@ checks the registry separately after publication.
   the Responses API compatibility behavior for Chat Model node version 1.3.
 - Polish the public README with a collapsible contents list, clickable project
   links, experimental-use disclaimers, and a contributor guide.
+- Document Graphify as an optional local maintainer map while keeping raw graph
+  exports out of Git and npm.
 
 ### Fixed
 
@@ -60,6 +49,12 @@ checks the registry separately after publication.
   modern Clipboard API, so the final credential copy buttons still work.
 - Always remove the fallback copy field and restore focus when legacy browser
   clipboard access throws.
+- Stop and remove only the named wizard-managed sidecar service when its final
+  safety check detects an unexpected host-port publication; report an explicit
+  manual cleanup path if that removal cannot be confirmed.
+- Clean up the sidecar when publication inspection fails or returns malformed
+  metadata, rate-limit install attempts, close the VPS connection after every
+  install outcome, and show actionable browser recovery messages.
 
 ## [0.1.5] - 2026-07-28
 
@@ -138,7 +133,6 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
-[Unreleased]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.6...HEAD
 [0.1.6]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.3...v0.1.4
