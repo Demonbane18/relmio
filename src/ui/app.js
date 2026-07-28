@@ -1,3 +1,5 @@
+import { formatAuthUpdatedAt } from "./time.js";
+
 const token = new URLSearchParams(window.location.search).get("session");
 window.history.replaceState(null, "", window.location.pathname);
 
@@ -60,7 +62,7 @@ function validateAuthorizationUrl(value) {
 }
 
 async function waitForOAuthCompletion() {
-  for (let attempt = 0; attempt < 310; attempt += 1) {
+  for (let attempt = 0; attempt < 330; attempt += 1) {
     const result = await api("/api/oauth/status");
     if (result.status === "success") {
       return;
@@ -70,7 +72,7 @@ async function waitForOAuthCompletion() {
         result.error ?? "ChatGPT sign-in did not finish. Start again.",
       );
     }
-    await delay(1_000);
+    await delay(attempt < 40 ? 250 : 1_000);
   }
   throw new Error("The sign-in request expired. Start a fresh login.");
 }
@@ -116,21 +118,46 @@ async function api(path, { method = "GET", body } = {}) {
   return result;
 }
 
-async function refreshAuthStatus() {
+function renderAuthUpdatedAt(value) {
+  const row = element("auth-updated");
+  const time = element("auth-updated-time");
+  const formatted = formatAuthUpdatedAt(value);
+
+  if (!formatted) {
+    row.hidden = true;
+    time.textContent = "";
+    time.removeAttribute("datetime");
+    return null;
+  }
+
+  time.textContent = formatted;
+  time.setAttribute("datetime", value);
+  row.hidden = false;
+  return formatted;
+}
+
+async function refreshAuthStatus({ fresh = false } = {}) {
   clearError();
   const status = await api("/api/status");
   const indicator = element("auth-indicator");
   const next = element("signin-next");
+  const formattedUpdatedAt = renderAuthUpdatedAt(status.authUpdatedAt);
 
   if (status.authExists) {
     indicator.classList.add("ready");
-    element("auth-title").textContent = "Local credential found";
+    element("auth-title").textContent = fresh
+      ? "Fresh credential saved"
+      : "Local credential found";
     element("auth-detail").textContent =
       "Continue uses it as-is. Refresh the sign-in if it is expired or was created by another client.";
     element("login-button").textContent = "Refresh ChatGPT sign-in";
     element("login-button").dataset.label = "Refresh ChatGPT sign-in";
     next.disabled = false;
-    setMessage("Local sign-in is ready.");
+    setMessage(
+      fresh && formattedUpdatedAt
+        ? `Fresh sign-in saved at ${formattedUpdatedAt} (local time).`
+        : "Local sign-in is ready.",
+    );
   } else {
     indicator.classList.remove("ready");
     element("auth-title").textContent = "Sign-in needed";
@@ -226,7 +253,7 @@ element("login-button").addEventListener("click", async (event) => {
     await waitForOAuthCompletion();
     loginLink.hidden = true;
     loginLink.removeAttribute("href");
-    await refreshAuthStatus();
+    await refreshAuthStatus({ fresh: true });
   } catch (error) {
     if (loginWindow && loginWindow.location.href === "about:blank") {
       loginWindow.close();

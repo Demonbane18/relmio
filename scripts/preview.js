@@ -8,7 +8,11 @@ const remote = {
 
 const services = {
   async getAuthStatus() {
-    return { exists: true, path: "/preview/auth.json" };
+    return {
+      exists: true,
+      path: "/preview/auth.json",
+      updatedAt: new Date().toISOString(),
+    };
   },
   async runOAuthLogin() {},
   async readAuthContents() {
