@@ -26,6 +26,16 @@ function createMemoryFileSystem(files) {
       }
       return Buffer.from(files[path]);
     },
+    async stat(path) {
+      if (!(path in files)) {
+        const error = new Error("missing");
+        error.code = "ENOENT";
+        throw error;
+      }
+      return {
+        mtime: new Date("2026-07-28T01:11:01.000Z"),
+      };
+    },
     async mkdir() {},
     async chmod() {},
     async copyFile(source, destination) {
@@ -54,7 +64,7 @@ test("resolveAuthPath uses wizard-only storage without exposing file contents", 
   );
 });
 
-test("getAuthStatus reports only existence and path", async () => {
+test("getAuthStatus reports the credential update time without its contents", async () => {
   const fileSystem = createMemoryFileSystem({
     "/home/user/.n8n-openai-oauth/auth.json": '{"fixture":true}',
   });
@@ -68,6 +78,7 @@ test("getAuthStatus reports only existence and path", async () => {
   assert.deepEqual(status, {
     exists: true,
     path: "/home/user/.n8n-openai-oauth/auth.json",
+    updatedAt: "2026-07-28T01:11:01.000Z",
   });
   assert.equal(JSON.stringify(status).includes("fixture"), false);
 });
@@ -155,6 +166,72 @@ test("startOAuthLogin returns one validated link and stores the credential after
     "/home/user/.n8n-openai-oauth/auth.json.pending-fixture" in files,
     false,
   );
+});
+
+test("startOAuthLogin saves a valid pending credential before the helper exits", async () => {
+  const files = {};
+  let child;
+  let pendingAuthPath;
+  let pollCount = 0;
+  const spawnProcess = (_command, args) => {
+    child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = { resume() {} };
+    child.kill = () => {};
+    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    queueMicrotask(() => {
+      const authorizationUrl = new URL(
+        "https://auth.openai.com/oauth/authorize",
+      );
+      authorizationUrl.searchParams.set("response_type", "code");
+      authorizationUrl.searchParams.set(
+        "redirect_uri",
+        "http://localhost:1455/auth/callback",
+      );
+      authorizationUrl.searchParams.set("state", "fixture-state");
+      authorizationUrl.searchParams.set("code_challenge", "fixture-challenge");
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem: createMemoryFileSystem(files),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "darwin",
+    spawnProcess,
+    createPendingId: () => "fresh",
+    waitForCredentialPoll: async () => {
+      pollCount += 1;
+      files[pendingAuthPath] =
+        pollCount === 1 ? "partially-written" : '{"fresh":true}';
+    },
+  });
+
+  try {
+    const result = await Promise.race([
+      login.completion,
+      new Promise((_, reject) => {
+        setTimeout(
+          () => reject(new Error("credential detection was too slow")),
+          50,
+        );
+      }),
+    ]);
+    assert.deepEqual(result, { success: true });
+    assert.equal(pollCount, 2);
+    assert.equal(
+      files["/home/user/.n8n-openai-oauth/auth.json"],
+      '{"fresh":true}',
+    );
+  } finally {
+    child.emit("exit", 1);
+    login.cancel();
+  }
 });
 
 test("startOAuthLogin rejects an unexpected authorization destination", async () => {

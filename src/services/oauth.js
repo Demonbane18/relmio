@@ -9,8 +9,12 @@ const MAX_LOGIN_OUTPUT_BYTES = 32 * 1024;
 const LOGIN_URL_TIMEOUT_MS = 15_000;
 const LOGIN_TIMEOUT_MS = 300_000;
 const PROCESS_TIMEOUT_MS = LOGIN_TIMEOUT_MS + 15_000;
+const CREDENTIAL_POLL_INTERVAL_MS = 100;
 const LOGIN_URL_PREFIX = "OpenAI OAuth login URL: ";
 const OPENAI_AUTH_ORIGIN = "https://auth.openai.com";
+
+const wait = (milliseconds) =>
+  new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
 
 export function resolveAuthPath({
   env = process.env,
@@ -34,7 +38,12 @@ export async function getAuthStatus({
 
   try {
     await fileSystem.access(path);
-    return { exists: true, path };
+    const metadata = await fileSystem.stat(path);
+    return {
+      exists: true,
+      path,
+      updatedAt: metadata.mtime.toISOString(),
+    };
   } catch (error) {
     if (error.code === "ENOENT") {
       return { exists: false, path };
@@ -125,6 +134,7 @@ export async function startOAuthLogin({
   platform = process.platform,
   spawnProcess = spawn,
   createPendingId = randomUUID,
+  waitForCredentialPoll = wait,
 } = {}) {
   const command = platform === "win32" ? "npx.cmd" : "npx";
   const authPath = resolveAuthPath({ env, homeDirectory });
@@ -237,11 +247,49 @@ export async function startOAuthLogin({
     child.kill?.("SIGTERM");
   }, LOGIN_URL_TIMEOUT_MS);
 
+  const savePendingCredential = async () => {
+    await readAuthContents({
+      authPath: pendingAuthPath,
+      fileSystem,
+    });
+    await fileSystem.chmod(pendingAuthPath, 0o600);
+    await fileSystem.copyFile(pendingAuthPath, authPath);
+    await fileSystem.chmod(authPath, 0o600);
+  };
+
+  let keepPollingForCredential = true;
+  const pendingCredentialPromise = (async () => {
+    await authorizationUrlPromise;
+    while (keepPollingForCredential) {
+      try {
+        await readAuthContents({
+          authPath: pendingAuthPath,
+          fileSystem,
+        });
+      } catch {
+        await waitForCredentialPoll(CREDENTIAL_POLL_INTERVAL_MS);
+        continue;
+      }
+      await savePendingCredential();
+      return { success: true };
+    }
+    throw new Error("ChatGPT sign-in did not finish. Start a fresh login.");
+  })();
+
   const completion = (async () => {
     let processTimeout;
     try {
-      const code = await Promise.race([
-        exitPromise,
+      return await Promise.race([
+        pendingCredentialPromise,
+        exitPromise.then(async (code) => {
+          if (code !== 0) {
+            throw new Error(
+              "ChatGPT sign-in did not finish. Start a fresh login.",
+            );
+          }
+          await savePendingCredential();
+          return { success: true };
+        }),
         new Promise((_, rejectPromise) => {
           processTimeout = setTimeout(() => {
             child.kill?.("SIGTERM");
@@ -251,22 +299,13 @@ export async function startOAuthLogin({
           }, PROCESS_TIMEOUT_MS);
         }),
       ]);
-      if (code !== 0) {
-        throw new Error("ChatGPT sign-in did not finish. Start a fresh login.");
-      }
-
-      await readAuthContents({
-        authPath: pendingAuthPath,
-        fileSystem,
-      });
-      await fileSystem.chmod(pendingAuthPath, 0o600);
-      await fileSystem.copyFile(pendingAuthPath, authPath);
-      await fileSystem.chmod(authPath, 0o600);
-
-      return { success: true };
     } finally {
+      keepPollingForCredential = false;
       clearTimeout(processTimeout);
       clearTimeout(loginUrlTimeout);
+      if (!exitSettled) {
+        child.kill?.("SIGTERM");
+      }
       try {
         await fileSystem.rm(pendingAuthPath, { force: true });
       } catch {

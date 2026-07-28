@@ -19,7 +19,11 @@ function createServices() {
     remote,
     services: {
       async getAuthStatus() {
-        return { exists: true, path: "/private/path/auth.json" };
+        return {
+          exists: true,
+          path: "/private/path/auth.json",
+          updatedAt: "2026-07-28T01:11:01.000Z",
+        };
       },
       async startOAuthLogin() {
         return {
@@ -99,7 +103,10 @@ test("wizard server binds to loopback and protects API responses", async (t) => 
 
   const status = await api(wizard.origin, "/api/status");
   assert.equal(status.status, 200);
-  assert.deepEqual(await status.json(), { authExists: true });
+  assert.deepEqual(await status.json(), {
+    authExists: true,
+    authUpdatedAt: "2026-07-28T01:11:01.000Z",
+  });
   assert.match(
     status.headers.get("content-security-policy"),
     /default-src 'self'/,

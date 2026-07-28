@@ -195,7 +195,10 @@ async function handleApi(request, response, path, state) {
 
   if (request.method === "GET" && path === "/api/status") {
     const status = await state.services.getAuthStatus();
-    sendJson(response, 200, { authExists: status.exists });
+    sendJson(response, 200, {
+      authExists: status.exists,
+      ...(status.exists ? { authUpdatedAt: status.updatedAt } : {}),
+    });
     return;
   }
 
