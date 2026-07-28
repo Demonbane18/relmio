@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.5] - 2026-07-28
+
+### Fixed
+
+- Detect a newly approved ChatGPT credential as soon as its complete file is
+  available instead of waiting for the OAuth helper process to close.
+- Poll the local sign-in state more frequently during the first ten seconds
+  so the wizard responds quickly after browser approval.
+- Show the local credential's update time and announce when a fresh sign-in
+  has been saved.
+
 ## [0.1.4] - 2026-07-28
 
 ### Fixed

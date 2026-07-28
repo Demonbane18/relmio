@@ -10,8 +10,9 @@ The easiest method:
 1. Start the local wizard again.
 2. Select **Refresh ChatGPT sign-in**.
 3. Complete the newest browser sign-in page.
-4. Connect to the same VPS and select the same n8n network.
-5. Approve the sidecar plan.
+4. Confirm that the **Credential updated** time matches the fresh sign-in.
+5. Connect to the same VPS and select the same n8n network.
+6. Approve the sidecar plan.
 
 The wizard replaces the sidecar credential and starts only the sidecar service.
 n8n is not restarted. Its local credential is stored separately at

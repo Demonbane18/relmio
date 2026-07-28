@@ -64,7 +64,9 @@ plan.
 
 The wizard stores its own validated local credential at
 `~/.n8n-openai-oauth/auth.json`. It does not reuse or overwrite the Codex
-app's `~/.codex/auth.json`.
+app's `~/.codex/auth.json`. After a sign-in succeeds, the wizard shows when
+that credential was last updated in your computer's local time so you can
+confirm that the session is fresh.
 
 If a browser extension named **Sign in with ChatGPT** or **OpenAI OAuth**
 redirects the fresh login into an extension page, disable that extension
