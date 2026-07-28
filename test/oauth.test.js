@@ -6,7 +6,7 @@ import {
   getAuthStatus,
   readAuthContents,
   resolveAuthPath,
-  runOAuthLogin,
+  startOAuthLogin,
 } from "../src/services/oauth.js";
 
 function createMemoryFileSystem(files) {
@@ -26,26 +26,37 @@ function createMemoryFileSystem(files) {
       }
       return Buffer.from(files[path]);
     },
+    async mkdir() {},
+    async chmod() {},
+    async copyFile(source, destination) {
+      files[destination] = files[source];
+    },
+    async rm(path) {
+      delete files[path];
+    },
   };
 }
 
-test("resolveAuthPath respects CODEX_HOME without exposing file contents", () => {
+test("resolveAuthPath uses wizard-only storage without exposing file contents", () => {
   assert.equal(
     resolveAuthPath({
-      env: { CODEX_HOME: "/safe/codex" },
+      env: { N8N_OPENAI_OAUTH_HOME: "/safe/wizard" },
       homeDirectory: "/home/user",
     }),
-    "/safe/codex/auth.json",
+    "/safe/wizard/auth.json",
   );
   assert.equal(
-    resolveAuthPath({ env: {}, homeDirectory: "/home/user" }),
-    "/home/user/.codex/auth.json",
+    resolveAuthPath({
+      env: { CODEX_HOME: "/must/not/be/reused" },
+      homeDirectory: "/home/user",
+    }),
+    "/home/user/.n8n-openai-oauth/auth.json",
   );
 });
 
 test("getAuthStatus reports only existence and path", async () => {
   const fileSystem = createMemoryFileSystem({
-    "/home/user/.codex/auth.json": '{"fixture":true}',
+    "/home/user/.n8n-openai-oauth/auth.json": '{"fixture":true}',
   });
 
   const status = await getAuthStatus({
@@ -56,65 +67,124 @@ test("getAuthStatus reports only existence and path", async () => {
 
   assert.deepEqual(status, {
     exists: true,
-    path: "/home/user/.codex/auth.json",
+    path: "/home/user/.n8n-openai-oauth/auth.json",
   });
   assert.equal(JSON.stringify(status).includes("fixture"), false);
 });
 
 test("readAuthContents rejects invalid or oversized credential files", async () => {
   const invalidFileSystem = createMemoryFileSystem({
-    "/home/user/.codex/auth.json": "not-json",
+    "/home/user/.n8n-openai-oauth/auth.json": "not-json",
   });
 
   await assert.rejects(
     () =>
       readAuthContents({
         fileSystem: invalidFileSystem,
-        authPath: "/home/user/.codex/auth.json",
+        authPath: "/home/user/.n8n-openai-oauth/auth.json",
       }),
     /credential/i,
   );
 });
 
-test("runOAuthLogin invokes the pinned login and confirms the requested refresh", async () => {
+test("startOAuthLogin returns one validated link and stores the credential after completion", async () => {
   const calls = [];
-  const fileSystem = createMemoryFileSystem({
-    "/home/user/.codex/auth.json": '{"fixture":true}',
-  });
+  const files = {};
+  const fileSystem = createMemoryFileSystem(files);
   const spawnProcess = (command, args, options) => {
-    const call = { command, args, options, stdin: "" };
+    const call = { command, args, options };
     calls.push(call);
     const child = new EventEmitter();
-    child.stdin = {
-      end(contents) {
-        call.stdin = contents;
-      },
-    };
-    child.stdout = { resume() {} };
+    child.stdout = new EventEmitter();
     child.stderr = { resume() {} };
-    queueMicrotask(() => child.emit("exit", 0));
+    child.kill = () => {};
+    queueMicrotask(() => {
+      const authorizationUrl = new URL(
+        "https://auth.openai.com/oauth/authorize",
+      );
+      authorizationUrl.searchParams.set("response_type", "code");
+      authorizationUrl.searchParams.set(
+        "redirect_uri",
+        "http://localhost:1455/auth/callback",
+      );
+      authorizationUrl.searchParams.set("state", "fixture-state");
+      authorizationUrl.searchParams.set("code_challenge", "fixture-challenge");
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}\n`),
+      );
+      const oauthFileIndex = args.indexOf("--oauth-file");
+      files[args[oauthFileIndex + 1]] = '{"fixture":true}';
+      child.emit("exit", 0);
+    });
     return child;
   };
 
-  const result = await runOAuthLogin({
+  const login = await startOAuthLogin({
     fileSystem,
     env: {},
     homeDirectory: "/home/user",
     platform: "darwin",
     spawnProcess,
+    createPendingId: () => "fixture",
   });
 
-  assert.deepEqual(result, { success: true });
+  assert.match(
+    login.authorizationUrl,
+    /^https:\/\/auth\.openai\.com\/oauth\/authorize\?/,
+  );
+  assert.deepEqual(await login.completion, { success: true });
   assert.equal(calls[0].command, "npx");
   assert.deepEqual(calls[0].args, [
     "--yes",
     "openai-oauth@2.0.0",
     "login",
-    "--open",
+    "--no-open",
     "--login-timeout-ms",
     "300000",
+    "--oauth-file",
+    "/home/user/.n8n-openai-oauth/auth.json.pending-fixture",
   ]);
   assert.equal(calls[0].options.shell, false);
-  assert.deepEqual(calls[0].options.stdio, ["pipe", "pipe", "pipe"]);
-  assert.equal(calls[0].stdin, "y\n");
+  assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
+  assert.equal(
+    files["/home/user/.n8n-openai-oauth/auth.json"],
+    '{"fixture":true}',
+  );
+  assert.equal(
+    "/home/user/.n8n-openai-oauth/auth.json.pending-fixture" in files,
+    false,
+  );
+});
+
+test("startOAuthLogin rejects an unexpected authorization destination", async () => {
+  const fileSystem = createMemoryFileSystem({});
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = { resume() {} };
+    child.kill = () => queueMicrotask(() => child.emit("exit", 1));
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(
+          "OpenAI OAuth login URL: https://example.test/oauth/authorize\n",
+        ),
+      );
+    });
+    return child;
+  };
+
+  await assert.rejects(
+    () =>
+      startOAuthLogin({
+        fileSystem,
+        env: {},
+        homeDirectory: "/home/user",
+        platform: "darwin",
+        spawnProcess,
+        createPendingId: () => "fixture",
+      }),
+    /unexpected destination/i,
+  );
 });

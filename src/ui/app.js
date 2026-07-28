@@ -45,6 +45,36 @@ function setBusy(button, busy, busyText) {
   button.textContent = busy ? busyText : button.dataset.label;
 }
 
+const delay = (milliseconds) =>
+  new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+function validateAuthorizationUrl(value) {
+  const url = new URL(value);
+  if (
+    url.origin !== "https://auth.openai.com" ||
+    url.pathname !== "/oauth/authorize"
+  ) {
+    throw new Error("The wizard refused an unexpected sign-in destination.");
+  }
+  return url.toString();
+}
+
+async function waitForOAuthCompletion() {
+  for (let attempt = 0; attempt < 310; attempt += 1) {
+    const result = await api("/api/oauth/status");
+    if (result.status === "success") {
+      return;
+    }
+    if (result.status === "error") {
+      throw new Error(
+        result.error ?? "ChatGPT sign-in did not finish. Start again.",
+      );
+    }
+    await delay(1_000);
+  }
+  throw new Error("The sign-in request expired. Start a fresh login.");
+}
+
 function showStep(step) {
   state.step = step;
   for (const panel of document.querySelectorAll("[data-step]")) {
@@ -167,15 +197,40 @@ async function discover() {
 
 element("login-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  const loginLink = element("login-link");
+  const loginWindow = window.open("about:blank", "_blank");
+  if (loginWindow) {
+    loginWindow.opener = null;
+  }
   clearError();
+  loginLink.hidden = true;
+  loginLink.removeAttribute("href");
   setBusy(button, true, "Waiting for browser sign-in…");
   setMessage(
-    "Complete the fresh sign-in page within five minutes. The existing local credential will be replaced only after sign-in succeeds.",
+    "Creating one fresh OpenAI sign-in link. The existing local credential will be replaced only after sign-in succeeds.",
   );
   try {
-    await api("/api/oauth/login", { method: "POST", body: {} });
+    const result = await api("/api/oauth/login", {
+      method: "POST",
+      body: {},
+    });
+    const authorizationUrl = validateAuthorizationUrl(result.authorizationUrl);
+    loginLink.href = authorizationUrl;
+    loginLink.hidden = false;
+    if (loginWindow) {
+      loginWindow.location.replace(authorizationUrl);
+    }
+    setMessage(
+      "Complete the newly opened sign-in within five minutes. If no tab opened, use “Open fresh ChatGPT sign-in” below. If an OpenAI OAuth browser extension intercepts the callback, disable it temporarily and start again.",
+    );
+    await waitForOAuthCompletion();
+    loginLink.hidden = true;
+    loginLink.removeAttribute("href");
     await refreshAuthStatus();
   } catch (error) {
+    if (loginWindow && loginWindow.location.href === "about:blank") {
+      loginWindow.close();
+    }
     showError(error);
   } finally {
     setBusy(button, false);

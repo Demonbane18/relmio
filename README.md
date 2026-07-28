@@ -62,6 +62,15 @@ over SSH. It does not install Node, npm, or this wizard on the VPS. The VPS
 only receives the separate sidecar files after you review and approve the
 plan.
 
+The wizard stores its own validated local credential at
+`~/.n8n-openai-oauth/auth.json`. It does not reuse or overwrite the Codex
+app's `~/.codex/auth.json`.
+
+If a browser extension named **Sign in with ChatGPT** or **OpenAI OAuth**
+redirects the fresh login into an extension page, disable that extension
+temporarily and start the sign-in again from the wizard. The wizard must
+receive the callback directly on `localhost:1455`.
+
 ### Private-repository fallback: double-click
 
 1. Clone this private repository with GitHub Desktop.

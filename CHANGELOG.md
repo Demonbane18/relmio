@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.4] - 2026-07-28
+
+### Fixed
+
+- Run ChatGPT login against a new wizard-only credential file so the bridge
+  CLI never needs an interactive terminal to confirm replacement.
+- Validate the completed credential before storing it at
+  `~/.n8n-openai-oauth/auth.json` with owner-only permissions.
+- Stop reusing or overwriting the Codex app credential at
+  `~/.codex/auth.json`.
+- Open the exact fresh authorization URL returned by the pinned bridge CLI
+  and report its completion separately, avoiding stale browser sign-in tabs.
+- Verify Docker Compose publisher metadata so an internal-only `10531/tcp`
+  declaration is not mistaken for a published VPS host port.
+- Explain that browser extensions which intercept the localhost OAuth callback
+  must be disabled temporarily during a fresh sign-in.
+
 ## [0.1.3] - 2026-07-27
 
 ### Fixed

@@ -8,13 +8,14 @@ Every command on this page targets the separate
 The easiest method:
 
 1. Start the local wizard again.
-2. Select **Sign in again**.
+2. Select **Refresh ChatGPT sign-in**.
 3. Complete the newest browser sign-in page.
 4. Connect to the same VPS and select the same n8n network.
 5. Approve the sidecar plan.
 
 The wizard replaces the sidecar credential and starts only the sidecar service.
-n8n is not restarted.
+n8n is not restarted. Its local credential is stored separately at
+`~/.n8n-openai-oauth/auth.json`.
 
 Manual method:
 

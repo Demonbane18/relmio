@@ -11,7 +11,20 @@ import { installSidecar } from "../src/services/installer.js";
 function createFakeRemote({
   managedDirectory = false,
   unmanagedDirectory = false,
-  publishedPortResult = { stdout: "", stderr: "", code: 1 },
+  publicationStateResult = {
+    stdout: JSON.stringify({
+      Publishers: [
+        {
+          URL: "",
+          TargetPort: 10531,
+          PublishedPort: 0,
+          Protocol: "tcp",
+        },
+      ],
+    }),
+    stderr: "",
+    code: 0,
+  },
 } = {}) {
   const commands = [];
   const uploads = [];
@@ -45,8 +58,8 @@ function createFakeRemote({
       if (command === verification.runningService) {
         return { stdout: "openai-oauth\n", stderr: "", code: 0 };
       }
-      if (command === verification.publishedPort) {
-        return publishedPortResult;
+      if (command === verification.publicationState) {
+        return publicationStateResult;
       }
 
       return { stdout: "", stderr: "", code: 0 };
@@ -170,7 +183,11 @@ test("installSidecar validates auth JSON before connecting to Docker", async () 
 
 test("installSidecar does not ignore a failed published-port safety check", async () => {
   const remote = createFakeRemote({
-    publishedPortResult: { stdout: "", stderr: "docker failed", code: 125 },
+    publicationStateResult: {
+      stdout: "",
+      stderr: "docker failed",
+      code: 125,
+    },
   });
 
   await assert.rejects(
@@ -182,5 +199,56 @@ test("installSidecar does not ignore a failed published-port safety check", asyn
         confirmed: true,
       }),
     /port|safety/i,
+  );
+});
+
+test("installSidecar rejects a positive published host port", async () => {
+  const remote = createFakeRemote({
+    publicationStateResult: {
+      stdout: JSON.stringify({
+        Publishers: [
+          {
+            URL: "0.0.0.0",
+            TargetPort: 10531,
+            PublishedPort: 10531,
+            Protocol: "tcp",
+          },
+        ],
+      }),
+      stderr: "",
+      code: 0,
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      installSidecar({
+        remote,
+        networkName: "proxy",
+        authContents,
+        confirmed: true,
+      }),
+    /published|host port|safety/i,
+  );
+});
+
+test("installSidecar fails closed on malformed publication metadata", async () => {
+  const remote = createFakeRemote({
+    publicationStateResult: {
+      stdout: "not-json",
+      stderr: "",
+      code: 0,
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      installSidecar({
+        remote,
+        networkName: "proxy",
+        authContents,
+        confirmed: true,
+      }),
+    /published-port safety check/i,
   );
 });

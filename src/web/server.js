@@ -7,7 +7,7 @@ import { installSidecar } from "../services/installer.js";
 import {
   getAuthStatus,
   readAuthContents,
-  runOAuthLogin,
+  startOAuthLogin,
 } from "../services/oauth.js";
 import {
   connectVerified,
@@ -26,7 +26,7 @@ const RATE_LIMIT_MAX = 10;
 const defaultServices = {
   getAuthStatus,
   readAuthContents,
-  runOAuthLogin,
+  startOAuthLogin,
   scanHostFingerprint,
   connectVerified,
   discoverN8n,
@@ -199,6 +199,15 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (request.method === "GET" && path === "/api/oauth/status") {
+    const login = state.oauthLogin;
+    sendJson(response, 200, {
+      status: login?.status ?? "idle",
+      ...(login?.status === "error" ? { error: login.error } : {}),
+    });
+    return;
+  }
+
   if (request.method !== "POST") {
     sendJson(response, 405, { error: "Method not allowed." });
     return;
@@ -206,8 +215,36 @@ async function handleApi(request, response, path, state) {
 
   if (path === "/api/oauth/login") {
     enforceRateLimit(state, path);
-    await state.services.runOAuthLogin();
-    sendJson(response, 200, { success: true });
+    if (state.oauthLogin?.status === "pending") {
+      state.oauthLogin.attempt.cancel();
+      try {
+        await state.oauthLogin.attempt.completion;
+      } catch {
+        // Starting again intentionally replaces the previous local attempt.
+      }
+    }
+
+    const attempt = await state.services.startOAuthLogin();
+    const login = {
+      attempt,
+      error: null,
+      status: "pending",
+    };
+    state.oauthLogin = login;
+    attempt.completion.then(
+      () => {
+        if (state.oauthLogin === login) {
+          login.status = "success";
+        }
+      },
+      (error) => {
+        if (state.oauthLogin === login) {
+          login.status = "error";
+          login.error = safeErrorMessage(error);
+        }
+      },
+    );
+    sendJson(response, 200, { authorizationUrl: attempt.authorizationUrl });
     return;
   }
 
@@ -401,6 +438,7 @@ export async function startWizardServer({
     scannedHost: null,
     discovery: null,
     networksByContainer: new Map(),
+    oauthLogin: null,
     rateLimits: new Map(),
   };
   const server = createServer(createRequestHandler(state));
@@ -419,6 +457,7 @@ export async function startWizardServer({
   return {
     origin: state.origin,
     async close() {
+      state.oauthLogin?.attempt.cancel();
       state.connection?.close();
       state.connection = null;
       await new Promise((resolve) => server.close(resolve));

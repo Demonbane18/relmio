@@ -29,6 +29,9 @@ If any of those assumptions is false, do not use this design.
 - The server binds that confirmation to the exact normalized host and port.
 - Passwords are request-scoped, never saved, never logged, and cleared from
   the page immediately after the connection attempt.
+- ChatGPT login is written first to a unique pending file, validated, and then
+  stored at `~/.n8n-openai-oauth/auth.json` with owner-only permissions. The
+  Codex app credential at `~/.codex/auth.json` is not reused or overwritten.
 - OAuth JSON is validated and transferred through SFTP, never interpolated
   into a shell command.
 - Remote paths are restricted to `/docker/n8n-openai-oauth`.
@@ -100,4 +103,3 @@ checklist in [maintenance.md](maintenance.md).
 Do not open a public issue containing a token, password, private IP, hostname,
 workflow data, or unredacted log. Revoke exposed credentials first, then share
 only a sanitized reproduction with the repository owner.
-

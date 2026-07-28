@@ -1,20 +1,28 @@
 import * as defaultFileSystem from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 const MAX_AUTH_FILE_BYTES = 128 * 1024;
+const MAX_LOGIN_OUTPUT_BYTES = 32 * 1024;
+const LOGIN_URL_TIMEOUT_MS = 15_000;
 const LOGIN_TIMEOUT_MS = 300_000;
 const PROCESS_TIMEOUT_MS = LOGIN_TIMEOUT_MS + 15_000;
+const LOGIN_URL_PREFIX = "OpenAI OAuth login URL: ";
+const OPENAI_AUTH_ORIGIN = "https://auth.openai.com";
 
 export function resolveAuthPath({
   env = process.env,
   homeDirectory = homedir(),
 } = {}) {
-  if (typeof env.CODEX_HOME === "string" && env.CODEX_HOME.trim() !== "") {
-    return resolve(env.CODEX_HOME, "auth.json");
+  if (
+    typeof env.N8N_OPENAI_OAUTH_HOME === "string" &&
+    env.N8N_OPENAI_OAUTH_HOME.trim() !== ""
+  ) {
+    return resolve(env.N8N_OPENAI_OAUTH_HOME, "auth.json");
   }
-  return resolve(homeDirectory, ".codex", "auth.json");
+  return resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
 }
 
 export async function getAuthStatus({
@@ -66,80 +74,238 @@ export async function readAuthContents({
   return contents;
 }
 
-export async function runOAuthLogin({
+function validateAuthorizationUrl(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("The sign-in command returned an invalid authorization URL.");
+  }
+
+  if (
+    url.origin !== OPENAI_AUTH_ORIGIN ||
+    url.pathname !== "/oauth/authorize" ||
+    url.searchParams.get("response_type") !== "code" ||
+    !url.searchParams.get("state") ||
+    !url.searchParams.get("code_challenge")
+  ) {
+    throw new Error("The sign-in command returned an unexpected destination.");
+  }
+
+  let redirect;
+  try {
+    redirect = new URL(url.searchParams.get("redirect_uri") ?? "");
+  } catch {
+    throw new Error("The sign-in command returned an invalid callback.");
+  }
+  if (
+    !["localhost", "127.0.0.1", "::1"].includes(redirect.hostname) ||
+    redirect.port !== "1455" ||
+    redirect.pathname !== "/auth/callback"
+  ) {
+    throw new Error("The sign-in command returned an unexpected callback.");
+  }
+
+  return url.toString();
+}
+
+function extractAuthorizationUrl(output) {
+  for (const line of output.split(/\r?\n/u)) {
+    if (line.startsWith(LOGIN_URL_PREFIX)) {
+      return validateAuthorizationUrl(line.slice(LOGIN_URL_PREFIX.length));
+    }
+  }
+  return null;
+}
+
+export async function startOAuthLogin({
   fileSystem = defaultFileSystem,
   env = process.env,
   homeDirectory = homedir(),
   platform = process.platform,
   spawnProcess = spawn,
+  createPendingId = randomUUID,
 } = {}) {
   const command = platform === "win32" ? "npx.cmd" : "npx";
+  const authPath = resolveAuthPath({ env, homeDirectory });
+  const authDirectory = dirname(authPath);
+  const pendingAuthPath = `${authPath}.pending-${createPendingId()}`;
   const args = [
     "--yes",
     "openai-oauth@2.0.0",
     "login",
-    "--open",
+    "--no-open",
     "--login-timeout-ms",
     String(LOGIN_TIMEOUT_MS),
+    "--oauth-file",
+    pendingAuthPath,
   ];
 
-  await new Promise((resolvePromise, rejectPromise) => {
-    let settled = false;
-    const child = spawnProcess(command, args, {
-      env,
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
+  await fileSystem.mkdir(authDirectory, { recursive: true, mode: 0o700 });
+  await fileSystem.chmod(authDirectory, 0o700);
 
-    child.stdin?.end("y\n");
-    child.stdout?.resume();
-    child.stderr?.resume();
-
-    const timeout = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        child.kill?.("SIGTERM");
-        rejectPromise(
-          new Error("The sign-in request expired. Start a fresh login."),
-        );
-      }
-    }, PROCESS_TIMEOUT_MS);
-
-    child.once("error", () => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        rejectPromise(
-          new Error(
-            "The local sign-in command could not start. Install Node.js 22 and try again.",
-          ),
-        );
-      }
-    });
-    child.once("exit", (code) => {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timeout);
-        if (code === 0) {
-          resolvePromise();
-        } else {
-          rejectPromise(
-            new Error("ChatGPT sign-in did not finish. Start a fresh login."),
-          );
-        }
-      }
-    });
-  });
-
-  const status = await getAuthStatus({
-    fileSystem,
+  const child = spawnProcess(command, args, {
     env,
-    homeDirectory,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
-  if (!status.exists) {
-    throw new Error("Sign-in finished, but no local credential file was found.");
-  }
+  child.stderr?.resume();
 
-  return { success: true };
+  let loginOutput = "";
+  let resolveAuthorizationUrl;
+  let rejectAuthorizationUrl;
+  let authorizationUrlSettled = false;
+  const authorizationUrlPromise = new Promise((resolvePromise, rejectPromise) => {
+    resolveAuthorizationUrl = resolvePromise;
+    rejectAuthorizationUrl = rejectPromise;
+  });
+  const settleAuthorizationUrl = (error, authorizationUrl) => {
+    if (authorizationUrlSettled) {
+      return;
+    }
+    authorizationUrlSettled = true;
+    if (error) {
+      rejectAuthorizationUrl(error);
+    } else {
+      resolveAuthorizationUrl(authorizationUrl);
+    }
+  };
+
+  child.stdout?.on("data", (chunk) => {
+    if (authorizationUrlSettled) {
+      return;
+    }
+    loginOutput += Buffer.from(chunk).toString("utf8");
+    if (Buffer.byteLength(loginOutput) > MAX_LOGIN_OUTPUT_BYTES) {
+      settleAuthorizationUrl(
+        new Error("The sign-in command returned too much output."),
+      );
+      child.kill?.("SIGTERM");
+      return;
+    }
+    try {
+      const authorizationUrl = extractAuthorizationUrl(loginOutput);
+      if (authorizationUrl) {
+        settleAuthorizationUrl(null, authorizationUrl);
+      }
+    } catch (error) {
+      settleAuthorizationUrl(error);
+      child.kill?.("SIGTERM");
+    }
+  });
+
+  let resolveExit;
+  let rejectExit;
+  let exitSettled = false;
+  const exitPromise = new Promise((resolvePromise, rejectPromise) => {
+    resolveExit = resolvePromise;
+    rejectExit = rejectPromise;
+  });
+  const settleExit = (error, code) => {
+    if (exitSettled) {
+      return;
+    }
+    exitSettled = true;
+    if (error) {
+      rejectExit(error);
+    } else {
+      resolveExit(code);
+    }
+  };
+
+  child.once("error", () => {
+    const error = new Error(
+      "The local sign-in command could not start. Install Node.js 22 and try again.",
+    );
+    settleAuthorizationUrl(error);
+    settleExit(error);
+  });
+  child.once("exit", (code) => {
+    if (!authorizationUrlSettled) {
+      settleAuthorizationUrl(
+        new Error("The sign-in command did not return an authorization URL."),
+      );
+    }
+    settleExit(null, code);
+  });
+
+  const loginUrlTimeout = setTimeout(() => {
+    settleAuthorizationUrl(
+      new Error("The sign-in command did not provide a fresh login link."),
+    );
+    child.kill?.("SIGTERM");
+  }, LOGIN_URL_TIMEOUT_MS);
+
+  const completion = (async () => {
+    let processTimeout;
+    try {
+      const code = await Promise.race([
+        exitPromise,
+        new Promise((_, rejectPromise) => {
+          processTimeout = setTimeout(() => {
+            child.kill?.("SIGTERM");
+            rejectPromise(
+              new Error("The sign-in request expired. Start a fresh login."),
+            );
+          }, PROCESS_TIMEOUT_MS);
+        }),
+      ]);
+      if (code !== 0) {
+        throw new Error("ChatGPT sign-in did not finish. Start a fresh login.");
+      }
+
+      await readAuthContents({
+        authPath: pendingAuthPath,
+        fileSystem,
+      });
+      await fileSystem.chmod(pendingAuthPath, 0o600);
+      await fileSystem.copyFile(pendingAuthPath, authPath);
+      await fileSystem.chmod(authPath, 0o600);
+
+      return { success: true };
+    } finally {
+      clearTimeout(processTimeout);
+      clearTimeout(loginUrlTimeout);
+      try {
+        await fileSystem.rm(pendingAuthPath, { force: true });
+      } catch {
+        // A failed cleanup must not hide the actionable sign-in result.
+      }
+    }
+  })();
+  completion.catch(() => {});
+
+  try {
+    const authorizationUrl = await Promise.race([
+      authorizationUrlPromise,
+      completion.then(
+        () => {
+          throw new Error(
+            "The sign-in command finished without a fresh login link.",
+          );
+        },
+        (error) => {
+          throw error;
+        },
+      ),
+    ]);
+    clearTimeout(loginUrlTimeout);
+    return {
+      authorizationUrl,
+      completion,
+      cancel() {
+        child.kill?.("SIGTERM");
+      },
+    };
+  } catch (error) {
+    clearTimeout(loginUrlTimeout);
+    child.kill?.("SIGTERM");
+    try {
+      await completion;
+    } catch {
+      // Preserve the more specific authorization-link error.
+    }
+    throw error;
+  }
 }

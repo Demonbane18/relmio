@@ -68,6 +68,38 @@ function parseModels(output) {
   }
 }
 
+function hasPublishedHostPort(output) {
+  try {
+    const parsed = JSON.parse(output);
+    const services = Array.isArray(parsed) ? parsed : [parsed];
+    if (services.length === 0) {
+      throw new TypeError();
+    }
+
+    for (const service of services) {
+      if (!service || !Array.isArray(service.Publishers)) {
+        throw new TypeError();
+      }
+      for (const publisher of service.Publishers) {
+        if (
+          !publisher ||
+          !Number.isInteger(publisher.PublishedPort) ||
+          publisher.PublishedPort < 0 ||
+          typeof publisher.URL !== "string"
+        ) {
+          throw new TypeError();
+        }
+        if (publisher.PublishedPort > 0 || publisher.URL.trim() !== "") {
+          return true;
+        }
+      }
+    }
+    return false;
+  } catch {
+    throw new Error("The published-port safety check failed.");
+  }
+}
+
 export async function installSidecar({
   remote,
   networkName,
@@ -135,11 +167,11 @@ export async function installSidecar({
     throw new Error("The sidecar did not reach the running state.");
   }
 
-  const port = await remote.exec(verification.publishedPort);
-  if (![0, 1].includes(port.code)) {
+  const publication = await remote.exec(verification.publicationState);
+  if (publication.code !== 0) {
     throw new Error("The published-port safety check failed.");
   }
-  if (port.stdout.trim() !== "") {
+  if (hasPublishedHostPort(publication.stdout)) {
     throw new Error(
       "Safety check failed: the sidecar unexpectedly published a host port.",
     );

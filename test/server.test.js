@@ -21,8 +21,13 @@ function createServices() {
       async getAuthStatus() {
         return { exists: true, path: "/private/path/auth.json" };
       },
-      async runOAuthLogin() {
-        return { success: true };
+      async startOAuthLogin() {
+        return {
+          authorizationUrl:
+            "https://auth.openai.com/oauth/authorize?fixture=true",
+          completion: Promise.resolve({ success: true }),
+          cancel() {},
+        };
       },
       async readAuthContents() {
         return Buffer.from('{"fixture":true}');
@@ -118,6 +123,30 @@ test("wizard server rejects cross-origin writes", async (t) => {
   });
 
   assert.equal(response.status, 403);
+});
+
+test("wizard returns the exact fresh OAuth link and reports completion", async (t) => {
+  const { services } = createServices();
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+
+  const loginResponse = await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: { Origin: wizard.origin },
+    body: "{}",
+  });
+  assert.equal(loginResponse.status, 200);
+  assert.deepEqual(await loginResponse.json(), {
+    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+  const statusResponse = await api(wizard.origin, "/api/oauth/status");
+  assert.deepEqual(await statusResponse.json(), { status: "success" });
 });
 
 test("wizard flow validates discovered selections and never echoes a password", async (t) => {
