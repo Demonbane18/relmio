@@ -176,8 +176,19 @@ export async function installSidecar({
     throw new Error("The published-port safety check failed.");
   }
   if (hasPublishedHostPort(publication.stdout)) {
+    let cleanupSucceeded = false;
+    try {
+      cleanupSucceeded = (await remote.exec(verification.cleanup)).code === 0;
+    } catch {
+      cleanupSucceeded = false;
+    }
+    if (!cleanupSucceeded) {
+      throw new Error(
+        "Safety check failed: the sidecar unexpectedly published a host port, and automatic cleanup could not be confirmed. Do not use the sidecar until it is removed from /docker/n8n-openai-oauth.",
+      );
+    }
     throw new Error(
-      "Safety check failed: the sidecar unexpectedly published a host port.",
+      "Safety check failed: the sidecar unexpectedly published a host port. The sidecar was removed; the existing n8n deployment was not changed.",
     );
   }
 

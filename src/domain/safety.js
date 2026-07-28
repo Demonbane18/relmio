@@ -22,6 +22,7 @@ const VERIFICATION_COMMANDS = Object.freeze({
   runningService: `${COMPOSE_PREFIX} ps --status running --services`,
   publicationState: `${COMPOSE_PREFIX} ps --format json ${SERVICE_NAME}`,
   models: `${COMPOSE_PREFIX} exec -T ${SERVICE_NAME} node -e 'fetch("http://127.0.0.1:10531/v1/models").then(async (response) => { console.log(await response.text()); process.exit(response.ok ? 0 : 1); }).catch(() => process.exit(1))'`,
+  cleanup: `${COMPOSE_PREFIX} down --remove-orphans`,
 });
 
 const ALLOWED_SIDECAR_COMMANDS = new Set([

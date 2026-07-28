@@ -26,6 +26,7 @@ function createFakeRemote({
     stderr: "",
     code: 0,
   },
+  cleanupResult = { stdout: "", stderr: "", code: 0 },
 } = {}) {
   const commands = [];
   const uploads = [];
@@ -59,6 +60,9 @@ function createFakeRemote({
       }
       if (command === verification.publicationState) {
         return publicationStateResult;
+      }
+      if (command === verification.cleanup) {
+        return cleanupResult;
       }
 
       return { stdout: "", stderr: "", code: 0 };
@@ -218,6 +222,7 @@ test("installSidecar rejects a positive published host port", async () => {
       code: 0,
     },
   });
+  const verification = createVerificationCommands();
 
   await assert.rejects(
     () =>
@@ -228,6 +233,38 @@ test("installSidecar rejects a positive published host port", async () => {
         confirmed: true,
       }),
     /published|host port|safety/i,
+  );
+  assert.ok(remote.commands.includes(verification.cleanup));
+});
+
+test("installSidecar fails closed when unsafe-port cleanup cannot be confirmed", async () => {
+  const remote = createFakeRemote({
+    publicationStateResult: {
+      stdout: JSON.stringify({
+        Publishers: [
+          {
+            URL: "0.0.0.0",
+            TargetPort: 10531,
+            PublishedPort: 10531,
+            Protocol: "tcp",
+          },
+        ],
+      }),
+      stderr: "",
+      code: 0,
+    },
+    cleanupResult: { stdout: "", stderr: "cleanup failed", code: 1 },
+  });
+
+  await assert.rejects(
+    () =>
+      installSidecar({
+        remote,
+        networkName: "proxy",
+        authContents,
+        confirmed: true,
+      }),
+    /cleanup could not be confirmed/i,
   );
 });
 

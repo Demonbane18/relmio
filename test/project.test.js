@@ -30,10 +30,11 @@ test("double-click launchers only install local dependencies and start the wizar
   }
 });
 
-test("shared ignore policy excludes local Codex context", async () => {
+test("shared ignore policy excludes local maintainer artifacts", async () => {
   const gitignore = await readFile(".gitignore", "utf8");
 
   assert.match(gitignore, /^\.codex-local-context\.md$/mu);
+  assert.match(gitignore, /^graphify-out\/$/mu);
 });
 
 test("sanitized preview follows endpoint contracts without live OAuth", async () => {

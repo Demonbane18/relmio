@@ -7,6 +7,17 @@ checks the registry separately after publication.
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop and remove only the wizard-managed sidecar when its final safety check
+  detects an unexpected host-port publication; report an explicit manual
+  cleanup path if that removal cannot be confirmed.
+- Rate-limit install attempts, close the VPS connection after every install
+  outcome, and show actionable local-server/invalid-response messages in the
+  browser wizard.
+- Document Graphify as an optional local maintainer map while keeping raw graph
+  exports out of Git and npm.
+
 ## [0.1.6] - 2026-07-28
 
 ### Added

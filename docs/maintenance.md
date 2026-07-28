@@ -66,6 +66,24 @@ npm start
 Review release notes and the generated plan before approving another VPS
 installation.
 
+## Optional maintainer architecture map
+
+Graphify is useful for long-term maintenance because it exposes the boundaries
+between the local wizard, OAuth credential flow, SSH verification, sidecar
+deployment, and n8n recipes. It is an optional maintainer tool, not a runtime
+dependency:
+
+```bash
+graphify .
+```
+
+Keep the generated `graphify-out/` directory local. It is intentionally ignored
+by Git and excluded from the npm package because raw graphs can reveal internal
+file relationships, local paths, and unfinished implementation details. Put
+only reviewed, redacted diagrams or plain-language architecture notes in the
+public repository. Never include credentials, setup URLs, VPS addresses, or
+private screenshots in a graph export.
+
 ## Updating the pinned bridge version
 
 Do not change `openai-oauth@2.0.0` casually. An upgrade requires:

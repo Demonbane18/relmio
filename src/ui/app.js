@@ -130,15 +130,30 @@ async function api(path, { method = "GET", body } = {}) {
     throw new Error("This wizard link is incomplete. Restart the setup command.");
   }
 
-  const response = await fetch(path, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Setup-Token": token,
-    },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const result = await response.json();
+  let response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Setup-Token": token,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(
+      "The local wizard server is not reachable. Keep its terminal window open and restart the latest command.",
+    );
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(
+      "The wizard returned an unreadable response. Restart the setup command and try again.",
+    );
+  }
   if (!response.ok) {
     throw new Error(result.error ?? "The request failed.");
   }

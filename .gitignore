@@ -11,4 +11,5 @@ coverage/
 auth.json
 .codex/
 .codex-local-context.md
+graphify-out/
 .DS_Store

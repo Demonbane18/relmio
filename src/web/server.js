@@ -355,28 +355,35 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/install") {
+    enforceRateLimit(state, path);
     const connection = requireConnection(state);
-    requireDiscoveredNetwork(
-      state,
-      body.containerName,
-      body.networkName,
-    );
-    const authStatus = await state.services.getAuthStatus();
-    if (!authStatus.exists) {
-      throw new Error("Sign in with ChatGPT before installing.");
+    let result;
+    try {
+      requireDiscoveredNetwork(
+        state,
+        body.containerName,
+        body.networkName,
+      );
+      const authStatus = await state.services.getAuthStatus();
+      if (!authStatus.exists) {
+        throw new Error("Sign in with ChatGPT before installing.");
+      }
+      const authContents = await state.services.readAuthContents({
+        authPath: authStatus.path,
+      });
+      result = await state.services.installSidecar({
+        remote: connection,
+        networkName: body.networkName,
+        authContents,
+        confirmed: body.confirmed,
+      });
+    } finally {
+      connection.close();
+      if (state.connection === connection) {
+        state.connection = null;
+      }
     }
-    const authContents = await state.services.readAuthContents({
-      authPath: authStatus.path,
-    });
-    const result = await state.services.installSidecar({
-      remote: connection,
-      networkName: body.networkName,
-      authContents,
-      confirmed: body.confirmed,
-    });
 
-    connection.close();
-    state.connection = null;
     sendJson(response, 200, result);
     return;
   }
