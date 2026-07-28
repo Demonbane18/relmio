@@ -11,6 +11,7 @@ import { installSidecar } from "../src/services/installer.js";
 function createFakeRemote({
   managedDirectory = false,
   unmanagedDirectory = false,
+  models = [{ id: "gpt-5.6-sol" }, { id: "gpt-5.6-terra" }],
   publicationStateResult = {
     stdout: JSON.stringify({
       Publishers: [
@@ -48,9 +49,7 @@ function createFakeRemote({
       }
       if (command === verification.models) {
         return {
-          stdout: JSON.stringify({
-            data: [{ id: "gpt-5.6-sol" }, { id: "gpt-5.6-terra" }],
-          }),
+          stdout: JSON.stringify({ data: models }),
           stderr: "",
           code: 0,
         };
@@ -251,4 +250,21 @@ test("installSidecar fails closed on malformed publication metadata", async () =
       }),
     /published-port safety check/i,
   );
+});
+
+test("installSidecar rejects a model response with no usable IDs", async () => {
+  for (const models of [[], [{ id: "" }], [{ id: "invalid/model" }]]) {
+    const remote = createFakeRemote({ models });
+
+    await assert.rejects(
+      () =>
+        installSidecar({
+          remote,
+          networkName: "proxy",
+          authContents,
+          confirmed: true,
+        }),
+      /model response could not be verified/i,
+    );
+  }
 });

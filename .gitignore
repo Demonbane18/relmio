@@ -10,4 +10,5 @@ coverage/
 *.key
 auth.json
 .codex/
+.codex-local-context.md
 .DS_Store

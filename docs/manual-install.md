@@ -9,9 +9,10 @@ second Compose project.
 
 ## Before starting
 
-You need:
+The commands in this fallback use a POSIX shell. You need:
 
-- a local Mac, Windows, or Linux computer with Node.js;
+- a local macOS or Linux computer with Node.js 22 or newer, or Windows with
+  WSL/Git Bash and Node.js 22 or newer;
 - your VPS IP address;
 - the VPS root password;
 - the name of the running n8n container;
@@ -27,7 +28,11 @@ screenshot.
 Open Terminal on your computer, not the Hostinger web terminal:
 
 ```bash
-npx --yes openai-oauth@2.0.0 login --open --login-timeout-ms 300000
+install -d -m 0700 "$HOME/.n8n-openai-oauth"
+npx --yes --ignore-scripts openai-oauth@2.0.0 login \
+  --open \
+  --login-timeout-ms 300000 \
+  --oauth-file "$HOME/.n8n-openai-oauth/auth.json"
 ```
 
 Complete the newly opened sign-in page within five minutes. An old sign-in tab
@@ -36,10 +41,13 @@ can expire; always use the page opened by the newest command.
 Confirm that the local file exists:
 
 ```bash
-test -s "$HOME/.codex/auth.json" && echo "OAuth file is ready"
+test -s "$HOME/.n8n-openai-oauth/auth.json" \
+  && echo "OAuth file is ready"
 ```
 
-Do not print the file or paste its contents into chat.
+This dedicated path avoids reusing or overwriting the Codex app credential at
+`~/.codex/auth.json`. Do not print either file or paste its contents into
+chat.
 
 ## Part 2: inspect n8n on the VPS
 
@@ -156,7 +164,8 @@ exit
 Back in the Terminal on your own computer:
 
 ```bash
-scp "$HOME/.codex/auth.json" root@YOUR_VPS_IP:/docker/n8n-openai-oauth/auth/auth.json
+scp "$HOME/.n8n-openai-oauth/auth.json" \
+  root@YOUR_VPS_IP:/docker/n8n-openai-oauth/auth/auth.json
 ```
 
 Do not include `**` around the IP. In zsh, asterisks are wildcard characters
@@ -260,5 +269,7 @@ Do not use `http://127.0.0.1:10531/v1` in n8n. Inside the n8n container,
 `127.0.0.1` means n8n itself. The private Docker hostname is
 `n8n-openai-oauth`.
 
-In the OpenAI Chat Model, keep **Use Responses API** on. Choose a model from the
-verified list and test a simple prompt before adding tools.
+In OpenAI Chat Model node version 1.3, keep **Use Responses API** on. If the
+switch is absent, keep the earlier node version's default Chat Completions
+behavior. Choose a model from the verified list and test a simple prompt before
+adding tools.

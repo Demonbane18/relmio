@@ -52,7 +52,7 @@ function parseModels(output) {
       throw new TypeError();
     }
 
-    return parsed.data
+    const models = parsed.data
       .map((model) => model?.id)
       .filter(
         (id) =>
@@ -61,6 +61,10 @@ function parseModels(output) {
           id.length <= 128 &&
           /^[a-zA-Z0-9_.:-]+$/.test(id),
       );
+    if (models.length === 0) {
+      throw new TypeError();
+    }
+    return models;
   } catch {
     throw new Error(
       "The sidecar started, but its model response could not be verified.",

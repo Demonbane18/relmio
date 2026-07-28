@@ -156,6 +156,40 @@ test("wizard returns the exact fresh OAuth link and reports completion", async (
   assert.deepEqual(await statusResponse.json(), { status: "success" });
 });
 
+test("preview mode identifies itself and refuses to start live OAuth", async (t) => {
+  const { services } = createServices();
+  let loginStarted = false;
+  services.startOAuthLogin = async () => {
+    loginStarted = true;
+    throw new Error("The live OAuth service must not run in preview mode.");
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    previewMode: true,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+
+  const statusResponse = await api(wizard.origin, "/api/status");
+  assert.deepEqual(await statusResponse.json(), {
+    authExists: true,
+    authUpdatedAt: "2026-07-28T01:11:01.000Z",
+    previewMode: true,
+  });
+
+  const loginResponse = await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: { Origin: wizard.origin },
+    body: "{}",
+  });
+  assert.equal(loginResponse.status, 403);
+  assert.deepEqual(await loginResponse.json(), {
+    error: "Live ChatGPT sign-in is disabled in sanitized preview mode.",
+  });
+  assert.equal(loginStarted, false);
+});
+
 test("wizard flow validates discovered selections and never echoes a password", async (t) => {
   const { services, remote } = createServices();
   const wizard = await startWizardServer({

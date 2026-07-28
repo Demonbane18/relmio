@@ -1,166 +1,355 @@
 # n8n OpenAI OAuth Setup
 
-A local browser wizard that installs
-[EvanZhouDev/openai-oauth](https://github.com/EvanZhouDev/openai-oauth)
-as a separate Docker sidecar beside a self-hosted n8n instance.
+[![npm version](https://img.shields.io/npm/v/n8n-openai-oauth-setup.svg)](https://www.npmjs.com/package/n8n-openai-oauth-setup)
+[![CI](https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml/badge.svg)](https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml)
+[![Node.js 22+](https://img.shields.io/badge/Node.js-22%2B-43853d.svg)](package.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-The goal is simple: let a non-technical VPS owner complete the setup without
-editing Docker files or typing commands on the VPS.
+A local browser wizard that installs
+[`openai-oauth@2.0.0`](https://github.com/EvanZhouDev/openai-oauth/releases/tag/v2.0.0)
+as a separate Docker sidecar beside a self-hosted n8n instance. It guides a
+VPS owner through ChatGPT sign-in, SSH host verification, n8n discovery, an
+exact installation plan, and the final n8n credential settings.
+
+The existing n8n image, Compose file, container, and workflows stay untouched.
 
 > [!IMPORTANT]
-> This does **not** create a real OpenAI API key. It creates a private,
-> OpenAI-compatible endpoint that uses a ChatGPT OAuth session. The `local-only`
-> value entered in n8n is only a placeholder because n8n requires the API-key
-> field.
+> This does **not** create an OpenAI Platform API key. It creates a private,
+> OpenAI-compatible endpoint that authenticates through a local ChatGPT/Codex
+> OAuth session. The `local-only` value entered in n8n is only a placeholder
+> for n8n's required API-key field.
 
 > [!WARNING]
-> `openai-oauth` is an unofficial, community-maintained project. It is not
-> affiliated with or endorsed by OpenAI. ChatGPT subscriptions and OpenAI API
-> billing are normally separate products. Use this only for your own
-> experimental workflows, protect the OAuth file like a password, and follow
-> [OpenAI's Terms of Use](https://openai.com/policies/terms-of-use/) and usage
-> policies.
+> This project and `openai-oauth` are unofficial community projects. They are
+> not affiliated with or endorsed by OpenAI. Access, supported models, and
+> limits depend on the signed-in ChatGPT account and can change. Use this only
+> for personal, experimental workflows; protect the OAuth file like a
+> password; and follow OpenAI's current terms and usage policies.
 
-## What makes this safe for the existing n8n
+## Quick start with the npm package
 
-The wizard:
+### Requirements
 
-- reads the n8n container and network with read-only Docker commands;
-- creates a separate Compose project named `n8n-openai-oauth`;
-- writes only under `/docker/n8n-openai-oauth`;
-- builds and starts only the `openai-oauth` service;
-- joins an existing Docker network so n8n can reach it by service name;
-- publishes no VPS port and creates no Traefik route;
-- verifies afterward that port `10531` is not published.
-
-It never edits the n8n Compose file or image and never builds, restarts, stops,
-recreates, or removes the n8n container. Automated tests enforce that command
-boundary.
-
-## Fastest setup
-
-### What you need
-
-- A Mac or Windows computer with
+- A local macOS, Windows, or Linux computer with
   [Node.js 22 or newer](https://nodejs.org/en/download)
-- A ChatGPT account that can use Codex models
+- A browser and a ChatGPT account eligible to use the upstream Codex flow
 - A self-hosted n8n Docker container on a VPS
-- The VPS address and root SSH password
-- Docker Compose v2 on the VPS
+- Docker Engine and Docker Compose v2 on the VPS
+- The VPS address, SSH port, and root password
+- A Docker network that n8n and the new sidecar can share
 
-### Fastest setup: run the local wizard
+Do **not** run the npm command on the VPS. Run it on the computer where you
+will complete the browser sign-in.
 
-After the package is published, the simplest method is to open Terminal
-(macOS/Linux) or PowerShell (Windows) on your own computer and run:
+### 1. Start the newest published wizard
+
+Open Terminal, PowerShell, or another local shell:
 
 ```bash
-npx --yes n8n-openai-oauth-setup
+npx --yes --ignore-scripts n8n-openai-oauth-setup@latest
 ```
 
-The wizard runs on your computer, opens a browser, and connects to the VPS
-over SSH. It does not install Node, npm, or this wizard on the VPS. The VPS
-only receives the separate sidecar files after you review and approve the
-plan.
+Keep that terminal open. The command starts a one-time web server on
+`127.0.0.1`, prints a private session URL, and opens the wizard in your
+browser. It does not globally install this package.
 
-The wizard stores its own validated local credential at
-`~/.n8n-openai-oauth/auth.json`. It does not reuse or overwrite the Codex
-app's `~/.codex/auth.json`. After a sign-in succeeds, the wizard shows when
-that credential was last updated in your computer's local time so you can
-confirm that the session is fresh.
+To confirm which version npm currently publishes:
+
+```bash
+npm view n8n-openai-oauth-setup version
+```
+
+> [!NOTE]
+> Every wizard screenshot below comes from the built-in sanitized preview. It
+> uses a reserved documentation IP, fake fingerprint, fake container data, and
+> fake models. No real VPS, credential, or browser session is shown.
+
+### 2. Complete or reuse the local ChatGPT sign-in
+
+The wizard stores its validated credential at:
+
+```text
+~/.n8n-openai-oauth/auth.json
+```
+
+It does not reuse or overwrite the Codex app's `~/.codex/auth.json`. If a
+credential already exists, **Continue to VPS** reuses it. Use **Refresh
+ChatGPT sign-in** when it is expired, belongs to another account, or you want
+a new session.
+
+After a fresh login, check the **Credential updated** timestamp. It is shown
+in your computer's local time so you can tell that the browser approval
+actually reached the wizard.
+
+![Step 1: local ChatGPT credential found with its update timestamp](docs/images/setup/01-local-sign-in-ready.png)
 
 If a browser extension named **Sign in with ChatGPT** or **OpenAI OAuth**
-redirects the fresh login into an extension page, disable that extension
-temporarily and start the sign-in again from the wizard. The wizard must
-receive the callback directly on `localhost:1455`.
+captures the callback, temporarily disable that extension and start the
+refresh again from the wizard. The active wizard must receive the callback on
+`localhost:1455`.
 
-### Private-repository fallback: double-click
+### 3. Verify the VPS before entering its password
 
-1. Clone this private repository with GitHub Desktop.
-2. Open the repository folder.
-3. On macOS, double-click **Start Wizard.command**.
-4. On Windows, double-click **Start Wizard.bat**.
-5. Follow the five screens in the browser.
+Enter the VPS address exactly as your provider shows it. Select **Check server
+identity**, compare the SHA-256 fingerprint with the intended server, and
+confirm it before the password field unlocks.
 
-The launcher installs the one pinned local dependency when needed, opens the
-wizard on `127.0.0.1`, and leaves the Terminal window open only while the
-wizard is running.
+![Step 2: sanitized VPS address and SSH fingerprint confirmation](docs/images/setup/02-vps-identity-confirmed.png)
 
-If you are using the private GitHub repository instead of npm:
+The screenshot uses the reserved documentation address `192.0.2.10`, a fake
+fingerprint, and an empty password field. Never publish a real password,
+private key, session URL, or OAuth file.
 
-```bash
-npm ci --ignore-scripts
-npm start
+### 4. Choose the detected n8n container and shared network
+
+The wizard connects over SSH, runs read-only Docker discovery, and lists the
+running n8n container and its networks. Choose the network that n8n should
+share with the sidecar; on many Hostinger templates it is named `proxy`.
+
+![Step 3: sanitized n8n container and Docker network discovery](docs/images/setup/03-n8n-detected.png)
+
+### 5. Review and approve the exact plan
+
+Nothing is written during discovery. The review screen shows the single
+managed directory, service, Docker network, and private hostname. It also
+states the forbidden actions: no n8n edit, rebuild, restart, or recreation;
+no host port; and no Traefik route.
+
+![Step 4: exact sidecar-only installation plan](docs/images/setup/04-install-plan.png)
+
+Only after you select the approval checkbox can the wizard upload the OAuth
+file and build the separate sidecar.
+
+### 6. Copy the verified settings into n8n
+
+The final screen appears only after the sidecar is healthy, the model list is
+reachable, and Docker reports no published host port.
+
+![Step 5: verified private bridge and n8n credential values](docs/images/setup/05-bridge-ready.png)
+
+Use the button beside each value to copy it individually, or select
+**Copy credential settings** for the labeled credential set. Then create or
+edit an **OpenAI** credential in n8n:
+
+**API Key**
+
+```text
+local-only
 ```
 
-## The five wizard screens
+**Base URL**
 
-1. **Sign in locally.** The OAuth callback stays on your computer.
-2. **Confirm the VPS.** Check the SSH fingerprint before the password field
-   unlocks.
-3. **Choose n8n.** The wizard detects the running official n8n container and
-   its networks.
-4. **Review.** Nothing is written until you approve the exact sidecar-only
-   plan.
-5. **Copy the n8n settings.** The wizard verifies the sidecar and model list
-   first.
+```text
+http://n8n-openai-oauth:10531/v1
+```
 
-## Values to enter in n8n
+**Organization ID:** leave empty.
 
-Create or edit an **OpenAI** credential:
+**Add Custom Header**
 
-| Field | Value |
-|---|---|
-| API Key | `local-only` |
-| Organization ID | Leave empty |
-| Base URL | `http://n8n-openai-oauth:10531/v1` |
-| Add Custom Header | Off |
+```text
+Off
+```
 
 For an **OpenAI Chat Model**:
 
 - select one of the models returned by the bridge;
-- keep **Use Responses API** on;
-- start with no built-in tools, then add tools after a simple prompt succeeds.
+- on Chat Model node version 1.3, keep **Use Responses API** on;
+- if that switch is absent, keep the node's default Chat Completions behavior;
+- begin with a simple prompt and no built-in tools;
+- add tools only after the basic request succeeds.
 
-For an **HTTP Request** node, call an endpoint such as:
+The bridge supports both `/v1/responses` and `/v1/chat/completions`.
+
+For an **HTTP Request** node, an example endpoint is:
 
 ```text
 POST http://n8n-openai-oauth:10531/v1/responses
 ```
 
-No real API key is required by the bridge. n8n may still send
-`Authorization: Bearer local-only`; the placeholder is not a secret.
+n8n may send `Authorization: Bearer local-only`. The bridge does not treat
+that placeholder as an OpenAI API key or secret.
+
+For complete copy-paste recipes for an **AI Agent**, **Basic LLM Chain**, and
+**HTTP Request** node—including an importable cURL command—open
+[Configure n8n nodes](docs/n8n-configuration.md).
+
+## Run from a repository clone
+
+The npm command above is the recommended path. Contributors can instead run
+the source checkout:
+
+```bash
+git clone https://github.com/Demonbane18/n8n-openai-oauth-setup.git
+cd n8n-openai-oauth-setup
+npm ci --ignore-scripts
+npm start
+```
+
+On macOS, **Start Wizard.command** performs the install-and-start steps. On
+Windows, use **Start Wizard.bat**.
+
+## How it works behind the scenes
+
+```mermaid
+flowchart LR
+  subgraph Local["Your computer"]
+    U["You"]
+    B["Local browser wizard<br/>127.0.0.1"]
+    A["Wizard-only OAuth file<br/>owner-readable only"]
+    U --> B
+    B -->|"ChatGPT sign-in<br/>localhost:1455 callback"| A
+  end
+
+  subgraph VPS["Your VPS"]
+    N["Existing n8n container<br/>unchanged"]
+    S["openai-oauth sidecar<br/>separate Compose project"]
+    D["Shared private<br/>Docker network"]
+    N -->|"OpenAI-compatible request<br/>Docker DNS"| D
+    D --> S
+  end
+
+  B -->|"verified SSH + SFTP<br/>after approval"| S
+  S -->|"OAuth-authenticated request"| O["OpenAI service used by<br/>the upstream helper"]
+```
+
+The design works because four independent features line up:
+
+1. n8n's OpenAI credential accepts a custom Base URL.
+2. `openai-oauth` exposes OpenAI-compatible routes such as `/v1/models`,
+   `/v1/responses`, and `/v1/chat/completions`.
+3. Docker DNS lets n8n reach the sidecar by the private hostname
+   `n8n-openai-oauth` on a shared network.
+4. The upstream helper uses the mounted OAuth credential for its upstream
+   authentication, while n8n sends the harmless `local-only` placeholder.
+
+The request flow after installation is:
+
+```mermaid
+sequenceDiagram
+  participant W as n8n workflow
+  participant C as n8n OpenAI credential
+  participant S as OAuth sidecar
+  participant O as Upstream OpenAI service
+
+  W->>C: Run an OpenAI node
+  C->>S: Request to n8n-openai-oauth:10531/v1
+  S->>S: Read the mounted OAuth credential
+  S->>O: Forward an OAuth-authenticated request
+  O-->>S: Model response or stream
+  S-->>W: OpenAI-compatible response
+```
+
+See [Architecture and n8n safety boundary](docs/architecture.md) for the
+mutation boundary and command-level design.
+
+## What the wizard can and cannot change
+
+The wizard:
+
+- reads the running n8n container and networks with read-only Docker commands;
+- writes only under `/docker/n8n-openai-oauth`;
+- creates a separate Compose project named `n8n-openai-oauth`;
+- builds and starts only the `openai-oauth` service;
+- uploads the OAuth file through SFTP with owner-only permissions;
+- joins an existing Docker network;
+- verifies that port `10531` is not published.
+
+It never edits the n8n Compose file or image and never builds, restarts, stops,
+recreates, or removes the n8n container. It also creates no Traefik route.
+Automated tests enforce this boundary.
+
+## Refresh, update, and remove
+
+To refresh an expired ChatGPT session, run the same npm command again, choose
+**Refresh ChatGPT sign-in**, verify the timestamp, and approve the update to
+the same wizard-managed sidecar:
+
+```bash
+npx --yes --ignore-scripts n8n-openai-oauth-setup@latest
+```
+
+The update targets only the sidecar. It does not restart n8n. For rollback,
+recoverable uninstall, and pinned upstream upgrades, follow
+[Refresh, upgrade, rollback, and uninstall](docs/maintenance.md).
+
+## Troubleshooting first steps
+
+- **Old wizard version:** close the old terminal and run the `@latest` command.
+- **Browser did not open:** copy the newest printed `127.0.0.1` URL into the
+  browser while its terminal remains open.
+- **Sign-in says expired:** close the old OAuth tab and begin a fresh refresh
+  from the active wizard.
+- **Extension page appears:** temporarily disable the extension that captured
+  `localhost:1455`.
+- **SSH fails:** recheck the full address, port, root password, provider
+  firewall, and confirmed fingerprint.
+- **n8n cannot connect:** use
+  `http://n8n-openai-oauth:10531/v1`, never `127.0.0.1`.
+
+See the full symptom matrix in [Troubleshooting](docs/troubleshooting.md).
+
+## Release and version synchronization
+
+`package.json` is the release version source of truth. The repository also
+keeps these values synchronized:
+
+- `package-lock.json` package and root-package versions;
+- the newest version heading in [CHANGELOG.md](CHANGELOG.md);
+- the Git tag `v<version>` for tagged builds.
+
+`npm run release:check` rejects a mismatch among those local release files
+and, on a tag build, the Git tag. The npm badge is an informational view of
+the registry's cached `latest` version; the maintainer guide performs a
+separate post-publish equality check against the registry. Maintainers must
+bump and commit the repository version before publishing that same immutable
+version to npm. Publishing npm first does not automatically rewrite Git
+history or the README. Follow the
+[npm maintainer publishing guide](docs/npm-publish.md) for the ordered release
+procedure.
 
 ## Documentation
 
-- [Beginner manual installation](docs/manual-install.md)
+- [Changelog](CHANGELOG.md)
 - [Troubleshooting](docs/troubleshooting.md)
+- [OpenAI credential and node recipes](docs/n8n-configuration.md)
+- [Beginner manual installation](docs/manual-install.md)
 - [Security and limitations](docs/security.md)
 - [Architecture and n8n safety boundary](docs/architecture.md)
 - [Refresh, upgrade, rollback, and uninstall](docs/maintenance.md)
+- [YouTube walkthrough outline](docs/video-outline.md)
 - [npm maintainer publishing guide](docs/npm-publish.md)
+- [Approved scope](SPEC.md)
 
-## Supported bridge endpoints
+## Supported bridge behavior
 
-The pinned bridge release supports:
+The pinned upstream `2.0.0` release documents:
 
-- `/v1/models`
-- `/v1/responses`
-- `/v1/chat/completions`
-- streaming and tool calls
+- `/v1/models`;
+- `/v1/responses`;
+- `/v1/chat/completions`;
+- streaming and tool calls.
 
-Available models depend on the ChatGPT account and may change. The Responses
-API is stateless in the bridge, so the caller must send the conversation
-history it needs.
+Available models depend on the ChatGPT account and may change. The upstream
+Responses implementation is stateless, so callers must send the conversation
+history needed for each request.
 
-## Project status
+## Sources and further reading
 
-This is a local wizard for a separate sidecar. A native signed desktop build
-is intentionally deferred; `npx` is the supported non-technical distribution
-path. See [SPEC.md](SPEC.md) for the approved scope.
+- [`openai-oauth` v2.0.0 release](https://github.com/EvanZhouDev/openai-oauth/releases/tag/v2.0.0)
+- [`openai-oauth` v2.0.0 server routes](https://github.com/EvanZhouDev/openai-oauth/blob/v2.0.0/packages/openai-oauth/src/server.ts)
+- [`openai-oauth` v2.0.0 login flow](https://github.com/EvanZhouDev/openai-oauth/blob/v2.0.0/packages/openai-oauth/src/login.ts)
+- [n8n OpenAI credential documentation](https://docs.n8n.io/integrations/builtin/credentials/openai/)
+- [n8n OpenAI credential source](https://github.com/n8n-io/n8n/blob/master/packages/nodes-base/credentials/OpenAiApi.credentials.ts)
+- [n8n OpenAI Chat Model source](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/llms/LMChatOpenAi/LmChatOpenAi.node.ts)
+- [Docker Compose networking](https://docs.docker.com/compose/how-tos/networking/)
+- [Docker Compose `expose`](https://docs.docker.com/reference/compose-file/services/#expose)
+- [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/)
+- [OpenAI: using Codex with a ChatGPT plan](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan)
+- [OpenAI Terms of Use](https://openai.com/policies/terms-of-use/)
+- [npm semantic versioning](https://docs.npmjs.com/about-semantic-versioning/)
 
-## Sources
+## License
 
-- [openai-oauth upstream README](https://github.com/EvanZhouDev/openai-oauth)
-- [Docker Compose external networking](https://docs.docker.com/compose/how-tos/networking/#use-an-existing-network)
-- [n8n OpenAI credential implementation](https://github.com/n8n-io/n8n/blob/master/packages/nodes-base/credentials/OpenAiApi.credentials.ts)
-- [OpenAI: ChatGPT subscription and API billing are separate](https://help.openai.com/en/articles/8156019-i-want-to-move-my-chatgpt-subscription-to-the-api)
+[MIT](LICENSE). The upstream `openai-oauth` project has its own license and
+legal notice; review both before distributing or deploying this setup.

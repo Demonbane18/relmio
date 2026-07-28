@@ -55,7 +55,9 @@
   - Verify: security checklist review.
   - Files: `docs/security.md`, `docs/architecture.md`, `docs/maintenance.md`
 
-- [x] Task 12: Verify and publish privately
-  - Acceptance: tests, lint, audit, package preview, and secret scan pass; private repository exists.
-  - Verify: GitHub visibility is `PRIVATE` and local tree is clean.
+- [x] Task 12: Verify and prepare the `0.1.6` release candidate
+  - Acceptance: tests, lint, audit, package preview, and secret scan pass;
+    repository metadata and public documentation are complete.
+  - Verify: `npm run check`, `npm audit --audit-level=high`, and
+    `npm pack --dry-run`.
   - Files: repository metadata and Git history

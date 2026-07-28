@@ -200,6 +200,7 @@ async function handleApi(request, response, path, state) {
     sendJson(response, 200, {
       authExists: status.exists,
       ...(status.exists ? { authUpdatedAt: status.updatedAt } : {}),
+      ...(state.previewMode ? { previewMode: true } : {}),
     });
     return;
   }
@@ -219,6 +220,14 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/oauth/login") {
+    if (state.previewMode) {
+      throw Object.assign(
+        new Error(
+          "Live ChatGPT sign-in is disabled in sanitized preview mode.",
+        ),
+        { statusCode: 403 },
+      );
+    }
     enforceRateLimit(state, path);
     if (state.oauthLogin?.status === "pending") {
       state.oauthLogin.attempt.cancel();
@@ -429,6 +438,7 @@ export async function startWizardServer({
   services = defaultServices,
   uiFiles,
   port = 0,
+  previewMode = false,
 } = {}) {
   if (typeof sessionToken !== "string" || sessionToken.length < 32) {
     throw new TypeError("A strong wizard session token is required.");
@@ -445,6 +455,7 @@ export async function startWizardServer({
     networksByContainer: new Map(),
     oauthLogin: null,
     rateLimits: new Map(),
+    previewMode: previewMode === true,
   };
   const server = createServer(createRequestHandler(state));
   server.requestTimeout = 330_000;

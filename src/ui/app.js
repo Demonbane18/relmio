@@ -47,6 +47,33 @@ function setBusy(button, busy, busyText) {
   button.textContent = busy ? busyText : button.dataset.label;
 }
 
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(value);
+    return;
+  } catch {
+    const previouslyFocused = document.activeElement;
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.readOnly = true;
+    textarea.setAttribute("aria-hidden", "true");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.append(textarea);
+    textarea.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } finally {
+      textarea.remove();
+      previouslyFocused?.focus?.();
+    }
+    if (!copied) {
+      throw new Error("The browser refused clipboard access.");
+    }
+  }
+}
+
 const delay = (milliseconds) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
@@ -140,9 +167,24 @@ async function refreshAuthStatus({ fresh = false } = {}) {
   clearError();
   const status = await api("/api/status");
   const indicator = element("auth-indicator");
+  const loginButton = element("login-button");
   const next = element("signin-next");
   const formattedUpdatedAt = renderAuthUpdatedAt(status.authUpdatedAt);
 
+  if (status.previewMode) {
+    indicator.classList.add("ready");
+    element("auth-title").textContent = "Sanitized preview credential";
+    element("auth-detail").textContent =
+      "Preview mode uses sample data and cannot start a real ChatGPT sign-in.";
+    loginButton.textContent = "Preview sign-in disabled";
+    loginButton.dataset.label = "Preview sign-in disabled";
+    loginButton.disabled = true;
+    next.disabled = false;
+    setMessage("Sanitized preview mode: no live ChatGPT sign-in will open.");
+    return;
+  }
+
+  loginButton.disabled = false;
   if (status.authExists) {
     indicator.classList.add("ready");
     element("auth-title").textContent = fresh
@@ -150,8 +192,8 @@ async function refreshAuthStatus({ fresh = false } = {}) {
       : "Local credential found";
     element("auth-detail").textContent =
       "Continue uses it as-is. Refresh the sign-in if it is expired or was created by another client.";
-    element("login-button").textContent = "Refresh ChatGPT sign-in";
-    element("login-button").dataset.label = "Refresh ChatGPT sign-in";
+    loginButton.textContent = "Refresh ChatGPT sign-in";
+    loginButton.dataset.label = "Refresh ChatGPT sign-in";
     next.disabled = false;
     setMessage(
       fresh && formattedUpdatedAt
@@ -163,8 +205,8 @@ async function refreshAuthStatus({ fresh = false } = {}) {
     element("auth-title").textContent = "Sign-in needed";
     element("auth-detail").textContent =
       "A browser sign-in will open and wait for up to five minutes.";
-    element("login-button").textContent = "Sign in with ChatGPT";
-    element("login-button").dataset.label = "Sign in with ChatGPT";
+    loginButton.textContent = "Sign in with ChatGPT";
+    loginButton.dataset.label = "Sign in with ChatGPT";
     next.disabled = true;
     setMessage("Sign in with ChatGPT to continue.");
   }
@@ -391,7 +433,10 @@ element("install-button").addEventListener("click", async (event) => {
     });
     element("result-url").textContent = result.baseUrl;
     element("result-key").textContent = result.apiKeyPlaceholder;
+    element("result-model").textContent = result.models[0] ?? "";
     element("result-models").textContent = result.models.join(", ");
+    element("result-http-url").textContent =
+      `${result.baseUrl.replace(/\/$/u, "")}/responses`;
     showStep(5);
     setMessage(
       result.deploymentMode === "updated"
@@ -410,16 +455,33 @@ element("copy-settings").addEventListener("click", async (event) => {
     `Base URL: ${element("result-url").textContent}`,
     `API Key: ${element("result-key").textContent}`,
     "Organization ID: leave empty",
-    "Use Responses API: on",
+    "Add Custom Header: off",
   ].join("\n");
+  clearError();
   try {
-    await navigator.clipboard.writeText(settings);
+    await copyText(settings);
     event.currentTarget.textContent = "Copied";
-    setMessage("n8n settings copied.");
+    setMessage("OpenAI credential settings copied.");
   } catch {
     showError(new Error("Copy failed. Select the values manually."));
   }
 });
+
+for (const button of document.querySelectorAll("[data-copy-target]")) {
+  button.addEventListener("click", async (event) => {
+    const target = element(event.currentTarget.dataset.copyTarget);
+    const label = event.currentTarget.dataset.copyLabel;
+    const value = target.textContent;
+    clearError();
+    try {
+      await copyText(value);
+      event.currentTarget.textContent = "Copied";
+      setMessage(`${label} copied.`);
+    } catch {
+      showError(new Error(`Copy failed. Select the ${label} manually.`));
+    }
+  });
+}
 
 for (const button of document.querySelectorAll(".back-button")) {
   button.addEventListener("click", () => {

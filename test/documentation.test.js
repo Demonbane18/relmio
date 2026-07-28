@@ -7,6 +7,18 @@ import {
   createDockerfile,
 } from "../src/domain/templates.js";
 
+function assertOnlyDocumentationAddresses(contents) {
+  const allowed = new Set(["0.0.0.0", "127.0.0.1", "192.0.2.10"]);
+  const addresses = contents.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/gu) ?? [];
+
+  for (const address of addresses) {
+    assert.ok(
+      allowed.has(address),
+      "documentation contains a non-documentation IPv4 address",
+    );
+  }
+}
+
 test("manual guide copies the generated sidecar files exactly", async () => {
   const guide = await readFile("docs/manual-install.md", "utf8");
 
@@ -17,7 +29,7 @@ test("manual guide copies the generated sidecar files exactly", async () => {
     /up -d --wait --wait-timeout 60 --no-deps openai-oauth/,
   );
   assert.match(guide, /http:\/\/n8n-openai-oauth:10531\/v1/);
-  assert.doesNotMatch(guide, /148\.230\.103\.145/);
+  assertOnlyDocumentationAddresses(guide);
 });
 
 test("beginner documentation states the critical safety and product limits", async () => {
@@ -31,11 +43,29 @@ test("beginner documentation states the critical safety and product limits", asy
   );
   const contents = files.join("\n");
 
-  assert.match(contents, /does \*\*not\*\* create a real OpenAI API key/i);
+  assert.match(
+    contents,
+    /does \*\*not\*\* create an? (?:real )?OpenAI (?:Platform )?API key/i,
+  );
   assert.match(contents, /never (?:edits|delete).*n8n/i);
   assert.match(contents, /unofficial/i);
   assert.match(contents, /OpenAI Terms/i);
   assert.match(contents, /no host `ports` mapping/i);
   assert.match(contents, /This sign-in request expired/i);
   assert.match(contents, /no matches found/i);
+});
+
+test("n8n configuration guide provides copy-paste model and HTTP recipes", async () => {
+  const guide = await readFile("docs/n8n-configuration.md", "utf8");
+
+  assert.match(guide, /AI Agent/u);
+  assert.match(guide, /Basic LLM Chain/u);
+  assert.match(guide, /OpenAI Chat Model/u);
+  assert.match(guide, /http:\/\/n8n-openai-oauth:10531\/v1\/responses/u);
+  assert.match(guide, /Bearer local-only/u);
+  assert.match(guide, /PASTE_ONE_MODEL_ID_FROM_THE_WIZARD/u);
+  assert.match(guide, /curl --request POST/u);
+  assert.match(guide, /node version 1\.3/u);
+  assert.match(guide, /\/v1\/chat\/completions/u);
+  assertOnlyDocumentationAddresses(guide);
 });

@@ -9,13 +9,28 @@ creates a separate sidecar project on approval.
 ```mermaid
 flowchart LR
   B["Local browser<br>127.0.0.1"] --> W["Local Node wizard"]
-  W --> O["OpenAI OAuth login<br>local callback"]
+  W --> O["ChatGPT/Codex OAuth login<br>local callback"]
   W -->|verified SSH + SFTP| V["VPS"]
   V --> N["Existing n8n container<br>unchanged"]
   V --> S["New openai-oauth sidecar"]
   N -->|Docker DNS<br>n8n-openai-oauth:10531| S
-  S --> C["ChatGPT / Codex backend"]
+  S --> C["OpenAI service used by<br>the upstream helper"]
 ```
+
+## Why this integration is possible
+
+The design combines four existing interfaces rather than changing n8n:
+
+1. The n8n OpenAI credential accepts a custom Base URL.
+2. The pinned bridge implements OpenAI-compatible model, Responses, and chat
+   completions routes.
+3. Docker Compose can attach a separate project to an existing external
+   network.
+4. Docker DNS resolves the private sidecar hostname from the n8n container.
+
+n8n therefore talks to the private sidecar with its normal OpenAI request
+shape. The sidecar handles upstream OAuth authentication with its mounted
+credential. No OpenAI Platform API key is created.
 
 ## The mutation boundary
 
@@ -89,6 +104,16 @@ POST /v1/chat/completions
 
 The placeholder API key satisfies n8n's required credential field. The
 sidecar authenticates upstream with the mounted OAuth file.
+
+## Technical sources
+
+- [`openai-oauth` v2.0.0 server routes](https://github.com/EvanZhouDev/openai-oauth/blob/v2.0.0/packages/openai-oauth/src/server.ts)
+- [`openai-oauth` v2.0.0 login flow](https://github.com/EvanZhouDev/openai-oauth/blob/v2.0.0/packages/openai-oauth/src/login.ts)
+- [n8n OpenAI credential documentation](https://docs.n8n.io/integrations/builtin/credentials/openai/)
+- [n8n OpenAI credential source](https://github.com/n8n-io/n8n/blob/master/packages/nodes-base/credentials/OpenAiApi.credentials.ts)
+- [Docker Compose networking](https://docs.docker.com/compose/how-tos/networking/)
+- [Docker Compose `expose`](https://docs.docker.com/reference/compose-file/services/#expose)
+- [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/)
 
 ## Failure behavior
 

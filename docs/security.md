@@ -86,7 +86,7 @@ permitted. The account owner is responsible for reviewing the current
 
 ## Dependency policy
 
-The private MVP pins:
+The current release pins:
 
 - Node.js 22+
 - `ssh2` `1.17.0`

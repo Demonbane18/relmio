@@ -150,7 +150,9 @@
                 value="root"
                 required
               />
-              <small>The private MVP expects the Hostinger root account.</small>
+              <small>
+                The current guided setup expects the VPS root account.
+              </small>
             </label>
 
             <label class="field">
@@ -290,36 +292,122 @@
         <div class="panel-heading">
           <span class="step-kicker">Step 5 of 5</span>
           <h2 id="done-title" tabindex="-1">The private bridge is ready</h2>
-          <p>Use these values in your n8n OpenAI credential.</p>
+          <p>
+            Copy the OpenAI credential values first, then use one of the node
+            recipes below.
+          </p>
         </div>
 
+        <h3>1. OpenAI credential</h3>
         <dl class="result-list">
           <div>
             <dt>Base URL</dt>
-            <dd><code id="result-url">http://n8n-openai-oauth:10531/v1</code></dd>
+            <dd class="result-value">
+              <code id="result-url">http://n8n-openai-oauth:10531/v1</code>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-url"
+                data-copy-label="Base URL"
+                aria-label="Copy Base URL"
+              >
+                Copy
+              </button>
+            </dd>
           </div>
           <div>
             <dt>API key</dt>
-            <dd><code id="result-key">local-only</code></dd>
+            <dd class="result-value">
+              <code id="result-key">local-only</code>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-key"
+                data-copy-label="API key"
+                aria-label="Copy API key"
+              >
+                Copy
+              </button>
+            </dd>
           </div>
           <div>
-            <dt>Responses API</dt>
-            <dd><strong>On</strong></dd>
+            <dt>Organization ID</dt>
+            <dd>Leave empty</dd>
+          </div>
+          <div>
+            <dt>Custom header</dt>
+            <dd><strong>Off</strong></dd>
           </div>
         </dl>
 
         <button id="copy-settings" class="button secondary" type="button">
-          Copy n8n settings
+          Copy credential settings
         </button>
 
         <div class="model-box">
-          <h3>Models detected</h3>
-          <p id="result-models">—</p>
+          <h3>2. OpenAI Chat Model — AI Agent or Basic LLM Chain</h3>
+          <dl class="result-list">
+            <div>
+              <dt>Model ID</dt>
+              <dd class="result-value">
+                <code id="result-model">—</code>
+                <button
+                  class="button secondary copy-value"
+                  type="button"
+                  data-copy-target="result-model"
+                  data-copy-label="model ID"
+                  aria-label="Copy model ID"
+                >
+                  Copy
+                </button>
+              </dd>
+            </div>
+            <div>
+              <dt>Responses API</dt>
+              <dd><strong>On</strong> for Chat Model node version 1.3</dd>
+            </div>
+          </dl>
+          <p>All models detected: <span id="result-models">—</span></p>
+          <p>
+            If the Responses API switch is absent, keep the node's default
+            Chat Completions behavior; the bridge supports that route too.
+          </p>
+        </div>
+
+        <div class="model-box">
+          <h3>3. HTTP Request node</h3>
+          <dl class="result-list">
+            <div>
+              <dt>Method</dt>
+              <dd><code>POST</code></dd>
+            </div>
+            <div>
+              <dt>URL</dt>
+              <dd class="result-value">
+                <code id="result-http-url">
+                  http://n8n-openai-oauth:10531/v1/responses
+                </code>
+                <button
+                  class="button secondary copy-value"
+                  type="button"
+                  data-copy-target="result-http-url"
+                  data-copy-label="HTTP endpoint"
+                  aria-label="Copy HTTP endpoint"
+                >
+                  Copy
+                </button>
+              </dd>
+            </div>
+            <div>
+              <dt>Authentication</dt>
+              <dd>None</dd>
+            </div>
+          </dl>
         </div>
 
         <p class="final-note">
-          In n8n, use an OpenAI credential with the values above. Leave
-          Organization ID empty. Start with no built-in tools. You can now
+          The README includes complete AI Agent, Basic LLM Chain, JSON, and
+          importable cURL examples. Start with no built-in tools. You can now
           return to Terminal and press Control+C to close this local wizard;
           the VPS sidecar will keep running.
         </p>

@@ -551,6 +551,19 @@ code {
   font-weight: 700;
 }
 
+.result-list dd.result-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.copy-value {
+  min-height: 2rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.8125rem;
+}
+
 .model-box,
 .final-note {
   margin-top: 1.5rem;

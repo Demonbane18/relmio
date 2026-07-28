@@ -33,6 +33,23 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   );
   assert.match(html, /<label class="field">[\s\S]*id="host"/);
   assert.match(html, /id="password"[\s\S]*disabled[\s\S]*required/);
+  assert.match(
+    html,
+    /data-copy-target="result-url"[\s\S]*aria-label="Copy Base URL"/,
+  );
+  assert.match(
+    html,
+    /data-copy-target="result-key"[\s\S]*aria-label="Copy API key"/,
+  );
+  assert.match(
+    html,
+    /data-copy-target="result-model"[\s\S]*aria-label="Copy model ID"/,
+  );
+  assert.match(
+    html,
+    /data-copy-target="result-http-url"[\s\S]*aria-label="Copy HTTP endpoint"/,
+  );
+  assert.match(html, /OpenAI credential[\s\S]*OpenAI Chat Model/u);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /\sonclick=/i);
 });
@@ -46,4 +63,15 @@ test("browser code never uses innerHTML or web storage for credentials", async (
   assert.match(app, /textContent/);
   assert.match(app, /authUpdatedAt/);
   assert.match(app, /Fresh sign-in saved/);
+  assert.match(app, /status\.previewMode/);
+  assert.match(app, /Preview sign-in disabled/);
+  assert.match(app, /querySelectorAll\("\[data-copy-target\]"\)/);
+  assert.match(app, /async function copyText\(value\)/);
+  assert.match(app, /navigator\.clipboard\.writeText\(value\)/);
+  assert.match(app, /document\.execCommand\("copy"\)/);
+  assert.match(
+    app,
+    /try \{[\s\S]*document\.execCommand\("copy"\)[\s\S]*finally \{[\s\S]*textarea\.remove\(\)[\s\S]*previouslyFocused\?\.focus\?\.\(\)/u,
+  );
+  assert.doesNotMatch(app, /"Use Responses API: on"/u);
 });

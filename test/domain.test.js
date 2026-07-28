@@ -41,7 +41,7 @@ test("validation rejects values that could become remote shell syntax", () => {
   }
 
   assert.throws(() => validateHostname("example.com;id"), /invalid/i);
-  assert.throws(() => validateHostname("148.230.103.999"), /invalid/i);
+  assert.throws(() => validateHostname("192.0.2.999"), /invalid/i);
   assert.throws(() => validatePort("22abc"), /invalid/i);
   assert.throws(() => validatePort("70000"), /invalid/i);
   assert.throws(() => validateUsername("root;id"), /invalid/i);

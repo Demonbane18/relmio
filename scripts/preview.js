@@ -15,23 +15,6 @@ const services = {
       updatedAt: previewCredentialUpdatedAt,
     };
   },
-  async startOAuthLogin() {
-    const authorizationUrl = new URL(
-      "https://auth.openai.com/oauth/authorize",
-    );
-    authorizationUrl.searchParams.set("response_type", "code");
-    authorizationUrl.searchParams.set(
-      "redirect_uri",
-      "http://localhost:1455/auth/callback",
-    );
-    authorizationUrl.searchParams.set("state", "sanitized-preview");
-    authorizationUrl.searchParams.set("code_challenge", "sanitized-preview");
-    return {
-      authorizationUrl: authorizationUrl.toString(),
-      completion: Promise.resolve({ success: true }),
-      cancel() {},
-    };
-  },
   async readAuthContents() {
     return Buffer.from('{"preview":true}');
   },
@@ -70,10 +53,16 @@ const services = {
 };
 
 const sessionToken = randomBytes(32).toString("base64url");
-const wizard = await startWizardServer({ sessionToken, services });
+const wizard = await startWizardServer({
+  sessionToken,
+  services,
+  previewMode: true,
+});
 
 console.log(`${wizard.origin}/?session=${sessionToken}`);
-console.log("Preview data only. Press Control+C to stop.");
+console.log(
+  "Sanitized preview data only; live ChatGPT sign-in is disabled. Press Control+C to stop.",
+);
 
 process.once("SIGINT", async () => {
   await wizard.close();

@@ -142,6 +142,7 @@ export async function startOAuthLogin({
   const pendingAuthPath = `${authPath}.pending-${createPendingId()}`;
   const args = [
     "--yes",
+    "--ignore-scripts",
     "openai-oauth@2.0.0",
     "login",
     "--no-open",

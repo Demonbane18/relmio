@@ -18,11 +18,16 @@ The wizard replaces the sidecar credential and starts only the sidecar service.
 n8n is not restarted. Its local credential is stored separately at
 `~/.n8n-openai-oauth/auth.json`.
 
-Manual method:
+Manual POSIX-shell method:
 
 ```bash
-npx --yes openai-oauth@2.0.0 login --open --login-timeout-ms 300000
-scp "$HOME/.codex/auth.json" root@YOUR_VPS_IP:/docker/n8n-openai-oauth/auth/auth.json
+install -d -m 0700 "$HOME/.n8n-openai-oauth"
+npx --yes --ignore-scripts openai-oauth@2.0.0 login \
+  --open \
+  --login-timeout-ms 300000 \
+  --oauth-file "$HOME/.n8n-openai-oauth/auth.json"
+scp "$HOME/.n8n-openai-oauth/auth.json" \
+  root@YOUR_VPS_IP:/docker/n8n-openai-oauth/auth/auth.json
 ```
 
 Then on the VPS:
@@ -127,7 +132,7 @@ delete or recreate the n8n container as part of this uninstall.
 
 ## Future official n8n support
 
-As of July 27, 2026, an
+As of July 28, 2026, an
 [open n8n pull request](https://github.com/n8n-io/n8n/pull/29184) proposes
 native OpenAI Account authentication for the OpenAI Chat Model. It is not yet
 merged. If n8n later ships and documents an official equivalent, prefer the

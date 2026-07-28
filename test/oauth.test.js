@@ -148,6 +148,7 @@ test("startOAuthLogin returns one validated link and stores the credential after
   assert.equal(calls[0].command, "npx");
   assert.deepEqual(calls[0].args, [
     "--yes",
+    "--ignore-scripts",
     "openai-oauth@2.0.0",
     "login",
     "--no-open",

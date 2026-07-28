@@ -1,5 +1,53 @@
 # Changelog
 
+This project follows semantic versioning. Each completed release uses one
+version across `package.json`, `package-lock.json`, this file, the Git tag,
+and npm. Local checks validate the repository metadata; the publishing guide
+checks the registry separately after publication.
+
+## [Unreleased]
+
+## [0.1.6] - 2026-07-28
+
+### Added
+
+- Add a public npm quick-start guide with five sanitized setup screenshots,
+  Mermaid architecture diagrams, and a YouTube walkthrough outline.
+- Add individual Base URL/API-key copy controls and n8n recipes for OpenAI
+  Chat Model, AI Agent, Basic LLM Chain, and HTTP Request nodes.
+- Add a release metadata validator that keeps the package, lockfile, changelog,
+  and release tag on one version.
+- Add GitHub Actions checks with immutable action pins, no persisted checkout
+  credential, and the repository's pinned npm `10.9.8` runtime.
+
+### Changed
+
+- Expand troubleshooting for stale wizard sessions, npm versions, local OAuth
+  callbacks, SSH failures, Docker networks, real port mappings, and manual
+  sidecar collisions.
+- Use the wizard-only `~/.n8n-openai-oauth/auth.json` path consistently in the
+  manual and maintenance guides.
+- Replace pre-publication wording and add the local context file to the shared
+  ignore policy.
+- Disable npm lifecycle scripts explicitly in every documented and nested
+  `npx` invocation.
+- Separate OpenAI credential fields from OpenAI Chat Model settings and explain
+  the Responses API compatibility behavior for Chat Model node version 1.3.
+
+### Fixed
+
+- Prevent sanitized preview mode from generating or opening a live OpenAI
+  authorization URL.
+- Refuse to show the ready screen when the sidecar returns no usable model ID.
+- Tag the exact commit that passed CI and was published instead of relying on
+  the shell's current `HEAD`.
+- Make the sanitized preview follow the production OAuth service contract and
+  show the correct private n8n Base URL.
+- Fall back to a temporary selected text field when a browser denies the
+  modern Clipboard API, so the final credential copy buttons still work.
+- Always remove the fallback copy field and restore focus when legacy browser
+  clipboard access throws.
+
 ## [0.1.5] - 2026-07-28
 
 ### Fixed
@@ -76,3 +124,12 @@
 - SSH host-key confirmation is required before password authentication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
+
+[Unreleased]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Demonbane18/n8n-openai-oauth-setup/releases/tag/v0.1.0

@@ -61,7 +61,7 @@ Validation and safety policy
 
 - Task 10: Write the manual guide and troubleshooting matrix.
 - Task 11: Complete security, architecture, uninstall, and maintenance documentation.
-- Task 12: Run tests, lint, audit, package preview, staged-secret scan, and create the private GitHub repository.
+- Task 12: Run tests, lint, audit, package preview, staged-secret scan, and prepare the GitHub repository and npm release.
 
 ## Risks and mitigations
 
@@ -76,4 +76,4 @@ Validation and safety policy
 
 ## Open questions
 
-- None for the approved private MVP.
+- None for the approved initial release.
