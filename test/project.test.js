@@ -28,3 +28,14 @@ test("double-click launchers only install local dependencies and start the wizar
     );
   }
 });
+
+test("sanitized preview follows the production OAuth and endpoint contracts", async () => {
+  const preview = await readFile("scripts/preview.js", "utf8");
+
+  assert.match(preview, /async startOAuthLogin\(\)/u);
+  assert.match(preview, /authorizationUrl/u);
+  assert.match(preview, /completion/u);
+  assert.match(preview, /cancel\(\)/u);
+  assert.match(preview, /http:\/\/n8n-openai-oauth:10531\/v1/u);
+  assert.doesNotMatch(preview, /async runOAuthLogin\(\)/u);
+});
