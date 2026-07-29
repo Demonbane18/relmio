@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/images/brand/planrelay-mark.svg" alt="PlanRelay logo" width="88">
   <h1>PlanRelay</h1>
-  <p>Relay a supported ChatGPT/Codex sign-in to OpenAI-compatible clients—starting with self-hosted n8n.</p>
+  <p>Relay a supported ChatGPT/Codex sign-in to OpenAI-compatible clients, starting with self-hosted n8n.</p>
   <p>
     <a href="#choose-a-setup-path">Get started</a>
     &nbsp;·&nbsp;
@@ -152,8 +152,8 @@ flowchart TD
   Result --> Configure
 ```
 
-The wizard is a convenience layer, not a requirement. If it cannot run—or if
-you want to inspect, reproduce, improve, or debug the method—use
+The wizard is a convenience layer, not a requirement. If it cannot run, or if
+you want to inspect, reproduce, improve, or debug the method, use
 [Manual setup and debugging](#manual-setup-and-debugging).
 
 ## Quick start with the npm package
@@ -314,7 +314,7 @@ n8n may send `Authorization: Bearer local-only`. The bridge does not treat
 that placeholder as an OpenAI API key or secret.
 
 For complete copy-paste recipes for an **AI Agent**, **Basic LLM Chain**, and
-**HTTP Request** node—including an importable cURL command—open
+**HTTP Request** node, including an importable cURL command, open
 [Configure n8n nodes](docs/n8n-configuration.md).
 
 ## Run from a repository clone

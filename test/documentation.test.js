@@ -49,6 +49,7 @@ test("README keeps both setup paths and layman diagrams visible", async () => {
   assert.match(readme, /## Manual setup and debugging/u);
   assert.match(readme, /The wizard is a convenience layer, not a requirement/u);
   assert.ok(mermaidBlocks.length >= 4);
+  assert.doesNotMatch(readme, /—/u);
 });
 
 test("beginner documentation states the critical safety and product limits", async () => {
