@@ -7,6 +7,10 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+No unreleased changes.
+
+## [0.2.0] - 2026-07-29
+
 ### Changed
 
 - Rename the public product and npm package to PlanRelay and `planrelay` so the
