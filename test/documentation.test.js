@@ -19,17 +19,36 @@ function assertOnlyDocumentationAddresses(contents) {
   }
 }
 
-test("manual guide copies the generated sidecar files exactly", async () => {
-  const guide = await readFile("docs/manual-install.md", "utf8");
-
-  assert.ok(guide.includes(createDockerfile().trim()));
-  assert.ok(guide.includes(createComposeFile({ networkName: "proxy" }).trim()));
-  assert.match(
-    guide,
-    /up -d --wait --wait-timeout 60 --no-deps openai-oauth/,
+test("README and manual guide copy the generated sidecar files exactly", async () => {
+  const guides = await Promise.all(
+    ["README.md", "docs/manual-install.md"].map((path) =>
+      readFile(path, "utf8"),
+    ),
   );
-  assert.match(guide, /http:\/\/n8n-openai-oauth:10531\/v1/);
-  assertOnlyDocumentationAddresses(guide);
+
+  for (const guide of guides) {
+    assert.ok(guide.includes(createDockerfile().trim()));
+    assert.ok(
+      guide.includes(createComposeFile({ networkName: "proxy" }).trim()),
+    );
+    assert.match(
+      guide,
+      /up -d --wait --wait-timeout 60 --no-deps openai-oauth/,
+    );
+    assert.match(guide, /http:\/\/n8n-openai-oauth:10531\/v1/);
+    assertOnlyDocumentationAddresses(guide);
+  }
+});
+
+test("README keeps both setup paths and layman diagrams visible", async () => {
+  const readme = await readFile("README.md", "utf8");
+  const mermaidBlocks = readme.match(/```mermaid/gu) ?? [];
+
+  assert.match(readme, /## Choose a setup path/u);
+  assert.match(readme, /## Quick start with the npm package/u);
+  assert.match(readme, /## Manual setup and debugging/u);
+  assert.match(readme, /The wizard is a convenience layer, not a requirement/u);
+  assert.ok(mermaidBlocks.length >= 4);
 });
 
 test("beginner documentation states the critical safety and product limits", async () => {

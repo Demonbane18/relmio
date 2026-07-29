@@ -1,8 +1,9 @@
 # Beginner manual installation
 
-Use this guide only if the browser wizard cannot be used. The wizard is safer
-because it validates names, confirms the host fingerprint, uploads files with
-SFTP, and limits the commands it can run.
+Use this guide if the browser wizard cannot be used, or if you need to
+reproduce, debug, or improve the underlying installation method. The wizard is
+safer for routine installation because it validates names, confirms the host
+fingerprint, uploads files with SFTP, and limits the commands it can run.
 
 This guide never changes the existing n8n Compose file or image. It creates a
 second Compose project.

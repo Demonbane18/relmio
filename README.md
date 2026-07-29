@@ -2,7 +2,7 @@
   <h1>n8n OpenAI OAuth Setup</h1>
   <p>Connect self-hosted n8n to a private, OpenAI-compatible OAuth sidecar without changing your existing n8n deployment.</p>
   <p>
-    <a href="#quick-start-with-the-npm-package">Get started</a>
+    <a href="#choose-a-setup-path">Get started</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/issues/new">Report an issue</a>
     &nbsp;·&nbsp;
@@ -57,8 +57,11 @@ The existing n8n image, Compose file, container, and workflows stay untouched.
 <details>
 <summary><strong>Table of contents</strong></summary>
 
+- [What this does, in plain English](#what-this-does-in-plain-english)
+- [Choose a setup path](#choose-a-setup-path)
 - [Quick start with the npm package](#quick-start-with-the-npm-package)
 - [Run from a repository clone](#run-from-a-repository-clone)
+- [Manual setup and debugging](#manual-setup-and-debugging)
 - [How it works behind the scenes](#how-it-works-behind-the-scenes)
 - [What the wizard can and cannot change](#what-the-wizard-can-and-cannot-change)
 - [Refresh, update, and remove](#refresh-update-and-remove)
@@ -72,6 +75,65 @@ The existing n8n image, Compose file, container, and workflows stay untouched.
 - [License](#license)
 
 </details>
+
+## What this does, in plain English
+
+n8n normally expects to talk to an OpenAI-compatible API using an API-key
+field. This project adds a small, private “translator” beside n8n. n8n sends
+its normal requests to that translator, and the translator uses your
+ChatGPT/Codex OAuth sign-in for the upstream connection.
+
+```mermaid
+flowchart LR
+  You["You build or run<br/>an n8n workflow"]
+  N8N["Your existing n8n<br/>stays unchanged"]
+  Bridge["Private translator<br/>OAuth sidecar"]
+  OpenAI["Upstream OpenAI service"]
+
+  You --> N8N
+  N8N -->|"Normal OpenAI-shaped request<br/>inside Docker only"| Bridge
+  Bridge -->|"Uses your protected<br/>OAuth sign-in"| OpenAI
+  OpenAI -->|"Answer"| Bridge
+  Bridge -->|"OpenAI-shaped response"| N8N
+```
+
+Think of the sidecar as an interpreter in a private room: n8n speaks the API
+format it already knows, while the sidecar handles the different sign-in
+method. The sidecar shares a private Docker network with n8n; port `10531` is
+not published to the internet.
+
+## Choose a setup path
+
+Both methods create the same separate sidecar and leave the existing n8n
+container, image, Compose file, and workflows alone.
+
+| Path | Best for | What you do |
+|---|---|---|
+| **npm browser wizard** | Most users | Follow guided screens, verify the server identity, review the plan, then approve |
+| **Manual setup** | Wizard failures, unusual VPS setups, debugging, and contributors | Run the underlying login, SSH, file, and Docker Compose steps yourself |
+
+```mermaid
+flowchart TD
+  Start["I want to connect my<br/>self-hosted n8n"]
+  Choice{"Can I use the local<br/>browser wizard?"}
+  Wizard["Option A<br/>Run the npm wizard"]
+  Manual["Option B<br/>Follow the manual commands"]
+  Review["Review what will change<br/>before remote writes"]
+  Result["Same result<br/>one private OAuth sidecar beside n8n"]
+  Configure["Point the n8n OpenAI credential<br/>to n8n-openai-oauth:10531/v1"]
+
+  Start --> Choice
+  Choice -->|"Yes"| Wizard
+  Choice -->|"No, or I need to debug"| Manual
+  Wizard --> Review
+  Manual --> Review
+  Review --> Result
+  Result --> Configure
+```
+
+The wizard is a convenience layer, not a requirement. If it cannot run—or if
+you want to inspect, reproduce, improve, or debug the method—use
+[Manual setup and debugging](#manual-setup-and-debugging).
 
 ## Quick start with the npm package
 
@@ -242,6 +304,238 @@ npm start
 
 On macOS, **Start Wizard.command** performs the install-and-start steps. On
 Windows, use **Start Wizard.bat**.
+
+## Manual setup and debugging
+
+The manual method is intentionally supported. It is the fallback when the npm
+wizard does not work, and it exposes every underlying step so technical users
+can reproduce problems and contribute fixes. It creates the same separate
+sidecar; it does not modify the existing n8n Compose project.
+
+You need a POSIX shell (macOS, Linux, WSL, or Git Bash), Node.js 22 or newer,
+SSH access to the VPS, Docker Compose v2 on the VPS, and the name of a Docker
+network already used by n8n. Back up your n8n workflows before starting.
+
+> [!CAUTION]
+> Manual commands do not provide the wizard's validation guardrails. Check
+> every replacement value, verify the SSH host fingerprint before entering a
+> password, never print the OAuth file, and stop for a final review before the
+> first remote write in step 3.
+
+### 1. Create the OAuth file on your computer
+
+Run this on your own computer, not on the VPS:
+
+```bash
+install -d -m 0700 "$HOME/.n8n-openai-oauth"
+npx --yes --ignore-scripts openai-oauth@2.0.0 login \
+  --open \
+  --login-timeout-ms 300000 \
+  --oauth-file "$HOME/.n8n-openai-oauth/auth.json"
+test -s "$HOME/.n8n-openai-oauth/auth.json" \
+  && echo "OAuth file is ready"
+```
+
+Complete the browser sign-in opened by the newest command. The dedicated file
+does not reuse or overwrite `~/.codex/auth.json`. Treat both files like
+passwords.
+
+### 2. Verify and inspect the VPS
+
+Connect from your computer:
+
+```bash
+ssh root@YOUR_VPS_IP
+```
+
+On the first connection, compare the displayed SSH fingerprint with the one
+from your VPS provider before accepting it. Then list the containers:
+
+```bash
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
+```
+
+Find the container using the official n8n image and inspect its networks,
+replacing `n8n-n8n-1` with its actual container name:
+
+```bash
+docker inspect n8n-n8n-1 --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}'
+```
+
+Record one existing network name that the new sidecar can share with n8n. It
+is commonly `proxy`, but use the name returned by your own VPS.
+
+### 3. Review, then create only the sidecar directory
+
+Before continuing, confirm all three facts:
+
+- the SSH fingerprint belongs to the intended VPS;
+- the selected container is your existing n8n container;
+- the selected Docker network is already attached to that n8n container.
+
+Only after that final human review, create the separate directories:
+
+```bash
+install -d -m 0755 /docker/n8n-openai-oauth
+install -d -m 0700 -o 1000 -g 1000 /docker/n8n-openai-oauth/auth
+```
+
+Create `/docker/n8n-openai-oauth/Dockerfile` with exactly:
+
+```dockerfile
+FROM node:22-bookworm-slim
+
+RUN npm install --global --ignore-scripts openai-oauth@2.0.0 \
+    && npm cache clean --force
+
+USER node
+
+ENTRYPOINT ["openai-oauth"]
+CMD ["--host", "0.0.0.0", "--port", "10531", "--oauth-file", "/home/node/.codex/auth.json"]
+```
+
+Create `/docker/n8n-openai-oauth/docker-compose.yml` with exactly the following.
+If the chosen network is not `proxy`, change only the final `name: proxy` line.
+
+```yaml
+services:
+  openai-oauth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    volumes:
+      - ./auth:/home/node/.codex
+    expose:
+      - "10531"
+    networks:
+      n8n-shared:
+        aliases:
+          - n8n-openai-oauth
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+      - /home/node/.local:uid=1000,gid=1000,mode=0700
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - 'fetch("http://127.0.0.1:10531/health").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      io.n8n-openai-oauth.managed: "true"
+
+networks:
+  n8n-shared:
+    external: true
+    name: proxy
+```
+
+There is deliberately no `ports:` section and no Traefik label.
+
+### 4. Copy the protected OAuth file
+
+Leave the VPS shell:
+
+```bash
+exit
+```
+
+Run `scp` on your own computer:
+
+```bash
+scp "$HOME/.n8n-openai-oauth/auth.json" \
+  root@YOUR_VPS_IP:/docker/n8n-openai-oauth/auth/auth.json
+```
+
+Reconnect and apply owner-only permissions on the VPS:
+
+```bash
+ssh root@YOUR_VPS_IP
+chown 1000:1000 /docker/n8n-openai-oauth/auth/auth.json
+chmod 600 /docker/n8n-openai-oauth/auth/auth.json
+```
+
+### 5. Validate, build, and start only the sidecar
+
+Use the explicit Compose project and file on every command:
+
+```bash
+docker compose \
+  --project-name n8n-openai-oauth \
+  --file /docker/n8n-openai-oauth/docker-compose.yml \
+  config --quiet
+
+docker compose \
+  --project-name n8n-openai-oauth \
+  --file /docker/n8n-openai-oauth/docker-compose.yml \
+  build openai-oauth
+
+docker compose \
+  --project-name n8n-openai-oauth \
+  --file /docker/n8n-openai-oauth/docker-compose.yml \
+  up -d --wait --wait-timeout 60 --no-deps openai-oauth
+```
+
+These commands name only the separate `openai-oauth` service. They do not
+reference the existing n8n Compose file or service.
+
+### 6. Verify the private bridge
+
+Check its final logs:
+
+```bash
+docker compose \
+  --project-name n8n-openai-oauth \
+  --file /docker/n8n-openai-oauth/docker-compose.yml \
+  logs --tail=50 openai-oauth
+```
+
+Prove that port `10531` is not published on the VPS:
+
+```bash
+docker compose \
+  --project-name n8n-openai-oauth \
+  --file /docker/n8n-openai-oauth/docker-compose.yml \
+  port openai-oauth 10531
+```
+
+Success is no output. Then verify the model endpoint from inside the sidecar:
+
+```bash
+docker compose \
+  --project-name n8n-openai-oauth \
+  --file /docker/n8n-openai-oauth/docker-compose.yml \
+  exec -T openai-oauth \
+  node -e 'fetch("http://127.0.0.1:10531/v1/models").then(async (response) => { console.log(await response.text()); process.exit(response.ok ? 0 : 1); }).catch(() => process.exit(1))'
+```
+
+### 7. Configure n8n
+
+Use the same credential settings as the wizard:
+
+```text
+API Key: local-only
+Organization ID: leave empty
+Base URL: http://n8n-openai-oauth:10531/v1
+Add Custom Header: off
+```
+
+Do not use `127.0.0.1` in n8n; inside its container, that address means n8n
+itself. For more explanations, common shell mistakes, and expected output, see
+the [expanded beginner manual installation guide](docs/manual-install.md).
 
 ## How it works behind the scenes
 
