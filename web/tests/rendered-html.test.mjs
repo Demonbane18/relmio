@@ -72,3 +72,16 @@ test("ships the request-bound chat and removes starter assets", async () => {
     access(new URL("../app/_sites-preview", import.meta.url)),
   );
 });
+
+test("pins hosted ChatGPT callbacks to the custom Relmio domain", async () => {
+  const chatConsole = await readFile(
+    new URL("../app/components/ChatConsole.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    chatConsole,
+    /const hostedChatCallbackUrl = "https:\/\/relmio\.jpfusin\.tech\/";/u,
+  );
+  assert.match(chatConsole, /callbackPath=\{hostedChatCallbackUrl\}/u);
+});

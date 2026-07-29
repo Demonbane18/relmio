@@ -20,6 +20,8 @@ const suggestions = [
   "What should I protect like a password?",
 ];
 
+const hostedChatCallbackUrl = "https://relmio.jpfusin.tech/";
+
 export function ChatConsole() {
   const [authStatus, setAuthStatus] =
     useState<SignInWithChatGPTState["status"]>("checking");
@@ -120,6 +122,7 @@ export function ChatConsole() {
 
       <div className="auth-row">
         <SignInWithChatGPT
+          callbackPath={hostedChatCallbackUrl}
           className="chatgpt-connect"
           loadingLabel="Checking ChatGPT…"
           redirectingLabel="Opening ChatGPT…"
