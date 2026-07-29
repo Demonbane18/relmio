@@ -54,6 +54,122 @@ test("rejects non-string chat prompts before reading credentials", async () => {
   });
 });
 
+test("streams chat over the UI message protocol without proxy buffering", async () => {
+  const [chatConsole, chatRoute] = await Promise.all([
+    readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.doesNotMatch(chatConsole, /streamProtocol:\s*"text"/u);
+  assert.match(chatRoute, /toUIMessageStreamResponse/u);
+  assert.match(chatRoute, /"Content-Encoding":\s*"none"/u);
+  assert.match(chatRoute, /onError:\s*\(\)\s*=>/u);
+});
+
+test("returns a streaming error event instead of an empty completion", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json(
+      { error: { message: "private upstream detail" } },
+      { status: 401 },
+    ),
+  );
+  t.mock.method(console, "error", () => {});
+
+  const response = await requestApp("/api/chat", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-token",
+      "chatgpt-account-id": "test-account",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ prompt: "hello" }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "text/event-stream");
+  assert.equal(response.headers.get("content-encoding"), "none");
+  assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
+
+  const stream = await response.text();
+  assert.match(stream, /"type":"error"/u);
+  assert.match(
+    stream,
+    /The response stream failed\. Reconnect ChatGPT and try again\./u,
+  );
+  assert.doesNotMatch(stream, /private upstream detail/u);
+});
+
+test("forwards incremental model text as separate chat stream events", async (t) => {
+  const upstreamEvents = [
+    {
+      type: "response.created",
+      response: { id: "response-test", created_at: 1, model: "gpt-5.4-mini" },
+    },
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { type: "message", id: "message-test", phase: "final_answer" },
+    },
+    {
+      type: "response.output_text.delta",
+      item_id: "message-test",
+      delta: "Hello",
+    },
+    {
+      type: "response.output_text.delta",
+      item_id: "message-test",
+      delta: " world",
+    },
+    {
+      type: "response.output_item.done",
+      output_index: 0,
+      item: { type: "message", id: "message-test", phase: "final_answer" },
+    },
+    {
+      type: "response.completed",
+      response: {
+        usage: {
+          input_tokens: 1,
+          input_tokens_details: { cached_tokens: 0 },
+          output_tokens: 2,
+          output_tokens_details: { reasoning_tokens: 0 },
+        },
+      },
+    },
+  ];
+  const upstreamStream = `${upstreamEvents
+    .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+    .join("")}data: [DONE]\n\n`;
+
+  t.mock.method(globalThis, "fetch", async (input) =>
+    String(input).includes("/responses")
+      ? new Response(upstreamStream, {
+          headers: { "content-type": "text/event-stream" },
+        })
+      : Response.json(
+          { error: { message: "Model catalog unavailable in this test." } },
+          { status: 503 },
+        ),
+  );
+
+  const response = await requestApp("/api/chat", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-token",
+      "chatgpt-account-id": "test-account",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ prompt: "hello" }),
+  });
+
+  assert.equal(response.status, 200);
+  const stream = await response.text();
+  assert.match(stream, /"type":"text-delta".*"delta":"Hello"/u);
+  assert.match(stream, /"type":"text-delta".*"delta":" world"/u);
+  assert.ok(stream.indexOf('"delta":"Hello"') < stream.indexOf('"delta":" world"'));
+  assert.match(stream, /data: \[DONE\]/u);
+});
+
 test("ships the request-bound chat and removes starter assets", async () => {
   const [chatConsole, chatRoute, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),

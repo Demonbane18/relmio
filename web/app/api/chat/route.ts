@@ -3,6 +3,8 @@ import { openaiCredentials } from "@openai-oauth/react/server";
 import { streamText } from "ai";
 
 const MAX_PROMPT_LENGTH = 3000;
+const STREAM_ERROR_MESSAGE =
+  "The response stream failed. Reconnect ChatGPT and try again.";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -45,11 +47,13 @@ export async function POST(request: Request) {
       maxOutputTokens: 600,
     });
 
-    return result.toTextStreamResponse({
+    return result.toUIMessageStreamResponse({
       headers: {
         "Cache-Control": "no-store",
+        "Content-Encoding": "none",
         "X-Content-Type-Options": "nosniff",
       },
+      onError: () => STREAM_ERROR_MESSAGE,
     });
   } catch {
     return Response.json(

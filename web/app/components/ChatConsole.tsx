@@ -36,7 +36,6 @@ export function ChatConsole() {
     stop,
   } = useCompletion({
     api: "/api/chat",
-    streamProtocol: "text",
     onError(error) {
       setLocalError(
         error.message || "The request could not be completed. Try again.",
@@ -155,11 +154,11 @@ export function ChatConsole() {
                 <p>{lastPrompt}</p>
               </div>
             ) : null}
-            <div className="message message-assistant">
-              <span>Relmio</span>
-              <p>
-                {completion ||
-                  (isLoading ? (
+            {completion || isLoading ? (
+              <div className="message message-assistant">
+                <span>Relmio</span>
+                <p>
+                  {completion || (
                     <span
                       className="typing-dots"
                       role="status"
@@ -169,11 +168,10 @@ export function ChatConsole() {
                       <i />
                       <i />
                     </span>
-                  ) : (
-                    ""
-                  ))}
-              </p>
-            </div>
+                  )}
+                </p>
+              </div>
+            ) : null}
           </>
         )}
       </div>

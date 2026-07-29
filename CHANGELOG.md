@@ -7,7 +7,10 @@ checks the registry separately after publication.
 
 ## Unreleased
 
-No unreleased changes.
+### Fixed
+
+- Stream hosted chat responses incrementally through deployment proxies and
+  surface safe request errors instead of leaving an empty assistant message.
 
 ## [0.2.1] - 2026-07-30
 
