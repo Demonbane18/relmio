@@ -122,6 +122,8 @@ so later releases can offer safe setup paths for OpenAI-compatible SDKs, local
 chatbots, and other custom applications. Those broader clients are a product
 direction, not a claim about the current installer: today, do not expose the
 sidecar port publicly or deploy it outside the documented n8n safety boundary.
+See the [provider and client roadmap](docs/roadmap.md), including the gated
+SuperGrok/xAI OAuth feasibility track.
 
 ## Choose a setup path
 
