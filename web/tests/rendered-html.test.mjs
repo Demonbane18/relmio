@@ -63,7 +63,7 @@ test("streams chat over the UI message protocol without proxy buffering", async 
   assert.doesNotMatch(chatConsole, /streamProtocol:\s*"text"/u);
   assert.match(chatRoute, /toUIMessageStreamResponse/u);
   assert.match(chatRoute, /"Content-Encoding":\s*"none"/u);
-  assert.match(chatRoute, /onError:\s*\(\)\s*=>/u);
+  assert.match(chatRoute, /onError:\s*streamErrorMessage/u);
 });
 
 test("returns a streaming error event instead of an empty completion", async (t) => {
@@ -97,6 +97,38 @@ test("returns a streaming error event instead of an empty completion", async (t)
     /The response stream failed\. Reconnect ChatGPT and try again\./u,
   );
   assert.doesNotMatch(stream, /private upstream detail/u);
+});
+
+test("identifies a ChatGPT challenge against the hosting network", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    new Response("<html>private challenge body</html>", {
+      status: 403,
+      headers: {
+        "cf-mitigated": "challenge",
+        "content-type": "text/html",
+      },
+    }),
+  );
+  t.mock.method(console, "error", () => {});
+
+  const response = await requestApp("/api/chat", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-token",
+      "chatgpt-account-id": "test-account",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ prompt: "hello" }),
+  });
+
+  assert.equal(response.status, 200);
+  const stream = await response.text();
+  assert.match(stream, /"type":"error"/u);
+  assert.match(
+    stream,
+    /ChatGPT blocked requests from this hosting network\./u,
+  );
+  assert.doesNotMatch(stream, /private challenge body|test-token/u);
 });
 
 test("forwards incremental model text as separate chat stream events", async (t) => {

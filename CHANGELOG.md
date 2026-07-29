@@ -11,6 +11,8 @@ checks the registry separately after publication.
 
 - Stream hosted chat responses incrementally through deployment proxies and
   surface safe request errors instead of leaving an empty assistant message.
+- Distinguish a ChatGPT hosting-network challenge from an expired OAuth
+  session without exposing upstream response bodies or credentials.
 
 ## [0.2.1] - 2026-07-30
 
