@@ -5,7 +5,7 @@ OAuth bridge provides. Adjust the timing to match your recording.
 
 ## Suggested title
 
-> Connect self-hosted n8n to a private OpenAI-compatible OAuth sidecar
+> PlanRelay: connect self-hosted n8n to a private OpenAI-compatible OAuth sidecar
 
 Avoid titles that promise a free API key, unlimited usage, or guaranteed
 credits. This project does not create an OpenAI Platform API key.
@@ -46,7 +46,7 @@ On screen: the Mermaid flowchart in the README.
 Run locally:
 
 ```bash
-npx --yes --ignore-scripts n8n-openai-oauth-setup@latest
+npx --yes --ignore-scripts planrelay@latest
 ```
 
 Explain that:
@@ -137,7 +137,7 @@ Point viewers to [Troubleshooting](troubleshooting.md).
 - Show the version used in the recording:
 
   ```bash
-  npm view n8n-openai-oauth-setup version
+  npm view planrelay version
   ```
 
 ## Reference links for the description

@@ -60,11 +60,14 @@ version.
 
 ```bash
 git status --short --branch
-npm view n8n-openai-oauth-setup version \
+npm view planrelay version \
   --registry=https://registry.npmjs.org
 ```
 
 The worktree should contain only the changes intended for the release.
+Before the first PlanRelay publish, npm returns `E404` because the new package
+name has no published version yet. Confirm the exact package name is still
+available, then continue only from the reviewed rebrand commit.
 
 ### 2. Bump the files without creating a tag
 
@@ -161,10 +164,10 @@ Verify the immutable registry result:
 
 ```bash
 LOCAL_VERSION="$(node -p "require('./package.json').version")"
-PUBLISHED_VERSION="$(npm view n8n-openai-oauth-setup version \
+PUBLISHED_VERSION="$(npm view planrelay version \
   --registry=https://registry.npmjs.org)"
 test "$LOCAL_VERSION" = "$PUBLISHED_VERSION"
-npm view "n8n-openai-oauth-setup@${LOCAL_VERSION}" dist.integrity \
+npm view "planrelay@${LOCAL_VERSION}" dist.integrity \
   --registry=https://registry.npmjs.org
 ```
 
@@ -191,8 +194,8 @@ changelog entry into its notes.
 In a separate terminal, check the version and launch the exact release:
 
 ```bash
-npm view n8n-openai-oauth-setup version
-npx --yes --ignore-scripts n8n-openai-oauth-setup@PUBLISHED_VERSION
+npm view planrelay version
+npx --yes --ignore-scripts planrelay@PUBLISHED_VERSION
 ```
 
 Replace `PUBLISHED_VERSION` with the number just published. Confirm that the

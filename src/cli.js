@@ -29,8 +29,8 @@ const wizard = await startWizardServer({ sessionToken });
 const url = `${wizard.origin}/?session=${sessionToken}`;
 
 console.log("");
-console.log("n8n OAuth Bridge Setup");
-console.log("----------------------");
+console.log("PlanRelay");
+console.log("---------");
 console.log(`Local wizard: ${url}`);
 console.log("");
 console.log("This creates a separate sidecar and never restarts n8n.");

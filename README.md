@@ -1,6 +1,7 @@
 <div align="center">
-  <h1>n8n OpenAI OAuth Setup</h1>
-  <p>Connect self-hosted n8n to a private, OpenAI-compatible OAuth sidecar without changing your existing n8n deployment.</p>
+  <img src="docs/images/brand/planrelay-mark.svg" alt="PlanRelay logo" width="88">
+  <h1>PlanRelay</h1>
+  <p>Relay a supported ChatGPT/Codex sign-in to OpenAI-compatible clients—starting with self-hosted n8n.</p>
   <p>
     <a href="#choose-a-setup-path">Get started</a>
     &nbsp;·&nbsp;
@@ -9,7 +10,7 @@
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers">Leave a star</a>
   </p>
   <p>
-    <a href="https://www.npmjs.com/package/n8n-openai-oauth-setup"><img src="https://img.shields.io/npm/v/n8n-openai-oauth-setup.svg" alt="npm version"></a>
+    <a href="https://www.npmjs.com/package/planrelay"><img src="https://img.shields.io/npm/v/planrelay.svg" alt="npm version"></a>
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml"><img src="https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
     <a href="package.json"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d.svg" alt="Node.js 22 or newer"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT license"></a>
@@ -17,13 +18,19 @@
   </p>
 </div>
 
-A local browser wizard that installs
+PlanRelay is a local browser wizard that currently installs
 [`openai-oauth@2.0.0`](https://github.com/EvanZhouDev/openai-oauth/releases/tag/v2.0.0)
 as a separate Docker sidecar beside a self-hosted n8n instance. It guides a
 VPS owner through ChatGPT sign-in, SSH host verification, n8n discovery, an
 exact installation plan, and the final n8n credential settings.
 
 The existing n8n image, Compose file, container, and workflows stay untouched.
+
+The public name is intentionally broader than n8n. The current release is an
+n8n-focused setup path; the product direction is to make the same private,
+OpenAI-compatible endpoint usable by local chatbots, custom applications, the
+OpenAI SDK, and other compatible clients without tying the project identity to
+one automation platform.
 
 > [!IMPORTANT]
 > This does **not** create an OpenAI Platform API key. It creates a private,
@@ -58,6 +65,7 @@ The existing n8n image, Compose file, container, and workflows stay untouched.
 <summary><strong>Table of contents</strong></summary>
 
 - [What this does, in plain English](#what-this-does-in-plain-english)
+- [Current scope and direction](#current-scope-and-direction)
 - [Choose a setup path](#choose-a-setup-path)
 - [Quick start with the npm package](#quick-start-with-the-npm-package)
 - [Run from a repository clone](#run-from-a-repository-clone)
@@ -101,6 +109,19 @@ Think of the sidecar as an interpreter in a private room: n8n speaks the API
 format it already knows, while the sidecar handles the different sign-in
 method. The sidecar shares a private Docker network with n8n; port `10531` is
 not published to the internet.
+
+## Current scope and direction
+
+**Available now:** PlanRelay signs in locally, verifies a VPS over SSH, and
+deploys a private sidecar beside self-hosted n8n. The wizard provides tested
+settings and recipes for the OpenAI Chat Model, AI Agent, Basic LLM Chain, and
+HTTP Request nodes.
+
+**Designed to grow:** the PlanRelay name, mark, and package are client-neutral
+so later releases can offer safe setup paths for OpenAI-compatible SDKs, local
+chatbots, and other custom applications. Those broader clients are a product
+direction, not a claim about the current installer: today, do not expose the
+sidecar port publicly or deploy it outside the documented n8n safety boundary.
 
 ## Choose a setup path
 
@@ -162,8 +183,14 @@ will complete the browser sign-in.
 Open Terminal, PowerShell, or another local shell:
 
 ```bash
-npx --yes --ignore-scripts n8n-openai-oauth-setup@latest
+npx --yes --ignore-scripts planrelay@latest
 ```
+
+Releases before the rename used the package name
+`n8n-openai-oauth-setup`. Package lookup does not redirect automatically, so
+update saved commands to `planrelay`. The new package still exposes the legacy
+executable alias, and existing sidecar directories, service names, hostnames,
+and credentials remain compatible.
 
 Keep that terminal open. The command starts a one-time web server on
 `127.0.0.1`, prints a private session URL, and opens the wizard in your
@@ -172,7 +199,7 @@ browser. It does not globally install this package.
 To confirm which version npm currently publishes:
 
 ```bash
-npm view n8n-openai-oauth-setup version
+npm view planrelay version
 ```
 
 > [!NOTE]
@@ -614,7 +641,7 @@ To refresh an expired ChatGPT session, run the same npm command again, choose
 the same wizard-managed sidecar:
 
 ```bash
-npx --yes --ignore-scripts n8n-openai-oauth-setup@latest
+npx --yes --ignore-scripts planrelay@latest
 ```
 
 The update targets only the sidecar. It does not restart n8n. For rollback,
@@ -658,6 +685,7 @@ procedure.
 
 ## Documentation
 
+- [Brand name, mark, and compatibility identifiers](docs/brand.md)
 - [Changelog](CHANGELOG.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [OpenAI credential and node recipes](docs/n8n-configuration.md)

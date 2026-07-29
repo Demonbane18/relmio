@@ -1,8 +1,8 @@
-# Spec: n8n OpenAI OAuth Setup
+# Spec: PlanRelay n8n Setup
 
 ## Objective
 
-Build a beginner-friendly, local setup wizard and a correct manual guide for connecting a self-hosted n8n Docker deployment to the unofficial `openai-oauth` bridge.
+Build the first PlanRelay setup path: a beginner-friendly local wizard and a correct manual guide for connecting a self-hosted n8n Docker deployment to the unofficial `openai-oauth` bridge.
 
 The primary user is a non-technical Hostinger VPS owner. Success means they can sign in locally, install a separate Docker sidecar, verify it, and configure n8n without editing, rebuilding, recreating, stopping, or restarting their existing n8n deployment.
 

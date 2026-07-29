@@ -15,14 +15,14 @@ Run these commands on your own computer, not on the VPS:
 
 ```bash
 node --version
-npm view n8n-openai-oauth-setup version
+npm view planrelay version
 ```
 
 Node must be version 22 or newer. Then close every old wizard terminal and
 browser tab and start the newest published build:
 
 ```bash
-npx --yes --ignore-scripts n8n-openai-oauth-setup@latest
+npx --yes --ignore-scripts planrelay@latest
 ```
 
 Keep the terminal open. If the browser does not open automatically, copy the
@@ -72,7 +72,7 @@ bypassed.
 | `node: command not found`, `node is not recognized`, or Node is older than 22 | The local runtime is missing or unsupported. | Install Node.js 22 or newer on the local computer, open a new terminal, and rerun the `@latest` command. Do not install it on the VPS for the wizard. |
 | The browser did not open | The automatic browser launch failed, but the local server may still be running. | Keep the newest terminal open and copy its newest `127.0.0.1` setup URL into the browser. Do not reuse a URL from a closed terminal. |
 | An old wizard page reports an invalid or expired setup session | The local server was closed or a newer wizard run created a different one-time session token. | Close the old page and use only the URL printed by the currently running terminal. |
-| `npx` appears to run an older wizard | An old terminal or tab is still active, or the package was run without an explicit tag. | Close old runs, check `npm view n8n-openai-oauth-setup version`, then run `npx --yes --ignore-scripts n8n-openai-oauth-setup@latest`. |
+| `npx` appears to run an older wizard | An old terminal or tab is still active, or the package was run without an explicit tag. | Close old runs, check `npm view planrelay version`, then run `npx --yes --ignore-scripts planrelay@latest`. |
 | `This sign-in request expired` | The OAuth tab is old or the five-minute callback window ended. | Close the old tab and select **Refresh ChatGPT sign-in** from the newest active wizard. |
 | An **OpenAI OAuth** extension page says the sign-in request expired | A browser extension intercepted the `localhost:1455` callback that belongs to the wizard's fresh login. | Temporarily disable the **Sign in with ChatGPT** or **OpenAI OAuth** extension, then select **Refresh ChatGPT sign-in** in the wizard. Re-enable the extension afterward if you still use it elsewhere. |
 | `ChatGPT sign-in did not finish` appears immediately when refreshing an existing credential | Wizard versions through `0.1.3` attempted to reuse `~/.codex/auth.json`, but the bridge CLI requires an interactive terminal before replacing that file. | Update to `0.1.4` or newer. The wizard signs in through its own new credential file and leaves the Codex app credential untouched. |

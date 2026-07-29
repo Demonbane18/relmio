@@ -5,12 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Install a private OpenAI OAuth sidecar beside self-hosted n8n."
+      content="PlanRelay connects compatible AI clients to a private ChatGPT/Codex OAuth sidecar, starting with self-hosted n8n."
     />
-    <title>n8n OAuth Bridge Setup</title>
+    <title>PlanRelay — n8n Setup</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%230f766e'/%3E%3Cpath d='M18 32h28M32 18v28' stroke='white' stroke-width='7' stroke-linecap='round'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23137c74' d='M7 8h19l31 24H41L26 20v10L7 17Z'/%3E%3Cpath fill='%2312211f' d='M7 47l19-13v10l15-12h16L26 56H7Z'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" type="module"></script>
@@ -20,8 +20,16 @@
 
     <header class="site-header">
       <div class="brand">
-        <span class="brand-mark" aria-hidden="true">+</span>
-        <span>n8n OAuth Bridge</span>
+        <svg
+          class="brand-mark"
+          viewBox="0 0 64 64"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path fill="#137c74" d="M7 8h19l31 24H41L26 20v10L7 17Z" />
+          <path fill="#12211f" d="M7 47l19-13v10l15-12h16L26 56H7Z" />
+        </svg>
+        <span>PlanRelay</span>
       </div>
       <span class="local-badge">Runs only on this computer</span>
     </header>

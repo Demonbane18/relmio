@@ -5,6 +5,17 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
+## Unreleased
+
+### Changed
+
+- Rename the public product and npm package to PlanRelay and `planrelay` so the
+  project can grow beyond its initial n8n setup path.
+- Replace the generic plus icon with an original two-lane relay mark and add a
+  small brand guide with reusable SVG and source concept assets.
+- Keep the legacy `n8n-openai-oauth-setup` executable alias and every deployed
+  `n8n-openai-oauth` compatibility and safety identifier unchanged.
+
 ## [0.1.8] - 2026-07-29
 
 ### Changed

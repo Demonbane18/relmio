@@ -22,16 +22,16 @@ function releaseCheckEnvironment(overrides = {}) {
 }
 
 const packageJson = {
-  name: "n8n-openai-oauth-setup",
+  name: "planrelay",
   version: "0.1.5",
 };
 
 const packageLock = {
-  name: "n8n-openai-oauth-setup",
+  name: "planrelay",
   version: "0.1.5",
   packages: {
     "": {
-      name: "n8n-openai-oauth-setup",
+      name: "planrelay",
       version: "0.1.5",
     },
   },

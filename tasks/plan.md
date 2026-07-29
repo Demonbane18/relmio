@@ -1,4 +1,4 @@
-# Implementation Plan: n8n OpenAI OAuth Setup
+# Implementation Plan: PlanRelay n8n Setup
 
 ## Overview
 

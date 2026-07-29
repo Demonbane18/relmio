@@ -1,4 +1,4 @@
-# Project: n8n OpenAI OAuth Setup
+# Project: PlanRelay
 
 ## Runtime
 
