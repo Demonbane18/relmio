@@ -28,7 +28,10 @@ const boundaries = [
 
 export default function Home() {
   return (
-    <main>
+    <main id="main-content">
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
       <header className="site-header">
         <a className="brand" href="#top" aria-label="Relmio home">
           <Image

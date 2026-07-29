@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function requestApp(path = "/", init = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
+    new Request(`http://localhost${path}`, {
+      ...init,
+      headers: { accept: "text/html", ...init.headers },
     }),
     {
       ASSETS: {
@@ -24,7 +25,7 @@ async function render() {
 }
 
 test("server-renders the Relmio product page", async () => {
-  const response = await render();
+  const response = await requestApp();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
@@ -37,6 +38,19 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /Private where it matters\./);
   assert.match(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
+});
+
+test("rejects non-string chat prompts before reading credentials", async () => {
+  const response = await requestApp("/api/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ prompt: { unexpected: true } }),
+  });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), {
+    error: "The prompt must be a string.",
+  });
 });
 
 test("ships the request-bound chat and removes starter assets", async () => {

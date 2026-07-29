@@ -12,10 +12,17 @@ export async function POST(request: Request) {
     return Response.json({ error: "Expected a JSON request body." }, { status: 400 });
   }
 
-  const prompt =
-    body && typeof body === "object" && "prompt" in body
-      ? String(body.prompt).trim()
-      : "";
+  const promptValue =
+    body && typeof body === "object" && "prompt" in body ? body.prompt : null;
+
+  if (typeof promptValue !== "string") {
+    return Response.json(
+      { error: "The prompt must be a string." },
+      { status: 400 },
+    );
+  }
+
+  const prompt = promptValue.trim();
 
   if (!prompt) {
     return Response.json({ error: "Enter a message first." }, { status: 400 });
