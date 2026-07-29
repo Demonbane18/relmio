@@ -5,6 +5,17 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
+## [0.1.8] - 2026-07-29
+
+### Changed
+
+- Restore the complete manual sidecar installation path to the README for
+  wizard failures, debugging, and contributor reproduction.
+- Add plain-English Mermaid diagrams that explain the private sidecar and help
+  readers choose between the browser wizard and manual setup.
+- Keep the README and standalone manual Docker templates synchronized with
+  automated documentation checks.
+
 ## [0.1.7] - 2026-07-28
 
 ### Changed
