@@ -9,6 +9,21 @@ checks the registry separately after publication.
 
 No unreleased changes.
 
+## [0.2.1] - 2026-07-30
+
+### Added
+
+- Add the hosted ChatGPT site link to the package metadata and public guides.
+- Document the upstream Codex relay model, known limitations, and legal
+  responsibilities in both the GitHub and npm README variants.
+
+### Changed
+
+- Refresh the local setup wizard and hosted chat presentation with the Relmio
+  redesign, including clearer progress, copy feedback, responsive layouts, and
+  request-state affordances.
+- Set the package homepage to the hosted Relmio site.
+
 ## [0.2.0] - 2026-07-29
 
 ### Added

@@ -1,6 +1,6 @@
 {
   "name": "relmio",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Turn a supported ChatGPT/Codex OAuth sign-in into a private OpenAI-compatible endpoint, starting with self-hosted n8n.",
   "type": "module",
   "license": "MIT",
@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/Demonbane18/n8n-openai-oauth-setup/issues"
   },
-  "homepage": "https://github.com/Demonbane18/n8n-openai-oauth-setup#readme",
+  "homepage": "https://relmio.jpfusin.tech/",
   "engines": {
     "node": ">=22"
   },

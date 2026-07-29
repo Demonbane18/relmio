@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { ChatConsole } from "./components/ChatConsole";
+import { CopyCommand } from "./components/CopyCommand";
 
 const capabilities = [
   {
@@ -26,6 +27,14 @@ const boundaries = [
   "No OpenAI Platform API key created",
 ];
 
+const relayTargets = [
+  "n8n AI Agent",
+  "LLM Chain",
+  "HTTP Request",
+  "Local chat",
+  "OpenAI SDK",
+];
+
 export default function Home() {
   return (
     <main id="main-content">
@@ -33,29 +42,31 @@ export default function Home() {
         Skip to main content
       </a>
       <header className="site-header">
-        <a className="brand" href="#top" aria-label="Relmio home">
-          <Image
-            src="/relmio-mark.svg"
-            alt=""
-            width={38}
-            height={38}
-            priority
-          />
-          <span>Relmio</span>
-        </a>
-        <nav aria-label="Primary navigation">
-          <a href="#how-it-works">How it works</a>
-          <a href="#security">Security</a>
-          <a href="#chat">Chat</a>
-        </nav>
-        <a
-          className="header-action"
-          href="https://www.npmjs.com/package/relmio"
-          target="_blank"
-          rel="noreferrer"
-        >
-          View npm package
-        </a>
+        <div className="site-header-inner">
+          <a className="brand" href="#top" aria-label="Relmio home">
+            <Image
+              src="/relmio-mark.svg"
+              alt=""
+              width={38}
+              height={38}
+              priority
+            />
+            <span>Relmio</span>
+          </a>
+          <nav aria-label="Primary navigation">
+            <a href="#how-it-works">How it works</a>
+            <a href="#security">Security</a>
+            <a href="#chat">Chat</a>
+          </nav>
+          <a
+            className="header-action"
+            href="https://www.npmjs.com/package/relmio"
+            target="_blank"
+            rel="noreferrer"
+          >
+            View npm package
+          </a>
+        </div>
       </header>
 
       <section className="hero" id="top">
@@ -87,12 +98,7 @@ export default function Home() {
               Install for n8n
             </a>
           </div>
-          <div className="install-command" aria-label="Installation command">
-            <span className="terminal-mark" aria-hidden="true">
-              $
-            </span>
-            <code>npx --yes --ignore-scripts relmio@latest</code>
-          </div>
+          <CopyCommand />
         </div>
 
         <div className="relay-visual" aria-label="Relmio request flow">
@@ -150,17 +156,22 @@ export default function Home() {
 
       <section className="signal-strip" aria-label="Supported starting points">
         <p>Built to relay into</p>
-        <div>
-          <span>n8n AI Agent</span>
-          <span>LLM Chain</span>
-          <span>HTTP Request</span>
-          <span>Local chat</span>
-          <span>OpenAI SDK</span>
+        <div className="marquee">
+          <div className="marquee-track">
+            {relayTargets.map((target) => (
+              <span key={target}>{target}</span>
+            ))}
+            {relayTargets.map((target) => (
+              <span key={`${target}-duplicate`} aria-hidden="true">
+                {target}
+              </span>
+            ))}
+          </div>
         </div>
       </section>
 
       <section className="process-section" id="how-it-works">
-        <div className="section-intro">
+        <div className="section-intro reveal">
           <p className="section-label">How it works</p>
           <h2>A relay, not another account system.</h2>
           <p>
@@ -171,7 +182,7 @@ export default function Home() {
         </div>
         <ol className="process-grid">
           {capabilities.map((capability) => (
-            <li key={capability.index}>
+            <li className="reveal" key={capability.index}>
               <span>{capability.index}</span>
               <h3>{capability.title}</h3>
               <p>{capability.copy}</p>
@@ -180,7 +191,7 @@ export default function Home() {
         </ol>
       </section>
 
-      <section className="chat-section" id="chat">
+      <section className="chat-section reveal" id="chat">
         <div className="chat-copy">
           <p className="section-label">Hosted demo</p>
           <h2>Connect, then ask.</h2>
@@ -204,7 +215,7 @@ export default function Home() {
       </section>
 
       <section className="security-section" id="security">
-        <div className="security-panel">
+        <div className="security-panel reveal">
           <div>
             <p className="section-label section-label-light">Safety boundary</p>
             <h2>Private where it matters.</h2>
@@ -225,7 +236,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="closing-section">
+      <section className="closing-section reveal">
         <div>
           <p className="section-label">Start locally</p>
           <h2>Bring your own plan. Keep your own boundary.</h2>
@@ -254,6 +265,13 @@ export default function Home() {
             rel="noreferrer"
           >
             npm
+          </a>
+          <a
+            href="https://github.com/Demonbane18/n8n-openai-oauth-setup"
+            target="_blank"
+            rel="noreferrer"
+          >
+            GitHub
           </a>
           <a href="#security">Security</a>
           <a href="#chat">Chat demo</a>

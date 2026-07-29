@@ -6,7 +6,13 @@ import {
   type SignInWithChatGPTState,
 } from "@openai-oauth/react";
 import { useCompletion } from "@ai-sdk/react";
-import { useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 
 const suggestions = [
   "Explain what Relmio does in two sentences.",
@@ -19,6 +25,8 @@ export function ChatConsole() {
     useState<SignInWithChatGPTState["status"]>("checking");
   const [lastPrompt, setLastPrompt] = useState("");
   const [localError, setLocalError] = useState("");
+  const conversationRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const {
     completion,
     complete,
@@ -35,6 +43,24 @@ export function ChatConsole() {
       );
     },
   });
+
+  useEffect(() => {
+    const conversation = conversationRef.current;
+    if (conversation) {
+      conversation.scrollTo({
+        top: conversation.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, [completion, lastPrompt, isLoading]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = "auto";
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+    }
+  }, [input]);
 
   async function ask(prompt: string) {
     const message = prompt.trim();
@@ -60,6 +86,13 @@ export function ChatConsole() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void ask(input);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void ask(input);
+    }
   }
 
   const statusLabel =
@@ -102,7 +135,12 @@ export function ChatConsole() {
         <p>Encrypted locally. Sent only with requests you make here.</p>
       </div>
 
-      <div className="conversation" aria-live="polite" aria-busy={isLoading}>
+      <div
+        className="conversation"
+        ref={conversationRef}
+        aria-live="polite"
+        aria-busy={isLoading}
+      >
         {!lastPrompt && !completion ? (
           <div className="conversation-empty">
             <span aria-hidden="true">⌁</span>
@@ -121,7 +159,19 @@ export function ChatConsole() {
               <span>Relmio</span>
               <p>
                 {completion ||
-                  (isLoading ? "Opening a secure response stream…" : "")}
+                  (isLoading ? (
+                    <span
+                      className="typing-dots"
+                      role="status"
+                      aria-label="Relmio is composing a response"
+                    >
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  ) : (
+                    ""
+                  ))}
               </p>
             </div>
           </>
@@ -148,16 +198,23 @@ export function ChatConsole() {
       </div>
 
       <form className="chat-form" onSubmit={handleSubmit}>
-        <label htmlFor="chat-prompt">Ask anything</label>
+        <div className="form-label-row">
+          <label htmlFor="chat-prompt">Ask anything</label>
+          <span className="input-hint" aria-hidden="true">
+            Enter to send · Shift+Enter for a new line
+          </span>
+        </div>
         <div>
           <textarea
             id="chat-prompt"
             name="prompt"
+            ref={textareaRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Ask Relmio to help with a workflow…"
             maxLength={3000}
-            rows={2}
+            rows={1}
           />
           {isLoading ? (
             <button
@@ -166,7 +223,9 @@ export function ChatConsole() {
               onClick={stop}
               aria-label="Stop response"
             >
-              ■
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
+              </svg>
             </button>
           ) : (
             <button
@@ -175,7 +234,16 @@ export function ChatConsole() {
               disabled={!input.trim()}
               aria-label="Send message"
             >
-              ↑
+              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path
+                  d="M8 12.75v-9.5M3.75 7.5 8 3.25 12.25 7.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </button>
           )}
         </div>

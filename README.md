@@ -5,6 +5,8 @@
   <p>
     <a href="#choose-a-setup-path">Get started</a>
     &nbsp;·&nbsp;
+    <a href="https://relmio.jpfusin.tech/">Hosted ChatGPT site</a>
+    &nbsp;·&nbsp;
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/issues/new">Report an issue</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers">Leave a star</a>
@@ -66,6 +68,7 @@ one automation platform.
 
 - [What this does, in plain English](#what-this-does-in-plain-english)
 - [Current scope and direction](#current-scope-and-direction)
+- [Hosted ChatGPT site](#hosted-chatgpt-site)
 - [Choose a setup path](#choose-a-setup-path)
 - [Quick start with the npm package](#quick-start-with-the-npm-package)
 - [Run from a repository clone](#run-from-a-repository-clone)
@@ -77,6 +80,8 @@ one automation platform.
 - [Release and version synchronization](#release-and-version-synchronization)
 - [Documentation](#documentation)
 - [Supported bridge behavior](#supported-bridge-behavior)
+- [Known limitations](#known-limitations)
+- [Legal](#legal)
 - [Contributing](#contributing)
 - [Security and responsible disclosure](#security-and-responsible-disclosure)
 - [Sources and further reading](#sources-and-further-reading)
@@ -124,6 +129,13 @@ direction, not a claim about the current installer: today, do not expose the
 sidecar port publicly or deploy it outside the documented n8n safety boundary.
 See the [provider and client roadmap](docs/roadmap.md), including the gated
 SuperGrok/xAI OAuth feasibility track.
+
+## Hosted ChatGPT site
+
+Try the hosted browser experience at
+[relmio.jpfusin.tech](https://relmio.jpfusin.tech/). It provides a separate
+ChatGPT sign-in and a small request-bound chat demo; it does not create an
+OpenAI Platform API key or replace the local n8n setup wizard.
 
 ## Choose a setup path
 
@@ -568,6 +580,14 @@ the [expanded beginner manual installation guide](docs/manual-install.md).
 
 ## How it works behind the scenes
 
+OpenAI's Codex CLI uses authenticated endpoints at
+`chatgpt.com/backend-api/codex` to run models with a ChatGPT account. By using
+the same OAuth credential shape as Codex through the upstream
+[`openai-oauth`](https://github.com/EvanZhouDev/openai-oauth) helper, Relmio can
+provide an OpenAI-compatible interface without asking users to buy separate
+OpenAI Platform API credits. The exact upstream behavior, supported models,
+and access rules can change.
+
 ```mermaid
 flowchart LR
   subgraph Local["Your computer"]
@@ -712,6 +732,38 @@ The pinned upstream `2.0.0` release documents:
 Available models depend on the ChatGPT account and may change. The upstream
 Responses implementation is stateless, so callers must send the conversation
 history needed for each request.
+
+## Known limitations
+
+What is intentionally not there yet:
+
+- Only models supported by Codex are available. This list updates over time
+  and depends on your ChatGPT plan.
+- There is no stateful replay support on the CLI `/v1/responses` endpoint. The
+  proxy is stateless and expects callers to send the full conversation history.
+- Hosted browser sign-in currently supports Chrome and Firefox. Safari is not
+  yet supported by the upstream Sign in with ChatGPT flow.
+
+## Legal
+
+Relmio and the upstream `openai-oauth` project are unofficial,
+community-maintained projects. They are not affiliated with, endorsed by, or
+sponsored by OpenAI.
+
+OpenAI OAuth uses ChatGPT credentials, which should be treated like passwords.
+Each person must use their own ChatGPT account and keep credentials private. Do
+not pool, share, or redistribute access tokens. Apps offering Sign in with
+ChatGPT must protect each user's credentials and use them only for requests
+that user authorizes.
+
+You are responsible for complying with OpenAI's [Terms of
+Use](https://openai.com/policies/terms-of-use/), [Usage
+Policies](https://openai.com/policies/usage-policies/), and any agreement that
+applies to your account. Do not bypass rate limits, restrictions, or safeguards.
+
+This project is provided as-is without warranties. OpenAI may change or
+disable the underlying services at any time, and you assume the risks of using
+it.
 
 ## Contributing
 

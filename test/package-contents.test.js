@@ -149,6 +149,9 @@ test("npm package substitutes a registry-safe README without changing GitHub dia
   assert.match(githubReadme, /```mermaid/u);
   assert.doesNotMatch(npmReadme, /```mermaid/u);
   assert.match(npmReadme, /npx --yes --ignore-scripts relmio@latest/u);
+  assert.match(npmReadme, /https:\/\/relmio\.jpfusin\.tech\//u);
+  assert.match(npmReadme, /## Known limitations/u);
+  assert.match(npmReadme, /## Legal/u);
   assert.match(
     npmReadme,
     /https:\/\/raw\.githubusercontent\.com\/Demonbane18\/n8n-openai-oauth-setup\/main\/docs\/images\/brand\/relmio-mark\.svg/u,

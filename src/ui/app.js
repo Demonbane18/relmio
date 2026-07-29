@@ -48,6 +48,24 @@ function setBusy(button, busy, busyText) {
   button.textContent = busy ? busyText : button.dataset.label;
 }
 
+const revertTimers = new WeakMap();
+
+function flashCopied(button) {
+  if (!button.dataset.label) {
+    button.dataset.label = button.textContent;
+  }
+  button.textContent = "Copied";
+  button.classList.add("copied");
+  window.clearTimeout(revertTimers.get(button));
+  revertTimers.set(
+    button,
+    window.setTimeout(() => {
+      button.textContent = button.dataset.label;
+      button.classList.remove("copied");
+    }, 1800),
+  );
+}
+
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value);
@@ -405,7 +423,7 @@ element("container-select").addEventListener("change", async () => {
     await loadNetworks();
   } catch (error) {
     element("install-confirm").checked = false;
-    button.disabled = true;
+    element("install-button").disabled = true;
     showStep(2);
     setMessage(
       "The install stopped and the VPS connection was closed. Reconnect to inspect the sidecar before retrying.",
@@ -488,7 +506,7 @@ element("copy-settings").addEventListener("click", async (event) => {
   clearError();
   try {
     await copyText(settings);
-    event.currentTarget.textContent = "Copied";
+    flashCopied(event.currentTarget);
     setMessage("OpenAI credential settings copied.");
   } catch {
     showError(new Error("Copy failed. Select the values manually."));
@@ -503,7 +521,7 @@ for (const button of document.querySelectorAll("[data-copy-target]")) {
     clearError();
     try {
       await copyText(value);
-      event.currentTarget.textContent = "Copied";
+      flashCopied(event.currentTarget);
       setMessage(`${label} copied.`);
     } catch {
       showError(new Error(`Copy failed. Select the ${label} manually.`));

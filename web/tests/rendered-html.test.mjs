@@ -37,6 +37,7 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /Connect, then ask\./);
   assert.match(html, /Private where it matters\./);
   assert.match(html, /npx --yes --ignore-scripts relmio@latest/);
+  assert.match(html, /https:\/\/github\.com\/Demonbane18\/n8n-openai-oauth-setup/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 

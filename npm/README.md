@@ -5,6 +5,8 @@
   <p>
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup">Full guide</a>
     &nbsp;·&nbsp;
+    <a href="https://relmio.jpfusin.tech/">Hosted ChatGPT site</a>
+    &nbsp;·&nbsp;
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/issues/new">Report an issue</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/docs/roadmap.md">Roadmap</a>
@@ -18,6 +20,11 @@ ChatGPT/Codex sign-in, SSH host verification, read-only n8n discovery, an
 exact change plan, and the final n8n credential settings.
 
 The existing n8n image, Compose file, container, and workflows stay untouched.
+
+Try the hosted browser demo at
+[relmio.jpfusin.tech](https://relmio.jpfusin.tech/). It is a separate
+request-bound ChatGPT experience; the npm package remains the local wizard for
+installing the private n8n sidecar.
 
 ## Quick start
 
@@ -107,6 +114,40 @@ Platform API key.
   OpenAI, xAI, or n8n. Provider access, models, limits, and policies can change.
 - Use it only where your account, subscription, provider terms, and applicable
   policies allow.
+
+## How it works
+
+OpenAI's Codex CLI uses authenticated endpoints at
+`chatgpt.com/backend-api/codex` to run models with a ChatGPT account. Relmio
+uses the same OAuth credential shape through the upstream
+[`openai-oauth`](https://github.com/EvanZhouDev/openai-oauth) helper to expose
+an OpenAI-compatible path without creating an OpenAI Platform API key or
+requiring separate API credits. The upstream service and its access rules may
+change.
+
+## Known limitations
+
+- Only models supported by Codex are available. The list changes over time and
+  depends on your ChatGPT plan.
+- The CLI `/v1/responses` endpoint is stateless. Callers must send the full
+  conversation history; stateful replay is not provided.
+- Hosted browser sign-in currently supports Chrome and Firefox. Safari is not
+  yet supported by the upstream Sign in with ChatGPT flow.
+
+## Legal
+
+Relmio and `openai-oauth` are unofficial, community-maintained projects and
+are not affiliated with, endorsed by, or sponsored by OpenAI.
+
+ChatGPT OAuth credentials should be treated like passwords. Use your own
+account, keep credentials private, and never pool, share, or redistribute
+access tokens. Do not bypass rate limits, restrictions, or safeguards.
+
+You are responsible for complying with OpenAI's [Terms of
+Use](https://openai.com/policies/terms-of-use/), [Usage
+Policies](https://openai.com/policies/usage-policies/), and any agreement that
+applies to your account. This project is provided as-is without warranties;
+OpenAI may change or disable the underlying services at any time.
 
 ## Documentation
 

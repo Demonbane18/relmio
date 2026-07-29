@@ -14,6 +14,7 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
   assert.equal(packageJson.bin["n8n-openai-oauth-setup"], "src/cli.js");
   assert.equal(packageJson.private, undefined);
   assert.equal(packageJson.license, "MIT");
+  assert.equal(packageJson.homepage, "https://relmio.jpfusin.tech/");
 });
 
 test("double-click launchers only install local dependencies and start the wizard", async () => {
@@ -96,6 +97,9 @@ test("public README documents the latest npm walkthrough and sanitized images", 
   assert.match(readme, /\[Changelog\]\(CHANGELOG\.md\)/u);
   assert.match(readme, /img\.shields\.io\/npm\/v\/relmio/u);
   assert.match(readme, /docs\/images\/brand\/relmio-mark\.svg/u);
+  assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\//u);
+  assert.match(readme, /## Known limitations/u);
+  assert.match(readme, /## Legal/u);
 });
 
 test("README walkthrough images are metadata-free PNG files", async () => {
