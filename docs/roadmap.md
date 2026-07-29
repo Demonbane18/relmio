@@ -3,17 +3,17 @@
 This roadmap describes intended research and product direction. It is not a
 promise that a provider, subscription tier, or unofficial integration will
 remain available. Every provider must pass its own technical, security, terms,
-and entitlement checks before PlanRelay presents it as supported.
+and entitlement checks before Relmio presents it as supported.
 
 ## Product direction
 
-PlanRelay currently gives self-hosted n8n a private OpenAI-compatible endpoint
+Relmio currently gives self-hosted n8n a private OpenAI-compatible endpoint
 backed by a supported ChatGPT/Codex OAuth sign-in. The longer-term product is a
 provider-neutral local gateway:
 
 ```text
 OpenAI-compatible client
-  -> private PlanRelay endpoint
+  -> private Relmio endpoint
     -> selected provider adapter
       -> provider-authorized OAuth or API access
 ```
@@ -65,11 +65,11 @@ Research as of July 29, 2026 indicates this is technically plausible:
   inference returns HTTP 403 because access is gated by subscription tier or
   account entitlement.
 
-PlanRelay should run a dedicated feasibility spike before promising support:
+Relmio should run a dedicated feasibility spike before promising support:
 
-1. Confirm current xAI terms and whether PlanRelay can register or use an
+1. Confirm current xAI terms and whether Relmio can register or use an
    approved public OAuth client for this purpose.
-2. Prefer PlanRelay's own approved client registration or an officially
+2. Prefer Relmio's own approved client registration or an officially
    supported xAI integration. Do not copy Hermes credentials, browser cookies,
    or another application's private client material.
 3. Test browser and headless device-code login, refresh-token rotation,

@@ -1,4 +1,4 @@
-# Implementation Plan: PlanRelay n8n Setup
+# Implementation Plan: Relmio n8n Setup
 
 ## Overview
 

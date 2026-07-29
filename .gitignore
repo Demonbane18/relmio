@@ -4,6 +4,7 @@ node_modules/
 .env.*
 !.env.example
 dist/
+.release/
 coverage/
 *.log
 *.pem

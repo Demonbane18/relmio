@@ -8,7 +8,8 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
   assert.equal(packageJson.engines.node, ">=22");
   assert.equal(packageJson.packageManager, "npm@10.9.8");
   assert.equal(packageJson.dependencies.ssh2, "1.17.0");
-  assert.equal(packageJson.name, "planrelay");
+  assert.equal(packageJson.name, "relmio");
+  assert.equal(packageJson.bin.relmio, "src/cli.js");
   assert.equal(packageJson.bin.planrelay, "src/cli.js");
   assert.equal(packageJson.bin["n8n-openai-oauth-setup"], "src/cli.js");
   assert.equal(packageJson.private, undefined);
@@ -38,6 +39,7 @@ test("shared ignore policy excludes local maintainer artifacts", async () => {
 
   assert.match(gitignore, /^\.codex-local-context\.md$/mu);
   assert.match(gitignore, /^graphify-out\/$/mu);
+  assert.match(gitignore, /^\.release\/$/mu);
 });
 
 test("sanitized preview follows endpoint contracts without live OAuth", async () => {
@@ -66,20 +68,34 @@ test("CI pins reviewed actions and the repository npm version", async () => {
   assert.match(workflow, /test "\$\(npm --version\)" = "10\.9\.8"/u);
 });
 
+test("trusted publishing uses short-lived GitHub OIDC credentials", async () => {
+  const workflow = await readFile(".github/workflows/publish.yml", "utf8");
+
+  assert.match(workflow, /release:\s*\n\s+types:\s*\n\s+- published/u);
+  assert.match(workflow, /contents: read/u);
+  assert.match(workflow, /id-token: write/u);
+  assert.match(workflow, /environment: npm/u);
+  assert.match(workflow, /node-version: "22\.14\.0"/u);
+  assert.match(workflow, /npm@11\.13\.0/u);
+  assert.match(workflow, /npm run package:build -- \.release/u);
+  assert.match(workflow, /npm publish/u);
+  assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/u);
+});
+
 test("public README documents the latest npm walkthrough and sanitized images", async () => {
   const readme = await readFile("README.md", "utf8");
 
   assert.match(
     readme,
-    /npx --yes --ignore-scripts planrelay@latest/u,
+    /npx --yes --ignore-scripts relmio@latest/u,
   );
   assert.match(readme, /docs\/images\/setup\/01-local-sign-in-ready\.png/u);
   assert.match(readme, /docs\/images\/setup\/05-bridge-ready\.png/u);
   assert.match(readme, /```mermaid/u);
   assert.match(readme, /Copy credential settings/u);
   assert.match(readme, /\[Changelog\]\(CHANGELOG\.md\)/u);
-  assert.match(readme, /img\.shields\.io\/npm\/v\/planrelay/u);
-  assert.match(readme, /docs\/images\/brand\/planrelay-mark\.svg/u);
+  assert.match(readme, /img\.shields\.io\/npm\/v\/relmio/u);
+  assert.match(readme, /docs\/images\/brand\/relmio-mark\.svg/u);
 });
 
 test("README walkthrough images are metadata-free PNG files", async () => {

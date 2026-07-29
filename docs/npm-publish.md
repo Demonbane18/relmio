@@ -3,10 +3,17 @@
 This guide is for the package maintainer. Run every command on the local
 computer in this repository, not on the VPS.
 
-The repository is the release source of truth. A release is prepared in Git,
-validated by CI, published to npm from that exact commit, and then tagged with
-the same version. npm does not automatically edit `package.json`,
-`CHANGELOG.md`, or the Git repository after a publish.
+The repository is the release source of truth. The initial package is prepared
+in Git, validated by CI, published to npm from that exact commit, and then
+tagged with the same version. Later releases are tagged first and published
+from that exact tag by the trusted workflow. npm does not automatically edit
+`package.json`, `CHANGELOG.md`, or the Git repository after a publish.
+
+The first `relmio` publication is a one-time bootstrap with a narrowly scoped
+local access token because npm requires the package to exist before a trusted
+publisher can be attached. After that bootstrap, releases use the
+repository's `.github/workflows/publish.yml` OIDC workflow and no long-lived
+npm token.
 
 ## Version contract
 
@@ -35,18 +42,9 @@ the authoritative equality check.
 2. Configure an npm-supported second factor for package publishing. Depending
    on the account, npm may approve with a passkey/security key or request an
    authenticator one-time code.
-3. In this project folder, run:
-
-   ```bash
-   npm login --registry=https://registry.npmjs.org
-   ```
-
-4. Complete npm's browser approval.
-5. Confirm the account without printing a credential:
-
-   ```bash
-   npm whoami --registry=https://registry.npmjs.org
-   ```
+3. Create one granular access token that can create and publish only the new
+   package. Keep it in the ignored local `NPM_CREATE_ACCESS_TOKEN` environment
+   variable and revoke it after trusted publishing is configured.
 
 Never paste an npm password, passkey recovery material, 2FA code, or access
 token into chat, an issue, a shell-history example, or the repository.
@@ -60,12 +58,12 @@ version.
 
 ```bash
 git status --short --branch
-npm view planrelay version \
+npm view relmio version \
   --registry=https://registry.npmjs.org
 ```
 
 The worktree should contain only the changes intended for the release.
-Before the first PlanRelay publish, npm returns `E404` because the new package
+Before the first Relmio publish, npm returns `E404` because the new package
 name has no published version yet. Confirm the exact package name is still
 available, then continue only from the reviewed rebrand commit.
 
@@ -93,10 +91,12 @@ npm run release:check
 npm ci --ignore-scripts
 npm run check
 npm audit --audit-level=high
-npm pack --dry-run
+npm run package:build -- .release
 ```
 
-Review the dry-run file list. It must not contain:
+The package builder stages the concise npm README as the tarball's root
+`README.md`; it never changes the full GitHub README or its Mermaid diagrams.
+Review the emitted tarball file list. It must not contain:
 
 - `.env` or local-context files;
 - OAuth files or tokens;
@@ -151,31 +151,89 @@ Review the package from that commit. Immediately before publishing, fail if
 either the commit or worktree changed:
 
 ```bash
-npm pack --dry-run
+npm run package:build -- .release
 test "$RELEASE_COMMIT" = "$(git rev-parse HEAD)"
 test -z "$(git status --porcelain)"
-npm publish --registry=https://registry.npmjs.org
 ```
 
-npm may open a browser passkey prompt or request a one-time password. Complete
-that step only through npm's own prompt.
+For the first `relmio` publication only, place the already-created token in
+the environment without echoing it, write an owner-only temporary npm config,
+and publish the reviewed tarball:
+
+```bash
+umask 077
+NPM_CONFIG_USERCONFIG="$(mktemp)"
+trap 'rm -f "$NPM_CONFIG_USERCONFIG"' EXIT
+printf '%s\n' '//registry.npmjs.org/:_authToken=${NPM_CREATE_ACCESS_TOKEN}' \
+  > "$NPM_CONFIG_USERCONFIG"
+export NPM_CONFIG_USERCONFIG NPM_CREATE_ACCESS_TOKEN
+npm whoami --registry=https://registry.npmjs.org
+LOCAL_VERSION="$(node -p "require('./package.json').version")"
+npm publish ".release/relmio-${LOCAL_VERSION}.tgz" \
+  --ignore-scripts \
+  --access public \
+  --registry=https://registry.npmjs.org
+```
+
+Do not place the real token value in `.npmrc`, the workflow, a command-line
+argument, or Git. npm may still require its configured publishing second
+factor.
 
 Verify the immutable registry result:
 
 ```bash
 LOCAL_VERSION="$(node -p "require('./package.json').version")"
-PUBLISHED_VERSION="$(npm view planrelay version \
+PUBLISHED_VERSION="$(npm view relmio version \
   --registry=https://registry.npmjs.org)"
 test "$LOCAL_VERSION" = "$PUBLISHED_VERSION"
-npm view "planrelay@${LOCAL_VERSION}" dist.integrity \
+npm view "relmio@${LOCAL_VERSION}" dist.integrity \
   --registry=https://registry.npmjs.org
 ```
 
 The equality check must succeed before tagging.
 
+## Switch future releases to trusted publishing
+
+Do this only after the first `relmio` version exists on npm and the
+`publish.yml` workflow is present on the GitHub default branch.
+
+On the npm package's **Trusted Publisher** form, use:
+
+| Field | Value |
+|---|---|
+| Publisher | GitHub Actions |
+| Organization or user | `Demonbane18` |
+| Repository | `n8n-openai-oauth-setup` |
+| Workflow filename | `publish.yml` |
+| Environment name | `npm` |
+| Allowed action | Allow npm publish |
+
+The environment must match `environment: npm` in the workflow. Add approval
+rules to the GitHub `npm` environment if a maintainer should explicitly
+approve each registry write.
+
+The workflow uses a GitHub-hosted runner, `id-token: write`, Node.js `22.14.0`,
+and npm `11.13.0`, which is separate from the application's reviewed npm
+`10.9.8` development runtime. npm exchanges the GitHub OIDC identity for a
+short-lived publishing credential and automatically generates provenance for
+public packages.
+
+After one trusted publish is verified:
+
+1. change package publishing access to require 2FA and disallow tokens;
+2. revoke `NPM_CREATE_ACCESS_TOKEN` and any older automation tokens;
+3. keep normal development on npm `10.9.8`;
+4. create future GitHub releases from reviewed `v<version>` tags to trigger
+   the trusted workflow.
+
+The workflow safely skips a version already present on npm. This lets the
+GitHub release for the token-bootstrapped `v0.2.0` tag be created without a
+duplicate publish attempt.
+
 ## Tag the published release
 
-Create the tag on the exact published commit:
+For the initial token-bootstrap release, create the tag on the exact published
+commit:
 
 ```bash
 RELEASE_VERSION="$(node -p "require('./package.json').version")"
@@ -186,16 +244,17 @@ git push origin "v${RELEASE_VERSION}"
 ```
 
 The tag CI run validates that `v<version>` matches the package, lockfile, and
-changelog. Create the GitHub release from that tag and copy the matching
-changelog entry into its notes.
+changelog. For later OIDC releases, push the reviewed tag first and create the
+GitHub release from it; publishing the GitHub release triggers the trusted
+workflow. Copy the matching changelog entry into the release notes.
 
 ## Verify as a package user
 
 In a separate terminal, check the version and launch the exact release:
 
 ```bash
-npm view planrelay version
-npx --yes --ignore-scripts planrelay@PUBLISHED_VERSION
+npm view relmio version
+npx --yes --ignore-scripts relmio@PUBLISHED_VERSION
 ```
 
 Replace `PUBLISHED_VERSION` with the number just published. Confirm that the
@@ -222,6 +281,5 @@ invocation as a release check; it starts the wizard like any other argument.
 - `npx` cannot see a just-published version: verify the exact registry version
   and wait briefly for registry/CDN propagation.
 
-Do not publish from the VPS. Do not put npm credentials in a GitHub Actions
-workflow unless the project deliberately migrates to npm Trusted Publishing
-and reviews its current runtime requirements.
+Do not publish from the VPS. Never put an npm access token in the GitHub
+Actions workflow; the trusted workflow authenticates only through OIDC.

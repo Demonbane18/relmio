@@ -1,6 +1,6 @@
 <div align="center">
-  <img src="docs/images/brand/planrelay-mark.svg" alt="PlanRelay logo" width="88">
-  <h1>PlanRelay</h1>
+  <img src="docs/images/brand/relmio-mark.svg" alt="Relmio logo" width="88">
+  <h1>Relmio</h1>
   <p>Relay a supported ChatGPT/Codex sign-in to OpenAI-compatible clients, starting with self-hosted n8n.</p>
   <p>
     <a href="#choose-a-setup-path">Get started</a>
@@ -10,7 +10,7 @@
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers">Leave a star</a>
   </p>
   <p>
-    <a href="https://www.npmjs.com/package/planrelay"><img src="https://img.shields.io/npm/v/planrelay.svg" alt="npm version"></a>
+    <a href="https://www.npmjs.com/package/relmio"><img src="https://img.shields.io/npm/v/relmio.svg" alt="npm version"></a>
     <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml"><img src="https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
     <a href="package.json"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d.svg" alt="Node.js 22 or newer"></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT license"></a>
@@ -18,7 +18,7 @@
   </p>
 </div>
 
-PlanRelay is a local browser wizard that currently installs
+Relmio is a local browser wizard that currently installs
 [`openai-oauth@2.0.0`](https://github.com/EvanZhouDev/openai-oauth/releases/tag/v2.0.0)
 as a separate Docker sidecar beside a self-hosted n8n instance. It guides a
 VPS owner through ChatGPT sign-in, SSH host verification, n8n discovery, an
@@ -112,12 +112,12 @@ not published to the internet.
 
 ## Current scope and direction
 
-**Available now:** PlanRelay signs in locally, verifies a VPS over SSH, and
+**Available now:** Relmio signs in locally, verifies a VPS over SSH, and
 deploys a private sidecar beside self-hosted n8n. The wizard provides tested
 settings and recipes for the OpenAI Chat Model, AI Agent, Basic LLM Chain, and
 HTTP Request nodes.
 
-**Designed to grow:** the PlanRelay name, mark, and package are client-neutral
+**Designed to grow:** the Relmio name, mark, and package are client-neutral
 so later releases can offer safe setup paths for OpenAI-compatible SDKs, local
 chatbots, and other custom applications. Those broader clients are a product
 direction, not a claim about the current installer: today, do not expose the
@@ -185,12 +185,12 @@ will complete the browser sign-in.
 Open Terminal, PowerShell, or another local shell:
 
 ```bash
-npx --yes --ignore-scripts planrelay@latest
+npx --yes --ignore-scripts relmio@latest
 ```
 
 Releases before the rename used the package name
 `n8n-openai-oauth-setup`. Package lookup does not redirect automatically, so
-update saved commands to `planrelay`. The new package still exposes the legacy
+update saved commands to `relmio`. The new package still exposes the legacy
 executable alias, and existing sidecar directories, service names, hostnames,
 and credentials remain compatible.
 
@@ -201,7 +201,7 @@ browser. It does not globally install this package.
 To confirm which version npm currently publishes:
 
 ```bash
-npm view planrelay version
+npm view relmio version
 ```
 
 > [!NOTE]
@@ -643,7 +643,7 @@ To refresh an expired ChatGPT session, run the same npm command again, choose
 the same wizard-managed sidecar:
 
 ```bash
-npx --yes --ignore-scripts planrelay@latest
+npx --yes --ignore-scripts relmio@latest
 ```
 
 The update targets only the sidecar. It does not restart n8n. For rollback,

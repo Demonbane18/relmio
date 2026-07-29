@@ -19,8 +19,8 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   const html = await readFile("src/ui/index.html", "utf8");
 
   assert.match(html, /<html lang="en">/);
-  assert.match(html, /<title>PlanRelay — n8n Setup<\/title>/u);
-  assert.match(html, /class="brand-mark"[\s\S]*<span>PlanRelay<\/span>/u);
+  assert.match(html, /<title>Relmio — n8n Setup<\/title>/u);
+  assert.match(html, /class="brand-mark"[\s\S]*<span>Relmio<\/span>/u);
   assert.doesNotMatch(html, /n8n OAuth Bridge/u);
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
   assert.match(html, /class="skip-link"/);

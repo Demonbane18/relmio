@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve PlanRelay. Pull requests, focused bug
+Thanks for helping improve Relmio. Pull requests, focused bug
 reports, documentation fixes, and careful security feedback are welcome.
 
 ## Before you start

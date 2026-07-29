@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extname, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
+
+import {
+  buildNpmPackage,
+  stageNpmPackage,
+} from "../scripts/build-npm-package.js";
 
 const execFileAsync = promisify(execFile);
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -18,8 +23,8 @@ const expectedPackedFiles = new Set([
   "package.json",
   "docs/architecture.md",
   "docs/brand.md",
-  "docs/images/brand/planrelay-concept-source.png",
-  "docs/images/brand/planrelay-mark.svg",
+  "docs/images/brand/relmio-concept-source.png",
+  "docs/images/brand/relmio-mark.svg",
   "docs/images/setup/01-local-sign-in-ready.png",
   "docs/images/setup/02-vps-identity-confirmed.png",
   "docs/images/setup/03-n8n-detected.png",
@@ -33,6 +38,7 @@ const expectedPackedFiles = new Set([
   "docs/security.md",
   "docs/troubleshooting.md",
   "docs/video-outline.md",
+  "scripts/build-npm-package.js",
   "scripts/check-release-metadata.js",
   "scripts/check-syntax.js",
   "scripts/preview.js",
@@ -93,14 +99,18 @@ const forbiddenContent = [
 ];
 
 test("npm package contains only allowed files and every advertised local script", async (t) => {
-  const cacheDirectory = await mkdtemp(join(tmpdir(), "npm-pack-cache-"));
-  t.after(() => rm(cacheDirectory, { recursive: true, force: true }));
+  const workspaceDirectory = await mkdtemp(join(tmpdir(), "npm-pack-test-"));
+  const cacheDirectory = join(workspaceDirectory, "cache");
+  const stagingDirectory = join(workspaceDirectory, "staging");
+  t.after(() => rm(workspaceDirectory, { recursive: true, force: true }));
+
+  await stageNpmPackage(stagingDirectory);
 
   const { stdout } = await execFileAsync(
     npmCommand,
     ["pack", "--dry-run", "--json", "--ignore-scripts"],
     {
-      cwd: projectRoot,
+      cwd: stagingDirectory,
       env: { ...process.env, npm_config_cache: cacheDirectory },
     },
   );
@@ -117,9 +127,60 @@ test("npm package contains only allowed files and every advertised local script"
       assert.ok(reviewedBinaryFiles.has(path), `unreviewed binary file: ${path}`);
       continue;
     }
-    const contents = await readFile(join(projectRoot, path), "utf8");
+    const contents = await readFile(join(stagingDirectory, path), "utf8");
     for (const { label, pattern } of forbiddenContent) {
       assert.doesNotMatch(contents, pattern, `${path} contains a ${label}`);
     }
   }
+});
+
+test("npm package substitutes a registry-safe README without changing GitHub diagrams", async (t) => {
+  const workspaceDirectory = await mkdtemp(join(tmpdir(), "npm-readme-test-"));
+  const stagingDirectory = join(workspaceDirectory, "staging");
+  t.after(() => rm(workspaceDirectory, { recursive: true, force: true }));
+
+  await stageNpmPackage(stagingDirectory);
+
+  const [githubReadme, npmReadme] = await Promise.all([
+    readFile(join(projectRoot, "README.md"), "utf8"),
+    readFile(join(stagingDirectory, "README.md"), "utf8"),
+  ]);
+
+  assert.match(githubReadme, /```mermaid/u);
+  assert.doesNotMatch(npmReadme, /```mermaid/u);
+  assert.match(npmReadme, /npx --yes --ignore-scripts relmio@latest/u);
+  assert.match(
+    npmReadme,
+    /https:\/\/raw\.githubusercontent\.com\/Demonbane18\/n8n-openai-oauth-setup\/main\/docs\/images\/brand\/relmio-mark\.svg/u,
+  );
+  assert.match(
+    npmReadme,
+    /https:\/\/raw\.githubusercontent\.com\/Demonbane18\/n8n-openai-oauth-setup\/main\/docs\/images\/setup\/05-bridge-ready\.png/u,
+  );
+
+  for (const [, source] of npmReadme.matchAll(/<img[^>]+src="([^"]+)"/gu)) {
+    assert.match(source, /^https:\/\/raw\.githubusercontent\.com\//u);
+  }
+});
+
+test("npm package builder emits the reviewed Relmio tarball", async (t) => {
+  const outputDirectory = await mkdtemp(join(tmpdir(), "npm-build-test-"));
+  t.after(() => rm(outputDirectory, { recursive: true, force: true }));
+
+  const { packedPackage, tarballPath } = await buildNpmPackage({
+    outputDirectory,
+  });
+  const packageJson = JSON.parse(
+    await readFile(join(projectRoot, "package.json"), "utf8"),
+  );
+
+  assert.equal(
+    basename(tarballPath),
+    `relmio-${packageJson.version}.tgz`,
+  );
+  assert.deepEqual(
+    packedPackage.files.map(({ path }) => path).sort(),
+    [...expectedPackedFiles].sort(),
+  );
+  assert.ok((await stat(tarballPath)).size > 0);
 });

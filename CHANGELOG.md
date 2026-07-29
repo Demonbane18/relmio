@@ -7,19 +7,27 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+No unreleased changes.
+
+## [0.2.0] - 2026-07-29
+
 ### Added
 
 - Add a provider-neutral product roadmap with a gated SuperGrok/xAI OAuth
   feasibility track, entitlement checks, and explicit security boundaries.
-
-## [0.2.0] - 2026-07-29
+- Add a trusted-publisher GitHub Actions workflow for short-lived npm
+  authentication after the first package publication.
 
 ### Changed
 
-- Rename the public product and npm package to PlanRelay and `planrelay` so the
+- Rename the public product and npm package to Relmio and `relmio` so the
   project can grow beyond its initial n8n setup path.
 - Replace the generic plus icon with an original two-lane relay mark and add a
   small brand guide with reusable SVG and source concept assets.
+- Publish a concise npm-specific README with absolute image and documentation
+  URLs while preserving the full GitHub README and its Mermaid diagrams.
+- Build and inspect a deterministic npm tarball so the registry receives the
+  npm-specific README instead of the repository README.
 - Keep the legacy `n8n-openai-oauth-setup` executable alias and every deployed
   `n8n-openai-oauth` compatibility and safety identifier unchanged.
 

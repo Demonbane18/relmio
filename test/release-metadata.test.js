@@ -22,16 +22,16 @@ function releaseCheckEnvironment(overrides = {}) {
 }
 
 const packageJson = {
-  name: "planrelay",
+  name: "relmio",
   version: "0.1.5",
 };
 
 const packageLock = {
-  name: "planrelay",
+  name: "relmio",
   version: "0.1.5",
   packages: {
     "": {
-      name: "planrelay",
+      name: "relmio",
       version: "0.1.5",
     },
   },

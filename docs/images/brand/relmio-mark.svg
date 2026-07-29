@@ -2,9 +2,9 @@
   xmlns="http://www.w3.org/2000/svg"
   viewBox="0 0 64 64"
   role="img"
-  aria-labelledby="planrelay-mark-title"
+  aria-labelledby="relmio-mark-title"
 >
-  <title id="planrelay-mark-title">PlanRelay mark</title>
+  <title id="relmio-mark-title">Relmio mark</title>
   <path
     fill="#137c74"
     d="M7 8h19l31 24H41L26 20v10L7 17Z"

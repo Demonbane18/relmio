@@ -29,7 +29,7 @@ const wizard = await startWizardServer({ sessionToken });
 const url = `${wizard.origin}/?session=${sessionToken}`;
 
 console.log("");
-console.log("PlanRelay");
+console.log("Relmio");
 console.log("---------");
 console.log(`Local wizard: ${url}`);
 console.log("");

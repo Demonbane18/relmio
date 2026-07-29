@@ -1,0 +1,67 @@
+name: Publish to npm
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish the release tarball
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Use Node.js 22.14.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install and verify an OIDC-capable npm CLI
+        shell: bash
+        run: |
+          npm install --global --ignore-scripts npm@11.13.0
+          test "$(npm --version)" = "11.13.0"
+
+      - name: Install pinned dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run the release gate
+        run: |
+          npm run check
+          npm audit --audit-level=high
+
+      - name: Build the reviewed registry tarball
+        run: npm run package:build -- .release
+
+      - name: Check whether this immutable version already exists
+        id: registry
+        shell: bash
+        run: |
+          RELEASE_VERSION="$(node -p "require('./package.json').version")"
+          echo "version=${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+          if npm view "relmio@${RELEASE_VERSION}" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish with npm trusted publishing
+        if: steps.registry.outputs.published != 'true'
+        run: npm publish ".release/relmio-${{ steps.registry.outputs.version }}.tgz" --ignore-scripts --access public
+
+      - name: Report an already-published release
+        if: steps.registry.outputs.published == 'true'
+        run: echo "relmio@${{ steps.registry.outputs.version }} is already present on npm; no publish was attempted."

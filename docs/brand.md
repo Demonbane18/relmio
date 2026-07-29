@@ -1,6 +1,6 @@
-# PlanRelay brand
+# Relmio brand
 
-PlanRelay is the public name for the project formerly described as n8n OpenAI
+Relmio is the public name for the project formerly described as n8n OpenAI
 OAuth Setup.
 
 The name is intentionally client-agnostic. The current wizard configures a
@@ -10,14 +10,14 @@ applications.
 
 ## Mark
 
-![PlanRelay mark](images/brand/planrelay-mark.svg)
+![Relmio mark](images/brand/relmio-mark.svg)
 
 Two independent lanes converge around a right-facing negative-space arrow. The
 shape represents an authenticated upstream connection being relayed through a
 single compatible interface.
 
 The mark was developed from the checked-in generated concept source at
-[`images/brand/planrelay-concept-source.png`](images/brand/planrelay-concept-source.png)
+[`images/brand/relmio-concept-source.png`](images/brand/relmio-concept-source.png)
 and redrawn as compact SVG geometry for reliable rendering at small sizes.
 
 ## Colors
@@ -36,7 +36,7 @@ brand colors.
 
 ## Compatibility names
 
-The public product and npm package use **PlanRelay** and `planrelay`.
+The public product and npm package use **Relmio** and `relmio`.
 
 Existing remote paths, Docker project/service names, marker files, and local
 credential paths keep their `n8n-openai-oauth` identifiers. Those values are
