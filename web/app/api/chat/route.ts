@@ -2,6 +2,8 @@ import { createOpenAIOAuth } from "@openai-oauth/ai-sdk";
 import { openaiCredentials } from "@openai-oauth/react/server";
 import { streamText } from "ai";
 
+export const runtime = "nodejs";
+
 const MAX_PROMPT_LENGTH = 3000;
 const STREAM_ERROR_MESSAGE =
   "The response stream failed. Reconnect ChatGPT and try again.";

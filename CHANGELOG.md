@@ -7,6 +7,15 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- Prepare the hosted chat for Vercel's Node.js 22 runtime and repository-driven
+  preview and production deployments.
+- Return ChatGPT OAuth callbacks to the deployment that started sign-in so
+  Vercel preview URLs and the production domain both work.
+- Run hosted web linting, type checks, builds, tests, and dependency auditing
+  in GitHub Actions alongside repository-driven deployments.
+
 ### Fixed
 
 - Stream hosted chat responses incrementally through deployment proxies and
