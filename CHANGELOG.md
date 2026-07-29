@@ -7,7 +7,10 @@ checks the registry separately after publication.
 
 ## Unreleased
 
-No unreleased changes.
+### Added
+
+- Add a provider-neutral product roadmap with a gated SuperGrok/xAI OAuth
+  feasibility track, entitlement checks, and explicit security boundaries.
 
 ## [0.2.0] - 2026-07-29
 

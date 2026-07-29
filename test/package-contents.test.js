@@ -29,6 +29,7 @@ const expectedPackedFiles = new Set([
   "docs/manual-install.md",
   "docs/n8n-configuration.md",
   "docs/npm-publish.md",
+  "docs/roadmap.md",
   "docs/security.md",
   "docs/troubleshooting.md",
   "docs/video-outline.md",

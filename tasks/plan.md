@@ -63,6 +63,12 @@ Validation and safety policy
 - Task 11: Complete security, architecture, uninstall, and maintenance documentation.
 - Task 12: Run tests, lint, audit, package preview, staged-secret scan, and prepare the GitHub repository and npm release.
 
+## Future roadmap
+
+The completed initial implementation remains the supported baseline. Future
+provider-neutral work, including the gated SuperGrok/xAI OAuth feasibility
+track, is maintained in [`docs/roadmap.md`](../docs/roadmap.md).
+
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
