@@ -20,6 +20,14 @@
   </p>
 </div>
 
+## Quick install
+
+Copy and paste this into your terminal on your own computer:
+
+```bash
+npx --yes --ignore-scripts relmio@latest
+```
+
 Relmio is a local browser wizard that currently installs
 [`openai-oauth@2.0.0`](https://github.com/EvanZhouDev/openai-oauth/releases/tag/v2.0.0)
 as a separate Docker sidecar beside a self-hosted n8n instance. It guides a
