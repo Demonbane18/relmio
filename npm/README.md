@@ -13,6 +13,25 @@
   </p>
 </div>
 
+## See it working first
+
+Before setup, this sample n8n configuration shows GPT-5.6 model aliases in the
+OpenAI Chat Model selector. The exact model list depends on the signed-in
+ChatGPT account and can change over time.
+
+<figure>
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/gpt-56-model-selector.png" alt="Model selector listing GPT-5.6 Sol, Luna, and Terra model aliases" width="480">
+  <figcaption>Compatibility preview: the model selector includes <code>gpt-5.6-sol</code>, <code>gpt-5.6-luna</code>, and <code>gpt-5.6-terra</code>.</figcaption>
+</figure>
+
+After Relmio completes the installation, Docker shows the existing n8n stack
+and the new private OAuth sidecar running together.
+
+<figure>
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/sidecar-docker-containers-running.png" alt="Docker Desktop showing the n8n and n8n-openai-oauth containers running" width="960">
+  <figcaption>Completed setup: the existing <code>n8n</code> stack and the <code>n8n-openai-oauth</code> sidecar are both running.</figcaption>
+</figure>
+
 Relmio is a local browser wizard that installs a private
 [openai-oauth](https://github.com/EvanZhouDev/openai-oauth) Docker sidecar
 beside an existing self-hosted n8n instance. It guides you through local

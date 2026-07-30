@@ -158,6 +158,46 @@ test("README walkthrough images are metadata-free PNG files", async () => {
   }
 });
 
+test("README example images are metadata-free PNG files", async () => {
+  const names = [
+    "gpt-56-ai-agent-luna-run.png",
+    "gpt-56-ai-agent-sol-run.png",
+    "gpt-56-ai-agent-workflow.png",
+    "gpt-56-luna-chat-model-run.png",
+    "gpt-56-model-selector.png",
+    "gpt-56-sol-chat-model-run.png",
+    "sidecar-docker-containers-running.png",
+  ];
+  const images = await Promise.all(
+    names.map((name) => readFile(`docs/images/examples/${name}`)),
+  );
+
+  for (const image of images) {
+    assert.deepEqual(
+      [...image.subarray(0, 8)],
+      [137, 80, 78, 71, 13, 10, 26, 10],
+    );
+    assert.ok(image.readUInt32BE(16) >= 1);
+    assert.ok(image.readUInt32BE(20) >= 1);
+
+    const chunkTypes = [];
+    let offset = 8;
+    while (offset < image.length) {
+      const length = image.readUInt32BE(offset);
+      const type = image.toString("ascii", offset + 4, offset + 8);
+      chunkTypes.push(type);
+      offset += 12 + length;
+    }
+    assert.equal(offset, image.length);
+    assert.equal(chunkTypes[0], "IHDR");
+    assert.equal(chunkTypes.at(-1), "IEND");
+    assert.ok(
+      chunkTypes.every((type) => ["IHDR", "IDAT", "IEND"].includes(type)),
+      `unexpected PNG metadata chunk: ${chunkTypes.join(", ")}`,
+    );
+  }
+});
+
 test("README relative links resolve to repository files", async () => {
   const readme = await readFile("README.md", "utf8");
   const targets = [...readme.matchAll(/\]\(([^)]+)\)/gu)].map(
