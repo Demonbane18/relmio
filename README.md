@@ -20,6 +20,14 @@
   </p>
 </div>
 
+## Quick install
+
+Copy and paste this into your terminal on your own computer:
+
+```bash
+npx --yes --ignore-scripts relmio@latest
+```
+
 Relmio is a local browser wizard that currently installs
 [`openai-oauth@2.0.0`](https://github.com/EvanZhouDev/openai-oauth/releases/tag/v2.0.0)
 as a separate Docker sidecar beside a self-hosted n8n instance. It guides a
@@ -67,6 +75,7 @@ one automation platform.
 <summary><strong>Table of contents</strong></summary>
 
 - [What this does, in plain English](#what-this-does-in-plain-english)
+- [What is a sidecar?](#what-is-a-sidecar)
 - [Current scope and direction](#current-scope-and-direction)
 - [Hosted ChatGPT site](#hosted-chatgpt-site)
 - [Choose a setup path](#choose-a-setup-path)
@@ -114,6 +123,49 @@ Think of the sidecar as an interpreter in a private room: n8n speaks the API
 format it already knows, while the sidecar handles the different sign-in
 method. The sidecar shares a private Docker network with n8n; port `10531` is
 not published to the internet.
+
+## What is a sidecar?
+
+A sidecar is a small helper program that runs beside a larger program. It adds
+one missing capability without changing the main program. In Relmio, your n8n
+stays as it is; the private sidecar handles ChatGPT/Codex sign-in and translates
+n8n's normal requests. Remove the sidecar and your existing n8n is still
+unchanged.
+
+```mermaid
+flowchart LR
+  N8N["Your n8n<br/>stays the same"]
+  Sidecar["Relmio sidecar<br/>small private helper"]
+  ChatGPT["ChatGPT/Codex<br/>your sign-in"]
+
+  N8N -->|"sends a request"| Sidecar
+  Sidecar -->|"handles sign-in"| ChatGPT
+  ChatGPT -->|"returns an answer"| Sidecar
+  Sidecar -->|"sends the answer"| N8N
+```
+
+This is the standard sidecar pattern: a small, modular helper alongside an
+existing application. For a beginner-friendly overview, see
+[Justin Rice's explanation of software sidecars](https://medium.com/@justinricedev/what-is-a-software-sidecar-8f89feff09f9).
+
+### A tricycle is a useful analogy
+
+Think of n8n as a motorcycle: it already gets your workflow where it needs to
+go. Relmio adds a sidecar, turning the pair into a tricycle with extra room for
+passengers. The motorcycle remains the same, while the sidecar adds a new
+capability, in this case ChatGPT/Codex sign-in and translation for n8n.
+
+```mermaid
+flowchart LR
+  Motorcycle["Motorcycle<br/>your existing n8n"]
+  Sidecar["Sidecar<br/>Relmio helper"]
+  Tricycle["Tricycle<br/>n8n + Relmio"]
+  Passengers["Extra seats<br/>new capabilities for more workflows"]
+
+  Motorcycle -->|"stays unchanged"| Tricycle
+  Sidecar -->|"adds sign-in and translation"| Tricycle
+  Tricycle -->|"makes room for"| Passengers
+```
 
 ## Current scope and direction
 
