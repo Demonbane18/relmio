@@ -1,15 +1,15 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Demonbane18/n8n-openai-oauth-setup/main/docs/images/brand/relmio-mark.svg" alt="Relmio logo" width="88">
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-mark.svg" alt="Relmio logo" width="88">
   <h1>Relmio</h1>
   <p>Relay a supported ChatGPT/Codex sign-in to OpenAI-compatible clients, starting with self-hosted n8n.</p>
   <p>
-    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup">Full guide</a>
+    <a href="https://github.com/Demonbane18/relmio">Full guide</a>
     &nbsp;·&nbsp;
-    <a href="https://relmio.jpfusin.tech/">Hosted ChatGPT site</a>
+    <a href="https://relmio.vercel.app/">Hosted ChatGPT site</a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/issues/new">Report an issue</a>
+    <a href="https://github.com/Demonbane18/relmio/issues/new">Report an issue</a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/docs/roadmap.md">Roadmap</a>
+    <a href="https://github.com/Demonbane18/relmio/blob/main/docs/roadmap.md">Roadmap</a>
   </p>
 </div>
 
@@ -22,9 +22,13 @@ exact change plan, and the final n8n credential settings.
 The existing n8n image, Compose file, container, and workflows stay untouched.
 
 Try the hosted browser demo at
-[relmio.jpfusin.tech](https://relmio.jpfusin.tech/). It is a separate
+[relmio.vercel.app](https://relmio.vercel.app/). It is a separate
 request-bound ChatGPT experience; the npm package remains the local wizard for
 installing the private n8n sidecar.
+
+Use the site's [Install wizard](https://relmio.vercel.app/install) page for a
+copyable command tailored to the current self-hosted n8n and Hostinger VPS
+setup path.
 
 ## Quick start
 
@@ -62,7 +66,7 @@ Relmio currently provides tested setup instructions for:
 The broader direction is to support local chatbots, custom applications,
 OpenAI-compatible clients, and provider adapters without tying the public
 product name to n8n. SuperGrok/xAI OAuth is a gated feasibility item on the
-[provider roadmap](https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/docs/roadmap.md);
+[provider roadmap](https://github.com/Demonbane18/relmio/blob/main/docs/roadmap.md);
 it is not currently advertised as supported.
 
 ## Visual walkthrough
@@ -72,23 +76,23 @@ data, and no real credential or session information.
 
 ### 1. Confirm the local ChatGPT/Codex sign-in
 
-<img src="https://raw.githubusercontent.com/Demonbane18/n8n-openai-oauth-setup/main/docs/images/setup/01-local-sign-in-ready.png" alt="Sanitized local sign-in ready screen" width="720">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/01-local-sign-in-ready.png" alt="Sanitized local sign-in ready screen" width="720">
 
 ### 2. Verify the VPS identity
 
-<img src="https://raw.githubusercontent.com/Demonbane18/n8n-openai-oauth-setup/main/docs/images/setup/02-vps-identity-confirmed.png" alt="Sanitized VPS fingerprint confirmation screen" width="720">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/02-vps-identity-confirmed.png" alt="Sanitized VPS fingerprint confirmation screen" width="720">
 
 ### 3. Choose the detected n8n container and network
 
-<img src="https://raw.githubusercontent.com/Demonbane18/n8n-openai-oauth-setup/main/docs/images/setup/03-n8n-detected.png" alt="Sanitized n8n discovery screen" width="720">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/03-n8n-detected.png" alt="Sanitized n8n discovery screen" width="720">
 
 ### 4. Review the exact sidecar-only plan
 
-<img src="https://raw.githubusercontent.com/Demonbane18/n8n-openai-oauth-setup/main/docs/images/setup/04-install-plan.png" alt="Sanitized installation plan screen" width="720">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/04-install-plan.png" alt="Sanitized installation plan screen" width="720">
 
 ### 5. Copy the verified n8n settings
 
-<img src="https://raw.githubusercontent.com/Demonbane18/n8n-openai-oauth-setup/main/docs/images/setup/05-bridge-ready.png" alt="Sanitized verified bridge screen" width="720">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/05-bridge-ready.png" alt="Sanitized verified bridge screen" width="720">
 
 Use these values in an n8n OpenAI credential:
 
@@ -151,13 +155,16 @@ OpenAI may change or disable the underlying services at any time.
 
 ## Documentation
 
-- [Complete GitHub README and manual fallback](https://github.com/Demonbane18/n8n-openai-oauth-setup#readme)
-- [Configure n8n AI and HTTP nodes](https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/docs/n8n-configuration.md)
-- [Troubleshooting](https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/docs/troubleshooting.md)
-- [Security and limitations](https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/docs/security.md)
-- [Refresh, upgrade, rollback, and uninstall](https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/docs/maintenance.md)
-- [Changelog](https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/CHANGELOG.md)
+- [Complete GitHub README and manual fallback](https://github.com/Demonbane18/relmio#readme)
+- [Configure n8n AI and HTTP nodes](https://github.com/Demonbane18/relmio/blob/main/docs/n8n-configuration.md)
+- [Troubleshooting](https://github.com/Demonbane18/relmio/blob/main/docs/troubleshooting.md)
+- [Security and limitations](https://github.com/Demonbane18/relmio/blob/main/docs/security.md)
+- [Refresh, upgrade, rollback, and uninstall](https://github.com/Demonbane18/relmio/blob/main/docs/maintenance.md)
+- [Changelog](https://github.com/Demonbane18/relmio/blob/main/CHANGELOG.md)
 
 ## License
 
-[MIT](https://github.com/Demonbane18/n8n-openai-oauth-setup/blob/main/LICENSE)
+[Apache License 2.0](https://github.com/Demonbane18/relmio/blob/main/LICENSE).
+See the package
+[NOTICE](https://github.com/Demonbane18/relmio/blob/main/NOTICE) for the
+upstream `openai-oauth` attribution.

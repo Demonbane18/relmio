@@ -18,6 +18,7 @@ const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const expectedPackedFiles = new Set([
   "CHANGELOG.md",
   "LICENSE",
+  "NOTICE",
   "README.md",
   "SPEC.md",
   "package.json",
@@ -149,20 +150,21 @@ test("npm package substitutes a registry-safe README without changing GitHub dia
   assert.match(githubReadme, /```mermaid/u);
   assert.doesNotMatch(npmReadme, /```mermaid/u);
   assert.match(npmReadme, /npx --yes --ignore-scripts relmio@latest/u);
-  assert.match(npmReadme, /https:\/\/relmio\.jpfusin\.tech\//u);
+  assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\//u);
+  assert.doesNotMatch(npmReadme, /relmio\.jpfusin\.tech/u);
   assert.match(npmReadme, /## Known limitations/u);
   assert.match(npmReadme, /## Legal/u);
   assert.match(
     npmReadme,
-    /https:\/\/raw\.githubusercontent\.com\/Demonbane18\/n8n-openai-oauth-setup\/main\/docs\/images\/brand\/relmio-mark\.svg/u,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-mark\.svg/u,
   );
   assert.match(
     npmReadme,
-    /https:\/\/raw\.githubusercontent\.com\/Demonbane18\/n8n-openai-oauth-setup\/main\/docs\/images\/setup\/05-bridge-ready\.png/u,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/setup\/05-bridge-ready\.png/u,
   );
 
   for (const [, source] of npmReadme.matchAll(/<img[^>]+src="([^"]+)"/gu)) {
-    assert.match(source, /^https:\/\/raw\.githubusercontent\.com\//u);
+    assert.match(source, /^https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\//u);
   }
 });
 

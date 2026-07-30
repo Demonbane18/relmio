@@ -17,6 +17,12 @@ export function CopyCommand() {
   }, []);
 
   async function copy() {
+    setCopied(true);
+    if (revertTimer.current !== null) {
+      window.clearTimeout(revertTimer.current);
+    }
+    revertTimer.current = window.setTimeout(() => setCopied(false), 1800);
+
     try {
       await navigator.clipboard.writeText(command);
     } catch {
@@ -30,11 +36,6 @@ export function CopyCommand() {
       document.execCommand("copy");
       textarea.remove();
     }
-    setCopied(true);
-    if (revertTimer.current !== null) {
-      window.clearTimeout(revertTimer.current);
-    }
-    revertTimer.current = window.setTimeout(() => setCopied(false), 1800);
   }
 
   return (

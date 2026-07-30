@@ -33,12 +33,74 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /<title>Relmio — Your ChatGPT plan, relayed<\/title>/i);
   assert.match(html, /Your ChatGPT plan\./);
   assert.match(html, /One clean path to your tools\./);
+  assert.match(html, /Test a supported ChatGPT sign-in in the hosted chat\./);
+  assert.match(
+    html,
+    /keep the relay inside your own Docker network\./,
+  );
+  assert.doesNotMatch(html, /OpenAI-shaped workflows you already use/);
   assert.match(html, /Try the secure chat/);
+  assert.match(html, /href="\/install"[^>]*>Install wizard<\/a>/);
   assert.match(html, /Connect, then ask\./);
   assert.match(html, /Private where it matters\./);
-  assert.match(html, /npx --yes --ignore-scripts relmio@latest/);
-  assert.match(html, /https:\/\/github\.com\/Demonbane18\/n8n-openai-oauth-setup/);
+  assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
+  assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
+  assert.match(html, /openai-oauth/);
+  assert.match(html, /Evan Zhou Dev/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
+});
+
+test("renders a command-first n8n and Hostinger VPS install page", async () => {
+  const response = await requestApp("/install");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /Install Relmio for n8n/);
+  assert.match(html, /Hostinger VPS/);
+  assert.match(html, /npx --yes --ignore-scripts relmio@latest/);
+  assert.match(html, /Copy installation command/);
+  assert.match(html, /Run this on your own computer/);
+  assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
+});
+
+test("returns current repository stars and npm version for the GitHub control", async (t) => {
+  t.mock.method(globalThis, "fetch", async (input) => {
+    const url = String(input);
+    if (url.includes("api.github.com/repos/Demonbane18/relmio")) {
+      return Response.json({ stargazers_count: 42 });
+    }
+    if (url.includes("registry.npmjs.org/relmio/latest")) {
+      return Response.json({ version: "0.2.1" });
+    }
+    return new Response("Not found", { status: 404 });
+  });
+
+  const response = await requestApp("/api/project-meta");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    stars: 42,
+    version: "0.2.1",
+  });
+  assert.match(response.headers.get("cache-control") ?? "", /s-maxage=900/);
+});
+
+test("falls back safely when project metadata is malformed", async (t) => {
+  t.mock.method(
+    globalThis,
+    "fetch",
+    async () =>
+      new Response("{", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+
+  const response = await requestApp("/api/project-meta");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    stars: null,
+    version: "0.2.1",
+  });
 });
 
 test("rejects non-string chat prompts before reading credentials", async () => {

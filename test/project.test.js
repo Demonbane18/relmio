@@ -3,7 +3,12 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("project pins the reviewed SSH dependency and Node runtime", async () => {
-  const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+  const [packageContents, license, notice] = await Promise.all([
+    readFile("package.json", "utf8"),
+    readFile("LICENSE", "utf8"),
+    readFile("NOTICE", "utf8"),
+  ]);
+  const packageJson = JSON.parse(packageContents);
 
   assert.equal(packageJson.engines.node, ">=22");
   assert.equal(packageJson.packageManager, "npm@10.9.8");
@@ -13,8 +18,21 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
   assert.equal(packageJson.bin.planrelay, "src/cli.js");
   assert.equal(packageJson.bin["n8n-openai-oauth-setup"], "src/cli.js");
   assert.equal(packageJson.private, undefined);
-  assert.equal(packageJson.license, "MIT");
-  assert.equal(packageJson.homepage, "https://relmio.jpfusin.tech/");
+  assert.equal(packageJson.license, "Apache-2.0");
+  assert.match(license, /Apache License/u);
+  assert.doesNotMatch(license, /^MIT License$/mu);
+  assert.match(license, /3\. Grant of Patent License\./u);
+  assert.match(notice, /Evan Zhou and OpenAI OAuth contributors/u);
+  assert.match(notice, /github\.com\/EvanZhouDev\/openai-oauth/u);
+  assert.equal(
+    packageJson.repository.url,
+    "git+https://github.com/Demonbane18/relmio.git",
+  );
+  assert.equal(
+    packageJson.bugs.url,
+    "https://github.com/Demonbane18/relmio/issues",
+  );
+  assert.equal(packageJson.homepage, "https://relmio.vercel.app/");
 });
 
 test("double-click launchers only install local dependencies and start the wizard", async () => {
@@ -97,7 +115,8 @@ test("public README documents the latest npm walkthrough and sanitized images", 
   assert.match(readme, /\[Changelog\]\(CHANGELOG\.md\)/u);
   assert.match(readme, /img\.shields\.io\/npm\/v\/relmio/u);
   assert.match(readme, /docs\/images\/brand\/relmio-mark\.svg/u);
-  assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\//u);
+  assert.match(readme, /https:\/\/relmio\.vercel\.app\//u);
+  assert.doesNotMatch(readme, /relmio\.jpfusin\.tech/u);
   assert.match(readme, /## Known limitations/u);
   assert.match(readme, /## Legal/u);
 });

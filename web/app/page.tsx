@@ -1,6 +1,7 @@
 import Image from "next/image";
+import Link from "next/link";
 import { ChatConsole } from "./components/ChatConsole";
-import { CopyCommand } from "./components/CopyCommand";
+import { RepositoryButton } from "./components/RepositoryButton";
 
 const capabilities = [
   {
@@ -58,14 +59,7 @@ export default function Home() {
             <a href="#security">Security</a>
             <a href="#chat">Chat</a>
           </nav>
-          <a
-            className="header-action"
-            href="https://www.npmjs.com/package/relmio"
-            target="_blank"
-            rel="noreferrer"
-          >
-            View npm package
-          </a>
+          <RepositoryButton />
         </div>
       </header>
 
@@ -80,25 +74,22 @@ export default function Home() {
             <span>One clean path to your tools.</span>
           </h1>
           <p className="hero-lede">
-            Relmio connects a supported ChatGPT/Codex sign-in to the
-            OpenAI-shaped workflows you already use—starting with n8n, now
-            with a secure hosted chat.
+            Test a supported ChatGPT sign-in in the hosted chat. For n8n,
+            install Relmio&apos;s private sidecar and keep the relay inside
+            your own Docker network.
           </p>
           <div className="hero-actions">
             <a className="button button-primary" href="#chat">
               Try the secure chat
               <span aria-hidden="true">↘</span>
             </a>
-            <a
+            <Link
               className="button button-secondary"
-              href="https://www.npmjs.com/package/relmio"
-              target="_blank"
-              rel="noreferrer"
+              href="/install"
             >
-              Install for n8n
-            </a>
+              Install wizard
+            </Link>
           </div>
-          <CopyCommand />
         </div>
 
         <div className="relay-visual" aria-label="Relmio request flow">
@@ -241,15 +232,13 @@ export default function Home() {
           <p className="section-label">Start locally</p>
           <h2>Bring your own plan. Keep your own boundary.</h2>
         </div>
-        <a
+        <Link
           className="button button-primary"
-          href="https://www.npmjs.com/package/relmio"
-          target="_blank"
-          rel="noreferrer"
+          href="/install"
         >
-          Open Relmio on npm
-          <span aria-hidden="true">↗</span>
-        </a>
+          Install the wizard
+          <span aria-hidden="true">↘</span>
+        </Link>
       </section>
 
       <footer>
@@ -257,7 +246,17 @@ export default function Home() {
           <Image src="/relmio-mark.svg" alt="" width={32} height={32} />
           <span>Relmio</span>
         </a>
-        <p>Private OpenAI-compatible access, beginning with self-hosted n8n.</p>
+        <p>
+          Hosted sign-in uses the{" "}
+          <a
+            href="https://github.com/EvanZhouDev/openai-oauth"
+            target="_blank"
+            rel="noreferrer"
+          >
+            openai-oauth method by Evan Zhou Dev
+          </a>
+          .
+        </p>
         <div>
           <a
             href="https://www.npmjs.com/package/relmio"
@@ -267,7 +266,7 @@ export default function Home() {
             npm
           </a>
           <a
-            href="https://github.com/Demonbane18/n8n-openai-oauth-setup"
+            href="https://github.com/Demonbane18/relmio"
             target="_blank"
             rel="noreferrer"
           >

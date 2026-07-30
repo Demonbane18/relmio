@@ -203,7 +203,7 @@ On the npm package's **Trusted Publisher** form, use:
 |---|---|
 | Publisher | GitHub Actions |
 | Organization or user | `Demonbane18` |
-| Repository | `n8n-openai-oauth-setup` |
+| Repository | `relmio` |
 | Workflow filename | `publish.yml` |
 | Environment name | `npm` |
 | Allowed action | Allow npm publish |

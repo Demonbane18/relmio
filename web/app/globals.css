@@ -159,23 +159,72 @@ main {
   color: var(--teal-deep);
 }
 
-.header-action {
+.repository-button {
   justify-self: end;
-  padding: 10px 17px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px 6px 13px;
   border: 1px solid var(--ink);
   border-radius: 999px;
-  font-size: 0.83rem;
+  background: var(--ink);
+  color: var(--white);
+  font-size: 0.78rem;
   font-weight: 650;
   transition:
     background 200ms var(--ease),
     color 200ms var(--ease),
-    transform 200ms var(--ease);
+    transform 200ms var(--ease),
+    border-color 200ms var(--ease);
 }
 
-.header-action:hover {
-  background: var(--ink);
-  color: var(--white);
+.repository-button:hover {
+  border-color: var(--teal);
+  background: var(--teal);
   transform: translateY(-1px);
+}
+
+.repository-button > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.repository-button strong {
+  font-size: 0.8rem;
+}
+
+.repository-stat,
+.repository-version {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 10%);
+  color: #dce6e2;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.66rem;
+  font-weight: 650;
+}
+
+.repository-version {
+  background: var(--white);
+  color: var(--ink);
+}
+
+.install-back-link {
+  justify-self: center;
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  font-weight: 600;
+  transition: color 180ms var(--ease);
+}
+
+.install-back-link:hover {
+  color: var(--teal);
 }
 
 /* ---------- Hero ---------- */
@@ -1374,6 +1423,162 @@ main {
   background: var(--mint);
 }
 
+/* ---------- Install wizard ---------- */
+
+.install-shell {
+  min-height: 100vh;
+}
+
+.install-page {
+  min-height: calc(100vh - 73px);
+  display: grid;
+  place-items: center;
+  padding: clamp(72px, 10vw, 132px) 20px;
+  background:
+    radial-gradient(
+      42% 50% at 50% 6%,
+      color-mix(in srgb, var(--teal) 12%, transparent),
+      transparent 72%
+    ),
+    var(--paper-light);
+}
+
+.install-panel {
+  width: min(760px, 100%);
+  text-align: center;
+}
+
+.install-eyebrow {
+  width: fit-content;
+  margin-inline: auto;
+}
+
+.install-panel h1 {
+  max-width: 700px;
+  margin: 0 auto;
+  font-size: clamp(3rem, 7.5vw, 5.4rem);
+  line-height: 0.98;
+  letter-spacing: -0.065em;
+}
+
+.install-lede {
+  max-width: 650px;
+  margin: 26px auto 0;
+  color: var(--ink-soft);
+  font-size: clamp(1.05rem, 2vw, 1.2rem);
+  line-height: 1.62;
+}
+
+.install-command-stage {
+  max-width: 650px;
+  margin: 40px auto 0;
+  text-align: left;
+}
+
+.install-command-stage > p {
+  margin: 0 0 10px;
+  color: var(--ink-soft);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.install-command-stage .install-command {
+  width: 100%;
+  min-height: 66px;
+  margin: 0;
+  padding: 14px 17px;
+  border-color: var(--dark);
+  background: var(--dark);
+  color: var(--white);
+  box-shadow: var(--shadow-lg);
+}
+
+.install-command-stage .install-command:hover {
+  border-color: var(--teal);
+}
+
+.install-command-stage .install-command code {
+  font-size: clamp(0.76rem, 2vw, 0.9rem);
+}
+
+.install-command-stage .copy-hint {
+  margin-left: auto;
+  background: rgb(255 255 255 / 10%);
+  color: var(--white);
+}
+
+.install-boundary {
+  max-width: 650px;
+  margin: 24px auto 0;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--white);
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  text-align: left;
+}
+
+.install-boundary strong {
+  color: var(--ink);
+}
+
+.install-steps {
+  max-width: 650px;
+  margin: 18px auto 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--white);
+  text-align: left;
+  overflow: hidden;
+}
+
+.install-steps li {
+  min-height: 156px;
+  padding: 20px;
+  border-right: 1px solid var(--line);
+}
+
+.install-steps li:last-child {
+  border-right: 0;
+}
+
+.install-steps li > span {
+  display: block;
+  margin-bottom: 24px;
+  color: var(--teal);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.install-steps strong {
+  font-size: 0.85rem;
+}
+
+.install-steps p {
+  margin: 7px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.install-page-actions {
+  margin-top: 28px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 /* ---------- Footer ---------- */
 
 footer {
@@ -1400,6 +1605,14 @@ footer > p {
   font-size: 0.78rem;
   line-height: 1.5;
   text-align: center;
+}
+
+footer > p a {
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
 }
 
 footer > div {
@@ -1566,9 +1779,21 @@ footer > div {
     min-height: 64px;
   }
 
-  .header-action {
-    padding: 9px 12px;
-    font-size: 0.74rem;
+  .repository-button {
+    padding-left: 10px;
+  }
+
+  .repository-button strong {
+    display: none;
+  }
+
+  .repository-stat,
+  .repository-version {
+    padding-inline: 7px;
+  }
+
+  .install-back-link {
+    display: none;
   }
 
   .hero {
@@ -1579,6 +1804,32 @@ footer > div {
 
   .hero h1 {
     font-size: clamp(2.9rem, 13vw, 4.4rem);
+  }
+
+  .install-page {
+    min-height: calc(100vh - 65px);
+    padding: 58px 14px 72px;
+  }
+
+  .install-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .install-steps li {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .install-steps li:last-child {
+    border-bottom: 0;
+  }
+
+  .install-steps li > span {
+    margin: 2px 0 0;
   }
 
   .route-lane {
