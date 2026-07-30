@@ -148,6 +148,25 @@ This is the standard sidecar pattern: a small, modular helper alongside an
 existing application. For a beginner-friendly overview, see
 [Justin Rice's explanation of software sidecars](https://medium.com/@justinricedev/what-is-a-software-sidecar-8f89feff09f9).
 
+### A tricycle is a useful analogy
+
+Think of n8n as a motorcycle: it already gets your workflow where it needs to
+go. Relmio adds a sidecar, turning the pair into a tricycle with extra room for
+passengers. The motorcycle remains the same, while the sidecar adds a new
+capability, in this case ChatGPT/Codex sign-in and translation for n8n.
+
+```mermaid
+flowchart LR
+  Motorcycle["Motorcycle<br/>your existing n8n"]
+  Sidecar["Sidecar<br/>Relmio helper"]
+  Tricycle["Tricycle<br/>n8n + Relmio"]
+  Passengers["Extra seats<br/>new capabilities for more workflows"]
+
+  Motorcycle -->|"stays unchanged"| Tricycle
+  Sidecar -->|"adds sign-in and translation"| Tricycle
+  Tricycle -->|"makes room for"| Passengers
+```
+
 ## Current scope and direction
 
 **Available now:** Relmio signs in locally, verifies a VPS over SSH, and

@@ -26,6 +26,10 @@ private sidecar adds ChatGPT/Codex sign-in and request translation while your
 existing n8n stays unchanged. This follows the sidecar pattern described in
 [Justin Rice's beginner-friendly overview](https://medium.com/@justinricedev/what-is-a-software-sidecar-8f89feff09f9).
 
+Think of it like a motorcycle gaining a sidecar: together they become a
+tricycle with extra seats. n8n is the motorcycle; Relmio is the sidecar that
+adds the missing capability without changing n8n.
+
 Try the hosted browser demo at
 [relmio.vercel.app](https://relmio.vercel.app/). It is a separate
 request-bound ChatGPT experience; the npm package remains the local wizard for
