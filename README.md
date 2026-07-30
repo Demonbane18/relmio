@@ -75,6 +75,7 @@ one automation platform.
 <summary><strong>Table of contents</strong></summary>
 
 - [What this does, in plain English](#what-this-does-in-plain-english)
+- [What is a sidecar?](#what-is-a-sidecar)
 - [Current scope and direction](#current-scope-and-direction)
 - [Hosted ChatGPT site](#hosted-chatgpt-site)
 - [Choose a setup path](#choose-a-setup-path)
@@ -122,6 +123,30 @@ Think of the sidecar as an interpreter in a private room: n8n speaks the API
 format it already knows, while the sidecar handles the different sign-in
 method. The sidecar shares a private Docker network with n8n; port `10531` is
 not published to the internet.
+
+## What is a sidecar?
+
+A sidecar is a small helper program that runs beside a larger program. It adds
+one missing capability without changing the main program. In Relmio, your n8n
+stays as it is; the private sidecar handles ChatGPT/Codex sign-in and translates
+n8n's normal requests. Remove the sidecar and your existing n8n is still
+unchanged.
+
+```mermaid
+flowchart LR
+  N8N["Your n8n<br/>stays the same"]
+  Sidecar["Relmio sidecar<br/>small private helper"]
+  ChatGPT["ChatGPT/Codex<br/>your sign-in"]
+
+  N8N -->|"sends a request"| Sidecar
+  Sidecar -->|"handles sign-in"| ChatGPT
+  ChatGPT -->|"returns an answer"| Sidecar
+  Sidecar -->|"sends the answer"| N8N
+```
+
+This is the standard sidecar pattern: a small, modular helper alongside an
+existing application. For a beginner-friendly overview, see
+[Justin Rice's explanation of software sidecars](https://medium.com/@justinricedev/what-is-a-software-sidecar-8f89feff09f9).
 
 ## Current scope and direction
 

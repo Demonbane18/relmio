@@ -21,6 +21,11 @@ exact change plan, and the final n8n credential settings.
 
 The existing n8n image, Compose file, container, and workflows stay untouched.
 
+A sidecar is a small helper program that runs beside a larger program. Relmio's
+private sidecar adds ChatGPT/Codex sign-in and request translation while your
+existing n8n stays unchanged. This follows the sidecar pattern described in
+[Justin Rice's beginner-friendly overview](https://medium.com/@justinricedev/what-is-a-software-sidecar-8f89feff09f9).
+
 Try the hosted browser demo at
 [relmio.vercel.app](https://relmio.vercel.app/). It is a separate
 request-bound ChatGPT experience; the npm package remains the local wizard for
