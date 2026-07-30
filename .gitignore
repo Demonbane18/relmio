@@ -14,3 +14,4 @@ auth.json
 .codex-local-context.md
 graphify-out/
 .DS_Store
+.vercel

@@ -34,7 +34,7 @@
     "start": "node src/cli.js",
     "preview": "node scripts/preview.js",
     "package:build": "node scripts/build-npm-package.js",
-    "test": "node --test",
+    "test": "node --test test/*.test.js",
     "lint": "node scripts/check-syntax.js",
     "release:check": "node scripts/check-release-metadata.js",
     "check": "npm run lint && npm run release:check && npm test"
