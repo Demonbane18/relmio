@@ -20,8 +20,6 @@ const suggestions = [
   "What should I protect like a password?",
 ];
 
-const hostedChatCallbackUrl = "https://relmio.jpfusin.tech/";
-
 export function ChatConsole() {
   const [authStatus, setAuthStatus] =
     useState<SignInWithChatGPTState["status"]>("checking");
@@ -38,7 +36,6 @@ export function ChatConsole() {
     stop,
   } = useCompletion({
     api: "/api/chat",
-    streamProtocol: "text",
     onError(error) {
       setLocalError(
         error.message || "The request could not be completed. Try again.",
@@ -122,7 +119,6 @@ export function ChatConsole() {
 
       <div className="auth-row">
         <SignInWithChatGPT
-          callbackPath={hostedChatCallbackUrl}
           className="chatgpt-connect"
           loadingLabel="Checking ChatGPT…"
           redirectingLabel="Opening ChatGPT…"
@@ -158,11 +154,11 @@ export function ChatConsole() {
                 <p>{lastPrompt}</p>
               </div>
             ) : null}
-            <div className="message message-assistant">
-              <span>Relmio</span>
-              <p>
-                {completion ||
-                  (isLoading ? (
+            {completion || isLoading ? (
+              <div className="message message-assistant">
+                <span>Relmio</span>
+                <p>
+                  {completion || (
                     <span
                       className="typing-dots"
                       role="status"
@@ -172,11 +168,10 @@ export function ChatConsole() {
                       <i />
                       <i />
                     </span>
-                  ) : (
-                    ""
-                  ))}
-              </p>
-            </div>
+                  )}
+                </p>
+              </div>
+            ) : null}
           </>
         )}
       </div>

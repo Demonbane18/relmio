@@ -2,7 +2,57 @@ import { createOpenAIOAuth } from "@openai-oauth/ai-sdk";
 import { openaiCredentials } from "@openai-oauth/react/server";
 import { streamText } from "ai";
 
+export const runtime = "nodejs";
+
 const MAX_PROMPT_LENGTH = 3000;
+const STREAM_ERROR_MESSAGE =
+  "The response stream failed. Reconnect ChatGPT and try again.";
+const HOSTING_NETWORK_BLOCKED_MESSAGE =
+  "ChatGPT blocked requests from this hosting network. Relmio's chat backend must run outside Cloudflare Workers.";
+
+function errorStatusCode(error: unknown): number | undefined {
+  if (!error || typeof error !== "object" || !("statusCode" in error)) {
+    return undefined;
+  }
+
+  return typeof error.statusCode === "number" ? error.statusCode : undefined;
+}
+
+function errorResponseHeader(
+  error: unknown,
+  headerName: string,
+): string | undefined {
+  if (!error || typeof error !== "object" || !("responseHeaders" in error)) {
+    return undefined;
+  }
+
+  const headers = error.responseHeaders;
+  if (headers instanceof Headers) {
+    return headers.get(headerName) ?? undefined;
+  }
+
+  if (!headers || typeof headers !== "object") {
+    return undefined;
+  }
+
+  const value = Reflect.get(headers, headerName.toLowerCase());
+  return typeof value === "string" ? value : undefined;
+}
+
+function streamErrorMessage(error: unknown): string {
+  const statusCode = errorStatusCode(error);
+  const mitigation = errorResponseHeader(error, "cf-mitigated");
+  const isHostingChallenge = statusCode === 403 && mitigation === "challenge";
+
+  console.error("Relmio upstream chat request failed.", {
+    category: isHostingChallenge ? "hosting-network-blocked" : "upstream-error",
+    statusCode: statusCode ?? "unknown",
+  });
+
+  return isHostingChallenge
+    ? HOSTING_NETWORK_BLOCKED_MESSAGE
+    : STREAM_ERROR_MESSAGE;
+}
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -45,11 +95,13 @@ export async function POST(request: Request) {
       maxOutputTokens: 600,
     });
 
-    return result.toTextStreamResponse({
+    return result.toUIMessageStreamResponse({
       headers: {
         "Cache-Control": "no-store",
+        "Content-Encoding": "none",
         "X-Content-Type-Options": "nosniff",
       },
+      onError: streamErrorMessage,
     });
   } catch {
     return Response.json(
