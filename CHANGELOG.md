@@ -7,22 +7,6 @@ checks the registry separately after publication.
 
 ## Unreleased
 
-### Changed
-
-- Prepare the hosted chat for Vercel's Node.js 22 runtime and repository-driven
-  preview and production deployments.
-- Return ChatGPT OAuth callbacks to the deployment that started sign-in so
-  Vercel preview URLs and the production domain both work.
-- Run hosted web linting, type checks, builds, tests, and dependency auditing
-  in GitHub Actions alongside repository-driven deployments.
-
-### Fixed
-
-- Stream hosted chat responses incrementally through deployment proxies and
-  surface safe request errors instead of leaving an empty assistant message.
-- Distinguish a ChatGPT hosting-network challenge from an expired OAuth
-  session without exposing upstream response bodies or credentials.
-
 ## [0.2.1] - 2026-07-30
 
 ### Added
@@ -30,13 +14,33 @@ checks the registry separately after publication.
 - Add the hosted ChatGPT site link to the package metadata and public guides.
 - Document the upstream Codex relay model, known limitations, and legal
   responsibilities in both the GitHub and npm README variants.
+- Add a command-first install page for the current n8n and Hostinger VPS
+  wizard, plus a GitHub control with live package and repository metadata.
+- Credit Evan Zhou Dev's `openai-oauth` method on the hosted Relmio page.
 
 ### Changed
 
 - Refresh the local setup wizard and hosted chat presentation with the Relmio
   redesign, including clearer progress, copy feedback, responsive layouts, and
   request-state affordances.
-- Set the package homepage to the hosted Relmio site.
+- Move the hosted chat and package homepage to
+  [relmio.vercel.app](https://relmio.vercel.app/) with Node.js 22 and
+  repository-driven preview and production deployments.
+- Return ChatGPT OAuth callbacks to the deployment that started sign-in so
+  Vercel preview URLs and the production domain both work.
+- Run hosted web linting, type checks, builds, tests, and dependency auditing
+  in GitHub Actions alongside repository-driven deployments.
+- Point package and documentation metadata at the canonical `relmio`
+  repository.
+- License Relmio under Apache 2.0 and preserve the upstream `openai-oauth`
+  attribution in the distributed notice.
+
+### Fixed
+
+- Stream hosted chat responses incrementally through deployment proxies and
+  surface safe request errors instead of leaving an empty assistant message.
+- Distinguish a ChatGPT hosting-network challenge from an expired OAuth
+  session without exposing upstream response bodies or credentials.
 
 ## [0.2.0] - 2026-07-29
 
@@ -209,11 +213,11 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
-[0.1.7]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.6...v0.1.7
-[0.1.6]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.5...v0.1.6
-[0.1.5]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/Demonbane18/n8n-openai-oauth-setup/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/Demonbane18/n8n-openai-oauth-setup/releases/tag/v0.1.0
+[0.1.7]: https://github.com/Demonbane18/relmio/compare/v0.1.6...v0.1.7
+[0.1.6]: https://github.com/Demonbane18/relmio/compare/v0.1.5...v0.1.6
+[0.1.5]: https://github.com/Demonbane18/relmio/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/Demonbane18/relmio/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/Demonbane18/relmio/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/Demonbane18/relmio/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0

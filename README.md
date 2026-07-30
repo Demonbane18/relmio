@@ -5,18 +5,18 @@
   <p>
     <a href="#choose-a-setup-path">Get started</a>
     &nbsp;·&nbsp;
-    <a href="https://relmio.jpfusin.tech/">Hosted ChatGPT site</a>
+    <a href="https://relmio.vercel.app/">Hosted ChatGPT site</a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/issues/new">Report an issue</a>
+    <a href="https://github.com/Demonbane18/relmio/issues/new">Report an issue</a>
     &nbsp;·&nbsp;
-    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers">Leave a star</a>
+    <a href="https://github.com/Demonbane18/relmio/stargazers">Leave a star</a>
   </p>
   <p>
     <a href="https://www.npmjs.com/package/relmio"><img src="https://img.shields.io/npm/v/relmio.svg" alt="npm version"></a>
-    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml"><img src="https://github.com/Demonbane18/n8n-openai-oauth-setup/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+    <a href="https://github.com/Demonbane18/relmio/actions/workflows/ci.yml"><img src="https://github.com/Demonbane18/relmio/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
     <a href="package.json"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d.svg" alt="Node.js 22 or newer"></a>
-    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT license"></a>
-    <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers"><img src="https://img.shields.io/github/stars/Demonbane18/n8n-openai-oauth-setup?style=flat" alt="GitHub stars"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache License 2.0"></a>
+    <a href="https://github.com/Demonbane18/relmio/stargazers"><img src="https://img.shields.io/github/stars/Demonbane18/relmio?style=flat" alt="GitHub stars"></a>
   </p>
 </div>
 
@@ -133,9 +133,13 @@ SuperGrok/xAI OAuth feasibility track.
 ## Hosted ChatGPT site
 
 Try the hosted browser experience at
-[relmio.jpfusin.tech](https://relmio.jpfusin.tech/). It provides a separate
+[relmio.vercel.app](https://relmio.vercel.app/). It provides a separate
 ChatGPT sign-in and a small request-bound chat demo; it does not create an
 OpenAI Platform API key or replace the local n8n setup wizard.
+
+The site's [Install wizard](https://relmio.vercel.app/install) page provides
+the copyable npm command for the current self-hosted n8n and Hostinger VPS
+setup path.
 
 ## Choose a setup path
 
@@ -337,8 +341,8 @@ The npm command above is the recommended path. Contributors can instead run
 the source checkout:
 
 ```bash
-git clone https://github.com/Demonbane18/n8n-openai-oauth-setup.git
-cd n8n-openai-oauth-setup
+git clone https://github.com/Demonbane18/relmio.git
+cd relmio
 npm ci --ignore-scripts
 npm start
 ```
@@ -776,9 +780,9 @@ account or infrastructure details.
 <p>
   <a href="CONTRIBUTING.md">Contribution guide</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/compare">Submit a pull request</a>
+  <a href="https://github.com/Demonbane18/relmio/compare">Submit a pull request</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/Demonbane18/n8n-openai-oauth-setup/issues/new">Open an issue</a>
+  <a href="https://github.com/Demonbane18/relmio/issues/new">Open an issue</a>
 </p>
 
 ## Security and responsible disclosure
@@ -788,7 +792,7 @@ Please use the private reporting path described in
 Do not publish credentials, OAuth material, host details, or an exploit in a
 public issue.
 
-If this project saves you time, please consider [starring the repository](https://github.com/Demonbane18/n8n-openai-oauth-setup/stargazers).
+If this project saves you time, please consider [starring the repository](https://github.com/Demonbane18/relmio/stargazers).
 
 ## Sources and further reading
 
@@ -807,5 +811,6 @@ If this project saves you time, please consider [starring the repository](https:
 
 ## License
 
-[MIT](LICENSE). The upstream `openai-oauth` project has its own license and
-legal notice; review both before distributing or deploying this setup.
+[Apache License 2.0](LICENSE). Relmio's [NOTICE](NOTICE) preserves the
+upstream `openai-oauth` attribution; review both projects' notices before
+distributing or deploying this setup.
