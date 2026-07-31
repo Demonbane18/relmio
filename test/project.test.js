@@ -116,6 +116,8 @@ test("public README documents the latest npm walkthrough and sanitized images", 
   assert.match(readme, /img\.shields\.io\/npm\/v\/relmio/u);
   assert.match(readme, /docs\/images\/brand\/relmio-mark\.svg/u);
   assert.match(readme, /https:\/\/relmio\.vercel\.app\//u);
+  assert.match(readme, /### Foundation and attribution/u);
+  assert.match(readme, /openai-oauth.*Evan\s+Zhou\s+Dev/isu);
   assert.doesNotMatch(readme, /relmio\.jpfusin\.tech/u);
   assert.match(readme, /## Known limitations/u);
   assert.match(readme, /## Legal/u);
