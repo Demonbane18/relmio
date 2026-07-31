@@ -897,8 +897,57 @@ main {
   margin-top: 24px;
 }
 
+.extension-guide {
+  margin-top: 28px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--orange) 42%, var(--line));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--orange) 8%, var(--white));
+  display: flex;
+  gap: 14px;
+}
+
+.extension-guide > span {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--orange) 18%, var(--white));
+  color: color-mix(in srgb, var(--orange) 82%, var(--ink));
+  font-family: var(--font-geist-mono), monospace;
+  font-weight: 800;
+}
+
+.extension-guide strong {
+  font-size: 0.9rem;
+}
+
+.extension-guide p {
+  margin: 7px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.extension-guide a {
+  color: var(--teal-deep);
+  font-weight: 750;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.extension-guide .extension-local-note {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--orange) 24%, var(--line));
+  font-size: 0.75rem;
+}
+
 .privacy-note {
-  margin-top: 38px;
+  margin-top: 18px;
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);

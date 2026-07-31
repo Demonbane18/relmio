@@ -7,6 +7,17 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.5] - 2026-07-31
+
+### Added
+
+- Add a sanitized successful hosted-chat screenshot and a visible guide to the
+  required Sign in with ChatGPT browser extension across the website, GitHub
+  README, npm README, and troubleshooting documentation.
+- Explain that the hosted extension requirement is separate from the local
+  npm wizard callback, where a callback-capturing extension may need to be
+  disabled temporarily during sign-in.
+
 ## [0.2.4] - 2026-07-31
 
 ### Changed
