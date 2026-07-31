@@ -157,6 +157,15 @@ an OpenAI-compatible path without creating an OpenAI Platform API key or
 requiring separate API credits. The upstream service and its access rules may
 change.
 
+### Foundation and attribution
+
+Relmio is built on [`openai-oauth`](https://github.com/EvanZhouDev/openai-oauth)
+by Evan Zhou Dev. That upstream SDK/helper provides the foundation for ChatGPT
+login in local apps and Sign in with ChatGPT flows; Relmio wraps it with n8n
+discovery, verified SSH/SFTP deployment, Docker networking, and
+OpenAI-compatible configuration. Review the upstream project for its own
+license, notices, and supported behavior.
+
 ## Known limitations
 
 - Only models supported by Codex are available. The list changes over time and

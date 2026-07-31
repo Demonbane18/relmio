@@ -697,6 +697,17 @@ provide an OpenAI-compatible interface without asking users to buy separate
 OpenAI Platform API credits. The exact upstream behavior, supported models,
 and access rules can change.
 
+### Foundation and attribution
+
+Relmio's core sign-in and upstream request path are built on the
+[`openai-oauth`](https://github.com/EvanZhouDev/openai-oauth) project by Evan
+Zhou Dev. The upstream project provides an SDK/helper for integrating ChatGPT
+login into local apps and enabling Sign in with ChatGPT flows. Relmio uses
+that foundation for its private OAuth sidecar, then adds n8n discovery,
+verified SSH/SFTP deployment, Docker networking, and OpenAI-compatible
+configuration around it. The upstream project remains separately maintained;
+review its README, license, and notices for its own terms and behavior.
+
 ```mermaid
 flowchart LR
   subgraph Local["Your computer"]
