@@ -54,6 +54,23 @@ Try the hosted browser demo at
 request-bound ChatGPT experience; the npm package remains the local wizard for
 installing the private n8n sidecar.
 
+> **Warning — Hosted chat requires the browser extension.** Install the
+> open-source [Sign in with ChatGPT extension for
+> Chrome](https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna)
+> or [Firefox](https://addons.mozilla.org/firefox/addon/sign-in-with-chatgpt/)
+> before connecting. If the hosted chat stays disconnected, confirm the
+> extension is installed and enabled, reload the page, and select **Connect
+> ChatGPT** again.
+
+> The local npm wizard uses its own `localhost:1455` callback instead. If an
+> OAuth extension captures that callback, temporarily disable it during local sign-in,
+> complete the wizard sign-in, and then re-enable it.
+
+<figure>
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/hosted-chat-connected.png" alt="Relmio hosted chat showing a connected ChatGPT session and a ready prompt field" width="720">
+  <figcaption>Successful hosted-chat state: the browser extension completed the OAuth handoff and Relmio shows the ChatGPT session as connected.</figcaption>
+</figure>
+
 Use the site's [Install wizard](https://relmio.vercel.app/install) page for a
 copyable command tailored to the current self-hosted n8n and Hostinger VPS
 setup path.

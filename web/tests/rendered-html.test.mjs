@@ -42,6 +42,16 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /Try the secure chat/);
   assert.match(html, /href="\/install"[^>]*>Install wizard<\/a>/);
   assert.match(html, /Connect, then ask\./);
+  assert.match(html, /Before you connect: install the browser extension/);
+  assert.match(
+    html,
+    /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/,
+  );
+  assert.match(
+    html,
+    /https:\/\/addons\.mozilla\.org\/firefox\/addon\/sign-in-with-chatgpt\//,
+  );
+  assert.match(html, /temporarily disable it during local sign-in/);
   assert.match(html, /Private where it matters\./);
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);

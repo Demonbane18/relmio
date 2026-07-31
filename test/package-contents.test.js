@@ -32,6 +32,7 @@ const expectedPackedFiles = new Set([
   "docs/images/examples/gpt-56-luna-chat-model-run.png",
   "docs/images/examples/gpt-56-model-selector.png",
   "docs/images/examples/gpt-56-sol-chat-model-run.png",
+  "docs/images/examples/hosted-chat-connected.png",
   "docs/images/examples/sidecar-docker-containers-running.png",
   "docs/images/setup/01-local-sign-in-ready.png",
   "docs/images/setup/02-vps-identity-confirmed.png",
@@ -163,6 +164,12 @@ test("npm package substitutes a registry-safe README without changing GitHub dia
   assert.match(npmReadme, /## Legal/u);
   assert.match(npmReadme, /### Foundation and attribution/u);
   assert.match(npmReadme, /openai-oauth.*Evan\s+Zhou\s+Dev/isu);
+  assert.match(npmReadme, /Hosted chat requires the browser extension/u);
+  assert.match(
+    npmReadme,
+    /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/u,
+  );
+  assert.match(npmReadme, /temporarily disable it during local sign-in/u);
   assert.match(
     npmReadme,
     /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-mark\.svg/u,
@@ -170,6 +177,10 @@ test("npm package substitutes a registry-safe README without changing GitHub dia
   assert.match(
     npmReadme,
     /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/setup\/05-bridge-ready\.png/u,
+  );
+  assert.match(
+    npmReadme,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/hosted-chat-connected\.png/u,
   );
 
   for (const [, source] of npmReadme.matchAll(/<img[^>]+src="([^"]+)"/gu)) {

@@ -9,6 +9,25 @@ wizard or any manual VPS command. The documented commands are sidecar-only and
 do not delete, restart, or rebuild n8n, but they still access your VPS and write
 files there.
 
+## Hosted chat browser extension
+
+The hosted demo at [relmio.vercel.app](https://relmio.vercel.app/) needs the
+open-source **Sign in with ChatGPT** extension to complete the OAuth handoff:
+
+- [Install for Chrome](https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna)
+- [Install for Firefox](https://addons.mozilla.org/firefox/addon/sign-in-with-chatgpt/)
+
+After installation, reload Relmio and select **Connect ChatGPT** again. If the
+chat still shows **Not connected**, confirm the extension is enabled, close
+stale ChatGPT authorization tabs, and start one fresh connection from Relmio.
+The hosted sign-in component also displays its extension install screen when
+it detects that the extension is missing.
+
+This requirement applies to the hosted chat, not the local npm wizard. The
+wizard listens directly on `localhost:1455`; if an OAuth extension captures
+that local callback, temporarily disable it during local sign-in and re-enable
+it after the wizard saves the credential.
+
 ## Confirm the local package first
 
 Run these commands on your own computer, not on the VPS:

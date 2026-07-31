@@ -36,6 +36,11 @@ const relayTargets = [
   "OpenAI SDK",
 ];
 
+const chromeExtensionUrl =
+  "https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna";
+const firefoxExtensionUrl =
+  "https://addons.mozilla.org/firefox/addon/sign-in-with-chatgpt/";
+
 export default function Home() {
   return (
     <main id="main-content">
@@ -191,6 +196,31 @@ export default function Home() {
             forwards credentials only with your request; the server does not
             keep a reusable session.
           </p>
+          <aside className="extension-guide" aria-labelledby="extension-guide-title">
+            <span aria-hidden="true">!</span>
+            <div>
+              <strong id="extension-guide-title">
+                Before you connect: install the browser extension
+              </strong>
+              <p>
+                The hosted chat needs the open-source Sign in with ChatGPT
+                extension to complete the secure OAuth handoff. Install it for{" "}
+                <a href={chromeExtensionUrl} target="_blank" rel="noreferrer">
+                  Chrome
+                </a>{" "}
+                or{" "}
+                <a href={firefoxExtensionUrl} target="_blank" rel="noreferrer">
+                  Firefox
+                </a>
+                , reload this page, then connect again.
+              </p>
+              <p className="extension-local-note">
+                Using the local npm wizard? It handles its own localhost
+                callback. If an OAuth extension intercepts that callback,
+                temporarily disable it during local sign-in.
+              </p>
+            </div>
+          </aside>
           <div className="privacy-note">
             <span aria-hidden="true">⌁</span>
             <div>

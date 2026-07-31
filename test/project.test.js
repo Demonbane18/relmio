@@ -115,7 +115,17 @@ test("public README documents the latest npm walkthrough and sanitized images", 
   assert.match(readme, /\[Changelog\]\(CHANGELOG\.md\)/u);
   assert.match(readme, /img\.shields\.io\/npm\/v\/relmio/u);
   assert.match(readme, /docs\/images\/brand\/relmio-mark\.svg/u);
+  assert.match(
+    readme,
+    /docs\/images\/examples\/hosted-chat-connected\.png/u,
+  );
   assert.match(readme, /https:\/\/relmio\.vercel\.app\//u);
+  assert.match(
+    readme,
+    /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/u,
+  );
+  assert.match(readme, /Hosted chat requires the browser extension/u);
+  assert.match(readme, /temporarily disable it during local sign-in/u);
   assert.match(readme, /### Foundation and attribution/u);
   assert.match(readme, /openai-oauth.*Evan\s+Zhou\s+Dev/isu);
   assert.doesNotMatch(readme, /relmio\.jpfusin\.tech/u);
@@ -168,6 +178,7 @@ test("README example images are metadata-free PNG files", async () => {
     "gpt-56-luna-chat-model-run.png",
     "gpt-56-model-selector.png",
     "gpt-56-sol-chat-model-run.png",
+    "hosted-chat-connected.png",
     "sidecar-docker-containers-running.png",
   ];
   const images = await Promise.all(
