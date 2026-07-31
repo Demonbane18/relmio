@@ -7,6 +7,14 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.3] - 2026-07-31
+
+### Added
+
+- Add sanitized GPT-5.6 Sol and Luna AI Agent examples, a model-selector
+  compatibility preview, and the completed Docker sidecar state to both the
+  GitHub and npm README experiences.
+
 ## [0.2.2] - 2026-07-30
 
 ### Added
