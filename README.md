@@ -20,6 +20,25 @@
   </p>
 </div>
 
+## See it working first
+
+Before setup, this sample n8n configuration shows GPT-5.6 model aliases in the
+OpenAI Chat Model selector. The exact model list depends on the signed-in
+ChatGPT account and can change over time.
+
+<figure>
+  <img src="docs/images/examples/gpt-56-model-selector.png" alt="Model selector listing GPT-5.6 Sol, Luna, and Terra model aliases" width="480">
+  <figcaption>Compatibility preview: the model selector includes <code>gpt-5.6-sol</code>, <code>gpt-5.6-luna</code>, and <code>gpt-5.6-terra</code>.</figcaption>
+</figure>
+
+After Relmio completes the installation, Docker shows the existing n8n stack
+and the new private OAuth sidecar running together.
+
+<figure>
+  <img src="docs/images/examples/sidecar-docker-containers-running.png" alt="Docker Desktop showing the n8n and n8n-openai-oauth containers running" width="960">
+  <figcaption>Completed setup: the existing <code>n8n</code> stack and the <code>n8n-openai-oauth</code> sidecar are both running.</figcaption>
+</figure>
+
 ## Quick install
 
 Copy and paste this into your terminal on your own computer:
@@ -76,7 +95,9 @@ one automation platform.
 
 - [What this does, in plain English](#what-this-does-in-plain-english)
 - [What is a sidecar?](#what-is-a-sidecar)
+- [See it working first](#see-it-working-first)
 - [Current scope and direction](#current-scope-and-direction)
+- [GPT-5.6 AI Agent example](#gpt-56-ai-agent-example)
 - [Hosted ChatGPT site](#hosted-chatgpt-site)
 - [Choose a setup path](#choose-a-setup-path)
 - [Quick start with the npm package](#quick-start-with-the-npm-package)
@@ -181,6 +202,38 @@ direction, not a claim about the current installer: today, do not expose the
 sidecar port publicly or deploy it outside the documented n8n safety boundary.
 See the [provider and client roadmap](docs/roadmap.md), including the gated
 SuperGrok/xAI OAuth feasibility track.
+
+## GPT-5.6 AI Agent example
+
+The screenshots below show a successful n8n AI Agent test using the GPT-5.6
+model aliases `gpt-5.6-sol` and `gpt-5.6-luna`. The workflow combines a chat
+trigger, an AI Agent, an OpenAI Chat Model, and Simple Memory. Both model
+configurations successfully answer the same `what is a bidet?` prompt.
+
+<figure>
+  <img src="docs/images/examples/gpt-56-ai-agent-workflow.png" alt="n8n workflow with a chat trigger, AI Agent, OpenAI Chat Model, and Simple Memory">
+  <figcaption>Workflow topology: a chat trigger feeds the AI Agent, which is connected to an OpenAI Chat Model and Simple Memory.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/images/examples/gpt-56-sol-chat-model-run.png" alt="OpenAI Chat Model configured with gpt-5.6-sol and a successful output">
+  <figcaption>Sol model run: the OpenAI Chat Model uses <code>gpt-5.6-sol</code> through the Responses API and returns a successful response with token estimates.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/images/examples/gpt-56-ai-agent-sol-run.png" alt="AI Agent successful run answering what is a bidet">
+  <figcaption>AI Agent step run: the prompt <code>what is a bidet?</code> returns a successful answer.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/images/examples/gpt-56-luna-chat-model-run.png" alt="OpenAI Chat Model configured with gpt-5.6-luna and a successful output">
+  <figcaption>Luna model run: the OpenAI Chat Model uses <code>gpt-5.6-luna</code> through the Responses API and returns a successful answer with token estimates.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/images/examples/gpt-56-ai-agent-luna-run.png" alt="AI Agent successful Luna run answering what is a bidet">
+  <figcaption>AI Agent step output: a second successful run of the same bidet prompt using the configured agent workflow.</figcaption>
+</figure>
 
 ## Hosted ChatGPT site
 
