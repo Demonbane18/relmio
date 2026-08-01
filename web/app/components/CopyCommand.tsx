@@ -103,8 +103,8 @@ export function CopyCommand() {
   }
 
   return (
-    <div className="install-method-picker">
-      <div
+    <section className="install-method-picker">
+      <nav
         className="install-method-tabs"
         role="tablist"
         aria-label="Installation method"
@@ -133,14 +133,14 @@ export function CopyCommand() {
             </button>
           );
         })}
-      </div>
+      </nav>
 
       {installMethods.map((method) => {
         const selected = selectedMethod === method.id;
         const copied = copiedMethod === method.id;
 
         return (
-          <div
+          <section
             key={method.id}
             className="install-method-panel"
             id={`install-method-${method.id}-panel`}
@@ -169,9 +169,9 @@ export function CopyCommand() {
             >
               {method.note}
             </p>
-          </div>
+          </section>
         );
       })}
-    </div>
+    </section>
   );
 }
