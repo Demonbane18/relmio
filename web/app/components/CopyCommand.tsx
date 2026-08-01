@@ -9,18 +9,33 @@ import {
 
 const installMethods = [
   {
-    id: "curl",
-    label: "Curl",
+    id: "posix",
+    label: "macOS / Linux",
     command: "curl -fsSL https://relmio.vercel.app/install.sh | sh",
-    note: "Curl works without a Node.js install on macOS, Linux, WSL, or Git Bash.",
-    recommended: true,
+    note: "For macOS, Linux, WSL, or Git Bash. No preinstalled Node.js required.",
+    prompt: "$",
+  },
+  {
+    id: "powershell",
+    label: "PowerShell",
+    command: "irm https://relmio.vercel.app/install.ps1 | iex",
+    note: "Use Windows PowerShell or PowerShell 7 on Windows. No Git Bash or preinstalled Node.js required.",
+    prompt: "PS>",
+  },
+  {
+    id: "cmd",
+    label: "CMD",
+    command:
+      'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"',
+    note: "Open Command Prompt, not PowerShell. This launches the same verified Windows installer.",
+    prompt: ">",
   },
   {
     id: "npx",
     label: "NPX",
     command: "npx --yes --ignore-scripts relmio@latest",
-    note: "NPX requires Node.js 22 or newer and also works in PowerShell.",
-    recommended: false,
+    note: "NPX requires Node.js 22 or newer and works in any local terminal.",
+    prompt: "$",
   },
 ] as const;
 
@@ -29,7 +44,7 @@ type InstallMethodId = InstallMethod["id"];
 
 export function CopyCommand() {
   const [selectedMethod, setSelectedMethod] =
-    useState<InstallMethodId>("curl");
+    useState<InstallMethodId>("posix");
   const [copiedMethod, setCopiedMethod] = useState<InstallMethodId | null>(null);
   const revertTimer = useRef<number | null>(null);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -107,7 +122,7 @@ export function CopyCommand() {
       <div
         className="install-method-tabs"
         role="tablist"
-        aria-label="Installation method"
+        aria-label="Local terminal"
       >
         {installMethods.map((method, index) => {
           const selected = selectedMethod === method.id;
@@ -129,7 +144,6 @@ export function CopyCommand() {
               onKeyDown={(event) => moveBetweenTabs(event, index)}
             >
               {method.label}
-              {method.recommended ? <span>Recommended</span> : null}
             </button>
           );
         })}
@@ -156,7 +170,7 @@ export function CopyCommand() {
               aria-describedby={`install-method-${method.id}-note`}
             >
               <span className="terminal-mark" aria-hidden="true">
-                $
+                {method.prompt}
               </span>
               <code>{method.command}</code>
               <span className="copy-hint" role="status" aria-live="polite">

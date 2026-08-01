@@ -7,24 +7,24 @@ import { RepositoryButton } from "../components/RepositoryButton";
 export const metadata: Metadata = {
   title: "Install Relmio for n8n",
   description:
-    "Run the local Relmio wizard without installing Node.js first, including for Hostinger VPS setups.",
+    "Run the local Relmio wizard from macOS, Linux, PowerShell, or Command Prompt without installing Node.js first.",
 };
 
 const steps = [
   {
     index: "01",
-    title: "Run locally",
-    copy: "Start the wizard on your own computer, not on the VPS.",
+    title: "Choose your terminal",
+    copy: "Use macOS/Linux, PowerShell, CMD, or NPX. Windows does not need Git Bash.",
   },
   {
     index: "02",
-    title: "Verify the VPS",
-    copy: "Confirm the SSH fingerprint before entering your server password.",
+    title: "Start locally",
+    copy: "Paste the command on your own computer and keep that terminal open.",
   },
   {
     index: "03",
-    title: "Approve the sidecar",
-    copy: "Review the plan before Relmio writes its separate Docker project.",
+    title: "Verify, then approve",
+    copy: "Confirm the SSH fingerprint and sidecar plan before any VPS write.",
   },
 ];
 
@@ -62,20 +62,22 @@ export default function InstallPage() {
           <h1>Install Relmio for n8n</h1>
           <p className="install-lede">
             Run one local wizard to sign in with ChatGPT, verify your VPS, and
-            install a private OpenAI-compatible sidecar beside n8n. Use Curl
-            for a managed temporary runtime, or NPX when Node.js is ready.
+            install a private OpenAI-compatible sidecar beside n8n. Choose the
+            terminal already on your computer—native Windows works without Git
+            Bash or a preinstalled Node.js runtime.
           </p>
 
           <div className="install-command-stage" id="install-command">
-            <p>Choose an installation method</p>
+            <p>Choose your local terminal</p>
             <CopyCommand />
           </div>
 
           <p className="install-boundary">
             <strong>Run this on your own computer, not on the VPS.</strong>{" "}
-            Choose Curl to avoid installing Node.js first, or NPX if Node.js
-            22 or newer is already installed. Relmio does not edit, rebuild,
-            or restart your existing n8n container.
+            The macOS/Linux and native Windows options reuse Node.js 22+ when
+            available, or download and verify a temporary official runtime.
+            NPX is for computers that already have Node.js 22 or newer. Relmio
+            does not edit, rebuild, or restart your existing n8n container.
           </p>
 
           <ol className="install-steps">

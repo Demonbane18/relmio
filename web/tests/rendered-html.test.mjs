@@ -64,9 +64,10 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   const response = await requestApp("/install");
   assert.equal(response.status, 200);
 
-  const [html, installScript] = await Promise.all([
+  const [html, installScript, powerShellInstallScript] = await Promise.all([
     response.text(),
     readFile(new URL("../dist/client/install.sh", import.meta.url), "utf8"),
+    readFile(new URL("../dist/client/install.ps1", import.meta.url), "utf8"),
   ]);
   assert.match(html, /Install Relmio for n8n/);
   assert.match(html, /Hostinger VPS/);
@@ -74,19 +75,33 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
     html,
     /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/,
   );
+  assert.match(
+    html,
+    /irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex/,
+  );
+  assert.match(
+    html,
+    /powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex&quot;/,
+  );
   assert.match(html, /npx --yes --ignore-scripts relmio@latest/);
-  assert.match(html, /role="tablist"[^>]*aria-label="Installation method"/);
-  assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>[^<]*Curl/);
+  assert.match(html, /role="tablist"[^>]*aria-label="Local terminal"/);
+  assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>[^<]*macOS \/ Linux/);
+  assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*PowerShell/);
+  assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*CMD/);
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*NPX/);
-  assert.match(html, /Curl works without a Node\.js install/);
-  assert.match(html, /NPX requires Node\.js 22 or newer/);
   assert.match(html, /macOS, Linux, WSL, or Git Bash/);
+  assert.match(html, /No Git Bash or preinstalled Node\.js required/);
+  assert.match(html, /Open Command Prompt, not PowerShell/);
+  assert.match(html, /NPX requires Node\.js 22 or newer/);
   assert.match(html, /Copy installation command/);
   assert.match(html, /Run this on your own computer/);
   assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
   assert.match(installScript, /^#!\/bin\/sh/m);
   assert.match(installScript, /Node\.js download checksum did not match/);
   assert.match(installScript, /--ignore-scripts relmio@latest/);
+  assert.match(powerShellInstallScript, /Get-FileHash/);
+  assert.match(powerShellInstallScript, /Node\.js download checksum did not match/);
+  assert.match(powerShellInstallScript, /--ignore-scripts/);
 });
 
 test("returns current repository stars and npm version for the GitHub control", async (t) => {

@@ -1526,12 +1526,9 @@ main {
 
 .install-command-stage > p {
   margin: 0 0 10px;
-  color: var(--ink-soft);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.7rem;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  color: var(--ink);
+  font-size: 0.84rem;
+  font-weight: 750;
 }
 
 .install-method-picker {
@@ -1540,10 +1537,10 @@ main {
 }
 
 .install-method-tabs {
-  width: fit-content;
+  width: 100%;
   min-height: 52px;
-  display: inline-flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--line);
@@ -1554,14 +1551,14 @@ main {
 .install-method-tab {
   min-height: 44px;
   display: inline-flex;
+  justify-content: center;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px;
+  padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 7px;
   color: var(--ink-soft);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 750;
   cursor: pointer;
   transition:
@@ -1569,13 +1566,6 @@ main {
     border-color 180ms var(--ease),
     color 180ms var(--ease),
     box-shadow 180ms var(--ease);
-}
-
-.install-method-tab span {
-  color: var(--teal-deep);
-  font-size: 0.62rem;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 
 .install-method-tab[aria-selected="true"] {
@@ -1603,6 +1593,8 @@ main {
   width: 100%;
   min-height: 66px;
   margin: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   padding: 14px 17px;
   border-color: var(--dark);
   background: var(--dark);
@@ -1615,14 +1607,13 @@ main {
 }
 
 .install-command-stage .install-command code {
-  flex: 1;
   font-size: clamp(0.76rem, 2vw, 0.9rem);
   overflow-wrap: anywhere;
+  text-align: left;
   white-space: normal;
 }
 
 .install-command-stage .copy-hint {
-  margin-left: auto;
   background: rgb(255 255 255 / 10%);
   color: var(--white);
 }
@@ -1933,6 +1924,14 @@ footer > div {
   .install-page {
     min-height: calc(100vh - 65px);
     padding: 58px 14px 72px;
+  }
+
+  .install-method-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .install-method-tab {
+    padding-inline: 8px;
   }
 
   .install-steps {

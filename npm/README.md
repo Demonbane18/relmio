@@ -72,30 +72,41 @@ installing the private n8n sidecar.
 </figure>
 
 Use the site's [Install wizard](https://relmio.vercel.app/install) page for a
-clickable Curl / NPX command switcher tailored to the current self-hosted n8n
-and Hostinger VPS setup path. Curl is the recommended default when Node.js is
-not installed.
+clickable macOS/Linux, PowerShell, Command Prompt, and NPX command switcher
+tailored to the current self-hosted n8n and Hostinger VPS setup path.
 
 ## Quick start
 
-Run this on your own macOS or Linux computer, or from WSL or Git Bash on
-Windows. Do not run it on the VPS:
+Choose the terminal already on your own computer. Do not run these commands on
+the VPS.
 
-### Curl (recommended)
+### macOS, Linux, WSL, or Git Bash
 
 ```bash
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
-No Node.js installation is required first. The
-[bootstrap script](https://github.com/Demonbane18/relmio/blob/main/web/public/install.sh)
-reuses Node.js 22 or newer when available. Otherwise it downloads the current
-official Node.js 22 runtime to a private temporary directory, verifies its
-SHA-256 checksum, runs Relmio with npm lifecycle scripts disabled, and removes
-the temporary runtime when the wizard closes.
+### Windows PowerShell
 
-Native Windows PowerShell users, or users who already have Node.js 22 or newer,
-can run the npm package directly:
+```powershell
+irm https://relmio.vercel.app/install.ps1 | iex
+```
+
+### Windows Command Prompt
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+```
+
+No Node.js or Git Bash installation is required first. The
+[POSIX](https://github.com/Demonbane18/relmio/blob/main/web/public/install.sh)
+and [Windows PowerShell](https://github.com/Demonbane18/relmio/blob/main/web/public/install.ps1)
+bootstraps reuse Node.js 22 or newer when available. Otherwise they download
+the matching current official Node.js 22 runtime to a private temporary
+directory, verify its SHA-256 checksum, run Relmio with npm lifecycle scripts
+disabled, and remove the temporary runtime when the wizard closes.
+
+Users who already have Node.js 22 or newer can run the npm package directly:
 
 ### NPX (requires Node.js 22+)
 
@@ -105,8 +116,10 @@ npx --yes --ignore-scripts relmio@latest
 
 ### Requirements
 
-- `curl`, `awk`, `tar`, and either `sha256sum` or `shasum` for the universal
-  command; Git Bash also needs `unzip`
+- On macOS/Linux/WSL/Git Bash: `curl`, `awk`, `tar`, and either `sha256sum` or
+  `shasum`; Git Bash also needs `unzip`
+- On native Windows: Windows PowerShell 5.1 or PowerShell 7; Command Prompt can
+  launch the included PowerShell bootstrap
 - A browser and an eligible ChatGPT/Codex account
 - A self-hosted n8n Docker deployment on a VPS
 - Docker Compose v2, SSH access, and a Docker network shared with n8n

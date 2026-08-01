@@ -43,15 +43,21 @@ On screen: the Mermaid flowchart in the README.
 
 ### 2:20 — Start the wizard
 
-Run locally:
+Open the hosted install page and choose the terminal already on the local
+computer. Show both the macOS/Linux and native Windows choices:
 
 ```bash
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
+```powershell
+irm https://relmio.vercel.app/install.ps1 | iex
+```
+
 Explain that:
 
 - no preinstalled Node.js runtime is required;
+- native Windows does not require Git Bash and also has a Command Prompt option;
 - the bootstrap reuses Node.js 22+ or downloads and checksum-verifies a
   temporary official Node.js 22 runtime;
 - npm lifecycle scripts stay disabled when it starts the published package;
