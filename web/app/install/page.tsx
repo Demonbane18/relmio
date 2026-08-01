@@ -7,7 +7,7 @@ import { RepositoryButton } from "../components/RepositoryButton";
 export const metadata: Metadata = {
   title: "Install Relmio for n8n",
   description:
-    "Run the local Relmio wizard for a self-hosted n8n deployment, including Hostinger VPS setups.",
+    "Run the local Relmio wizard without installing Node.js first, including for Hostinger VPS setups.",
 };
 
 const steps = [
@@ -62,18 +62,20 @@ export default function InstallPage() {
           <h1>Install Relmio for n8n</h1>
           <p className="install-lede">
             Run one local wizard to sign in with ChatGPT, verify your VPS, and
-            install a private OpenAI-compatible sidecar beside n8n.
+            install a private OpenAI-compatible sidecar beside n8n. Use Curl
+            for a managed temporary runtime, or NPX when Node.js is ready.
           </p>
 
           <div className="install-command-stage" id="install-command">
-            <p>Run in Terminal or PowerShell</p>
+            <p>Choose an installation method</p>
             <CopyCommand />
           </div>
 
           <p className="install-boundary">
-            <strong>Run this on your own computer.</strong> Relmio supports the
-            self-hosted n8n and Hostinger VPS method for now. It does not edit,
-            rebuild, or restart your existing n8n container.
+            <strong>Run this on your own computer, not on the VPS.</strong>{" "}
+            Choose Curl to avoid installing Node.js first, or NPX if Node.js
+            22 or newer is already installed. Relmio does not edit, rebuild,
+            or restart your existing n8n container.
           </p>
 
           <ol className="install-steps">

@@ -7,6 +7,10 @@ Every command on this page targets the separate
 
 The easiest method:
 
+```bash
+curl -fsSL https://relmio.vercel.app/install.sh | sh
+```
+
 1. Start the local wizard again.
 2. Select **Refresh ChatGPT sign-in**.
 3. Complete the newest browser sign-in page.

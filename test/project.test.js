@@ -106,6 +106,10 @@ test("public README documents the latest npm walkthrough and sanitized images", 
 
   assert.match(
     readme,
+    /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/u,
+  );
+  assert.match(
+    readme,
     /npx --yes --ignore-scripts relmio@latest/u,
   );
   assert.match(readme, /docs\/images\/setup\/01-local-sign-in-ready\.png/u);

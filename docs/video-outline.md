@@ -41,17 +41,20 @@ Use this simple explanation:
 
 On screen: the Mermaid flowchart in the README.
 
-### 2:20 — Start the npm package
+### 2:20 — Start the wizard
 
 Run locally:
 
 ```bash
-npx --yes --ignore-scripts relmio@latest
+curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
 Explain that:
 
-- `npx` downloads and runs the published version for this session;
+- no preinstalled Node.js runtime is required;
+- the bootstrap reuses Node.js 22+ or downloads and checksum-verifies a
+  temporary official Node.js 22 runtime;
+- npm lifecycle scripts stay disabled when it starts the published package;
 - the wizard binds to `127.0.0.1`;
 - the printed setup URL is private and temporary;
 - the terminal must remain open until the wizard finishes.

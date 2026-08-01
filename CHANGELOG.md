@@ -7,6 +7,14 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Add a curl-based wizard bootstrap for macOS, Linux, WSL, and Git Bash that
+  reuses Node.js 22+ or downloads and checksum-verifies a temporary official
+  runtime when Node.js is not installed.
+- Add an accessible Curl / NPX switcher to the hosted install page so users can
+  copy the command that matches their local runtime.
+
 ## [0.2.5] - 2026-07-31
 
 ### Added

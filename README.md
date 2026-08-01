@@ -41,7 +41,21 @@ and the new private OAuth sidecar running together.
 
 ## Quick install
 
-Copy and paste this into your terminal on your own computer:
+On macOS, Linux, WSL, or Git Bash, copy and paste this into your terminal on
+your own computer:
+
+```bash
+curl -fsSL https://relmio.vercel.app/install.sh | sh
+```
+
+This starts the wizard without installing Node.js first. The open-source
+[bootstrap script](web/public/install.sh) reuses Node.js 22 or newer when it is
+already available. Otherwise it downloads the current official Node.js 22
+runtime to a private temporary directory, verifies its SHA-256 checksum, runs
+Relmio with npm lifecycle scripts disabled, and removes the temporary runtime
+when the wizard closes. It does not install Node.js system-wide.
+
+Already have Node.js 22 or newer? You can use NPX instead:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest
@@ -261,9 +275,9 @@ OpenAI Platform API key or replace the local n8n setup wizard.
   <figcaption>Successful hosted-chat state: the browser extension completed the OAuth handoff and Relmio shows the ChatGPT session as connected.</figcaption>
 </figure>
 
-The site's [Install wizard](https://relmio.vercel.app/install) page provides
-the copyable npm command for the current self-hosted n8n and Hostinger VPS
-setup path.
+The site's [Install wizard](https://relmio.vercel.app/install) page provides a
+clickable Curl / NPX switcher for the current self-hosted n8n and Hostinger VPS
+setup path. Curl is the recommended default when Node.js is not installed.
 
 ## Choose a setup path
 
@@ -272,14 +286,14 @@ container, image, Compose file, and workflows alone.
 
 | Path | Best for | What you do |
 |---|---|---|
-| **npm browser wizard** | Most users | Follow guided screens, verify the server identity, review the plan, then approve |
+| **Browser wizard** | Most users | Run one curl command, follow guided screens, verify the server identity, review the plan, then approve |
 | **Manual setup** | Wizard failures, unusual VPS setups, debugging, and contributors | Run the underlying login, SSH, file, and Docker Compose steps yourself |
 
 ```mermaid
 flowchart TD
   Start["I want to connect my<br/>self-hosted n8n"]
   Choice{"Can I use the local<br/>browser wizard?"}
-  Wizard["Option A<br/>Run the npm wizard"]
+  Wizard["Option A<br/>Run the browser wizard"]
   Manual["Option B<br/>Follow the manual commands"]
   Review["Review what will change<br/>before remote writes"]
   Result["Same result<br/>one private OAuth sidecar beside n8n"]
@@ -302,8 +316,9 @@ you want to inspect, reproduce, improve, or debug the method, use
 
 ### Requirements
 
-- A local macOS, Windows, or Linux computer with
-  [Node.js 22 or newer](https://nodejs.org/en/download)
+- A local macOS or Linux computer, or Windows with WSL or Git Bash
+- `curl`, `awk`, `tar`, and a SHA-256 tool (`sha256sum` or `shasum`); Git Bash
+  also needs `unzip`. These are already available on most supported systems
 - A browser and a ChatGPT account eligible to use the upstream Codex flow
 - A self-hosted n8n Docker container on a VPS
 - Docker Engine and Docker Compose v2 on the VPS
@@ -317,12 +332,28 @@ you want to inspect, reproduce, improve, or debug the method, use
 > authenticates to your VPS and writes files there. Keep a recoverable backup
 > before granting it access.
 
-Do **not** run the npm command on the VPS. Run it on the computer where you
+Do **not** run the curl command on the VPS. Run it on the computer where you
 will complete the browser sign-in.
 
 ### 1. Start the newest published wizard
 
-Open Terminal, PowerShell, or another local shell:
+Open Terminal, WSL, or Git Bash:
+
+#### Curl (recommended)
+
+```bash
+curl -fsSL https://relmio.vercel.app/install.sh | sh
+```
+
+The bootstrap uses a supported Node.js installation when present. If Node.js
+is missing or older than 22, it downloads and verifies a temporary official
+Node.js 22 runtime without installing it system-wide.
+
+Native Windows PowerShell users, or anyone who already has
+[Node.js 22 or newer](https://nodejs.org/en/download), can run the npm package
+directly instead:
+
+#### NPX (requires Node.js 22+)
 
 ```bash
 npx --yes --ignore-scripts relmio@latest
@@ -334,7 +365,7 @@ update saved commands to `relmio`. The new package still exposes the legacy
 executable alias, and existing sidecar directories, service names, hostnames,
 and credentials remain compatible.
 
-Keep that terminal open. The command starts a one-time web server on
+Keep that terminal open. Either command starts a one-time web server on
 `127.0.0.1`, prints a private session URL, and opens the wizard in your
 browser. It does not globally install this package.
 
@@ -461,7 +492,7 @@ For complete copy-paste recipes for an **AI Agent**, **Basic LLM Chain**, and
 
 ## Run from a repository clone
 
-The npm command above is the recommended path. Contributors can instead run
+The curl command above is the recommended path. Contributors can instead run
 the source checkout:
 
 ```bash
@@ -797,12 +828,12 @@ Automated tests enforce this boundary.
 
 ## Refresh, update, and remove
 
-To refresh an expired ChatGPT session, run the same npm command again, choose
+To refresh an expired ChatGPT session, run the same curl command again, choose
 **Refresh ChatGPT sign-in**, verify the timestamp, and approve the update to
 the same wizard-managed sidecar:
 
 ```bash
-npx --yes --ignore-scripts relmio@latest
+curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
 The update targets only the sidecar. It does not restart n8n. For rollback,

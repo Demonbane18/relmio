@@ -46,6 +46,11 @@ test("README keeps both setup paths and layman diagrams visible", async () => {
 
   assert.match(readme, /## Choose a setup path/u);
   assert.match(readme, /## Quick start with the npm package/u);
+  assert.match(
+    readme,
+    /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/u,
+  );
+  assert.match(readme, /without installing Node\.js first/u);
   assert.match(readme, /## Manual setup and debugging/u);
   assert.match(readme, /The wizard is a convenience layer, not a requirement/u);
   assert.ok(mermaidBlocks.length >= 4);

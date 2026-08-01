@@ -72,20 +72,41 @@ installing the private n8n sidecar.
 </figure>
 
 Use the site's [Install wizard](https://relmio.vercel.app/install) page for a
-copyable command tailored to the current self-hosted n8n and Hostinger VPS
-setup path.
+clickable Curl / NPX command switcher tailored to the current self-hosted n8n
+and Hostinger VPS setup path. Curl is the recommended default when Node.js is
+not installed.
 
 ## Quick start
 
-Run this on your own macOS, Windows, or Linux computer—not on the VPS:
+Run this on your own macOS or Linux computer, or from WSL or Git Bash on
+Windows. Do not run it on the VPS:
+
+### Curl (recommended)
+
+```bash
+curl -fsSL https://relmio.vercel.app/install.sh | sh
+```
+
+No Node.js installation is required first. The
+[bootstrap script](https://github.com/Demonbane18/relmio/blob/main/web/public/install.sh)
+reuses Node.js 22 or newer when available. Otherwise it downloads the current
+official Node.js 22 runtime to a private temporary directory, verifies its
+SHA-256 checksum, runs Relmio with npm lifecycle scripts disabled, and removes
+the temporary runtime when the wizard closes.
+
+Native Windows PowerShell users, or users who already have Node.js 22 or newer,
+can run the npm package directly:
+
+### NPX (requires Node.js 22+)
 
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
 
-Requirements:
+### Requirements
 
-- Node.js 22 or newer
+- `curl`, `awk`, `tar`, and either `sha256sum` or `shasum` for the universal
+  command; Git Bash also needs `unzip`
 - A browser and an eligible ChatGPT/Codex account
 - A self-hosted n8n Docker deployment on a VPS
 - Docker Compose v2, SSH access, and a Docker network shared with n8n
