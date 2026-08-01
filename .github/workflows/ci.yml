@@ -90,3 +90,38 @@ jobs:
 
       - name: Audit hosted web production dependencies
         run: npm audit --audit-level=high
+
+  windows-bootstrap:
+    name: Native Windows bootstrap
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Parse the installer with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path "web/public/install.ps1"),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -ne 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "Windows PowerShell 5.1 could not parse install.ps1."
+          }
+
+      - name: Test the native Windows bootstrap
+        run: node --test test/install-powershell-script.test.js
