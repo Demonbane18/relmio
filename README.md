@@ -41,19 +41,35 @@ and the new private OAuth sidecar running together.
 
 ## Quick install
 
-On macOS, Linux, WSL, or Git Bash, copy and paste this into your terminal on
-your own computer:
+Choose the terminal already on your own computer. Do not run these commands on
+the VPS.
+
+### macOS, Linux, WSL, or Git Bash
 
 ```bash
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
-This starts the wizard without installing Node.js first. The open-source
-[bootstrap script](web/public/install.sh) reuses Node.js 22 or newer when it is
-already available. Otherwise it downloads the current official Node.js 22
-runtime to a private temporary directory, verifies its SHA-256 checksum, runs
-Relmio with npm lifecycle scripts disabled, and removes the temporary runtime
-when the wizard closes. It does not install Node.js system-wide.
+### Windows PowerShell
+
+```powershell
+irm https://relmio.vercel.app/install.ps1 | iex
+```
+
+### Windows Command Prompt
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+```
+
+These commands start the wizard without installing Node.js or Git Bash first.
+The open-source [POSIX](web/public/install.sh) and
+[Windows PowerShell](web/public/install.ps1) bootstraps reuse Node.js 22 or
+newer when it is already available. Otherwise they download the matching
+current official Node.js 22 runtime to a private temporary directory, verify
+its SHA-256 checksum, run Relmio with npm lifecycle scripts disabled, and
+remove the temporary runtime when the wizard closes. They do not install
+Node.js system-wide.
 
 Already have Node.js 22 or newer? You can use NPX instead:
 
@@ -276,8 +292,8 @@ OpenAI Platform API key or replace the local n8n setup wizard.
 </figure>
 
 The site's [Install wizard](https://relmio.vercel.app/install) page provides a
-clickable Curl / NPX switcher for the current self-hosted n8n and Hostinger VPS
-setup path. Curl is the recommended default when Node.js is not installed.
+clickable macOS/Linux, PowerShell, Command Prompt, and NPX switcher for the
+current self-hosted n8n and Hostinger VPS setup path.
 
 ## Choose a setup path
 
@@ -316,9 +332,11 @@ you want to inspect, reproduce, improve, or debug the method, use
 
 ### Requirements
 
-- A local macOS or Linux computer, or Windows with WSL or Git Bash
-- `curl`, `awk`, `tar`, and a SHA-256 tool (`sha256sum` or `shasum`); Git Bash
-  also needs `unzip`. These are already available on most supported systems
+- A local macOS, Linux, or Windows computer
+- On macOS/Linux/WSL/Git Bash: `curl`, `awk`, `tar`, and a SHA-256 tool
+  (`sha256sum` or `shasum`); Git Bash also needs `unzip`
+- On native Windows: Windows PowerShell 5.1 or PowerShell 7; Command Prompt can
+  launch the included PowerShell bootstrap
 - A browser and a ChatGPT account eligible to use the upstream Codex flow
 - A self-hosted n8n Docker container on a VPS
 - Docker Engine and Docker Compose v2 on the VPS
@@ -332,26 +350,38 @@ you want to inspect, reproduce, improve, or debug the method, use
 > authenticates to your VPS and writes files there. Keep a recoverable backup
 > before granting it access.
 
-Do **not** run the curl command on the VPS. Run it on the computer where you
-will complete the browser sign-in.
+Do **not** run an installer command on the VPS. Run it on the computer where
+you will complete the browser sign-in.
 
 ### 1. Start the newest published wizard
 
-Open Terminal, WSL, or Git Bash:
+Choose the terminal already installed on your computer.
 
-#### Curl (recommended)
+#### macOS, Linux, WSL, or Git Bash
 
 ```bash
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
-The bootstrap uses a supported Node.js installation when present. If Node.js
-is missing or older than 22, it downloads and verifies a temporary official
-Node.js 22 runtime without installing it system-wide.
+#### Windows PowerShell
 
-Native Windows PowerShell users, or anyone who already has
-[Node.js 22 or newer](https://nodejs.org/en/download), can run the npm package
-directly instead:
+```powershell
+irm https://relmio.vercel.app/install.ps1 | iex
+```
+
+#### Windows Command Prompt
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+```
+
+The POSIX and native Windows bootstraps use a supported Node.js installation
+when present. If Node.js is missing or older than 22, they download and verify
+a temporary official Node.js 22 runtime without installing it system-wide.
+Native Windows does not require Git Bash.
+
+Anyone who already has [Node.js 22 or newer](https://nodejs.org/en/download)
+can run the npm package directly instead:
 
 #### NPX (requires Node.js 22+)
 
@@ -828,9 +858,11 @@ Automated tests enforce this boundary.
 
 ## Refresh, update, and remove
 
-To refresh an expired ChatGPT session, run the same curl command again, choose
-**Refresh ChatGPT sign-in**, verify the timestamp, and approve the update to
-the same wizard-managed sidecar:
+To refresh an expired ChatGPT session, open the
+[install page](https://relmio.vercel.app/install), run the command for your
+terminal again, choose **Refresh ChatGPT sign-in**, verify the timestamp, and
+approve the update to the same wizard-managed sidecar. For example, on
+macOS/Linux:
 
 ```bash
 curl -fsSL https://relmio.vercel.app/install.sh | sh

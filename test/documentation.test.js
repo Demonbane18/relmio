@@ -40,7 +40,7 @@ test("README and manual guide copy the generated sidecar files exactly", async (
   }
 });
 
-test("README keeps both setup paths and layman diagrams visible", async () => {
+test("README keeps every local install path and layman diagrams visible", async () => {
   const readme = await readFile("README.md", "utf8");
   const mermaidBlocks = readme.match(/```mermaid/gu) ?? [];
 
@@ -50,7 +50,12 @@ test("README keeps both setup paths and layman diagrams visible", async () => {
     readme,
     /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/u,
   );
-  assert.match(readme, /without installing Node\.js first/u);
+  assert.match(
+    readme,
+    /irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex/u,
+  );
+  assert.match(readme, /Windows Command Prompt/u);
+  assert.match(readme, /without installing Node\.js or Git Bash first/u);
   assert.match(readme, /## Manual setup and debugging/u);
   assert.match(readme, /The wizard is a convenience layer, not a requirement/u);
   assert.ok(mermaidBlocks.length >= 4);

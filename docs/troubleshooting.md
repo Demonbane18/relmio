@@ -31,18 +31,34 @@ it after the wizard saves the credential.
 ## Confirm the local package first
 
 Close every old wizard terminal and browser tab, then run the newest published
-build on your own computer, not on the VPS:
+build on your own computer, not on the VPS. Choose the command for the terminal
+you already have.
+
+macOS, Linux, WSL, or Git Bash:
 
 ```bash
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
-This command does not require Node.js to be installed. It reuses Node.js 22 or
-newer when available, or downloads an official temporary runtime and verifies
-its SHA-256 checksum before execution.
+Windows PowerShell:
 
-If you are using the native PowerShell or existing-Node fallback, confirm Node
-is version 22 or newer and check the published package version first:
+```powershell
+irm https://relmio.vercel.app/install.ps1 | iex
+```
+
+Windows Command Prompt:
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+```
+
+These commands do not require Node.js to be installed. The Windows options do
+not require Git Bash. Each bootstrap reuses Node.js 22 or newer when available,
+or downloads an official temporary runtime and verifies its SHA-256 checksum
+before execution.
+
+If you choose the existing-Node fallback, confirm Node is version 22 or newer
+and check the published package version first:
 
 ```bash
 node --version
@@ -55,7 +71,7 @@ newest printed `http://127.0.0.1:...` URL into the browser. That URL contains a
 temporary setup token: do not post it in an issue or screenshot.
 
 You do not need to sign in to npm, configure npm 2FA, or own this package to
-run either public command. npm authentication is required only for the
+run any public command. npm authentication is required only for the
 maintainer who publishes a release.
 
 ## Quick VPS checks
@@ -94,8 +110,9 @@ bypassed.
 
 | Symptom | Meaning | Fix |
 |---|---|---|
-| `node: command not found`, `node is not recognized`, or Node is older than 22 | The NPX fallback cannot use the local runtime. | Use the curl command above to run with a verified temporary runtime, or install Node.js 22 or newer locally. Do not install it on the VPS for the wizard. |
-| The curl installer reports a checksum mismatch | The Node.js download did not match the official SHA-256 manifest, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
+| `node: command not found`, `node is not recognized`, or Node is older than 22 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
+| `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell, or the longer `powershell -NoProfile ...` command in Command Prompt. Git Bash is not required. |
+| A bootstrap reports a checksum mismatch | The Node.js download did not match the official SHA-256 manifest, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
 | The browser did not open | The automatic browser launch failed, but the local server may still be running. | Keep the newest terminal open and copy its newest `127.0.0.1` setup URL into the browser. Do not reuse a URL from a closed terminal. |
 | An old wizard page reports an invalid or expired setup session | The local server was closed or a newer wizard run created a different one-time session token. | Close the old page and use only the URL printed by the currently running terminal. |
 | `npx` appears to run an older wizard | An old terminal or tab is still active, or the package was run without an explicit tag. | Close old runs, check `npm view relmio version`, then run `npx --yes --ignore-scripts relmio@latest`. |
