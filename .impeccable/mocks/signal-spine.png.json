@@ -1,0 +1,9 @@
+{
+  "promptFile": ".impeccable/mocks/signal-spine.prompt.txt",
+  "direction": "Patchbay Ledger",
+  "composition": "Signal Spine",
+  "seedKey": "c4426c7c",
+  "approved": true,
+  "approvalSource": "user-chat",
+  "approvedAt": "2026-08-01"
+}

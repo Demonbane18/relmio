@@ -272,6 +272,13 @@ Try the hosted browser experience at
 ChatGPT sign-in and a small request-bound chat demo; it does not create an
 OpenAI Platform API key or replace the local n8n setup wizard.
 
+The redesigned page uses a Signal Spine: it shows the hosted and local routes
+as visible checkpoints, keeps the four safety boundaries beside the primary
+action, and separates the request-bound demo from the VPS installer. The React
+surface uses Meta's open-source Astryx components with a Relmio theme; the
+published local wizard carries the same visual language without adding a
+browser framework or network dependency.
+
 > [!WARNING]
 > **Hosted chat requires the browser extension.** Install the open-source
 > [Sign in with ChatGPT extension for Chrome](https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna)
@@ -292,8 +299,8 @@ OpenAI Platform API key or replace the local n8n setup wizard.
 </figure>
 
 The site's [Install wizard](https://relmio.vercel.app/install) page provides a
-clickable macOS/Linux, PowerShell, Command Prompt, and NPX switcher for the
-current self-hosted n8n and Hostinger VPS setup path.
+clickable macOS/Linux, PowerShell, Command Prompt, and NPX switcher and previews
+the same five gates used by the local self-hosted n8n and Hostinger VPS setup.
 
 ## Choose a setup path
 
@@ -302,7 +309,7 @@ container, image, Compose file, and workflows alone.
 
 | Path | Best for | What you do |
 |---|---|---|
-| **Browser wizard** | Most users | Run one curl command, follow guided screens, verify the server identity, review the plan, then approve |
+| **Browser wizard** | Most users | Run the command for your terminal, follow five visible gates, verify the server identity, review every remote write, then approve |
 | **Manual setup** | Wizard failures, unusual VPS setups, debugging, and contributors | Run the underlying login, SSH, file, and Docker Compose steps yourself |
 
 ```mermaid
@@ -410,7 +417,13 @@ npm view relmio version
 > uses a reserved documentation IP, fake fingerprint, fake container data, and
 > fake models. No real VPS, credential, or browser session is shown.
 
-### 2. Complete or reuse the local ChatGPT sign-in
+The updated wizard keeps a persistent **Your private route** ledger on wider
+screens and adapts it into a compact progress strip on smaller screens. Only
+the current gate is actionable. Each transition moves keyboard focus to the
+new gate heading, and the final install control stays locked until the exact
+sidecar plan is approved.
+
+### 2. Gate 1: Complete or reuse the local ChatGPT sign-in
 
 The wizard stores its validated credential at:
 
@@ -434,7 +447,7 @@ captures the callback, temporarily disable that extension and start the
 refresh again from the wizard. The active wizard must receive the callback on
 `localhost:1455`.
 
-### 3. Verify the VPS before entering its password
+### 3. Gate 2: Verify the VPS before entering its password
 
 Enter the VPS address exactly as your provider shows it. Select **Check server
 identity**, compare the SHA-256 fingerprint with the intended server, and
@@ -446,7 +459,7 @@ The screenshot uses the reserved documentation address `192.0.2.10`, a fake
 fingerprint, and an empty password field. Never publish a real password,
 private key, session URL, or OAuth file.
 
-### 4. Choose the detected n8n container and shared network
+### 4. Gate 3: Choose the detected n8n container and shared network
 
 The wizard connects over SSH, runs read-only Docker discovery, and lists the
 running n8n container and its networks. Choose the network that n8n should
@@ -454,7 +467,7 @@ share with the sidecar; on many Hostinger templates it is named `proxy`.
 
 ![Step 3: sanitized n8n container and Docker network discovery](docs/images/setup/03-n8n-detected.png)
 
-### 5. Review and approve the exact plan
+### 5. Gate 4: Review and approve the exact plan
 
 Nothing is written during discovery. The review screen shows the single
 managed directory, service, Docker network, and private hostname. It also
@@ -466,7 +479,7 @@ no host port; and no Traefik route.
 Only after you select the approval checkbox can the wizard upload the OAuth
 file and build the separate sidecar.
 
-### 6. Copy the verified settings into n8n
+### 6. Gate 5: Copy the verified settings into n8n
 
 The final screen appears only after the sidecar is healthy, the model list is
 reachable, and Docker reports no published host port.

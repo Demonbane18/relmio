@@ -1,108 +1,178 @@
+import { Button } from "@astryxdesign/core/Button";
+import { Heading } from "@astryxdesign/core/Heading";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Text } from "@astryxdesign/core/Text";
 import type { Metadata } from "next";
-import Image from "next/image";
-import Link from "next/link";
 import { CopyCommand } from "../components/CopyCommand";
-import { RepositoryButton } from "../components/RepositoryButton";
+import { SiteHeader } from "../components/SiteHeader";
 
 export const metadata: Metadata = {
   title: "Install Relmio for n8n",
   description:
-    "Run the local Relmio wizard from macOS, Linux, PowerShell, or Command Prompt without installing Node.js first.",
+    "Start the local Relmio wizard from macOS, Linux, PowerShell, or Command Prompt, verify your VPS, and review every remote write.",
 };
 
-const steps = [
+const installGates = [
   {
-    index: "01",
-    title: "Choose your terminal",
-    copy: "Use macOS/Linux, PowerShell, CMD, or NPX. Windows does not need Git Bash.",
+    title: "Sign in",
+    detail: "Authorize on this computer",
+    boundary: "Local",
   },
   {
-    index: "02",
-    title: "Start locally",
-    copy: "Paste the command on your own computer and keep that terminal open.",
+    title: "Verify host",
+    detail: "Confirm the SSH fingerprint",
+    boundary: "Required",
   },
   {
-    index: "03",
-    title: "Verify, then approve",
-    copy: "Confirm the SSH fingerprint and sidecar plan before any VPS write.",
+    title: "Select n8n",
+    detail: "Choose the detected network",
+    boundary: "Read only",
+  },
+  {
+    title: "Review plan",
+    detail: "See every remote write",
+    boundary: "Preview",
+  },
+  {
+    title: "Install",
+    detail: "Create the private sidecar",
+    boundary: "Confirmed",
   },
 ];
 
 export default function InstallPage() {
   return (
-    <main className="install-shell" id="main-content">
+    <>
       <a className="skip-link" href="#install-command">
         Skip to installation command
       </a>
-      <header className="site-header install-header">
-        <div className="site-header-inner">
-          <Link className="brand" href="/" aria-label="Relmio home">
-            <Image
-              src="/relmio-mark.svg"
-              alt=""
-              width={38}
-              height={38}
-              priority
-            />
-            <span>Relmio</span>
-          </Link>
-          <Link className="install-back-link" href="/">
-            Hosted chat
-          </Link>
-          <RepositoryButton />
-        </div>
-      </header>
+      <SiteHeader />
 
-      <section className="install-page">
-        <div className="install-panel">
-          <p className="eyebrow install-eyebrow">
-            <span className="status-dot" aria-hidden="true" />
-            n8n + Hostinger VPS
-          </p>
-          <h1>Install Relmio for n8n</h1>
-          <p className="install-lede">
-            Run one local wizard to sign in with ChatGPT, verify your VPS, and
-            install a private OpenAI-compatible sidecar beside n8n. Choose the
-            terminal already on your computer—native Windows works without Git
-            Bash or a preinstalled Node.js runtime.
-          </p>
+      <main className="install-main" id="main-content">
+        <section className="install-hero" aria-labelledby="install-title">
+          <article className="install-narrative">
+            <Heading level={1} type="display-1" id="install-title">
+              Your local route starts here.
+            </Heading>
+            <Text as="p" type="large" color="secondary">
+              Run one browser wizard on your own computer to sign in, verify a
+              Hostinger VPS or another self-hosted VPS, and prepare a separate
+              private sidecar for the n8n deployment you already use.
+            </Text>
+            <aside className="local-boundary">
+              <Icon icon="info" color="accent" label="Local setup boundary" />
+              <span>
+                <strong>Run this on your own computer, not on the VPS.</strong>
+                <small>
+                  Relmio does not edit, rebuild, recreate, stop, or restart your
+                  existing n8n container.
+                </small>
+              </span>
+            </aside>
+          </article>
 
-          <div className="install-command-stage" id="install-command">
-            <p>Choose your local terminal</p>
+          <section
+            className="install-command-stage"
+            id="install-command"
+            aria-labelledby="install-command-title"
+          >
+            <header>
+              <Heading level={2} id="install-command-title">
+                Choose your local terminal
+              </Heading>
+              <p>
+                The macOS/Linux and native Windows options can provide a
+                verified temporary runtime. NPX uses Node.js 22 or newer when
+                it is already installed.
+              </p>
+            </header>
             <CopyCommand />
-          </div>
+          </section>
+        </section>
 
-          <p className="install-boundary">
-            <strong>Run this on your own computer, not on the VPS.</strong>{" "}
-            The macOS/Linux and native Windows options reuse Node.js 22+ when
-            available, or download and verify a temporary official runtime.
-            NPX is for computers that already have Node.js 22 or newer. Relmio
-            does not edit, rebuild, or restart your existing n8n container.
-          </p>
+        <section className="install-route" aria-labelledby="install-route-title">
+          <header className="section-heading split-heading">
+            <Heading level={2} type="display-3" id="install-route-title">
+              Five gates, one deliberate install.
+            </Heading>
+            <Text as="p" type="large" color="secondary">
+              Every step exposes the boundary that matters before the next
+              action becomes available.
+            </Text>
+          </header>
 
-          <ol className="install-steps">
-            {steps.map((step) => (
-              <li key={step.index}>
-                <span>{step.index}</span>
-                <div>
-                  <strong>{step.title}</strong>
-                  <p>{step.copy}</p>
-                </div>
+          <ol className="install-gates">
+            {installGates.map((gate, index) => (
+              <li key={gate.title}>
+                <span className="gate-index" aria-hidden="true">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <span>
+                  <strong>{gate.title}</strong>
+                  <small>{gate.detail}</small>
+                </span>
+                <em>{gate.boundary}</em>
               </li>
             ))}
           </ol>
+        </section>
 
-          <div className="install-page-actions">
-            <Link className="button button-primary" href="/">
-              Back to Relmio
-              <span aria-hidden="true">↖</span>
-            </Link>
-            <Link className="button button-secondary" href="/#security">
-              Review the safety boundary
-            </Link>
-          </div>
-        </div>
-      </section>
-    </main>
+        <section className="install-assurances" aria-labelledby="assurances-title">
+          <Heading level={2} id="assurances-title">
+            What the wizard protects
+          </Heading>
+          <ul>
+            <li>
+              <Icon icon="check" color="accent" />
+              <span>
+                <strong>Host identity first</strong>
+                <small>Your password unlocks only after fingerprint confirmation.</small>
+              </span>
+            </li>
+            <li>
+              <Icon icon="check" color="accent" />
+              <span>
+                <strong>Read-only discovery</strong>
+                <small>Relmio inspects Docker before proposing any write.</small>
+              </span>
+            </li>
+            <li>
+              <Icon icon="check" color="accent" />
+              <span>
+                <strong>Sidecar-only plan</strong>
+                <small>The project is confined to /docker/n8n-openai-oauth.</small>
+              </span>
+            </li>
+            <li>
+              <Icon icon="check" color="accent" />
+              <span>
+                <strong>Private network route</strong>
+                <small>VPS port 10531 is never published on the host.</small>
+              </span>
+            </li>
+          </ul>
+        </section>
+
+        <section className="install-closing" aria-labelledby="install-closing-title">
+          <span>
+            <Heading level={2} id="install-closing-title">
+              Want context before running a command?
+            </Heading>
+            <p>
+              Review the hosted explanation and complete safety boundary first.
+            </p>
+          </span>
+          <nav aria-label="Install page actions">
+            <Button href="/" label="Back to Relmio" size="lg" variant="secondary" />
+            <Button
+              href="/#safety"
+              label="Review the safety boundary"
+              size="lg"
+              variant="primary"
+            />
+          </nav>
+        </section>
+      </main>
+    </>
   );
 }

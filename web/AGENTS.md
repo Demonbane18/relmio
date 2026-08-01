@@ -1,42 +1,9 @@
-# Project: Relmio
+# AGENTS
 
-## Runtime
-
-- Node.js 22 or newer
-- npm 10.9.8
-- ECMAScript modules
-- Node's built-in HTTP server and test runner
-- `ssh2` 1.17.0 for SSH and SFTP
-
-## Commands
-
-- Install: `npm ci --ignore-scripts`
-- Start: `npm start`
-- Test: `npm test`
-- Lint: `npm run lint`
-- Audit: `npm audit --audit-level=high`
-- Package preview: `npm pack --dry-run`
-
-## Conventions
-
-- Keep domain logic pure and inject SSH/file/process boundaries.
-- Validate every value before it can enter a remote command.
-- Use static remote commands wherever possible.
-- Render untrusted status text with `textContent`, never `innerHTML`.
-- Prefer named exports.
-
-## Safety boundaries
-
-- Never edit the existing n8n Compose file or image.
-- Never rebuild, recreate, stop, or restart the n8n container.
-- Never publish port `10531` on the VPS host.
-- Never print, return, or commit OAuth tokens, SSH passwords, or private keys.
-- Never deploy outside `/docker/n8n-openai-oauth`.
-- Require SSH host-key confirmation before authenticated connection.
-- Require a final human confirmation before remote writes.
+Project-specific guidance for AI coding agents.
 
 <!-- ASTRYX:START -->
-Astryx v0.2.0 · 90+ components
+Astryx v0.2.0 · 154 components
 CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
 
 SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
@@ -53,13 +20,13 @@ RULES:
 - Frame first: pick the shell (AppShell / Layout+LayoutPanel) and budget regions in px BEFORE writing content (`astryx docs layout`).
 - Dense data = rows (Table, List/Item) edge-to-edge — never Card-wrapped list items. Card = dashboard widgets, galleries, settings groups only.
 - Status → StatusDot/Token; Badge only for counts and enumerated states, never decoration.
-- Custom styling: component props first; else style/className with tokens — var(--color-*|--spacing-*|--radius-*). No raw hex/px. (No StyleX/Tailwind compiler here — don't use xstyle/utility classes.)
+- Custom styling: component props first; else Tailwind utilities backed by tokens (bg-surface, text-primary, rounded-lg) via tailwind-theme.css. No raw hex/px.
 - Tokens for every value (`astryx docs tokens`). Brand/accent via `astryx theme` — never override --color-* in :root.
-- SELF-CHECK before you finish: re-read the file and replace any raw <div>/<span> layout, imported .css/@apply, or hardcoded value (#hex, 16px) with the component or a token (var(--color-*|--spacing-*|…)). If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
+- SELF-CHECK before you finish: re-read the file and replace any style={{…}}, raw <div>/<span> layout, imported .css/@apply, or hardcoded/arbitrary value (e.g. bg-[#fff], p-[13px]) with the component or a token-backed utility. If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
 
 MORE CLI:
   search "<query>"   find any component / hook / doc / template / block
-  component --list   90+ components by category
+  component --list   154 components by category
   template --list    page + block recipes
   docs <topic>       color, elevation, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
   swizzle <Name>     eject component source for deep customization

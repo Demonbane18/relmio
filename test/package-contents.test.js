@@ -60,13 +60,16 @@ const expectedPackedFiles = new Set([
   "src/services/installer.js",
   "src/services/oauth.js",
   "src/ui/app.js",
+  "src/ui/geist-latin.woff2",
   "src/ui/index.html",
   "src/ui/styles.css",
   "src/ui/time.js",
   "src/web/server.js",
 ]);
 const reviewedBinaryFiles = new Set(
-  [...expectedPackedFiles].filter((path) => path.endsWith(".png")),
+  [...expectedPackedFiles].filter(
+    (path) => path.endsWith(".png") || path === "src/ui/geist-latin.woff2",
+  ),
 );
 const forbiddenBasename =
   /^(?:\.env(?:\..*)?|auth\.json|credentials?\.json|.*\.(?:key|p12|pem|pfx|ppk))$/iu;
