@@ -1534,6 +1534,71 @@ main {
   text-transform: uppercase;
 }
 
+.install-method-picker {
+  display: grid;
+  gap: 12px;
+}
+
+.install-method-tabs {
+  width: fit-content;
+  min-height: 52px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--line) 35%, var(--white));
+}
+
+.install-method-tab {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition:
+    background 180ms var(--ease),
+    border-color 180ms var(--ease),
+    color 180ms var(--ease),
+    box-shadow 180ms var(--ease);
+}
+
+.install-method-tab span {
+  color: var(--teal-deep);
+  font-size: 0.62rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.install-method-tab[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--line) 80%, transparent);
+  background: var(--white);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
+.install-method-tab:hover {
+  color: var(--ink);
+}
+
+.install-method-tab:focus-visible,
+.install-command-stage .install-command:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--teal) 38%, transparent);
+  outline-offset: 2px;
+}
+
+.install-method-panel[hidden] {
+  display: none;
+}
+
 .install-command-stage .install-command {
   width: 100%;
   min-height: 66px;
@@ -1550,13 +1615,23 @@ main {
 }
 
 .install-command-stage .install-command code {
+  flex: 1;
   font-size: clamp(0.76rem, 2vw, 0.9rem);
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .install-command-stage .copy-hint {
   margin-left: auto;
   background: rgb(255 255 255 / 10%);
   color: var(--white);
+}
+
+.install-method-note {
+  margin: 10px 2px 0;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  line-height: 1.5;
 }
 
 .install-boundary {

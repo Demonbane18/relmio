@@ -92,8 +92,12 @@ The current release pins:
 - `ssh2` `1.17.0`
 - `openai-oauth` `2.0.0`
 
-Install scripts are disabled for local dependencies. The generated sidecar
-also installs `openai-oauth` with `--ignore-scripts`.
+The curl bootstrap reuses a compatible local Node.js runtime or downloads the
+current official Node.js 22 archive to a private temporary directory. It
+validates the archive against Node.js's SHA-256 manifest before execution and
+removes it when the wizard closes. npm lifecycle scripts are disabled when the
+bootstrap starts Relmio. The generated sidecar also installs `openai-oauth`
+with `--ignore-scripts`.
 
 Do not replace pinned versions with `latest` in production. Follow the upgrade
 checklist in [maintenance.md](maintenance.md).

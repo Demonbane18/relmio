@@ -157,6 +157,10 @@ test("npm package substitutes a registry-safe README without changing GitHub dia
 
   assert.match(githubReadme, /```mermaid/u);
   assert.doesNotMatch(npmReadme, /```mermaid/u);
+  assert.match(
+    npmReadme,
+    /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/u,
+  );
   assert.match(npmReadme, /npx --yes --ignore-scripts relmio@latest/u);
   assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\//u);
   assert.doesNotMatch(npmReadme, /relmio\.jpfusin\.tech/u);

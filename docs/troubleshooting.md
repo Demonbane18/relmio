@@ -30,17 +30,23 @@ it after the wizard saves the credential.
 
 ## Confirm the local package first
 
-Run these commands on your own computer, not on the VPS:
+Close every old wizard terminal and browser tab, then run the newest published
+build on your own computer, not on the VPS:
+
+```bash
+curl -fsSL https://relmio.vercel.app/install.sh | sh
+```
+
+This command does not require Node.js to be installed. It reuses Node.js 22 or
+newer when available, or downloads an official temporary runtime and verifies
+its SHA-256 checksum before execution.
+
+If you are using the native PowerShell or existing-Node fallback, confirm Node
+is version 22 or newer and check the published package version first:
 
 ```bash
 node --version
 npm view relmio version
-```
-
-Node must be version 22 or newer. Then close every old wizard terminal and
-browser tab and start the newest published build:
-
-```bash
 npx --yes --ignore-scripts relmio@latest
 ```
 
@@ -49,7 +55,7 @@ newest printed `http://127.0.0.1:...` URL into the browser. That URL contains a
 temporary setup token: do not post it in an issue or screenshot.
 
 You do not need to sign in to npm, configure npm 2FA, or own this package to
-run its public `npx` command. npm authentication is required only for the
+run either public command. npm authentication is required only for the
 maintainer who publishes a release.
 
 ## Quick VPS checks
@@ -88,7 +94,8 @@ bypassed.
 
 | Symptom | Meaning | Fix |
 |---|---|---|
-| `node: command not found`, `node is not recognized`, or Node is older than 22 | The local runtime is missing or unsupported. | Install Node.js 22 or newer on the local computer, open a new terminal, and rerun the `@latest` command. Do not install it on the VPS for the wizard. |
+| `node: command not found`, `node is not recognized`, or Node is older than 22 | The NPX fallback cannot use the local runtime. | Use the curl command above to run with a verified temporary runtime, or install Node.js 22 or newer locally. Do not install it on the VPS for the wizard. |
+| The curl installer reports a checksum mismatch | The Node.js download did not match the official SHA-256 manifest, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
 | The browser did not open | The automatic browser launch failed, but the local server may still be running. | Keep the newest terminal open and copy its newest `127.0.0.1` setup URL into the browser. Do not reuse a URL from a closed terminal. |
 | An old wizard page reports an invalid or expired setup session | The local server was closed or a newer wizard run created a different one-time session token. | Close the old page and use only the URL printed by the currently running terminal. |
 | `npx` appears to run an older wizard | An old terminal or tab is still active, or the package was run without an explicit tag. | Close old runs, check `npm view relmio version`, then run `npx --yes --ignore-scripts relmio@latest`. |
