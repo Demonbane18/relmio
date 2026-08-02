@@ -125,3 +125,11 @@ jobs:
 
       - name: Test the native Windows bootstrap
         run: node --test test/install-powershell-script.test.js
+
+      - name: Test the Git Bash portable runtime handoff
+        shell: bash
+        env:
+          RELMIO_TEST_POSIX_SHELL: bash
+        run: >-
+          node --test --test-name-pattern="temporary Windows Node runtime"
+          test/install-script.test.js

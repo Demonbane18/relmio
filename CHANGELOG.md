@@ -5,6 +5,14 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
+## Unreleased
+
+### Fixed
+
+- Keep the checksum-verified temporary Node.js 22 runtime on the child process
+  path so Git Bash and other Node-free systems can launch the Relmio package
+  shim without falling back to a missing or outdated system `node` command.
+
 ## [0.2.6] - 2026-08-02
 
 ### Added
