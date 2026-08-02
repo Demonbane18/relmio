@@ -20,31 +20,17 @@ export function ThemeModeControl() {
   }
 
   return (
-    <section className="theme-mode-control" aria-label="Appearance">
-      <span className="theme-mode-desktop">
-        <SegmentedControl
-          value={mode}
-          onChange={changeMode}
-          label="Color theme"
-          size="sm"
-        >
-          <SegmentedControlItem value="system" label="System" />
-          <SegmentedControlItem value="light" label="Light" />
-          <SegmentedControlItem value="dark" label="Dark" />
-        </SegmentedControl>
-      </span>
-      <label className="theme-mode-mobile">
-        <span className="visually-hidden">Color theme</span>
-        <select
-          aria-label="Color theme"
-          value={mode}
-          onChange={(event) => changeMode(event.target.value)}
-        >
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-      </label>
-    </section>
+    <SegmentedControl
+      className="theme-mode-control"
+      value={mode}
+      onChange={changeMode}
+      label="Color theme"
+      size="sm"
+      layout="hug"
+    >
+      <SegmentedControlItem value="system" label="System" />
+      <SegmentedControlItem value="light" label="Light" />
+      <SegmentedControlItem value="dark" label="Dark" />
+    </SegmentedControl>
   );
 }

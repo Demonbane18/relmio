@@ -201,9 +201,9 @@ a:focus-visible {
   min-width: 0;
   margin: 0;
   padding: 0.1875rem;
-  border: 1px solid var(--border);
-  border-radius: 0.625rem;
-  background: var(--surface-muted);
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 88%, var(--border));
 }
 
 .theme-picker label {
@@ -218,15 +218,15 @@ a:focus-visible {
 }
 
 .theme-picker span {
-  min-height: 2rem;
+  min-height: 1.75rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 0.625rem;
-  border-radius: 0.4375rem;
-  color: var(--text-muted);
+  padding: 0 0.5rem;
+  border-radius: 999px;
+  color: rgb(255 255 255 / 72%);
   font-size: 0.6875rem;
-  font-weight: 700;
+  font-weight: 600;
   transition:
     color 160ms var(--ease),
     background 160ms var(--ease),
