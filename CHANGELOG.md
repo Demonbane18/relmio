@@ -5,7 +5,7 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
-## Unreleased
+## [0.2.6] - 2026-08-02
 
 ### Added
 
@@ -17,6 +17,16 @@ checks the registry separately after publication.
   the temporary official Windows archive before execution.
 - Expand the hosted installer into an accessible macOS/Linux, PowerShell,
   Command Prompt, and NPX terminal switcher.
+
+### Changed
+
+- Revamp the hosted Vercel experience and local browser wizard around the
+  Signal Spine composition and Patchbay Ledger design language.
+- Integrate the Astryx component system, neutral theme, CLI, and AI-readable
+  setup guidance in the hosted React application while keeping the published
+  wizard dependency-light.
+- Add persistent route context, sanitized preview status, responsive layouts,
+  reduced-motion behavior, and synchronized GitHub/npm setup documentation.
 
 ## [0.2.5] - 2026-07-31
 

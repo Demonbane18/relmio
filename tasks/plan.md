@@ -1,5 +1,92 @@
 # Implementation Plan: Relmio n8n Setup
 
+## Active feature plan: Astryx interface overhaul
+
+### Overview
+
+Replace the hosted Relmio site and localhost setup wizard visual system while
+preserving routes, behavior, form field names, security boundaries, product
+truth, and tested installation flows. Use Astryx directly in the React/Next.js
+site and translate the same semantic tokens, density, and interaction rules to
+the dependency-light static wizard.
+
+### Architecture decisions
+
+- Install `@astryxdesign/core`, one official Astryx theme, and the Astryx CLI
+  only in `web/`; do not add React or a build step to the published local wizard.
+- Use Astryx components for hosted-site controls and documented page patterns;
+  use shared Relmio semantic tokens to make the static wizard feel like the
+  same product without shipping the React runtime in the npm CLI.
+- Preserve the existing `/`, `/install`, API routes, control names, DOM IDs
+  required by `src/ui/app.js`, and all remote-write confirmation gates.
+- Keep motion purposeful and lightweight, with reduced-motion fallbacks and no
+  scroll listeners that update React state.
+- Treat visual QA as a merge gate: desktop and mobile Opera GX checks, clean
+  console, keyboard navigation, contrast, tests, lint, typecheck, builds,
+  package inspection, audit, and fresh-context finish review.
+
+### Phase 1: Foundation and proof
+
+- [x] Record approved product context and replacement visual direction.
+- [x] Install and initialize Astryx through its official CLI.
+- [x] Add failing structural tests for Astryx setup, retained routes, wizard
+  landmarks, and documentation requirements.
+
+### Checkpoint: foundation
+
+- [x] Astryx CLI can resolve the selected components and tokens.
+- [x] Focused tests fail for the intended missing UI contract, then pass after
+  the first implementation slice.
+
+### Phase 2: Hosted surfaces
+
+- [x] Build the shared Astryx provider, theme overrides, navigation, and core
+  interaction components.
+- [x] Recompose the hosted landing page and chat demo without changing the
+  request-bound authentication path.
+- [x] Recompose `/install` around the existing accessible command picker.
+
+### Checkpoint: hosted site
+
+- [x] `npm run build:vercel`, `npm run typecheck`, `npm run lint`, and web tests
+  pass in `web/`.
+- [x] Landing, chat, and install routes work at 320px, 768px, 1024px, and
+  1440px in Opera GX.
+
+### Phase 3: Local wizard and documentation
+
+- [x] Redesign `src/ui/` while preserving every tested ID, field, status, and
+  safe workflow transition.
+- [x] Update GitHub and npm READMEs with the revised browser wizard guide and
+  sanitized screenshots.
+- [x] Build and inspect the npm tarball to confirm the concise npm README and
+  static wizard assets are correct.
+
+### Checkpoint: complete
+
+- [x] Root and web automated checks, audits, package inspection, accessibility
+  review, and secret scan pass.
+- [x] Impeccable detector and fresh-context finish review have no unresolved
+  material finding.
+- [x] Feature commits are reviewed and merged into local `main`; no push,
+  deployment, publication, or remote system change is performed.
+
+### Risks and mitigations
+
+| Risk | Impact | Mitigation |
+|---|---:|---|
+| Astryx beta API changes | High | Pin exact versions, initialize the CLI, and use generated component docs |
+| Next.js/Vinext CSS mismatch | High | Use published prebuilt CSS and verify both build paths before merge |
+| Static wizard behavior regresses | High | Preserve IDs and write contract tests before markup changes |
+| Visual redesign obscures safety gates | High | Make identity, fingerprint, plan, and confirmation states primary UI landmarks |
+| Package size grows unnecessarily | Medium | Keep Astryx in `web/`; retain vanilla HTML/CSS/JS for the npm wizard |
+| README screenshots expose data | High | Use sanitized local fixtures only and inspect image metadata |
+
+### Open questions
+
+- None. The user authorized a full visual overhaul, README updates, local merge
+  after passing QA, and no external deployment or publication.
+
 ## Overview
 
 Create an `npx`-ready localhost browser wizard and beginner documentation that deploy a separate `openai-oauth` Docker Compose sidecar beside n8n without modifying the existing n8n deployment.

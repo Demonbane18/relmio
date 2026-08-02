@@ -30,18 +30,32 @@ test("server-renders the Relmio product page", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Relmio — Your ChatGPT plan, relayed<\/title>/i);
-  assert.match(html, /Your ChatGPT plan\./);
-  assert.match(html, /One clean path to your tools\./);
-  assert.match(html, /Test a supported ChatGPT sign-in in the hosted chat\./);
   assert.match(
     html,
-    /keep the relay inside your own Docker network\./,
+    /<title>Relmio \| Your ChatGPT plan, safely relayed<\/title>/i,
   );
+  assert.match(html, /data-design-contract="c4426c7c"/);
+  assert.match(html, /Your ChatGPT plan, safely relayed\./);
+  assert.match(html, /Your private route/);
+  assert.match(html, /Your computer/);
+  assert.match(html, /SSH host check/);
+  assert.match(html, /Existing n8n network/);
+  assert.match(html, /Private sidecar/);
+  assert.match(html, /Remote writes begin only after your review\./);
+  assert.match(html, /Boundaries you can verify/);
+  assert.match(html, /Existing n8n stays untouched/);
+  assert.match(html, /No public VPS port/);
+  assert.match(html, /Tokens are not logged/);
+  assert.match(html, /Remote writes require confirmation/);
+  assert.match(html, /One route\. Five deliberate gates\./);
   assert.doesNotMatch(html, /OpenAI-shaped workflows you already use/);
-  assert.match(html, /Try the secure chat/);
-  assert.match(html, /href="\/install"[^>]*>Install wizard<\/a>/);
-  assert.match(html, /Connect, then ask\./);
+  assert.doesNotMatch(html, /One clean path to your tools\./);
+  assert.match(html, /Try hosted chat/);
+  assert.match(
+    html,
+    /href="\/install"[^>]*>.*?Run local wizard.*?<\/a>/,
+  );
+  assert.match(html, /A request-bound test lane\./);
   assert.match(html, /Before you connect: install the browser extension/);
   assert.match(
     html,
@@ -52,7 +66,8 @@ test("server-renders the Relmio product page", async () => {
     /https:\/\/addons\.mozilla\.org\/firefox\/addon\/sign-in-with-chatgpt\//,
   );
   assert.match(html, /temporarily disable it during local sign-in/);
-  assert.match(html, /Private where it matters\./);
+  assert.match(html, /The boundary is part of the product\./);
+  assert.match(html, /astryx-/);
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
   assert.match(html, /openai-oauth/);
@@ -69,7 +84,8 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
     readFile(new URL("../dist/client/install.sh", import.meta.url), "utf8"),
     readFile(new URL("../dist/client/install.ps1", import.meta.url), "utf8"),
   ]);
-  assert.match(html, /Install Relmio for n8n/);
+  assert.match(html, /Your local route starts here\./);
+  assert.match(html, /Five gates, one deliberate install\./);
   assert.match(html, /Hostinger VPS/);
   assert.match(
     html,
@@ -95,6 +111,9 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   assert.match(html, /NPX requires Node\.js 22 or newer/);
   assert.match(html, /Copy installation command/);
   assert.match(html, /Run this on your own computer/);
+  assert.match(html, /Confirm the SSH fingerprint/);
+  assert.match(html, /See every remote write/);
+  assert.match(html, /Create the private sidecar/);
   assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
   assert.match(installScript, /^#!\/bin\/sh/m);
   assert.match(installScript, /Node\.js download checksum did not match/);
@@ -306,18 +325,42 @@ test("forwards incremental model text as separate chat stream events", async (t)
 });
 
 test("ships the request-bound chat and removes starter assets", async () => {
-  const [chatConsole, chatRoute, layout, packageJson] = await Promise.all([
-    readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-  ]);
+  const [chatConsole, chatRoute, layout, packageJson, providers, theme, styles] =
+    await Promise.all([
+      readFile(
+        new URL("../app/components/ChatConsole.tsx", import.meta.url),
+        "utf8",
+      ),
+      readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../package.json", import.meta.url), "utf8"),
+      readFile(new URL("../app/providers.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../app/relmio-theme.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    ]);
+
+  const packageMetadata = JSON.parse(packageJson);
 
   assert.match(chatConsole, /openaiAuthHeaders/u);
   assert.match(chatConsole, /SignInWithChatGPT/u);
   assert.match(chatRoute, /openaiCredentials\(request\)/u);
   assert.match(chatRoute, /Cache-Control": "no-store"/u);
-  assert.match(layout, /Relmio — Your ChatGPT plan, relayed/u);
+  assert.match(layout, /Relmio \| Your ChatGPT plan, safely relayed/u);
+  assert.match(layout, /data-design-contract="c4426c7c"/u);
+  assert.match(providers, /@astryxdesign\/core\/theme/u);
+  assert.match(providers, /@astryxdesign\/core\/Link/u);
+  assert.match(providers, /relmioTheme/u);
+  assert.match(theme, /defineTheme/u);
+  assert.match(theme, /extends:\s*neutralTheme/u);
+  assert.match(styles, /@astryxdesign\/core\/reset\.css/u);
+  assert.match(styles, /@astryxdesign\/core\/astryx\.css/u);
+  assert.match(styles, /@astryxdesign\/theme-neutral\/theme\.css/u);
+  assert.equal(packageMetadata.dependencies["@astryxdesign/core"], "0.2.0");
+  assert.equal(
+    packageMetadata.dependencies["@astryxdesign/theme-neutral"],
+    "0.2.0",
+  );
+  assert.equal(packageMetadata.devDependencies["@astryxdesign/cli"], "0.2.0");
   assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
   await assert.rejects(
     access(new URL("../app/_sites-preview", import.meta.url)),
