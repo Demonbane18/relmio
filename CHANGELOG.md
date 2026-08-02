@@ -7,6 +7,19 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.7] - 2026-08-02
+
+### Changed
+
+- Restore the original Relmio hosted layout and local browser wizard flow, with
+  the horizontal five-step Signal Spine and GitHub star/version control kept
+  visible.
+- Add Astryx's built theme and accessible segmented appearance control to the
+  hosted app, plus lightweight System/Light/Dark preference support to the
+  local wizard.
+- Add responsive dark-mode logo treatment, phone-sized controls, and matching
+  browser-wizard guidance to the GitHub and npm README variants.
+
 ### Fixed
 
 - Keep the checksum-verified temporary Node.js 22 runtime on the child process
