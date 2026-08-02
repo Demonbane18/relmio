@@ -30,7 +30,7 @@ test("server-renders the Relmio product page", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Relmio — Your ChatGPT plan, relayed<\/title>/i);
+  assert.match(html, /<title>Relmio \| Your ChatGPT plan, relayed<\/title>/i);
   assert.match(html, /Your ChatGPT plan\./);
   assert.match(html, /One clean path to your tools\./);
   assert.match(html, /Test a supported ChatGPT sign-in in the hosted chat\./);
@@ -41,6 +41,12 @@ test("server-renders the Relmio product page", async () => {
   assert.doesNotMatch(html, /OpenAI-shaped workflows you already use/);
   assert.match(html, /Try the secure chat/);
   assert.match(html, /href="\/install"[^>]*>Install wizard<\/a>/);
+  assert.match(html, /data-astryx-theme="relmio"/);
+  assert.match(html, /aria-label="Color theme"/);
+  assert.match(html, />System<\/span>/);
+  assert.match(html, />Light<\/span>/);
+  assert.match(html, />Dark<\/span>/);
+  assert.match(html, /class="relay-visual"/);
   assert.match(html, /Connect, then ask\./);
   assert.match(html, /Before you connect: install the browser extension/);
   assert.match(
@@ -55,6 +61,7 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /Private where it matters\./);
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
+  assert.match(html, /class="repository-button"/);
   assert.match(html, /openai-oauth/);
   assert.match(html, /Evan Zhou Dev/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
@@ -70,6 +77,8 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
     readFile(new URL("../dist/client/install.ps1", import.meta.url), "utf8"),
   ]);
   assert.match(html, /Install Relmio for n8n/);
+  assert.match(html, /data-astryx-theme="relmio"/);
+  assert.match(html, /aria-label="Color theme"/);
   assert.match(html, /Hostinger VPS/);
   assert.match(
     html,
@@ -317,7 +326,7 @@ test("ships the request-bound chat and removes starter assets", async () => {
   assert.match(chatConsole, /SignInWithChatGPT/u);
   assert.match(chatRoute, /openaiCredentials\(request\)/u);
   assert.match(chatRoute, /Cache-Control": "no-store"/u);
-  assert.match(layout, /Relmio — Your ChatGPT plan, relayed/u);
+  assert.match(layout, /Relmio \| Your ChatGPT plan, relayed/u);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
   await assert.rejects(
     access(new URL("../app/_sites-preview", import.meta.url)),

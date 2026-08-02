@@ -48,7 +48,7 @@ export function RepositoryButton() {
     return () => controller.abort();
   }, []);
 
-  const stars = meta.stars === null ? "—" : formatStars(meta.stars);
+  const stars = meta.stars === null ? "?" : formatStars(meta.stars);
 
   return (
     <a

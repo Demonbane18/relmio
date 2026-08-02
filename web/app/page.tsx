@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChatConsole } from "./components/ChatConsole";
 import { RepositoryButton } from "./components/RepositoryButton";
+import { ThemeModeControl } from "./components/ThemeModeControl";
 
 const capabilities = [
   {
@@ -64,7 +65,10 @@ export default function Home() {
             <a href="#security">Security</a>
             <a href="#chat">Chat</a>
           </nav>
-          <RepositoryButton />
+          <div className="header-actions">
+            <ThemeModeControl />
+            <RepositoryButton />
+          </div>
         </div>
       </header>
 
@@ -172,7 +176,7 @@ export default function Home() {
           <h2>A relay, not another account system.</h2>
           <p>
             Relmio keeps authentication, transport, and client compatibility
-            separate. That makes each boundary easier to understand—and easier
+            separate. That makes each boundary easier to understand and easier
             to protect.
           </p>
         </div>

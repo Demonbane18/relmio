@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { CopyCommand } from "../components/CopyCommand";
 import { RepositoryButton } from "../components/RepositoryButton";
+import { ThemeModeControl } from "../components/ThemeModeControl";
 
 export const metadata: Metadata = {
   title: "Install Relmio for n8n",
@@ -49,7 +50,10 @@ export default function InstallPage() {
           <Link className="install-back-link" href="/">
             Hosted chat
           </Link>
-          <RepositoryButton />
+          <div className="header-actions">
+            <ThemeModeControl />
+            <RepositoryButton />
+          </div>
         </div>
       </header>
 
@@ -63,8 +67,8 @@ export default function InstallPage() {
           <p className="install-lede">
             Run one local wizard to sign in with ChatGPT, verify your VPS, and
             install a private OpenAI-compatible sidecar beside n8n. Choose the
-            terminal already on your computer—native Windows works without Git
-            Bash or a preinstalled Node.js runtime.
+            terminal already on your computer. Native Windows works without
+            Git Bash or a preinstalled Node.js runtime.
           </p>
 
           <div className="install-command-stage" id="install-command">

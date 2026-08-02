@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { headers } from "next/headers";
+import "@astryxdesign/core/reset.css";
+import "@astryxdesign/core/astryx.css";
+import "./relmio.css";
 import "./globals.css";
+import { Providers } from "./providers";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,7 +17,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const title = "Relmio — Your ChatGPT plan, relayed";
+const title = "Relmio | Your ChatGPT plan, relayed";
 const description =
   "Connect a supported ChatGPT sign-in to a secure hosted chat and OpenAI-compatible workflows, beginning with self-hosted n8n.";
 
@@ -64,7 +68,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

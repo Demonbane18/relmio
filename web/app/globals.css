@@ -1,6 +1,5 @@
-@import "tailwindcss";
-
 :root {
+  color-scheme: light;
   --ink: #0d1b18;
   --ink-soft: #4f635d;
   --paper: #f4f1e9;
@@ -15,6 +14,7 @@
   --orange: #e9753d;
   --dark: #0d1917;
   --white: #ffffff;
+  --surface: #ffffff;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   --shadow-sm: 0 1px 2px rgb(13 27 24 / 5%);
   --shadow-md:
@@ -26,6 +26,52 @@
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #edf3f0;
+  --ink-soft: #a9b8b3;
+  --paper: #171d1b;
+  --paper-light: #101513;
+  --line: #303a36;
+  --line-strong: #52615b;
+  --mint: #20342f;
+  --mint-soft: #1c2925;
+  --orange: #f0a276;
+  --dark: #0b1110;
+  --surface: #1d2421;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 22%);
+  --shadow-md:
+    0 1px 2px rgb(0 0 0 / 20%),
+    0 12px 36px -14px rgb(0 0 0 / 52%);
+  --shadow-lg:
+    0 2px 4px rgb(0 0 0 / 18%),
+    0 24px 64px -20px rgb(0 0 0 / 65%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --ink: #edf3f0;
+    --ink-soft: #a9b8b3;
+    --paper: #171d1b;
+    --paper-light: #101513;
+    --line: #303a36;
+    --line-strong: #52615b;
+    --mint: #20342f;
+    --mint-soft: #1c2925;
+    --orange: #f0a276;
+    --dark: #0b1110;
+    --surface: #1d2421;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 22%);
+    --shadow-md:
+      0 1px 2px rgb(0 0 0 / 20%),
+      0 12px 36px -14px rgb(0 0 0 / 52%);
+    --shadow-lg:
+      0 2px 4px rgb(0 0 0 / 18%),
+      0 24px 64px -20px rgb(0 0 0 / 65%);
+  }
 }
 
 * {
@@ -135,6 +181,51 @@ main {
 
 .brand img {
   display: block;
+  border-radius: 8px;
+  transition:
+    background 180ms var(--ease),
+    box-shadow 180ms var(--ease);
+}
+
+.header-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-mode-control,
+.theme-mode-desktop {
+  display: inline-flex;
+  align-items: center;
+}
+
+.theme-mode-mobile {
+  display: none;
+}
+
+.theme-mode-mobile select {
+  min-height: 40px;
+  padding: 0 30px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .site-header nav {
@@ -212,7 +303,7 @@ main {
 
 .repository-version {
   background: var(--white);
-  color: var(--ink);
+  color: #0d1b18;
 }
 
 .install-back-link {
@@ -408,7 +499,7 @@ main {
 
 .button-secondary {
   border: 1px solid var(--line);
-  background: var(--white);
+  background: var(--surface);
 }
 
 .button-secondary:hover {
@@ -425,7 +516,7 @@ main {
   padding: 12px 15px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--white);
+  background: var(--surface);
   color: var(--ink-soft);
   box-shadow: var(--shadow-sm);
   cursor: pointer;
@@ -476,7 +567,7 @@ main {
 /* ---------- Relay visual ---------- */
 
 .relay-visual {
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
@@ -666,7 +757,7 @@ main {
   position: relative;
   z-index: 1;
   padding: 0 12px;
-  background: var(--white);
+  background: var(--surface);
   color: var(--ink-soft);
   font-family: var(--font-geist-mono), monospace;
   font-size: 0.64rem;
@@ -814,7 +905,7 @@ main {
   padding: 26px 28px 32px;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--white);
+  background: var(--surface);
   box-shadow: var(--shadow-sm);
   overflow: hidden;
   transition:
@@ -902,7 +993,7 @@ main {
   padding: 18px;
   border: 1px solid color-mix(in srgb, var(--orange) 42%, var(--line));
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--orange) 8%, var(--white));
+  background: color-mix(in srgb, var(--orange) 8%, var(--surface));
   display: flex;
   gap: 14px;
 }
@@ -914,7 +1005,7 @@ main {
   display: grid;
   place-items: center;
   border-radius: 11px;
-  background: color-mix(in srgb, var(--orange) 18%, var(--white));
+  background: color-mix(in srgb, var(--orange) 18%, var(--surface));
   color: color-mix(in srgb, var(--orange) 82%, var(--ink));
   font-family: var(--font-geist-mono), monospace;
   font-weight: 800;
@@ -951,7 +1042,7 @@ main {
   padding: 18px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--white) 62%, transparent);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
   display: flex;
   gap: 14px;
 }
@@ -983,7 +1074,7 @@ main {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: var(--white);
+  background: var(--surface);
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
@@ -1304,7 +1395,7 @@ main {
 
 .chat-form textarea:focus {
   border-color: var(--teal);
-  background: var(--white);
+  background: var(--surface);
   outline: 0;
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--teal) 13%, transparent);
 }
@@ -1465,11 +1556,137 @@ main {
 .closing-section .button-primary {
   flex: 0 0 auto;
   background: var(--white);
-  color: var(--ink);
+  color: #0d1b18;
 }
 
 .closing-section .button-primary:hover {
-  background: var(--mint);
+  background: #dff1e9;
+}
+
+/* ---------- Dark mode refinement ---------- */
+
+:root[data-theme="dark"] .brand img {
+  padding: 3px;
+  background: #f7f8f5;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 14%);
+}
+
+:root[data-theme="dark"] .eyebrow,
+:root[data-theme="dark"] .section-label:not(.section-label-light),
+:root[data-theme="dark"] .console-kicker,
+:root[data-theme="dark"] .route-node > span,
+:root[data-theme="dark"] .install-steps li > span,
+:root[data-theme="dark"] .extension-guide a {
+  color: #52c7bb;
+}
+
+:root[data-theme="dark"] .hero h1 span {
+  background-image: linear-gradient(100deg, #52c7bb 20%, #79ddd3 80%);
+}
+
+:root[data-theme="dark"] .route-status,
+:root[data-theme="dark"] .process-grid li > span,
+:root[data-theme="dark"] .auth-signed-in {
+  color: #73d7cd;
+}
+
+:root[data-theme="dark"] .chat-error {
+  border-color: #6b4031;
+  background: #2a1c17;
+  color: #f4b18f;
+}
+
+:root[data-theme="dark"] .skip-link,
+:root[data-theme="dark"] .repository-button,
+:root[data-theme="dark"] .button-primary {
+  border-color: #0d1917;
+  background: #0d1917;
+  color: var(--white);
+}
+
+:root[data-theme="dark"] .chatgpt-connect {
+  border-color: #0d1917 !important;
+  background: #0d1917 !important;
+  color: var(--white) !important;
+}
+
+:root[data-theme="dark"] .closing-section {
+  background:
+    radial-gradient(
+      90% 160% at 100% 0%,
+      color-mix(in srgb, var(--teal-bright) 18%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(120deg, #111a18 30%, #0c5f59 150%);
+}
+
+:root[data-theme="dark"] .closing-section .button-primary {
+  border-color: var(--white);
+  background: var(--white);
+  color: #0d1b18;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .brand img {
+    padding: 3px;
+    background: #f7f8f5;
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 14%);
+  }
+
+  :root:not([data-theme]) .eyebrow,
+  :root:not([data-theme]) .section-label:not(.section-label-light),
+  :root:not([data-theme]) .console-kicker,
+  :root:not([data-theme]) .route-node > span,
+  :root:not([data-theme]) .install-steps li > span,
+  :root:not([data-theme]) .extension-guide a {
+    color: #52c7bb;
+  }
+
+  :root:not([data-theme]) .hero h1 span {
+    background-image: linear-gradient(100deg, #52c7bb 20%, #79ddd3 80%);
+  }
+
+  :root:not([data-theme]) .route-status,
+  :root:not([data-theme]) .process-grid li > span,
+  :root:not([data-theme]) .auth-signed-in {
+    color: #73d7cd;
+  }
+
+  :root:not([data-theme]) .chat-error {
+    border-color: #6b4031;
+    background: #2a1c17;
+    color: #f4b18f;
+  }
+
+  :root:not([data-theme]) .skip-link,
+  :root:not([data-theme]) .repository-button,
+  :root:not([data-theme]) .button-primary {
+    border-color: #0d1917;
+    background: #0d1917;
+    color: var(--white);
+  }
+
+  :root:not([data-theme]) .chatgpt-connect {
+    border-color: #0d1917 !important;
+    background: #0d1917 !important;
+    color: var(--white) !important;
+  }
+
+  :root:not([data-theme]) .closing-section {
+    background:
+      radial-gradient(
+        90% 160% at 100% 0%,
+        color-mix(in srgb, var(--teal-bright) 18%, transparent),
+        transparent 60%
+      ),
+      linear-gradient(120deg, #111a18 30%, #0c5f59 150%);
+  }
+
+  :root:not([data-theme]) .closing-section .button-primary {
+    border-color: var(--white);
+    background: var(--white);
+    color: #0d1b18;
+  }
 }
 
 /* ---------- Install wizard ---------- */
@@ -1545,7 +1762,7 @@ main {
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 11px;
-  background: color-mix(in srgb, var(--line) 35%, var(--white));
+  background: color-mix(in srgb, var(--line) 35%, var(--surface));
 }
 
 .install-method-tab {
@@ -1570,7 +1787,7 @@ main {
 
 .install-method-tab[aria-selected="true"] {
   border-color: color-mix(in srgb, var(--line) 80%, transparent);
-  background: var(--white);
+  background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-sm);
 }
@@ -1631,7 +1848,7 @@ main {
   padding: 18px 20px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--white);
+  background: var(--surface);
   color: var(--ink-soft);
   font-size: 0.86rem;
   line-height: 1.55;
@@ -1651,7 +1868,7 @@ main {
   grid-template-columns: repeat(3, 1fr);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--white);
+  background: var(--surface);
   text-align: left;
   overflow: hidden;
 }
@@ -1894,6 +2111,18 @@ footer > div {
     min-height: 64px;
   }
 
+  .header-actions {
+    gap: 8px;
+  }
+
+  .theme-mode-desktop {
+    display: none;
+  }
+
+  .theme-mode-mobile {
+    display: inline-flex;
+  }
+
   .repository-button {
     padding-left: 10px;
   }
@@ -1905,6 +2134,10 @@ footer > div {
   .repository-stat,
   .repository-version {
     padding-inline: 7px;
+  }
+
+  .repository-version {
+    display: none;
   }
 
   .install-back-link {
