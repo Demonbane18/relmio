@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
+  copyFile,
   mkdir,
   mkdtemp,
   readFile,
@@ -11,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -20,6 +21,10 @@ const installScript = "web/public/install.sh";
 const supportsPortableFixture =
   ["darwin", "linux"].includes(process.platform) &&
   ["arm64", "x64"].includes(process.arch);
+const gitBashShell =
+  process.platform === "win32"
+    ? process.env.RELMIO_TEST_POSIX_SHELL
+    : "/bin/sh";
 
 async function writeExecutable(path, contents) {
   await writeFile(path, contents, "utf8");
@@ -52,6 +57,137 @@ async function createPortableNodeFixture(root, { validChecksum = true } = {}) {
   await writeFile(manifest, `${checksum}  ${basename}.tar.gz\n`, "utf8");
 
   return { archive, basename, manifest };
+}
+
+async function createWindowsNodeFixture(root) {
+  const version = "v22.23.2";
+  const basename = `node-${version}-win-x64`;
+  const fixtureRoot = join(root, "windows-fixture", basename);
+  const npmCli = join(fixtureRoot, "node_modules", "npm", "bin");
+  const archive = join(root, `${basename}.zip`);
+  const manifest = join(root, "windows-SHASUMS256.txt");
+
+  await mkdir(npmCli, { recursive: true });
+  const nodePath = join(fixtureRoot, "node.exe");
+  await copyFile(process.execPath, nodePath);
+  await chmod(nodePath, 0o755);
+  await writeFile(
+    join(npmCli, "npx-cli.js"),
+    `const { appendFileSync, realpathSync, writeFileSync } = require("node:fs");
+const { delimiter, dirname } = require("node:path");
+
+const log = process.env.RELMIO_TEST_LOG;
+writeFileSync(log, [process.argv[1], ...process.argv.slice(2)].join("\\n") + "\\n");
+
+const runtimeDirectory = dirname(process.execPath);
+const firstPathEntry = (process.env.PATH || "").split(delimiter)[0];
+if (realpathSync(firstPathEntry) !== realpathSync(runtimeDirectory)) {
+  console.error('\"node\" is not recognized as an internal or external command.');
+  process.exit(127);
+}
+
+appendFileSync(log, "child-node-ok\\n");
+`,
+    "utf8",
+  );
+  await writeFile(archive, "portable Windows Node fixture\n", "utf8");
+
+  const digest = createHash("sha256").update(await readFile(archive)).digest("hex");
+  await writeFile(manifest, `${digest}  ${basename}.zip\n`, "utf8");
+
+  return { archive, basename, fixtureRoot, manifest };
+}
+
+async function createGitBashBootstrapEnvironment() {
+  const root = await mkdtemp(join(tmpdir(), "relmio-git-bash-test-"));
+  const fakeBin = join(root, "bin");
+  const bootstrapTemp = join(root, "tmp");
+  const log = join(root, "invocation.log");
+  const fixture = await createWindowsNodeFixture(root);
+
+  await mkdir(fakeBin);
+  await mkdir(bootstrapTemp);
+  await writeExecutable(join(fakeBin, "node"), '#!/bin/sh\nprintf "18\\n"\n');
+  await writeExecutable(
+    join(fakeBin, "uname"),
+    `#!/bin/sh
+case "$1" in
+  -s) printf "MINGW64_NT-10.0\\n" ;;
+  -m) printf "x86_64\\n" ;;
+  *) exit 94 ;;
+esac
+`,
+  );
+  await writeExecutable(
+    join(fakeBin, "curl"),
+    `#!/bin/sh
+output=""
+url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      output="$2"
+      shift 2
+      ;;
+    --proto | --proto-redir | --connect-timeout | --max-time | --retry | --retry-delay)
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      url="$1"
+      shift
+      ;;
+  esac
+done
+case "$url" in
+  https://nodejs.org/download/release/latest-v22.x/SHASUMS256.txt)
+    cp "$RELMIO_TEST_MANIFEST" "$output"
+    ;;
+  https://nodejs.org/download/release/v22.23.2/node-v22.23.2-win-x64.zip)
+    cp "$RELMIO_TEST_ARCHIVE" "$output"
+    ;;
+  *)
+    exit 95
+    ;;
+esac
+`,
+  );
+  await writeExecutable(
+    join(fakeBin, "unzip"),
+    `#!/bin/sh
+destination=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -d)
+      destination="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
+`,
+  );
+
+  return {
+    bootstrapTemp,
+    fixture,
+    log,
+    root,
+    env: {
+      ...process.env,
+      PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
+      TMPDIR: bootstrapTemp,
+      RELMIO_TEST_ARCHIVE: fixture.archive,
+      RELMIO_TEST_LOG: log,
+      RELMIO_TEST_MANIFEST: fixture.manifest,
+      RELMIO_TEST_WINDOWS_ROOT: fixture.fixtureRoot,
+    },
+  };
 }
 
 async function createBootstrapEnvironment({ validChecksum = true } = {}) {
@@ -181,6 +317,28 @@ test(
       "--ignore-scripts",
       "relmio@latest",
     ]);
+    assert.deepEqual(await readdir(setup.bootstrapTemp), []);
+  },
+);
+
+test(
+  "curl installer exposes its temporary Windows Node runtime to Git Bash child shims",
+  { skip: !gitBashShell },
+  async (t) => {
+    const setup = await createGitBashBootstrapEnvironment();
+    t.after(() => rm(setup.root, { recursive: true, force: true }));
+
+    const { stdout } = await execFileAsync(gitBashShell, [installScript], {
+      env: setup.env,
+    });
+    const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
+
+    assert.match(stdout, /Verified Node\.js download/u);
+    assert.match(
+      invocation[0].replaceAll("\\", "/"),
+      new RegExp(`${setup.fixture.basename}/node_modules/npm/bin/npx-cli\\.js$`, "u"),
+    );
+    assert.equal(invocation.at(-1), "child-node-ok");
     assert.deepEqual(await readdir(setup.bootstrapTemp), []);
   },
 );

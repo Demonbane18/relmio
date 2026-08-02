@@ -186,4 +186,6 @@ fi
   || fail "The verified Node.js archive did not contain npm."
 
 say "Starting the newest Relmio wizard."
-"$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest </dev/null
+node_directory="${node_binary%/*}"
+PATH="$node_directory${PATH:+:$PATH}" \
+  "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest </dev/null
