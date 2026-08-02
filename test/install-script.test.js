@@ -335,7 +335,7 @@ test(
 
     assert.match(stdout, /Verified Node\.js download/u);
     assert.match(
-      invocation[0],
+      invocation[0].replaceAll("\\", "/"),
       new RegExp(`${setup.fixture.basename}/node_modules/npm/bin/npx-cli\\.js$`, "u"),
     );
     assert.equal(invocation.at(-1), "child-node-ok");
