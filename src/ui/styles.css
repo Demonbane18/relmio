@@ -217,29 +217,50 @@ a:focus-visible {
   pointer-events: none;
 }
 
-.theme-picker span {
+.theme-picker .theme-icon {
+  width: 1.75rem;
   min-height: 1.75rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 0.5rem;
+  padding: 0;
   border-radius: 999px;
   color: rgb(255 255 255 / 72%);
-  font-size: 0.6875rem;
-  font-weight: 600;
   transition:
     color 160ms var(--ease),
     background 160ms var(--ease),
     box-shadow 160ms var(--ease);
 }
 
-.theme-picker input:checked + span {
+.theme-picker .theme-icon::before {
+  width: 1rem;
+  height: 1rem;
+  content: "";
+  display: block;
+  background: currentColor;
+  mask: center / contain no-repeat var(--theme-icon);
+  -webkit-mask: center / contain no-repeat var(--theme-icon);
+}
+
+.theme-icon-system {
+  --theme-icon: url("/icons/monitor.svg");
+}
+
+.theme-icon-light {
+  --theme-icon: url("/icons/sun.svg");
+}
+
+.theme-icon-dark {
+  --theme-icon: url("/icons/moon.svg");
+}
+
+.theme-picker input:checked + .theme-icon {
   color: var(--text);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
 
-.theme-picker input:focus-visible + span {
+.theme-picker input:focus-visible + .theme-icon {
   outline: 3px solid #f2a94a;
   outline-offset: 2px;
 }
@@ -1048,10 +1069,6 @@ footer p {
 
   .header-actions {
     gap: 0.375rem;
-  }
-
-  .theme-picker span {
-    padding-inline: 0.5rem;
   }
 
   .shell {

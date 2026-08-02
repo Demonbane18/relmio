@@ -126,6 +126,11 @@ test("default wizard assets include the color theme controller", async (t) => {
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/javascript/u);
   assert.match(await response.text(), /relmio-color-mode/u);
+
+  const icon = await fetch(`${wizard.origin}/icons/monitor.svg`);
+  assert.equal(icon.status, 200);
+  assert.match(icon.headers.get("content-type") ?? "", /^image\/svg\+xml/u);
+  assert.match(await icon.text(), /Lucide monitor icon/u);
 });
 
 test("wizard server rejects cross-origin writes", async (t) => {
