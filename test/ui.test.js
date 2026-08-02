@@ -81,6 +81,7 @@ test("browser code never uses innerHTML or web storage for credentials", async (
   assert.match(app, /authUpdatedAt/);
   assert.match(app, /Fresh sign-in saved/);
   assert.match(app, /unexpected response/);
+  assert.match(app, /full URL printed by the active setup terminal/);
   assert.match(app, /installAttempted/);
   assert.match(app, /status\.previewMode/);
   assert.match(app, /Preview sign-in disabled/);

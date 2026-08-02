@@ -146,7 +146,9 @@ function showStep(step) {
 
 async function api(path, { method = "GET", body } = {}) {
   if (!token) {
-    throw new Error("This wizard link is incomplete. Restart the setup command.");
+    throw new Error(
+      "This wizard link is incomplete. Close this tab and open the full URL printed by the active setup terminal.",
+    );
   }
 
   let response;
