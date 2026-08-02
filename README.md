@@ -410,6 +410,10 @@ Keep that terminal open. Either command starts a one-time web server on
 `127.0.0.1`, prints a private session URL, and opens the wizard in your
 browser. It does not globally install this package.
 
+If the page says the wizard link is incomplete, close that tab and open the
+full `Local wizard:` URL printed by the active setup terminal. Do not refresh a
+page after its private session token has been removed from the address bar.
+
 To confirm which version npm currently publishes:
 
 ```bash

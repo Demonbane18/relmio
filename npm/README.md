@@ -124,6 +124,10 @@ Users who already have Node.js 22 or newer can run the npm package directly:
 npx --yes --ignore-scripts relmio@latest
 ```
 
+Keep the active setup terminal open while using the wizard. If the page says
+the wizard link is incomplete, close that tab and open the full `Local wizard:`
+URL printed by the current terminal instead of refreshing the stripped page.
+
 ### Requirements
 
 - On macOS/Linux/WSL/Git Bash: `curl`, `awk`, `tar`, and either `sha256sum` or

@@ -7,6 +7,17 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.9] - 2026-08-02
+
+### Fixed
+
+- Launch the local ChatGPT OAuth helper through the current Windows Node.js
+  runtime and npm's JavaScript CLI instead of executing `npx.cmd` directly,
+  preventing `spawn EINVAL` while preserving the native `npx` path on macOS,
+  Linux, WSL, and Git Bash.
+- Explain how to recover when a refreshed wizard page no longer has its private
+  session URL.
+
 ## [0.2.8] - 2026-08-02
 
 ### Changed
