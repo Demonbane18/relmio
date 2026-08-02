@@ -181,7 +181,6 @@ async function loadDefaultUiFiles() {
     readFile(new URL("../ui/app.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/time.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/styles.css", import.meta.url), "utf8"),
-    readFile(new URL("../ui/geist-latin.woff2", import.meta.url)),
   ]);
 
   return {
@@ -189,7 +188,6 @@ async function loadDefaultUiFiles() {
     "/app.js": files[1],
     "/time.js": files[2],
     "/styles.css": files[3],
-    "/geist-latin.woff2": files[4],
   };
 }
 
@@ -419,9 +417,7 @@ function createRequestHandler(state) {
       }
 
       const contentType =
-        path.endsWith(".woff2")
-          ? "font/woff2"
-          : path.endsWith(".js")
+        path.endsWith(".js")
           ? "text/javascript; charset=utf-8"
           : path === "/styles.css"
             ? "text/css; charset=utf-8"

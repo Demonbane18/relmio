@@ -19,20 +19,11 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   const html = await readFile("src/ui/index.html", "utf8");
 
   assert.match(html, /<html lang="en">/);
-  assert.match(html, /<title>Relmio \| Private n8n setup<\/title>/u);
-  assert.match(
-    html,
-    /<body>\s*<!--[\s\S]*c4426c7c[\s\S]*unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN\.md[\s\S]*-->/u,
-  );
+  assert.match(html, /<title>Relmio — n8n Setup<\/title>/u);
   assert.match(html, /class="brand-mark"[\s\S]*<span>Relmio<\/span>/u);
   assert.doesNotMatch(html, /n8n OAuth Bridge/u);
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
   assert.match(html, /class="skip-link"/);
-  assert.match(html, /class="wizard-layout"/);
-  assert.match(html, /Your private route/);
-  assert.match(html, /id="preview-badge"[\s\S]*Sanitized preview/);
-  assert.match(html, /Five gates\. One private sidecar\./);
-  assert.match(html, /Runs only on this computer/);
   assert.match(html, /Back up first/);
   assert.match(html, /Export your n8n workflows before connecting/);
   assert.match(html, /role="status"/);
@@ -66,19 +57,6 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   assert.match(html, /OpenAI credential[\s\S]*OpenAI Chat Model/u);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /\sonclick=/i);
-});
-
-test("wizard visual system is responsive, theme-aware, and gradient-free", async () => {
-  const css = await readFile("src/ui/styles.css", "utf8");
-
-  assert.match(css, /color-scheme:\s*light dark/u);
-  assert.match(css, /@media \(prefers-color-scheme:\s*dark\)/u);
-  assert.match(css, /@media \(min-width:\s*60rem\)/u);
-  assert.match(css, /--signal:/u);
-  assert.match(css, /prefers-reduced-motion/u);
-  assert.match(css, /\.preview-badge/u);
-  assert.doesNotMatch(css, /linear-gradient|radial-gradient/u);
-  assert.doesNotMatch(css, /\.eyebrow|\.step-kicker/u);
 });
 
 test("browser code never uses innerHTML or web storage for credentials", async () => {
