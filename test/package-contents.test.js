@@ -62,6 +62,7 @@ const expectedPackedFiles = new Set([
   "src/ui/app.js",
   "src/ui/index.html",
   "src/ui/styles.css",
+  "src/ui/theme.js",
   "src/ui/time.js",
   "src/web/server.js",
 ]);

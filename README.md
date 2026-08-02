@@ -129,6 +129,7 @@ one automation platform.
 - [Current scope and direction](#current-scope-and-direction)
 - [GPT-5.6 AI Agent example](#gpt-56-ai-agent-example)
 - [Hosted ChatGPT site](#hosted-chatgpt-site)
+- [Browser interface and theme modes](#browser-interface-and-theme-modes)
 - [Choose a setup path](#choose-a-setup-path)
 - [Quick start with the npm package](#quick-start-with-the-npm-package)
 - [Run from a repository clone](#run-from-a-repository-clone)
@@ -294,6 +295,16 @@ OpenAI Platform API key or replace the local n8n setup wizard.
 The site's [Install wizard](https://relmio.vercel.app/install) page provides a
 clickable macOS/Linux, PowerShell, Command Prompt, and NPX switcher for the
 current self-hosted n8n and Hostinger VPS setup path.
+
+## Browser interface and theme modes
+
+The hosted site and local wizard keep the original Relmio relay layout while
+adding a compact **System / Light / Dark** appearance control. System follows
+the computer's preference; Light and Dark are remembered on that browser only.
+The local wizard keeps its horizontal five-step Signal Spine at the top of the
+flow, and the hosted site keeps the live GitHub star/version control visible.
+Both surfaces collapse their controls for narrow phone screens without
+turning the setup flow into a side rail or requiring a separate mobile app.
 
 ## Choose a setup path
 

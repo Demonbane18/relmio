@@ -19,8 +19,16 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   const html = await readFile("src/ui/index.html", "utf8");
 
   assert.match(html, /<html lang="en">/);
-  assert.match(html, /<title>Relmio — n8n Setup<\/title>/u);
+  assert.match(html, /<title>Relmio \| n8n Setup<\/title>/u);
   assert.match(html, /class="brand-mark"[\s\S]*<span>Relmio<\/span>/u);
+  assert.match(html, /class="theme-picker"/u);
+  assert.match(html, /name="color-theme" value="system"/u);
+  assert.match(html, /name="color-theme" value="light"/u);
+  assert.match(html, /name="color-theme" value="dark"/u);
+  assert.match(
+    html,
+    /<nav class="steps" aria-label="Setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="5"/u,
+  );
   assert.doesNotMatch(html, /n8n OAuth Bridge/u);
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
   assert.match(html, /class="skip-link"/);
@@ -81,4 +89,13 @@ test("browser code never uses innerHTML or web storage for credentials", async (
     /try \{[\s\S]*document\.execCommand\("copy"\)[\s\S]*finally \{[\s\S]*textarea\.remove\(\)[\s\S]*previouslyFocused\?\.focus\?\.\(\)/u,
   );
   assert.doesNotMatch(app, /"Use Responses API: on"/u);
+});
+
+test("wizard theme preferences store only the selected color mode", async () => {
+  const theme = await readFile("src/ui/theme.js", "utf8");
+
+  assert.match(theme, /relmio-color-mode/u);
+  assert.match(theme, /localStorage\.getItem/u);
+  assert.match(theme, /localStorage\.setItem/u);
+  assert.doesNotMatch(theme, /password|credential|token|fingerprint/iu);
 });

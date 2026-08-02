@@ -7,12 +7,13 @@
       name="description"
       content="Relmio connects compatible AI clients to a private ChatGPT/Codex OAuth sidecar, starting with self-hosted n8n."
     />
-    <title>Relmio — n8n Setup</title>
+    <title>Relmio | n8n Setup</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23137c74' d='M7 8h19l31 24H41L26 20v10L7 17Z'/%3E%3Cpath fill='%2312211f' d='M7 47l19-13v10l15-12h16L26 56H7Z'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="/styles.css" />
+    <script src="/theme.js" type="module"></script>
     <script src="/app.js" type="module"></script>
   </head>
   <body>
@@ -31,7 +32,24 @@
         </svg>
         <span>Relmio</span>
       </div>
-      <span class="local-badge">Runs only on this computer</span>
+      <div class="header-actions">
+        <fieldset class="theme-picker">
+          <legend class="visually-hidden">Color theme</legend>
+          <label>
+            <input type="radio" name="color-theme" value="system" checked />
+            <span>System</span>
+          </label>
+          <label>
+            <input type="radio" name="color-theme" value="light" />
+            <span>Light</span>
+          </label>
+          <label>
+            <input type="radio" name="color-theme" value="dark" />
+            <span>Dark</span>
+          </label>
+        </fieldset>
+        <span class="local-badge">Runs only on this computer</span>
+      </div>
     </header>
 
     <main id="main-content" class="shell">
@@ -141,7 +159,7 @@
                 placeholder="your-vps-ip-or-hostname"
                 required
               />
-              <small>Use the full IP address—do not add <code>ssh root@</code>.</small>
+              <small>Use the full IP address. Do not add <code>ssh root@</code>.</small>
             </label>
 
             <label class="field compact">
@@ -226,8 +244,8 @@
         </div>
 
         <div class="version-strip" aria-label="Detected Docker versions">
-          <span>Docker <strong id="docker-version">—</strong></span>
-          <span>Compose <strong id="compose-version">—</strong></span>
+          <span>Docker <strong id="docker-version">Not detected</strong></span>
+          <span>Compose <strong id="compose-version">Not detected</strong></span>
         </div>
 
         <div class="field-grid single">
@@ -266,7 +284,7 @@
             <ul class="check-list">
               <li>Create or update <code>/docker/n8n-openai-oauth</code></li>
               <li>Build and start only the <code>openai-oauth</code> sidecar</li>
-              <li>Attach the sidecar to <strong id="review-network">—</strong></li>
+              <li>Attach the sidecar to <strong id="review-network">Not selected</strong></li>
               <li>
                 Use the private hostname
                 <code id="review-endpoint">n8n-openai-oauth</code>
@@ -361,12 +379,12 @@
         </button>
 
         <div class="model-box">
-          <h3>2. OpenAI Chat Model — AI Agent or Basic LLM Chain</h3>
+          <h3>2. OpenAI Chat Model for AI Agent or Basic LLM Chain</h3>
           <dl class="result-list">
             <div>
               <dt>Model ID</dt>
               <dd class="result-value">
-                <code id="result-model">—</code>
+                <code id="result-model">Not detected</code>
                 <button
                   class="button secondary copy-value"
                   type="button"
@@ -383,7 +401,7 @@
               <dd><strong>On</strong> for Chat Model node version 1.3</dd>
             </div>
           </dl>
-          <p>All models detected: <span id="result-models">—</span></p>
+          <p>All models detected: <span id="result-models">Not detected</span></p>
           <p>
             If the Responses API switch is absent, keep the node's default
             Chat Completions behavior; the bridge supports that route too.

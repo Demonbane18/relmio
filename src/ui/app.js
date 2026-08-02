@@ -294,7 +294,7 @@ async function discover() {
     element("container-select"),
     result.containers.map((container) => ({
       value: container.name,
-      label: `${container.name} — ${container.image}`,
+      label: `${container.name} - ${container.image}`,
     })),
     result.containers[0].name,
   );

@@ -75,6 +75,16 @@ Use the site's [Install wizard](https://relmio.vercel.app/install) page for a
 clickable macOS/Linux, PowerShell, Command Prompt, and NPX command switcher
 tailored to the current self-hosted n8n and Hostinger VPS setup path.
 
+### Browser interface and theme modes
+
+The hosted site and local wizard keep the original Relmio relay layout while
+adding a compact **System / Light / Dark** appearance control. System follows
+the computer's preference; Light and Dark are remembered on that browser only.
+The local wizard keeps its horizontal five-step Signal Spine at the top of the
+flow, and the hosted site keeps the live GitHub star/version control visible.
+Both surfaces collapse their controls for narrow phone screens without
+turning the setup flow into a side rail or requiring a separate mobile app.
+
 ## Quick start
 
 Choose the terminal already on your own computer. Do not run these commands on

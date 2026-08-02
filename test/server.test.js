@@ -114,6 +114,20 @@ test("wizard server binds to loopback and protects API responses", async (t) => 
   assert.equal(status.headers.get("x-content-type-options"), "nosniff");
 });
 
+test("default wizard assets include the color theme controller", async (t) => {
+  const { services } = createServices();
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+  });
+  t.after(() => wizard.close());
+
+  const response = await fetch(`${wizard.origin}/theme.js`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^text\/javascript/u);
+  assert.match(await response.text(), /relmio-color-mode/u);
+});
+
 test("wizard server rejects cross-origin writes", async (t) => {
   const { services } = createServices();
   const wizard = await startWizardServer({
