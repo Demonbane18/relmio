@@ -16,6 +16,37 @@ const OPENAI_AUTH_ORIGIN = "https://auth.openai.com";
 const wait = (milliseconds) =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
 
+function resolveWindowsNpxCli({ env, execPath }) {
+  const npmExecPathKey = Object.keys(env ?? {}).find(
+    (key) => key.toLowerCase() === "npm_execpath",
+  );
+  const npmExecPath =
+    npmExecPathKey === undefined ? undefined : env[npmExecPathKey];
+
+  if (typeof npmExecPath === "string") {
+    if (/(?:^|[\\/])npx-cli\.js$/iu.test(npmExecPath)) {
+      return resolve(npmExecPath);
+    }
+    if (/(?:^|[\\/])npm-cli\.js$/iu.test(npmExecPath)) {
+      return resolve(dirname(npmExecPath), "npx-cli.js");
+    }
+  }
+
+  return resolve(dirname(execPath), "node_modules", "npm", "bin", "npx-cli.js");
+}
+
+function createNpxInvocation({ platform, env, execPath }) {
+  if (platform !== "win32") {
+    return { command: "npx", prefixArgs: [] };
+  }
+
+  return {
+    command: execPath,
+    // Windows cannot execute npx.cmd directly with shell:false.
+    prefixArgs: [resolveWindowsNpxCli({ env, execPath })],
+  };
+}
+
 export function resolveAuthPath({
   env = process.env,
   homeDirectory = homedir(),
@@ -132,11 +163,12 @@ export async function startOAuthLogin({
   env = process.env,
   homeDirectory = homedir(),
   platform = process.platform,
+  execPath = process.execPath,
   spawnProcess = spawn,
   createPendingId = randomUUID,
   waitForCredentialPoll = wait,
 } = {}) {
-  const command = platform === "win32" ? "npx.cmd" : "npx";
+  const npxInvocation = createNpxInvocation({ platform, env, execPath });
   const authPath = resolveAuthPath({ env, homeDirectory });
   const authDirectory = dirname(authPath);
   const pendingAuthPath = `${authPath}.pending-${createPendingId()}`;
@@ -155,12 +187,24 @@ export async function startOAuthLogin({
   await fileSystem.mkdir(authDirectory, { recursive: true, mode: 0o700 });
   await fileSystem.chmod(authDirectory, 0o700);
 
-  const child = spawnProcess(command, args, {
-    env,
-    shell: false,
-    stdio: ["ignore", "pipe", "pipe"],
-    windowsHide: true,
-  });
+  let child;
+  try {
+    child = spawnProcess(
+      npxInvocation.command,
+      [...npxInvocation.prefixArgs, ...args],
+      {
+        env,
+        shell: false,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+  } catch (error) {
+    throw new Error(
+      "The local sign-in command could not start. Update Relmio and retry with Node.js 22 or newer.",
+      { cause: error },
+    );
+  }
   child.stderr?.resume();
 
   let loginOutput = "";

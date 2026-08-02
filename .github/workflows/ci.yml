@@ -126,6 +126,12 @@ jobs:
       - name: Test the native Windows bootstrap
         run: node --test test/install-powershell-script.test.js
 
+      - name: Test the native Windows OAuth launcher
+        run: >-
+          node --test
+          --test-name-pattern="current Node runtime for Windows npm launchers|hides synchronous process-launch errors"
+          test/oauth.test.js
+
       - name: Test the Git Bash portable runtime handoff
         shell: bash
         env:
