@@ -9,7 +9,6 @@ const state = {
   discovery: null,
   networks: null,
   installAttempted: false,
-  previewMode: false,
 };
 
 const element = (id) => document.getElementById(id);
@@ -126,12 +125,10 @@ async function waitForOAuthCompletion() {
 
 function showStep(step) {
   state.step = step;
-  let activePanel = null;
   for (const panel of document.querySelectorAll("[data-step]")) {
     const active = Number(panel.dataset.step) === step;
     panel.hidden = !active;
     if (active) {
-      activePanel = panel;
       panel.querySelector("h2")?.focus({ preventScroll: true });
     }
   }
@@ -144,12 +141,7 @@ function showStep(step) {
       marker.removeAttribute("aria-current");
     }
   }
-  activePanel?.closest(".work-column")?.scrollIntoView({
-    block: "start",
-    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? "auto"
-      : "smooth",
-  });
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 async function api(path, { method = "GET", body } = {}) {
@@ -217,10 +209,8 @@ async function refreshAuthStatus({ fresh = false } = {}) {
   const loginButton = element("login-button");
   const next = element("signin-next");
   const formattedUpdatedAt = renderAuthUpdatedAt(status.authUpdatedAt);
-  state.previewMode = status.previewMode === true;
-  element("preview-badge").hidden = !state.previewMode;
 
-  if (state.previewMode) {
+  if (status.previewMode) {
     indicator.classList.add("ready");
     element("auth-title").textContent = "Sanitized preview credential";
     element("auth-detail").textContent =
@@ -304,7 +294,7 @@ async function discover() {
     element("container-select"),
     result.containers.map((container) => ({
       value: container.name,
-      label: `${container.name} · ${container.image}`,
+      label: `${container.name} — ${container.image}`,
     })),
     result.containers[0].name,
   );
@@ -493,16 +483,11 @@ element("install-button").addEventListener("click", async (event) => {
     element("result-models").textContent = result.models.join(", ");
     element("result-http-url").textContent =
       `${result.baseUrl.replace(/\/$/u, "")}/responses`;
-    if (state.previewMode) {
-      element("done-title").textContent = "The sanitized preview route is complete";
-    }
     showStep(5);
     setMessage(
-      state.previewMode
-        ? "Sanitized preview complete. The endpoint and models below are sample data."
-        : result.deploymentMode === "updated"
-          ? "OAuth refreshed on the existing wizard-managed sidecar. n8n was not restarted."
-          : "Installation verified. Your existing n8n was not restarted.",
+      result.deploymentMode === "updated"
+        ? "OAuth refreshed on the existing wizard-managed sidecar. n8n was not restarted."
+        : "Installation verified. Your existing n8n was not restarted.",
     );
   } catch (error) {
     showError(error);

@@ -72,9 +72,8 @@ installing the private n8n sidecar.
 </figure>
 
 Use the site's [Install wizard](https://relmio.vercel.app/install) page for a
-clickable macOS/Linux, PowerShell, Command Prompt, and NPX command switcher plus
-a preview of the same five gates used by the local self-hosted n8n and
-Hostinger VPS setup.
+clickable macOS/Linux, PowerShell, Command Prompt, and NPX command switcher
+tailored to the current self-hosted n8n and Hostinger VPS setup path.
 
 ## Quick start
 
@@ -115,12 +114,6 @@ Users who already have Node.js 22 or newer can run the npm package directly:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-Either command opens the redesigned local wizard. Its Signal Spine keeps five
-trust gates visible: local sign-in, host verification, read-only n8n discovery,
-the exact sidecar plan, and the verified private endpoint. On a wide screen the
-route stays beside the current gate; on a small screen it becomes a compact
-progress strip.
-
 ### Requirements
 
 - On macOS/Linux/WSL/Git Bash: `curl`, `awk`, `tar`, and either `sha256sum` or
@@ -155,30 +148,28 @@ product name to n8n. SuperGrok/xAI OAuth is a gated feasibility item on the
 [provider roadmap](https://github.com/Demonbane18/relmio/blob/main/docs/roadmap.md);
 it is not currently advertised as supported.
 
-## Updated browser wizard walkthrough
+## Visual walkthrough
 
 All images below are sanitized previews with reserved addresses, fake server
-data, and no real credential or session information. Only the current gate is
-actionable, and remote writes remain locked until the review checkbox is
-selected.
+data, and no real credential or session information.
 
-### Gate 1: Confirm the local ChatGPT/Codex sign-in
+### 1. Confirm the local ChatGPT/Codex sign-in
 
 <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/01-local-sign-in-ready.png" alt="Sanitized local sign-in ready screen" width="720">
 
-### Gate 2: Verify the VPS identity
+### 2. Verify the VPS identity
 
 <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/02-vps-identity-confirmed.png" alt="Sanitized VPS fingerprint confirmation screen" width="720">
 
-### Gate 3: Choose the detected n8n container and network
+### 3. Choose the detected n8n container and network
 
 <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/03-n8n-detected.png" alt="Sanitized n8n discovery screen" width="720">
 
-### Gate 4: Review the exact sidecar-only plan
+### 4. Review the exact sidecar-only plan
 
 <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/04-install-plan.png" alt="Sanitized installation plan screen" width="720">
 
-### Gate 5: Copy the verified n8n settings
+### 5. Copy the verified n8n settings
 
 <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/05-bridge-ready.png" alt="Sanitized verified bridge screen" width="720">
 

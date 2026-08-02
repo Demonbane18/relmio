@@ -92,17 +92,11 @@ test("wizard server binds to loopback and protects API responses", async (t) => 
       "/": "<!doctype html><title>Setup</title>",
       "/app.js": "",
       "/styles.css": "",
-      "/geist-latin.woff2": Buffer.from("wOF2test-font"),
     },
   });
   t.after(() => wizard.close());
 
   assert.match(wizard.origin, /^http:\/\/127\.0\.0\.1:\d+$/);
-
-  const font = await fetch(`${wizard.origin}/geist-latin.woff2`);
-  assert.equal(font.status, 200);
-  assert.equal(font.headers.get("content-type"), "font/woff2");
-  assert.equal(await font.text(), "wOF2test-font");
 
   const unauthorized = await fetch(`${wizard.origin}/api/status`);
   assert.equal(unauthorized.status, 401);

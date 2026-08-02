@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Relmio verifies a self-hosted n8n VPS and installs a separate private OpenAI-compatible sidecar only after review."
+      content="Relmio connects compatible AI clients to a private ChatGPT/Codex OAuth sidecar, starting with self-hosted n8n."
     />
-    <title>Relmio | Private n8n setup</title>
+    <title>Relmio — n8n Setup</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23137c74' d='M7 8h19l31 24H41L26 20v10L7 17Z'/%3E%3Cpath fill='%2312211f' d='M7 47l19-13v10l15-12h16L26 56H7Z'/%3E%3C/svg%3E"
@@ -16,490 +16,424 @@
     <script src="/app.js" type="module"></script>
   </head>
   <body>
-    <!--
-    THESIS: Relmio makes an invisible relay legible as a verified route, refusing the generic setup card and progress bar.
-    OWN-WORLD: Warm paper surfaces, midnight ink, relay teal, graphite seams, and precise signal spines form a compact Patchbay Ledger.
-    STORY: Verify the local sign-in, confirm the host, inspect n8n, review every write, then complete the private route.
-    FIRST VIEWPORT: A persistent route rail occupies the left while one dominant gate and its current safety boundary occupy the right.
-    FORM: Signal Spine adapted for operation, first of three approved compositions, from candidate 5 and seed c4426c7c.
-    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
-    -->
-    <a class="skip-link" href="#main-content">Skip to the current gate</a>
+    <a class="skip-link" href="#main-content">Skip to setup</a>
 
     <header class="site-header">
-      <a class="brand" href="#main-content" aria-label="Relmio setup home">
+      <div class="brand">
         <svg
           class="brand-mark"
           viewBox="0 0 64 64"
           aria-hidden="true"
           focusable="false"
         >
-          <path class="brand-signal" d="M7 8h19l31 24H41L26 20v10L7 17Z" />
-          <path class="brand-ink" d="M7 47l19-13v10l15-12h16L26 56H7Z" />
+          <path fill="#137c74" d="M7 8h19l31 24H41L26 20v10L7 17Z" />
+          <path fill="#12211f" d="M7 47l19-13v10l15-12h16L26 56H7Z" />
         </svg>
         <span>Relmio</span>
-      </a>
-      <span class="local-badge">
-        <i aria-hidden="true"></i>
-        Runs only on this computer
-      </span>
+      </div>
+      <span class="local-badge">Runs only on this computer</span>
     </header>
 
-    <main id="main-content" class="wizard-shell">
-      <section class="wizard-intro" aria-labelledby="page-title">
-        <h1 id="page-title">Five gates. One private sidecar.</h1>
-        <p>
-          Verify each boundary in order. Relmio leaves your existing n8n
-          deployment untouched.
+    <main id="main-content" class="shell">
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">Guided VPS setup</p>
+        <h1 id="page-title">Connect n8n without changing n8n</h1>
+        <p class="lede">
+          This wizard installs one separate Docker sidecar. Your existing n8n
+          image, Compose file, container, and workflows stay untouched.
         </p>
-        <section class="intro-ledger" aria-label="Setup boundaries">
-          <span>
-            <strong>Back up first</strong>
-            <small>Export your n8n workflows before connecting.</small>
-          </span>
-          <span>
-            <strong>No public port</strong>
-            <small>The sidecar stays on the private Docker network.</small>
-          </span>
-          <span>
-            <strong>You approve writes</strong>
-            <small>The exact remote plan appears before installation.</small>
-          </span>
-        </section>
       </section>
 
-      <section class="wizard-layout">
-        <aside class="route-rail" aria-labelledby="route-title">
-          <header>
-            <h2 id="route-title">Your private route</h2>
-            <p>Each verified gate extends the signal to the sidecar.</p>
-          </header>
+      <aside class="safety-note" aria-label="Safety guarantee">
+        <strong>Sidecar-only guarantee</strong>
+        <span>
+          No n8n restart. No n8n rebuild. No public port. You approve the exact
+          plan before anything is written.
+        </span>
+      </aside>
 
-          <nav class="steps" aria-label="Setup progress">
-            <ol>
-              <li data-step-marker="1" aria-current="step">
-                <span class="step-index">1</span>
-                <span class="step-copy">
-                  <strong>Sign in</strong>
-                  <small>Local credential</small>
-                </span>
-              </li>
-              <li data-step-marker="2">
-                <span class="step-index">2</span>
-                <span class="step-copy">
-                  <strong>Verify VPS</strong>
-                  <small>SSH fingerprint</small>
-                </span>
-              </li>
-              <li data-step-marker="3">
-                <span class="step-index">3</span>
-                <span class="step-copy">
-                  <strong>Select n8n</strong>
-                  <small>Read-only discovery</small>
-                </span>
-              </li>
-              <li data-step-marker="4">
-                <span class="step-index">4</span>
-                <span class="step-copy">
-                  <strong>Review plan</strong>
-                  <small>Every remote write</small>
-                </span>
-              </li>
-              <li data-step-marker="5">
-                <span class="step-index">5</span>
-                <span class="step-copy">
-                  <strong>Complete</strong>
-                  <small>Private endpoint</small>
-                </span>
-              </li>
-            </ol>
-          </nav>
+      <aside class="safety-note backup-note" aria-label="Backup reminder">
+        <strong>Back up first</strong>
+        <span>
+          Export your n8n workflows before connecting. This wizard uses
+          sidecar-only commands, but it still writes to your VPS.
+        </span>
+      </aside>
 
-          <section class="rail-boundary" aria-label="Current safety model">
-            <strong>Sidecar-only guarantee</strong>
-            <p>
-              No n8n restart. No n8n rebuild. No host port 10531. The wizard
-              writes only under <code>/docker/n8n-openai-oauth</code>.
+      <nav class="steps" aria-label="Setup progress">
+        <ol>
+          <li data-step-marker="1" aria-current="step">
+            <span>1</span><em>Sign in</em>
+          </li>
+          <li data-step-marker="2"><span>2</span><em>VPS</em></li>
+          <li data-step-marker="3"><span>3</span><em>n8n</em></li>
+          <li data-step-marker="4"><span>4</span><em>Review</em></li>
+          <li data-step-marker="5"><span>5</span><em>Done</em></li>
+        </ol>
+      </nav>
+
+      <div id="global-message" class="message" role="status" aria-live="polite">
+        Checking your local sign-in…
+      </div>
+      <div id="global-error" class="error" role="alert" tabindex="-1" hidden></div>
+
+      <section class="panel" data-step="1" aria-labelledby="signin-title">
+        <div class="panel-heading">
+          <span class="step-kicker">Step 1 of 5</span>
+          <h2 id="signin-title" tabindex="-1">Use your local ChatGPT sign-in</h2>
+          <p>
+            The OAuth credential stays on this computer until you approve its
+            encrypted SSH upload to your VPS.
+          </p>
+        </div>
+
+        <div class="status-row">
+          <span id="auth-indicator" class="status-dot" aria-hidden="true"></span>
+          <div>
+            <strong id="auth-title">Checking…</strong>
+            <p id="auth-detail">Looking for your local Codex credential.</p>
+            <p id="auth-updated" class="credential-time" hidden>
+              Credential updated
+              <time id="auth-updated-time"></time>
+              (local time).
             </p>
-          </section>
-        </aside>
+          </div>
+        </div>
 
-        <section class="work-column" aria-label="Current setup gate">
-          <section class="status-dock" aria-label="Wizard status">
-            <p id="preview-badge" class="preview-badge" hidden>
-              <strong>Sanitized preview</strong>
-              <span>Sample data only. No live sign-in or VPS writes.</span>
-            </p>
-            <p id="global-message" class="message" role="status" aria-live="polite">
-              Checking your local sign-in…
-            </p>
-            <p id="global-error" class="error" role="alert" tabindex="-1" hidden></p>
-          </section>
+        <div class="actions">
+          <button id="login-button" class="button secondary" type="button">
+            Sign in with ChatGPT
+          </button>
+          <a
+            id="login-link"
+            class="button secondary"
+            target="_blank"
+            rel="noopener noreferrer"
+            hidden
+          >
+            Open fresh ChatGPT sign-in
+          </a>
+          <button id="signin-next" class="button primary" type="button" disabled>
+            Continue to VPS
+          </button>
+        </div>
+      </section>
 
-          <section class="panel" data-step="1" aria-labelledby="signin-title">
-            <header class="panel-heading">
-              <h2 id="signin-title" tabindex="-1">Use your local ChatGPT sign-in</h2>
-              <span>Gate 1 of 5</span>
-              <p>
-                The OAuth credential stays on this computer until you approve
-                its encrypted SSH upload to your VPS.
-              </p>
-            </header>
+      <section class="panel" data-step="2" aria-labelledby="vps-title" hidden>
+        <div class="panel-heading">
+          <span class="step-kicker">Step 2 of 5</span>
+          <h2 id="vps-title" tabindex="-1">Connect to your VPS</h2>
+          <p>
+            Copy the address exactly from Hostinger. Your password is used only
+            for this live SSH connection and is never saved.
+          </p>
+        </div>
 
-            <section class="status-row" aria-label="Local sign-in status">
-              <span id="auth-indicator" class="status-dot" aria-hidden="true"></span>
-              <span>
-                <strong id="auth-title">Checking…</strong>
-                <p id="auth-detail">Looking for your local Codex credential.</p>
-                <p id="auth-updated" class="credential-time" hidden>
-                  Credential updated
-                  <time id="auth-updated-time"></time>
-                  (local time).
-                </p>
-              </span>
-            </section>
-
-            <footer class="actions">
-              <button id="login-button" class="button secondary" type="button">
-                Sign in with ChatGPT
-              </button>
-              <a
-                id="login-link"
-                class="button secondary"
-                target="_blank"
-                rel="noopener noreferrer"
-                hidden
-              >
-                Open fresh ChatGPT sign-in
-              </a>
-              <button id="signin-next" class="button primary" type="button" disabled>
-                Continue to VPS
-              </button>
-            </footer>
-          </section>
-
-          <section class="panel" data-step="2" aria-labelledby="vps-title" hidden>
-            <header class="panel-heading">
-              <h2 id="vps-title" tabindex="-1">Verify the VPS before sending a password</h2>
-              <span>Gate 2 of 5</span>
-              <p>
-                Copy the address exactly from Hostinger or your VPS provider.
-                Your password is used only for this live SSH connection and is
-                never saved.
-              </p>
-            </header>
-
-            <form id="vps-form">
-              <section class="field-grid">
-                <label class="field">
-                  <span>VPS address</span>
-                  <input
-                    id="host"
-                    name="host"
-                    inputmode="url"
-                    autocomplete="off"
-                    placeholder="your-vps-ip-or-hostname"
-                    required
-                  />
-                  <small>Use the full IP address. Do not add <code>ssh root@</code>.</small>
-                </label>
-
-                <label class="field compact">
-                  <span>SSH port</span>
-                  <input
-                    id="port"
-                    name="port"
-                    type="number"
-                    min="1"
-                    max="65535"
-                    value="22"
-                    required
-                  />
-                </label>
-
-                <label class="field compact">
-                  <span>Username</span>
-                  <input
-                    id="username"
-                    name="username"
-                    autocomplete="username"
-                    value="root"
-                    required
-                  />
-                  <small>The guided setup currently expects the VPS root account.</small>
-                </label>
-
-                <label class="field">
-                  <span>VPS password</span>
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autocomplete="current-password"
-                    disabled
-                    required
-                  />
-                  <small>
-                    This unlocks after host confirmation, then clears as soon
-                    as the connection attempt finishes.
-                  </small>
-                </label>
-              </section>
-
-              <button id="fingerprint-button" class="button secondary" type="button">
-                Check server identity
-              </button>
-
-              <section id="fingerprint-box" class="fingerprint" hidden>
-                <span>SSH fingerprint</span>
-                <code id="fingerprint-value"></code>
-                <label class="check-row">
-                  <input id="fingerprint-confirm" type="checkbox" />
-                  <span>
-                    This is the VPS I intended to connect to. I checked the
-                    address carefully.
-                  </span>
-                </label>
-              </section>
-
-              <footer class="actions">
-                <button class="button ghost back-button" data-back="1" type="button">
-                  Back
-                </button>
-                <button id="connect-button" class="button primary" type="submit" disabled>
-                  Connect and inspect Docker
-                </button>
-              </footer>
-            </form>
-          </section>
-
-          <section class="panel" data-step="3" aria-labelledby="n8n-title" hidden>
-            <header class="panel-heading">
-              <h2 id="n8n-title" tabindex="-1">Choose the detected n8n route</h2>
-              <span>Gate 3 of 5</span>
-              <p>
-                Discovery uses read-only Docker commands and does not execute
-                anything inside n8n.
-              </p>
-            </header>
-
-            <section class="version-strip" aria-label="Detected Docker versions">
-              <span>Docker <strong id="docker-version">Pending</strong></span>
-              <span>Compose <strong id="compose-version">Pending</strong></span>
-            </section>
-
-            <section class="field-grid single">
-              <label class="field">
-                <span>Running n8n container</span>
-                <select id="container-select"></select>
-              </label>
-
-              <label class="field">
-                <span>Shared Docker network</span>
-                <select id="network-select"></select>
-                <small>The sidecar joins this network. n8n itself is not changed.</small>
-              </label>
-            </section>
-
-            <footer class="actions">
-              <button class="button ghost back-button" data-back="2" type="button">
-                Back
-              </button>
-              <button id="review-button" class="button primary" type="button">
-                Review the exact plan
-              </button>
-            </footer>
-          </section>
-
-          <section class="panel" data-step="4" aria-labelledby="review-title" hidden>
-            <header class="panel-heading">
-              <h2 id="review-title" tabindex="-1">Review every remote write</h2>
-              <span>Gate 4 of 5</span>
-              <p>The VPS has not changed. Confirm the sidecar-only plan below.</p>
-            </header>
-
-            <section class="review-grid">
-              <section aria-labelledby="will-title">
-                <h3 id="will-title">The wizard will</h3>
-                <ul class="check-list">
-                  <li>Create or update <code>/docker/n8n-openai-oauth</code></li>
-                  <li>Build and start only the <code>openai-oauth</code> sidecar</li>
-                  <li>Attach the sidecar to <strong id="review-network">Pending</strong></li>
-                  <li>
-                    Use the private hostname
-                    <code id="review-endpoint">n8n-openai-oauth</code>
-                  </li>
-                  <li>Upload the OAuth file with owner-only permissions</li>
-                </ul>
-              </section>
-              <section aria-labelledby="wont-title">
-                <h3 id="wont-title">The wizard will not</h3>
-                <ul class="no-list">
-                  <li>Edit or rebuild the n8n image</li>
-                  <li>Stop, restart, or recreate n8n</li>
-                  <li>Publish port <code>10531</code></li>
-                  <li>Create a Traefik route</li>
-                </ul>
-              </section>
-            </section>
-
-            <label class="check-row approval">
-              <input id="install-confirm" type="checkbox" />
-              <span>
-                I approve this sidecar-only installation and understand
-                <code>openai-oauth</code> is an unofficial project.
-              </span>
+        <form id="vps-form">
+          <div class="field-grid">
+            <label class="field">
+              <span>VPS address</span>
+              <input
+                id="host"
+                name="host"
+                inputmode="url"
+                autocomplete="off"
+                placeholder="your-vps-ip-or-hostname"
+                required
+              />
+              <small>Use the full IP address—do not add <code>ssh root@</code>.</small>
             </label>
 
-            <footer class="actions">
-              <button class="button ghost back-button" data-back="3" type="button">
-                Back
-              </button>
-              <button id="install-button" class="button primary" type="button" disabled>
-                Install the sidecar
-              </button>
-            </footer>
-          </section>
+            <label class="field compact">
+              <span>SSH port</span>
+              <input
+                id="port"
+                name="port"
+                type="number"
+                min="1"
+                max="65535"
+                value="22"
+                required
+              />
+            </label>
 
-          <section class="panel success-panel" data-step="5" aria-labelledby="done-title" hidden>
-            <svg
-              class="success-mark"
-              viewBox="0 0 32 32"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <circle cx="16" cy="16" r="14"></circle>
-              <path d="m9.5 16.5 4 4 9-10"></path>
-            </svg>
-            <header class="panel-heading">
-              <h2 id="done-title" tabindex="-1">The private route is ready</h2>
-              <span>Gate 5 of 5</span>
-              <p>
-                Copy the OpenAI credential values first, then use the node
-                recipe that matches your n8n workflow.
-              </p>
-            </header>
+            <label class="field compact">
+              <span>Username</span>
+              <input
+                id="username"
+                name="username"
+                autocomplete="username"
+                value="root"
+                required
+              />
+              <small>
+                The current guided setup expects the VPS root account.
+              </small>
+            </label>
 
-            <h3>1. OpenAI credential</h3>
-            <dl class="result-list">
-              <div>
-                <dt>Base URL</dt>
-                <dd class="result-value">
-                  <code id="result-url">http://n8n-openai-oauth:10531/v1</code>
-                  <button
-                    class="button secondary copy-value"
-                    type="button"
-                    data-copy-target="result-url"
-                    data-copy-label="Base URL"
-                    aria-label="Copy Base URL"
-                  >
-                    Copy
-                  </button>
-                </dd>
-              </div>
-              <div>
-                <dt>API key</dt>
-                <dd class="result-value">
-                  <code id="result-key">local-only</code>
-                  <button
-                    class="button secondary copy-value"
-                    type="button"
-                    data-copy-target="result-key"
-                    data-copy-label="API key"
-                    aria-label="Copy API key"
-                  >
-                    Copy
-                  </button>
-                </dd>
-              </div>
-              <div>
-                <dt>Organization ID</dt>
-                <dd>Leave empty</dd>
-              </div>
-              <div>
-                <dt>Custom header</dt>
-                <dd><strong>Off</strong></dd>
-              </div>
-            </dl>
+            <label class="field">
+              <span>VPS password</span>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                disabled
+                required
+              />
+              <small>
+                This unlocks after you confirm the server identity, then clears
+                immediately after connecting.
+              </small>
+            </label>
+          </div>
 
-            <button id="copy-settings" class="button secondary" type="button">
-              Copy credential settings
+          <button id="fingerprint-button" class="button secondary" type="button">
+            Check server identity
+          </button>
+
+          <div id="fingerprint-box" class="fingerprint" hidden>
+            <span>SSH fingerprint</span>
+            <code id="fingerprint-value"></code>
+            <label class="check-row">
+              <input id="fingerprint-confirm" type="checkbox" />
+              <span>
+                This is the VPS I intended to connect to. I checked the address
+                carefully.
+              </span>
+            </label>
+          </div>
+
+          <div class="actions">
+            <button class="button ghost back-button" data-back="1" type="button">
+              Back
             </button>
+            <button id="connect-button" class="button primary" type="submit" disabled>
+              Connect and inspect Docker
+            </button>
+          </div>
+        </form>
+      </section>
 
-            <section class="model-box">
-              <h3>2. OpenAI Chat Model: AI Agent or Basic LLM Chain</h3>
-              <dl class="result-list">
-                <div>
-                  <dt>Model ID</dt>
-                  <dd class="result-value">
-                    <code id="result-model">Pending</code>
-                    <button
-                      class="button secondary copy-value"
-                      type="button"
-                      data-copy-target="result-model"
-                      data-copy-label="model ID"
-                      aria-label="Copy model ID"
-                    >
-                      Copy
-                    </button>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Responses API</dt>
-                  <dd><strong>On</strong> for Chat Model node version 1.3</dd>
-                </div>
-              </dl>
-              <p>All models detected: <span id="result-models">Pending</span></p>
-              <p>
-                If the Responses API switch is absent, keep the node's default
-                Chat Completions behavior. The bridge supports that route too.
-              </p>
-            </section>
+      <section class="panel" data-step="3" aria-labelledby="n8n-title" hidden>
+        <div class="panel-heading">
+          <span class="step-kicker">Step 3 of 5</span>
+          <h2 id="n8n-title" tabindex="-1">Choose the detected n8n</h2>
+          <p>
+            Discovery uses read-only Docker commands. It does not execute
+            anything inside n8n.
+          </p>
+        </div>
 
-            <section class="model-box">
-              <h3>3. HTTP Request node</h3>
-              <dl class="result-list">
-                <div>
-                  <dt>Method</dt>
-                  <dd><code>POST</code></dd>
-                </div>
-                <div>
-                  <dt>URL</dt>
-                  <dd class="result-value">
-                    <code id="result-http-url">http://n8n-openai-oauth:10531/v1/responses</code>
-                    <button
-                      class="button secondary copy-value"
-                      type="button"
-                      data-copy-target="result-http-url"
-                      data-copy-label="HTTP endpoint"
-                      aria-label="Copy HTTP endpoint"
-                    >
-                      Copy
-                    </button>
-                  </dd>
-                </div>
-                <div>
-                  <dt>Authentication</dt>
-                  <dd>None</dd>
-                </div>
-              </dl>
-            </section>
+        <div class="version-strip" aria-label="Detected Docker versions">
+          <span>Docker <strong id="docker-version">—</strong></span>
+          <span>Compose <strong id="compose-version">—</strong></span>
+        </div>
 
-            <p class="final-note">
-              The README includes complete AI Agent, Basic LLM Chain, JSON, and
-              importable cURL examples. Start with no built-in tools. You can
-              now return to Terminal and press Control+C to close this local
-              wizard; the VPS sidecar will keep running.
-            </p>
+        <div class="field-grid single">
+          <label class="field">
+            <span>Running n8n container</span>
+            <select id="container-select"></select>
+          </label>
+
+          <label class="field">
+            <span>Shared Docker network</span>
+            <select id="network-select"></select>
+            <small>The sidecar joins this network; n8n itself is not changed.</small>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="button ghost back-button" data-back="2" type="button">
+            Back
+          </button>
+          <button id="review-button" class="button primary" type="button">
+            Review the exact plan
+          </button>
+        </div>
+      </section>
+
+      <section class="panel" data-step="4" aria-labelledby="review-title" hidden>
+        <div class="panel-heading">
+          <span class="step-kicker">Step 4 of 5</span>
+          <h2 id="review-title" tabindex="-1">Review before installing</h2>
+          <p>No existing n8n files or containers will be changed.</p>
+        </div>
+
+        <div class="review-grid">
+          <section aria-labelledby="will-title">
+            <h3 id="will-title">The wizard will</h3>
+            <ul class="check-list">
+              <li>Create or update <code>/docker/n8n-openai-oauth</code></li>
+              <li>Build and start only the <code>openai-oauth</code> sidecar</li>
+              <li>Attach the sidecar to <strong id="review-network">—</strong></li>
+              <li>
+                Use the private hostname
+                <code id="review-endpoint">n8n-openai-oauth</code>
+              </li>
+              <li>Upload the OAuth file with owner-only permissions</li>
+            </ul>
           </section>
-        </section>
+          <section aria-labelledby="wont-title">
+            <h3 id="wont-title">The wizard will not</h3>
+            <ul class="no-list">
+              <li>Edit or rebuild the n8n image</li>
+              <li>Stop, restart, or recreate n8n</li>
+              <li>Publish port <code>10531</code></li>
+              <li>Create a Traefik route</li>
+            </ul>
+          </section>
+        </div>
+
+        <label class="check-row approval">
+          <input id="install-confirm" type="checkbox" />
+          <span>
+            I approve this sidecar-only installation and understand
+            <code>openai-oauth</code> is an unofficial project.
+          </span>
+        </label>
+
+        <div class="actions">
+          <button class="button ghost back-button" data-back="3" type="button">
+            Back
+          </button>
+          <button id="install-button" class="button primary" type="button" disabled>
+            Install the sidecar
+          </button>
+        </div>
+      </section>
+
+      <section class="panel success-panel" data-step="5" aria-labelledby="done-title" hidden>
+        <div class="success-mark" aria-hidden="true">✓</div>
+        <div class="panel-heading">
+          <span class="step-kicker">Step 5 of 5</span>
+          <h2 id="done-title" tabindex="-1">The private bridge is ready</h2>
+          <p>
+            Copy the OpenAI credential values first, then use one of the node
+            recipes below.
+          </p>
+        </div>
+
+        <h3>1. OpenAI credential</h3>
+        <dl class="result-list">
+          <div>
+            <dt>Base URL</dt>
+            <dd class="result-value">
+              <code id="result-url">http://n8n-openai-oauth:10531/v1</code>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-url"
+                data-copy-label="Base URL"
+                aria-label="Copy Base URL"
+              >
+                Copy
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>API key</dt>
+            <dd class="result-value">
+              <code id="result-key">local-only</code>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-key"
+                data-copy-label="API key"
+                aria-label="Copy API key"
+              >
+                Copy
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Organization ID</dt>
+            <dd>Leave empty</dd>
+          </div>
+          <div>
+            <dt>Custom header</dt>
+            <dd><strong>Off</strong></dd>
+          </div>
+        </dl>
+
+        <button id="copy-settings" class="button secondary" type="button">
+          Copy credential settings
+        </button>
+
+        <div class="model-box">
+          <h3>2. OpenAI Chat Model — AI Agent or Basic LLM Chain</h3>
+          <dl class="result-list">
+            <div>
+              <dt>Model ID</dt>
+              <dd class="result-value">
+                <code id="result-model">—</code>
+                <button
+                  class="button secondary copy-value"
+                  type="button"
+                  data-copy-target="result-model"
+                  data-copy-label="model ID"
+                  aria-label="Copy model ID"
+                >
+                  Copy
+                </button>
+              </dd>
+            </div>
+            <div>
+              <dt>Responses API</dt>
+              <dd><strong>On</strong> for Chat Model node version 1.3</dd>
+            </div>
+          </dl>
+          <p>All models detected: <span id="result-models">—</span></p>
+          <p>
+            If the Responses API switch is absent, keep the node's default
+            Chat Completions behavior; the bridge supports that route too.
+          </p>
+        </div>
+
+        <div class="model-box">
+          <h3>3. HTTP Request node</h3>
+          <dl class="result-list">
+            <div>
+              <dt>Method</dt>
+              <dd><code>POST</code></dd>
+            </div>
+            <div>
+              <dt>URL</dt>
+              <dd class="result-value">
+                <code id="result-http-url">
+                  http://n8n-openai-oauth:10531/v1/responses
+                </code>
+                <button
+                  class="button secondary copy-value"
+                  type="button"
+                  data-copy-target="result-http-url"
+                  data-copy-label="HTTP endpoint"
+                  aria-label="Copy HTTP endpoint"
+                >
+                  Copy
+                </button>
+              </dd>
+            </div>
+            <div>
+              <dt>Authentication</dt>
+              <dd>None</dd>
+            </div>
+          </dl>
+        </div>
+
+        <p class="final-note">
+          The README includes complete AI Agent, Basic LLM Chain, JSON, and
+          importable cURL examples. Start with no built-in tools. You can now
+          return to Terminal and press Control+C to close this local wizard;
+          the VPS sidecar will keep running.
+        </p>
       </section>
     </main>
 
-    <footer class="site-footer">
+    <footer>
       <p>
         Personal and experimental use only. Keep your OAuth credential private
-        and follow OpenAI's terms and usage policies.
+        and follow OpenAI’s terms and usage policies.
       </p>
     </footer>
   </body>

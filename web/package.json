@@ -9,7 +9,6 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "build:vercel": "next build",
-    "astryx": "astryx",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
@@ -17,8 +16,6 @@
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.239",
-    "@astryxdesign/core": "0.2.0",
-    "@astryxdesign/theme-neutral": "0.2.0",
     "@openai-oauth/ai-sdk": "2.0.0",
     "@openai-oauth/react": "2.0.0",
     "ai": "6.0.237",
@@ -27,7 +24,6 @@
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@astryxdesign/cli": "0.2.0",
     "@cloudflare/vite-plugin": "1.48.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
@@ -49,9 +45,6 @@
     "minimatch": "10.2.6",
     "postcss": "8.5.25",
     "sharp": "0.35.0"
-  },
-  "astryx": {
-    "theme": "./app/relmio-theme.ts"
   },
   "type": "module"
 }
