@@ -4,6 +4,7 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@astryxdesign/core/SegmentedControl";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { type ThemeMode, useThemePreference } from "../providers";
 
 function isThemeMode(value: string): value is ThemeMode {
@@ -28,9 +29,24 @@ export function ThemeModeControl() {
       size="sm"
       layout="hug"
     >
-      <SegmentedControlItem value="system" label="System" />
-      <SegmentedControlItem value="light" label="Light" />
-      <SegmentedControlItem value="dark" label="Dark" />
+      <SegmentedControlItem
+        value="system"
+        label="System"
+        isLabelHidden
+        icon={<Monitor size="1rem" strokeWidth={1.75} aria-hidden="true" />}
+      />
+      <SegmentedControlItem
+        value="light"
+        label="Light"
+        isLabelHidden
+        icon={<Sun size="1rem" strokeWidth={1.75} aria-hidden="true" />}
+      />
+      <SegmentedControlItem
+        value="dark"
+        label="Dark"
+        isLabelHidden
+        icon={<Moon size="1rem" strokeWidth={1.75} aria-hidden="true" />}
+      />
     </SegmentedControl>
   );
 }

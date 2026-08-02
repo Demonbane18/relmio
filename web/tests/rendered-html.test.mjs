@@ -44,9 +44,12 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /data-astryx-theme="relmio"/);
   assert.match(html, /aria-label="Color theme"/);
   assert.match(html, /class="[^"]*\btheme-mode-control\b/);
-  assert.match(html, />System<\/span>/);
-  assert.match(html, />Light<\/span>/);
-  assert.match(html, />Dark<\/span>/);
+  assert.match(html, /aria-label="System"/);
+  assert.match(html, /aria-label="Light"/);
+  assert.match(html, /aria-label="Dark"/);
+  assert.match(html, /lucide-monitor/);
+  assert.match(html, /lucide-sun/);
+  assert.match(html, /lucide-moon/);
   assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
   assert.match(html, /class="relay-visual"/);
   assert.match(html, /Connect, then ask\./);
@@ -82,6 +85,9 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   assert.match(html, /data-astryx-theme="relmio"/);
   assert.match(html, /aria-label="Color theme"/);
   assert.match(html, /class="[^"]*\btheme-mode-control\b/);
+  assert.match(html, /lucide-monitor/);
+  assert.match(html, /lucide-sun/);
+  assert.match(html, /lucide-moon/);
   assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
   assert.match(html, /Hostinger VPS/);
   assert.match(

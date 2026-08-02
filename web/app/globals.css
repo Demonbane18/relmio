@@ -206,13 +206,21 @@ main {
 }
 
 .theme-mode-control [role="radio"] {
-  padding-inline: var(--spacing-2);
+  width: var(--size-element-sm);
+  min-width: var(--size-element-sm);
+  padding-inline: var(--spacing-1);
   border-radius: calc(
     var(--_segmented-control-radius) - var(--_segmented-control-padding)
   );
   color: color-mix(in srgb, var(--white) 72%, transparent);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
+}
+
+.theme-mode-control [role="radio"] svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
 }
 
 .theme-mode-control [role="radio"]:hover {
@@ -2124,10 +2132,6 @@ footer > div {
 
   .header-actions {
     gap: 8px;
-  }
-
-  .theme-mode-control [role="radio"] {
-    padding-inline: var(--spacing-1);
   }
 
   .repository-button {
