@@ -25,6 +25,10 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   assert.match(html, /name="color-theme" value="system"/u);
   assert.match(html, /name="color-theme" value="light"/u);
   assert.match(html, /name="color-theme" value="dark"/u);
+  assert.match(html, /class="theme-icon theme-icon-system"/u);
+  assert.match(html, /class="theme-icon theme-icon-light"/u);
+  assert.match(html, /class="theme-icon theme-icon-dark"/u);
+  assert.match(html, /title="Use system appearance"/u);
   assert.match(
     html,
     /<nav class="steps" aria-label="Setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="5"/u,

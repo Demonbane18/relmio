@@ -7,6 +7,16 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.8] - 2026-08-02
+
+### Changed
+
+- Replace the local browser wizard's text appearance selector with compact,
+  accessible System/Light/Dark icons, while keeping the original horizontal
+  Signal Spine flow and touch-friendly behavior.
+- Serve the bundled Lucide SVG assets from the wizard and include them in the
+  npm package so offline and Node-free browser launches render consistently.
+
 ## [0.2.7] - 2026-08-02
 
 ### Changed

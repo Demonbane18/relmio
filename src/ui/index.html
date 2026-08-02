@@ -35,17 +35,20 @@
       <div class="header-actions">
         <fieldset class="theme-picker">
           <legend class="visually-hidden">Color theme</legend>
-          <label>
+          <label title="Use system appearance">
             <input type="radio" name="color-theme" value="system" checked />
-            <span>System</span>
+            <span class="theme-icon theme-icon-system" aria-hidden="true"></span>
+            <span class="visually-hidden">System</span>
           </label>
-          <label>
+          <label title="Use light appearance">
             <input type="radio" name="color-theme" value="light" />
-            <span>Light</span>
+            <span class="theme-icon theme-icon-light" aria-hidden="true"></span>
+            <span class="visually-hidden">Light</span>
           </label>
-          <label>
+          <label title="Use dark appearance">
             <input type="radio" name="color-theme" value="dark" />
-            <span>Dark</span>
+            <span class="theme-icon theme-icon-dark" aria-hidden="true"></span>
+            <span class="visually-hidden">Dark</span>
           </label>
         </fieldset>
         <span class="local-badge">Runs only on this computer</span>

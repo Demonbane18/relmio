@@ -182,6 +182,9 @@ async function loadDefaultUiFiles() {
     readFile(new URL("../ui/theme.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/time.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../ui/icons/monitor.svg", import.meta.url), "utf8"),
+    readFile(new URL("../ui/icons/sun.svg", import.meta.url), "utf8"),
+    readFile(new URL("../ui/icons/moon.svg", import.meta.url), "utf8"),
   ]);
 
   return {
@@ -190,6 +193,9 @@ async function loadDefaultUiFiles() {
     "/theme.js": files[2],
     "/time.js": files[3],
     "/styles.css": files[4],
+    "/icons/monitor.svg": files[5],
+    "/icons/sun.svg": files[6],
+    "/icons/moon.svg": files[7],
   };
 }
 
@@ -421,9 +427,11 @@ function createRequestHandler(state) {
       const contentType =
         path.endsWith(".js")
           ? "text/javascript; charset=utf-8"
-          : path === "/styles.css"
-            ? "text/css; charset=utf-8"
-            : "text/html; charset=utf-8";
+          : path.endsWith(".svg")
+            ? "image/svg+xml; charset=utf-8"
+            : path === "/styles.css"
+              ? "text/css; charset=utf-8"
+              : "text/html; charset=utf-8";
       const contents = state.uiFiles[path];
       response.writeHead(200, {
         "Content-Type": contentType,
