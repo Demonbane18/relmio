@@ -48,6 +48,22 @@ function createMemoryFileSystem(files) {
   };
 }
 
+function finishChild(child, code) {
+  child.emit("exit", code);
+  child.emit("close", code);
+}
+
+function createAuthorizationUrl({
+  redirectUri = "http://localhost:1455/auth/callback",
+} = {}) {
+  const authorizationUrl = new URL("https://auth.openai.com/oauth/authorize");
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizationUrl.searchParams.set("state", "fixture-state");
+  authorizationUrl.searchParams.set("code_challenge", "fixture-challenge");
+  return authorizationUrl;
+}
+
 test("resolveAuthPath uses wizard-only storage without exposing file contents", () => {
   assert.equal(
     resolveAuthPath({
@@ -127,7 +143,7 @@ test("startOAuthLogin returns one validated link and stores the credential after
       );
       const oauthFileIndex = args.indexOf("--oauth-file");
       files[args[oauthFileIndex + 1]] = '{"fixture":true}';
-      child.emit("exit", 0);
+      finishChild(child, 0);
     });
     return child;
   };
@@ -199,7 +215,7 @@ test("startOAuthLogin reads the supported CLI login line across ANSI, CRLF, and 
       child.stdout.emit("data", Buffer.from("\n"));
       const oauthFileIndex = args.indexOf("--oauth-file");
       files[args[oauthFileIndex + 1]] = '{"windows":true}';
-      child.emit("exit", 0);
+      finishChild(child, 0);
     });
     return child;
   };
@@ -221,6 +237,168 @@ test("startOAuthLogin reads the supported CLI login line across ANSI, CRLF, and 
   assert.deepEqual(await login.completion, { success: true });
 });
 
+test("startOAuthLogin waits for every byte boundary of the supported CRLF login line", async () => {
+  const authorizationUrl = new URL("https://auth.openai.com/oauth/authorize");
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set(
+    "redirect_uri",
+    "http://localhost:1455/auth/callback",
+  );
+  authorizationUrl.searchParams.set("state", "split-state");
+  authorizationUrl.searchParams.set("code_challenge", "split-challenge");
+  const loginLine = Buffer.from(
+    `OpenAI OAuth login URL: ${authorizationUrl}\r\n`,
+  );
+
+  for (let splitAt = 1; splitAt < loginLine.length; splitAt += 1) {
+    const files = {};
+    let child;
+    let pendingAuthPath;
+    const spawnProcess = (_command, args) => {
+      child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stderr.resume = () => {};
+      child.kill = () => finishChild(child, 1);
+      pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+      queueMicrotask(() => {
+        child.stdout.emit("data", loginLine.subarray(0, splitAt));
+      });
+      return child;
+    };
+
+    const loginPromise = startOAuthLogin({
+      fileSystem: createMemoryFileSystem(files),
+      env: {},
+      homeDirectory: "/home/user",
+      platform: "win32",
+      execPath: "C:\\portable\\node.exe",
+      spawnProcess,
+      createPendingId: () => `split-${splitAt}`,
+    });
+    let earlyOutcome;
+    loginPromise.then(
+      () => {
+        earlyOutcome = "resolved";
+      },
+      () => {
+        earlyOutcome = "rejected";
+      },
+    );
+    await new Promise((resolvePromise) => setImmediate(resolvePromise));
+
+    assert.equal(
+      earlyOutcome,
+      undefined,
+      `split at byte ${splitAt} settled before the complete CRLF line`,
+    );
+
+    child.stdout.emit("data", loginLine.subarray(splitAt));
+    files[pendingAuthPath] = '{"split":true}';
+    finishChild(child, 0);
+
+    const login = await loginPromise;
+    assert.equal(login.authorizationUrl, authorizationUrl.toString());
+    assert.deepEqual(await login.completion, { success: true });
+  }
+});
+
+test("startOAuthLogin accepts a complete supported login line without a final newline on exit", async () => {
+  const files = {};
+  let child;
+  let pendingAuthPath;
+  const authorizationUrl = new URL("https://auth.openai.com/oauth/authorize");
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set(
+    "redirect_uri",
+    "http://localhost:1455/auth/callback",
+  );
+  authorizationUrl.searchParams.set("state", "unterminated-state");
+  authorizationUrl.searchParams.set("code_challenge", "unterminated-challenge");
+  const loginLine = `OpenAI OAuth login URL: ${authorizationUrl}`;
+  const spawnProcess = (_command, args) => {
+    child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stderr.resume = () => {};
+    child.kill = () => finishChild(child, 1);
+    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    queueMicrotask(() => {
+      child.stdout.emit("data", Buffer.from(loginLine));
+    });
+    return child;
+  };
+
+  const loginPromise = startOAuthLogin({
+    fileSystem: createMemoryFileSystem(files),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    execPath: "C:\\portable\\node.exe",
+    spawnProcess,
+    createPendingId: () => "unterminated",
+  });
+  let earlyOutcome;
+  loginPromise.then(
+    () => {
+      earlyOutcome = "resolved";
+    },
+    () => {
+      earlyOutcome = "rejected";
+    },
+  );
+  await new Promise((resolvePromise) => setImmediate(resolvePromise));
+
+  assert.equal(earlyOutcome, undefined);
+
+  files[pendingAuthPath] = '{"unterminated":true}';
+  finishChild(child, 0);
+
+  const login = await loginPromise;
+  assert.equal(login.authorizationUrl, authorizationUrl.toString());
+  assert.deepEqual(await login.completion, { success: true });
+});
+
+test("startOAuthLogin waits for close after exit before finalizing stdout", async () => {
+  const files = {};
+  let child;
+  let pendingAuthPath;
+  const authorizationUrl = createAuthorizationUrl({
+    redirectUri: "http://localhost:1455/auth/callback",
+  });
+  const spawnProcess = (_command, args) => {
+    child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stderr.resume = () => {};
+    child.kill = () => {};
+    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    queueMicrotask(() => {
+      child.emit("exit", 0);
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}`),
+      );
+      files[pendingAuthPath] = '{"drained":true}';
+      child.emit("close", 0);
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem: createMemoryFileSystem(files),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    execPath: "C:\\portable\\node.exe",
+    spawnProcess,
+    createPendingId: () => "drained-output",
+  });
+
+  assert.equal(login.authorizationUrl, authorizationUrl.toString());
+  assert.deepEqual(await login.completion, { success: true });
+});
+
 test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", async () => {
   const spawnProcess = () => {
     const child = new EventEmitter();
@@ -229,13 +407,14 @@ test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", 
     child.stderr.resume = () => {};
     child.kill = () => {};
     queueMicrotask(() => {
+      child.emit("exit", 1);
       child.stderr.emit(
         "data",
         Buffer.from(
           "\u001B[31mOpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use. Stop the process using that port and try again. token=not-for-users\u001B[0m\r\n",
         ),
       );
-      child.emit("exit", 1);
+      child.emit("close", 1);
     });
     return child;
   };
@@ -297,7 +476,7 @@ test("startOAuthLogin uses the current Node runtime for Windows npm launchers", 
       );
       const oauthFileIndex = args.indexOf("--oauth-file");
       files[args[oauthFileIndex + 1]] = '{"windows":true}';
-      child.emit("exit", 0);
+      finishChild(child, 0);
     });
     return child;
   };
@@ -436,7 +615,7 @@ test("startOAuthLogin saves a valid pending credential before the helper exits",
       '{"fresh":true}',
     );
   } finally {
-    child.emit("exit", 1);
+    finishChild(child, 1);
     login.cancel();
   }
 });
@@ -447,7 +626,7 @@ test("startOAuthLogin rejects an unexpected authorization destination", async ()
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = { resume() {} };
-    child.kill = () => queueMicrotask(() => child.emit("exit", 1));
+    child.kill = () => queueMicrotask(() => finishChild(child, 1));
     queueMicrotask(() => {
       child.stdout.emit(
         "data",
@@ -471,4 +650,69 @@ test("startOAuthLogin rejects an unexpected authorization destination", async ()
       }),
     /unexpected destination/i,
   );
+});
+
+test("startOAuthLogin only accepts exact supported authorization and callback URLs", async () => {
+  const startWithAuthorizationUrl = (authorizationUrl) => {
+    const files = {};
+    const spawnProcess = (_command, args) => {
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.stderr.resume = () => {};
+      child.kill = () => {};
+      queueMicrotask(() => {
+        child.stdout.emit(
+          "data",
+          Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}\n`),
+        );
+        files[args[args.indexOf("--oauth-file") + 1]] = '{"valid":true}';
+        finishChild(child, 0);
+      });
+      return child;
+    };
+
+    return startOAuthLogin({
+      fileSystem: createMemoryFileSystem(files),
+      env: {},
+      homeDirectory: "/home/user",
+      platform: "win32",
+      execPath: "C:\\portable\\node.exe",
+      spawnProcess,
+      createPendingId: () => "exact-url-shape",
+    });
+  };
+
+  for (const redirectUri of [
+    "https://localhost:1455/auth/callback",
+    "http://user@localhost:1455/auth/callback",
+    "http://localhost:1455/auth/callback?unexpected=value",
+    "http://localhost:1455/auth/callback#unexpected",
+  ]) {
+    await assert.rejects(
+      () => startWithAuthorizationUrl(createAuthorizationUrl({ redirectUri })),
+      /unexpected callback/i,
+    );
+  }
+
+  const authorizationUrlWithCredentials = createAuthorizationUrl();
+  authorizationUrlWithCredentials.username = "unexpected";
+  await assert.rejects(
+    () => startWithAuthorizationUrl(authorizationUrlWithCredentials),
+    /unexpected destination/i,
+  );
+
+  const authorizationUrlWithFragment = createAuthorizationUrl();
+  authorizationUrlWithFragment.hash = "unexpected";
+  await assert.rejects(
+    () => startWithAuthorizationUrl(authorizationUrlWithFragment),
+    /unexpected destination/i,
+  );
+
+  const ipv6AuthorizationUrl = createAuthorizationUrl({
+    redirectUri: "http://[::1]:1455/auth/callback",
+  });
+  const ipv6Login = await startWithAuthorizationUrl(ipv6AuthorizationUrl);
+  assert.equal(ipv6Login.authorizationUrl, ipv6AuthorizationUrl.toString());
+  assert.deepEqual(await ipv6Login.completion, { success: true });
 });
