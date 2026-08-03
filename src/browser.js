@@ -5,15 +5,41 @@ export function browserCommand(url, platform = process.platform) {
     return { file: "open", args: [url] };
   }
   if (platform === "win32") {
-    return { file: "explorer.exe", args: [url] };
+    return {
+      file: "rundll32.exe",
+      args: ["url.dll,FileProtocolHandler", url],
+    };
   }
   return { file: "xdg-open", args: [url] };
+}
+
+function isPrivateWizardUrl(value) {
+  if (typeof value !== "string" || /[\u0000-\u001F\u007F]/u.test(value)) {
+    return false;
+  }
+
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "http:" &&
+      url.hostname === "127.0.0.1" &&
+      url.port !== "" &&
+      url.pathname === "/" &&
+      url.searchParams.get("session") !== null &&
+      url.searchParams.get("session") !== ""
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function openBrowser(
   url,
   { platform = process.platform, spawnProcess = spawn } = {},
 ) {
+  if (!isPrivateWizardUrl(url)) {
+    return false;
+  }
   const command = browserCommand(url, platform);
   let child;
   try {

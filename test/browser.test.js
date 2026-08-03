@@ -8,21 +8,19 @@ import {
   openBrowser,
 } from "../src/browser.js";
 
-test("Windows browser launching passes the local URL as a literal argument", () => {
-  const command = browserCommand(
-    "http://127.0.0.1:4567/?session=literal&next=%26whoami",
-    "win32",
-  );
+test("Windows browser launching invokes the default URL handler with the local URL as a literal argument", () => {
+  const url = "http://127.0.0.1:4567/?session=literal&next=%26whoami";
+  const command = browserCommand(url, "win32");
 
   assert.deepEqual(command, {
-    file: "explorer.exe",
-    args: ["http://127.0.0.1:4567/?session=literal&next=%26whoami"],
+    file: "rundll32.exe",
+    args: ["url.dll,FileProtocolHandler", url],
   });
 
   const calls = [];
   const child = new EventEmitter();
   child.unref = () => {};
-  openBrowser(command.args[0], {
+  openBrowser(url, {
     platform: "win32",
     spawnProcess(...args) {
       calls.push(args);
@@ -31,8 +29,25 @@ test("Windows browser launching passes the local URL as a literal argument", () 
   });
 
   assert.deepEqual(calls, [
-    ["explorer.exe", command.args, { detached: true, stdio: "ignore", shell: false }],
+    ["rundll32.exe", command.args, { detached: true, stdio: "ignore", shell: false }],
   ]);
+});
+
+test("browser launching refuses URLs outside the private local wizard", () => {
+  const calls = [];
+
+  const opened = openBrowser("https://example.test/?session=not-local", {
+    platform: "win32",
+    spawnProcess(...args) {
+      calls.push(args);
+      const child = new EventEmitter();
+      child.unref = () => {};
+      return child;
+    },
+  });
+
+  assert.equal(opened, false);
+  assert.deepEqual(calls, []);
 });
 
 test("macOS and Linux retain their native browser launchers", () => {
