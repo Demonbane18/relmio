@@ -59,7 +59,7 @@ irm https://relmio.vercel.app/install.ps1 | iex
 ### Windows Command Prompt
 
 ```bat
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
 ```
 
 These commands start the wizard without installing Node.js or Git Bash first.
@@ -383,7 +383,7 @@ irm https://relmio.vercel.app/install.ps1 | iex
 #### Windows Command Prompt
 
 ```bat
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
 ```
 
 The POSIX and native Windows bootstraps use a supported Node.js installation

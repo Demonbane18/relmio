@@ -100,6 +100,22 @@ test("release guidance covers the Windows probe, browser relaunch, and blank OAu
   assert.match(troubleshooting, /white `about:blank` tab/u);
 });
 
+test("Windows Command Prompt documentation calls the system PowerShell executable", async () => {
+  const [readme, npmReadme, troubleshooting] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+    readFile("docs/troubleshooting.md", "utf8"),
+  ]);
+  const command =
+    '"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"';
+
+  for (const guide of [readme, npmReadme, troubleshooting]) {
+    assert.ok(guide.includes(command));
+  }
+  assert.match(troubleshooting, /VS Code embedded browser/u);
+  assert.match(troubleshooting, /validated manual link/u);
+});
+
 test("n8n configuration guide provides copy-paste model and HTTP recipes", async () => {
   const guide = await readFile("docs/n8n-configuration.md", "utf8");
 

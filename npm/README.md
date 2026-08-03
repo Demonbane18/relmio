@@ -105,7 +105,7 @@ irm https://relmio.vercel.app/install.ps1 | iex
 ### Windows Command Prompt
 
 ```bat
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
 ```
 
 No Node.js or Git Bash installation is required first. The

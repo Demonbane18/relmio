@@ -100,7 +100,7 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   );
   assert.match(
     html,
-    /powershell -NoProfile -ExecutionPolicy Bypass -Command &quot;irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex&quot;/,
+    /&quot;%SystemRoot%\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe&quot; -NoProfile -ExecutionPolicy Bypass -Command &quot;irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex&quot;/,
   );
   assert.match(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /role="tablist"[^>]*aria-label="Local terminal"/);
