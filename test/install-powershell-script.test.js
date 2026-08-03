@@ -52,6 +52,20 @@ test("PowerShell installer validates the official Windows runtime before executi
   assert.doesNotMatch(script, /\bexit\b/iu);
 });
 
+test("PowerShell installer avoids the Node eval probe that surfaces [eval]:1 on Windows", async () => {
+  const script = await readFile(installScript, "utf8");
+
+  assert.doesNotMatch(
+    script,
+    /& \$nodeCommand\.Source -p ['"]process\.versions\.node/u,
+  );
+  assert.match(script, /& \$nodeCommand\.Source --version 2>\$null/u);
+  assert.match(
+    script,
+    /\^v\(\?<major>\\d\+\)\\\.\\d\+\\\.\\d\+\$/u,
+  );
+});
+
 test(
   "PowerShell installer reuses an installed Node 22 runtime",
   async (t) => {
@@ -69,7 +83,20 @@ test(
 
     await mkdir(fakeBin);
     if (process.platform === "win32") {
-      await writeFile(join(fakeBin, "node.cmd"), "@echo off\r\necho 22\r\n", "utf8");
+      await writeFile(
+        join(fakeBin, "node.cmd"),
+        [
+          "@echo off",
+          'if "%~1"=="--version" (',
+          "  echo v22.16.0",
+          "  exit /b 0",
+          ")",
+          "echo [eval]:1 1>&2",
+          "exit /b 1",
+          "",
+        ].join("\r\n"),
+        "utf8",
+      );
       await writeFile(
         join(fakeBin, "npx.cmd"),
         [
@@ -82,7 +109,19 @@ test(
         "utf8",
       );
     } else {
-      await writeExecutable(join(fakeBin, "node"), '#!/bin/sh\nprintf "22\\n"\n');
+      await writeExecutable(
+        join(fakeBin, "node"),
+        [
+          "#!/bin/sh",
+          'if [ "$1" = "--version" ]; then',
+          '  printf "v22.16.0\\n"',
+          "  exit 0",
+          "fi",
+          'printf "[eval]:1\\n" >&2',
+          "exit 1",
+          "",
+        ].join("\n"),
+      );
       await writeExecutable(
         join(fakeBin, "npx"),
         '#!/bin/sh\nprintf "%s\\n" "$@" > "$RELMIO_TEST_LOG"\n',
@@ -94,6 +133,7 @@ test(
       [
         '$ErrorActionPreference = "Continue"',
         '$ProgressPreference = "Continue"',
+        'function Invoke-WebRequest { throw "The test refused an unexpected download." }',
         'Invoke-Expression (Get-Content -LiteralPath $env:RELMIO_INSTALL_SCRIPT -Raw)',
         'Write-Output "PREFERENCES:$ErrorActionPreference/$ProgressPreference"',
         "",

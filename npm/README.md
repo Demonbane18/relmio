@@ -128,6 +128,11 @@ Keep the active setup terminal open while using the wizard. If the page says
 the wizard link is incomplete, close that tab and open the full `Local wizard:`
 URL printed by the current terminal instead of refreshing the stripped page.
 
+If the browser does not open automatically, press Enter in an interactive
+terminal to open it again. The printed `Local wizard:` URL remains the fallback
+for a terminal that cannot accept input or when the launcher still cannot open
+a browser.
+
 ### Requirements
 
 - On macOS/Linux/WSL/Git Bash: `curl`, `awk`, `tar`, and either `sha256sum` or

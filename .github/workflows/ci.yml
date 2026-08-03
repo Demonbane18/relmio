@@ -126,6 +126,9 @@ jobs:
       - name: Test the native Windows bootstrap
         run: node --test test/install-powershell-script.test.js
 
+      - name: Test the native Windows browser launcher
+        run: node --test test/browser.test.js
+
       - name: Test the native Windows OAuth launcher
         run: >-
           node --test

@@ -1,28 +1,9 @@
 #!/usr/bin/env node
 
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
 
+import { attachBrowserReopenOnEnter, openBrowser } from "./browser.js";
 import { startWizardServer } from "./web/server.js";
-
-function openBrowser(url) {
-  const command =
-    process.platform === "darwin"
-      ? { file: "open", args: [url] }
-      : process.platform === "win32"
-        ? { file: "explorer.exe", args: [url] }
-        : { file: "xdg-open", args: [url] };
-
-  const child = spawn(command.file, command.args, {
-    detached: true,
-    stdio: "ignore",
-    shell: false,
-  });
-  child.once("error", () => {
-    // The URL is also printed, so users can open it manually.
-  });
-  child.unref();
-}
 
 const sessionToken = randomBytes(32).toString("base64url");
 const wizard = await startWizardServer({ sessionToken });
@@ -39,6 +20,7 @@ console.log("Press Control+C to stop.");
 console.log("");
 
 openBrowser(url);
+const detachBrowserReopen = attachBrowserReopenOnEnter({ url });
 
 let closing = false;
 async function close() {
@@ -46,6 +28,7 @@ async function close() {
     return;
   }
   closing = true;
+  detachBrowserReopen();
   await wizard.close();
 }
 

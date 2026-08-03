@@ -85,6 +85,21 @@ test("beginner documentation states the critical safety and product limits", asy
   assert.match(contents, /no matches found/i);
 });
 
+test("release guidance covers the Windows probe, browser relaunch, and blank OAuth tab", async () => {
+  const [readme, npmReadme, troubleshooting] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+    readFile("docs/troubleshooting.md", "utf8"),
+  ]);
+
+  for (const guide of [readme, npmReadme]) {
+    assert.match(guide, /press Enter in an interactive\s+terminal to open it again/i);
+    assert.match(guide, /printed .*URL.*fallback/is);
+  }
+  assert.match(troubleshooting, /\[eval\]:1/u);
+  assert.match(troubleshooting, /white `about:blank` tab/u);
+});
+
 test("n8n configuration guide provides copy-paste model and HTTP recipes", async () => {
   const guide = await readFile("docs/n8n-configuration.md", "utf8");
 
