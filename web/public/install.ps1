@@ -51,10 +51,11 @@
     $installedNodeMajor = 0
 
     if ($null -ne $nodeCommand -and $null -ne $npxCommand) {
-      $installedNodeMajorText = & $nodeCommand.Source -p 'process.versions.node.split(".")[0]' 2>$null
+      $installedNodeVersion = & $nodeCommand.Source --version 2>$null
       if (
         $LASTEXITCODE -eq 0 -and
-        [int]::TryParse(([string]$installedNodeMajorText).Trim(), [ref]$installedNodeMajor) -and
+        ([string]$installedNodeVersion).Trim() -match '^v(?<major>\d+)\.\d+\.\d+$' -and
+        [int]::TryParse($Matches["major"], [ref]$installedNodeMajor) -and
         $installedNodeMajor -ge $minimumNodeMajor
       ) {
         Write-RelmioInstallerMessage "Using installed Node.js $installedNodeMajor runtime."

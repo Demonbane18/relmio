@@ -7,6 +7,20 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.10] - 2026-08-03
+
+### Fixed
+
+- Probe installed Windows Node.js runtimes with the literal `node --version`
+  output instead of a `node -p` expression, avoiding the PowerShell `[eval]:1`
+  quoting failure while still reusing Node.js 22 or newer.
+- Let interactive wizard terminals reopen the local browser page when the user
+  presses Enter, while retaining the printed private URL as the fallback for
+  noninteractive launches.
+- Navigate the preopened local OAuth tab before severing its opener access,
+  show an immediate preparing state, and close an unnavigated waiting tab if
+  sign-in setup fails.
+
 ## [0.2.9] - 2026-08-02
 
 ### Fixed

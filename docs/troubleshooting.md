@@ -66,9 +66,10 @@ npm view relmio version
 npx --yes --ignore-scripts relmio@latest
 ```
 
-Keep the terminal open. If the browser does not open automatically, copy the
-newest printed `http://127.0.0.1:...` URL into the browser. That URL contains a
-temporary setup token: do not post it in an issue or screenshot.
+Keep the terminal open. If the running wizard accepts terminal input, press
+Enter to ask it to open the browser again. Otherwise, copy the newest printed
+`http://127.0.0.1:...` URL into the browser. That URL contains a temporary setup
+token: do not post it in an issue or screenshot.
 
 You do not need to sign in to npm, configure npm 2FA, or own this package to
 run any public command. npm authentication is required only for the
@@ -113,11 +114,13 @@ bypassed.
 | `node: command not found`, `node is not recognized`, or Node is older than 22 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
 | `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell, or the longer `powershell -NoProfile ...` command in Command Prompt. Git Bash is not required. |
 | A bootstrap reports a checksum mismatch | The Node.js download did not match the official SHA-256 manifest, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
+| Windows PowerShell shows `[eval]:1` before the wizard starts | An older bootstrap passed a JavaScript expression through `node -p`; PowerShell native-argument handling can alter that expression. | Update to the latest `relmio@latest` and rerun the same PowerShell or Command Prompt command. The current bootstrap parses the literal `node --version` output and reuses Node.js 22 or newer. |
 | Windows reports `spawn EINVAL` when starting ChatGPT sign-in | An older wizard tried to execute `npx.cmd` directly; Windows requires the current Node runtime to launch npm's JavaScript CLI. | Update to the latest `relmio@latest` release and restart the setup command. The current wizard keeps the macOS/Linux/WSL/Git Bash `npx` path unchanged. |
-| The browser did not open | The automatic browser launch failed, but the local server may still be running. | Keep the newest terminal open and copy its newest `127.0.0.1` setup URL into the browser. Do not reuse a URL from a closed terminal. |
+| The browser did not open | The automatic browser launch failed, but the local server may still be running. | Keep the newest terminal open and press Enter to ask an interactive wizard terminal to open it again. If the terminal is noninteractive or the launcher still fails, copy its newest `127.0.0.1` setup URL into the browser. Do not reuse a URL from a closed terminal. |
 | The wizard says `This wizard link is incomplete` | The page was refreshed or opened without the private `?session=...` token; the token is removed from the address bar after startup. | Close the tab and open the complete `Local wizard:` URL printed by the active setup terminal. Do not reuse a URL from a closed terminal. |
 | An old wizard page reports an invalid or expired setup session | The local server was closed or a newer wizard run created a different one-time session token. | Close the old page and use only the URL printed by the currently running terminal. |
 | `npx` appears to run an older wizard | An old terminal or tab is still active, or the package was run without an explicit tag. | Close old runs, check `npm view relmio version`, then run `npx --yes --ignore-scripts relmio@latest`. |
+| A white `about:blank` tab remains after selecting **Sign in with ChatGPT** | An older local wizard cleared the preopened tab's `opener` before navigating it to the validated sign-in URL. | Update to the latest `relmio@latest`, close the stranded tab, and start one fresh sign-in. The current wizard shows a preparing state, navigates the preopened tab, then clears its opener before the remote page loads. Use **Open fresh ChatGPT sign-in** only when the current wizard shows that validated manual link. |
 | `This sign-in request expired` | The OAuth tab is old or the five-minute callback window ended. | Close the old tab and select **Refresh ChatGPT sign-in** from the newest active wizard. |
 | An **OpenAI OAuth** extension page says the sign-in request expired | A browser extension intercepted the `localhost:1455` callback that belongs to the wizard's fresh login. | Temporarily disable the **Sign in with ChatGPT** or **OpenAI OAuth** extension, then select **Refresh ChatGPT sign-in** in the wizard. Re-enable the extension afterward if you still use it elsewhere. |
 | `ChatGPT sign-in did not finish` appears immediately when refreshing an existing credential | Wizard versions through `0.1.3` attempted to reuse `~/.codex/auth.json`, but the bridge CLI requires an interactive terminal before replacing that file. | Update to `0.1.4` or newer. The wizard signs in through its own new credential file and leaves the Codex app credential untouched. |

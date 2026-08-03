@@ -406,9 +406,14 @@ update saved commands to `relmio`. The new package still exposes the legacy
 executable alias, and existing sidecar directories, service names, hostnames,
 and credentials remain compatible.
 
-Keep that terminal open. Either command starts a one-time web server on
+Keep that terminal open. Each command starts a one-time web server on
 `127.0.0.1`, prints a private session URL, and opens the wizard in your
 browser. It does not globally install this package.
+
+If the browser does not open automatically, press Enter in an interactive
+terminal to open it again. The printed `Local wizard:` URL remains the fallback
+for a terminal that cannot accept input or when the launcher still cannot open
+a browser.
 
 If the page says the wizard link is incomplete, close that tab and open the
 full `Local wizard:` URL printed by the active setup terminal. Do not refresh a

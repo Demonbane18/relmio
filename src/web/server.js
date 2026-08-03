@@ -179,6 +179,7 @@ async function loadDefaultUiFiles() {
   const files = await Promise.all([
     readFile(new URL("../ui/index.html", import.meta.url), "utf8"),
     readFile(new URL("../ui/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/oauth-popup.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/theme.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/time.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/styles.css", import.meta.url), "utf8"),
@@ -190,12 +191,13 @@ async function loadDefaultUiFiles() {
   return {
     "/": files[0],
     "/app.js": files[1],
-    "/theme.js": files[2],
-    "/time.js": files[3],
-    "/styles.css": files[4],
-    "/icons/monitor.svg": files[5],
-    "/icons/sun.svg": files[6],
-    "/icons/moon.svg": files[7],
+    "/oauth-popup.js": files[2],
+    "/theme.js": files[3],
+    "/time.js": files[4],
+    "/styles.css": files[5],
+    "/icons/monitor.svg": files[6],
+    "/icons/sun.svg": files[7],
+    "/icons/moon.svg": files[8],
   };
 }
 

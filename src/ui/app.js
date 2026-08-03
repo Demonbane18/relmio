@@ -1,4 +1,5 @@
 import { formatAuthUpdatedAt } from "./time.js";
+import { prepareOAuthPopup } from "./oauth-popup.js";
 
 const token = new URLSearchParams(window.location.search).get("session");
 window.history.replaceState(null, "", window.location.pathname);
@@ -309,15 +310,14 @@ element("login-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   const loginLink = element("login-link");
   const loginWindow = window.open("about:blank", "_blank");
-  if (loginWindow) {
-    loginWindow.opener = null;
-  }
+  let loginWindowNavigated = false;
+  prepareOAuthPopup(loginWindow);
   clearError();
   loginLink.hidden = true;
   loginLink.removeAttribute("href");
   setBusy(button, true, "Waiting for browser sign-in…");
   setMessage(
-    "Creating one fresh OpenAI sign-in link. The existing local credential will be replaced only after sign-in succeeds.",
+    "Preparing a fresh ChatGPT sign-in. The existing local credential will be replaced only after sign-in succeeds.",
   );
   try {
     const result = await api("/api/oauth/login", {
@@ -329,6 +329,8 @@ element("login-button").addEventListener("click", async (event) => {
     loginLink.hidden = false;
     if (loginWindow) {
       loginWindow.location.replace(authorizationUrl);
+      loginWindowNavigated = true;
+      loginWindow.opener = null;
     }
     setMessage(
       "Complete the newly opened sign-in within five minutes. If no tab opened, use “Open fresh ChatGPT sign-in” below. If an OpenAI OAuth browser extension intercepts the callback, disable it temporarily and start again.",
@@ -338,7 +340,7 @@ element("login-button").addEventListener("click", async (event) => {
     loginLink.removeAttribute("href");
     await refreshAuthStatus({ fresh: true });
   } catch (error) {
-    if (loginWindow && loginWindow.location.href === "about:blank") {
+    if (loginWindow && !loginWindowNavigated) {
       loginWindow.close();
     }
     showError(error);

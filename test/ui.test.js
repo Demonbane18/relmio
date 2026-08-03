@@ -72,10 +72,14 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
 });
 
 test("browser code never uses innerHTML or web storage for credentials", async () => {
-  const app = await readFile("src/ui/app.js", "utf8");
+  const [app, oauthPopup] = await Promise.all([
+    readFile("src/ui/app.js", "utf8"),
+    readFile("src/ui/oauth-popup.js", "utf8"),
+  ]);
+  const browserCode = `${app}\n${oauthPopup}`;
 
-  assert.doesNotMatch(app, /\.innerHTML\b/);
-  assert.doesNotMatch(app, /\blocalStorage\b|\bsessionStorage\b/);
+  assert.doesNotMatch(browserCode, /\.innerHTML\b/);
+  assert.doesNotMatch(browserCode, /\blocalStorage\b|\bsessionStorage\b/);
   assert.doesNotMatch(app, /console\.(?:log|warn|error)/);
   assert.match(app, /textContent/);
   assert.match(app, /authUpdatedAt/);
@@ -94,6 +98,31 @@ test("browser code never uses innerHTML or web storage for credentials", async (
     /try \{[\s\S]*document\.execCommand\("copy"\)[\s\S]*finally \{[\s\S]*textarea\.remove\(\)[\s\S]*previouslyFocused\?\.focus\?\.\(\)/u,
   );
   assert.doesNotMatch(app, /"Use Responses API: on"/u);
+});
+
+test("local OAuth prepares and navigates its popup before severing opener access", async () => {
+  const [app, html] = await Promise.all([
+    readFile("src/ui/app.js", "utf8"),
+    readFile("src/ui/index.html", "utf8"),
+  ]);
+
+  assert.match(app, /Preparing a fresh ChatGPT sign-in/u);
+  assert.match(app, /prepareOAuthPopup\(loginWindow\);/u);
+  assert.match(
+    app,
+    /loginWindow\.location\.replace\(authorizationUrl\);[\s\S]*loginWindowNavigated = true;[\s\S]*loginWindow\.opener = null;/u,
+  );
+  assert.match(
+    app,
+    /loginWindow\.location\.replace\(authorizationUrl\);[\s\S]*loginWindow\.opener = null;/u,
+  );
+  assert.doesNotMatch(
+    app,
+    /const loginWindow = window\.open\("about:blank", "_blank"\);[\s\S]{0,120}loginWindow\.opener = null;/u,
+  );
+  assert.match(app, /loginLink\.href = authorizationUrl;/u);
+  assert.match(app, /loginWindow\.close\(\);/u);
+  assert.match(html, /id="login-link"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/u);
 });
 
 test("wizard theme preferences store only the selected color mode", async () => {

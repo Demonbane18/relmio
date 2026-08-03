@@ -127,6 +127,14 @@ test("default wizard assets include the color theme controller", async (t) => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/javascript/u);
   assert.match(await response.text(), /relmio-color-mode/u);
 
+  const oauthPopup = await fetch(`${wizard.origin}/oauth-popup.js`);
+  assert.equal(oauthPopup.status, 200);
+  assert.match(
+    oauthPopup.headers.get("content-type") ?? "",
+    /^text\/javascript/u,
+  );
+  assert.match(await oauthPopup.text(), /Preparing ChatGPT sign-in/u);
+
   const icon = await fetch(`${wizard.origin}/icons/monitor.svg`);
   assert.equal(icon.status, 200);
   assert.match(icon.headers.get("content-type") ?? "", /^image\/svg\+xml/u);
