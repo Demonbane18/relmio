@@ -7,6 +7,17 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- Open the private Windows wizard URL through the documented default-browser
+  association instead of asking Explorer to treat the URL as a folder, while
+  retaining the printed URL and Enter-to-retry fallback.
+- Make the Command Prompt installer copy call the system Windows PowerShell
+  executable directly, avoiding ambiguous `powershell` command resolution.
+- Parse the supported `openai-oauth@2.0.0` login line across Windows terminal
+  control sequences and chunk boundaries, and report a sanitized, actionable
+  callback-port conflict instead of a generic missing-link error.
+
 ## [0.2.10] - 2026-08-03
 
 ### Fixed

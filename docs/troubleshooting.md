@@ -49,7 +49,7 @@ irm https://relmio.vercel.app/install.ps1 | iex
 Windows Command Prompt:
 
 ```bat
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
 ```
 
 These commands do not require Node.js to be installed. The Windows options do
@@ -70,6 +70,11 @@ Keep the terminal open. If the running wizard accepts terminal input, press
 Enter to ask it to open the browser again. Otherwise, copy the newest printed
 `http://127.0.0.1:...` URL into the browser. That URL contains a temporary setup
 token: do not post it in an issue or screenshot.
+
+The local wizard may be displayed in a VS Code embedded browser. Its validated
+manual link, **Open fresh ChatGPT sign-in**, remains available if that embedded
+browser blocks the popup or no new tab opens. Use that link only from the active
+wizard attempt; it points to the fresh `auth.openai.com` authorization URL.
 
 You do not need to sign in to npm, configure npm 2FA, or own this package to
 run any public command. npm authentication is required only for the
@@ -112,7 +117,7 @@ bypassed.
 | Symptom | Meaning | Fix |
 |---|---|---|
 | `node: command not found`, `node is not recognized`, or Node is older than 22 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
-| `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell, or the longer `powershell -NoProfile ...` command in Command Prompt. Git Bash is not required. |
+| `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell, or the `"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile ...` command in Command Prompt. Git Bash is not required. |
 | A bootstrap reports a checksum mismatch | The Node.js download did not match the official SHA-256 manifest, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
 | Windows PowerShell shows `[eval]:1` before the wizard starts | An older bootstrap passed a JavaScript expression through `node -p`; PowerShell native-argument handling can alter that expression. | Update to the latest `relmio@latest` and rerun the same PowerShell or Command Prompt command. The current bootstrap parses the literal `node --version` output and reuses Node.js 22 or newer. |
 | Windows reports `spawn EINVAL` when starting ChatGPT sign-in | An older wizard tried to execute `npx.cmd` directly; Windows requires the current Node runtime to launch npm's JavaScript CLI. | Update to the latest `relmio@latest` release and restart the setup command. The current wizard keeps the macOS/Linux/WSL/Git Bash `npx` path unchanged. |

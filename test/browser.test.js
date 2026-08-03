@@ -9,12 +9,12 @@ import {
 } from "../src/browser.js";
 
 test("Windows browser launching invokes the default URL handler with the local URL as a literal argument", () => {
-  const url = "http://127.0.0.1:4567/?session=literal&next=%26whoami";
+  const url = `http://127.0.0.1:4567/?session=${"a".repeat(43)}`;
   const command = browserCommand(url, "win32");
 
   assert.deepEqual(command, {
-    file: "rundll32.exe",
-    args: ["url.dll,FileProtocolHandler", url],
+    file: "cmd.exe",
+    args: ["/d", "/c", "start", "Relmio local wizard", url],
   });
 
   const calls = [];
@@ -29,22 +29,25 @@ test("Windows browser launching invokes the default URL handler with the local U
   });
 
   assert.deepEqual(calls, [
-    ["rundll32.exe", command.args, { detached: true, stdio: "ignore", shell: false }],
+    ["cmd.exe", command.args, { detached: true, stdio: "ignore", shell: false }],
   ]);
 });
 
-test("browser launching refuses URLs outside the private local wizard", () => {
+test("browser launching refuses URLs outside the exact private local wizard", () => {
   const calls = [];
 
-  const opened = openBrowser("https://example.test/?session=not-local", {
-    platform: "win32",
-    spawnProcess(...args) {
-      calls.push(args);
-      const child = new EventEmitter();
-      child.unref = () => {};
-      return child;
+  const opened = openBrowser(
+    `http://127.0.0.1:4567/?session=${"a".repeat(43)}&next=%26whoami`,
+    {
+      platform: "win32",
+      spawnProcess(...args) {
+        calls.push(args);
+        const child = new EventEmitter();
+        child.unref = () => {};
+        return child;
+      },
     },
-  });
+  );
 
   assert.equal(opened, false);
   assert.deepEqual(calls, []);

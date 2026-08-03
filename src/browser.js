@@ -6,8 +6,8 @@ export function browserCommand(url, platform = process.platform) {
   }
   if (platform === "win32") {
     return {
-      file: "rundll32.exe",
-      args: ["url.dll,FileProtocolHandler", url],
+      file: "cmd.exe",
+      args: ["/d", "/c", "start", "Relmio local wizard", url],
     };
   }
   return { file: "xdg-open", args: [url] };
@@ -20,13 +20,19 @@ function isPrivateWizardUrl(value) {
 
   try {
     const url = new URL(value);
+    const session = url.searchParams.get("session");
     return (
       url.protocol === "http:" &&
       url.hostname === "127.0.0.1" &&
       url.port !== "" &&
+      Number(url.port) > 0 &&
       url.pathname === "/" &&
-      url.searchParams.get("session") !== null &&
-      url.searchParams.get("session") !== ""
+      url.username === "" &&
+      url.password === "" &&
+      url.hash === "" &&
+      typeof session === "string" &&
+      /^[A-Za-z0-9_-]{43}$/u.test(session) &&
+      url.search === `?session=${session}`
     );
   } catch {
     return false;

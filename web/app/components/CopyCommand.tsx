@@ -26,7 +26,7 @@ const installMethods = [
     id: "cmd",
     label: "CMD",
     command:
-      'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"',
+      '"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"',
     note: "Open Command Prompt, not PowerShell. This launches the same verified Windows installer.",
     prompt: ">",
   },
