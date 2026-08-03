@@ -7,6 +7,8 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.11] - 2026-08-04
+
 ### Fixed
 
 - Open the private Windows wizard URL through the documented default-browser
@@ -17,6 +19,11 @@ checks the registry separately after publication.
 - Parse the supported `openai-oauth@2.0.0` login line across Windows terminal
   control sequences and chunk boundaries, and report a sanitized, actionable
   callback-port conflict instead of a generic missing-link error.
+
+### Security
+
+- Pin the hosted web tooling to `brace-expansion` 5.0.9, which includes the
+  upstream denial-of-service fix required by the release audit.
 
 ## [0.2.10] - 2026-08-03
 
