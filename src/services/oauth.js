@@ -149,13 +149,34 @@ function validateAuthorizationUrl(value) {
   return url.toString();
 }
 
+function stripTerminalControlSequences(value) {
+  return value
+    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/gu, "")
+    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "")
+    .replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/gu, "");
+}
+
 function extractAuthorizationUrl(output) {
-  for (const line of output.split(/\r?\n/u)) {
-    if (line.startsWith(LOGIN_URL_PREFIX)) {
-      return validateAuthorizationUrl(line.slice(LOGIN_URL_PREFIX.length));
+  for (const line of stripTerminalControlSequences(output).split("\n")) {
+    const markerIndex = line.indexOf(LOGIN_URL_PREFIX);
+    if (markerIndex >= 0) {
+      return validateAuthorizationUrl(
+        line.slice(markerIndex + LOGIN_URL_PREFIX.length).trim(),
+      );
     }
   }
   return null;
+}
+
+function loginStartupError(stderr) {
+  const callbackPortConflict =
+    "OpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use.";
+  if (stripTerminalControlSequences(stderr).includes(callbackPortConflict)) {
+    return new Error(
+      `${callbackPortConflict} Stop the process using that port and try again.`,
+    );
+  }
+  return new Error("The sign-in command did not return an authorization URL.");
 }
 
 export async function startOAuthLogin({
@@ -205,9 +226,8 @@ export async function startOAuthLogin({
       { cause: error },
     );
   }
-  child.stderr?.resume();
-
-  let loginOutput = "";
+  const loginOutput = { stdout: "", stderr: "" };
+  let loginOutputBytes = 0;
   let resolveAuthorizationUrl;
   let rejectAuthorizationUrl;
   let authorizationUrlSettled = false;
@@ -227,20 +247,25 @@ export async function startOAuthLogin({
     }
   };
 
-  child.stdout?.on("data", (chunk) => {
+  const captureLoginOutput = (stream, chunk) => {
     if (authorizationUrlSettled) {
       return;
     }
-    loginOutput += Buffer.from(chunk).toString("utf8");
-    if (Buffer.byteLength(loginOutput) > MAX_LOGIN_OUTPUT_BYTES) {
+    const output = Buffer.from(chunk).toString("utf8");
+    loginOutputBytes += Buffer.byteLength(output);
+    if (loginOutputBytes > MAX_LOGIN_OUTPUT_BYTES) {
       settleAuthorizationUrl(
         new Error("The sign-in command returned too much output."),
       );
       child.kill?.("SIGTERM");
       return;
     }
+    loginOutput[stream] += output;
+    if (stream !== "stdout") {
+      return;
+    }
     try {
-      const authorizationUrl = extractAuthorizationUrl(loginOutput);
+      const authorizationUrl = extractAuthorizationUrl(loginOutput.stdout);
       if (authorizationUrl) {
         settleAuthorizationUrl(null, authorizationUrl);
       }
@@ -248,7 +273,10 @@ export async function startOAuthLogin({
       settleAuthorizationUrl(error);
       child.kill?.("SIGTERM");
     }
-  });
+  };
+
+  child.stdout?.on?.("data", (chunk) => captureLoginOutput("stdout", chunk));
+  child.stderr?.on?.("data", (chunk) => captureLoginOutput("stderr", chunk));
 
   let resolveExit;
   let rejectExit;
@@ -278,9 +306,7 @@ export async function startOAuthLogin({
   });
   child.once("exit", (code) => {
     if (!authorizationUrlSettled) {
-      settleAuthorizationUrl(
-        new Error("The sign-in command did not return an authorization URL."),
-      );
+      settleAuthorizationUrl(loginStartupError(loginOutput.stderr));
     }
     settleExit(null, code);
   });

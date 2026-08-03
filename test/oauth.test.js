@@ -170,6 +170,98 @@ test("startOAuthLogin returns one validated link and stores the credential after
   );
 });
 
+test("startOAuthLogin reads the supported CLI login line across ANSI, CRLF, and chunks", async () => {
+  const files = {};
+  const fileSystem = createMemoryFileSystem(files);
+  const spawnProcess = (_command, args) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stderr.resume = () => {};
+    child.kill = () => {};
+    queueMicrotask(() => {
+      const authorizationUrl = new URL(
+        "https://auth.openai.com/oauth/authorize",
+      );
+      authorizationUrl.searchParams.set("response_type", "code");
+      authorizationUrl.searchParams.set(
+        "redirect_uri",
+        "http://localhost:1455/auth/callback",
+      );
+      authorizationUrl.searchParams.set("state", "windows-state");
+      authorizationUrl.searchParams.set("code_challenge", "windows-challenge");
+      child.stderr.emit("data", Buffer.from("\u001B[90mnpm notice\u001B[0m\r\n"));
+      child.stdout.emit("data", Buffer.from("\u001B[2"));
+      child.stdout.emit(
+        "data",
+        Buffer.from(`KOpenAI OAuth login URL: ${authorizationUrl}\r`),
+      );
+      child.stdout.emit("data", Buffer.from("\n"));
+      const oauthFileIndex = args.indexOf("--oauth-file");
+      files[args[oauthFileIndex + 1]] = '{"windows":true}';
+      child.emit("exit", 0);
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem,
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    execPath: "C:\\portable\\node.exe",
+    spawnProcess,
+    createPendingId: () => "windows-output",
+  });
+
+  assert.match(
+    login.authorizationUrl,
+    /^https:\/\/auth\.openai\.com\/oauth\/authorize\?/u,
+  );
+  assert.deepEqual(await login.completion, { success: true });
+});
+
+test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", async () => {
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stderr.resume = () => {};
+    child.kill = () => {};
+    queueMicrotask(() => {
+      child.stderr.emit(
+        "data",
+        Buffer.from(
+          "\u001B[31mOpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use. Stop the process using that port and try again. token=not-for-users\u001B[0m\r\n",
+        ),
+      );
+      child.emit("exit", 1);
+    });
+    return child;
+  };
+
+  await assert.rejects(
+    () =>
+      startOAuthLogin({
+        fileSystem: createMemoryFileSystem({}),
+        env: {},
+        homeDirectory: "/home/user",
+        platform: "win32",
+        execPath: "C:\\portable\\node.exe",
+        spawnProcess,
+        createPendingId: () => "port-conflict",
+      }),
+    (error) => {
+      assert.equal(
+        error.message,
+        "OpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use. Stop the process using that port and try again.",
+      );
+      assert.doesNotMatch(error.message, /not-for-users|token=/u);
+      return true;
+    },
+  );
+});
+
 test("startOAuthLogin uses the current Node runtime for Windows npm launchers", async () => {
   const calls = [];
   const files = {};
