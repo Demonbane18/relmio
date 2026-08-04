@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  access,
   chmod,
   copyFile,
   mkdir,
@@ -12,7 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -25,6 +26,22 @@ const gitBashShell =
   process.platform === "win32"
     ? process.env.RELMIO_TEST_POSIX_SHELL
     : "/bin/sh";
+
+async function resolveGitBashShell() {
+  if (
+    process.platform !== "win32" ||
+    !gitBashShell ||
+    isAbsolute(gitBashShell)
+  ) {
+    return gitBashShell;
+  }
+
+  const { stdout } = await execFileAsync("git", ["--exec-path"]);
+  const gitRoot = resolve(stdout.trim(), "..", "..", "..");
+  const shellPath = join(gitRoot, "bin", `${gitBashShell}.exe`);
+  await access(shellPath);
+  return shellPath;
+}
 
 function toGitBashPath(value) {
   if (process.platform !== "win32") {
@@ -355,9 +372,10 @@ test(
   { skip: !gitBashShell },
   async (t) => {
     const setup = await createGitBashBootstrapEnvironment();
+    const shell = await resolveGitBashShell();
     t.after(() => rm(setup.root, { recursive: true, force: true }));
 
-    const { stdout } = await execFileAsync(gitBashShell, [installScript], {
+    const { stdout } = await execFileAsync(shell, [installScript], {
       env: setup.env,
     });
     const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
