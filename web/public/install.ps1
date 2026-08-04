@@ -96,7 +96,8 @@
     $manifestPath = Join-Path $temporaryDirectory "SHASUMS256.txt"
     $manifestUrl = "https://nodejs.org/download/release/latest-v22.x/SHASUMS256.txt"
 
-    Write-RelmioInstallerMessage "Downloading a temporary Node.js 22 runtime."
+    Write-RelmioInstallerMessage "[1/4] Installing a temporary Node.js 22 runtime. Please wait; this does not install Node.js system-wide."
+    Write-RelmioInstallerMessage "[2/4] Downloading the official Node.js checksum manifest and runtime. Please wait..."
     Save-RelmioHttpsFile -Uri $manifestUrl -Destination $manifestPath
 
     $manifestPattern = '^(?<checksum>[0-9A-Fa-f]{64})\s+(?<filename>node-(?<version>v22\.\d+\.\d+)-win-(?<architecture>x64|arm64)\.zip)$'
@@ -121,12 +122,14 @@
     $archiveUrl = "$nodeDistributionUrl/$($runtime.Version)/$($runtime.Filename)"
     Save-RelmioHttpsFile -Uri $archiveUrl -Destination $archivePath
 
+    Write-RelmioInstallerMessage "[3/4] Verifying the Node.js SHA-256 checksum. Please wait..."
     $actualChecksum = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
     if (-not [string]::Equals($actualChecksum, $runtime.Checksum, [StringComparison]::Ordinal)) {
       throw "Node.js download checksum did not match; nothing was executed."
     }
     Write-RelmioInstallerMessage "Verified Node.js download."
 
+    Write-RelmioInstallerMessage "[4/4] Extracting the verified temporary Node.js 22 runtime. Please wait..."
     Expand-Archive -LiteralPath $archivePath -DestinationPath $temporaryDirectory -Force
     $archiveRoot = [IO.Path]::GetFileNameWithoutExtension($runtime.Filename)
     $nodeBinary = Join-Path $temporaryDirectory "$archiveRoot\node.exe"

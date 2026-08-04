@@ -98,7 +98,43 @@ test("trusted publishing uses short-lived GitHub OIDC credentials", async () => 
   assert.match(workflow, /npm@11\.13\.0/u);
   assert.match(workflow, /npm run package:build -- \.release/u);
   assert.match(workflow, /npm publish/u);
+  assert.match(workflow, /package-managers:[\s\S]*needs:[\s\S]*- publish/u);
+  assert.match(workflow, /uses: \.\/\.github\/workflows\/package-manager-candidates\.yml/u);
   assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/u);
+});
+
+test("hosted CMD installer is checked out with Windows line endings", async () => {
+  const attributes = await readFile(".gitattributes", "utf8");
+  assert.match(attributes, /^web\/public\/install\.cmd text eol=crlf$/mu);
+});
+
+test("package-manager workflow builds review artifacts before release publication", async () => {
+  const workflow = await readFile(
+    ".github/workflows/package-manager-candidates.yml",
+    "utf8",
+  );
+
+  assert.match(workflow, /pull_request:/u);
+  assert.match(workflow, /workflow_call:[\s\S]*release_tag:/u);
+  assert.match(workflow, /permissions:\s*\n\s+contents: read/u);
+  assert.match(workflow, /winget validate --disable-interactivity/u);
+  assert.match(workflow, /relmio\.exe"\) --version/u);
+  assert.match(workflow, /RequiredVersion \$moduleVersion/u);
+  assert.match(workflow, /moduleVersion = "1\.12\.440"/u);
+  assert.ok(
+    workflow.indexOf("Seal reviewed package-manager candidates") <
+      workflow.indexOf("Install-Module -Name Microsoft.WinGet.Client"),
+  );
+  assert.match(workflow, /registry\.npmjs\.org\/relmio\/-\/\$\{tarball\}/u);
+  assert.match(workflow, /publish-release-assets:[\s\S]*contents: write/u);
+  assert.match(workflow, /gh release upload/u);
+  assert.doesNotMatch(workflow, /pull_request_target/u);
+
+  const actionReferences = [...workflow.matchAll(/uses:\s+[^\s@]+@([^\s#]+)/gu)];
+  assert.ok(actionReferences.length >= 4);
+  for (const [, reference] of actionReferences) {
+    assert.match(reference, /^[a-f0-9]{40}$/u);
+  }
 });
 
 test("public README documents the latest npm walkthrough and sanitized images", async () => {

@@ -26,8 +26,8 @@ const installMethods = [
     id: "cmd",
     label: "CMD",
     command:
-      '"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"',
-    note: "Open Command Prompt, not PowerShell. This launches the same verified Windows installer.",
+      'for /f "delims=" %F in ("%TEMP%\\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.vercel.app/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"',
+    note: "Open Command Prompt, not PowerShell. This PowerShell-free, non-admin bootstrap reuses Node.js 22+ or verifies a temporary runtime.",
     prompt: ">",
   },
   {
@@ -122,7 +122,7 @@ export function CopyCommand() {
       <div
         className="install-method-tabs"
         role="tablist"
-        aria-label="Local terminal"
+        aria-label="Installation method"
       >
         {installMethods.map((method, index) => {
           const selected = selectedMethod === method.id;

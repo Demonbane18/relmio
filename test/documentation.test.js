@@ -103,20 +103,41 @@ test("release guidance covers the Windows probe, browser relaunch, and blank OAu
   assert.match(troubleshooting, /white `about:blank` tab/u);
 });
 
-test("Windows Command Prompt documentation calls the system PowerShell executable", async () => {
+test("Windows Command Prompt documentation uses the PowerShell-free native bootstrap", async () => {
   const [readme, npmReadme, troubleshooting] = await Promise.all([
     readFile("README.md", "utf8"),
     readFile("npm/README.md", "utf8"),
     readFile("docs/troubleshooting.md", "utf8"),
   ]);
-  const command =
-    '"%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"';
-
   for (const guide of [readme, npmReadme, troubleshooting]) {
-    assert.ok(guide.includes(command));
+    assert.match(guide, /for \/f "delims=" %F/u);
+    assert.match(guide, /relmio-install-%RANDOM%-%RANDOM%-%RANDOM%\.cmd/u);
+    assert.match(guide, /--remove-on-error/u);
+    assert.match(guide, /RELMIO_SELF_DELETE=%~F/u);
+    assert.doesNotMatch(guide, /-o install\.cmd/u);
+    assert.match(guide, /PowerShell-free/u);
+    assert.match(guide, /Please wait/u);
   }
   assert.match(troubleshooting, /VS Code embedded browser/u);
   assert.match(troubleshooting, /validated manual link/u);
+});
+
+test("public guides hide package-manager commands until their catalogs are live", async () => {
+  const [readme, npmReadme, troubleshooting, maintainerGuide] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+    readFile("docs/troubleshooting.md", "utf8"),
+    readFile("packaging/package-managers.md", "utf8"),
+  ]);
+
+  for (const guide of [readme, npmReadme, troubleshooting]) {
+    assert.doesNotMatch(guide, /brew install Demonbane18\/relmio\/relmio/u);
+    assert.doesNotMatch(guide, /winget install --exact --id Demonbane18\.Relmio/u);
+    assert.match(guide, /Homebrew tap publication/iu);
+    assert.match(guide, /WinGet catalog approval/iu);
+  }
+  assert.match(maintainerGuide, /exact\s+immutable tarball downloaded back from the registry/iu);
+  assert.match(maintainerGuide, /Demonbane18\.Relmio/u);
 });
 
 test("n8n configuration guide provides copy-paste model and HTTP recipes", async () => {

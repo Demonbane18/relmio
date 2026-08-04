@@ -76,9 +76,10 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   const response = await requestApp("/install");
   assert.equal(response.status, 200);
 
-  const [html, installScript, powerShellInstallScript] = await Promise.all([
+  const [html, installScript, commandPromptInstallScript, powerShellInstallScript] = await Promise.all([
     response.text(),
     readFile(new URL("../dist/client/install.sh", import.meta.url), "utf8"),
+    readFile(new URL("../dist/client/install.cmd", import.meta.url), "utf8"),
     readFile(new URL("../dist/client/install.ps1", import.meta.url), "utf8"),
   ]);
   assert.match(html, /Install Relmio for n8n/);
@@ -94,30 +95,47 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
     html,
     /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/,
   );
+  assert.doesNotMatch(html, /brew install Demonbane18\/relmio\/relmio/);
+  assert.doesNotMatch(html, /winget install --exact --id Demonbane18\.Relmio/);
+  assert.match(html, /Homebrew tap publication/);
+  assert.match(html, /WinGet catalog approval/);
   assert.match(
     html,
     /irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex/,
   );
   assert.match(
     html,
-    /&quot;%SystemRoot%\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe&quot; -NoProfile -ExecutionPolicy Bypass -Command &quot;irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex&quot;/,
+    /for \/f &quot;delims=&quot; %F/,
   );
+  assert.match(html, /relmio-install-%RANDOM%-%RANDOM%-%RANDOM%\.cmd/);
+  assert.match(html, /--remove-on-error/);
+  assert.match(html, /RELMIO_SELF_DELETE=%~F/);
+  assert.doesNotMatch(html, /-o install\.cmd/);
   assert.match(html, /npx --yes --ignore-scripts relmio@latest/);
-  assert.match(html, /role="tablist"[^>]*aria-label="Local terminal"/);
+  assert.match(html, /role="tablist"[^>]*aria-label="Installation method"/);
   assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>[^<]*macOS \/ Linux/);
+  assert.doesNotMatch(html, /role="tab"[^>]*>[^<]*Homebrew/);
+  assert.doesNotMatch(html, /role="tab"[^>]*>[^<]*WinGet/);
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*PowerShell/);
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*CMD/);
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*NPX/);
   assert.match(html, /macOS, Linux, WSL, or Git Bash/);
   assert.match(html, /No Git Bash or preinstalled Node\.js required/);
   assert.match(html, /Open Command Prompt, not PowerShell/);
+  assert.match(html, /PowerShell-free, non-admin bootstrap/);
   assert.match(html, /NPX requires Node\.js 22 or newer/);
+  assert.match(html, /commands will appear[^<]*only after each public package/);
   assert.match(html, /Copy installation command/);
+  assert.match(html, /Choose an installation method/);
   assert.match(html, /Run this on your own computer/);
   assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
   assert.match(installScript, /^#!\/bin\/sh/m);
   assert.match(installScript, /Node\.js download checksum did not match/);
   assert.match(installScript, /--ignore-scripts relmio@latest/);
+  assert.doesNotMatch(commandPromptInstallScript, /powershell|pwsh/iu);
+  assert.match(commandPromptInstallScript, /certutil\.exe/u);
+  assert.match(commandPromptInstallScript, /Node\.js download checksum did not match/u);
+  assert.match(commandPromptInstallScript, /--ignore-scripts relmio@latest/u);
   assert.match(powerShellInstallScript, /Get-FileHash/);
   assert.match(powerShellInstallScript, /Node\.js download checksum did not match/);
   assert.match(powerShellInstallScript, /--ignore-scripts/);

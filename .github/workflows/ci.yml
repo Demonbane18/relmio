@@ -123,8 +123,11 @@ jobs:
             throw "Windows PowerShell 5.1 could not parse install.ps1."
           }
 
-      - name: Test the native Windows bootstrap
+      - name: Test the native Windows PowerShell bootstrap
         run: node --test test/install-powershell-script.test.js
+
+      - name: Test the native Windows Command Prompt bootstrap
+        run: node --test test/install-cmd-script.test.js
 
       - name: Test the native Windows browser launcher
         run: node --test test/browser.test.js
