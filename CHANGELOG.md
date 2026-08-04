@@ -7,6 +7,18 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.12] - 2026-08-04
+
+### Fixed
+
+- Install the pinned `openai-oauth@2.0.0` helper with its exact compatible
+  `zod@4.1.8` peer even when inherited npm settings omit peer dependencies,
+  preventing the Windows sign-in helper from exiting before it prints a URL.
+- Accept the same strictly validated authorization line from either helper
+  output stream, including Windows terminal framing and final drained output.
+- Run npm package builds through the current Node.js runtime on Windows instead
+  of executing `npm.cmd` directly with `shell: false`.
+
 ## [0.2.11] - 2026-08-04
 
 ### Fixed

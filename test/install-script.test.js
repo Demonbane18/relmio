@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+  access,
   chmod,
   copyFile,
   mkdir,
@@ -12,7 +13,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -25,6 +26,40 @@ const gitBashShell =
   process.platform === "win32"
     ? process.env.RELMIO_TEST_POSIX_SHELL
     : "/bin/sh";
+
+async function resolveGitBashShell() {
+  if (
+    process.platform !== "win32" ||
+    !gitBashShell ||
+    isAbsolute(gitBashShell)
+  ) {
+    return gitBashShell;
+  }
+
+  const { stdout } = await execFileAsync("git", ["--exec-path"]);
+  const gitRoot = resolve(stdout.trim(), "..", "..", "..");
+  const shellPath = join(gitRoot, "bin", `${gitBashShell}.exe`);
+  await access(shellPath);
+  return shellPath;
+}
+
+function toGitBashPath(value) {
+  if (process.platform !== "win32") {
+    return value;
+  }
+
+  const normalized = value.replaceAll("\\", "/");
+  const drive = normalized.match(/^([A-Za-z]):\/?(.*)$/u);
+  return drive ? `/${drive[1].toLowerCase()}/${drive[2]}` : normalized;
+}
+
+function toGitBashPathList(value) {
+  if (process.platform !== "win32") {
+    return value;
+  }
+
+  return value.split(delimiter).map(toGitBashPath).join(":");
+}
 
 async function writeExecutable(path, contents) {
   await writeFile(path, contents, "utf8");
@@ -103,10 +138,18 @@ async function createGitBashBootstrapEnvironment() {
   const fakeBin = join(root, "bin");
   const bootstrapTemp = join(root, "tmp");
   const log = join(root, "invocation.log");
+  const bashEnvironment = join(root, "bash-environment");
   const fixture = await createWindowsNodeFixture(root);
 
   await mkdir(fakeBin);
   await mkdir(bootstrapTemp);
+  if (process.platform === "win32") {
+    await writeFile(
+      bashEnvironment,
+      `PATH="${toGitBashPath(fakeBin)}:$PATH"\nexport PATH\n`,
+      "utf8",
+    );
+  }
   await writeExecutable(join(fakeBin, "node"), '#!/bin/sh\nprintf "18\\n"\n');
   await writeExecutable(
     join(fakeBin, "uname"),
@@ -180,8 +223,11 @@ cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
     root,
     env: {
       ...process.env,
-      PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
-      TMPDIR: bootstrapTemp,
+      PATH: `${toGitBashPath(fakeBin)}:${toGitBashPathList(process.env.PATH)}`,
+      TMPDIR: toGitBashPath(bootstrapTemp),
+      ...(process.platform === "win32"
+        ? { BASH_ENV: toGitBashPath(bashEnvironment) }
+        : {}),
       RELMIO_TEST_ARCHIVE: fixture.archive,
       RELMIO_TEST_LOG: log,
       RELMIO_TEST_MANIFEST: fixture.manifest,
@@ -326,9 +372,10 @@ test(
   { skip: !gitBashShell },
   async (t) => {
     const setup = await createGitBashBootstrapEnvironment();
+    const shell = await resolveGitBashShell();
     t.after(() => rm(setup.root, { recursive: true, force: true }));
 
-    const { stdout } = await execFileAsync(gitBashShell, [installScript], {
+    const { stdout } = await execFileAsync(shell, [installScript], {
       env: setup.env,
     });
     const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");

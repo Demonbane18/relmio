@@ -10,14 +10,47 @@ import {
   rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 const defaultOutputDirectory = join(sourceRoot, "dist", "npm");
+
+export function resolveNpmInvocation({
+  env = process.env,
+  execPath = process.execPath,
+  platform = process.platform,
+} = {}) {
+  if (platform !== "win32") {
+    return { command: "npm", prefixArgs: [] };
+  }
+
+  const npmExecPathKey = Object.keys(env ?? {}).find(
+    (key) => key.toLowerCase() === "npm_execpath",
+  );
+  const npmExecPath =
+    npmExecPathKey === undefined ? undefined : env[npmExecPathKey];
+  let npmCliPath;
+
+  if (typeof npmExecPath === "string") {
+    if (/(?:^|[\\/])npm-cli\.js$/iu.test(npmExecPath)) {
+      npmCliPath = resolve(npmExecPath);
+    } else if (/(?:^|[\\/])npx-cli\.js$/iu.test(npmExecPath)) {
+      npmCliPath = resolve(dirname(npmExecPath), "npm-cli.js");
+    }
+  }
+
+  return {
+    command: execPath,
+    // Windows cannot execute npm.cmd directly with shell:false.
+    prefixArgs: [
+      npmCliPath ??
+        resolve(dirname(execPath), "node_modules", "npm", "bin", "npm-cli.js"),
+    ],
+  };
+}
 
 async function copyPublishEntry({ entry, stagingDirectory }) {
   const source = join(sourceRoot, entry);
@@ -61,9 +94,11 @@ export async function buildNpmPackage({
     const expectedPath = join(outputDirectory, expectedFilename);
     await rm(expectedPath, { force: true });
 
+    const npmInvocation = resolveNpmInvocation();
     const { stdout } = await execFileAsync(
-      npmCommand,
+      npmInvocation.command,
       [
+        ...npmInvocation.prefixArgs,
         "pack",
         stagingDirectory,
         "--json",
