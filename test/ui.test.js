@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 
 import { formatAuthUpdatedAt } from "../src/ui/time.js";
 
@@ -19,6 +20,7 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   const html = await readFile("src/ui/index.html", "utf8");
 
   assert.match(html, /<html lang="en">/);
+  assert.match(html, /<body data-current-step="1">/u);
   assert.match(html, /<title>Relmio \| n8n Setup<\/title>/u);
   assert.match(html, /class="brand-mark"[\s\S]*<span>Relmio<\/span>/u);
   assert.match(html, /class="theme-picker"/u);
@@ -38,8 +40,20 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   assert.match(html, /class="skip-link"/);
   assert.match(html, /Back up first/);
   assert.match(html, /Export your n8n workflows before connecting/);
-  assert.match(html, /role="status"/);
-  assert.match(html, /role="alert" tabindex="-1"/);
+  assert.match(
+    html,
+    /class="toast-stack" aria-label="Wizard notifications"[\s\S]*id="global-safety"[\s\S]*id="global-backup"[\s\S]*id="global-message"[\s\S]*id="global-error"/u,
+  );
+  assert.match(html, /id="global-message"[\s\S]*role="status"/u);
+  assert.match(html, /id="global-error"[\s\S]*role="alert"\s+tabindex="-1"/u);
+  assert.equal(
+    (html.match(/class="toast-close"/gu) ?? []).length,
+    4,
+  );
+  assert.match(html, /data-dismiss-toast="global-safety"/u);
+  assert.match(html, /data-dismiss-toast="global-backup"/u);
+  assert.match(html, /data-dismiss-toast="global-message"/u);
+  assert.match(html, /data-dismiss-toast="global-error"/u);
   assert.match(
     html,
     /id="auth-updated"[^>]*hidden[\s\S]*<time id="auth-updated-time"><\/time>/,
@@ -66,6 +80,29 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     html,
     /data-copy-target="result-http-url"[\s\S]*aria-label="Copy HTTP endpoint"/,
   );
+  assert.match(
+    html,
+    /data-copy-target="result-http-body"[\s\S]*aria-label="Copy HTTP JSON body"/,
+  );
+  assert.match(html, /id="copy-settings"[\s\S]*data-copy-group="credential"/u);
+  assert.match(html, /id="copy-http-recipe"[\s\S]*data-copy-group="http"/u);
+  assert.equal(
+    (html.match(/<details class="recipe-disclosure">/gu) ?? []).length,
+    2,
+  );
+  assert.match(
+    html,
+    /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*AI Agent or Basic LLM Chain/u,
+  );
+  assert.match(
+    html,
+    /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*HTTP Request node/u,
+  );
+  assert.match(html, /<dt>Method<\/dt>[\s\S]*<code>POST<\/code>/u);
+  assert.match(html, /Authorization[\s\S]*Bearer local-only/u);
+  assert.match(html, /Content-Type[\s\S]*application\/json/u);
+  assert.match(html, /Authentication[\s\S]*None/u);
+  assert.match(html, /id="result-http-body"/u);
   assert.match(html, /OpenAI credential[\s\S]*OpenAI Chat Model/u);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /\sonclick=/i);
@@ -89,15 +126,82 @@ test("browser code never uses innerHTML or web storage for credentials", async (
   assert.match(app, /installAttempted/);
   assert.match(app, /status\.previewMode/);
   assert.match(app, /Preview sign-in disabled/);
-  assert.match(app, /querySelectorAll\("\[data-copy-target\]"\)/);
+  assert.match(
+    app,
+    /querySelectorAll\(\s*"\[data-copy-target\], \[data-copy-group\]",?\s*\)/u,
+  );
   assert.match(app, /async function copyText\(value\)/);
-  assert.match(app, /navigator\.clipboard\.writeText\(value\)/);
+  assert.match(app, /textarea\.focus\(\)/);
+  assert.match(app, /textarea\.select\(\)/);
+  assert.match(app, /textarea\.setSelectionRange\?\.\(0, textarea\.value\.length\)/);
   assert.match(app, /document\.execCommand\("copy"\)/);
   assert.match(
     app,
-    /try \{[\s\S]*document\.execCommand\("copy"\)[\s\S]*finally \{[\s\S]*textarea\.remove\(\)[\s\S]*previouslyFocused\?\.focus\?\.\(\)/u,
+    /const textarea = document\.createElement\("textarea"\);[\s\S]*textarea\.focus\(\);[\s\S]*textarea\.select\(\);[\s\S]*textarea\.setSelectionRange\?\.\(0, textarea\.value\.length\);[\s\S]*document\.execCommand\("copy"\)[\s\S]*finally \{[\s\S]*textarea\.remove\(\);[\s\S]*previouslyFocused\?\.focus\?\.\(\);[\s\S]*if \(copied\) \{[\s\S]*navigator\.clipboard\.writeText\(value\)/u,
   );
+  assert.match(
+    app,
+    /JSON\.stringify\(\s*\{[\s\S]*input: "Reply with exactly: bridge works"/u,
+  );
+  assert.match(app, /function dismissToast\(toast\)/u);
+  assert.match(app, /document\.body\.dataset\.currentStep = String\(step\)/u);
+  assert.match(
+    app,
+    /if \(step === 5\) \{[\s\S]*dismissToast\(element\("global-safety"\)\);[\s\S]*dismissToast\(element\("global-backup"\)\);/u,
+  );
+  assert.match(app, /window\.setTimeout\([\s\S]*dismissToast\(messageToast\)/u);
+  assert.match(app, /data-dismiss-toast/u);
   assert.doesNotMatch(app, /"Use Responses API: on"/u);
+});
+
+test("copy success survives the browser clearing event.currentTarget", async () => {
+  const app = await readFile("src/ui/app.js", "utf8");
+  const functionStart = app.indexOf("function createCopyClickHandler(");
+  const functionEnd = app.indexOf("\n}\n\nconst handleCopyClick", functionStart);
+
+  assert.notEqual(functionStart, -1);
+  assert.notEqual(functionEnd, -1);
+
+  const functionSource = app.slice(functionStart, functionEnd + 2);
+  const createCopyClickHandler = vm.runInNewContext(
+    `${functionSource}; createCopyClickHandler`,
+  );
+  const button = { dataset: { copyLabel: "Base URL" } };
+  const event = { currentTarget: button };
+  const calls = [];
+  const handler = createCopyClickHandler({
+    copyValueFor(copyButton) {
+      assert.equal(copyButton, button);
+      return "http://n8n-openai-oauth:10531/v1";
+    },
+    clearError() {
+      calls.push("clear-error");
+    },
+    async copyText(value) {
+      calls.push(["copy", value]);
+      await Promise.resolve();
+    },
+    flashCopied(copyButton) {
+      calls.push(["flash", copyButton]);
+    },
+    setMessage(message) {
+      calls.push(["message", message]);
+    },
+    showError(error) {
+      calls.push(["error", error.message]);
+    },
+  });
+
+  const completion = handler(event);
+  event.currentTarget = null;
+  await completion;
+
+  assert.deepEqual(calls, [
+    "clear-error",
+    ["copy", "http://n8n-openai-oauth:10531/v1"],
+    ["flash", button],
+    ["message", "Base URL copied."],
+  ]);
 });
 
 test("local OAuth prepares and navigates its popup before severing opener access", async () => {

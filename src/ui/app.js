@@ -13,8 +13,16 @@ const state = {
 };
 
 const element = (id) => document.getElementById(id);
-const message = element("global-message");
+const messageToast = element("global-message");
+const message = element("global-message-text");
 const errorBox = element("global-error");
+const errorMessage = element("global-error-text");
+const toastTimers = new WeakMap();
+
+function dismissToast(toast) {
+  window.clearTimeout(toastTimers.get(toast));
+  toast.hidden = true;
+}
 
 function resetFingerprint() {
   state.fingerprint = null;
@@ -26,18 +34,24 @@ function resetFingerprint() {
 }
 
 function setMessage(text) {
+  messageToast.hidden = false;
   message.textContent = text;
+  window.clearTimeout(toastTimers.get(messageToast));
+  toastTimers.set(
+    messageToast,
+    window.setTimeout(() => dismissToast(messageToast), 6_000),
+  );
 }
 
 function showError(error) {
-  errorBox.textContent = error.message ?? "Something went wrong.";
+  errorMessage.textContent = error.message ?? "Something went wrong.";
   errorBox.hidden = false;
   errorBox.focus();
 }
 
 function clearError() {
   errorBox.hidden = true;
-  errorBox.textContent = "";
+  errorMessage.textContent = "";
 }
 
 function setBusy(button, busy, busyText) {
@@ -68,31 +82,123 @@ function flashCopied(button) {
 }
 
 async function copyText(value) {
+  const previouslyFocused = document.activeElement;
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.readOnly = true;
+  textarea.setAttribute("aria-hidden", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+
+  let copied = false;
   try {
-    await navigator.clipboard.writeText(value);
-    return;
-  } catch {
-    const previouslyFocused = document.activeElement;
-    const textarea = document.createElement("textarea");
-    textarea.value = value;
-    textarea.readOnly = true;
-    textarea.setAttribute("aria-hidden", "true");
-    textarea.style.position = "fixed";
-    textarea.style.opacity = "0";
     document.body.append(textarea);
+    textarea.focus();
     textarea.select();
-    let copied = false;
+    textarea.setSelectionRange?.(0, textarea.value.length);
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    textarea.remove();
+    previouslyFocused?.focus?.();
+  }
+
+  if (copied) {
+    return;
+  }
+
+  if (navigator.clipboard?.writeText) {
     try {
-      copied = document.execCommand("copy");
-    } finally {
-      textarea.remove();
-      previouslyFocused?.focus?.();
-    }
-    if (!copied) {
-      throw new Error("The browser refused clipboard access.");
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // The generic error below avoids exposing copied configuration values.
     }
   }
+
+  throw new Error("The browser refused clipboard access.");
 }
+
+function renderHttpRequestBody(model) {
+  element("result-http-body").textContent = JSON.stringify(
+    {
+      model,
+      input: "Reply with exactly: bridge works",
+    },
+    null,
+    2,
+  );
+}
+
+function copyCredentialSettings() {
+  return [
+    `Base URL: ${element("result-url").textContent}`,
+    `API Key: ${element("result-key").textContent}`,
+    "Organization ID: leave empty",
+    "Add Custom Header: off",
+  ].join("\n");
+}
+
+function copyHttpRecipe() {
+  return [
+    "Method: POST",
+    `URL: ${element("result-http-url").textContent}`,
+    "Authorization: Bearer local-only",
+    "Content-Type: application/json",
+    "Authentication: None",
+    "JSON body:",
+    element("result-http-body").textContent,
+  ].join("\n");
+}
+
+function copyValueFor(button) {
+  if (button.dataset.copyTarget) {
+    return element(button.dataset.copyTarget).textContent;
+  }
+  if (button.dataset.copyGroup === "credential") {
+    return copyCredentialSettings();
+  }
+  if (button.dataset.copyGroup === "http") {
+    return copyHttpRecipe();
+  }
+  return "";
+}
+
+function createCopyClickHandler({
+  copyValueFor,
+  clearError,
+  copyText,
+  flashCopied,
+  setMessage,
+  showError,
+}) {
+  return async function handleCopyClick(event) {
+    const button = event.currentTarget;
+    const label = button.dataset.copyLabel;
+    const value = copyValueFor(button);
+    clearError();
+    try {
+      if (!value) {
+        throw new Error("No displayed value is available to copy.");
+      }
+      await copyText(value);
+      flashCopied(button);
+      setMessage(`${label} copied.`);
+    } catch {
+      showError(new Error(`Copy failed. Select the ${label} manually.`));
+    }
+  };
+}
+
+const handleCopyClick = createCopyClickHandler({
+  copyValueFor,
+  clearError,
+  copyText,
+  flashCopied,
+  setMessage,
+  showError,
+});
 
 const delay = (milliseconds) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
@@ -126,6 +232,11 @@ async function waitForOAuthCompletion() {
 
 function showStep(step) {
   state.step = step;
+  document.body.dataset.currentStep = String(step);
+  if (step === 5) {
+    dismissToast(element("global-safety"));
+    dismissToast(element("global-backup"));
+  }
   for (const panel of document.querySelectorAll("[data-step]")) {
     const active = Number(panel.dataset.step) === step;
     panel.hidden = !active;
@@ -483,10 +594,12 @@ element("install-button").addEventListener("click", async (event) => {
     });
     element("result-url").textContent = result.baseUrl;
     element("result-key").textContent = result.apiKeyPlaceholder;
-    element("result-model").textContent = result.models[0] ?? "";
+    const firstModel = result.models[0] ?? "Not detected";
+    element("result-model").textContent = firstModel;
     element("result-models").textContent = result.models.join(", ");
     element("result-http-url").textContent =
       `${result.baseUrl.replace(/\/$/u, "")}/responses`;
+    renderHttpRequestBody(firstModel);
     showStep(5);
     setMessage(
       result.deploymentMode === "updated"
@@ -500,36 +613,15 @@ element("install-button").addEventListener("click", async (event) => {
   }
 });
 
-element("copy-settings").addEventListener("click", async (event) => {
-  const settings = [
-    `Base URL: ${element("result-url").textContent}`,
-    `API Key: ${element("result-key").textContent}`,
-    "Organization ID: leave empty",
-    "Add Custom Header: off",
-  ].join("\n");
-  clearError();
-  try {
-    await copyText(settings);
-    flashCopied(event.currentTarget);
-    setMessage("OpenAI credential settings copied.");
-  } catch {
-    showError(new Error("Copy failed. Select the values manually."));
-  }
-});
+for (const button of document.querySelectorAll(
+  "[data-copy-target], [data-copy-group]",
+)) {
+  button.addEventListener("click", handleCopyClick);
+}
 
-for (const button of document.querySelectorAll("[data-copy-target]")) {
-  button.addEventListener("click", async (event) => {
-    const target = element(event.currentTarget.dataset.copyTarget);
-    const label = event.currentTarget.dataset.copyLabel;
-    const value = target.textContent;
-    clearError();
-    try {
-      await copyText(value);
-      flashCopied(event.currentTarget);
-      setMessage(`${label} copied.`);
-    } catch {
-      showError(new Error(`Copy failed. Select the ${label} manually.`));
-    }
+for (const button of document.querySelectorAll("[data-dismiss-toast]")) {
+  button.addEventListener("click", (event) => {
+    dismissToast(element(event.currentTarget.dataset.dismissToast));
   });
 }
 
@@ -545,4 +637,5 @@ for (const button of document.querySelectorAll(".back-button")) {
   });
 }
 
+renderHttpRequestBody(element("result-model").textContent);
 refreshAuthStatus().catch(showError);
