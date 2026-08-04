@@ -308,7 +308,7 @@ OpenAI Platform API key or replace the local n8n setup wizard.
 </figure>
 
 The site's [Install wizard](https://relmio.vercel.app/install) page provides a
-clickable macOS/Linux, PowerShell, Command Prompt, and NPX switcher for the
+clickable macOS/Linux, Homebrew, PowerShell, Command Prompt, and NPX switcher for the
 current self-hosted n8n and Hostinger VPS setup path.
 
 ## Browser interface and theme modes

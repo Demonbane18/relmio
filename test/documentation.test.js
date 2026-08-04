@@ -44,7 +44,10 @@ test("README and manual guide copy the generated sidecar files exactly", async (
 });
 
 test("README keeps every local install path and layman diagrams visible", async () => {
-  const readme = await readFile("README.md", "utf8");
+  const [readme, npmReadme] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+  ]);
   const mermaidBlocks = readme.match(/```mermaid/gu) ?? [];
 
   assert.match(readme, /## Choose a setup path/u);
@@ -63,6 +66,12 @@ test("README keeps every local install path and layman diagrams visible", async 
   assert.match(readme, /The wizard is a convenience layer, not a requirement/u);
   assert.ok(mermaidBlocks.length >= 4);
   assert.doesNotMatch(readme, /—/u);
+  for (const guide of [readme, npmReadme]) {
+    assert.match(
+      guide,
+      /clickable macOS\/Linux, Homebrew, PowerShell, Command Prompt, and NPX (?:command )?switcher/u,
+    );
+  }
 });
 
 test("beginner documentation states the critical safety and product limits", async () => {

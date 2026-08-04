@@ -76,12 +76,21 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   const response = await requestApp("/install");
   assert.equal(response.status, 200);
 
-  const [html, installScript, commandPromptInstallScript, powerShellInstallScript] = await Promise.all([
+  const [html, installScript, commandPromptInstallScript, powerShellInstallScript, globalsCss] = await Promise.all([
     response.text(),
     readFile(new URL("../dist/client/install.sh", import.meta.url), "utf8"),
     readFile(new URL("../dist/client/install.cmd", import.meta.url), "utf8"),
     readFile(new URL("../dist/client/install.ps1", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
+  const desktopInstallTabsRule = globalsCss.match(
+    /\.install-method-tabs\s*\{(?<declarations>[^}]*)\}/u,
+  );
+  assert.ok(desktopInstallTabsRule, "expected desktop install tabs rule");
+  assert.match(
+    desktopInstallTabsRule.groups.declarations,
+    /grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\);/u,
+  );
   assert.match(html, /Install Relmio for n8n/);
   assert.match(html, /data-astryx-theme="relmio"/);
   assert.match(html, /aria-label="Color theme"/);

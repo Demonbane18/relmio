@@ -72,7 +72,7 @@ installing the private n8n sidecar.
 </figure>
 
 Use the site's [Install wizard](https://relmio.vercel.app/install) page for a
-clickable macOS/Linux, PowerShell, Command Prompt, and NPX command switcher
+clickable macOS/Linux, Homebrew, PowerShell, Command Prompt, and NPX command switcher
 tailored to the current self-hosted n8n and Hostinger VPS setup path.
 
 ### Browser interface and theme modes
