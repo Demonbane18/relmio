@@ -220,6 +220,7 @@ jobs:
           path: |
             .package-manager/candidates/
             .package-manager/relmio-*-windows-*.zip
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
@@ -278,6 +279,7 @@ jobs:
         with:
           name: homebrew-release-candidate-${{ github.run_id }}
           path: .homebrew-release-candidate/homebrew-tap/Formula/relmio.rb
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 

@@ -130,6 +130,22 @@ test("package-manager workflow builds review artifacts before release publicatio
     /,\s*$/u,
     "PowerShell multiline calls must not have a trailing comma",
   );
+  const windowsArtifactUpload = workflow.match(
+    /name: Seal reviewed package-manager candidates[\s\S]*?(?=\n\s+- name: Validate generated WinGet manifests)/u,
+  );
+  assert.ok(windowsArtifactUpload, "expected Windows artifact upload block");
+  assert.match(
+    windowsArtifactUpload[0],
+    /path:\s*\|[\s\S]*?\.package-manager\/candidates\/[\s\S]*?include-hidden-files:\s*true/u,
+  );
+  const homebrewArtifactUpload = workflow.match(
+    /name: Upload the registry-derived formula candidate[\s\S]*?(?=\n\s+publish-release-assets:)/u,
+  );
+  assert.ok(homebrewArtifactUpload, "expected Homebrew artifact upload block");
+  assert.match(
+    homebrewArtifactUpload[0],
+    /path:\s+\.homebrew-release-candidate\/homebrew-tap\/Formula\/relmio\.rb[\s\S]*?include-hidden-files:\s*true/u,
+  );
   assert.ok(
     workflow.indexOf("Seal reviewed package-manager candidates") <
       workflow.indexOf("Install-Module -Name Microsoft.WinGet.Client"),
