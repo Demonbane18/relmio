@@ -44,7 +44,10 @@ test("README and manual guide copy the generated sidecar files exactly", async (
 });
 
 test("README keeps every local install path and layman diagrams visible", async () => {
-  const readme = await readFile("README.md", "utf8");
+  const [readme, npmReadme] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+  ]);
   const mermaidBlocks = readme.match(/```mermaid/gu) ?? [];
 
   assert.match(readme, /## Choose a setup path/u);
@@ -63,6 +66,12 @@ test("README keeps every local install path and layman diagrams visible", async 
   assert.match(readme, /The wizard is a convenience layer, not a requirement/u);
   assert.ok(mermaidBlocks.length >= 4);
   assert.doesNotMatch(readme, /—/u);
+  for (const guide of [readme, npmReadme]) {
+    assert.match(
+      guide,
+      /clickable macOS\/Linux, Homebrew, PowerShell, Command Prompt, and NPX (?:command )?switcher/u,
+    );
+  }
 });
 
 test("beginner documentation states the critical safety and product limits", async () => {
@@ -122,7 +131,7 @@ test("Windows Command Prompt documentation uses the PowerShell-free native boots
   assert.match(troubleshooting, /validated manual link/u);
 });
 
-test("public guides hide package-manager commands until their catalogs are live", async () => {
+test("public guides expose the tested Homebrew tap while WinGet remains pending", async () => {
   const [readme, npmReadme, troubleshooting, maintainerGuide] = await Promise.all([
     readFile("README.md", "utf8"),
     readFile("npm/README.md", "utf8"),
@@ -131,13 +140,24 @@ test("public guides hide package-manager commands until their catalogs are live"
   ]);
 
   for (const guide of [readme, npmReadme, troubleshooting]) {
-    assert.doesNotMatch(guide, /brew install Demonbane18\/relmio\/relmio/u);
-    assert.doesNotMatch(guide, /winget install --exact --id Demonbane18\.Relmio/u);
-    assert.match(guide, /Homebrew tap publication/iu);
-    assert.match(guide, /WinGet catalog approval/iu);
+    assert.match(
+      guide,
+      /brew tap Demonbane18\/relmio && brew install relmio/u,
+    );
+    assert.doesNotMatch(guide, /\bwinget install\b/iu);
+    assert.match(guide, /Homebrew is available/iu);
+    assert.match(guide, /WinGet\s+command.*hidden/iu);
   }
   assert.match(maintainerGuide, /exact\s+immutable tarball downloaded back from the registry/iu);
+  assert.match(maintainerGuide, /Demonbane18\/homebrew-relmio/u);
+  assert.match(maintainerGuide, /6c8038f/u);
+  assert.match(maintainerGuide, /30905921073/u);
   assert.match(maintainerGuide, /Demonbane18\.Relmio/u);
+  assert.match(maintainerGuide, /WinGet manifest pull request.*submitted/iu);
+  assert.match(
+    maintainerGuide,
+    /pending\s+review, merge, and catalog propagation/iu,
+  );
 });
 
 test("n8n configuration guide provides copy-paste model and HTTP recipes", async () => {

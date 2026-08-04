@@ -2,7 +2,8 @@
 
 This directory prepares reviewable candidates. It does not publish a Homebrew
 formula, upload a GitHub Release asset, create a WinGet pull request, or make
-`brew install relmio` / `winget install Demonbane18.Relmio` available.
+external catalog decisions. Those actions happen in the separate tap and
+catalog repositories.
 
 ## Homebrew
 
@@ -21,6 +22,14 @@ registry and confirm its SHA-256 matches the generated formula. Then validate
 the candidate in the separate tap repository with Homebrew's current audit and
 source-install commands. There is no tap in this repository and no assumption
 that `homebrew/core` accepts the formula.
+
+### External status
+
+The external [`Demonbane18/homebrew-relmio`](https://github.com/Demonbane18/homebrew-relmio)
+tap is live at formula commit `6c8038f`. Its macOS workflow run `30905921073`
+passed the Homebrew audit, tap-qualified install, `relmio --version`, and
+`brew test` for Relmio 0.2.14. This repository generated the reviewed
+candidate; the external tap repository publishes and tests it.
 
 ## WinGet
 
@@ -50,6 +59,11 @@ validate` and the repository's Sandbox test against the generated directory,
 then submit exactly one version through a separate `winget-pkgs` pull request.
 The package is not available through WinGet until that pull request is merged
 and the catalog has updated.
+
+A WinGet manifest pull request has been submitted separately and is pending
+review, merge, and catalog propagation. This repository's generator does not
+submit that pull request or publish the catalog entry, and public documentation
+must keep the WinGet install command hidden until the catalog accepts it.
 
 ## Generate candidates
 

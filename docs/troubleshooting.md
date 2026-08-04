@@ -40,6 +40,12 @@ macOS, Linux, WSL, or Git Bash:
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
+Homebrew (macOS or Linux):
+
+```bash
+brew tap Demonbane18/relmio && brew install relmio
+```
+
 Windows PowerShell:
 
 ```powershell
@@ -59,8 +65,9 @@ temporary runtime and verifies its SHA-256 checksum before execution. The
 Command Prompt route is PowerShell-free, non-admin, and does not change Windows
 security policy.
 
-Homebrew tap publication and WinGet catalog approval are pending. Until each
-public package passes its real install test, use one of the direct bootstrap
+Homebrew is available from the public `Demonbane18/relmio` tap. The WinGet
+command stays hidden until Microsoft accepts its catalog pull request and the
+catalog updates. Until then, use Homebrew or one of the direct bootstrap
 commands on this page.
 
 If you choose the existing-Node fallback, confirm Node is version 22 or newer

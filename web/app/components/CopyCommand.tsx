@@ -16,6 +16,13 @@ const installMethods = [
     prompt: "$",
   },
   {
+    id: "homebrew",
+    label: "Homebrew",
+    command: "brew tap Demonbane18/relmio && brew install relmio",
+    note: "For macOS or Linux computers with Homebrew. It installs Relmio and its Node.js dependency.",
+    prompt: "$",
+  },
+  {
     id: "powershell",
     label: "PowerShell",
     command: "irm https://relmio.vercel.app/install.ps1 | iex",
