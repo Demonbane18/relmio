@@ -59,17 +59,26 @@ irm https://relmio.vercel.app/install.ps1 | iex
 ### Windows Command Prompt
 
 ```bat
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.vercel.app/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"
 ```
 
 These commands start the wizard without installing Node.js or Git Bash first.
-The open-source [POSIX](web/public/install.sh) and
-[Windows PowerShell](web/public/install.ps1) bootstraps reuse Node.js 22 or
-newer when it is already available. Otherwise they download the matching
-current official Node.js 22 runtime to a private temporary directory, verify
-its SHA-256 checksum, run Relmio with npm lifecycle scripts disabled, and
-remove the temporary runtime when the wizard closes. They do not install
-Node.js system-wide.
+The open-source [POSIX](web/public/install.sh), [Windows PowerShell](web/public/install.ps1),
+and [Command Prompt](web/public/install.cmd) bootstraps reuse Node.js 22 or
+newer when it is already available. Otherwise they show staged download,
+verification, and extraction messages while they download the matching current
+official Node.js 22 runtime to a private temporary directory, verify its
+SHA-256 checksum, run Relmio with npm lifecycle scripts disabled, and remove
+the temporary runtime when the wizard closes. They do not install Node.js
+system-wide.
+
+Homebrew tap publication and WinGet catalog approval are pending. Their install
+commands will be added here only after each public package passes a real
+package-manager installation test. Use a direct installer above today.
+
+The Command Prompt route is PowerShell-free, runs as the current user, and
+does not request administrator access or change Windows security policy. Keep
+the terminal open while its temporary-runtime stages say **Please wait**.
 
 Already have Node.js 22 or newer? You can use NPX instead:
 
@@ -346,8 +355,9 @@ you want to inspect, reproduce, improve, or debug the method, use
 - A local macOS, Linux, or Windows computer
 - On macOS/Linux/WSL/Git Bash: `curl`, `awk`, `tar`, and a SHA-256 tool
   (`sha256sum` or `shasum`); Git Bash also needs `unzip`
-- On native Windows: Windows PowerShell 5.1 or PowerShell 7; Command Prompt can
-  launch the included PowerShell bootstrap
+- On native Windows: Command Prompt uses its built-in `curl`, `certutil`, and
+  `tar` tools; Windows PowerShell 5.1 or PowerShell 7 remains an alternative
+  bootstrap
 - A browser and a ChatGPT account eligible to use the upstream Codex flow
 - A self-hosted n8n Docker container on a VPS
 - Docker Engine and Docker Compose v2 on the VPS
@@ -366,7 +376,7 @@ you will complete the browser sign-in.
 
 ### 1. Start the newest published wizard
 
-Choose the terminal already installed on your computer.
+Choose a terminal already installed on your computer.
 
 #### macOS, Linux, WSL, or Git Bash
 
@@ -383,13 +393,16 @@ irm https://relmio.vercel.app/install.ps1 | iex
 #### Windows Command Prompt
 
 ```bat
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.vercel.app/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"
 ```
 
 The POSIX and native Windows bootstraps use a supported Node.js installation
-when present. If Node.js is missing or older than 22, they download and verify
-a temporary official Node.js 22 runtime without installing it system-wide.
-Native Windows does not require Git Bash.
+when present. If Node.js is missing or older than 22, they show staged
+**Please wait** messages while they download and verify a temporary official
+Node.js 22 runtime without installing it system-wide. Native Windows does not
+require Git Bash; Command Prompt uses a PowerShell-free, non-admin bootstrap.
+Homebrew and WinGet release candidates are prepared separately. Their public
+commands remain hidden until the tap and catalog packages pass real installs.
 
 Anyone who already has [Node.js 22 or newer](https://nodejs.org/en/download)
 can run the npm package directly instead:

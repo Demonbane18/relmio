@@ -157,12 +157,12 @@ test("browser code never uses innerHTML or web storage for credentials", async (
 test("copy success survives the browser clearing event.currentTarget", async () => {
   const app = await readFile("src/ui/app.js", "utf8");
   const functionStart = app.indexOf("function createCopyClickHandler(");
-  const functionEnd = app.indexOf("\n}\n\nconst handleCopyClick", functionStart);
+  const functionEnd = app.indexOf("const handleCopyClick", functionStart);
 
   assert.notEqual(functionStart, -1);
   assert.notEqual(functionEnd, -1);
 
-  const functionSource = app.slice(functionStart, functionEnd + 2);
+  const functionSource = app.slice(functionStart, functionEnd).trimEnd();
   const createCopyClickHandler = vm.runInNewContext(
     `${functionSource}; createCopyClickHandler`,
   );

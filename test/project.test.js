@@ -98,7 +98,73 @@ test("trusted publishing uses short-lived GitHub OIDC credentials", async () => 
   assert.match(workflow, /npm@11\.13\.0/u);
   assert.match(workflow, /npm run package:build -- \.release/u);
   assert.match(workflow, /npm publish/u);
+  assert.match(workflow, /package-managers:[\s\S]*needs:[\s\S]*- publish/u);
+  assert.match(workflow, /uses: \.\/\.github\/workflows\/package-manager-candidates\.yml/u);
   assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/u);
+});
+
+test("hosted CMD installer is checked out with Windows line endings", async () => {
+  const attributes = await readFile(".gitattributes", "utf8");
+  assert.match(attributes, /^web\/public\/install\.cmd text eol=crlf$/mu);
+});
+
+test("package-manager workflow builds review artifacts before release publication", async () => {
+  const workflow = await readFile(
+    ".github/workflows/package-manager-candidates.yml",
+    "utf8",
+  );
+
+  assert.match(workflow, /pull_request:/u);
+  assert.match(workflow, /workflow_call:[\s\S]*release_tag:/u);
+  assert.match(workflow, /permissions:\s*\n\s+contents: read/u);
+  const wingetValidation = workflow.match(/^\s*winget validate [^\r\n]+$/mu);
+  assert.ok(wingetValidation, "expected WinGet validation command");
+  assert.equal(
+    wingetValidation[0].trim(),
+    String.raw`winget validate --disable-interactivity --ignore-warnings ".package-manager\candidates\winget-pkgs\manifests\d\Demonbane18\Relmio\$version"`,
+  );
+  assert.match(workflow, /relmio\.exe"\) --version/u);
+  assert.match(workflow, /RequiredVersion \$moduleVersion/u);
+  assert.match(workflow, /moduleVersion = "1\.12\.440"/u);
+  const checksumMatchInvocation = workflow.match(
+    /\[regex\]::Match\(([\s\S]*?)\n\s*\)/u,
+  );
+  assert.ok(checksumMatchInvocation, "expected checksum regex invocation");
+  assert.doesNotMatch(
+    checksumMatchInvocation[1],
+    /,\s*$/u,
+    "PowerShell multiline calls must not have a trailing comma",
+  );
+  const windowsArtifactUpload = workflow.match(
+    /name: Seal reviewed package-manager candidates[\s\S]*?(?=\n\s+- name: Validate generated WinGet manifests)/u,
+  );
+  assert.ok(windowsArtifactUpload, "expected Windows artifact upload block");
+  assert.match(
+    windowsArtifactUpload[0],
+    /path:\s*\|[\s\S]*?\.package-manager\/candidates\/[\s\S]*?include-hidden-files:\s*true/u,
+  );
+  const homebrewArtifactUpload = workflow.match(
+    /name: Upload the registry-derived formula candidate[\s\S]*?(?=\n\s+publish-release-assets:)/u,
+  );
+  assert.ok(homebrewArtifactUpload, "expected Homebrew artifact upload block");
+  assert.match(
+    homebrewArtifactUpload[0],
+    /path:\s+\.homebrew-release-candidate\/homebrew-tap\/Formula\/relmio\.rb[\s\S]*?include-hidden-files:\s*true/u,
+  );
+  assert.ok(
+    workflow.indexOf("Seal reviewed package-manager candidates") <
+      workflow.indexOf("Install-Module -Name Microsoft.WinGet.Client"),
+  );
+  assert.match(workflow, /registry\.npmjs\.org\/relmio\/-\/\$\{tarball\}/u);
+  assert.match(workflow, /publish-release-assets:[\s\S]*contents: write/u);
+  assert.match(workflow, /gh release upload/u);
+  assert.doesNotMatch(workflow, /pull_request_target/u);
+
+  const actionReferences = [...workflow.matchAll(/uses:\s+[^\s@]+@([^\s#]+)/gu)];
+  assert.ok(actionReferences.length >= 4);
+  for (const [, reference] of actionReferences) {
+    assert.match(reference, /^[a-f0-9]{40}$/u);
+  }
 });
 
 test("public README documents the latest npm walkthrough and sanitized images", async () => {

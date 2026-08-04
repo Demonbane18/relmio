@@ -99,7 +99,8 @@ trap cleanup EXIT HUP INT TERM
 manifest_path="$temporary_directory/SHASUMS256.txt"
 manifest_url="$node_dist_url/latest-v22.x/SHASUMS256.txt"
 
-say "Downloading a temporary Node.js 22 runtime."
+say "[1/4] Installing a temporary Node.js 22 runtime. Please wait; this does not install Node.js system-wide."
+say "[2/4] Downloading the official Node.js checksum manifest and runtime. Please wait..."
 download "$manifest_url" "$manifest_path" \
   || fail "Could not download the official Node.js checksum manifest."
 
@@ -156,6 +157,7 @@ archive_url="$node_dist_url/$node_version/$archive_name"
 download "$archive_url" "$archive_path" \
   || fail "Could not download the official Node.js runtime."
 
+say "[3/4] Verifying the Node.js SHA-256 checksum. Please wait..."
 if command -v sha256sum >/dev/null 2>&1; then
   actual_checksum="$(sha256sum "$archive_path" | awk '{ print $1 }')"
 elif command -v shasum >/dev/null 2>&1; then
@@ -167,7 +169,7 @@ fi
 [ "$actual_checksum" = "$expected_checksum" ] \
   || fail "Node.js download checksum did not match; nothing was executed."
 say "Verified Node.js download."
-
+say "[4/4] Extracting the verified temporary Node.js 22 runtime. Please wait..."
 if [ "$archive_extension" = "zip" ]; then
   unzip -q "$archive_path" -d "$temporary_directory"
   archive_root="${archive_name%.zip}"

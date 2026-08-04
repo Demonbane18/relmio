@@ -1,0 +1,315 @@
+name: Validate package-manager candidates
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/package-manager-candidates.yml"
+      - ".github/workflows/publish.yml"
+      - "package-lock.json"
+      - "package.json"
+      - "packaging/**"
+      - "src/**"
+      - "docs/**"
+      - "npm/README.md"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "LICENSE"
+      - "NOTICE"
+      - "SPEC.md"
+      - "scripts/build-npm-package.js"
+      - "scripts/build-winget-portable-package.js"
+      - "scripts/generate-package-manager-manifests.js"
+      - "test/package-manager.test.js"
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag whose npm publication already succeeded
+        required: false
+        type: string
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate local package-manager candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22.14.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install the repository npm version
+        shell: bash
+        run: |
+          npm install --global --ignore-scripts npm@10.9.8
+          test "$(npm --version)" = "10.9.8"
+
+      - name: Install pinned dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Check package-manager scripts and candidates
+        run: |
+          npm run lint
+          npm run release:check
+          node --test test/package-manager.test.js
+
+  windows-candidates:
+    name: Build Windows package-manager candidates
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the candidate
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22.14.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.14.0"
+          package-manager-cache: false
+
+      - name: Install the repository npm version
+        shell: pwsh
+        run: |
+          npm.cmd install --global --ignore-scripts npm@10.9.8
+          if ((npm.cmd --version) -ne "10.9.8") {
+            throw "The required npm version was not installed."
+          }
+
+      - name: Install pinned dependencies without lifecycle scripts
+        shell: pwsh
+        run: npm.cmd ci --ignore-scripts
+
+      - name: Download checksum-verified official Node.js Windows runtimes
+        id: node-runtimes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $nodeVersion = "22.14.0"
+          $baseUrl = "https://nodejs.org/dist/v$nodeVersion"
+          $workspace = Join-Path $PWD ".package-manager"
+          New-Item -ItemType Directory -Force -Path $workspace | Out-Null
+          $checksumPath = Join-Path $workspace "SHASUMS256.txt"
+          Invoke-WebRequest -Uri "$baseUrl/SHASUMS256.txt" -OutFile $checksumPath
+          $checksums = Get-Content -LiteralPath $checksumPath -Raw
+
+          foreach ($architecture in @("x64", "arm64")) {
+            $archiveName = "node-v$nodeVersion-win-$architecture.zip"
+            $archivePath = Join-Path $workspace $archiveName
+            $expected = [regex]::Match(
+              $checksums,
+              "(?m)^(?<hash>[a-f0-9]{64})\s+$([regex]::Escape($archiveName))\r?$"
+            )
+            if (-not $expected.Success) {
+              throw "No official checksum was found for $archiveName."
+            }
+            Invoke-WebRequest -Uri "$baseUrl/$archiveName" -OutFile $archivePath
+            $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expected.Groups["hash"].Value.ToLowerInvariant()) {
+              throw "The SHA-256 checksum did not match for $archiveName."
+            }
+            $destination = Join-Path $workspace "node-v$nodeVersion-win-$architecture"
+            Expand-Archive -LiteralPath $archivePath -DestinationPath $destination
+            "node_$architecture=$destination\node-v$nodeVersion-win-$architecture" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Compile x64 and ARM64 portable launchers
+        id: launchers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = Join-Path $PWD ".package-manager"
+          $launcherSource = Join-Path $PWD "packaging\winget\relmio-launcher.c"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path -LiteralPath $vswhere)) {
+            throw "Visual Studio discovery is unavailable on this hosted runner."
+          }
+          $visualStudio = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $visualStudio) {
+            throw "The hosted runner does not include the required MSVC toolchain."
+          }
+          $vcvarsall = Join-Path $visualStudio "VC\Auxiliary\Build\vcvarsall.bat"
+          if (-not (Test-Path -LiteralPath $vcvarsall)) {
+            throw "The hosted runner does not include vcvarsall.bat."
+          }
+
+          foreach ($target in @(
+            @{ Architecture = "x64"; VcvarsTarget = "x64" },
+            @{ Architecture = "arm64"; VcvarsTarget = "x64_arm64" }
+          )) {
+            $objectPath = Join-Path $workspace "relmio-launcher-$($target.Architecture).obj"
+            $launcherPath = Join-Path $workspace "relmio-launcher-$($target.Architecture).exe"
+            $command = "call `"$vcvarsall`" $($target.VcvarsTarget) && cl.exe /nologo /std:c17 /W4 /WX /O2 /DUNICODE /D_UNICODE /Fo`"$objectPath`" /Fe`"$launcherPath`" `"$launcherSource`" /link /SUBSYSTEM:CONSOLE Shell32.lib"
+            & cmd.exe /d /s /c $command
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $launcherPath)) {
+              throw "The hosted toolchain could not compile the $($target.Architecture) launcher."
+            }
+            "$($target.Architecture)_launcher=$launcherPath" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Build deterministic portable ZIP candidates
+        id: portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version"
+          if ($LASTEXITCODE -ne 0) {
+            throw "The release version could not be read."
+          }
+          $workspace = Join-Path $PWD ".package-manager"
+          foreach ($architecture in @("x64", "arm64")) {
+            $output = Join-Path $workspace "relmio-$version-windows-$architecture.zip"
+            if ($architecture -eq "x64") {
+              $launcher = "${{ steps.launchers.outputs.x64_launcher }}"
+              $runtime = "${{ steps.node-runtimes.outputs.node_x64 }}"
+            } else {
+              $launcher = "${{ steps.launchers.outputs.arm64_launcher }}"
+              $runtime = "${{ steps.node-runtimes.outputs.node_arm64 }}"
+            }
+            node scripts/build-winget-portable-package.js `
+              --architecture $architecture `
+              --launcher $launcher `
+              --node-runtime-dir $runtime `
+              --output $output
+            if ($LASTEXITCODE -ne 0) {
+              throw "The $architecture portable ZIP build failed."
+            }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Generate staged WinGet candidates
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $workspace = Join-Path $PWD ".package-manager"
+          $version = "${{ steps.portable.outputs.version }}"
+          node scripts/generate-package-manager-manifests.js `
+            --winget-x64 (Join-Path $workspace "relmio-$version-windows-x64.zip") `
+            --winget-arm64 (Join-Path $workspace "relmio-$version-windows-arm64.zip") `
+            --output-dir (Join-Path $workspace "candidates")
+
+      - name: Smoke-test the installed x64 portable command
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ steps.portable.outputs.version }}"
+          $smokeDirectory = Join-Path $PWD ".package-manager\smoke-x64"
+          Expand-Archive -LiteralPath ".package-manager\relmio-$version-windows-x64.zip" -DestinationPath $smokeDirectory
+          $output = & (Join-Path $smokeDirectory "relmio.exe") --version
+          if ($LASTEXITCODE -ne 0 -or $output -notmatch [regex]::Escape($version)) {
+            throw "The installed x64 relmio.exe --version smoke test failed."
+          }
+
+      - name: Seal reviewed package-manager candidates
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: package-manager-candidates-${{ github.run_id }}
+          path: |
+            .package-manager/candidates/
+            .package-manager/relmio-*-windows-*.zip
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Validate generated WinGet manifests
+        shell: pwsh
+        run: |
+          $moduleVersion = "1.12.440"
+          if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Install-Module -Name Microsoft.WinGet.Client -RequiredVersion $moduleVersion -Force -Repository PSGallery -Scope CurrentUser
+            Import-Module Microsoft.WinGet.Client -RequiredVersion $moduleVersion
+            Repair-WinGetPackageManager -Force -Latest
+          }
+          winget --version
+          $version = "${{ steps.portable.outputs.version }}"
+          winget validate --disable-interactivity --ignore-warnings ".package-manager\candidates\winget-pkgs\manifests\d\Demonbane18\Relmio\$version"
+
+  homebrew-release-candidate:
+    name: Generate Homebrew formula from the published npm artifact
+    if: inputs.release_tag != ''
+    needs:
+      - validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.release_tag }}
+
+      - name: Download the exact published npm tarball
+        shell: bash
+        run: |
+          set -eu
+          version="$(node -p "require('./package.json').version")"
+          tarball="relmio-${version}.tgz"
+          url="https://registry.npmjs.org/relmio/-/${tarball}"
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error --location "$url" --output "$tarball"; then
+              break
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "The published npm tarball did not become available in time." >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          test -s "$tarball"
+          node scripts/generate-package-manager-manifests.js \
+            --npm-tarball "$tarball" \
+            --output-dir .homebrew-release-candidate
+
+      - name: Upload the registry-derived formula candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: homebrew-release-candidate-${{ github.run_id }}
+          path: .homebrew-release-candidate/homebrew-tap/Formula/relmio.rb
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release-assets:
+    name: Attach verified Windows packages to the release
+    if: inputs.release_tag != ''
+    needs:
+      - validate
+      - windows-candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download the reviewed package artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: package-manager-candidates-${{ github.run_id }}
+          path: release-artifacts
+
+      - name: Attach immutable x64 and ARM64 packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -eu
+          test -f release-artifacts/relmio-*-windows-x64.zip
+          test -f release-artifacts/relmio-*-windows-arm64.zip
+          gh release upload "$RELEASE_TAG" \
+            release-artifacts/relmio-*-windows-x64.zip \
+            release-artifacts/relmio-*-windows-arm64.zip \
+            --repo "$GITHUB_REPOSITORY"

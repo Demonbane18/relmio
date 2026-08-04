@@ -7,6 +7,33 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.14] - 2026-08-04
+
+### Added
+
+- Add staged Homebrew formula and WinGet portable-package generation with
+  x64/ARM64 manifests, installed-command smoke tests, and review-only CI
+  artifacts for package-manager publication.
+- Add `relmio --version` and `relmio -v` for noninteractive installer and
+  package-manager verification.
+
+### Changed
+
+- Report Homebrew and WinGet publication status in the hosted install page and
+  documentation, while keeping unapproved commands out of the primary picker.
+
+### Fixed
+
+- Replace the hosted Command Prompt installer route's PowerShell launch with a
+  PowerShell-free, non-admin native batch bootstrap that reuses Node.js 22+
+  when available or verifies a pinned official Windows runtime before use.
+- Keep downloaded checksum-manifest text out of CMD evaluation and use reviewed
+  Node.js 22.23.2 x64/ARM64 digests embedded in the release.
+- Download the CMD bootstrap to a collision-resistant temporary name without
+  overwriting an existing `install.cmd`, then clean it after execution.
+- Show deterministic download, checksum-verification, and extraction stages in
+  every bootstrap so temporary Node.js runtime setup does not appear stalled.
+
 ## [0.2.13] - 2026-08-04
 
 ### Changed

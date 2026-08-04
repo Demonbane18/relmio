@@ -8,14 +8,14 @@ import { ThemeModeControl } from "../components/ThemeModeControl";
 export const metadata: Metadata = {
   title: "Install Relmio for n8n",
   description:
-    "Run the local Relmio wizard from macOS, Linux, PowerShell, or Command Prompt without installing Node.js first.",
+    "Install the local Relmio wizard with macOS/Linux, PowerShell, Command Prompt, or NPX.",
 };
 
 const steps = [
   {
     index: "01",
-    title: "Choose your terminal",
-    copy: "Use macOS/Linux, PowerShell, CMD, or NPX. Windows does not need Git Bash.",
+    title: "Choose an install method",
+    copy: "Use your local shell or NPX. Windows does not need Git Bash.",
   },
   {
     index: "02",
@@ -72,16 +72,24 @@ export default function InstallPage() {
           </p>
 
           <div className="install-command-stage" id="install-command">
-            <p>Choose your local terminal</p>
+            <p>Choose an installation method</p>
             <CopyCommand />
           </div>
 
           <p className="install-boundary">
+            <strong>Package-manager status:</strong> Homebrew tap publication
+            and WinGet catalog approval are pending. Their commands will appear
+            here only after each public package has passed its real install
+            test. Use a direct installer above today.
+          </p>
+
+          <p className="install-boundary">
             <strong>Run this on your own computer, not on the VPS.</strong>{" "}
-            The macOS/Linux and native Windows options reuse Node.js 22+ when
-            available, or download and verify a temporary official runtime.
-            NPX is for computers that already have Node.js 22 or newer. Relmio
-            does not edit, rebuild, or restart your existing n8n container.
+            The direct macOS/Linux and native Windows options reuse Node.js 22+
+            when available, or download and verify a temporary official
+            runtime. NPX is for computers that already have Node.js 22 or
+            newer. Relmio does not edit, rebuild, or restart your existing n8n
+            container.
           </p>
 
           <ol className="install-steps">

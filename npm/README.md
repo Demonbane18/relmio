@@ -105,16 +105,24 @@ irm https://relmio.vercel.app/install.ps1 | iex
 ### Windows Command Prompt
 
 ```bat
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.vercel.app/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"
 ```
 
 No Node.js or Git Bash installation is required first. The
 [POSIX](https://github.com/Demonbane18/relmio/blob/main/web/public/install.sh)
 and [Windows PowerShell](https://github.com/Demonbane18/relmio/blob/main/web/public/install.ps1)
-bootstraps reuse Node.js 22 or newer when available. Otherwise they download
-the matching current official Node.js 22 runtime to a private temporary
-directory, verify its SHA-256 checksum, run Relmio with npm lifecycle scripts
-disabled, and remove the temporary runtime when the wizard closes.
+bootstraps, plus the PowerShell-free [Command Prompt](https://github.com/Demonbane18/relmio/blob/main/web/public/install.cmd)
+bootstrap, reuse Node.js 22 or newer when available. Otherwise they show
+staged **Please wait** messages while they download the matching current
+official Node.js 22 runtime to a private temporary directory, verify its
+SHA-256 checksum, run Relmio with npm lifecycle scripts disabled, and remove
+the temporary runtime when the wizard closes. The Command Prompt path runs as
+the current user and does not request administrator access or change Windows
+security policy.
+
+Homebrew tap publication and WinGet catalog approval are pending. Their install
+commands will be added only after each public package passes a real
+package-manager installation test. Use a direct installer above today.
 
 Users who already have Node.js 22 or newer can run the npm package directly:
 
@@ -137,8 +145,9 @@ a browser.
 
 - On macOS/Linux/WSL/Git Bash: `curl`, `awk`, `tar`, and either `sha256sum` or
   `shasum`; Git Bash also needs `unzip`
-- On native Windows: Windows PowerShell 5.1 or PowerShell 7; Command Prompt can
-  launch the included PowerShell bootstrap
+- On native Windows: Command Prompt uses its built-in `curl`, `certutil`, and
+  `tar` tools; Windows PowerShell 5.1 or PowerShell 7 remains an alternative
+  bootstrap
 - A browser and an eligible ChatGPT/Codex account
 - A self-hosted n8n Docker deployment on a VPS
 - Docker Compose v2, SSH access, and a Docker network shared with n8n

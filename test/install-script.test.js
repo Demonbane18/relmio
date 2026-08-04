@@ -309,6 +309,7 @@ test(
   async (t) => {
     const root = await mkdtemp(join(tmpdir(), "relmio-installed-node-test-"));
     const fakeBin = join(root, "bin");
+    const downloadLog = join(root, "unexpected-download.log");
     const log = join(root, "invocation.log");
     t.after(() => rm(root, { recursive: true, force: true }));
 
@@ -321,12 +322,16 @@ test(
       join(fakeBin, "npx"),
       '#!/bin/sh\nprintf "%s\\n" "$@" > "$RELMIO_TEST_LOG"\n',
     );
-    await writeExecutable(join(fakeBin, "curl"), "#!/bin/sh\nexit 97\n");
+    await writeExecutable(
+      join(fakeBin, "curl"),
+      '#!/bin/sh\nprintf "curl\\n" >> "$RELMIO_TEST_DOWNLOAD_LOG"\nexit 97\n',
+    );
 
     const { stdout } = await execFileAsync("/bin/sh", [installScript], {
       env: {
         ...process.env,
         PATH: `${fakeBin}:${process.env.PATH}`,
+        RELMIO_TEST_DOWNLOAD_LOG: downloadLog,
         RELMIO_TEST_LOG: log,
       },
     });
@@ -337,6 +342,7 @@ test(
       "--ignore-scripts",
       "relmio@latest",
     ]);
+    await assert.rejects(readFile(downloadLog, "utf8"), { code: "ENOENT" });
   },
 );
 
@@ -352,7 +358,9 @@ test(
     });
     const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
 
-    assert.match(stdout, /Downloading a temporary Node\.js 22 runtime/u);
+    assert.match(stdout, /Installing a temporary Node\.js 22 runtime\. Please wait/u);
+    assert.match(stdout, /Verifying the Node\.js SHA-256 checksum\. Please wait/u);
+    assert.match(stdout, /Extracting the verified temporary Node\.js 22 runtime\. Please wait/u);
     assert.match(stdout, /Verified Node\.js download/u);
     assert.match(
       invocation[0],

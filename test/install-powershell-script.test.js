@@ -49,6 +49,9 @@ test("PowerShell installer validates the official Windows runtime before executi
   assert.match(script, /Expand-Archive/u);
   assert.match(script, /--ignore-scripts/u);
   assert.match(script, /relmio@latest/u);
+  assert.match(script, /Installing a temporary Node\.js 22 runtime\. Please wait/u);
+  assert.match(script, /Verifying the Node\.js SHA-256 checksum\. Please wait/u);
+  assert.match(script, /Extracting the verified temporary Node\.js 22 runtime\. Please wait/u);
   assert.doesNotMatch(script, /\bexit\b/iu);
 });
 
@@ -77,6 +80,7 @@ test(
 
     const root = await mkdtemp(join(tmpdir(), "relmio-powershell-test-"));
     const fakeBin = join(root, "bin");
+    const downloadLog = join(root, "unexpected-download.log");
     const log = join(root, "invocation.log");
     const wrapper = join(root, "invoke-installer.ps1");
     t.after(() => rm(root, { recursive: true, force: true }));
@@ -133,7 +137,7 @@ test(
       [
         '$ErrorActionPreference = "Continue"',
         '$ProgressPreference = "Continue"',
-        'function Invoke-WebRequest { throw "The test refused an unexpected download." }',
+        'function Invoke-WebRequest { Add-Content -LiteralPath $env:RELMIO_DOWNLOAD_LOG -Value "called"; throw "The test refused an unexpected download." }',
         'Invoke-Expression (Get-Content -LiteralPath $env:RELMIO_INSTALL_SCRIPT -Raw)',
         'Write-Output "PREFERENCES:$ErrorActionPreference/$ProgressPreference"',
         "",
@@ -149,6 +153,7 @@ test(
           ...process.env,
           PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
           RELMIO_INSTALL_SCRIPT: resolve(installScript),
+          RELMIO_DOWNLOAD_LOG: downloadLog,
           RELMIO_TEST_LOG: log,
         },
       },
@@ -161,5 +166,6 @@ test(
       "--ignore-scripts",
       "relmio@latest",
     ]);
+    await assert.rejects(readFile(downloadLog, "utf8"), { code: "ENOENT" });
   },
 );

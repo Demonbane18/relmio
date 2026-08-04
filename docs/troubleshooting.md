@@ -49,13 +49,19 @@ irm https://relmio.vercel.app/install.ps1 | iex
 Windows Command Prompt:
 
 ```bat
-"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "irm https://relmio.vercel.app/install.ps1 | iex"
+for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.vercel.app/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"
 ```
 
 These commands do not require Node.js to be installed. The Windows options do
 not require Git Bash. Each bootstrap reuses Node.js 22 or newer when available,
-or downloads an official temporary runtime and verifies its SHA-256 checksum
-before execution.
+or shows staged **Please wait** messages while it downloads an official
+temporary runtime and verifies its SHA-256 checksum before execution. The
+Command Prompt route is PowerShell-free, non-admin, and does not change Windows
+security policy.
+
+Homebrew tap publication and WinGet catalog approval are pending. Until each
+public package passes its real install test, use one of the direct bootstrap
+commands on this page.
 
 If you choose the existing-Node fallback, confirm Node is version 22 or newer
 and check the published package version first:
@@ -117,8 +123,10 @@ bypassed.
 | Symptom | Meaning | Fix |
 |---|---|---|
 | `node: command not found`, `node is not recognized`, or Node is older than 22 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
-| `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell, or the `"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile ...` command in Command Prompt. Git Bash is not required. |
-| A bootstrap reports a checksum mismatch | The Node.js download did not match the official SHA-256 manifest, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
+| `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell or the collision-safe temporary-file command shown above in Command Prompt. Git Bash is not required. If Command Prompt does not have `curl`, update Windows or use the PowerShell route. |
+| Command Prompt says it cannot create `powershell.exe` | A Windows policy denied PowerShell before the old CMD route could start its installer. | Use the current PowerShell-free Command Prompt command above. It downloads `install.cmd`, runs as your current user, and does not request elevation or change execution policy. |
+| The bootstrap stays on a `Please wait` stage | Node.js is missing or older than 22, so the bootstrap is downloading, checking, or extracting a temporary Node.js 22 runtime. | Keep the terminal open while the deterministic stage messages advance. The runtime is verified before it runs, is removed after the wizard exits, and is not installed system-wide. |
+| A bootstrap reports a checksum mismatch | The Node.js download did not match its reviewed official SHA-256 checksum, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
 | Windows PowerShell shows `[eval]:1` before the wizard starts | An older bootstrap passed a JavaScript expression through `node -p`; PowerShell native-argument handling can alter that expression. | Update to the latest `relmio@latest` and rerun the same PowerShell or Command Prompt command. The current bootstrap parses the literal `node --version` output and reuses Node.js 22 or newer. |
 | Windows reports `spawn EINVAL` when starting ChatGPT sign-in | An older wizard tried to execute `npx.cmd` directly; Windows requires the current Node runtime to launch npm's JavaScript CLI. | Update to the latest `relmio@latest` release and restart the setup command. The current wizard keeps the macOS/Linux/WSL/Git Bash `npx` path unchanged. |
 | The browser did not open | The automatic browser launch failed, but the local server may still be running. | Keep the newest terminal open and press Enter to ask an interactive wizard terminal to open it again. If the terminal is noninteractive or the launcher still fails, copy its newest `127.0.0.1` setup URL into the browser. Do not reuse a URL from a closed terminal. |
