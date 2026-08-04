@@ -27,9 +27,12 @@ test("README and manual guide copy the generated sidecar files exactly", async (
   );
 
   for (const guide of guides) {
-    assert.ok(guide.includes(createDockerfile().trim()));
+    const normalizedGuide = guide.replaceAll("\r\n", "\n");
+    assert.ok(normalizedGuide.includes(createDockerfile().trim()));
     assert.ok(
-      guide.includes(createComposeFile({ networkName: "proxy" }).trim()),
+      normalizedGuide.includes(
+        createComposeFile({ networkName: "proxy" }).trim(),
+      ),
     );
     assert.match(
       guide,

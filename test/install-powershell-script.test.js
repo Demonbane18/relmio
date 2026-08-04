@@ -143,7 +143,7 @@ test(
 
     const { stdout } = await execFileAsync(
       powershell,
-      ["-NoLogo", "-NoProfile", "-File", wrapper],
+      ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
       {
         env: {
           ...process.env,

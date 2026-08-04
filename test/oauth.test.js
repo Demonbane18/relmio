@@ -65,36 +65,40 @@ function createAuthorizationUrl({
 }
 
 test("resolveAuthPath uses wizard-only storage without exposing file contents", () => {
+  const configuredHomeDirectory = resolve("oauth-configured-home");
+  const defaultHomeDirectory = resolve("oauth-default-home");
   assert.equal(
     resolveAuthPath({
-      env: { N8N_OPENAI_OAUTH_HOME: "/safe/wizard" },
-      homeDirectory: "/home/user",
+      env: { N8N_OPENAI_OAUTH_HOME: configuredHomeDirectory },
+      homeDirectory: defaultHomeDirectory,
     }),
-    "/safe/wizard/auth.json",
+    resolve(configuredHomeDirectory, "auth.json"),
   );
   assert.equal(
     resolveAuthPath({
       env: { CODEX_HOME: "/must/not/be/reused" },
-      homeDirectory: "/home/user",
+      homeDirectory: defaultHomeDirectory,
     }),
-    "/home/user/.n8n-openai-oauth/auth.json",
+    resolve(defaultHomeDirectory, ".n8n-openai-oauth", "auth.json"),
   );
 });
 
 test("getAuthStatus reports the credential update time without its contents", async () => {
+  const homeDirectory = resolve("oauth-status-home");
+  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
   const fileSystem = createMemoryFileSystem({
-    "/home/user/.n8n-openai-oauth/auth.json": '{"fixture":true}',
+    [authPath]: '{"fixture":true}',
   });
 
   const status = await getAuthStatus({
     fileSystem,
     env: {},
-    homeDirectory: "/home/user",
+    homeDirectory,
   });
 
   assert.deepEqual(status, {
     exists: true,
-    path: "/home/user/.n8n-openai-oauth/auth.json",
+    path: authPath,
     updatedAt: "2026-07-28T01:11:01.000Z",
   });
   assert.equal(JSON.stringify(status).includes("fixture"), false);
@@ -118,6 +122,8 @@ test("readAuthContents rejects invalid or oversized credential files", async () 
 test("startOAuthLogin returns one validated link and stores the credential after completion", async () => {
   const calls = [];
   const files = {};
+  const homeDirectory = resolve("oauth-login-home");
+  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
   const fileSystem = createMemoryFileSystem(files);
   const spawnProcess = (command, args, options) => {
     const call = { command, args, options };
@@ -151,7 +157,7 @@ test("startOAuthLogin returns one validated link and stores the credential after
   const login = await startOAuthLogin({
     fileSystem,
     env: {},
-    homeDirectory: "/home/user",
+    homeDirectory,
     platform: "darwin",
     spawnProcess,
     createPendingId: () => "fixture",
@@ -166,22 +172,27 @@ test("startOAuthLogin returns one validated link and stores the credential after
   assert.deepEqual(calls[0].args, [
     "--yes",
     "--ignore-scripts",
-    "openai-oauth@2.0.0",
+    "--legacy-peer-deps=false",
+    "--include=peer",
+    "--package=openai-oauth@2.0.0",
+    "--package=zod@4.1.8",
+    "--",
+    "openai-oauth",
     "login",
     "--no-open",
     "--login-timeout-ms",
     "300000",
     "--oauth-file",
-    "/home/user/.n8n-openai-oauth/auth.json.pending-fixture",
+    `${authPath}.pending-fixture`,
   ]);
   assert.equal(calls[0].options.shell, false);
   assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
   assert.equal(
-    files["/home/user/.n8n-openai-oauth/auth.json"],
+    files[authPath],
     '{"fixture":true}',
   );
   assert.equal(
-    "/home/user/.n8n-openai-oauth/auth.json.pending-fixture" in files,
+    `${authPath}.pending-fixture` in files,
     false,
   );
 });
@@ -234,6 +245,43 @@ test("startOAuthLogin reads the supported CLI login line across ANSI, CRLF, and 
     login.authorizationUrl,
     /^https:\/\/auth\.openai\.com\/oauth\/authorize\?/u,
   );
+  assert.deepEqual(await login.completion, { success: true });
+});
+
+test("startOAuthLogin reads the supported Windows login line from stderr", async () => {
+  const files = {};
+  const fileSystem = createMemoryFileSystem(files);
+  const authorizationUrl = createAuthorizationUrl();
+  const spawnProcess = (_command, args) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {};
+    queueMicrotask(() => {
+      child.stderr.emit("data", Buffer.from("\u001B[2"));
+      child.stderr.emit(
+        "data",
+        Buffer.from(`KOpenAI OAuth login URL: ${authorizationUrl}\r`),
+      );
+      child.stderr.emit("data", Buffer.from("\n"));
+      const oauthFileIndex = args.indexOf("--oauth-file");
+      files[args[oauthFileIndex + 1]] = '{"stderr":true}';
+      finishChild(child, 0);
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem,
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    execPath: "C:\\portable\\node.exe",
+    spawnProcess,
+    createPendingId: () => "windows-stderr",
+  });
+
+  assert.equal(login.authorizationUrl, authorizationUrl.toString());
   assert.deepEqual(await login.completion, { success: true });
 });
 
@@ -483,7 +531,11 @@ test("startOAuthLogin uses the current Node runtime for Windows npm launchers", 
 
   const login = await startOAuthLogin({
     fileSystem,
-    env: { npm_execpath: npmExecPath },
+    env: {
+      npm_execpath: npmExecPath,
+      NPM_CONFIG_LEGACY_PEER_DEPS: "true",
+      NPM_CONFIG_OMIT: "peer",
+    },
     homeDirectory,
     platform: "win32",
     execPath,
@@ -496,7 +548,12 @@ test("startOAuthLogin uses the current Node runtime for Windows npm launchers", 
   assert.deepEqual(calls[0].args.slice(1), [
     "--yes",
     "--ignore-scripts",
-    "openai-oauth@2.0.0",
+    "--legacy-peer-deps=false",
+    "--include=peer",
+    "--package=openai-oauth@2.0.0",
+    "--package=zod@4.1.8",
+    "--",
+    "openai-oauth",
     "login",
     "--no-open",
     "--login-timeout-ms",
@@ -505,6 +562,8 @@ test("startOAuthLogin uses the current Node runtime for Windows npm launchers", 
     `${authPath}.pending-windows-fixture`,
   ]);
   assert.equal(calls[0].options.shell, false);
+  assert.equal(calls[0].options.env.NPM_CONFIG_LEGACY_PEER_DEPS, "true");
+  assert.equal(calls[0].options.env.NPM_CONFIG_OMIT, "peer");
   assert.deepEqual(await login.completion, { success: true });
   assert.equal(
     files[authPath],
@@ -559,6 +618,8 @@ test("startOAuthLogin saves a valid pending credential before the helper exits",
   let child;
   let pendingAuthPath;
   let pollCount = 0;
+  const homeDirectory = resolve("oauth-fresh-home");
+  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
   const spawnProcess = (_command, args) => {
     child = new EventEmitter();
     child.stdout = new EventEmitter();
@@ -587,7 +648,7 @@ test("startOAuthLogin saves a valid pending credential before the helper exits",
   const login = await startOAuthLogin({
     fileSystem: createMemoryFileSystem(files),
     env: {},
-    homeDirectory: "/home/user",
+    homeDirectory,
     platform: "darwin",
     spawnProcess,
     createPendingId: () => "fresh",
@@ -611,7 +672,7 @@ test("startOAuthLogin saves a valid pending credential before the helper exits",
     assert.deepEqual(result, { success: true });
     assert.equal(pollCount, 2);
     assert.equal(
-      files["/home/user/.n8n-openai-oauth/auth.json"],
+      files[authPath],
       '{"fresh":true}',
     );
   } finally {

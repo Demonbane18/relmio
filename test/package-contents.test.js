@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 
 import {
   buildNpmPackage,
+  resolveNpmInvocation,
   stageNpmPackage,
 } from "../scripts/build-npm-package.js";
 
 const execFileAsync = promisify(execFile);
-const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
 const expectedPackedFiles = new Set([
   "CHANGELOG.md",
@@ -113,6 +113,55 @@ const forbiddenContent = [
   },
 ];
 
+test("resolveNpmInvocation uses Node with npm-cli.js on Windows", () => {
+  assert.deepEqual(
+    resolveNpmInvocation({
+      env: {},
+      execPath: "/portable/node.exe",
+      platform: "darwin",
+    }),
+    { command: "npm", prefixArgs: [] },
+  );
+
+  assert.deepEqual(
+    resolveNpmInvocation({
+      env: { NPM_EXECPATH: "/custom/npm-cli.js" },
+      execPath: "/portable/node.exe",
+      platform: "win32",
+    }),
+    {
+      command: "/portable/node.exe",
+      prefixArgs: [resolve("/custom/npm-cli.js")],
+    },
+  );
+
+  assert.deepEqual(
+    resolveNpmInvocation({
+      env: { npm_execpath: "/custom/npx-cli.js" },
+      execPath: "/portable/node.exe",
+      platform: "win32",
+    }),
+    {
+      command: "/portable/node.exe",
+      prefixArgs: [resolve("/custom/npm-cli.js")],
+    },
+  );
+
+  assert.deepEqual(
+    resolveNpmInvocation({
+      env: {},
+      execPath: "/portable/node.exe",
+      platform: "win32",
+    }),
+    {
+      command: "/portable/node.exe",
+      prefixArgs: [
+        resolve("/portable", "node_modules", "npm", "bin", "npm-cli.js"),
+      ],
+    },
+  );
+});
+
 test("npm package contains only allowed files and every advertised local script", async (t) => {
   const workspaceDirectory = await mkdtemp(join(tmpdir(), "npm-pack-test-"));
   const cacheDirectory = join(workspaceDirectory, "cache");
@@ -121,9 +170,16 @@ test("npm package contains only allowed files and every advertised local script"
 
   await stageNpmPackage(stagingDirectory);
 
+  const npmInvocation = resolveNpmInvocation();
   const { stdout } = await execFileAsync(
-    npmCommand,
-    ["pack", "--dry-run", "--json", "--ignore-scripts"],
+    npmInvocation.command,
+    [
+      ...npmInvocation.prefixArgs,
+      "pack",
+      "--dry-run",
+      "--json",
+      "--ignore-scripts",
+    ],
     {
       cwd: stagingDirectory,
       env: { ...process.env, npm_config_cache: cacheDirectory },

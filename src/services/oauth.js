@@ -214,7 +214,12 @@ export async function startOAuthLogin({
   const args = [
     "--yes",
     "--ignore-scripts",
-    "openai-oauth@2.0.0",
+    "--legacy-peer-deps=false",
+    "--include=peer",
+    "--package=openai-oauth@2.0.0",
+    "--package=zod@4.1.8",
+    "--",
+    "openai-oauth",
     "login",
     "--no-open",
     "--login-timeout-ms",
@@ -279,11 +284,8 @@ export async function startOAuthLogin({
       return;
     }
     loginOutput[stream] += output;
-    if (stream !== "stdout") {
-      return;
-    }
     try {
-      const authorizationUrl = extractAuthorizationUrl(loginOutput.stdout);
+      const authorizationUrl = extractAuthorizationUrl(loginOutput[stream]);
       if (authorizationUrl) {
         settleAuthorizationUrl(null, authorizationUrl);
       }
@@ -325,9 +327,13 @@ export async function startOAuthLogin({
   child.once("close", (code) => {
     if (!authorizationUrlSettled) {
       try {
-        const authorizationUrl = extractAuthorizationUrl(loginOutput.stdout, {
-          includeFinalLine: true,
-        });
+        const authorizationUrl =
+          extractAuthorizationUrl(loginOutput.stdout, {
+            includeFinalLine: true,
+          }) ??
+          extractAuthorizationUrl(loginOutput.stderr, {
+            includeFinalLine: true,
+          });
         if (authorizationUrl) {
           settleAuthorizationUrl(null, authorizationUrl);
         } else {
