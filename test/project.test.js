@@ -124,6 +124,7 @@ test("package-manager workflow builds review artifacts before release publicatio
     String.raw`winget validate --disable-interactivity --ignore-warnings ".package-manager\candidates\winget-pkgs\manifests\d\Demonbane18\Relmio\$version"`,
   );
   assert.match(workflow, /relmio\.exe"\) --version/u);
+  assert.match(workflow, /RedirectStandardOutput = \$true[\s\S]*?needs an interactive terminal/u);
   assert.match(workflow, /RequiredVersion \$moduleVersion/u);
   assert.match(workflow, /moduleVersion = "1\.12\.440"/u);
   const checksumMatchInvocation = workflow.match(

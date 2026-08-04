@@ -290,7 +290,7 @@ async function copyDirectoryContents(source, target) {
   await mkdir(target, { recursive: true });
   const entries = await readdir(source, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name === ".package-lock.json") {
+    if (entry.name === ".package-lock.json" || entry.name === ".cache") {
       continue;
     }
     await cp(join(source, entry.name), join(target, entry.name), {

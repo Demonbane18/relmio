@@ -256,6 +256,7 @@ test("portable package bundles its runtime, launcher, package tree, and npx", as
     ),
     writeFixture(launcherPath, createPe(0x8664)),
     writeFixture(join(productionModules, "ssh2", "index.js"), "export class Client {}"),
+    writeFixture(join(productionModules, ".cache", "should-not-ship"), "cache"),
   ]);
   const stageFixturePackage = async (target) => {
     await writeFixture(join(target, "src", "cli.js"), "console.log('fixture');");
@@ -289,6 +290,7 @@ test("portable package bundles its runtime, launcher, package tree, and npx", as
   );
   assert.equal(entries.has("app/node_modules/relmio/src/cli.js"), true);
   assert.equal(entries.has("app/node_modules/ssh2/index.js"), true);
+  assert.equal(entries.has("app/node_modules/.cache/should-not-ship"), false);
 });
 
 test("portable packaging rejects a mismatched Windows executable architecture", () => {
