@@ -111,7 +111,7 @@ jobs:
             $archivePath = Join-Path $workspace $archiveName
             $expected = [regex]::Match(
               $checksums,
-              "(?m)^(?<hash>[a-f0-9]{64})\s+$([regex]::Escape($archiveName))\r?$",
+              "(?m)^(?<hash>[a-f0-9]{64})\s+$([regex]::Escape($archiveName))\r?$"
             )
             if (-not $expected.Success) {
               throw "No official checksum was found for $archiveName."

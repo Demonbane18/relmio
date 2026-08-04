@@ -121,6 +121,15 @@ test("package-manager workflow builds review artifacts before release publicatio
   assert.match(workflow, /relmio\.exe"\) --version/u);
   assert.match(workflow, /RequiredVersion \$moduleVersion/u);
   assert.match(workflow, /moduleVersion = "1\.12\.440"/u);
+  const checksumMatchInvocation = workflow.match(
+    /\[regex\]::Match\(([\s\S]*?)\n\s*\)/u,
+  );
+  assert.ok(checksumMatchInvocation, "expected checksum regex invocation");
+  assert.doesNotMatch(
+    checksumMatchInvocation[1],
+    /,\s*$/u,
+    "PowerShell multiline calls must not have a trailing comma",
+  );
   assert.ok(
     workflow.indexOf("Seal reviewed package-manager candidates") <
       workflow.indexOf("Install-Module -Name Microsoft.WinGet.Client"),
