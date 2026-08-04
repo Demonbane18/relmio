@@ -16,7 +16,7 @@
     <script src="/theme.js" type="module"></script>
     <script src="/app.js" type="module"></script>
   </head>
-  <body>
+  <body data-current-step="1">
     <a class="skip-link" href="#main-content">Skip to setup</a>
 
     <header class="site-header">
@@ -55,6 +55,83 @@
       </div>
     </header>
 
+    <div class="toast-stack" aria-label="Wizard notifications">
+      <aside
+        id="global-safety"
+        class="toast safety-note"
+        aria-label="Safety guarantee"
+      >
+        <strong>Sidecar-only guarantee</strong>
+        <span>
+          No n8n restart. No n8n rebuild. No public port. You approve the exact
+          plan before anything is written.
+        </span>
+        <button
+          class="toast-close"
+          type="button"
+          data-dismiss-toast="global-safety"
+          aria-label="Dismiss safety guarantee"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </aside>
+
+      <aside
+        id="global-backup"
+        class="toast safety-note backup-note"
+        aria-label="Backup reminder"
+      >
+        <strong>Back up first</strong>
+        <span>
+          Export your n8n workflows before connecting. This wizard uses
+          sidecar-only commands, but it still writes to your VPS.
+        </span>
+        <button
+          class="toast-close"
+          type="button"
+          data-dismiss-toast="global-backup"
+          aria-label="Dismiss backup reminder"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </aside>
+
+      <div
+        id="global-message"
+        class="toast message"
+        role="status"
+        aria-live="polite"
+      >
+        <span id="global-message-text">Checking your local sign-in…</span>
+        <button
+          class="toast-close"
+          type="button"
+          data-dismiss-toast="global-message"
+          aria-label="Dismiss status message"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+
+      <div
+        id="global-error"
+        class="toast error"
+        role="alert"
+        tabindex="-1"
+        hidden
+      >
+        <span id="global-error-text"></span>
+        <button
+          class="toast-close"
+          type="button"
+          data-dismiss-toast="global-error"
+          aria-label="Dismiss error"
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </div>
+    </div>
+
     <main id="main-content" class="shell">
       <section class="intro" aria-labelledby="page-title">
         <p class="eyebrow">Guided VPS setup</p>
@@ -64,22 +141,6 @@
           image, Compose file, container, and workflows stay untouched.
         </p>
       </section>
-
-      <aside class="safety-note" aria-label="Safety guarantee">
-        <strong>Sidecar-only guarantee</strong>
-        <span>
-          No n8n restart. No n8n rebuild. No public port. You approve the exact
-          plan before anything is written.
-        </span>
-      </aside>
-
-      <aside class="safety-note backup-note" aria-label="Backup reminder">
-        <strong>Back up first</strong>
-        <span>
-          Export your n8n workflows before connecting. This wizard uses
-          sidecar-only commands, but it still writes to your VPS.
-        </span>
-      </aside>
 
       <nav class="steps" aria-label="Setup progress">
         <ol>
@@ -92,11 +153,6 @@
           <li data-step-marker="5"><span>5</span><em>Done</em></li>
         </ol>
       </nav>
-
-      <div id="global-message" class="message" role="status" aria-live="polite">
-        Checking your local sign-in…
-      </div>
-      <div id="global-error" class="error" role="alert" tabindex="-1" hidden></div>
 
       <section class="panel" data-step="1" aria-labelledby="signin-title">
         <div class="panel-heading">
@@ -377,70 +433,112 @@
           </div>
         </dl>
 
-        <button id="copy-settings" class="button secondary" type="button">
+        <button
+          id="copy-settings"
+          class="button secondary"
+          type="button"
+          data-copy-group="credential"
+          data-copy-label="OpenAI credential settings"
+        >
           Copy credential settings
         </button>
 
-        <div class="model-box">
-          <h3>2. OpenAI Chat Model for AI Agent or Basic LLM Chain</h3>
-          <dl class="result-list">
-            <div>
-              <dt>Model ID</dt>
-              <dd class="result-value">
-                <code id="result-model">Not detected</code>
-                <button
-                  class="button secondary copy-value"
-                  type="button"
-                  data-copy-target="result-model"
-                  data-copy-label="model ID"
-                  aria-label="Copy model ID"
-                >
-                  Copy
-                </button>
-              </dd>
-            </div>
-            <div>
-              <dt>Responses API</dt>
-              <dd><strong>On</strong> for Chat Model node version 1.3</dd>
-            </div>
-          </dl>
-          <p>All models detected: <span id="result-models">Not detected</span></p>
-          <p>
-            If the Responses API switch is absent, keep the node's default
-            Chat Completions behavior; the bridge supports that route too.
-          </p>
-        </div>
+        <details class="recipe-disclosure">
+          <summary>
+            <span>2. OpenAI Chat Model for AI Agent or Basic LLM Chain</span>
+          </summary>
+          <div class="model-box recipe-content">
+            <dl class="result-list">
+              <div>
+                <dt>Model ID</dt>
+                <dd class="result-value">
+                  <code id="result-model">Not detected</code>
+                  <button
+                    class="button secondary copy-value"
+                    type="button"
+                    data-copy-target="result-model"
+                    data-copy-label="model ID"
+                    aria-label="Copy model ID"
+                  >
+                    Copy
+                  </button>
+                </dd>
+              </div>
+              <div>
+                <dt>Responses API</dt>
+                <dd><strong>On</strong> for Chat Model node version 1.3</dd>
+              </div>
+            </dl>
+            <p>All models detected: <span id="result-models">Not detected</span></p>
+            <p>
+              If the Responses API switch is absent, keep the node's default
+              Chat Completions behavior; the bridge supports that route too.
+            </p>
+          </div>
+        </details>
 
-        <div class="model-box">
-          <h3>3. HTTP Request node</h3>
-          <dl class="result-list">
-            <div>
-              <dt>Method</dt>
-              <dd><code>POST</code></dd>
-            </div>
-            <div>
-              <dt>URL</dt>
-              <dd class="result-value">
-                <code id="result-http-url">
-                  http://n8n-openai-oauth:10531/v1/responses
-                </code>
-                <button
-                  class="button secondary copy-value"
-                  type="button"
-                  data-copy-target="result-http-url"
-                  data-copy-label="HTTP endpoint"
-                  aria-label="Copy HTTP endpoint"
-                >
-                  Copy
-                </button>
-              </dd>
-            </div>
-            <div>
-              <dt>Authentication</dt>
-              <dd>None</dd>
-            </div>
-          </dl>
-        </div>
+        <details class="recipe-disclosure">
+          <summary><span>3. HTTP Request node</span></summary>
+          <div class="model-box recipe-content">
+            <dl class="result-list">
+              <div>
+                <dt>Method</dt>
+                <dd><code>POST</code></dd>
+              </div>
+              <div>
+                <dt>URL</dt>
+                <dd class="result-value">
+                  <code id="result-http-url">http://n8n-openai-oauth:10531/v1/responses</code>
+                  <button
+                    class="button secondary copy-value"
+                    type="button"
+                    data-copy-target="result-http-url"
+                    data-copy-label="HTTP endpoint"
+                    aria-label="Copy HTTP endpoint"
+                  >
+                    Copy
+                  </button>
+                </dd>
+              </div>
+              <div>
+                <dt>Authorization</dt>
+                <dd><code>Bearer local-only</code></dd>
+              </div>
+              <div>
+                <dt>Content-Type</dt>
+                <dd><code>application/json</code></dd>
+              </div>
+              <div>
+                <dt>Authentication</dt>
+                <dd>None</dd>
+              </div>
+              <div class="sample-body-row">
+                <dt>JSON body</dt>
+                <dd class="result-value">
+                  <pre class="sample-json"><code id="result-http-body"></code></pre>
+                  <button
+                    class="button secondary copy-value"
+                    type="button"
+                    data-copy-target="result-http-body"
+                    data-copy-label="HTTP JSON body"
+                    aria-label="Copy HTTP JSON body"
+                  >
+                    Copy
+                  </button>
+                </dd>
+              </div>
+            </dl>
+            <button
+              id="copy-http-recipe"
+              class="button secondary"
+              type="button"
+              data-copy-group="http"
+              data-copy-label="HTTP request recipe"
+            >
+              Copy HTTP request recipe
+            </button>
+          </div>
+        </details>
 
         <p class="final-note">
           The README includes complete AI Agent, Basic LLM Chain, JSON, and

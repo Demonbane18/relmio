@@ -7,6 +7,22 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.13] - 2026-08-04
+
+### Changed
+
+- Compact the local setup wizard so its active step stays near the top, move
+  safety and status notices into dismissible toasts, and collapse the optional
+  AI Agent and HTTP Request recipes until users choose to open them.
+- Complete the HTTP Request recipe with authorization, content type, and a
+  copyable sample Responses API JSON payload.
+
+### Fixed
+
+- Copy credential values reliably in Opera GX on Windows by preserving the
+  synchronous user gesture for the selection-based clipboard path before
+  falling back to the modern Clipboard API.
+
 ## [0.2.12] - 2026-08-04
 
 ### Fixed
