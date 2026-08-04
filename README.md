@@ -50,6 +50,12 @@ the VPS.
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
+### Homebrew (macOS or Linux)
+
+```bash
+brew tap Demonbane18/relmio && brew install relmio
+```
+
 ### Windows PowerShell
 
 ```powershell
@@ -72,9 +78,9 @@ SHA-256 checksum, run Relmio with npm lifecycle scripts disabled, and remove
 the temporary runtime when the wizard closes. They do not install Node.js
 system-wide.
 
-Homebrew tap publication and WinGet catalog approval are pending. Their install
-commands will be added here only after each public package passes a real
-package-manager installation test. Use a direct installer above today.
+Homebrew is available from the public `Demonbane18/relmio` tap. The WinGet
+command stays hidden until Microsoft accepts its catalog pull request and the
+catalog updates. Until then, use Homebrew or a direct installer above.
 
 The Command Prompt route is PowerShell-free, runs as the current user, and
 does not request administrator access or change Windows security policy. Keep
@@ -384,6 +390,12 @@ Choose a terminal already installed on your computer.
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
+#### Homebrew (macOS or Linux)
+
+```bash
+brew tap Demonbane18/relmio && brew install relmio
+```
+
 #### Windows PowerShell
 
 ```powershell
@@ -401,8 +413,9 @@ when present. If Node.js is missing or older than 22, they show staged
 **Please wait** messages while they download and verify a temporary official
 Node.js 22 runtime without installing it system-wide. Native Windows does not
 require Git Bash; Command Prompt uses a PowerShell-free, non-admin bootstrap.
-Homebrew and WinGet release candidates are prepared separately. Their public
-commands remain hidden until the tap and catalog packages pass real installs.
+Homebrew is available from the public `Demonbane18/relmio` tap. The WinGet
+command stays hidden until Microsoft accepts its catalog pull request and the
+catalog updates.
 
 Anyone who already has [Node.js 22 or newer](https://nodejs.org/en/download)
 can run the npm package directly instead:

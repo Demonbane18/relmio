@@ -8,14 +8,14 @@ import { ThemeModeControl } from "../components/ThemeModeControl";
 export const metadata: Metadata = {
   title: "Install Relmio for n8n",
   description:
-    "Install the local Relmio wizard with macOS/Linux, PowerShell, Command Prompt, or NPX.",
+    "Install the local Relmio wizard with Homebrew, macOS/Linux, PowerShell, Command Prompt, or NPX.",
 };
 
 const steps = [
   {
     index: "01",
     title: "Choose an install method",
-    copy: "Use your local shell or NPX. Windows does not need Git Bash.",
+    copy: "Use Homebrew, your local shell, or NPX. Windows does not need Git Bash.",
   },
   {
     index: "02",
@@ -66,9 +66,9 @@ export default function InstallPage() {
           <h1>Install Relmio for n8n</h1>
           <p className="install-lede">
             Run one local wizard to sign in with ChatGPT, verify your VPS, and
-            install a private OpenAI-compatible sidecar beside n8n. Choose the
-            terminal already on your computer. Native Windows works without
-            Git Bash or a preinstalled Node.js runtime.
+            install a private OpenAI-compatible sidecar beside n8n. Choose
+            Homebrew or the terminal already on your computer. Native Windows
+            works without Git Bash or a preinstalled Node.js runtime.
           </p>
 
           <div className="install-command-stage" id="install-command">
@@ -77,10 +77,10 @@ export default function InstallPage() {
           </div>
 
           <p className="install-boundary">
-            <strong>Package-manager status:</strong> Homebrew tap publication
-            and WinGet catalog approval are pending. Their commands will appear
-            here only after each public package has passed its real install
-            test. Use a direct installer above today.
+            <strong>Package-manager status:</strong> Homebrew is available from
+            the public <code>Demonbane18/relmio</code> tap. The WinGet command
+            stays hidden until Microsoft accepts its catalog pull request and
+            the catalog updates.
           </p>
 
           <p className="install-boundary">

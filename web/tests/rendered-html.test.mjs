@@ -95,10 +95,13 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
     html,
     /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/,
   );
-  assert.doesNotMatch(html, /brew install Demonbane18\/relmio\/relmio/);
-  assert.doesNotMatch(html, /winget install --exact --id Demonbane18\.Relmio/);
-  assert.match(html, /Homebrew tap publication/);
-  assert.match(html, /WinGet catalog approval/);
+  assert.match(
+    html,
+    /brew tap Demonbane18\/relmio &amp;&amp; brew install relmio/,
+  );
+  assert.doesNotMatch(html, /\bwinget install\b/i);
+  assert.match(html, /Homebrew is available/);
+  assert.match(html, /WinGet command.*hidden/);
   assert.match(
     html,
     /irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex/,
@@ -114,7 +117,7 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   assert.match(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /role="tablist"[^>]*aria-label="Installation method"/);
   assert.match(html, /role="tab"[^>]*aria-selected="true"[^>]*>[^<]*macOS \/ Linux/);
-  assert.doesNotMatch(html, /role="tab"[^>]*>[^<]*Homebrew/);
+  assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*Homebrew/);
   assert.doesNotMatch(html, /role="tab"[^>]*>[^<]*WinGet/);
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*PowerShell/);
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*CMD/);
@@ -124,7 +127,7 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   assert.match(html, /Open Command Prompt, not PowerShell/);
   assert.match(html, /PowerShell-free, non-admin bootstrap/);
   assert.match(html, /NPX requires Node\.js 22 or newer/);
-  assert.match(html, /commands will appear[^<]*only after each public package/);
+  assert.match(html, /WinGet command stays hidden[^<]*catalog updates/);
   assert.match(html, /Copy installation command/);
   assert.match(html, /Choose an installation method/);
   assert.match(html, /Run this on your own computer/);

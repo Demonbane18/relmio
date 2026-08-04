@@ -96,6 +96,12 @@ the VPS.
 curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
+### Homebrew (macOS or Linux)
+
+```bash
+brew tap Demonbane18/relmio && brew install relmio
+```
+
 ### Windows PowerShell
 
 ```powershell
@@ -120,9 +126,9 @@ the temporary runtime when the wizard closes. The Command Prompt path runs as
 the current user and does not request administrator access or change Windows
 security policy.
 
-Homebrew tap publication and WinGet catalog approval are pending. Their install
-commands will be added only after each public package passes a real
-package-manager installation test. Use a direct installer above today.
+Homebrew is available from the public `Demonbane18/relmio` tap. The WinGet
+command stays hidden until Microsoft accepts its catalog pull request and the
+catalog updates. Until then, use Homebrew or a direct installer above.
 
 Users who already have Node.js 22 or newer can run the npm package directly:
 
