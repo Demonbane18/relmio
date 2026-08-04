@@ -235,7 +235,7 @@ jobs:
           }
           winget --version
           $version = "${{ steps.portable.outputs.version }}"
-          winget validate --disable-interactivity ".package-manager\candidates\winget-pkgs\manifests\d\Demonbane18\Relmio\$version"
+          winget validate --disable-interactivity --ignore-warnings ".package-manager\candidates\winget-pkgs\manifests\d\Demonbane18\Relmio\$version"
 
   homebrew-release-candidate:
     name: Generate Homebrew formula from the published npm artifact

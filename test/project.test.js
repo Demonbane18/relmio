@@ -117,7 +117,12 @@ test("package-manager workflow builds review artifacts before release publicatio
   assert.match(workflow, /pull_request:/u);
   assert.match(workflow, /workflow_call:[\s\S]*release_tag:/u);
   assert.match(workflow, /permissions:\s*\n\s+contents: read/u);
-  assert.match(workflow, /winget validate --disable-interactivity/u);
+  const wingetValidation = workflow.match(/^\s*winget validate [^\r\n]+$/mu);
+  assert.ok(wingetValidation, "expected WinGet validation command");
+  assert.equal(
+    wingetValidation[0].trim(),
+    String.raw`winget validate --disable-interactivity --ignore-warnings ".package-manager\candidates\winget-pkgs\manifests\d\Demonbane18\Relmio\$version"`,
+  );
   assert.match(workflow, /relmio\.exe"\) --version/u);
   assert.match(workflow, /RequiredVersion \$moduleVersion/u);
   assert.match(workflow, /moduleVersion = "1\.12\.440"/u);
