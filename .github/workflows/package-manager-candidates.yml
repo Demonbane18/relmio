@@ -213,6 +213,34 @@ jobs:
             throw "The installed x64 relmio.exe --version smoke test failed."
           }
 
+          $commandPath = Join-Path $smokeDirectory "relmio.exe"
+          $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+          $startInfo.FileName = $commandPath
+          $startInfo.WorkingDirectory = $smokeDirectory
+          $startInfo.UseShellExecute = $false
+          $startInfo.CreateNoWindow = $true
+          $startInfo.RedirectStandardInput = $true
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $process = [System.Diagnostics.Process]::new()
+          $process.StartInfo = $startInfo
+          try {
+            if (-not $process.Start()) {
+              throw "The installed x64 relmio.exe could not start for the non-interactive smoke test."
+            }
+            if (-not $process.WaitForExit(10000)) {
+              $process.Kill()
+              throw "The installed x64 relmio.exe did not exit in non-interactive mode."
+            }
+            $nonInteractiveOutput = $process.StandardOutput.ReadToEnd()
+            $nonInteractiveError = $process.StandardError.ReadToEnd()
+            if ($process.ExitCode -ne 0 -or $nonInteractiveOutput -notmatch "needs an interactive terminal") {
+              throw "The installed x64 relmio.exe non-interactive smoke test failed. Output: $nonInteractiveOutput Error: $nonInteractiveError"
+            }
+          } finally {
+            $process.Dispose()
+          }
+
       - name: Seal reviewed package-manager candidates
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
