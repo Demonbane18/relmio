@@ -29,10 +29,18 @@ export function cliMode(argumentsList) {
     : "wizard";
 }
 
+export function hasInteractiveTerminal({
+  input = process.stdin,
+  output = process.stdout,
+} = {}) {
+  return Boolean(input?.isTTY && output?.isTTY);
+}
+
 export async function runCli({
   argumentsList = process.argv.slice(2),
   log = console.log,
   readPackage = () => readFile(packageJsonUrl, "utf8"),
+  isInteractive = hasInteractiveTerminal,
 } = {}) {
   if (cliMode(argumentsList) === "version") {
     const packageJson = JSON.parse(await readPackage());
@@ -40,6 +48,13 @@ export async function runCli({
       throw new Error("Relmio package metadata does not contain a version.");
     }
     log(packageJson.version);
+    return;
+  }
+
+  if (!isInteractive()) {
+    log(
+      "Relmio needs an interactive terminal to open the local wizard. Run relmio from Command Prompt, PowerShell, or another terminal.",
+    );
     return;
   }
 

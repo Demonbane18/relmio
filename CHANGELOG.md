@@ -7,6 +7,17 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.2.15] - 2026-08-05
+
+### Fixed
+
+- Exit cleanly when WinGet or another non-interactive validator probes the
+  portable command without arguments, while keeping the browser wizard for
+  interactive Command Prompt and PowerShell sessions.
+- Add a redirected-stdio portable smoke test so future WinGet candidates cannot
+  regress into a never-ending default launch.
+- Exclude local npm cache directories from portable release archives.
+
 ## [0.2.14] - 2026-08-04
 
 ### Added

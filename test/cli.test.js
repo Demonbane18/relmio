@@ -6,7 +6,12 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
-import { cliMode, isCliEntryPath, runCli } from "../src/cli.js";
+import {
+  cliMode,
+  hasInteractiveTerminal,
+  isCliEntryPath,
+  runCli,
+} from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -17,6 +22,23 @@ test("CLI recognizes only the explicit version flags", () => {
   assert.equal(cliMode(["--version", "extra"]), "wizard");
 });
 
+test("interactive terminal detection requires both standard streams", () => {
+  assert.equal(
+    hasInteractiveTerminal({
+      input: { isTTY: true },
+      output: { isTTY: true },
+    }),
+    true,
+  );
+  assert.equal(
+    hasInteractiveTerminal({
+      input: { isTTY: true },
+      output: { isTTY: false },
+    }),
+    false,
+  );
+});
+
 test("version mode prints package metadata without starting the wizard", async () => {
   const output = [];
   await runCli({
@@ -25,6 +47,17 @@ test("version mode prints package metadata without starting the wizard", async (
     readPackage: async () => '{"version":"1.2.3"}',
   });
   assert.deepEqual(output, ["1.2.3"]);
+});
+
+test("non-interactive default launch exits without starting the wizard", async () => {
+  const output = [];
+  await runCli({
+    log: (line) => output.push(line),
+    isInteractive: () => false,
+  });
+  assert.deepEqual(output, [
+    "Relmio needs an interactive terminal to open the local wizard. Run relmio from Command Prompt, PowerShell, or another terminal.",
+  ]);
 });
 
 test("CLI entry detection resolves package-manager symlinks", () => {
