@@ -20,33 +20,6 @@
   </p>
 </div>
 
-## See it working first
-
-This documented example follows a tested n8n OpenAI credential through a
-published Telegram-triggered workflow. It is a product-operation record, not
-an endorsement, sponsorship, or affiliation by OpenAI, n8n, Hostinger,
-Telegram, or AppBuildersPH.
-
-<figure>
-  <img src="docs/images/examples/n8n-openai-credential-connected.png" alt="n8n OpenAI credential dialog showing that the connection test succeeded" width="960">
-  <figcaption>The n8n OpenAI credential connection test succeeded; the credential value itself is obscured.</figcaption>
-</figure>
-
-<figure>
-  <img src="docs/images/examples/gpt-56-model-selector.png" alt="n8n model selector with gpt-5.6-terra selected and an account-specific model list" width="500">
-  <figcaption>This signed-in account's n8n model list includes <code>gpt-5.6-terra</code>; model availability is account-dependent and can change.</figcaption>
-</figure>
-
-<figure>
-  <img src="docs/images/examples/telegram-n8n-workflow-execution.png" alt="Successful n8n execution of a Telegram-triggered workflow with HTTP Request, Basic LLM Chain, and AI Agent branches" width="960">
-  <figcaption>The published Telegram-triggered n8n workflow completed successfully across its HTTP Request, Basic LLM Chain, and AI Agent branches.</figcaption>
-</figure>
-
-<figure>
-  <img src="docs/images/examples/telegram-model-results.png" alt="Telegram conversation receiving HTTP Request, Basic LLM Chain, and AI Agent outputs" width="682">
-  <figcaption>Telegram received the HTTP Request, Basic LLM Chain, and AI Agent outputs sent by that workflow.</figcaption>
-</figure>
-
 ## Quick install
 
 Choose the terminal already on your own computer. Do not run these commands on
@@ -142,6 +115,33 @@ one automation platform.
 > Agent, but that similarity is not an OpenAI endorsement or a guarantee that
 > every use is permitted. This project is not intended to bypass quotas,
 > safeguards, account controls, or service restrictions.
+
+## See it working first
+
+This documented example follows a tested n8n OpenAI credential through a
+published Telegram-triggered workflow. It is a product-operation record, not
+an endorsement, sponsorship, or affiliation by OpenAI, n8n, Hostinger,
+Telegram, or AppBuildersPH.
+
+<figure>
+  <img src="docs/images/examples/n8n-openai-credential-connected.png" alt="n8n OpenAI credential dialog showing that the connection test succeeded" width="960">
+  <figcaption>The n8n OpenAI credential connection test succeeded; the credential value itself is obscured.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/images/examples/gpt-56-model-selector.png" alt="n8n model selector with gpt-5.6-terra selected and an account-specific model list" width="500">
+  <figcaption>This signed-in account's n8n model list includes <code>gpt-5.6-terra</code>; model availability is account-dependent and can change.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/images/examples/telegram-n8n-workflow-execution.png" alt="Successful n8n execution of a Telegram-triggered workflow with HTTP Request, Basic LLM Chain, and AI Agent branches" width="960">
+  <figcaption>The published Telegram-triggered n8n workflow completed successfully across its HTTP Request, Basic LLM Chain, and AI Agent branches.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/images/examples/telegram-model-results.png" alt="Telegram conversation receiving HTTP Request, Basic LLM Chain, and AI Agent outputs" width="682">
+  <figcaption>Telegram received the HTTP Request, Basic LLM Chain, and AI Agent outputs sent by that workflow.</figcaption>
+</figure>
 
 <details>
 <summary><strong>Table of contents</strong></summary>
