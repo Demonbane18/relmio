@@ -553,14 +553,49 @@ For an **OpenAI Chat Model**:
 
 The bridge supports both `/v1/responses` and `/v1/chat/completions`.
 
-For an **HTTP Request** node, an example endpoint is:
+For an **HTTP Request** node, use n8n's **Generic Credential Type** with
+**Bearer Auth**. Name the credential `openai-oauth` and enter the harmless
+placeholder `local-only` as its bearer token. Use this private endpoint and
+enable **Send Headers** and **Send Body**:
 
 ```text
-POST http://n8n-openai-oauth:10531/v1/responses
+POST http://n8n-openai-oauth:10531/v1/chat/completions
+Content-Type: application/json
 ```
 
-n8n may send `Authorization: Bearer local-only`. The bridge does not treat
-that placeholder as an OpenAI API key or secret.
+Select **JSON** and **Using JSON**, then paste this body (replace only the
+model if the wizard reports a different ID):
+
+```json
+{
+  "model": "gpt-5.6-sol",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is a robot?"
+    }
+  ],
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "answer",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string" }
+        },
+        "required": ["content"],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  }
+}
+```
+
+The wizard's **Copy HTTP request recipe** action includes the same fields and
+body. The complete guide also includes an importable cURL command. The
+`local-only` bearer value is not an OpenAI Platform API key or secret.
 
 For complete copy-paste recipes for an **AI Agent**, **Basic LLM Chain**, and
 **HTTP Request** node, including an importable cURL command, open

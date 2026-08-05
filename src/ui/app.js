@@ -123,8 +123,28 @@ async function copyText(value) {
 function renderHttpRequestBody(model) {
   element("result-http-body").textContent = JSON.stringify(
     {
-      model,
-      input: "Reply with exactly: bridge works",
+      model: model === "Not detected" ? "gpt-5.6-sol" : model,
+      messages: [
+        {
+          role: "user",
+          content: "What is a robot?",
+        },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "answer",
+          schema: {
+            type: "object",
+            properties: {
+              content: { type: "string" },
+            },
+            required: ["content"],
+            additionalProperties: false,
+          },
+          strict: true,
+        },
+      },
     },
     null,
     2,
@@ -144,9 +164,16 @@ function copyHttpRecipe() {
   return [
     "Method: POST",
     `URL: ${element("result-http-url").textContent}`,
-    "Authorization: Bearer local-only",
+    "Authentication: Generic Credential Type",
+    "Generic Auth Type: Bearer Auth",
+    "Credential: openai-oauth",
+    `Bearer token: ${element("result-key").textContent}`,
+    `Authorization: ${element("result-http-auth").textContent}`,
     "Content-Type: application/json",
-    "Authentication: None",
+    "Send Headers: On",
+    "Send Body: On",
+    "Body Content Type: JSON",
+    "Specify Body: Using JSON",
     "JSON body:",
     element("result-http-body").textContent,
   ].join("\n");
@@ -598,7 +625,7 @@ element("install-button").addEventListener("click", async (event) => {
     element("result-model").textContent = firstModel;
     element("result-models").textContent = result.models.join(", ");
     element("result-http-url").textContent =
-      `${result.baseUrl.replace(/\/$/u, "")}/responses`;
+      `${result.baseUrl.replace(/\/$/u, "")}/chat/completions`;
     renderHttpRequestBody(firstModel);
     showStep(5);
     setMessage(

@@ -488,7 +488,7 @@
               <div>
                 <dt>URL</dt>
                 <dd class="result-value">
-                  <code id="result-http-url">http://n8n-openai-oauth:10531/v1/responses</code>
+                  <code id="result-http-url">http://n8n-openai-oauth:10531/v1/chat/completions</code>
                   <button
                     class="button secondary copy-value"
                     type="button"
@@ -501,16 +501,43 @@
                 </dd>
               </div>
               <div>
-                <dt>Authorization</dt>
-                <dd><code>Bearer local-only</code></dd>
+                <dt>Authentication</dt>
+                <dd>Generic Credential Type</dd>
+              </div>
+              <div>
+                <dt>Generic Auth Type</dt>
+                <dd>Bearer Auth</dd>
+              </div>
+              <div>
+                <dt>Credential</dt>
+                <dd><code>openai-oauth</code></dd>
+              </div>
+              <div>
+                <dt>Bearer token</dt>
+                <dd><code>local-only</code></dd>
+              </div>
+              <div>
+                <dt>Authorization header</dt>
+                <dd class="result-value">
+                  <code id="result-http-auth">Bearer local-only</code>
+                  <button
+                    class="button secondary copy-value"
+                    type="button"
+                    data-copy-target="result-http-auth"
+                    data-copy-label="Authorization header"
+                    aria-label="Copy Authorization header"
+                  >
+                    Copy
+                  </button>
+                </dd>
               </div>
               <div>
                 <dt>Content-Type</dt>
                 <dd><code>application/json</code></dd>
               </div>
               <div>
-                <dt>Authentication</dt>
-                <dd>None</dd>
+                <dt>Send body</dt>
+                <dd>On · JSON · Using JSON</dd>
               </div>
               <div class="sample-body-row">
                 <dt>JSON body</dt>
