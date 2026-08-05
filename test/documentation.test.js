@@ -166,9 +166,11 @@ test("n8n configuration guide provides copy-paste model and HTTP recipes", async
   assert.match(guide, /AI Agent/u);
   assert.match(guide, /Basic LLM Chain/u);
   assert.match(guide, /OpenAI Chat Model/u);
-  assert.match(guide, /http:\/\/n8n-openai-oauth:10531\/v1\/responses/u);
+  assert.match(guide, /http:\/\/n8n-openai-oauth:10531\/v1\/chat\/completions/u);
   assert.match(guide, /Bearer local-only/u);
-  assert.match(guide, /PASTE_ONE_MODEL_ID_FROM_THE_WIZARD/u);
+  assert.match(guide, /"model": "gpt-5\.6-sol"/u);
+  assert.match(guide, /"messages"/u);
+  assert.match(guide, /"response_format"/u);
   assert.match(guide, /curl --request POST/u);
   assert.match(guide, /node version 1\.3/u);
   assert.match(guide, /\/v1\/chat\/completions/u);

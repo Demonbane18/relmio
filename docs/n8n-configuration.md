@@ -97,8 +97,9 @@ the chain.
 
 ## 3. HTTP Request node
 
-The HTTP Request recipe calls the bridge directly and does not need the n8n
-OpenAI credential.
+The HTTP Request recipe calls the bridge directly with n8n's generic Bearer
+Auth credential. It uses the Chat Completions route because the body below uses
+the `messages` format shown in the n8n node.
 
 ### Copy-paste fields
 
@@ -111,69 +112,120 @@ POST
 URL:
 
 ```text
-http://n8n-openai-oauth:10531/v1/responses
+http://n8n-openai-oauth:10531/v1/chat/completions
 ```
 
 Authentication:
 
 ```text
-None
+Generic Credential Type
 ```
 
-Header 1 name:
+Generic Auth Type:
 
 ```text
-Authorization
+Bearer Auth
 ```
 
-Header 1 value:
+Credential name:
 
 ```text
-Bearer local-only
+openai-oauth
 ```
 
-Header 2 name:
+Bearer token:
+
+```text
+local-only
+```
+
+Enable **Send Headers** and add this header:
+
+Header name:
 
 ```text
 Content-Type
 ```
 
-Header 2 value:
+Header value:
 
 ```text
 application/json
 ```
 
-JSON body:
+Enable **Send Body**, select **JSON** for **Body Content Type**, and choose
+**Using JSON** for **Specify Body**. Paste this body:
 
 ```json
 {
-  "model": "PASTE_ONE_MODEL_ID_FROM_THE_WIZARD",
-  "input": "Reply with exactly: bridge works"
+  "model": "gpt-5.6-sol",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is a robot?"
+    }
+  ],
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "answer",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string" }
+        },
+        "required": ["content"],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  }
 }
 ```
 
-Enable **Send Headers** and **Send Body**, select a JSON body, and paste the
-object above.
+If the wizard reports a different model ID, replace only `gpt-5.6-sol` with
+that detected ID. The `local-only` bearer value is a harmless n8n placeholder;
+it is not an OpenAI Platform API key.
 
 ### Importable cURL version
 
-The n8n HTTP Request node can import a cURL command. Replace only the model
-placeholder:
+The n8n HTTP Request node can import this cURL command. Replace only the model
+if the wizard reports a different ID:
 
 ```bash
 curl --request POST \
-  --url http://n8n-openai-oauth:10531/v1/responses \
+  --url http://n8n-openai-oauth:10531/v1/chat/completions \
   --header 'Authorization: Bearer local-only' \
   --header 'Content-Type: application/json' \
   --data '{
-    "model": "PASTE_ONE_MODEL_ID_FROM_THE_WIZARD",
-    "input": "Reply with exactly: bridge works"
+    "model": "gpt-5.6-sol",
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is a robot?"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "answer",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "content": { "type": "string" }
+          },
+          "required": ["content"],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    }
   }'
 ```
 
-The placeholder header is included because it matches OpenAI-compatible
-client behavior. It is not a real API credential.
+The cURL `Authorization` header is equivalent to the n8n Bearer Auth
+credential. It is included so the command can be imported or run as a direct
+connectivity check.
 
 ### Expression-driven HTTP body
 
@@ -182,8 +234,26 @@ After the fixed test succeeds, switch the entire JSON body field to
 
 ```javascript
 ={{ {
-  model: "PASTE_ONE_MODEL_ID_FROM_THE_WIZARD",
-  input: $json.prompt
+  model: "gpt-5.6-sol",
+  messages: [
+    {
+      role: "user",
+      content: $json.prompt
+    }
+  ],
+  response_format: {
+    type: "json_schema",
+    json_schema: {
+      name: "answer",
+      schema: {
+        type: "object",
+        properties: { content: { type: "string" } },
+        required: ["content"],
+        additionalProperties: false
+      },
+      strict: true
+    }
+  }
 } }}
 ```
 

@@ -99,9 +99,16 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*HTTP Request node/u,
   );
   assert.match(html, /<dt>Method<\/dt>[\s\S]*<code>POST<\/code>/u);
-  assert.match(html, /Authorization[\s\S]*Bearer local-only/u);
+  assert.match(html, /Generic Auth Type[\s\S]*Bearer Auth/u);
+  assert.match(html, /Credential[\s\S]*openai-oauth/u);
+  assert.match(html, /Bearer token[\s\S]*local-only/u);
+  assert.match(html, /Authorization header[\s\S]*Bearer local-only/u);
+  assert.match(
+    html,
+    /data-copy-target="result-http-auth"[\s\S]*aria-label="Copy Authorization header"/u,
+  );
   assert.match(html, /Content-Type[\s\S]*application\/json/u);
-  assert.match(html, /Authentication[\s\S]*None/u);
+  assert.match(html, /Send body[\s\S]*JSON[\s\S]*Using JSON/u);
   assert.match(html, /id="result-http-body"/u);
   assert.match(html, /OpenAI credential[\s\S]*OpenAI Chat Model/u);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
@@ -139,10 +146,15 @@ test("browser code never uses innerHTML or web storage for credentials", async (
     app,
     /const textarea = document\.createElement\("textarea"\);[\s\S]*textarea\.focus\(\);[\s\S]*textarea\.select\(\);[\s\S]*textarea\.setSelectionRange\?\.\(0, textarea\.value\.length\);[\s\S]*document\.execCommand\("copy"\)[\s\S]*finally \{[\s\S]*textarea\.remove\(\);[\s\S]*previouslyFocused\?\.focus\?\.\(\);[\s\S]*if \(copied\) \{[\s\S]*navigator\.clipboard\.writeText\(value\)/u,
   );
-  assert.match(
-    app,
-    /JSON\.stringify\(\s*\{[\s\S]*input: "Reply with exactly: bridge works"/u,
-  );
+  assert.match(app, /messages:[\s\S]*What is a robot\?/u);
+  assert.match(app, /response_format:[\s\S]*json_schema/u);
+  assert.match(app, /additionalProperties: false/u);
+  assert.match(app, /strict: true/u);
+  assert.match(app, /chat\/completions/u);
+  assert.match(app, /Authentication: Generic Credential Type/u);
+  assert.match(app, /Generic Auth Type: Bearer Auth/u);
+  assert.match(app, /Authorization: \$\{element\("result-http-auth"\)\.textContent\}/u);
+  assert.match(app, /Specify Body: Using JSON/u);
   assert.match(app, /function dismissToast\(toast\)/u);
   assert.match(app, /document\.body\.dataset\.currentStep = String\(step\)/u);
   assert.match(

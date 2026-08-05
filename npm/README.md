@@ -219,6 +219,43 @@ Add Custom Header: Off
 The `local-only` value is a placeholder required by n8n. It is not an OpenAI
 Platform API key.
 
+For an n8n **HTTP Request** node, use **Generic Credential Type** → **Bearer
+Auth**, name the credential `openai-oauth`, and enter `local-only` as the
+bearer token. Enable **Send Headers** with `Content-Type: application/json`,
+then enable **Send Body** → **JSON** → **Using JSON** and paste:
+
+```json
+{
+  "model": "gpt-5.6-sol",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is a robot?"
+    }
+  ],
+  "response_format": {
+    "type": "json_schema",
+    "json_schema": {
+      "name": "answer",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string" }
+        },
+        "required": ["content"],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  }
+}
+```
+
+Use `POST http://n8n-openai-oauth:10531/v1/chat/completions` as the URL. The
+local wizard's **Copy HTTP request recipe** action supplies the same fields.
+Replace the model only if the wizard reports a different ID. The full guide
+has the importable cURL version.
+
 ## Important boundaries
 
 - Relmio does not create an OpenAI Platform API key.

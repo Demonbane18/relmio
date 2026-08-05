@@ -1,0 +1,4 @@
+interface:
+  display_name: "Changelog Steward"
+  short_description: "Standardize Relmio release notes"
+  default_prompt: "Use $changelog to prepare a synchronized semantic-version release changelog."

@@ -7,6 +7,30 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.3.0] - 2026-08-05
+
+### Added
+
+- Add a copy-ready n8n HTTP Request recipe to the local wizard, including the
+  private Chat Completions URL, Generic Credential Type → Bearer Auth fields,
+  the harmless `local-only` bearer placeholder, JSON headers, the structured
+  response-format body, and a full recipe copy action.
+- Add the same structured `gpt-5.6-sol` example and importable cURL recipe to
+  the GitHub README, npm README, and n8n configuration guide.
+- Add a repository-local changelog skill that standardizes Relmio's patch,
+  pre-1.0 feature, and stable major release numbering and metadata checks.
+
+### Changed
+
+- Treat `0.3.0` as Relmio's major feature release within the pre-1.0 series;
+  it consolidates the key improvements shipped from v0.2.10 through v0.2.14:
+  resilient Windows OAuth/bootstrap flows, native Command Prompt installation,
+  compact accessible wizard recipes, verified Homebrew/package-manager
+  preparation, and release-time package checks.
+- Keep the HTTP Request body aligned with n8n's `messages` format by targeting
+  `/v1/chat/completions`; the separate OpenAI Chat Model guidance continues to
+  support the Responses API where that node exposes the switch.
+
 ## [0.2.14] - 2026-08-04
 
 ### Added
