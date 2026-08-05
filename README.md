@@ -22,21 +22,29 @@
 
 ## See it working first
 
-Before setup, this sample n8n configuration shows GPT-5.6 model aliases in the
-OpenAI Chat Model selector. The exact model list depends on the signed-in
-ChatGPT account and can change over time.
+This documented example follows a tested n8n OpenAI credential through a
+published Telegram-triggered workflow. It is a product-operation record, not
+an endorsement, sponsorship, or affiliation by OpenAI, n8n, Hostinger,
+Telegram, or AppBuildersPH.
 
 <figure>
-  <img src="docs/images/examples/gpt-56-model-selector.png" alt="Model selector listing GPT-5.6 Sol, Luna, and Terra model aliases" width="480">
-  <figcaption>Compatibility preview: the model selector includes <code>gpt-5.6-sol</code>, <code>gpt-5.6-luna</code>, and <code>gpt-5.6-terra</code>.</figcaption>
+  <img src="docs/images/examples/n8n-openai-credential-connected.png" alt="n8n OpenAI credential dialog showing that the connection test succeeded" width="960">
+  <figcaption>The n8n OpenAI credential connection test succeeded; the credential value itself is obscured.</figcaption>
 </figure>
 
-After Relmio completes the installation, Docker shows the existing n8n stack
-and the new private OAuth sidecar running together.
+<figure>
+  <img src="docs/images/examples/gpt-56-model-selector.png" alt="n8n model selector with gpt-5.6-terra selected and an account-specific model list" width="500">
+  <figcaption>This signed-in account's n8n model list includes <code>gpt-5.6-terra</code>; model availability is account-dependent and can change.</figcaption>
+</figure>
 
 <figure>
-  <img src="docs/images/examples/sidecar-docker-containers-running.png" alt="Docker Desktop showing the n8n and n8n-openai-oauth containers running" width="960">
-  <figcaption>Completed setup: the existing <code>n8n</code> stack and the <code>n8n-openai-oauth</code> sidecar are both running.</figcaption>
+  <img src="docs/images/examples/telegram-n8n-workflow-execution.png" alt="Successful n8n execution of a Telegram-triggered workflow with HTTP Request, Basic LLM Chain, and AI Agent branches" width="960">
+  <figcaption>The published Telegram-triggered n8n workflow completed successfully across its HTTP Request, Basic LLM Chain, and AI Agent branches.</figcaption>
+</figure>
+
+<figure>
+  <img src="docs/images/examples/telegram-model-results.png" alt="Telegram conversation receiving HTTP Request, Basic LLM Chain, and AI Agent outputs" width="682">
+  <figcaption>Telegram received the HTTP Request, Basic LLM Chain, and AI Agent outputs sent by that workflow.</figcaption>
 </figure>
 
 ## Quick install
@@ -380,7 +388,13 @@ you want to inspect, reproduce, improve, or debug the method, use
 Do **not** run an installer command on the VPS. Run it on the computer where
 you will complete the browser sign-in.
 
-### 1. Start the newest published wizard
+### 1. Choose an installation method in the hosted wizard
+
+The hosted installation page starts with a selector for macOS/Linux,
+Homebrew, PowerShell, Command Prompt, and NPX. Choose the terminal already
+installed on your computer, then run the displayed command locally.
+
+![Step 1: hosted installation method selector](docs/images/setup/00-install-methods.png)
 
 Choose a terminal already installed on your computer.
 
@@ -452,9 +466,10 @@ npm view relmio version
 ```
 
 > [!NOTE]
-> Every wizard screenshot below comes from the built-in sanitized preview. It
-> uses a reserved documentation IP, fake fingerprint, fake container data, and
-> fake models. No real VPS, credential, or browser session is shown.
+> These current product screenshots omit or redact sensitive values. In
+> particular, the VPS identity screen redacts the address and SSH fingerprint;
+> none of the screenshots includes an OAuth token, password, private key, or
+> live wizard session URL.
 
 ### 2. Complete or reuse the local ChatGPT sign-in
 
@@ -469,11 +484,10 @@ credential already exists, **Continue to VPS** reuses it. Use **Refresh
 ChatGPT sign-in** when it is expired, belongs to another account, or you want
 a new session.
 
-After a fresh login, check the **Credential updated** timestamp. It is shown
-in your computer's local time so you can tell that the browser approval
-actually reached the wizard.
+After a fresh login, the browser confirmation states that the ChatGPT
+credentials were saved locally; return to the terminal to continue.
 
-![Step 1: local ChatGPT credential found with its update timestamp](docs/images/setup/01-local-sign-in-ready.png)
+![Step 2: local ChatGPT sign-in completion confirmation](docs/images/setup/01-local-sign-in-ready.png)
 
 If a browser extension named **Sign in with ChatGPT** or **OpenAI OAuth**
 captures the callback, temporarily disable that extension and start the
@@ -486,11 +500,11 @@ Enter the VPS address exactly as your provider shows it. Select **Check server
 identity**, compare the SHA-256 fingerprint with the intended server, and
 confirm it before the password field unlocks.
 
-![Step 2: sanitized VPS address and SSH fingerprint confirmation](docs/images/setup/02-vps-identity-confirmed.png)
+![Step 3: VPS identity confirmation with the address and SSH fingerprint redacted](docs/images/setup/02-vps-identity-confirmed.png)
 
-The screenshot uses the reserved documentation address `192.0.2.10`, a fake
-fingerprint, and an empty password field. Never publish a real password,
-private key, session URL, or OAuth file.
+The screenshot redacts the VPS address and SSH fingerprint and obscures the
+password field. Never publish a real password, private key, session URL, or
+OAuth file.
 
 ### 4. Choose the detected n8n container and shared network
 
@@ -498,7 +512,7 @@ The wizard connects over SSH, runs read-only Docker discovery, and lists the
 running n8n container and its networks. Choose the network that n8n should
 share with the sidecar; on many Hostinger templates it is named `proxy`.
 
-![Step 3: sanitized n8n container and Docker network discovery](docs/images/setup/03-n8n-detected.png)
+![Step 4: detected n8n container and shared Docker network](docs/images/setup/03-n8n-detected.png)
 
 ### 5. Review and approve the exact plan
 
@@ -507,7 +521,7 @@ managed directory, service, Docker network, and private hostname. It also
 states the forbidden actions: no n8n edit, rebuild, restart, or recreation;
 no host port; and no Traefik route.
 
-![Step 4: exact sidecar-only installation plan](docs/images/setup/04-install-plan.png)
+![Step 5: exact sidecar-only installation plan](docs/images/setup/04-install-plan.png)
 
 Only after you select the approval checkbox can the wizard upload the OAuth
 file and build the separate sidecar.
@@ -517,7 +531,7 @@ file and build the separate sidecar.
 The final screen appears only after the sidecar is healthy, the model list is
 reachable, and Docker reports no published host port.
 
-![Step 5: verified private bridge and n8n credential values](docs/images/setup/05-bridge-ready.png)
+![Step 6: verified private bridge and n8n credential values](docs/images/setup/05-bridge-ready.png)
 
 Use the button beside each value to copy it individually, or select
 **Copy credential settings** for the labeled credential set. Then create or
