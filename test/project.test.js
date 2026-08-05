@@ -2,6 +2,46 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
+const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+const maximumReadmeImageDimension = 10_000;
+
+function assertMetadataFreeReadmePng(image, name) {
+  assert.ok(image.length >= 33, `${name} is too short to be a PNG`);
+  assert.deepEqual([...image.subarray(0, 8)], pngSignature, `${name} signature`);
+  assert.equal(image.readUInt32BE(8), 13, `${name} IHDR length`);
+  assert.equal(image.toString("ascii", 12, 16), "IHDR", `${name} IHDR type`);
+
+  const width = image.readUInt32BE(16);
+  const height = image.readUInt32BE(20);
+  assert.ok(
+    width >= 1 && width <= maximumReadmeImageDimension,
+    `${name} has an unreasonable width: ${width}`,
+  );
+  assert.ok(
+    height >= 1 && height <= maximumReadmeImageDimension,
+    `${name} has an unreasonable height: ${height}`,
+  );
+
+  const chunkTypes = [];
+  let offset = 8;
+  while (offset < image.length) {
+    assert.ok(offset + 12 <= image.length, `${name} has a truncated PNG chunk`);
+    const length = image.readUInt32BE(offset);
+    const chunkEnd = offset + 12 + length;
+    assert.ok(chunkEnd <= image.length, `${name} has an oversized PNG chunk`);
+    chunkTypes.push(image.toString("ascii", offset + 4, offset + 8));
+    offset = chunkEnd;
+  }
+
+  assert.equal(offset, image.length, `${name} PNG length`);
+  assert.equal(chunkTypes[0], "IHDR", `${name} first PNG chunk`);
+  assert.equal(chunkTypes.at(-1), "IEND", `${name} final PNG chunk`);
+  assert.ok(
+    chunkTypes.every((type) => ["IHDR", "IDAT", "IEND"].includes(type)),
+    `${name} has unexpected PNG metadata chunks: ${chunkTypes.join(", ")}`,
+  );
+}
+
 test("project pins the reviewed SSH dependency and Node runtime", async () => {
   const [packageContents, license, notice] = await Promise.all([
     readFile("package.json", "utf8"),
@@ -168,7 +208,7 @@ test("package-manager workflow builds review artifacts before release publicatio
   }
 });
 
-test("public README documents the latest npm walkthrough and sanitized images", async () => {
+test("public README documents the latest npm walkthrough and screenshot records", async () => {
   const readme = await readFile("README.md", "utf8");
 
   assert.match(
@@ -179,8 +219,21 @@ test("public README documents the latest npm walkthrough and sanitized images", 
     readme,
     /npx --yes --ignore-scripts relmio@latest/u,
   );
-  assert.match(readme, /docs\/images\/setup\/01-local-sign-in-ready\.png/u);
-  assert.match(readme, /docs\/images\/setup\/05-bridge-ready\.png/u);
+  const requiredReadmeImages = [
+    "docs/images/setup/00-install-methods.png",
+    "docs/images/setup/01-local-sign-in-ready.png",
+    "docs/images/setup/02-vps-identity-confirmed.png",
+    "docs/images/setup/03-n8n-detected.png",
+    "docs/images/setup/04-install-plan.png",
+    "docs/images/setup/05-bridge-ready.png",
+    "docs/images/examples/n8n-openai-credential-connected.png",
+    "docs/images/examples/gpt-56-model-selector.png",
+    "docs/images/examples/telegram-n8n-workflow-execution.png",
+    "docs/images/examples/telegram-model-results.png",
+  ];
+  for (const imagePath of requiredReadmeImages) {
+    assert.ok(readme.includes(imagePath), `README references ${imagePath}`);
+  }
   assert.match(readme, /```mermaid/u);
   assert.match(readme, /Copy credential settings/u);
   assert.match(readme, /\[Changelog\]\(CHANGELOG\.md\)/u);
@@ -204,81 +257,30 @@ test("public README documents the latest npm walkthrough and sanitized images", 
   assert.match(readme, /## Legal/u);
 });
 
-test("README walkthrough images are metadata-free PNG files", async () => {
-  const images = await Promise.all(
-    [
-      "01-local-sign-in-ready.png",
-      "02-vps-identity-confirmed.png",
-      "03-n8n-detected.png",
-      "04-install-plan.png",
-      "05-bridge-ready.png",
-    ].map((name) => readFile(`docs/images/setup/${name}`)),
-  );
-
-  for (const image of images) {
-    assert.deepEqual(
-      [...image.subarray(0, 8)],
-      [137, 80, 78, 71, 13, 10, 26, 10],
-    );
-    assert.equal(image.readUInt32BE(16), 1440);
-    assert.ok(image.readUInt32BE(20) >= 1_000);
-
-    const chunkTypes = [];
-    let offset = 8;
-    while (offset < image.length) {
-      const length = image.readUInt32BE(offset);
-      const type = image.toString("ascii", offset + 4, offset + 8);
-      chunkTypes.push(type);
-      offset += 12 + length;
-    }
-    assert.equal(offset, image.length);
-    assert.equal(chunkTypes[0], "IHDR");
-    assert.equal(chunkTypes.at(-1), "IEND");
-    assert.ok(
-      chunkTypes.every((type) => ["IHDR", "IDAT", "IEND"].includes(type)),
-      `unexpected PNG metadata chunk: ${chunkTypes.join(", ")}`,
-    );
-  }
-});
-
-test("README example images are metadata-free PNG files", async () => {
-  const names = [
-    "gpt-56-ai-agent-luna-run.png",
-    "gpt-56-ai-agent-sol-run.png",
-    "gpt-56-ai-agent-workflow.png",
-    "gpt-56-luna-chat-model-run.png",
-    "gpt-56-model-selector.png",
-    "gpt-56-sol-chat-model-run.png",
-    "hosted-chat-connected.png",
-    "sidecar-docker-containers-running.png",
+test("README walkthrough and proof images are metadata-free PNG files", async () => {
+  const paths = [
+    "docs/images/setup/00-install-methods.png",
+    "docs/images/setup/01-local-sign-in-ready.png",
+    "docs/images/setup/02-vps-identity-confirmed.png",
+    "docs/images/setup/03-n8n-detected.png",
+    "docs/images/setup/04-install-plan.png",
+    "docs/images/setup/05-bridge-ready.png",
+    "docs/images/examples/gpt-56-ai-agent-luna-run.png",
+    "docs/images/examples/gpt-56-ai-agent-sol-run.png",
+    "docs/images/examples/gpt-56-ai-agent-workflow.png",
+    "docs/images/examples/gpt-56-luna-chat-model-run.png",
+    "docs/images/examples/gpt-56-sol-chat-model-run.png",
+    "docs/images/examples/hosted-chat-connected.png",
+    "docs/images/examples/sidecar-docker-containers-running.png",
+    "docs/images/examples/telegram-model-results.png",
+    "docs/images/examples/telegram-n8n-workflow-execution.png",
+    "docs/images/examples/gpt-56-model-selector.png",
+    "docs/images/examples/n8n-openai-credential-connected.png",
   ];
-  const images = await Promise.all(
-    names.map((name) => readFile(`docs/images/examples/${name}`)),
-  );
+  const images = await Promise.all(paths.map((path) => readFile(path)));
 
-  for (const image of images) {
-    assert.deepEqual(
-      [...image.subarray(0, 8)],
-      [137, 80, 78, 71, 13, 10, 26, 10],
-    );
-    assert.ok(image.readUInt32BE(16) >= 1);
-    assert.ok(image.readUInt32BE(20) >= 1);
-
-    const chunkTypes = [];
-    let offset = 8;
-    while (offset < image.length) {
-      const length = image.readUInt32BE(offset);
-      const type = image.toString("ascii", offset + 4, offset + 8);
-      chunkTypes.push(type);
-      offset += 12 + length;
-    }
-    assert.equal(offset, image.length);
-    assert.equal(chunkTypes[0], "IHDR");
-    assert.equal(chunkTypes.at(-1), "IEND");
-    assert.ok(
-      chunkTypes.every((type) => ["IHDR", "IDAT", "IEND"].includes(type)),
-      `unexpected PNG metadata chunk: ${chunkTypes.join(", ")}`,
-    );
+  for (const [index, image] of images.entries()) {
+    assertMetadataFreeReadmePng(image, paths[index]);
   }
 });
 

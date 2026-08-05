@@ -15,21 +15,29 @@
 
 ## See it working first
 
-Before setup, this sample n8n configuration shows GPT-5.6 model aliases in the
-OpenAI Chat Model selector. The exact model list depends on the signed-in
-ChatGPT account and can change over time.
+This documented example follows a tested n8n OpenAI credential through a
+published Telegram-triggered workflow. It is a product-operation record, not
+an endorsement, sponsorship, or affiliation by OpenAI, n8n, Hostinger,
+Telegram, or AppBuildersPH.
 
 <figure>
-  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/gpt-56-model-selector.png" alt="Model selector listing GPT-5.6 Sol, Luna, and Terra model aliases" width="480">
-  <figcaption>Compatibility preview: the model selector includes <code>gpt-5.6-sol</code>, <code>gpt-5.6-luna</code>, and <code>gpt-5.6-terra</code>.</figcaption>
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/n8n-openai-credential-connected.png" alt="n8n OpenAI credential dialog showing that the connection test succeeded" width="960">
+  <figcaption>The n8n OpenAI credential connection test succeeded; the credential value itself is obscured.</figcaption>
 </figure>
 
-After Relmio completes the installation, Docker shows the existing n8n stack
-and the new private OAuth sidecar running together.
+<figure>
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/gpt-56-model-selector.png" alt="n8n model selector with gpt-5.6-terra selected and an account-specific model list" width="500">
+  <figcaption>This signed-in account's n8n model list includes <code>gpt-5.6-terra</code>; model availability is account-dependent and can change.</figcaption>
+</figure>
 
 <figure>
-  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/sidecar-docker-containers-running.png" alt="Docker Desktop showing the n8n and n8n-openai-oauth containers running" width="960">
-  <figcaption>Completed setup: the existing <code>n8n</code> stack and the <code>n8n-openai-oauth</code> sidecar are both running.</figcaption>
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/telegram-n8n-workflow-execution.png" alt="Successful n8n execution of a Telegram-triggered workflow with HTTP Request, Basic LLM Chain, and AI Agent branches" width="960">
+  <figcaption>The published Telegram-triggered n8n workflow completed successfully across its HTTP Request, Basic LLM Chain, and AI Agent branches.</figcaption>
+</figure>
+
+<figure>
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/telegram-model-results.png" alt="Telegram conversation receiving HTTP Request, Basic LLM Chain, and AI Agent outputs" width="682">
+  <figcaption>Telegram received the HTTP Request, Basic LLM Chain, and AI Agent outputs sent by that workflow.</figcaption>
 </figure>
 
 Relmio is a local browser wizard that installs a private
@@ -184,28 +192,47 @@ it is not currently advertised as supported.
 
 ## Visual walkthrough
 
-All images below are sanitized previews with reserved addresses, fake server
-data, and no real credential or session information.
+These current product screenshots omit or redact sensitive values. The VPS
+identity screen redacts the address and SSH fingerprint; none of the images
+includes an OAuth token, password, private key, or live wizard session URL.
 
-### 1. Confirm the local ChatGPT/Codex sign-in
+### 1. Choose a hosted installation method
 
-<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/01-local-sign-in-ready.png" alt="Sanitized local sign-in ready screen" width="720">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/00-install-methods.png" alt="Hosted Relmio installation page with macOS/Linux, Homebrew, PowerShell, Command Prompt, and NPX choices" width="720">
 
-### 2. Verify the VPS identity
+The hosted page starts with the installation-method selector. Run the selected
+command locally, not on the VPS.
 
-<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/02-vps-identity-confirmed.png" alt="Sanitized VPS fingerprint confirmation screen" width="720">
+### 2. Complete the local ChatGPT/Codex sign-in
 
-### 3. Choose the detected n8n container and network
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/01-local-sign-in-ready.png" alt="OpenAI OAuth browser page confirming that local ChatGPT credentials were saved" width="626">
 
-<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/03-n8n-detected.png" alt="Sanitized n8n discovery screen" width="720">
+The browser confirmation states that the ChatGPT credentials were saved locally.
 
-### 4. Review the exact sidecar-only plan
+### 3. Verify the VPS identity
 
-<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/04-install-plan.png" alt="Sanitized installation plan screen" width="720">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/02-vps-identity-confirmed.png" alt="VPS identity confirmation with the address and SSH fingerprint redacted" width="720">
 
-### 5. Copy the verified n8n settings
+Confirm the SSH host fingerprint before authentication. The screenshot redacts
+the address and fingerprint and obscures the password field.
 
-<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/05-bridge-ready.png" alt="Sanitized verified bridge screen" width="720">
+### 4. Choose the detected n8n container and network
+
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/03-n8n-detected.png" alt="Detected n8n container and shared Docker network" width="720">
+
+Discovery is read-only; choose the existing n8n container and shared Docker
+network.
+
+### 5. Review the exact sidecar-only plan
+
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/04-install-plan.png" alt="Exact sidecar-only installation plan, including forbidden actions" width="720">
+
+The plan names the allowed sidecar work and explicitly excludes edits or
+restarts of n8n, a published host port, and a Traefik route.
+
+### 6. Copy the verified n8n settings
+
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/05-bridge-ready.png" alt="Private bridge ready screen with n8n OpenAI credential settings" width="720">
 
 Use these values in an n8n OpenAI credential:
 
@@ -265,7 +292,8 @@ has the importable cURL version.
 - Relmio never edits, rebuilds, recreates, stops, or restarts the existing n8n
   container.
 - This is an unofficial community project, not affiliated with or endorsed by
-  OpenAI, xAI, or n8n. Provider access, models, limits, and policies can change.
+  OpenAI, xAI, n8n, Hostinger, Telegram, or AppBuildersPH. Provider access,
+  models, limits, and policies can change.
 - Use it only where your account, subscription, provider terms, and applicable
   policies allow.
 

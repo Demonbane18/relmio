@@ -33,7 +33,11 @@ const expectedPackedFiles = new Set([
   "docs/images/examples/gpt-56-model-selector.png",
   "docs/images/examples/gpt-56-sol-chat-model-run.png",
   "docs/images/examples/hosted-chat-connected.png",
+  "docs/images/examples/n8n-openai-credential-connected.png",
   "docs/images/examples/sidecar-docker-containers-running.png",
+  "docs/images/examples/telegram-model-results.png",
+  "docs/images/examples/telegram-n8n-workflow-execution.png",
+  "docs/images/setup/00-install-methods.png",
   "docs/images/setup/01-local-sign-in-ready.png",
   "docs/images/setup/02-vps-identity-confirmed.png",
   "docs/images/setup/03-n8n-detected.png",
@@ -243,6 +247,22 @@ test("npm package substitutes a registry-safe README without changing GitHub dia
   assert.match(
     npmReadme,
     /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/setup\/05-bridge-ready\.png/u,
+  );
+  assert.match(
+    npmReadme,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/setup\/00-install-methods\.png/u,
+  );
+  assert.match(
+    npmReadme,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/n8n-openai-credential-connected\.png/u,
+  );
+  assert.match(
+    npmReadme,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/telegram-model-results\.png/u,
+  );
+  assert.match(
+    npmReadme,
+    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/telegram-n8n-workflow-execution\.png/u,
   );
   assert.match(
     npmReadme,
