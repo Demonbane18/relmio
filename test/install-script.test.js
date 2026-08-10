@@ -88,18 +88,19 @@ function runInstallerWithoutControllingTerminal(env) {
   );
 }
 
-async function runGitBashInstallerInTerminal(shell, env) {
+function runGitBashInstallerInTerminal(shell, env) {
   if (process.platform !== "win32") {
     return runCommandInPseudoTerminal(pipedInstallerCommand, env, shell);
   }
 
-  const gitRoot = resolve(shell, "..", "..");
-  const winpty = join(gitRoot, "usr", "bin", "winpty.exe");
-  await access(winpty);
-
   return execFileAsync(
-    winpty,
-    ["-Xallow-non-tty", "--", shell, "-lc", pipedInstallerCommand],
+    process.env.ComSpec || "cmd.exe",
+    [
+      "/d",
+      "/s",
+      "/c",
+      `start "" /wait "${shell}" -lc "${pipedInstallerCommand}"`,
+    ],
     { env, timeout: 60_000 },
   );
 }
@@ -212,6 +213,7 @@ if (realpathSync(firstPathEntry) !== realpathSync(runtimeDirectory)) {
 
 appendFileSync(log, "child-node-ok\\n");
 appendFileSync(log, process.stdin.isTTY ? "stdin-is-a-tty\\n" : "stdin-is-not-a-tty\\n");
+process.exit(0);
 `,
     "utf8",
   );
