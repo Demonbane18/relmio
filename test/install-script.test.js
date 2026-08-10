@@ -26,6 +26,84 @@ const gitBashShell =
   process.platform === "win32"
     ? process.env.RELMIO_TEST_POSIX_SHELL
     : "/bin/sh";
+const pseudoTerminal =
+  process.platform === "darwin" || process.platform === "linux"
+    ? "python3"
+    : null;
+const pipedInstallerCommand =
+  "curl -fsSL https://relmio.vercel.app/install.sh | sh";
+const pseudoTerminalProgram = String.raw`
+import errno
+import os
+import pty
+import sys
+
+child_process, terminal = pty.fork()
+if child_process == 0:
+    os.execvpe(sys.argv[1], [sys.argv[1], "-c", sys.argv[2]], os.environ)
+
+while True:
+    try:
+        output = os.read(terminal, 1024)
+        if not output:
+            break
+        os.write(1, output)
+    except OSError as error:
+        if error.errno == errno.EIO:
+            break
+        raise
+
+_, status = os.waitpid(child_process, 0)
+sys.exit(os.waitstatus_to_exitcode(status))
+`;
+const noControllingTerminalProgram = String.raw`
+import os
+import sys
+
+os.setsid()
+os.execvpe("/bin/sh", ["/bin/sh", sys.argv[1]], os.environ)
+`;
+
+async function runCommandInPseudoTerminal(
+  command,
+  env,
+  shell = "/bin/sh",
+) {
+  return execFileAsync(
+    pseudoTerminal,
+    ["-c", pseudoTerminalProgram, shell, command],
+    { env },
+  );
+}
+
+function runPipedInstallerInPseudoTerminal(env) {
+  return runCommandInPseudoTerminal(pipedInstallerCommand, env);
+}
+
+function runInstallerWithoutControllingTerminal(env) {
+  return execFileAsync(
+    pseudoTerminal,
+    ["-c", noControllingTerminalProgram, installScript],
+    { env },
+  );
+}
+
+function runGitBashInstallerInTerminal(shell, env) {
+  if (process.platform !== "win32") {
+    return runCommandInPseudoTerminal(pipedInstallerCommand, env, shell);
+  }
+
+  return execFileAsync(
+    process.env.ComSpec || "cmd.exe",
+    [
+      "/d",
+      "/s",
+      "/c",
+      `start "" /wait "${shell}" -lc "${pipedInstallerCommand}"`,
+    ],
+    { env },
+  );
+}
 
 async function resolveGitBashShell() {
   if (
@@ -66,7 +144,10 @@ async function writeExecutable(path, contents) {
   await chmod(path, 0o755);
 }
 
-async function createPortableNodeFixture(root, { validChecksum = true } = {}) {
+async function createPortableNodeFixture(
+  root,
+  { captureStdin = false, validChecksum = true } = {},
+) {
   const platform = process.platform === "darwin" ? "darwin" : "linux";
   const architecture = process.arch === "arm64" ? "arm64" : "x64";
   const version = "v22.23.2";
@@ -82,7 +163,16 @@ async function createPortableNodeFixture(root, { validChecksum = true } = {}) {
   await mkdir(join(archiveRoot, "bin"), { recursive: true });
   await writeExecutable(
     nodePath,
-    '#!/bin/sh\nprintf "%s\\n" "$@" > "$RELMIO_TEST_LOG"\n',
+    captureStdin
+      ? `#!/bin/sh
+printf "%s\\n" "$@" > "$RELMIO_TEST_LOG"
+if [ -t 0 ]; then
+  printf "stdin-is-a-tty\\n" >> "$RELMIO_TEST_LOG"
+else
+  printf "stdin-is-not-a-tty\\n" >> "$RELMIO_TEST_LOG"
+fi
+`
+      : '#!/bin/sh\nprintf "%s\\n" "$@" > "$RELMIO_TEST_LOG"\n',
   );
   await writeFile(join(npmCli, "npx-cli.js"), "// fixture\n", "utf8");
   await execFileAsync("tar", ["-czf", archive, "-C", fixtureRoot, basename]);
@@ -122,6 +212,7 @@ if (realpathSync(firstPathEntry) !== realpathSync(runtimeDirectory)) {
 }
 
 appendFileSync(log, "child-node-ok\\n");
+appendFileSync(log, process.stdin.isTTY ? "stdin-is-a-tty\\n" : "stdin-is-not-a-tty\\n");
 `,
     "utf8",
   );
@@ -138,6 +229,7 @@ async function createGitBashBootstrapEnvironment() {
   const fakeBin = join(root, "bin");
   const bootstrapTemp = join(root, "tmp");
   const log = join(root, "invocation.log");
+  const pipeLog = join(root, "pipe.log");
   const bashEnvironment = join(root, "bash-environment");
   const fixture = await createWindowsNodeFixture(root);
 
@@ -185,6 +277,10 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
+  https://relmio.vercel.app/install.sh)
+    printf "installer-script-piped\\n" > "$RELMIO_TEST_PIPE_LOG"
+    cat "$RELMIO_TEST_INSTALLER"
+    ;;
   https://nodejs.org/download/release/latest-v22.x/SHASUMS256.txt)
     cp "$RELMIO_TEST_MANIFEST" "$output"
     ;;
@@ -220,6 +316,7 @@ cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
     bootstrapTemp,
     fixture,
     log,
+    pipeLog,
     root,
     env: {
       ...process.env,
@@ -231,17 +328,24 @@ cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
       RELMIO_TEST_ARCHIVE: fixture.archive,
       RELMIO_TEST_LOG: log,
       RELMIO_TEST_MANIFEST: fixture.manifest,
+      RELMIO_TEST_PIPE_LOG: pipeLog,
+      RELMIO_TEST_INSTALLER: toGitBashPath(resolve(installScript)),
       RELMIO_TEST_WINDOWS_ROOT: fixture.fixtureRoot,
     },
   };
 }
 
-async function createBootstrapEnvironment({ validChecksum = true } = {}) {
+async function createBootstrapEnvironment(
+  { captureStdin = false, validChecksum = true } = {},
+) {
   const root = await mkdtemp(join(tmpdir(), "relmio-install-test-"));
   const fakeBin = join(root, "bin");
   const bootstrapTemp = join(root, "tmp");
   const log = join(root, "invocation.log");
-  const fixture = await createPortableNodeFixture(root, { validChecksum });
+  const fixture = await createPortableNodeFixture(root, {
+    captureStdin,
+    validChecksum,
+  });
 
   await mkdir(fakeBin);
   await mkdir(bootstrapTemp);
@@ -274,6 +378,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
+  https://relmio.vercel.app/install.sh)
+    cat "$RELMIO_TEST_INSTALLER"
+    ;;
   https://nodejs.org/download/release/latest-v22.x/SHASUMS256.txt)
     cp "$RELMIO_TEST_MANIFEST" "$output"
     ;;
@@ -327,13 +434,11 @@ test(
       '#!/bin/sh\nprintf "curl\\n" >> "$RELMIO_TEST_DOWNLOAD_LOG"\nexit 97\n',
     );
 
-    const { stdout } = await execFileAsync("/bin/sh", [installScript], {
-      env: {
-        ...process.env,
-        PATH: `${fakeBin}:${process.env.PATH}`,
-        RELMIO_TEST_DOWNLOAD_LOG: downloadLog,
-        RELMIO_TEST_LOG: log,
-      },
+    const { stdout } = await runCommandInPseudoTerminal(installScript, {
+      ...process.env,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      RELMIO_TEST_DOWNLOAD_LOG: downloadLog,
+      RELMIO_TEST_LOG: log,
     });
 
     assert.match(stdout, /Using installed Node\.js 22/u);
@@ -347,15 +452,102 @@ test(
 );
 
 test(
+  "curl installer explains when no controlling terminal is available",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "relmio-no-tty-test-"));
+    const fakeBin = join(root, "bin");
+    const log = join(root, "invocation.log");
+    t.after(() => rm(root, { recursive: true, force: true }));
+
+    await mkdir(fakeBin);
+    await writeExecutable(
+      join(fakeBin, "node"),
+      '#!/bin/sh\nprintf "22\\n"\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "npx"),
+      '#!/bin/sh\nprintf "unexpected invocation\\n" > "$RELMIO_TEST_LOG"\n',
+    );
+
+    await assert.rejects(
+      runInstallerWithoutControllingTerminal({
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        RELMIO_TEST_LOG: log,
+      }),
+      /An interactive terminal is required to start Relmio/u,
+    );
+    await assert.rejects(readFile(log, "utf8"), { code: "ENOENT" });
+  },
+);
+
+test(
+  "curl installer gives an installed runtime its controlling terminal after a piped shell handoff",
+  { skip: !pseudoTerminal },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "relmio-installed-node-tty-test-"));
+    const fakeBin = join(root, "bin");
+    const log = join(root, "invocation.log");
+    t.after(() => rm(root, { recursive: true, force: true }));
+
+    await mkdir(fakeBin);
+    await writeExecutable(
+      join(fakeBin, "node"),
+      '#!/bin/sh\nprintf "22\\n"\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "npx"),
+      `#!/bin/sh
+if [ -t 0 ]; then
+  printf "stdin-is-a-tty\\n" > "$RELMIO_TEST_LOG"
+else
+  printf "stdin-is-not-a-tty\\n" > "$RELMIO_TEST_LOG"
+fi
+`,
+    );
+    await writeExecutable(
+      join(fakeBin, "curl"),
+      '#!/bin/sh\ncat "$RELMIO_TEST_INSTALLER"\n',
+    );
+
+    await runPipedInstallerInPseudoTerminal({
+      ...process.env,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+      RELMIO_TEST_INSTALLER: resolve(installScript),
+      RELMIO_TEST_LOG: log,
+    });
+
+    assert.equal(await readFile(log, "utf8"), "stdin-is-a-tty\n");
+  },
+);
+
+test(
+  "curl installer gives a portable runtime its controlling terminal after a piped shell handoff",
+  { skip: !pseudoTerminal || !supportsPortableFixture },
+  async (t) => {
+    const setup = await createBootstrapEnvironment({ captureStdin: true });
+    t.after(() => rm(setup.root, { recursive: true, force: true }));
+
+    await runPipedInstallerInPseudoTerminal({
+      ...setup.env,
+      RELMIO_TEST_INSTALLER: resolve(installScript),
+    });
+
+    const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
+    assert.equal(invocation.at(-1), "stdin-is-a-tty");
+    assert.deepEqual(await readdir(setup.bootstrapTemp), []);
+  },
+);
+
+test(
   "curl installer downloads, verifies, and removes a temporary Node runtime",
   { skip: !supportsPortableFixture },
   async (t) => {
     const setup = await createBootstrapEnvironment();
     t.after(() => rm(setup.root, { recursive: true, force: true }));
 
-    const { stdout } = await execFileAsync("/bin/sh", [installScript], {
-      env: setup.env,
-    });
+    const { stdout } = await runCommandInPseudoTerminal(installScript, setup.env);
     const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
 
     assert.match(stdout, /Installing a temporary Node\.js 22 runtime\. Please wait/u);
@@ -383,17 +575,19 @@ test(
     const shell = await resolveGitBashShell();
     t.after(() => rm(setup.root, { recursive: true, force: true }));
 
-    const { stdout } = await execFileAsync(shell, [installScript], {
-      env: setup.env,
-    });
+    const { stdout } = await runGitBashInstallerInTerminal(shell, setup.env);
     const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
+    assert.equal(await readFile(setup.pipeLog, "utf8"), "installer-script-piped\n");
 
-    assert.match(stdout, /Verified Node\.js download/u);
+    if (process.platform !== "win32") {
+      assert.match(stdout, /Verified Node\.js download/u);
+    }
     assert.match(
       invocation[0].replaceAll("\\", "/"),
       new RegExp(`${setup.fixture.basename}/node_modules/npm/bin/npx-cli\\.js$`, "u"),
     );
-    assert.equal(invocation.at(-1), "child-node-ok");
+    assert.equal(invocation.at(-2), "child-node-ok");
+    assert.equal(invocation.at(-1), "stdin-is-a-tty");
     assert.deepEqual(await readdir(setup.bootstrapTemp), []);
   },
 );
@@ -406,8 +600,14 @@ test(
     t.after(() => rm(setup.root, { recursive: true, force: true }));
 
     await assert.rejects(
-      execFileAsync("/bin/sh", [installScript], { env: setup.env }),
-      /Node\.js download checksum did not match/u,
+      runCommandInPseudoTerminal(installScript, setup.env),
+      (error) => {
+        assert.match(
+          error.stdout,
+          /Node\.js download checksum did not match/u,
+        );
+        return true;
+      },
     );
     await assert.rejects(readFile(setup.log, "utf8"), { code: "ENOENT" });
     assert.deepEqual(await readdir(setup.bootstrapTemp), []);
