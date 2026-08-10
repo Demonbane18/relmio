@@ -35,6 +35,16 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     html,
     /<nav class="steps" aria-label="Setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="5"/u,
   );
+  assert.match(html, /<main id="main-content" class="shell" tabindex="-1">/u);
+  assert.match(
+    html,
+    /<aside class="rail" aria-label="Setup progress and safety">/u,
+  );
+  assert.match(
+    html,
+    /class="rail"[\s\S]*<h1 id="page-title">[\s\S]*aria-label="Setup progress"[\s\S]*class="toast-stack"[\s\S]*<section class="panel" data-step="1"/u,
+  );
+  assert.doesNotMatch(html, /class="(?:eyebrow|step-kicker)"/u);
   assert.doesNotMatch(html, /n8n OAuth Bridge/u);
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
   assert.match(html, /class="skip-link"/);
@@ -113,6 +123,47 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   assert.match(html, /OpenAI credential[\s\S]*OpenAI Chat Model/u);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /\sonclick=/i);
+});
+
+test("workspace CSS keeps the document still and notices in flow", async () => {
+  const css = await readFile("src/ui/styles.css", "utf8");
+
+  const bodyBlock = css.match(/(?:^|\n)body\s*\{[^}]*\}/u)?.[0] ?? "";
+  assert.match(bodyBlock, /overflow:\s*hidden/u);
+
+  const toastStackBlock = css.match(/\.toast-stack\s*\{[^}]*\}/u)?.[0] ?? "";
+  assert.notEqual(toastStackBlock, "");
+  assert.doesNotMatch(toastStackBlock, /position:\s*fixed/u);
+
+  const panelBlock = css.match(/\.panel\s*\{[^}]*\}/u)?.[0] ?? "";
+  assert.match(panelBlock, /overflow-y:\s*auto/u);
+
+  assert.match(css, /--radius-lg:\s*1rem/u);
+});
+
+test("short narrow viewports preserve an internally scrollable task panel", async () => {
+  const css = await readFile("src/ui/styles.css", "utf8");
+  const shortNarrowStart = css.indexOf(
+    "@media (max-width: 60rem) and (max-height: 36rem)",
+  );
+
+  assert.notEqual(shortNarrowStart, -1);
+
+  const shortNarrowCss = css.slice(shortNarrowStart);
+  assert.match(shortNarrowCss, /\.intro\s*\{\s*display:\s*none/u);
+  assert.match(
+    shortNarrowCss,
+    /\.shell\s*\{[\s\S]*grid-template-rows:\s*auto\s+minmax\(7rem,\s*1fr\)/u,
+  );
+  assert.match(
+    shortNarrowCss,
+    /\.toast-stack\s*\{[\s\S]*display:\s*flex[\s\S]*overflow-x:\s*auto/u,
+  );
+  assert.match(shortNarrowCss, /\.safety-note\s*>\s*span\s*\{\s*display:\s*none/u);
+  assert.match(
+    shortNarrowCss,
+    /\.panel\s*\{[\s\S]*min-height:\s*7rem[\s\S]*overflow-y:\s*auto/u,
+  );
 });
 
 test("browser code never uses innerHTML or web storage for credentials", async () => {

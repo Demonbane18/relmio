@@ -55,108 +55,108 @@
       </div>
     </header>
 
-    <div class="toast-stack" aria-label="Wizard notifications">
-      <aside
-        id="global-safety"
-        class="toast safety-note"
-        aria-label="Safety guarantee"
-      >
-        <strong>Sidecar-only guarantee</strong>
-        <span>
-          No n8n restart. No n8n rebuild. No public port. You approve the exact
-          plan before anything is written.
-        </span>
-        <button
-          class="toast-close"
-          type="button"
-          data-dismiss-toast="global-safety"
-          aria-label="Dismiss safety guarantee"
-        >
-          <span aria-hidden="true">×</span>
-        </button>
+    <main id="main-content" class="shell" tabindex="-1">
+      <aside class="rail" aria-label="Setup progress and safety">
+        <section class="intro" aria-labelledby="page-title">
+          <h1 id="page-title">Connect n8n without changing n8n</h1>
+          <p class="lede">
+            This wizard installs one separate Docker sidecar. Your existing n8n
+            image, Compose file, container, and workflows stay untouched.
+          </p>
+        </section>
+
+        <nav class="steps" aria-label="Setup progress">
+          <ol>
+            <li data-step-marker="1" aria-current="step">
+              <span>1</span><em>Sign in</em>
+            </li>
+            <li data-step-marker="2"><span>2</span><em>VPS</em></li>
+            <li data-step-marker="3"><span>3</span><em>n8n</em></li>
+            <li data-step-marker="4"><span>4</span><em>Review</em></li>
+            <li data-step-marker="5"><span>5</span><em>Done</em></li>
+          </ol>
+        </nav>
+
+        <div class="toast-stack" aria-label="Wizard notifications">
+          <aside
+            id="global-safety"
+            class="toast safety-note"
+            aria-label="Safety guarantee"
+          >
+            <strong>Sidecar-only guarantee</strong>
+            <span>
+              No n8n restart. No n8n rebuild. No public port. You approve the
+              exact plan before anything is written.
+            </span>
+            <button
+              class="toast-close"
+              type="button"
+              data-dismiss-toast="global-safety"
+              aria-label="Dismiss safety guarantee"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </aside>
+
+          <aside
+            id="global-backup"
+            class="toast safety-note backup-note"
+            aria-label="Backup reminder"
+          >
+            <strong>Back up first</strong>
+            <span>
+              Export your n8n workflows before connecting. This wizard uses
+              sidecar-only commands, but it still writes to your VPS.
+            </span>
+            <button
+              class="toast-close"
+              type="button"
+              data-dismiss-toast="global-backup"
+              aria-label="Dismiss backup reminder"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </aside>
+
+          <div
+            id="global-message"
+            class="toast message"
+            role="status"
+            aria-live="polite"
+          >
+            <span id="global-message-text">Checking your local sign-in…</span>
+            <button
+              class="toast-close"
+              type="button"
+              data-dismiss-toast="global-message"
+              aria-label="Dismiss status message"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+
+          <div
+            id="global-error"
+            class="toast error"
+            role="alert"
+            tabindex="-1"
+            hidden
+          >
+            <span id="global-error-text"></span>
+            <button
+              class="toast-close"
+              type="button"
+              data-dismiss-toast="global-error"
+              aria-label="Dismiss error"
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+        </div>
       </aside>
-
-      <aside
-        id="global-backup"
-        class="toast safety-note backup-note"
-        aria-label="Backup reminder"
-      >
-        <strong>Back up first</strong>
-        <span>
-          Export your n8n workflows before connecting. This wizard uses
-          sidecar-only commands, but it still writes to your VPS.
-        </span>
-        <button
-          class="toast-close"
-          type="button"
-          data-dismiss-toast="global-backup"
-          aria-label="Dismiss backup reminder"
-        >
-          <span aria-hidden="true">×</span>
-        </button>
-      </aside>
-
-      <div
-        id="global-message"
-        class="toast message"
-        role="status"
-        aria-live="polite"
-      >
-        <span id="global-message-text">Checking your local sign-in…</span>
-        <button
-          class="toast-close"
-          type="button"
-          data-dismiss-toast="global-message"
-          aria-label="Dismiss status message"
-        >
-          <span aria-hidden="true">×</span>
-        </button>
-      </div>
-
-      <div
-        id="global-error"
-        class="toast error"
-        role="alert"
-        tabindex="-1"
-        hidden
-      >
-        <span id="global-error-text"></span>
-        <button
-          class="toast-close"
-          type="button"
-          data-dismiss-toast="global-error"
-          aria-label="Dismiss error"
-        >
-          <span aria-hidden="true">×</span>
-        </button>
-      </div>
-    </div>
-
-    <main id="main-content" class="shell">
-      <section class="intro" aria-labelledby="page-title">
-        <p class="eyebrow">Guided VPS setup</p>
-        <h1 id="page-title">Connect n8n without changing n8n</h1>
-        <p class="lede">
-          This wizard installs one separate Docker sidecar. Your existing n8n
-          image, Compose file, container, and workflows stay untouched.
-        </p>
-      </section>
-
-      <nav class="steps" aria-label="Setup progress">
-        <ol>
-          <li data-step-marker="1" aria-current="step">
-            <span>1</span><em>Sign in</em>
-          </li>
-          <li data-step-marker="2"><span>2</span><em>VPS</em></li>
-          <li data-step-marker="3"><span>3</span><em>n8n</em></li>
-          <li data-step-marker="4"><span>4</span><em>Review</em></li>
-          <li data-step-marker="5"><span>5</span><em>Done</em></li>
-        </ol>
-      </nav>
 
       <section class="panel" data-step="1" aria-labelledby="signin-title">
         <div class="panel-heading">
-          <span class="step-kicker">Step 1 of 5</span>
           <h2 id="signin-title" tabindex="-1">Use your local ChatGPT sign-in</h2>
           <p>
             The OAuth credential stays on this computer until you approve its
@@ -198,7 +198,6 @@
 
       <section class="panel" data-step="2" aria-labelledby="vps-title" hidden>
         <div class="panel-heading">
-          <span class="step-kicker">Step 2 of 5</span>
           <h2 id="vps-title" tabindex="-1">Connect to your VPS</h2>
           <p>
             Copy the address exactly from Hostinger. Your password is used only
@@ -294,7 +293,6 @@
 
       <section class="panel" data-step="3" aria-labelledby="n8n-title" hidden>
         <div class="panel-heading">
-          <span class="step-kicker">Step 3 of 5</span>
           <h2 id="n8n-title" tabindex="-1">Choose the detected n8n</h2>
           <p>
             Discovery uses read-only Docker commands. It does not execute
@@ -332,7 +330,6 @@
 
       <section class="panel" data-step="4" aria-labelledby="review-title" hidden>
         <div class="panel-heading">
-          <span class="step-kicker">Step 4 of 5</span>
           <h2 id="review-title" tabindex="-1">Review before installing</h2>
           <p>No existing n8n files or containers will be changed.</p>
         </div>
@@ -381,14 +378,15 @@
       </section>
 
       <section class="panel success-panel" data-step="5" aria-labelledby="done-title" hidden>
-        <div class="success-mark" aria-hidden="true">✓</div>
-        <div class="panel-heading">
-          <span class="step-kicker">Step 5 of 5</span>
-          <h2 id="done-title" tabindex="-1">The private bridge is ready</h2>
-          <p>
-            Copy the OpenAI credential values first, then use one of the node
-            recipes below.
-          </p>
+        <div class="success-heading">
+          <div class="success-mark" aria-hidden="true">✓</div>
+          <div class="panel-heading">
+            <h2 id="done-title" tabindex="-1">The private bridge is ready</h2>
+            <p>
+              Copy the OpenAI credential values first, then use one of the node
+              recipes below.
+            </p>
+          </div>
         </div>
 
         <h3>1. OpenAI credential</h3>
@@ -435,7 +433,7 @@
 
         <button
           id="copy-settings"
-          class="button secondary"
+          class="button primary"
           type="button"
           data-copy-group="credential"
           data-copy-label="OpenAI credential settings"
