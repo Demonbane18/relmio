@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   access,
@@ -112,16 +112,19 @@ async function runGitBashInstallerInTerminal(
     return runCommandInPseudoTerminal(pipedInstallerCommand, env, shell);
   }
 
-  await execFileAsync(
-    process.env.ComSpec || "cmd.exe",
-    [
-      "/d",
-      "/s",
-      "/c",
-      `start "" "${shell}" "${env.RELMIO_TEST_LAUNCHER}"`,
-    ],
-    { env, timeout: 10_000 },
-  );
+  await new Promise((resolveSpawn, rejectSpawn) => {
+    const child = spawn(shell, [env.RELMIO_TEST_LAUNCHER], {
+      detached: true,
+      env,
+      stdio: "ignore",
+      windowsHide: false,
+    });
+    child.once("error", rejectSpawn);
+    child.once("spawn", () => {
+      child.unref();
+      resolveSpawn();
+    });
+  });
 
   const exitCode = (await waitForCompletion(completionLog)).trim();
   if (exitCode !== "0") {
