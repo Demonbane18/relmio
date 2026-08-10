@@ -112,13 +112,21 @@ async function runGitBashInstallerInTerminal(
     return runCommandInPseudoTerminal(pipedInstallerCommand, env, shell);
   }
 
+  const gitRoot = resolve(shell, "..", "..");
+  const terminal = join(gitRoot, "usr", "bin", "mintty.exe");
+  await access(terminal);
+
   await new Promise((resolveSpawn, rejectSpawn) => {
-    const child = spawn(shell, [env.RELMIO_TEST_LAUNCHER], {
-      detached: true,
-      env,
-      stdio: "ignore",
-      windowsHide: false,
-    });
+    const child = spawn(
+      terminal,
+      ["--hold=never", "--exec", shell, env.RELMIO_TEST_LAUNCHER],
+      {
+        detached: true,
+        env,
+        stdio: "ignore",
+        windowsHide: false,
+      },
+    );
     child.once("error", rejectSpawn);
     child.once("spawn", () => {
       child.unref();
@@ -128,7 +136,10 @@ async function runGitBashInstallerInTerminal(
 
   const exitCode = (await waitForCompletion(completionLog)).trim();
   if (exitCode !== "0") {
-    throw new Error(`Git Bash installer fixture exited with ${exitCode}.`);
+    const diagnostics = await readFile(env.RELMIO_TEST_DIAGNOSTIC_LOG, "utf8");
+    throw new Error(
+      `Git Bash installer fixture exited with ${exitCode}: ${diagnostics.trim()}`,
+    );
   }
   return { stderr: "", stdout: "" };
 }
@@ -260,6 +271,7 @@ async function createGitBashBootstrapEnvironment() {
   const log = join(root, "invocation.log");
   const pipeLog = join(root, "pipe.log");
   const completionLog = join(root, "completion.log");
+  const diagnosticLog = join(root, "diagnostic.log");
   const launcher = join(root, "launch.sh");
   const bashEnvironment = join(root, "bash-environment");
   const fixture = await createWindowsNodeFixture(root);
@@ -277,7 +289,7 @@ async function createGitBashBootstrapEnvironment() {
   await writeExecutable(
     launcher,
     `#!/bin/sh
-${pipedInstallerCommand}
+${pipedInstallerCommand} > "$RELMIO_TEST_DIAGNOSTIC_LOG" 2>&1
 status=$?
 echo "$status" > "$RELMIO_TEST_COMPLETION_LOG"
 exit "$status"
@@ -368,6 +380,7 @@ cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
         : {}),
       RELMIO_TEST_ARCHIVE: fixture.archive,
       RELMIO_TEST_COMPLETION_LOG: toGitBashPath(completionLog),
+      RELMIO_TEST_DIAGNOSTIC_LOG: toGitBashPath(diagnosticLog),
       RELMIO_TEST_LOG: log,
       RELMIO_TEST_LAUNCHER: toGitBashPath(launcher),
       RELMIO_TEST_MANIFEST: fixture.manifest,
