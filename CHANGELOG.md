@@ -7,6 +7,12 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- Keep the controlling terminal attached when the macOS/Linux installer is
+  piped through `sh`, so the Relmio wizard can open its interactive browser
+  setup flow.
+
 ## [0.3.1] - 2026-08-10
 
 ### Changed

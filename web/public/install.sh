@@ -5,6 +5,7 @@ set -eu
 minimum_node_major=22
 node_dist_url="https://nodejs.org/download/release"
 temporary_directory=""
+terminal_input="/dev/tty"
 
 say() {
   printf 'Relmio installer: %s\n' "$1"
@@ -14,6 +15,10 @@ fail() {
   printf 'Relmio installer: %s\n' "$1" >&2
   exit 1
 }
+
+if ! ( : < "$terminal_input" ) 2>/dev/null; then
+  fail "An interactive terminal is required to start Relmio. Run this command from a local terminal."
+fi
 
 download() {
   curl -fsSL \
@@ -45,7 +50,7 @@ case "$installed_node_major" in
     if [ "$installed_node_major" -ge "$minimum_node_major" ] \
       && command -v npx >/dev/null 2>&1; then
       say "Using installed Node.js ${installed_node_major} runtime."
-      npx --yes --ignore-scripts relmio@latest </dev/null
+      npx --yes --ignore-scripts relmio@latest < "$terminal_input"
       exit $?
     fi
     ;;
@@ -190,4 +195,4 @@ fi
 say "Starting the newest Relmio wizard."
 node_directory="${node_binary%/*}"
 PATH="$node_directory${PATH:+:$PATH}" \
-  "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest </dev/null
+  "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"
