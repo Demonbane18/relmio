@@ -88,20 +88,19 @@ function runInstallerWithoutControllingTerminal(env) {
   );
 }
 
-function runGitBashInstallerInTerminal(shell, env) {
+async function runGitBashInstallerInTerminal(shell, env) {
   if (process.platform !== "win32") {
     return runCommandInPseudoTerminal(pipedInstallerCommand, env, shell);
   }
 
+  const gitRoot = resolve(shell, "..", "..");
+  const winpty = join(gitRoot, "usr", "bin", "winpty.exe");
+  await access(winpty);
+
   return execFileAsync(
-    process.env.ComSpec || "cmd.exe",
-    [
-      "/d",
-      "/s",
-      "/c",
-      `start "" /wait "${shell}" -lc "${pipedInstallerCommand}"`,
-    ],
-    { env },
+    winpty,
+    ["-Xallow-non-tty", "--", shell, "-lc", pipedInstallerCommand],
+    { env, timeout: 60_000 },
   );
 }
 
