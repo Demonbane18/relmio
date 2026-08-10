@@ -88,21 +88,46 @@ function runInstallerWithoutControllingTerminal(env) {
   );
 }
 
-function runGitBashInstallerInTerminal(shell, env) {
+async function waitForCompletion(path, timeout = 60_000) {
+  const deadline = Date.now() + timeout;
+
+  while (Date.now() < deadline) {
+    try {
+      return await readFile(path, "utf8");
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 50));
+  }
+
+  throw new Error("Timed out waiting for the Git Bash installer fixture.");
+}
+
+async function runGitBashInstallerInTerminal(
+  shell,
+  env,
+  completionLog = null,
+) {
   if (process.platform !== "win32") {
     return runCommandInPseudoTerminal(pipedInstallerCommand, env, shell);
   }
 
-  return execFileAsync(
+  await execFileAsync(
     process.env.ComSpec || "cmd.exe",
     [
       "/d",
       "/s",
       "/c",
-      `start "" /wait "${shell}" -lc "${pipedInstallerCommand}"`,
+      `start "" "${shell}" "${env.RELMIO_TEST_LAUNCHER}"`,
     ],
-    { env, timeout: 60_000 },
+    { env, timeout: 10_000 },
   );
+
+  const exitCode = (await waitForCompletion(completionLog)).trim();
+  if (exitCode !== "0") {
+    throw new Error(`Git Bash installer fixture exited with ${exitCode}.`);
+  }
+  return { stderr: "", stdout: "" };
 }
 
 async function resolveGitBashShell() {
@@ -231,6 +256,8 @@ async function createGitBashBootstrapEnvironment() {
   const bootstrapTemp = join(root, "tmp");
   const log = join(root, "invocation.log");
   const pipeLog = join(root, "pipe.log");
+  const completionLog = join(root, "completion.log");
+  const launcher = join(root, "launch.sh");
   const bashEnvironment = join(root, "bash-environment");
   const fixture = await createWindowsNodeFixture(root);
 
@@ -244,6 +271,15 @@ async function createGitBashBootstrapEnvironment() {
     );
   }
   await writeExecutable(join(fakeBin, "node"), '#!/bin/sh\nprintf "18\\n"\n');
+  await writeExecutable(
+    launcher,
+    `#!/bin/sh
+${pipedInstallerCommand}
+status=$?
+echo "$status" > "$RELMIO_TEST_COMPLETION_LOG"
+exit "$status"
+`,
+  );
   await writeExecutable(
     join(fakeBin, "uname"),
     `#!/bin/sh
@@ -315,6 +351,7 @@ cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
 
   return {
     bootstrapTemp,
+    completionLog,
     fixture,
     log,
     pipeLog,
@@ -327,7 +364,9 @@ cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
         ? { BASH_ENV: toGitBashPath(bashEnvironment) }
         : {}),
       RELMIO_TEST_ARCHIVE: fixture.archive,
+      RELMIO_TEST_COMPLETION_LOG: toGitBashPath(completionLog),
       RELMIO_TEST_LOG: log,
+      RELMIO_TEST_LAUNCHER: toGitBashPath(launcher),
       RELMIO_TEST_MANIFEST: fixture.manifest,
       RELMIO_TEST_PIPE_LOG: pipeLog,
       RELMIO_TEST_INSTALLER: toGitBashPath(resolve(installScript)),
@@ -576,7 +615,11 @@ test(
     const shell = await resolveGitBashShell();
     t.after(() => rm(setup.root, { recursive: true, force: true }));
 
-    const { stdout } = await runGitBashInstallerInTerminal(shell, setup.env);
+    const { stdout } = await runGitBashInstallerInTerminal(
+      shell,
+      setup.env,
+      setup.completionLog,
+    );
     const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
     assert.equal(await readFile(setup.pipeLog, "utf8"), "installer-script-piped\n");
 
