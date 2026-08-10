@@ -324,10 +324,11 @@ current self-hosted n8n and Hostinger VPS setup path.
 The hosted site and local wizard keep the original Relmio relay layout while
 adding a compact **System / Light / Dark** appearance control. System follows
 the computer's preference; Light and Dark are remembered on that browser only.
-The local wizard keeps its horizontal five-step Signal Spine at the top of the
-flow, and the hosted site keeps the live GitHub star/version control visible.
-Both surfaces collapse their controls for narrow phone screens without
-turning the setup flow into a side rail or requiring a separate mobile app.
+On desktop, the local wizard keeps progress and sidecar-only safety notes in a
+persistent rail beside the active task; its compact fixed-screen shell avoids
+document scrolling on common laptop screens. On narrow phones, it switches to
+a horizontal progress strip and keeps task scrolling inside the active panel.
+The hosted site keeps the live GitHub star/version control visible.
 
 ## Choose a setup path
 
@@ -466,10 +467,11 @@ npm view relmio version
 ```
 
 > [!NOTE]
-> These current product screenshots omit or redact sensitive values. In
-> particular, the VPS identity screen redacts the address and SSH fingerprint;
-> none of the screenshots includes an OAuth token, password, private key, or
-> live wizard session URL.
+> These current product screenshots use sanitized sample values wherever a
+> setup field could identify an environment. In particular, the VPS identity
+> screen uses a reserved sample address and sample SSH fingerprint; none of the
+> screenshots includes an OAuth token, password, private key, or live wizard
+> session URL.
 
 ### 2. Complete or reuse the local ChatGPT sign-in
 
@@ -484,10 +486,12 @@ credential already exists, **Continue to VPS** reuses it. Use **Refresh
 ChatGPT sign-in** when it is expired, belongs to another account, or you want
 a new session.
 
-After a fresh login, the browser confirmation states that the ChatGPT
-credentials were saved locally; return to the terminal to continue.
+After a real fresh login, the browser confirmation states that the ChatGPT
+credentials were saved locally; return to the terminal to continue. The
+following image is a sanitized preview-mode sample credential state, not a
+confirmation that a real saved login exists.
 
-![Step 2: local ChatGPT sign-in completion confirmation](docs/images/setup/01-local-sign-in-ready.png)
+![Step 2: sanitized preview-mode sample credential state, not a real saved-login confirmation](docs/images/setup/01-local-sign-in-ready.png)
 
 If a browser extension named **Sign in with ChatGPT** or **OpenAI OAuth**
 captures the callback, temporarily disable that extension and start the
@@ -500,11 +504,11 @@ Enter the VPS address exactly as your provider shows it. Select **Check server
 identity**, compare the SHA-256 fingerprint with the intended server, and
 confirm it before the password field unlocks.
 
-![Step 3: VPS identity confirmation with the address and SSH fingerprint redacted](docs/images/setup/02-vps-identity-confirmed.png)
+![Step 3: VPS identity confirmation with a sanitized sample address and SSH fingerprint](docs/images/setup/02-vps-identity-confirmed.png)
 
-The screenshot redacts the VPS address and SSH fingerprint and obscures the
-password field. Never publish a real password, private key, session URL, or
-OAuth file.
+The screenshot uses the reserved sample host `vps.example.test`, a sample
+SSH fingerprint, and a blank password field. Never publish a real password,
+private key, session URL, or OAuth file.
 
 ### 4. Choose the detected n8n container and shared network
 

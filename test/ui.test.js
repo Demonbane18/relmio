@@ -141,6 +141,31 @@ test("workspace CSS keeps the document still and notices in flow", async () => {
   assert.match(css, /--radius-lg:\s*1rem/u);
 });
 
+test("short narrow viewports preserve an internally scrollable task panel", async () => {
+  const css = await readFile("src/ui/styles.css", "utf8");
+  const shortNarrowStart = css.indexOf(
+    "@media (max-width: 60rem) and (max-height: 36rem)",
+  );
+
+  assert.notEqual(shortNarrowStart, -1);
+
+  const shortNarrowCss = css.slice(shortNarrowStart);
+  assert.match(shortNarrowCss, /\.intro\s*\{\s*display:\s*none/u);
+  assert.match(
+    shortNarrowCss,
+    /\.shell\s*\{[\s\S]*grid-template-rows:\s*auto\s+minmax\(7rem,\s*1fr\)/u,
+  );
+  assert.match(
+    shortNarrowCss,
+    /\.toast-stack\s*\{[\s\S]*display:\s*flex[\s\S]*overflow-x:\s*auto/u,
+  );
+  assert.match(shortNarrowCss, /\.safety-note\s*>\s*span\s*\{\s*display:\s*none/u);
+  assert.match(
+    shortNarrowCss,
+    /\.panel\s*\{[\s\S]*min-height:\s*7rem[\s\S]*overflow-y:\s*auto/u,
+  );
+});
+
 test("browser code never uses innerHTML or web storage for credentials", async () => {
   const [app, oauthPopup] = await Promise.all([
     readFile("src/ui/app.js", "utf8"),

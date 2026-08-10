@@ -88,10 +88,11 @@ tailored to the current self-hosted n8n and Hostinger VPS setup path.
 The hosted site and local wizard keep the original Relmio relay layout while
 adding a compact **System / Light / Dark** appearance control. System follows
 the computer's preference; Light and Dark are remembered on that browser only.
-The local wizard keeps its horizontal five-step Signal Spine at the top of the
-flow, and the hosted site keeps the live GitHub star/version control visible.
-Both surfaces collapse their controls for narrow phone screens without
-turning the setup flow into a side rail or requiring a separate mobile app.
+On desktop, the local wizard keeps progress and sidecar-only safety notes in a
+persistent rail beside the active task; its compact fixed-screen shell avoids
+document scrolling on common laptop screens. On narrow phones, it switches to
+a horizontal progress strip and keeps task scrolling inside the active panel.
+The hosted site keeps the live GitHub star/version control visible.
 
 ## Quick start
 
@@ -192,9 +193,10 @@ it is not currently advertised as supported.
 
 ## Visual walkthrough
 
-These current product screenshots omit or redact sensitive values. The VPS
-identity screen redacts the address and SSH fingerprint; none of the images
-includes an OAuth token, password, private key, or live wizard session URL.
+These current product screenshots use sanitized sample values wherever a setup
+field might otherwise identify an environment. The VPS identity screen shows a
+reserved sample address and sample SSH fingerprint; none of the images includes
+an OAuth token, password, private key, or live wizard session URL.
 
 ### 1. Choose a hosted installation method
 
@@ -205,16 +207,19 @@ command locally, not on the VPS.
 
 ### 2. Complete the local ChatGPT/Codex sign-in
 
-<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/01-local-sign-in-ready.png" alt="OpenAI OAuth browser page confirming that local ChatGPT credentials were saved" width="626">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/01-local-sign-in-ready.png" alt="Sanitized preview-mode sample credential state, not a real saved-login confirmation" width="626">
 
-The browser confirmation states that the ChatGPT credentials were saved locally.
+This image shows a sanitized preview-mode sample credential state; it does not
+confirm that a real local ChatGPT login was saved. During a real fresh login,
+the browser confirmation states that the credentials were saved locally.
 
 ### 3. Verify the VPS identity
 
-<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/02-vps-identity-confirmed.png" alt="VPS identity confirmation with the address and SSH fingerprint redacted" width="720">
+<img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/setup/02-vps-identity-confirmed.png" alt="VPS identity confirmation with a sanitized sample address and SSH fingerprint" width="720">
 
-Confirm the SSH host fingerprint before authentication. The screenshot redacts
-the address and fingerprint and obscures the password field.
+Confirm the SSH host fingerprint before authentication. The screenshot uses the
+reserved sample host `vps.example.test`, a sample fingerprint, and a blank
+password field.
 
 ### 4. Choose the detected n8n container and network
 

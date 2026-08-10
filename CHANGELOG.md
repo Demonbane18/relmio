@@ -7,6 +7,25 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.3.1] - 2026-08-10
+
+### Changed
+
+- Make the browser wizard beginner-friendly with a modern fixed-viewport
+  layout: all five active steps fit without document scrolling on common
+  1280x720 laptops, while progress and safety context stay persistent beside
+  the active task.
+- Keep narrow-phone documents fixed to the viewport and contain unavoidable
+  long-form overflow within the active task panel instead of the page.
+- Expand the GitHub and npm walkthroughs with a hosted-install selector and
+  packaged, sanitized screenshots that document the current n8n workflow.
+
+### Security
+
+- Restore a clean hosted-web dependency audit by pinning patched `js-yaml`
+  and `nanoid` releases and using the compatible `vinext` release that does
+  not include the currently vulnerable `image-size` parser.
+
 ## [0.3.0] - 2026-08-05
 
 ### Added
