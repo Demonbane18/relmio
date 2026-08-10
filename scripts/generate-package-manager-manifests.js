@@ -74,8 +74,8 @@ export function createHomebrewFormula({ sha256, version }) {
   sha256 "${digest}"
   license "Apache-2.0"
 
-  depends_on "node"
   depends_on "python" => :build
+  depends_on "node"
 
   def install
     system "npm", "install", *std_npm_args

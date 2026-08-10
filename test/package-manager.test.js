@@ -91,6 +91,11 @@ test("Homebrew candidate follows the standard Node formula layout", () => {
   assert.match(formula, /url "https:\/\/registry\.npmjs\.org\/relmio\/-\/relmio-1\.2\.3\.tgz"/u);
   assert.match(formula, /depends_on "node"/u);
   assert.match(formula, /depends_on "python" => :build/u);
+  assert.ok(
+    formula.indexOf('depends_on "python" => :build') <
+      formula.indexOf('depends_on "node"'),
+    "Homebrew build dependencies must precede runtime dependencies",
+  );
   assert.match(formula, /system "npm", "install", \*std_npm_args/u);
   assert.match(formula, /bin\.install_symlink libexec\.glob\("bin\/\*"\)/u);
   assert.match(formula, /assert_predicate bin\/"relmio", :executable\?/u);
