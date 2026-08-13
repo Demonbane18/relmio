@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 
@@ -18,6 +18,15 @@ import {
   validatePort,
 } from "../domain/validation.js";
 import { SIDECAR_HOSTNAME } from "../domain/templates.js";
+import { createLocalDeploymentPlan } from "../domain/local-endpoints.js";
+import {
+  attestLocalCodexInstallation,
+  getLocalDockerStatus,
+  installLocalEndpoint,
+  resolveLocalInstallRoot,
+  restartLocalCodex,
+} from "../services/local-installer.js";
+import { startCodexDeviceLogin } from "../services/codex-login.js";
 
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
@@ -32,6 +41,12 @@ const defaultServices = {
   discoverN8n,
   discoverNetworks,
   installSidecar,
+  attestLocalCodexInstallation,
+  getLocalDockerStatus,
+  installLocalEndpoint,
+  resolveLocalInstallRoot,
+  restartLocalCodex,
+  startCodexDeviceLogin,
 };
 
 function setSecurityHeaders(response) {
@@ -168,7 +183,9 @@ function safeErrorMessage(error) {
   if (
     message.length > 240 ||
     /[\r\n]/u.test(message) ||
-    /(?:access|refresh)[_-]?token|private[_-]?key|\/Users\//iu.test(message)
+    /(?:access|refresh)[_-]?token|private[_-]?key|\bsk-[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\/(?:Users|home|private|tmp|var|opt|docker)\/|[A-Za-z]:\\/iu.test(
+      message,
+    )
   ) {
     return "The request could not be completed safely.";
   }
@@ -178,11 +195,14 @@ function safeErrorMessage(error) {
 async function loadDefaultUiFiles() {
   const files = await Promise.all([
     readFile(new URL("../ui/index.html", import.meta.url), "utf8"),
+    readFile(new URL("../ui/local.html", import.meta.url), "utf8"),
     readFile(new URL("../ui/app.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/local.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/oauth-popup.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/theme.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/time.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/styles.css", import.meta.url), "utf8"),
+    readFile(new URL("../ui/local.css", import.meta.url), "utf8"),
     readFile(new URL("../ui/icons/monitor.svg", import.meta.url), "utf8"),
     readFile(new URL("../ui/icons/sun.svg", import.meta.url), "utf8"),
     readFile(new URL("../ui/icons/moon.svg", import.meta.url), "utf8"),
@@ -190,15 +210,74 @@ async function loadDefaultUiFiles() {
 
   return {
     "/": files[0],
-    "/app.js": files[1],
-    "/oauth-popup.js": files[2],
-    "/theme.js": files[3],
-    "/time.js": files[4],
-    "/styles.css": files[5],
-    "/icons/monitor.svg": files[6],
-    "/icons/sun.svg": files[7],
-    "/icons/moon.svg": files[8],
+    "/local": files[1],
+    "/app.js": files[2],
+    "/local.js": files[3],
+    "/oauth-popup.js": files[4],
+    "/theme.js": files[5],
+    "/time.js": files[6],
+    "/styles.css": files[7],
+    "/local.css": files[8],
+    "/icons/monitor.svg": files[9],
+    "/icons/sun.svg": files[10],
+    "/icons/moon.svg": files[11],
   };
+}
+
+function createSafeLocalPlan(plan) {
+  return {
+    target: plan.target,
+    label: plan.label,
+    bindHost: plan.bindHost,
+    port: plan.port,
+    endpoint: plan.endpoint,
+    protocol: plan.protocol,
+    upstreamAuth: plan.upstreamAuth,
+    allowedOrigins: [...plan.allowedOrigins],
+    browserClients: plan.browserClients,
+    experimental: plan.experimental,
+    managedPath: plan.managedPath,
+  };
+}
+
+function createSafeLocalInstallResult(result) {
+  return {
+    target: result.target,
+    endpoint: result.endpoint,
+    protocol: result.protocol,
+    clientCredential: result.clientCredential,
+    credentialShownOnce: result.credentialShownOnce === true,
+    models: Array.isArray(result.models) ? [...result.models] : [],
+    deploymentMode: result.deploymentMode,
+    experimental: result.experimental === true,
+    browserClients: result.browserClients === true,
+  };
+}
+
+function createSafeDockerStatus(status, previewMode) {
+  if (previewMode || status?.dockerAvailable !== true) {
+    return {
+      dockerAvailable: false,
+      ...(previewMode ? { previewMode: true } : {}),
+      ...(!previewMode && status?.unsupportedPlatform === true
+        ? { unsupportedPlatform: true }
+        : {}),
+    };
+  }
+  return {
+    dockerAvailable: true,
+    dockerVersion: status.dockerVersion,
+    composeVersion: status.composeVersion,
+  };
+}
+
+function requireLiveLocalAction(state, action) {
+  if (state.previewMode) {
+    throw Object.assign(
+      new Error(`${action} is disabled in sanitized preview mode.`),
+      { statusCode: 403 },
+    );
+  }
 }
 
 async function handleApi(request, response, path, state) {
@@ -220,6 +299,31 @@ async function handleApi(request, response, path, state) {
     sendJson(response, 200, {
       status: login?.status ?? "idle",
       ...(login?.status === "error" ? { error: login.error } : {}),
+    });
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/local/docker/status") {
+    const status = state.previewMode
+      ? null
+      : await state.services.getLocalDockerStatus();
+    sendJson(
+      response,
+      200,
+      createSafeDockerStatus(status, state.previewMode),
+    );
+    return;
+  }
+
+  if (
+    request.method === "GET" &&
+    path === "/api/local/codex/login/status"
+  ) {
+    const login = state.codexLogin;
+    sendJson(response, 200, {
+      status: login?.status ?? "idle",
+      ...(login?.status === "error" ? { error: login.error } : {}),
+      ...(state.previewMode ? { previewMode: true } : {}),
     });
     return;
   }
@@ -273,6 +377,128 @@ async function handleApi(request, response, path, state) {
   }
 
   const body = await readJsonBody(request);
+
+  if (path === "/api/local/plan") {
+    const plan = createLocalDeploymentPlan({
+      target: body.target,
+      port: body.port,
+      allowedOrigins: body.allowedOrigins,
+    });
+    const planId = randomUUID();
+    state.localPlan = { planId, plan };
+    sendJson(response, 200, {
+      planId,
+      plan: createSafeLocalPlan(plan),
+    });
+    return;
+  }
+
+  if (path === "/api/local/install") {
+    let acquiredInstallLock = false;
+    try {
+      requireLiveLocalAction(state, "Local endpoint installation");
+      enforceRateLimit(state, path);
+      if (state.localInstallInFlight) {
+        throw Object.assign(
+          new Error("A local endpoint installation is already in progress."),
+          { statusCode: 409 },
+        );
+      }
+      const pending = state.localPlan;
+      if (!pending || !tokenMatches(body.planId, pending.planId)) {
+        throw new Error(
+          "Review a fresh local endpoint plan before installing.",
+        );
+      }
+
+      state.localInstallInFlight = true;
+      acquiredInstallLock = true;
+      state.localPlan = null;
+      const result = await state.services.installLocalEndpoint({
+        plan: pending.plan,
+        apiKey: body.apiKey,
+        confirmed: body.confirmed,
+      });
+
+      sendJson(response, 200, createSafeLocalInstallResult(result));
+    } finally {
+      if (acquiredInstallLock) {
+        state.localInstallInFlight = false;
+      }
+      body.apiKey = undefined;
+    }
+    return;
+  }
+
+  if (path === "/api/local/codex/login") {
+    requireLiveLocalAction(state, "Local Codex sign-in");
+    enforceRateLimit(state, path);
+    if (state.codexLoginStartInFlight) {
+      throw Object.assign(
+        new Error("A local Codex sign-in start is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+
+    state.codexLoginStartInFlight = true;
+    try {
+      const installDirectory = await state.services.resolveLocalInstallRoot({
+        target: "codex-chatgpt",
+      });
+      const { dockerHost, projectName } =
+        await state.services.attestLocalCodexInstallation({
+          installDirectory,
+        });
+
+      const previous = state.codexLogin;
+      if (previous?.status === "pending") {
+        state.codexLogin = null;
+        previous.cancel();
+        try {
+          await previous.completion;
+        } catch {
+          // A fresh attempt intentionally supersedes the old device-code login.
+        }
+      }
+
+      const attempt = await state.services.startCodexDeviceLogin({
+        installDirectory,
+        dockerHost,
+        projectName,
+      });
+      const login = {
+        cancel: attempt.cancel,
+        completion: attempt.completion,
+        error: null,
+        status: "pending",
+      };
+      state.codexLogin = login;
+      void (async () => {
+        try {
+          await login.completion;
+          if (state.codexLogin !== login || state.closing) {
+            return;
+          }
+          await state.services.restartLocalCodex({ installDirectory });
+          if (state.codexLogin === login && !state.closing) {
+            login.status = "success";
+          }
+        } catch (error) {
+          if (state.codexLogin === login && !state.closing) {
+            login.status = "error";
+            login.error = safeErrorMessage(error);
+          }
+        }
+      })();
+      sendJson(response, 200, {
+        verificationUrl: attempt.verificationUrl,
+        userCode: attempt.userCode,
+      });
+    } finally {
+      state.codexLoginStartInFlight = false;
+    }
+    return;
+  }
 
   if (path === "/api/ssh/fingerprint") {
     enforceRateLimit(state, path);
@@ -431,7 +657,7 @@ function createRequestHandler(state) {
           ? "text/javascript; charset=utf-8"
           : path.endsWith(".svg")
             ? "image/svg+xml; charset=utf-8"
-            : path === "/styles.css"
+            : path.endsWith(".css")
               ? "text/css; charset=utf-8"
               : "text/html; charset=utf-8";
       const contents = state.uiFiles[path];
@@ -465,7 +691,7 @@ export async function startWizardServer({
 
   const state = {
     sessionToken,
-    services,
+    services: { ...defaultServices, ...services },
     uiFiles: uiFiles ?? (await loadDefaultUiFiles()),
     origin: "http://127.0.0.1",
     connection: null,
@@ -473,8 +699,13 @@ export async function startWizardServer({
     discovery: null,
     networksByContainer: new Map(),
     oauthLogin: null,
+    localPlan: null,
+    localInstallInFlight: false,
+    codexLogin: null,
+    codexLoginStartInFlight: false,
     rateLimits: new Map(),
     previewMode: previewMode === true,
+    closing: false,
   };
   const server = createServer(createRequestHandler(state));
   server.requestTimeout = 330_000;
@@ -492,7 +723,11 @@ export async function startWizardServer({
   return {
     origin: state.origin,
     async close() {
+      state.closing = true;
       state.oauthLogin?.attempt.cancel();
+      const codexLogin = state.codexLogin;
+      state.codexLogin = null;
+      codexLogin?.cancel();
       state.connection?.close();
       state.connection = null;
       await new Promise((resolve) => server.close(resolve));

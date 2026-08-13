@@ -1,0 +1,192 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+test("local endpoint wizard exposes an accessible four-step flow", async () => {
+  const html = await readFile("src/ui/local.html", "utf8");
+
+  assert.match(html, /<html lang="en">/u);
+  assert.match(html, /<title>Relmio \| Local Endpoint Setup<\/title>/u);
+  assert.match(html, /<main id="main-content" class="shell" tabindex="-1">/u);
+  assert.match(
+    html,
+    /<aside class="rail" aria-label="Local setup progress and safety">/u,
+  );
+  assert.match(
+    html,
+    /<nav class="steps" aria-label="Local setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="4"/u,
+  );
+  assert.equal((html.match(/<h1\b/gu) ?? []).length, 1);
+  assert.equal((html.match(/<h2[^>]*tabindex="-1"/gu) ?? []).length, 4);
+  assert.match(html, /<fieldset class="target-picker">[\s\S]*<legend>/u);
+  assert.match(html, /name="target" value="openai-api" checked/u);
+  assert.match(html, /name="target" value="codex-chatgpt"/u);
+  assert.match(html, /<label[^>]*class="field compact">[\s\S]*id="local-port"/u);
+  assert.match(html, /<label id="origins-field" class="field">[\s\S]*id="allowed-origins"/u);
+  assert.match(html, /id="global-message"[^>]*role="status"[^>]*aria-live="polite"/u);
+  assert.match(
+    html,
+    /id="global-error"[\s\S]*role="alert"[\s\S]*tabindex="-1"/u,
+  );
+  assert.match(html, /id="device-code-status"[^>]*role="status"[^>]*aria-live="polite"/u);
+  assert.match(html, /id="device-code-link"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/u);
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/u);
+  assert.doesNotMatch(html, /\sonclick=/iu);
+  assert.doesNotMatch(html, /theme\.js/u);
+});
+
+test("local wizard states the OpenAI and Codex credential boundaries", async () => {
+  const html = await readFile("src/ui/local.html", "utf8");
+
+  assert.match(html, /A ChatGPT subscription is not an OpenAI Platform API key/u);
+  assert.match(html, /Relmio never converts one into the other/u);
+  assert.match(html, /Platform API usage is billed[\s\S]*separately from ChatGPT/u);
+  assert.match(html, /This is not an OpenAI-compatible <code>\/v1<\/code> endpoint/u);
+  assert.match(html, /browsers cannot connect directly/u);
+  assert.match(html, /High-trust capability/u);
+  assert.match(
+    html,
+    /client credential can control Codex[\s\S]*recover that container's ChatGPT session[\s\S]*credential/u,
+  );
+  assert.match(html, /Treat this capability like your ChatGPT password/u);
+  assert.match(html, /trusted native local app/u);
+  assert.match(html, /bind only to[\s\S]*<code>127\.0\.0\.1<\/code>/u);
+  assert.match(html, /id="install-confirm" type="checkbox"/u);
+  assert.match(
+    html,
+    /id="platform-api-key"[\s\S]*pattern="sk-\[A-Za-z0-9_\\-\]\{32,509\}"/u,
+  );
+  assert.match(html, /id="review-origins-row"[\s\S]*id="review-origins"/u);
+  assert.match(html, /authorize Relmio to write[\s\S]*start this Docker container/u);
+  assert.match(html, /shows the generated client credential only in this install[\s\S]*response/u);
+});
+
+test("local wizard shows Codex WebSocket production limits before and after install", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /value="codex-chatgpt"[\s\S]*Codex App Server WebSocket is experimental and unsupported for production workloads/u,
+  );
+  assert.match(
+    html,
+    /data-step="4"[\s\S]*id="codex-production-warning"[\s\S]*Codex App Server WebSocket is experimental and unsupported for production workloads/u,
+  );
+  assert.match(
+    script,
+    /element\("codex-production-warning"\)\.hidden = isOpenAiApi/u,
+  );
+});
+
+test("local wizard clearly excludes native Windows", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /Native Windows is not supported[\s\S]*owner-only file permissions/u,
+  );
+  assert.match(script, /result\.unsupportedPlatform === true/u);
+  assert.match(script, /Native Windows is not supported/u);
+  assert.match(script, /POSIX owner-only file permissions/u);
+});
+
+test("local browser code does not persist or inject credentials", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+
+  assert.doesNotMatch(script, /\.innerHTML\b/u);
+  assert.doesNotMatch(
+    script,
+    /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|document\.cookie/u,
+  );
+  assert.doesNotMatch(script, /console\.(?:log|warn|error)/u);
+  assert.match(script, /\.textContent/u);
+  assert.match(
+    script,
+    /new URLSearchParams\(window\.location\.search\)\.get\("session"\);[\s\S]*window\.history\.replaceState\(null, "", window\.location\.pathname\);/u,
+  );
+  assert.match(script, /"X-Setup-Token": token/u);
+  assert.doesNotMatch(script, /session=\$\{[^}]*clientCredential/u);
+
+  const installStart = script.indexOf(
+    'element("install-button").addEventListener("click"',
+  );
+  const installRequest = script.indexOf(
+    'api("/api/local/install"',
+    installStart,
+  );
+  const firstKeyClear = script.indexOf('apiKeyInput.value = "";', installStart);
+  assert.notEqual(installStart, -1);
+  assert.notEqual(installRequest, -1);
+  assert.ok(firstKeyClear > installStart && firstKeyClear < installRequest);
+  assert.match(
+    script.slice(installStart),
+    /finally \{[\s\S]*requestBody\.apiKey = undefined;[\s\S]*apiKeyInput\.value = "";/u,
+  );
+
+  assert.match(script, /url\.origin !== "https:\/\/auth\.openai\.com"/u);
+  assert.match(script, /url\.username !== ""/u);
+  assert.match(script, /url\.password !== ""/u);
+  assert.match(script, /url\.hash !== ""/u);
+});
+
+test("local Platform key validation uses a browser-compatible pattern", async () => {
+  const html = await readFile("src/ui/local.html", "utf8");
+  assert.match(html, /pattern="sk-\[A-Za-z0-9_\\-\]\{32,509\}"/u);
+});
+
+test("local wizard calls only the dedicated local API contract", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+
+  for (const path of [
+    "/api/local/docker/status",
+    "/api/local/plan",
+    "/api/local/install",
+    "/api/local/codex/login",
+    "/api/local/codex/login/status",
+  ]) {
+    assert.ok(script.includes(path), `missing local route ${path}`);
+  }
+  assert.match(script, /result\.dockerAvailable === true/u);
+  assert.match(script, /result\.previewMode === true/u);
+  assert.match(script, /result\.planId/u);
+  assert.match(script, /result\.clientCredential/u);
+  assert.match(script, /result\.verificationUrl/u);
+  assert.match(script, /result\.userCode/u);
+  assert.match(script, /recover that container's ChatGPT session credential/u);
+  assert.match(script, /Treat it like your ChatGPT password/u);
+  assert.doesNotMatch(script, /\/api\/oauth\/login/u);
+  assert.doesNotMatch(script, /\/api\/install["']/u);
+});
+
+test("main wizard offers token-preserving local endpoint navigation", async () => {
+  const [html, app] = await Promise.all([
+    readFile("src/ui/index.html", "utf8"),
+    readFile("src/ui/app.js", "utf8"),
+  ]);
+
+  assert.match(html, /id="local-endpoint-title">Need an endpoint on this computer\?/u);
+  assert.match(html, /id="local-endpoint-link"[\s\S]*Set up a local endpoint/u);
+  assert.match(
+    app,
+    /localEndpointLink\.href = `\/local\?session=\$\{encodeURIComponent\(token\)\}`;/u,
+  );
+});
+
+test("local CSS preserves responsive, visible security controls", async () => {
+  const css = await readFile("src/ui/local.css", "utf8");
+
+  assert.match(css, /\.target-picker\s*\{[\s\S]*display:\s*grid/u);
+  assert.match(css, /\.target-card:has\(input:focus-visible\)/u);
+  assert.match(css, /\.high-trust-warning\s*\{/u);
+  assert.match(css, /\.one-time-note\s*\{/u);
+  assert.match(css, /grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/u);
+  assert.match(css, /@media \(max-width: 48rem\)/u);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/u);
+  assert.doesNotMatch(css, /position:\s*fixed/u);
+});

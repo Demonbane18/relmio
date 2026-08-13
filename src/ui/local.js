@@ -1,0 +1,550 @@
+const token = new URLSearchParams(window.location.search).get("session");
+window.history.replaceState(null, "", window.location.pathname);
+
+const element = (id) => document.getElementById(id);
+
+const state = {
+  step: 1,
+  target: "openai-api",
+  dockerAvailable: false,
+  planId: null,
+  plan: null,
+};
+
+const messageBox = element("global-message");
+const messageText = element("global-message-text");
+const errorBox = element("global-error");
+const errorText = element("global-error-text");
+
+function createWizardUrl(path) {
+  return token ? `${path}?session=${encodeURIComponent(token)}` : path;
+}
+
+element("back-to-vps").href = createWizardUrl("/");
+element("return-to-vps").href = createWizardUrl("/");
+
+function setMessage(text) {
+  messageText.textContent = text;
+  messageBox.hidden = false;
+}
+
+function clearError() {
+  errorText.textContent = "";
+  errorBox.hidden = true;
+}
+
+function showError(error) {
+  errorText.textContent = error?.message ?? "Something went wrong.";
+  errorBox.hidden = false;
+  errorBox.focus();
+}
+
+function setBusy(button, busy, busyText) {
+  if (!button.dataset.label) {
+    button.dataset.label = button.textContent.trim();
+  }
+  button.disabled = busy;
+  button.setAttribute("aria-busy", String(busy));
+  button.textContent = busy ? busyText : button.dataset.label;
+}
+
+function setButtonLabel(button, label) {
+  button.textContent = label;
+  button.dataset.label = label;
+}
+
+function showStep(step) {
+  state.step = step;
+  document.body.dataset.currentStep = String(step);
+
+  for (const panel of document.querySelectorAll("[data-step]")) {
+    const active = Number(panel.dataset.step) === step;
+    panel.hidden = !active;
+    if (active) {
+      panel.querySelector("h2")?.focus({ preventScroll: true });
+    }
+  }
+
+  for (const marker of document.querySelectorAll("[data-step-marker]")) {
+    const markerStep = Number(marker.dataset.stepMarker);
+    marker.classList.toggle("complete", markerStep < step);
+    if (markerStep === step) {
+      marker.setAttribute("aria-current", "step");
+    } else {
+      marker.removeAttribute("aria-current");
+    }
+  }
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function api(path, { method = "GET", body } = {}) {
+  if (!token) {
+    throw new Error(
+      "This wizard link is incomplete. Close this tab and open the full URL printed by the active Relmio terminal.",
+    );
+  }
+
+  let response;
+  try {
+    response = await fetch(path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Setup-Token": token,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(
+      "The local Relmio wizard is not reachable. Keep its terminal open and try again.",
+    );
+  }
+
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error("The local wizard returned an unreadable response.");
+  }
+
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("The local wizard returned an unexpected response.");
+  }
+  if (!response.ok) {
+    throw new Error(result.error ?? "The local request failed.");
+  }
+  return result;
+}
+
+function selectedTarget() {
+  return document.querySelector('input[name="target"]:checked')?.value;
+}
+
+function readAllowedOrigins() {
+  return element("allowed-origins")
+    .value.split(/\r?\n/u)
+    .map((value) => value.trim())
+    .filter((value) => value !== "");
+}
+
+function invalidatePlan() {
+  state.planId = null;
+  state.plan = null;
+  element("install-confirm").checked = false;
+  element("install-settings-button").disabled = true;
+}
+
+function renderTarget() {
+  state.target = selectedTarget();
+  invalidatePlan();
+
+  const isOpenAiApi = state.target === "openai-api";
+  element("local-port").value = isOpenAiApi ? "12435" : "14500";
+  element("origins-field").hidden = !isOpenAiApi;
+  element("target-guidance-title").textContent = isOpenAiApi
+    ? "Uses an OpenAI Platform API key"
+    : "Uses the official Codex ChatGPT sign-in";
+  element("target-guidance-detail").textContent = isOpenAiApi
+    ? "Your Platform key is seeded over stdin into a private Docker volume and is never returned to the browser. A separate local client credential is generated for your apps."
+    : "This runs Codex App Server as its own experimental protocol. It does not translate the ChatGPT session into a generic OpenAI /v1 API and it does not accept direct browser connections.";
+}
+
+function appendPolicyNotice(container, heading, detail) {
+  const strong = document.createElement("strong");
+  const paragraph = document.createElement("p");
+  strong.textContent = heading;
+  paragraph.textContent = detail;
+  container.replaceChildren(strong, paragraph);
+}
+
+function renderPlan(plan) {
+  const isOpenAiApi = plan.target === "openai-api";
+  element("review-endpoint").textContent = plan.endpoint;
+  element("review-protocol").textContent = isOpenAiApi
+    ? "OpenAI-compatible HTTP /v1"
+    : "Codex App Server JSON-RPC over WebSocket";
+  element("review-auth").textContent = isOpenAiApi
+    ? "OpenAI Platform API key"
+    : "ChatGPT sign-in through official Codex";
+  element("review-browser").textContent = isOpenAiApi
+    ? plan.allowedOrigins.length > 0
+      ? `Only ${plan.allowedOrigins.length} exact allowed origin(s)`
+      : "Native clients only until exact origins are added"
+    : "No — trusted native local clients only";
+  element("review-origins-row").hidden = !isOpenAiApi;
+  element("review-origins").textContent = isOpenAiApi
+    ? plan.allowedOrigins.length > 0
+      ? plan.allowedOrigins.join(", ")
+      : "None"
+    : "";
+  element("review-path").textContent = plan.managedPath;
+
+  if (isOpenAiApi) {
+    appendPolicyNotice(
+      element("review-policy"),
+      "OpenAI Platform terms and billing apply",
+      "This option sends requests to the OpenAI API with your developer Platform key. ChatGPT subscriptions and open-source program benefits do not turn a ChatGPT credential into an API key.",
+    );
+  } else {
+    appendPolicyNotice(
+      element("review-policy"),
+      "Experimental, high-trust Codex integration",
+      "This option exposes the official Codex App Server only on loopback. Its client capability controls Codex inside the isolated container, may act through the ChatGPT session you sign in with, and may recover that container's ChatGPT session credential. Treat it like your ChatGPT password. It is not a browser or OpenAI /v1 API.",
+    );
+  }
+}
+
+function prepareInstallPanel() {
+  const isOpenAiApi = state.plan.target === "openai-api";
+  const apiKey = element("platform-api-key");
+  element("api-key-field").hidden = !isOpenAiApi;
+  element("codex-install-warning").hidden = isOpenAiApi;
+  apiKey.required = isOpenAiApi;
+  apiKey.value = "";
+  element("install-intro").textContent = isOpenAiApi
+    ? "Enter the OpenAI Platform API key this endpoint will use upstream. It is sent only to this local Relmio process."
+    : "Relmio will install the official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready.";
+  setButtonLabel(
+    element("install-button"),
+    isOpenAiApi ? "Install OpenAI API endpoint" : "Install Codex App Server",
+  );
+}
+
+function renderInstallResult(result) {
+  if (
+    typeof result.endpoint !== "string" ||
+    typeof result.clientCredential !== "string" ||
+    !["openai-api", "codex-chatgpt"].includes(result.target)
+  ) {
+    throw new Error("The local installer returned an unexpected response.");
+  }
+
+  const isOpenAiApi = result.target === "openai-api";
+  element("result-endpoint").textContent = result.endpoint;
+  element("result-credential").textContent = result.clientCredential;
+  element("codex-production-warning").hidden = isOpenAiApi;
+  element("codex-login").hidden = isOpenAiApi;
+  element("done-title").textContent = isOpenAiApi
+    ? "OpenAI API endpoint is ready"
+    : "Codex App Server is installed";
+  element("done-detail").textContent = isOpenAiApi
+    ? "Copy the endpoint and generated bearer credential into your local app."
+    : "Copy the endpoint and capability, then sign the isolated Codex container in to ChatGPT.";
+  appendPolicyNotice(
+    element("client-warning"),
+    isOpenAiApi ? "For local OpenAI-compatible clients" : "For trusted native Codex clients only",
+    isOpenAiApi
+      ? "Use the generated client credential as the bearer API key. Your upstream Platform key remains private in the managed Docker volume."
+      : "This capability is not an OpenAI API key. Treat it like your ChatGPT password: the client is trusted to control the isolated container and may recover its ChatGPT session credential. It must speak official Codex App Server JSON-RPC over WebSocket.",
+  );
+}
+
+function validateVerificationUrl(value) {
+  if (typeof value !== "string" || value.length > 2048) {
+    throw new Error("Relmio refused an unexpected sign-in destination.");
+  }
+
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Relmio refused an unexpected sign-in destination.");
+  }
+
+  if (
+    url.origin !== "https://auth.openai.com" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hash !== ""
+  ) {
+    throw new Error("Relmio refused an unexpected sign-in destination.");
+  }
+  return url.toString();
+}
+
+function validateDeviceCode(value) {
+  if (
+    typeof value !== "string" ||
+    value.length < 4 ||
+    value.length > 32 ||
+    !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/u.test(value)
+  ) {
+    throw new Error("Codex returned an unexpected device code.");
+  }
+  return value;
+}
+
+const delay = (milliseconds) =>
+  new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+async function waitForCodexLogin() {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const result = await api("/api/local/codex/login/status");
+    if (result.status === "success") {
+      return;
+    }
+    if (result.status === "error") {
+      throw new Error(result.error ?? "ChatGPT sign-in did not finish.");
+    }
+    await delay(1_000);
+  }
+  throw new Error("ChatGPT device sign-in expired. Start it again.");
+}
+
+async function copyText(value) {
+  const previouslyFocused = document.activeElement;
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.readOnly = true;
+  textarea.setAttribute("aria-hidden", "true");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+
+  let copied = false;
+  try {
+    document.body.append(textarea);
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange?.(0, textarea.value.length);
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    textarea.remove();
+    previouslyFocused?.focus?.();
+  }
+
+  if (copied) {
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // A generic message below avoids repeating sensitive copied values.
+    }
+  }
+  throw new Error("The browser refused clipboard access.");
+}
+
+function flashCopied(button) {
+  const originalLabel = button.textContent;
+  button.textContent = "Copied";
+  button.classList.add("copied");
+  window.setTimeout(() => {
+    button.textContent = originalLabel;
+    button.classList.remove("copied");
+  }, 1_800);
+}
+
+element("target-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = element("review-button");
+  clearError();
+  invalidatePlan();
+  setBusy(button, true, "Preparing plan…");
+  try {
+    const result = await api("/api/local/plan", {
+      method: "POST",
+      body: {
+        target: state.target,
+        port: element("local-port").value,
+        allowedOrigins:
+          state.target === "openai-api" ? readAllowedOrigins() : [],
+      },
+    });
+    if (
+      typeof result.planId !== "string" ||
+      !result.plan ||
+      typeof result.plan !== "object" ||
+      Array.isArray(result.plan)
+    ) {
+      throw new Error("The local wizard returned an unexpected plan.");
+    }
+    state.planId = result.planId;
+    state.plan = result.plan;
+    renderPlan(result.plan);
+    showStep(2);
+    setMessage("Review the exact loopback plan. Nothing has been written yet.");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+for (const input of document.querySelectorAll('input[name="target"]')) {
+  input.addEventListener("change", renderTarget);
+}
+
+element("local-port").addEventListener("input", invalidatePlan);
+element("allowed-origins").addEventListener("input", invalidatePlan);
+
+element("install-confirm").addEventListener("change", (event) => {
+  element("install-settings-button").disabled = !event.currentTarget.checked;
+});
+
+element("install-settings-button").addEventListener("click", () => {
+  clearError();
+  if (!state.planId || !state.plan || !element("install-confirm").checked) {
+    showError(new Error("Review and confirm the local plan first."));
+    return;
+  }
+  prepareInstallPanel();
+  showStep(3);
+  setMessage("The plan is confirmed. Installation has not started yet.");
+});
+
+element("install-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const apiKeyInput = element("platform-api-key");
+  clearError();
+  if (!state.planId || !state.plan || !element("install-confirm").checked) {
+    showStep(1);
+    showError(new Error("Review and confirm a fresh local plan first."));
+    return;
+  }
+  if (state.plan.target === "openai-api" && !apiKeyInput.reportValidity()) {
+    return;
+  }
+  const requestBody = {
+    planId: state.planId,
+    confirmed: element("install-confirm").checked,
+    ...(state.plan.target === "openai-api"
+      ? { apiKey: apiKeyInput.value }
+      : {}),
+  };
+  apiKeyInput.value = "";
+  setBusy(button, true, "Installing locally…");
+  setMessage("Building and verifying the loopback-only Docker container…");
+  try {
+    const result = await api("/api/local/install", {
+      method: "POST",
+      body: requestBody,
+    });
+    renderInstallResult(result);
+    state.planId = null;
+    showStep(4);
+    setMessage(
+      result.target === "openai-api"
+        ? "Local OpenAI API endpoint verified. Copy its one-time client credential now."
+        : "Codex App Server verified. Copy its one-time capability and complete ChatGPT sign-in.",
+    );
+  } catch (error) {
+    invalidatePlan();
+    showStep(1);
+    setMessage("Installation stopped. Prepare and confirm a fresh plan before retrying.");
+    showError(error);
+  } finally {
+    requestBody.apiKey = undefined;
+    apiKeyInput.value = "";
+    setBusy(button, false);
+  }
+});
+
+element("codex-login-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const resultBox = element("device-code-result");
+  const status = element("device-code-status");
+  clearError();
+  resultBox.hidden = true;
+  setBusy(button, true, "Waiting for ChatGPT…");
+  try {
+    const result = await api("/api/local/codex/login", {
+      method: "POST",
+      body: {},
+    });
+    const verificationUrl = validateVerificationUrl(result.verificationUrl);
+    const userCode = validateDeviceCode(result.userCode);
+    element("device-code").textContent = userCode;
+    element("device-code-link").href = verificationUrl;
+    status.textContent = "Waiting for sign-in in the isolated Codex container…";
+    resultBox.hidden = false;
+    setMessage("Open the official OpenAI page and enter the displayed device code.");
+    await waitForCodexLogin();
+    status.textContent = "ChatGPT sign-in completed. Codex is ready for your trusted native client.";
+    setMessage("Codex ChatGPT sign-in completed successfully.");
+  } catch (error) {
+    status.textContent = "ChatGPT sign-in did not complete.";
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+for (const button of document.querySelectorAll("[data-copy-target]")) {
+  button.addEventListener("click", async (event) => {
+    const copyButton = event.currentTarget;
+    const value = element(copyButton.dataset.copyTarget).textContent;
+    clearError();
+    try {
+      if (!value) {
+        throw new Error("No displayed value is available to copy.");
+      }
+      await copyText(value);
+      flashCopied(copyButton);
+      setMessage(`${copyButton.dataset.copyLabel} copied.`);
+    } catch {
+      showError(
+        new Error(
+          `Copy failed. Select the ${copyButton.dataset.copyLabel} manually.`,
+        ),
+      );
+    }
+  });
+}
+
+for (const button of document.querySelectorAll(".back-button")) {
+  button.addEventListener("click", () => {
+    clearError();
+    showStep(Number(button.dataset.back));
+    setMessage("No new local installation has started.");
+  });
+}
+
+async function refreshDockerStatus() {
+  clearError();
+  const result = await api("/api/local/docker/status");
+  state.dockerAvailable = result.dockerAvailable === true;
+  const indicator = element("docker-indicator");
+  const reviewButton = element("review-button");
+  if (result.previewMode === true) {
+    indicator.classList.remove("ready");
+    element("docker-status-title").textContent = "Sanitized preview mode";
+    element("docker-status-detail").textContent =
+      "Local Docker discovery and installation are disabled in this preview.";
+    reviewButton.disabled = true;
+    setMessage("Preview mode shows the flow without accessing local Docker or credentials.");
+    return;
+  }
+  if (result.unsupportedPlatform === true) {
+    indicator.classList.remove("ready");
+    element("docker-status-title").textContent =
+      "Native Windows is not supported";
+    element("docker-status-detail").textContent =
+      "Run Relmio on macOS, Linux, or under WSL2 so credentials retain POSIX owner-only file permissions.";
+    reviewButton.disabled = true;
+    setMessage("This local Docker feature requires a supported POSIX environment.");
+    return;
+  }
+  if (state.dockerAvailable) {
+    indicator.classList.add("ready");
+    element("docker-status-title").textContent = "Docker is ready";
+    element("docker-status-detail").textContent =
+      `Engine ${result.dockerVersion}; Compose ${result.composeVersion}`;
+    reviewButton.disabled = false;
+    setMessage("Docker is ready. Choose the credential path for your client.");
+  } else {
+    indicator.classList.remove("ready");
+    element("docker-status-title").textContent = "Docker is not available";
+    element("docker-status-detail").textContent =
+      "Start Docker Desktop or install Docker Engine with Compose, then reopen this wizard.";
+    reviewButton.disabled = true;
+    setMessage("Docker is required before Relmio can create a local endpoint.");
+  }
+}
+
+renderTarget();
+refreshDockerStatus().catch(showError);

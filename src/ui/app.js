@@ -13,6 +13,10 @@ const state = {
 };
 
 const element = (id) => document.getElementById(id);
+const localEndpointLink = element("local-endpoint-link");
+if (token) {
+  localEndpointLink.href = `/local?session=${encodeURIComponent(token)}`;
+}
 const messageToast = element("global-message");
 const message = element("global-message-text");
 const errorBox = element("global-error");

@@ -24,6 +24,8 @@ const expectedPackedFiles = new Set([
   "package.json",
   "docs/architecture.md",
   "docs/brand.md",
+  "docs/local-endpoints-spec.md",
+  "docs/local-endpoints.md",
   "docs/images/brand/relmio-concept-source.png",
   "docs/images/brand/relmio-mark.svg",
   "docs/images/examples/gpt-56-ai-agent-luna-run.png",
@@ -60,15 +62,23 @@ const expectedPackedFiles = new Set([
   "src/domain/safety.js",
   "src/domain/templates.js",
   "src/domain/validation.js",
+  "src/domain/local-endpoints.js",
+  "src/gateway/openai.js",
+  "src/infrastructure/local-process.js",
   "src/infrastructure/ssh.js",
+  "src/services/codex-login.js",
   "src/services/discovery.js",
   "src/services/installer.js",
+  "src/services/local-installer.js",
   "src/services/oauth.js",
   "src/ui/app.js",
   "src/ui/icons/moon.svg",
   "src/ui/icons/monitor.svg",
   "src/ui/icons/sun.svg",
   "src/ui/index.html",
+  "src/ui/local.css",
+  "src/ui/local.html",
+  "src/ui/local.js",
   "src/ui/oauth-popup.js",
   "src/ui/styles.css",
   "src/ui/theme.js",
@@ -268,9 +278,16 @@ test("npm package substitutes a registry-safe README without changing GitHub dia
     npmReadme,
     /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/hosted-chat-connected\.png/u,
   );
+  const koFiSupportBadge =
+    "https://img.shields.io/badge/Ko--fi-support-ff5e5b.svg?logo=ko-fi&logoColor=white";
+  assert.ok(npmReadme.includes(koFiSupportBadge));
 
   for (const [, source] of npmReadme.matchAll(/<img[^>]+src="([^"]+)"/gu)) {
-    assert.match(source, /^https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\//u);
+    assert.ok(
+      /^https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\//u.test(source) ||
+        source === koFiSupportBadge,
+      `unexpected npm README image source: ${source}`,
+    );
   }
 });
 

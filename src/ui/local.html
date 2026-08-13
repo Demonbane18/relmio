@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Install a loopback-only Relmio endpoint for the OpenAI API or the official Codex App Server."
+    />
+    <title>Relmio | Local Endpoint Setup</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23137c74' d='M7 8h19l31 24H41L26 20v10L7 17Z'/%3E%3Cpath fill='%2312211f' d='M7 47l19-13v10l15-12h16L26 56H7Z'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/local.css" />
+    <script src="/local.js" type="module"></script>
+  </head>
+  <body class="local-wizard" data-current-step="1">
+    <a class="skip-link" href="#main-content">Skip to local setup</a>
+
+    <header class="site-header">
+      <div class="brand">
+        <svg
+          class="brand-mark"
+          viewBox="0 0 64 64"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path fill="#137c74" d="M7 8h19l31 24H41L26 20v10L7 17Z" />
+          <path fill="#12211f" d="M7 47l19-13v10l15-12h16L26 56H7Z" />
+        </svg>
+        <span>Relmio</span>
+      </div>
+      <span class="local-badge">Bound to this computer only</span>
+    </header>
+
+    <main id="main-content" class="shell" tabindex="-1">
+      <aside class="rail" aria-label="Local setup progress and safety">
+        <section class="intro" aria-labelledby="page-title">
+          <h1 id="page-title">Run Relmio on localhost</h1>
+          <p class="lede">
+            Choose the official credential path that matches your client. Both
+            options run in a hardened Docker container and bind only to
+            <code>127.0.0.1</code>.
+          </p>
+        </section>
+
+        <nav class="steps" aria-label="Local setup progress">
+          <ol>
+            <li data-step-marker="1" aria-current="step">
+              <span>1</span><em>Choose</em>
+            </li>
+            <li data-step-marker="2"><span>2</span><em>Review</em></li>
+            <li data-step-marker="3"><span>3</span><em>Install</em></li>
+            <li data-step-marker="4"><span>4</span><em>Ready</em></li>
+          </ol>
+        </nav>
+
+        <div class="toast-stack" aria-label="Local setup notifications">
+          <aside class="toast safety-note" aria-label="Local-only guarantee">
+            <strong>Loopback-only guarantee</strong>
+            <span>
+              Relmio publishes the selected port on <code>127.0.0.1</code>, not
+              your LAN or the public internet.
+            </span>
+          </aside>
+
+          <aside
+            id="trust-warning"
+            class="toast safety-note backup-note"
+            aria-label="Credential boundary"
+          >
+            <strong>Two different credentials</strong>
+            <span>
+              A ChatGPT subscription is not an OpenAI Platform API key.
+              Relmio never converts one into the other.
+            </span>
+          </aside>
+
+          <div id="global-message" class="toast message" role="status" aria-live="polite">
+            <span id="global-message-text">Checking local Docker…</span>
+          </div>
+
+          <div
+            id="global-error"
+            class="toast error"
+            role="alert"
+            tabindex="-1"
+            hidden
+          >
+            <span id="global-error-text"></span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel" data-step="1" aria-labelledby="choose-title">
+        <div class="panel-heading">
+          <h2 id="choose-title" tabindex="-1">Choose the local endpoint</h2>
+          <p>
+            Docker stays on this computer. Relmio checks it without changing
+            any running containers.
+          </p>
+        </div>
+
+        <div class="status-row" aria-live="polite">
+          <span id="docker-indicator" class="status-dot" aria-hidden="true"></span>
+          <div>
+            <strong id="docker-status-title">Checking Docker…</strong>
+            <p id="docker-status-detail">Looking for Docker Engine and Compose.</p>
+          </div>
+        </div>
+
+        <aside class="policy-note">
+          <strong>macOS, Linux, or WSL2 required</strong>
+          <p>
+            Native Windows is not supported because this feature requires POSIX
+            owner-only file permissions for local credentials.
+          </p>
+        </aside>
+
+        <form id="target-form">
+          <fieldset class="target-picker">
+            <legend>Credential and protocol</legend>
+
+            <label class="target-card">
+              <input type="radio" name="target" value="openai-api" checked />
+              <span class="target-card-copy">
+                <strong>OpenAI API endpoint</strong>
+                <span class="target-meta">Stable · apps and web apps</span>
+                <span>
+                  OpenAI-compatible <code>/v1</code>, backed only by your
+                  OpenAI Platform API key. Platform API usage is billed
+                  separately from ChatGPT.
+                </span>
+              </span>
+            </label>
+
+            <label class="target-card warning-card">
+              <input type="radio" name="target" value="codex-chatgpt" />
+              <span class="target-card-copy">
+                <strong>Codex App Server</strong>
+                <span class="target-meta">Experimental · trusted native apps only</span>
+                <span>
+                  Official Codex JSON-RPC over WebSocket, using ChatGPT sign-in.
+                  This is not an OpenAI-compatible <code>/v1</code> endpoint and
+                  browsers cannot connect directly. Codex App Server WebSocket is experimental and unsupported for production workloads.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
+          <div class="field-grid local-fields">
+            <label class="field compact">
+              <span>Local port</span>
+              <input
+                id="local-port"
+                name="port"
+                type="number"
+                min="1024"
+                max="65535"
+                value="12435"
+                required
+              />
+              <small>Published only on <code>127.0.0.1</code>.</small>
+            </label>
+
+            <label id="origins-field" class="field">
+              <span>Allowed browser origins <small>(optional, one per line)</small></span>
+              <textarea
+                id="allowed-origins"
+                name="allowedOrigins"
+                rows="3"
+                maxlength="20480"
+                spellcheck="false"
+                placeholder="http://localhost:3000"
+              ></textarea>
+              <small>
+                Exact origins only, such as <code>http://localhost:3000</code>.
+                Native apps can leave this empty.
+              </small>
+            </label>
+          </div>
+
+          <aside id="target-guidance" class="policy-note" aria-live="polite">
+            <strong id="target-guidance-title">Uses an OpenAI Platform API key</strong>
+            <p id="target-guidance-detail">
+              Your key is seeded over stdin into a private Docker volume and
+              is never returned to the browser. A separate local client
+              credential is generated for your apps.
+            </p>
+          </aside>
+
+          <div class="actions">
+            <a id="back-to-vps" class="button ghost">Back to VPS setup</a>
+            <button id="review-button" class="button primary" type="submit" disabled>
+              Review local plan
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel" data-step="2" aria-labelledby="review-title" hidden>
+        <div class="panel-heading">
+          <h2 id="review-title" tabindex="-1">Review the exact local plan</h2>
+          <p>No file or container has been changed yet.</p>
+        </div>
+
+        <dl class="result-list review-details">
+          <div>
+            <dt>Endpoint</dt>
+            <dd><code id="review-endpoint"></code></dd>
+          </div>
+          <div>
+            <dt>Protocol</dt>
+            <dd id="review-protocol"></dd>
+          </div>
+          <div>
+            <dt>Upstream sign-in</dt>
+            <dd id="review-auth"></dd>
+          </div>
+          <div>
+            <dt>Browser clients</dt>
+            <dd id="review-browser"></dd>
+          </div>
+          <div id="review-origins-row">
+            <dt>Allowed origins</dt>
+            <dd id="review-origins"></dd>
+          </div>
+          <div>
+            <dt>Managed files</dt>
+            <dd><code id="review-path"></code></dd>
+          </div>
+        </dl>
+
+        <div class="review-grid local-review-grid">
+          <section>
+            <h3>Relmio will</h3>
+            <ul class="check-list">
+              <li>Build one target-specific Docker image.</li>
+              <li>Bind the selected port exactly to <code>127.0.0.1</code>.</li>
+              <li>Generate a separate one-time client credential.</li>
+              <li>Keep provider credentials in private Docker volumes.</li>
+            </ul>
+          </section>
+          <section>
+            <h3>Relmio will not</h3>
+            <ul class="no-list">
+              <li>Publish the endpoint to your LAN or internet.</li>
+              <li>Turn ChatGPT credentials into Platform API credentials.</li>
+              <li>Modify or restart your n8n container.</li>
+              <li>Reuse the existing Hostinger deployment.</li>
+            </ul>
+          </section>
+        </div>
+
+        <aside id="review-policy" class="policy-note"></aside>
+
+        <div class="approval">
+          <label class="check-row">
+            <input id="install-confirm" type="checkbox" />
+            <span>
+              I reviewed this exact loopback plan and authorize Relmio to write
+              its managed local files and start this Docker container.
+            </span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="button ghost back-button" type="button" data-back="1">
+            Back
+          </button>
+          <button id="install-settings-button" class="button primary" type="button" disabled>
+            Continue to install
+          </button>
+        </div>
+      </section>
+
+      <section class="panel" data-step="3" aria-labelledby="install-title" hidden>
+        <div class="panel-heading">
+          <h2 id="install-title" tabindex="-1">Install the local container</h2>
+          <p id="install-intro">
+            Enter the OpenAI Platform API key that this endpoint will use
+            upstream. It is sent only to this local Relmio process.
+          </p>
+        </div>
+
+        <div id="api-key-field" class="field-grid single">
+          <label class="field">
+            <span>OpenAI Platform API key</span>
+            <input
+              id="platform-api-key"
+              name="apiKey"
+              type="password"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength="512"
+              pattern="sk-[A-Za-z0-9_\-]{32,509}"
+              required
+            />
+            <small>
+              The browser field is cleared as soon as installation starts. The
+              Platform key is never displayed in the result.
+            </small>
+          </label>
+        </div>
+
+        <aside id="codex-install-warning" class="high-trust-warning" hidden>
+          <strong>High-trust capability</strong>
+          <p>
+            Anyone holding the generated client credential can control Codex
+            inside its isolated container, act through your signed-in ChatGPT
+            session, and may be able to recover that container's ChatGPT session
+            credential. Treat this capability like your ChatGPT password and
+            give it only to a trusted native local app.
+          </p>
+        </aside>
+
+        <div class="actions">
+          <button class="button ghost back-button" type="button" data-back="2">
+            Back
+          </button>
+          <button id="install-button" class="button primary" type="button">
+            Install on this computer
+          </button>
+        </div>
+      </section>
+
+      <section class="panel success-panel" data-step="4" aria-labelledby="done-title" hidden>
+        <div class="success-heading">
+          <div class="success-mark" aria-hidden="true">✓</div>
+          <div class="panel-heading">
+            <h2 id="done-title" tabindex="-1">Local endpoint is ready</h2>
+            <p id="done-detail">Copy the client settings into your local app.</p>
+          </div>
+        </div>
+
+        <aside class="one-time-note">
+          <strong>Copy this credential now</strong>
+          <p>
+            Relmio shows the generated client credential only in this install
+            response. It cannot recover it after you leave this page.
+          </p>
+        </aside>
+
+        <dl class="result-list">
+          <div>
+            <dt>Endpoint</dt>
+            <dd class="result-value">
+              <code id="result-endpoint"></code>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-endpoint"
+                data-copy-label="endpoint"
+                aria-label="Copy local endpoint"
+              >
+                Copy
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Client credential</dt>
+            <dd class="result-value">
+              <code id="result-credential"></code>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-credential"
+                data-copy-label="client credential"
+                aria-label="Copy client credential"
+              >
+                Copy
+              </button>
+            </dd>
+          </div>
+        </dl>
+
+        <aside id="codex-production-warning" class="high-trust-warning" hidden>
+          <strong>Experimental WebSocket transport</strong>
+          <p>
+            Codex App Server WebSocket is experimental and unsupported for production workloads.
+          </p>
+        </aside>
+
+        <section id="codex-login" class="codex-login" aria-labelledby="codex-login-title" hidden>
+          <h3 id="codex-login-title">Sign the container in to ChatGPT</h3>
+          <p>
+            Relmio starts the official Codex device-code flow. The ChatGPT
+            credential stays in the isolated Codex Docker volume and is not an
+            OpenAI Platform API key.
+          </p>
+          <button id="codex-login-button" class="button primary" type="button">
+            Start ChatGPT sign-in
+          </button>
+
+          <div id="device-code-result" class="device-code-result" hidden>
+            <p>
+              Open the official OpenAI page and enter this one-time code:
+            </p>
+            <div class="device-code-row">
+              <code id="device-code"></code>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="device-code"
+                data-copy-label="device code"
+                aria-label="Copy device code"
+              >
+                Copy
+              </button>
+            </div>
+            <a
+              id="device-code-link"
+              class="button secondary"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open OpenAI device sign-in
+            </a>
+            <p id="device-code-status" class="device-code-status" role="status" aria-live="polite">
+              Waiting for sign-in…
+            </p>
+          </div>
+        </section>
+
+        <aside id="client-warning" class="final-note"></aside>
+
+        <div class="actions">
+          <a id="return-to-vps" class="button secondary">Set up the VPS version</a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Relmio keeps the OpenAI Platform API path and ChatGPT/Codex path
+        separate so each uses its intended credential and protocol.
+      </p>
+    </footer>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-mark.svg" alt="Relmio logo" width="88">
   <h1>Relmio</h1>
-  <p>Relay a supported ChatGPT/Codex sign-in to OpenAI-compatible clients, starting with self-hosted n8n.</p>
+  <p>Set up private n8n relays, Platform-key OpenAI-compatible local endpoints, and experimental Codex App Server sessions.</p>
   <p>
     <a href="https://github.com/Demonbane18/relmio">Full guide</a>
     &nbsp;·&nbsp;
@@ -10,6 +10,9 @@
     <a href="https://github.com/Demonbane18/relmio/issues/new">Report an issue</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/Demonbane18/relmio/blob/main/docs/roadmap.md">Roadmap</a>
+  </p>
+  <p>
+    <a href="https://ko-fi.com/paldogies"><img src="https://img.shields.io/badge/Ko--fi-support-ff5e5b.svg?logo=ko-fi&logoColor=white" alt="Support Relmio on Ko-fi"></a>
   </p>
 </div>
 
@@ -40,11 +43,12 @@ Telegram, or AppBuildersPH.
   <figcaption>Telegram received the HTTP Request, Basic LLM Chain, and AI Agent outputs sent by that workflow.</figcaption>
 </figure>
 
-Relmio is a local browser wizard that installs a private
+Relmio is a local browser wizard with separate setup paths. Its existing
+VPS/n8n path installs a private
 [openai-oauth](https://github.com/EvanZhouDev/openai-oauth) Docker sidecar
-beside an existing self-hosted n8n instance. It guides you through local
-ChatGPT/Codex sign-in, SSH host verification, read-only n8n discovery, an
-exact change plan, and the final n8n credential settings.
+beside an existing self-hosted n8n instance. Its local Docker path can install
+either an OpenAI-compatible gateway backed by a Platform API key or the
+official Codex App Server backed by ChatGPT sign-in.
 
 The existing n8n image, Compose file, container, and workflows stay untouched.
 
@@ -60,7 +64,7 @@ adds the missing capability without changing n8n.
 Try the hosted browser demo at
 [relmio.vercel.app](https://relmio.vercel.app/). It is a separate
 request-bound ChatGPT experience; the npm package remains the local wizard for
-installing the private n8n sidecar.
+the private VPS/n8n sidecar and the separate local Docker endpoint paths.
 
 > **Warning — Hosted chat requires the browser extension.** Install the
 > open-source [Sign in with ChatGPT extension for
@@ -93,6 +97,52 @@ persistent rail beside the active task; its compact fixed-screen shell avoids
 document scrolling on common laptop screens. On narrow phones, it switches to
 a horizontal progress strip and keeps task scrolling inside the active panel.
 The hosted site keeps the live GitHub star/version control visible.
+
+## Local Docker endpoints
+
+Choose **Local endpoints** in the browser wizard to install one of these
+Docker services on the same computer as your app:
+
+This local Docker path supports macOS, Linux, and Linux under WSL2. Native
+Windows is not supported in this release because its filesystem permissions do
+not provide the owner-only POSIX mode guarantees used for local credentials.
+The existing VPS/n8n wizard remains available from native Windows.
+
+| Option | Local endpoint | Provider credential | Client type |
+|---|---|---|---|
+| **OpenAI API: compatible clients** | `http://127.0.0.1:12435/v1` by default | Server-side OpenAI Platform API key only | Private local app, SDK, or same-owner development web app |
+| **Codex with ChatGPT: agent clients** | `ws://127.0.0.1:14500` by default | ChatGPT sign-in through Codex | Trusted native Codex/App Server client |
+
+The OpenAI-compatible `/v1` endpoint is powered only by a Platform API key,
+which the wizard seeds over stdin into a private, labeled Docker volume; it
+does not create a host key file. Your app uses a
+separate Relmio capability that the wizard displays once.
+The bearer remains valid until it is rotated. Browser requests
+must come from an exact origin entered during setup; wildcards are not allowed,
+and the capability must never be embedded in a public frontend bundle. Platform
+requests use that API project's billing, credits, limits, and permissions, not
+a ChatGPT subscription.
+
+ChatGPT sign-in powers only the official experimental Codex App Server JSON-RPC
+protocol. It does not expose `/v1`, and Relmio never translates a ChatGPT
+OAuth/session token into a general API credential. OpenAI documents the WebSocket transport as
+experimental and unsupported for production, and it rejects browser-origin
+connections. Use it only with a trusted native client owned by the same person.
+Its capability is high-trust because it can operate the signed-in
+Codex session and files inside the isolated container workspace.
+
+Both services bind exactly to `127.0.0.1`, require the generated capability,
+and mount no host directory or Docker socket. The Codex service gets private
+named credential and workspace volumes. This local path does not connect to a
+VPS or modify n8n.
+
+Read the complete [Local Docker endpoints
+guide](https://github.com/Demonbane18/relmio/blob/main/docs/local-endpoints.md)
+before installing. It includes the wizard steps, client settings, exact-origin
+rules, billing boundary, container isolation, and official OpenAI documentation
+links. The design is documentation-backed engineering guidance, not legal
+advice or an OpenAI approval. Codex for Open Source membership is not treated
+as permission to broaden credential scope or bypass another agreement.
 
 ## Quick start
 
@@ -158,6 +208,10 @@ a browser.
 
 ### Requirements
 
+These requirements are for the VPS/n8n path. For a local Docker endpoint, see
+the [local endpoint
+requirements](https://github.com/Demonbane18/relmio/blob/main/docs/local-endpoints.md#requirements).
+
 - On macOS/Linux/WSL/Git Bash: `curl`, `awk`, `tar`, and either `sha256sum` or
   `shasum`; Git Bash also needs `unzip`
 - On native Windows: Command Prompt uses its built-in `curl`, `certutil`, and
@@ -178,16 +232,18 @@ n8n AI node or HTTP Request
       -> upstream OpenAI service
 ```
 
-Relmio currently provides tested setup instructions for:
+Relmio's existing VPS/n8n path provides tested setup instructions for:
 
 - OpenAI Chat Model
 - AI Agent
 - Basic LLM Chain
 - HTTP Request
 
-The broader direction is to support local chatbots, custom applications,
-OpenAI-compatible clients, and provider adapters without tying the public
-product name to n8n. SuperGrok/xAI OAuth is a gated feasibility item on the
+The local endpoint path described above now supports compatible private apps
+through a Platform-backed gateway and trusted native clients through Codex App
+Server. The broader direction is to add providers and client adapters without
+weakening their authentication boundaries or tying the public product name to
+n8n. SuperGrok/xAI OAuth is a gated feasibility item on the
 [provider roadmap](https://github.com/Demonbane18/relmio/blob/main/docs/roadmap.md);
 it is not currently advertised as supported.
 
@@ -348,6 +404,7 @@ OpenAI may change or disable the underlying services at any time.
 ## Documentation
 
 - [Complete GitHub README and manual fallback](https://github.com/Demonbane18/relmio#readme)
+- [Local Docker endpoints](https://github.com/Demonbane18/relmio/blob/main/docs/local-endpoints.md)
 - [Configure n8n AI and HTTP nodes](https://github.com/Demonbane18/relmio/blob/main/docs/n8n-configuration.md)
 - [Troubleshooting](https://github.com/Demonbane18/relmio/blob/main/docs/troubleshooting.md)
 - [Security and limitations](https://github.com/Demonbane18/relmio/blob/main/docs/security.md)

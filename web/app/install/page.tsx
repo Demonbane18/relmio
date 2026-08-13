@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { CopyCommand } from "../components/CopyCommand";
 import { RepositoryButton } from "../components/RepositoryButton";
+import { SupportButton } from "../components/SupportButton";
 import { ThemeModeControl } from "../components/ThemeModeControl";
 
 export const metadata: Metadata = {
@@ -52,6 +53,7 @@ export default function InstallPage() {
           </Link>
           <div className="header-actions">
             <ThemeModeControl />
+            <SupportButton />
             <RepositoryButton />
           </div>
         </div>
@@ -69,6 +71,12 @@ export default function InstallPage() {
             install a private OpenAI-compatible sidecar beside n8n. Choose
             Homebrew or the terminal already on your computer. Native Windows
             works without Git Bash or a preinstalled Node.js runtime.
+          </p>
+
+          <p className="install-boundary">
+            <strong>Local endpoint choice:</strong> The OpenAI-compatible /v1
+            option uses a Platform API key. ChatGPT sign-in is only for
+            experimental Codex App Server clients.
           </p>
 
           <div className="install-command-stage" id="install-command">

@@ -1,8 +1,10 @@
 # Security and limitations
 
-This project handles two password-equivalent secrets: a ChatGPT OAuth
-credential and an SSH authentication method. Read this page before offering
-the wizard to another person.
+The VPS/n8n path handles a ChatGPT OAuth credential and an SSH authentication
+method. The local endpoint path can additionally handle an OpenAI Platform API
+key, a Codex/ChatGPT session, and generated local capabilities. Treat every one
+of these values as password-equivalent. Read this page before offering the
+wizard to another person.
 
 ## Trust model
 
@@ -15,6 +17,20 @@ The design assumes:
   personal experimental use.
 
 If any of those assumptions is false, do not use this design.
+
+For a local Docker endpoint, the design additionally assumes:
+
+- the local computer, operating-system account, and Docker Engine are trusted;
+- the app receiving the Relmio capability displayed once by the wizard is
+  trusted and controlled
+  by the same person;
+- a browser origin allowlist is not being used as a substitute for secret
+  storage; and
+- a Codex client is trusted with App Server's broad agent and account surface.
+
+The raw Codex App Server is not a multi-user boundary. It is for a trusted
+native client owned by the same account holder, not a browser, shared service,
+public app, or untrusted plugin.
 
 ## Controls implemented by the wizard
 
@@ -42,6 +58,45 @@ If any of those assumptions is false, do not use this design.
 - There is no host `ports` mapping and no reverse-proxy route.
 - The installer verifies the absence of a published port after startup.
 
+### Local endpoint controls
+
+- Generated Compose files publish only literal
+  `127.0.0.1:<selected-port>:<container-port>` mappings.
+- Every OpenAI `/v1` operation that can reach OpenAI and every Codex WebSocket
+  upgrade requires a random Relmio capability displayed once by the wizard;
+  only its SHA-256 verifier is persisted. Exact-origin CORS `OPTIONS` is a
+  non-forwarding metadata exception. The bearer remains valid until an
+  endpoint update rotates it.
+- The Platform API key is accepted only for the OpenAI gateway. A transient,
+  network-disabled helper receives it over stdin and atomically seeds a private,
+  labeled Docker volume that the gateway mounts read-only. No host key file or
+  Compose environment value is created, and the key is never returned to the
+  browser after installation.
+- ChatGPT sign-in is accepted only through the official Codex App Server
+  account flow. Relmio never returns or converts the resulting tokens.
+- Browser requests to the OpenAI gateway require an exact configured `http`
+  or `https` origin. Wildcards and `null` are rejected; requests without an
+  `Origin` remain available to authenticated native clients and backends.
+- Codex receives private named credential and workspace volumes. No host
+  directory, Docker socket, SSH key, browser profile, or home directory is
+  mounted into either local service.
+- Local managed paths use mode `0700`, generated files use owner-only modes,
+  symlinks are rejected, and existing unmanaged directories are not
+  overwritten.
+- The selected Docker context must resolve to a local Unix socket. Every
+  mutating command is pinned to that socket, Docker selector environment
+  overrides are removed, and native Windows is rejected before mutation.
+- Each install uses a random Compose project identity. Containers, networks,
+  and volumes must carry matching Relmio ownership labels before update,
+  restart, recovery, or sign-in actions are allowed.
+- Both long-running endpoint containers run as a non-root user, drop Linux
+  capabilities, set `no-new-privileges`, use a read-only root filesystem, and
+  have bounded temporary storage and resource limits.
+- The one-shot OpenAI credential seed helper is the narrow exception: it has no
+  network, port, or logs; runs with a read-only root filesystem and strict
+  resource limits; and uses root plus only `CHOWN` long enough to atomically
+  make the stdin-seeded volume entry readable by the non-root gateway.
+
 ## What “private” means here
 
 Port `10531` is not reachable from the public internet or VPS host through a
@@ -67,6 +122,20 @@ expose it.
 - Revoke or refresh the session if the VPS may be compromised.
 - Prefer a dedicated personal VPS with current security updates.
 
+The local capabilities have separate consequences:
+
+- The OpenAI gateway capability can spend through the protected Platform API
+  key, subject to that Platform project's permissions and limits.
+- The Codex capability can invoke broad App Server methods inside the isolated
+  container and use its signed-in ChatGPT/Codex session.
+- An origin allowlist does not make a bearer embedded in browser JavaScript
+  private. Use browser access only for private same-owner local development.
+- Do not expose either endpoint on a LAN, public IP, domain, reverse proxy, or
+  hosted service. Loopback binding and the bearer capability are both required.
+- If a capability is disclosed, update the endpoint to rotate it. If an
+  upstream credential may be exposed, revoke or sign out through the provider
+  as well.
+
 ## Product and policy limitations
 
 - This is not an OpenAI Platform API key.
@@ -79,10 +148,29 @@ expose it.
 - Rate limits and account restrictions still apply.
 - OpenAI can change or discontinue service behavior and can suspend access for
   Terms or usage-policy violations.
+- The local OpenAI-compatible endpoint requires a Platform API key. Its usage
+  is billed or credited to the associated Platform project; a ChatGPT
+  subscription or Codex for Open Source benefit is not substituted for API
+  billing.
+- The local Codex option preserves the official App Server JSON-RPC protocol.
+  It does not provide `/v1/chat/completions`, `/v1/responses`, or any other
+  OpenAI API compatibility route.
+- OpenAI documents App Server WebSocket transport as experimental and
+  unsupported for production. It rejects browser-origin requests and is
+  limited here to trusted native same-owner clients.
+- Acceptance into Codex for Open Source is not treated by Relmio as permission
+  to repurpose credentials, share an account, bypass controls, or broaden the
+  scope of another agreement. Review the current
+  [program terms](https://learn.chatgpt.com/docs/codex-for-oss-terms).
 
 This repository does not claim that every possible use of the bridge is
 permitted. The account owner is responsible for reviewing the current
 [OpenAI Terms](https://openai.com/policies/terms-of-use/) and usage policies.
+The local endpoint design follows the documented
+[OpenAI API authentication](https://developers.openai.com/api/reference/overview#authentication),
+[Codex authentication](https://learn.chatgpt.com/docs/auth), and
+[Codex App Server](https://learn.chatgpt.com/docs/app-server) boundaries. This
+is engineering guidance, not legal advice or an OpenAI approval.
 
 ## Dependency policy
 
@@ -91,6 +179,7 @@ The current release pins:
 - Node.js 22+
 - `ssh2` `1.17.0`
 - `openai-oauth` `2.0.0`
+- `@openai/codex` `0.147.0` in the local Codex image
 
 The POSIX and native Windows PowerShell bootstraps reuse a compatible local
 Node.js runtime or download the matching current official Node.js 22 archive
