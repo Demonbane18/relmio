@@ -1,7 +1,7 @@
 {
   "name": "relmio",
   "version": "0.3.1",
-  "description": "Turn a supported ChatGPT/Codex OAuth sign-in into a private OpenAI-compatible endpoint, starting with self-hosted n8n.",
+  "description": "Install private local OpenAI API and Codex endpoints with explicit provider credential boundaries, plus the existing isolated n8n sidecar.",
   "keywords": [
     "relmio",
     "gpt-5-6-sol",

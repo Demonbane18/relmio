@@ -7,11 +7,23 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Add a separate local Docker wizard with a Platform-key-backed OpenAI API
+  endpoint and an official experimental Codex App Server target for ChatGPT
+  sign-in, while keeping their protocols and credentials distinct.
+
 ### Fixed
 
 - Keep the controlling terminal attached when the macOS/Linux installer is
   piped through `sh`, so the Relmio wizard can open its interactive browser
   setup flow.
+
+### Security
+
+- Bind local endpoints exclusively to loopback, require one-time Relmio
+  capabilities, pin every managed operation to an attested local Docker
+  socket, and isolate provider credentials in target-specific containers.
 
 ## [0.3.1] - 2026-08-10
 
