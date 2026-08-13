@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChatConsole } from "./components/ChatConsole";
 import { RepositoryButton } from "./components/RepositoryButton";
+import { SupportButton } from "./components/SupportButton";
 import { ThemeModeControl } from "./components/ThemeModeControl";
 
 const capabilities = [
@@ -67,6 +68,7 @@ export default function Home() {
           </nav>
           <div className="header-actions">
             <ThemeModeControl />
+            <SupportButton />
             <RepositoryButton />
           </div>
         </div>
@@ -86,6 +88,11 @@ export default function Home() {
             Test a supported ChatGPT sign-in in the hosted chat. For n8n,
             install Relmio&apos;s private sidecar and keep the relay inside
             your own Docker network.
+          </p>
+          <p className="hero-boundary">
+            A Platform API key powers the OpenAI-compatible /v1 endpoint.
+            ChatGPT sign-in powers only the experimental Codex App Server
+            protocol.
           </p>
           <div className="hero-actions">
             <a className="button button-primary" href="#chat">

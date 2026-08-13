@@ -289,6 +289,33 @@ main {
     border-color 200ms var(--ease);
 }
 
+.support-button {
+  width: var(--size-element-md);
+  min-width: var(--size-element-md);
+  min-height: var(--size-element-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  color: var(--ink);
+  transition:
+    border-color 200ms var(--ease),
+    color 200ms var(--ease),
+    transform 200ms var(--ease);
+}
+
+.support-button:hover {
+  border-color: var(--teal);
+  color: var(--teal-deep);
+  transform: translateY(-1px);
+}
+
+.support-button > svg {
+  flex: 0 0 auto;
+}
+
 .repository-button:hover {
   border-color: var(--teal);
   background: var(--teal);
@@ -461,6 +488,14 @@ main {
   color: var(--ink-soft);
   font-size: clamp(1.05rem, 1.8vw, 1.22rem);
   line-height: 1.62;
+}
+
+.hero-boundary {
+  max-width: 620px;
+  margin: 16px 0 0;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
 }
 
 .hero-actions {
@@ -2307,6 +2342,12 @@ footer > div {
 
   footer > div {
     justify-self: start;
+  }
+}
+
+@media (max-width: 400px) {
+  .repository-stat {
+    display: none;
   }
 }
 

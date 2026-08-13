@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-mark.svg" alt="Relmio logo" width="88">
   <h1>Relmio</h1>
-  <p>Relay a supported ChatGPT/Codex sign-in to OpenAI-compatible clients, starting with self-hosted n8n.</p>
+  <p>Set up private n8n relays, Platform-key OpenAI-compatible local endpoints, and experimental Codex App Server sessions.</p>
   <p>
     <a href="https://github.com/Demonbane18/relmio">Full guide</a>
     &nbsp;·&nbsp;
@@ -10,6 +10,9 @@
     <a href="https://github.com/Demonbane18/relmio/issues/new">Report an issue</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/Demonbane18/relmio/blob/main/docs/roadmap.md">Roadmap</a>
+  </p>
+  <p>
+    <a href="https://ko-fi.com/paldogies"><img src="https://img.shields.io/badge/Ko--fi-support-ff5e5b.svg?logo=ko-fi&logoColor=white" alt="Support Relmio on Ko-fi"></a>
   </p>
 </div>
 
@@ -110,8 +113,9 @@ The existing VPS/n8n wizard remains available from native Windows.
 | **OpenAI API: compatible clients** | `http://127.0.0.1:12435/v1` by default | Server-side OpenAI Platform API key only | Private local app, SDK, or same-owner development web app |
 | **Codex with ChatGPT: agent clients** | `ws://127.0.0.1:14500` by default | ChatGPT sign-in through Codex | Trusted native Codex/App Server client |
 
-The OpenAI-compatible option seeds the Platform key over stdin into a private,
-labeled Docker volume; it does not create a host key file. Your app uses a
+The OpenAI-compatible `/v1` endpoint is powered only by a Platform API key,
+which the wizard seeds over stdin into a private, labeled Docker volume; it
+does not create a host key file. Your app uses a
 separate Relmio capability that the wizard displays once.
 The bearer remains valid until it is rotated. Browser requests
 must come from an exact origin entered during setup; wildcards are not allowed,
@@ -119,9 +123,9 @@ and the capability must never be embedded in a public frontend bundle. Platform
 requests use that API project's billing, credits, limits, and permissions, not
 a ChatGPT subscription.
 
-The Codex option preserves the official App Server JSON-RPC protocol. It does
-not expose `/v1`, and Relmio never translates a ChatGPT OAuth/session token into
-a general API credential. OpenAI documents the WebSocket transport as
+ChatGPT sign-in powers only the official experimental Codex App Server JSON-RPC
+protocol. It does not expose `/v1`, and Relmio never translates a ChatGPT
+OAuth/session token into a general API credential. OpenAI documents the WebSocket transport as
 experimental and unsupported for production, and it rejects browser-origin
 connections. Use it only with a trusted native client owned by the same person.
 Its capability is high-trust because it can operate the signed-in

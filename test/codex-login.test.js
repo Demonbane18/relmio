@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
 import test from "node:test";
 
 import { startCodexDeviceLogin } from "../src/services/codex-login.js";
+
+const require = createRequire(import.meta.url);
+const { version: RELMIO_VERSION } = require("../package.json");
 
 const INSTALL_DIRECTORY = "/private/relmio/local/codex-chatgpt";
 const VERIFICATION_URL = "https://auth.openai.com/codex/device";
@@ -203,7 +207,7 @@ test("startCodexDeviceLogin pins Docker and waits for initialize before starting
           clientInfo: {
             name: "relmio",
             title: "Relmio",
-            version: "0.3.1",
+            version: RELMIO_VERSION,
           },
         },
       },
@@ -226,7 +230,7 @@ test("startCodexDeviceLogin pins Docker and waits for initialize before starting
           clientInfo: {
             name: "relmio",
             title: "Relmio",
-            version: "0.3.1",
+            version: RELMIO_VERSION,
           },
         },
       },

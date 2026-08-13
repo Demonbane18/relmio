@@ -67,6 +67,19 @@ test("server-renders the Relmio product page", async () => {
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
   assert.match(html, /class="repository-button"/);
+  assert.match(html, /class="support-button"/);
+  assert.match(
+    html,
+    /href="https:\/\/ko-fi\.com\/paldogies"[^>]*target="_blank"[^>]*rel="noopener noreferrer"[^>]*aria-label="Support Relmio on Ko-fi \(opens in a new tab\)"/,
+  );
+  assert.match(
+    html,
+    /A Platform API key powers the OpenAI-compatible \/v1 endpoint\./,
+  );
+  assert.match(
+    html,
+    /ChatGPT sign-in powers only the experimental Codex App Server protocol\./,
+  );
   assert.match(html, /openai-oauth/);
   assert.match(html, /Evan Zhou Dev/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
@@ -100,6 +113,16 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   assert.match(html, /lucide-moon/);
   assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
   assert.match(html, /Hostinger VPS/);
+  assert.match(html, /class="support-button"/);
+  assert.match(html, /https:\/\/ko-fi\.com\/paldogies/);
+  assert.match(
+    html,
+    /The OpenAI-compatible \/v1 option uses a Platform API key\./,
+  );
+  assert.match(
+    html,
+    /ChatGPT sign-in is only for experimental Codex App Server clients\./,
+  );
   assert.match(
     html,
     /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/,
@@ -189,7 +212,7 @@ test("falls back safely when project metadata is malformed", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     stars: null,
-    version: "0.2.1",
+    version: "0.4.0",
   });
 });
 

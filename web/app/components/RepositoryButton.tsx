@@ -9,7 +9,7 @@ type ProjectMeta = {
 
 const fallbackMeta: ProjectMeta = {
   stars: null,
-  version: "0.2.1",
+  version: "0.4.0",
 };
 
 function formatStars(stars: number) {

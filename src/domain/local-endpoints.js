@@ -271,9 +271,8 @@ approvals_reviewer = "user"
 allow_login_shell = false
 check_for_update_on_startup = false
 cli_auth_credentials_store = "file"
-default_permissions = ":workspace"
+default_permissions = "relmio-workspace"
 forced_login_method = "chatgpt"
-sandbox_mode = "workspace-write"
 web_search = "disabled"
 
 [analytics]
@@ -282,8 +281,11 @@ enabled = false
 [feedback]
 enabled = false
 
-[sandbox_workspace_write]
-network_access = false
+[permissions.relmio-workspace]
+extends = ":workspace"
+
+[permissions.relmio-workspace.network]
+enabled = false
 
 [shell_environment_policy]
 inherit = "none"
@@ -316,16 +318,16 @@ tool_suggest = false
 export function createCodexRequirements() {
   return `allowed_approval_policies = ["on-request"]
 allowed_approvals_reviewers = ["user"]
-allowed_sandbox_modes = ["workspace-write"]
+allowed_login_methods = ["chatgpt"]
 allowed_web_search_modes = ["disabled"]
 allow_managed_hooks_only = true
 allow_remote_control = false
 check_for_update_on_startup = false
 allow_login_shell = false
-default_permissions = ":workspace"
+default_permissions = "relmio-workspace"
 
 [allowed_permission_profiles]
-":workspace" = true
+"relmio-workspace" = true
 
 [feedback]
 enabled = false

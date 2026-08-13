@@ -232,7 +232,8 @@ The host mapping is exactly `127.0.0.1:<selected-port>:4500`.
 - Credential storage is forced to file mode inside the container so refreshed
   credentials remain in the private volume.
 - Login mode is forced to ChatGPT.
-- Root-owned managed requirements constrain threads to workspace-write,
+- Root-owned managed requirements allow only Relmio's network-disabled
+  permission profile (which extends Codex's built-in workspace profile),
   on-request/user-reviewed approvals, disabled web search, no login shell, and
   a closed set of optional features. Clients cannot request
   `danger-full-access` or approval policy `never`.

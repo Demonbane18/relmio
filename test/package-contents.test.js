@@ -278,9 +278,16 @@ test("npm package substitutes a registry-safe README without changing GitHub dia
     npmReadme,
     /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/hosted-chat-connected\.png/u,
   );
+  const koFiSupportBadge =
+    "https://img.shields.io/badge/Ko--fi-support-ff5e5b.svg?logo=ko-fi&logoColor=white";
+  assert.ok(npmReadme.includes(koFiSupportBadge));
 
   for (const [, source] of npmReadme.matchAll(/<img[^>]+src="([^"]+)"/gu)) {
-    assert.match(source, /^https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\//u);
+    assert.ok(
+      /^https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\//u.test(source) ||
+        source === koFiSupportBadge,
+      `unexpected npm README image source: ${source}`,
+    );
   }
 });
 

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import { isAbsolute } from "node:path";
 
 import {
@@ -16,6 +17,8 @@ const DEFAULT_MAX_LINE_BYTES = 16 * 1024;
 const DEFAULT_MAX_STDOUT_BYTES = 64 * 1024;
 const DEFAULT_MAX_STDERR_BYTES = 32 * 1024;
 const OPENAI_AUTH_ORIGIN = "https://auth.openai.com";
+const require = createRequire(import.meta.url);
+const { version: RELMIO_VERSION } = require("../../package.json");
 
 const PROCESS_START_ERROR =
   "The Codex sign-in process could not start. Check Docker and try again.";
@@ -142,7 +145,7 @@ function createInitializeMessage() {
       clientInfo: {
         name: "relmio",
         title: "Relmio",
-        version: "0.3.1",
+        version: RELMIO_VERSION,
       },
     },
   };

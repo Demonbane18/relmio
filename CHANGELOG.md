@@ -7,23 +7,37 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.4.0] - 2026-08-13
+
 ### Added
 
-- Add a separate local Docker wizard with a Platform-key-backed OpenAI API
-  endpoint and an official experimental Codex App Server target for ChatGPT
-  sign-in, while keeping their protocols and credentials distinct.
+- Add a local Docker wizard for private compatible clients through a
+  Platform-key-backed OpenAI-compatible `/v1` endpoint, plus a separate
+  official experimental Codex App Server target for trusted ChatGPT-sign-in
+  clients.
+- Add compact Ko-fi support links to the hosted navigation and public package
+  guides.
+
+### Changed
+
+- Make the local credential boundary explicit across the product: a Platform
+  API key powers compatible `/v1` requests, while ChatGPT sign-in powers only
+  the experimental Codex App Server protocol.
 
 ### Fixed
 
 - Keep the controlling terminal attached when the macOS/Linux installer is
   piped through `sh`, so the Relmio wizard can open its interactive browser
   setup flow.
+- Install Homebrew dependencies in their required order during release-candidate
+  validation.
 
 ### Security
 
 - Bind local endpoints exclusively to loopback, require one-time Relmio
   capabilities, pin every managed operation to an attested local Docker
   socket, and isolate provider credentials in target-specific containers.
+- Restrict the managed Codex endpoint to the ChatGPT login method.
 
 ## [0.3.1] - 2026-08-10
 

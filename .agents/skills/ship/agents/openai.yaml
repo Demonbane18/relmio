@@ -1,0 +1,4 @@
+interface:
+  display_name: "Relmio Shipping"
+  short_description: "Release Relmio safely with evidence"
+  default_prompt: "Use $ship to prepare and verify a Relmio release."

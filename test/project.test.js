@@ -128,7 +128,10 @@ test("CI pins reviewed actions and the repository npm version", async () => {
 });
 
 test("trusted publishing uses short-lived GitHub OIDC credentials", async () => {
-  const workflow = await readFile(".github/workflows/publish.yml", "utf8");
+  const [workflow, maintainerGuide] = await Promise.all([
+    readFile(".github/workflows/publish.yml", "utf8"),
+    readFile("docs/npm-publish.md", "utf8"),
+  ]);
 
   assert.match(workflow, /release:\s*\n\s+types:\s*\n\s+- published/u);
   assert.match(workflow, /contents: read/u);
@@ -141,6 +144,12 @@ test("trusted publishing uses short-lived GitHub OIDC credentials", async () => 
   assert.match(workflow, /package-managers:[\s\S]*needs:[\s\S]*- publish/u);
   assert.match(workflow, /uses: \.\/\.github\/workflows\/package-manager-candidates\.yml/u);
   assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN|_authToken/u);
+  assert.match(maintainerGuide, /GitHub OIDC/u);
+  assert.match(maintainerGuide, /Never run `npm publish` locally/u);
+  assert.doesNotMatch(
+    maintainerGuide,
+    /NPM_CREATE_ACCESS_TOKEN|NODE_AUTH_TOKEN|NPM_TOKEN|_authToken|^npm (?:login|whoami|publish)\b/mu,
+  );
 });
 
 test("hosted CMD installer is checked out with Windows line endings", async () => {

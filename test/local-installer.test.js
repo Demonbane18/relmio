@@ -457,7 +457,9 @@ test("Codex install has no Platform secret and returns native App Server details
     join(installRoot, "requirements.toml"),
     "utf8",
   );
-  assert.match(requirements, /allowed_sandbox_modes = \["workspace-write"\]/);
+  assert.match(requirements, /default_permissions = "relmio-workspace"/);
+  assert.match(requirements, /"relmio-workspace" = true/);
+  assert.doesNotMatch(requirements, /allowed_sandbox_modes/);
   assert.equal((await stat(join(installRoot, "requirements.toml"))).mode & 0o777, 0o600);
 });
 

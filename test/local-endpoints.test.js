@@ -251,19 +251,25 @@ test("Codex image and config pin the official App Server and ChatGPT login", () 
   assert.match(dockerfile, /ENTRYPOINT \["codex"\]/);
   assert.match(config, /cli_auth_credentials_store = "file"/);
   assert.match(config, /forced_login_method = "chatgpt"/);
-  assert.match(config, /^default_permissions = ":workspace"$/m);
-  assert.match(config, /sandbox_mode = "workspace-write"/);
-  assert.match(config, /network_access = false/);
+  assert.match(config, /^default_permissions = "relmio-workspace"$/m);
+  assert.match(config, /\[permissions\.relmio-workspace\]/);
+  assert.match(config, /extends = ":workspace"/);
+  assert.match(
+    config,
+    /\[permissions\.relmio-workspace\.network\]\nenabled = false/,
+  );
+  assert.doesNotMatch(config, /sandbox_mode|sandbox_workspace_write/);
   assert.match(config, /inherit = "none"/);
   assert.match(requirements, /allowed_approval_policies = \["on-request"\]/);
   assert.match(requirements, /allowed_approvals_reviewers = \["user"\]/);
-  assert.match(requirements, /allowed_sandbox_modes = \["workspace-write"\]/);
-  assert.match(requirements, /^default_permissions = ":workspace"$/m);
+  assert.match(requirements, /allowed_login_methods = \["chatgpt"\]/);
+  assert.doesNotMatch(requirements, /allowed_sandbox_modes/);
+  assert.match(requirements, /^default_permissions = "relmio-workspace"$/m);
   const allowedProfiles =
     /\[allowed_permission_profiles\]\n([\s\S]*?)(?:\n\[|$)/u.exec(
       requirements,
     )?.[1].trim();
-  assert.equal(allowedProfiles, '":workspace" = true');
+  assert.equal(allowedProfiles, '"relmio-workspace" = true');
   assert.match(requirements, /allowed_web_search_modes = \["disabled"\]/);
   assert.match(requirements, /allow_managed_hooks_only = true/);
   assert.match(requirements, /allow_remote_control = false/);
