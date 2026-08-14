@@ -1593,7 +1593,7 @@ export async function activateLocalClientCredentialRotation(
     }
 
     throw new Error(
-      "Local credential rotation failed safely. The previous credential remains active.",
+      "Local credential rotation failed safely. The previous verifier was restored and the managed endpoint was re-attested.",
     );
   }
   } finally {

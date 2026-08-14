@@ -86,9 +86,11 @@ authenticated Codex WebSocket handshake before reporting success.
 
 This client-only rotation preserves the upstream Platform API key in its private
 named volume and preserves the Codex home and workspace volumes. If activation
-or verification fails, Relmio restores and verifies the previous capability. If
-that rollback cannot be confirmed, it attempts to stop only the exact managed
-service and reports whether the stopped state could be verified.
+or verification fails, Relmio restores the previous verifier and re-attests its
+health and loopback publication. Relmio does not retain the previous raw client
+credential, so rollback does not replay an authenticated request with it. If
+that rollback cannot be confirmed, Relmio attempts to stop only the exact
+managed service and reports whether the stopped state could be verified.
 
 Rerun the browser wizard with the same target and port when you need a complete
 managed update. Relmio verifies the marker and Docker resource ownership and

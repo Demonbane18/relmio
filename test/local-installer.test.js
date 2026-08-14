@@ -492,7 +492,7 @@ test("Codex credential rotation rolls back when the fresh WebSocket capability i
           error: new Error("rejected capability"),
         }),
       }),
-    /previous credential remains active/u,
+    /previous verifier was restored and the managed endpoint was re-attested/u,
   );
 
   assert.equal(await readFile(composePath, "utf8"), originalCompose);
@@ -795,7 +795,7 @@ test("credential rotation rolls back when managed-file permission repair fails a
         runProcess,
         fetchImpl: createFetch(),
       }),
-    /previous credential remains active/u,
+    /previous verifier was restored and the managed endpoint was re-attested/u,
   );
 
   assert.equal(injectedFailure, true);

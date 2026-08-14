@@ -7,6 +7,8 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.5.0] - 2026-08-15
+
 ### Added
 
 - Add a **Rotate client credential** action for installed local endpoints that
@@ -29,7 +31,8 @@ checks the registry separately after publication.
 - Verify the generated Codex capability with a strict authenticated WebSocket
   upgrade before reporting installation or rotation success.
 - Serialize installation, sign-in, restart, and credential rotation across
-  Relmio processes, with attested stale-lock recovery and fail-closed rollback.
+  Relmio processes, with attested stale-lock recovery and fail-closed rollback
+  that restores the prior verifier and re-attests endpoint readiness.
 
 ## [0.4.1] - 2026-08-14
 

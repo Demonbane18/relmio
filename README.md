@@ -283,9 +283,10 @@ The bearer remains valid until it is rotated. After installation, use
 capability. Relmio shows the new one-time credential before activation, verifies
 the replacement endpoint, and preserves the upstream Platform API key or Codex
 credential/workspace volumes. If replacement cannot be verified, Relmio attempts
-to restore the previous capability. If rollback cannot be confirmed, it targets
-only the exact managed service for shutdown and reports whether that stopped
-state could be verified. Browser requests
+to restore the previous verifier and re-attest service readiness. It does not
+retain the previous raw client credential to replay it during rollback. If
+rollback cannot be confirmed, it targets only the exact managed service for
+shutdown and reports whether that stopped state could be verified. Browser requests
 must come from an exact origin entered during setup; wildcards are not allowed,
 and the capability must never be embedded in a public frontend bundle. Platform
 requests use that API project's billing, credits, limits, and permissions, not

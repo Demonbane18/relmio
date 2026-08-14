@@ -86,14 +86,21 @@ test("local endpoint guides document safe standalone client credential rotation"
     assert.match(guide, /preserves the upstream Platform API key/u);
     assert.match(
       guide,
-      /targets\s+only the exact managed service for shutdown and reports whether that stopped\s+state could be verified/u,
+      /targets\s+only\s+the\s+exact\s+managed\s+service\s+for\s+shutdown\s+and\s+reports\s+whether\s+that\s+stopped\s+state\s+could\s+be\s+verified/u,
     );
   }
 
   assert.match(localGuide, /previous capability remains active/u);
   assert.match(localGuide, /authenticated Codex WebSocket handshake/u);
   assert.match(localGuide, /preserves the upstream Platform API key/u);
-  assert.match(localGuide, /restores and verifies the previous capability/u);
+  assert.match(
+    localGuide,
+    /restores\s+the\s+previous\s+verifier\s+and\s+re-attests\s+its\s+health\s+and\s+loopback\s+publication/u,
+  );
+  assert.match(
+    localGuide,
+    /does\s+not\s+retain\s+the\s+previous\s+raw\s+client\s+credential/u,
+  );
 });
 
 test("beginner documentation states the critical safety and product limits", async () => {

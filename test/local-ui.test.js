@@ -236,6 +236,11 @@ test("local wizard makes credential rotation explicit and replaces only DOM text
     html,
     /Relmio shows the replacement first, then activates and verifies\s+it/u,
   );
+  assert.match(
+    html,
+    /After successful activation, the previous credential no longer works/u,
+  );
+  assert.doesNotMatch(html, /permanently revokes the previous/u);
   assert.match(script, /api\("\/api\/local\/client-credential\/rotate"/u);
   assert.match(script, /api\("\/api\/local\/client-credential\/activate"/u);
   assert.match(script, /setBusy\(button, true, "Rotating credential…"\)/u);
