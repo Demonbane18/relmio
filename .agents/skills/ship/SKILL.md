@@ -1,6 +1,6 @@
 ---
 name: ship
-description: Prepare, verify, and execute a safe Relmio release across the npm package, GitHub, Vercel, installers, and distribution surfaces. Use when planning or cutting a Relmio version, updating release metadata or curated notes, preparing a release PR, publishing through npm trusted publishing, verifying a deploy, or auditing installer and Homebrew availability.
+description: Prepare, verify, merge, and execute safe Relmio changes across main, the npm package, GitHub, Vercel, installers, and distribution surfaces. Use when a request says "merge to main" or otherwise asks to merge Relmio work into main, and when planning or cutting a version, updating release metadata or curated notes, preparing a release PR, publishing through npm trusted publishing, verifying a deploy, or auditing installer and Homebrew availability.
 ---
 
 # Ship Relmio safely
@@ -9,6 +9,44 @@ Use this workflow to produce evidence for a Relmio release. Treat every
 external write as a separately authorized step. Never use local npm tokens,
 never weaken branch protection, and never report a publish, release, tag, merge,
 or deploy that has not been verified.
+
+## 0. Select the SHIP lane
+
+- **Merge-only lane:** Use when the request says `merge to main`, asks to merge
+  a branch or commit into `main`, or asks whether Relmio work is ready for a
+  main merge. Audit every affected delivery surface, make needed repository
+  updates, verify the source and exact merged commit, and stop before remote
+  publication unless the user separately authorizes it.
+- **Release lane:** Use when the user explicitly asks to version, push, tag,
+  publish, deploy, create a GitHub release, or release everywhere. Follow the
+  complete release workflow below, including all authorization gates.
+
+A merge-only request does not authorize a push, npm publish, Vercel deploy,
+tag, GitHub release, Homebrew update, or installer publication. Do not invent a
+version bump merely to merge a compatible change.
+
+### Merge-only SHIP gate
+
+1. Inspect the source branch, `main`, worktrees, working-tree changes, merge
+   base, and `origin/main`. Preserve unrelated edits. If a dirty `main` path
+   overlaps the merge, stop; otherwise use an isolated candidate worktree when
+   practical and merge with the repository's protected flow or `--ff-only`.
+2. Classify the diff against the merge base using the applicability table in
+   section 2. Explicitly decide whether each of these needs a repository
+   update: `README.md`, `npm/README.md`, `CHANGELOG.md` under `Unreleased`, npm
+   package contents, `web/**`, `web/public/install.*`, Homebrew/distribution
+   metadata, and user-facing screenshots or guides. Update every applicable
+   surface before merging; record why every non-applicable surface is skipped.
+3. Run the published-baseline distribution audit, focused tests, the full root
+   gate, audit, package preview, diff/secret checks, and applicable web or
+   installer checks. A failed required check blocks the merge.
+4. Require review and required CI when a remote protected merge is in scope.
+   Local merge authorization does not imply remote merge authorization.
+5. Resolve and record the exact merged commit. Re-run the full root gate and
+   all affected-surface checks on `main`, then confirm the working tree still
+   contains every pre-existing unrelated edit.
+6. Report the exact merge commit, verification results, applicability matrix,
+   preserved user changes, and all external actions not performed.
 
 ## Distribution audit contract
 
@@ -38,6 +76,9 @@ completely, then use its deterministic audit as follows:
    evidence record, with every changed external system and unresolved surface.
 
 ## 1. Establish the release candidate
+
+Use sections 1, 4, and 5 only for the release lane, except where the merge-only
+gate explicitly references their inspection or verification rules.
 
 1. Start from a clean, isolated worktree on a short-lived release branch.
    - Run `git status --short`, `git branch --show-current`, and

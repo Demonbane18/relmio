@@ -101,7 +101,8 @@ On desktop, the local wizard keeps progress and sidecar-only safety notes in a
 persistent rail beside the active task; its compact fixed-screen shell avoids
 document scrolling on common laptop screens. On narrow phones, it switches to
 a horizontal progress strip and keeps task scrolling inside the active panel.
-The hosted site keeps the live GitHub star/version control visible.
+Both the hosted site and local wizard keep Ko-fi support, GitHub stars, and the
+current Relmio version visible beside the appearance control.
 
 ## Local Docker endpoints
 
@@ -122,7 +123,14 @@ The OpenAI-compatible `/v1` endpoint is powered only by a Platform API key,
 which the wizard seeds over stdin into a private, labeled Docker volume; it
 does not create a host key file. Your app uses a
 separate Relmio capability that the wizard displays once.
-The bearer remains valid until it is rotated. Browser requests
+The bearer remains valid until it is rotated. After installation, use
+**Rotate client credential** on the Ready screen to replace only that local
+capability. Relmio shows the new one-time credential before activation, verifies
+the replacement endpoint, and preserves the upstream Platform API key or Codex
+credential/workspace volumes. If replacement cannot be verified, Relmio attempts
+to restore the previous capability. If rollback cannot be confirmed, it targets
+only the exact managed service for shutdown and reports whether that stopped
+state could be verified. Browser requests
 must come from an exact origin entered during setup; wildcards are not allowed,
 and the capability must never be embedded in a public frontend bundle. Platform
 requests use that API project's billing, credits, limits, and permissions, not
