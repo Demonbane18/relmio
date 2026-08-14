@@ -10,6 +10,10 @@ const LOGIN_URL_TIMEOUT_MS = 15_000;
 const LOGIN_TIMEOUT_MS = 300_000;
 const PROCESS_TIMEOUT_MS = LOGIN_TIMEOUT_MS + 15_000;
 const CREDENTIAL_POLL_INTERVAL_MS = 100;
+const PROCESS_TERMINATION_GRACE_MS = 1_000;
+const PROCESS_TERMINATION_FORCE_WAIT_MS = 1_000;
+const TERMINATION_UNCONFIRMED_MESSAGE =
+  "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
 const LOGIN_URL_PREFIX = "OpenAI OAuth login URL: ";
 const OPENAI_AUTH_ORIGIN = "https://auth.openai.com";
 const SUPPORTED_LOOPBACK_REDIRECT_HOSTNAMES = new Set([
@@ -206,6 +210,11 @@ export async function startOAuthLogin({
   spawnProcess = spawn,
   createPendingId = randomUUID,
   waitForCredentialPoll = wait,
+  killProcess = process.kill,
+  terminationGraceMs = PROCESS_TERMINATION_GRACE_MS,
+  terminationForceWaitMs = PROCESS_TERMINATION_FORCE_WAIT_MS,
+  createTimer = setTimeout,
+  clearTimer = clearTimeout,
 } = {}) {
   const npxInvocation = createNpxInvocation({ platform, env, execPath });
   const authPath = resolveAuthPath({ env, homeDirectory });
@@ -241,6 +250,7 @@ export async function startOAuthLogin({
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        ...(platform === "win32" ? {} : { detached: true }),
       },
     );
   } catch (error) {
@@ -251,6 +261,7 @@ export async function startOAuthLogin({
   }
   const loginOutput = { stdout: "", stderr: "" };
   let loginOutputBytes = 0;
+  let cancelAttempt = () => Promise.resolve();
   let resolveAuthorizationUrl;
   let rejectAuthorizationUrl;
   let authorizationUrlSettled = false;
@@ -280,7 +291,9 @@ export async function startOAuthLogin({
       settleAuthorizationUrl(
         new Error("The sign-in command returned too much output."),
       );
-      child.kill?.("SIGTERM");
+      void requestCancellation("The sign-in command returned too much output.").catch(
+        () => {},
+      );
       return;
     }
     loginOutput[stream] += output;
@@ -291,7 +304,7 @@ export async function startOAuthLogin({
       }
     } catch (error) {
       settleAuthorizationUrl(error);
-      child.kill?.("SIGTERM");
+      void requestCancellation(error.message).catch(() => {});
     }
   };
 
@@ -346,24 +359,273 @@ export async function startOAuthLogin({
     settleProcessClose(null, code);
   });
 
-  const loginUrlTimeout = setTimeout(() => {
-    settleAuthorizationUrl(
-      new Error("The sign-in command did not provide a fresh login link."),
+  const loginUrlTimeout = createTimer(() => {
+    const error = new Error(
+      "The sign-in command did not provide a fresh login link.",
     );
-    child.kill?.("SIGTERM");
+    settleAuthorizationUrl(error);
+    void requestCancellation(error.message).catch(() => {});
   }, LOGIN_URL_TIMEOUT_MS);
 
-  const savePendingCredential = async () => {
-    await readAuthContents({
-      authPath: pendingAuthPath,
-      fileSystem,
+  let keepPollingForCredential = true;
+  let cancellationRequested = false;
+  let rejectCancellation;
+  const cancellationPromise = new Promise((_, rejectPromise) => {
+    rejectCancellation = rejectPromise;
+  });
+  cancellationPromise.catch(() => {});
+
+  const promotionAuthPath = `${pendingAuthPath}.ready`;
+  let credentialPromotion;
+  let promotionPhase = "idle";
+  const promotionCancellationWaitMs =
+    terminationGraceMs + terminationForceWaitMs;
+  const createRetryBlockedError = () =>
+    Object.assign(new Error(TERMINATION_UNCONFIRMED_MESSAGE), {
+      retryBlocked: true,
     });
-    await fileSystem.chmod(pendingAuthPath, 0o600);
-    await fileSystem.copyFile(pendingAuthPath, authPath);
-    await fileSystem.chmod(authPath, 0o600);
+  const assertPromotionActive = () => {
+    if (cancellationRequested) {
+      throw new Error("ChatGPT sign-in did not finish. Start a fresh login.");
+    }
+  };
+  const savePendingCredential = () => {
+    if (credentialPromotion) {
+      return credentialPromotion;
+    }
+
+    credentialPromotion = (async () => {
+      promotionPhase = "staging";
+      try {
+        assertPromotionActive();
+        await readAuthContents({
+          authPath: pendingAuthPath,
+          fileSystem,
+        });
+        assertPromotionActive();
+        await fileSystem.chmod(pendingAuthPath, 0o600);
+        assertPromotionActive();
+        await fileSystem.copyFile(pendingAuthPath, promotionAuthPath);
+        assertPromotionActive();
+        await fileSystem.chmod(promotionAuthPath, 0o600);
+        assertPromotionActive();
+        promotionPhase = "committing";
+        await fileSystem.rename(promotionAuthPath, authPath);
+        promotionPhase = "committed";
+        await fileSystem.chmod(authPath, 0o600);
+      } catch (error) {
+        if (cancellationRequested && promotionPhase !== "committed") {
+          promotionPhase = "cancelled";
+        }
+        throw error;
+      }
+    })();
+    credentialPromotion.catch(() => {});
+    return credentialPromotion;
   };
 
-  let keepPollingForCredential = true;
+  const waitForBoundedResult = (promise, milliseconds) =>
+    new Promise((resolvePromise) => {
+      let settled = false;
+      const timer = createTimer(() => {
+        if (!settled) {
+          settled = true;
+          resolvePromise(false);
+        }
+      }, milliseconds);
+      promise.then(
+        () => {
+          if (!settled) {
+            settled = true;
+            clearTimer(timer);
+            resolvePromise(true);
+          }
+        },
+        () => {
+          if (!settled) {
+            settled = true;
+            clearTimer(timer);
+            resolvePromise(true);
+          }
+        },
+      );
+    });
+
+  const waitForDuration = (milliseconds) =>
+    new Promise((resolvePromise) => {
+      createTimer(() => resolvePromise(true), milliseconds);
+    });
+
+  const waitForTaskkill = (taskkill, milliseconds) =>
+    new Promise((resolvePromise) => {
+      let settled = false;
+      const finish = (confirmed) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimer(timer);
+        resolvePromise(confirmed);
+      };
+      const timer = createTimer(() => finish(false), milliseconds);
+      taskkill?.once?.("error", () => finish(false));
+      taskkill?.once?.("close", (code) => finish(code === 0));
+      if (!taskkill?.once) {
+        finish(false);
+      }
+    });
+
+  let terminationPromise;
+  const terminateProcessTree = () => {
+    if (terminationPromise) {
+      return terminationPromise;
+    }
+
+    terminationPromise = (async () => {
+      const hasChildPid = Number.isSafeInteger(child.pid) && child.pid > 0;
+
+      if (platform === "win32" && hasChildPid) {
+        const runTaskkill = async (force, timeout) => {
+          try {
+            const taskkill = spawnProcess(
+              "taskkill",
+              ["/pid", String(child.pid), "/t", ...(force ? ["/f"] : [])],
+              {
+                shell: false,
+                stdio: "ignore",
+                windowsHide: true,
+              },
+            );
+            return await waitForTaskkill(taskkill, timeout);
+          } catch {
+            return false;
+          }
+        };
+        if (
+          (await runTaskkill(false, terminationGraceMs)) ||
+          (await runTaskkill(true, terminationForceWaitMs))
+        ) {
+          return;
+        }
+      } else if (hasChildPid) {
+        const processGroupIsGone = () => {
+          try {
+            killProcess(-child.pid, 0);
+            return false;
+          } catch (error) {
+            return error?.code === "ESRCH";
+          }
+        };
+        try {
+          killProcess(-child.pid, "SIGTERM");
+        } catch {
+          // The group may have already exited between launch and cancellation.
+        }
+        if (
+          processGroupIsGone() ||
+          ((await waitForDuration(terminationGraceMs)) && processGroupIsGone())
+        ) {
+          return;
+        }
+        try {
+          killProcess(-child.pid, "SIGKILL");
+        } catch {
+          // A final process-group check below determines whether it is gone.
+        }
+        if (
+          processGroupIsGone() ||
+          ((await waitForDuration(terminationForceWaitMs)) &&
+            processGroupIsGone())
+        ) {
+          return;
+        }
+      } else {
+        try {
+          child.kill?.("SIGTERM");
+        } catch {
+          // The process may have already exited before cancellation.
+        }
+        if (
+          processCloseSettled ||
+          (await waitForBoundedResult(
+            processClosePromise,
+            terminationGraceMs,
+          ))
+        ) {
+          return;
+        }
+        try {
+          child.kill?.("SIGKILL");
+        } catch {
+          // The direct child is only a last resort when no PID is available.
+        }
+        if (
+          processCloseSettled ||
+          (await waitForBoundedResult(
+            processClosePromise,
+            terminationForceWaitMs,
+          ))
+        ) {
+          return;
+        }
+      }
+
+      throw createRetryBlockedError();
+    })();
+    return terminationPromise;
+  };
+
+  cancelAttempt = async (
+    message = "ChatGPT sign-in stopped. Start a fresh login.",
+  ) => {
+    if (!cancellationRequested) {
+      cancellationRequested = true;
+      keepPollingForCredential = false;
+      rejectCancellation(new Error(message));
+    }
+    let promotionError;
+    try {
+      if (
+        credentialPromotion &&
+        !(await waitForBoundedResult(
+          credentialPromotion,
+          promotionCancellationWaitMs,
+        ))
+      ) {
+        promotionError = createRetryBlockedError();
+      }
+    } catch {
+      // Cancellation intentionally abandons a staged but unpromoted credential.
+    }
+    if (
+      promotionPhase === "committing" ||
+      promotionPhase === "committed"
+    ) {
+      promotionError = createRetryBlockedError();
+    }
+    let terminationError;
+    try {
+      await terminateProcessTree();
+    } catch (error) {
+      terminationError = error;
+    }
+    if (promotionError) {
+      throw promotionError;
+    }
+    if (terminationError) {
+      throw terminationError;
+    }
+  };
+
+  let cancellationResult;
+  const requestCancellation = (message) => {
+    if (!cancellationResult) {
+      cancellationResult = cancelAttempt(message);
+      cancellationResult.catch(() => {});
+    }
+    return cancellationResult;
+  };
+
   const pendingCredentialPromise = (async () => {
     await authorizationUrlPromise;
     while (keepPollingForCredential) {
@@ -384,8 +646,9 @@ export async function startOAuthLogin({
 
   const completion = (async () => {
     let processTimeout;
+    let completedSuccessfully = false;
     try {
-      return await Promise.race([
+      const result = await Promise.race([
         pendingCredentialPromise,
         processClosePromise.then(async (code) => {
           if (code !== 0) {
@@ -396,26 +659,50 @@ export async function startOAuthLogin({
           await savePendingCredential();
           return { success: true };
         }),
+        cancellationPromise,
         new Promise((_, rejectPromise) => {
-          processTimeout = setTimeout(() => {
-            child.kill?.("SIGTERM");
-            rejectPromise(
-              new Error("The sign-in request expired. Start a fresh login."),
+          processTimeout = createTimer(() => {
+            const error = new Error(
+              "The sign-in request expired. Start a fresh login.",
             );
+            void requestCancellation(error.message).catch(() => {});
+            rejectPromise(error);
           }, PROCESS_TIMEOUT_MS);
         }),
       ]);
+      completedSuccessfully = result.success === true;
+      return result;
     } finally {
       keepPollingForCredential = false;
-      clearTimeout(processTimeout);
-      clearTimeout(loginUrlTimeout);
-      if (!processCloseSettled) {
-        child.kill?.("SIGTERM");
+      clearTimer(processTimeout);
+      clearTimer(loginUrlTimeout);
+      try {
+        await credentialPromotion;
+      } catch {
+        // A cancellation can abandon an attempt-local staged credential.
+      }
+      if (cancellationResult) {
+        try {
+          await cancellationResult;
+        } catch (error) {
+          if (error?.retryBlocked === true) {
+            throw error;
+          }
+        }
+      }
+      const committedBeforeFailure =
+        !completedSuccessfully && promotionPhase === "committed";
+      if (!completedSuccessfully || !processCloseSettled) {
+        await terminateProcessTree();
       }
       try {
         await fileSystem.rm(pendingAuthPath, { force: true });
+        await fileSystem.rm(promotionAuthPath, { force: true });
       } catch {
         // A failed cleanup must not hide the actionable sign-in result.
+      }
+      if (committedBeforeFailure) {
+        throw createRetryBlockedError();
       }
     }
   })();
@@ -435,21 +722,29 @@ export async function startOAuthLogin({
         },
       ),
     ]);
-    clearTimeout(loginUrlTimeout);
+    clearTimer(loginUrlTimeout);
     return {
       authorizationUrl,
       completion,
       cancel() {
-        child.kill?.("SIGTERM");
+        return requestCancellation();
       },
     };
   } catch (error) {
-    clearTimeout(loginUrlTimeout);
-    child.kill?.("SIGTERM");
+    clearTimer(loginUrlTimeout);
+    let retryBlocked = false;
     try {
-      await completion;
+      await requestCancellation(error.message);
+    } catch {
+      retryBlocked = true;
+    }
+    try {
+      await waitForBoundedResult(completion, promotionCancellationWaitMs);
     } catch {
       // Preserve the more specific authorization-link error.
+    }
+    if (retryBlocked) {
+      error.retryBlocked = true;
     }
     throw error;
   }

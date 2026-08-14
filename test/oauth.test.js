@@ -42,6 +42,10 @@ function createMemoryFileSystem(files) {
     async copyFile(source, destination) {
       files[destination] = files[source];
     },
+    async rename(source, destination) {
+      files[destination] = files[source];
+      delete files[source];
+    },
     async rm(path) {
       delete files[path];
     },
@@ -448,8 +452,14 @@ test("startOAuthLogin waits for close after exit before finalizing stdout", asyn
 });
 
 test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", async () => {
-  const spawnProcess = () => {
+  const calls = [];
+  const spawnProcess = (command, args) => {
+    calls.push({ command, args });
     const child = new EventEmitter();
+    if (command === "taskkill") {
+      return child;
+    }
+    child.pid = 5150;
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.stderr.resume = () => {};
@@ -477,6 +487,8 @@ test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", 
         execPath: "C:\\portable\\node.exe",
         spawnProcess,
         createPendingId: () => "port-conflict",
+        terminationGraceMs: 0,
+        terminationForceWaitMs: 0,
       }),
     (error) => {
       assert.equal(
@@ -484,9 +496,14 @@ test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", 
         "OpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use. Stop the process using that port and try again.",
       );
       assert.doesNotMatch(error.message, /not-for-users|token=/u);
+      assert.equal(error.retryBlocked, true);
       return true;
     },
   );
+  assert.deepEqual(calls.slice(1), [
+    { command: "taskkill", args: ["/pid", "5150", "/t"] },
+    { command: "taskkill", args: ["/pid", "5150", "/t", "/f"] },
+  ]);
 });
 
 test("startOAuthLogin uses the current Node runtime for Windows npm launchers", async () => {
@@ -624,7 +641,7 @@ test("startOAuthLogin saves a valid pending credential before the helper exits",
     child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = { resume() {} };
-    child.kill = () => {};
+    child.kill = () => queueMicrotask(() => finishChild(child, 1));
     pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
     queueMicrotask(() => {
       const authorizationUrl = new URL(
@@ -652,6 +669,8 @@ test("startOAuthLogin saves a valid pending credential before the helper exits",
     platform: "darwin",
     spawnProcess,
     createPendingId: () => "fresh",
+    terminationGraceMs: 0,
+    terminationForceWaitMs: 0,
     waitForCredentialPoll: async () => {
       pollCount += 1;
       files[pendingAuthPath] =
@@ -677,7 +696,6 @@ test("startOAuthLogin saves a valid pending credential before the helper exits",
     );
   } finally {
     finishChild(child, 1);
-    login.cancel();
   }
 });
 
@@ -776,4 +794,530 @@ test("startOAuthLogin only accepts exact supported authorization and callback UR
   const ipv6Login = await startWithAuthorizationUrl(ipv6AuthorizationUrl);
   assert.equal(ipv6Login.authorizationUrl, ipv6AuthorizationUrl.toString());
   assert.deepEqual(await ipv6Login.completion, { success: true });
+});
+
+test("startOAuthLogin cancels the detached helper process group with a bounded forceful fallback", async () => {
+  const signals = [];
+  let processGroupGone = false;
+  let spawnOptions;
+  const spawnProcess = (_command, _args, options) => {
+    spawnOptions = options;
+    const child = new EventEmitter();
+    child.pid = 4242;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {
+      throw new Error("The wrapper process must not be the only cancellation target.");
+    };
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(
+          `OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`,
+        ),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem: createMemoryFileSystem({}),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "darwin",
+    spawnProcess,
+    createPendingId: () => "process-tree",
+    killProcess(pid, signal) {
+      signals.push([pid, signal]);
+      if (signal === "SIGKILL") {
+        processGroupGone = true;
+      }
+      if (signal === 0 && processGroupGone) {
+        const error = new Error("gone");
+        error.code = "ESRCH";
+        throw error;
+      }
+    },
+    terminationGraceMs: 50,
+    terminationForceWaitMs: 50,
+  });
+
+  await login.cancel();
+  await assert.rejects(login.completion, /stopped|fresh login/i);
+  assert.equal(spawnOptions.detached, true);
+  assert.deepEqual(signals, [
+    [-4242, "SIGTERM"],
+    [-4242, 0],
+    [-4242, 0],
+    [-4242, "SIGKILL"],
+    [-4242, 0],
+  ]);
+});
+
+test("startOAuthLogin cancellation waits for a delayed promotion and keeps the older credential", async () => {
+  const files = {};
+  const homeDirectory = resolve("oauth-cancel-promotion-home");
+  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
+  files[authPath] = '{"older":true}';
+  const memoryFileSystem = createMemoryFileSystem(files);
+  let pendingAuthPath;
+  let releaseCopy;
+  const copyRelease = new Promise((resolvePromise) => {
+    releaseCopy = resolvePromise;
+  });
+  let markCopyStarted;
+  const copyStarted = new Promise((resolvePromise) => {
+    markCopyStarted = resolvePromise;
+  });
+  const fileSystem = {
+    ...memoryFileSystem,
+    async copyFile(source, destination) {
+      markCopyStarted();
+      await copyRelease;
+      files[destination] = files[source];
+    },
+  };
+  const spawnProcess = (_command, args) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => queueMicrotask(() => finishChild(child, 1));
+    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem,
+    env: {},
+    homeDirectory,
+    platform: "darwin",
+    spawnProcess,
+    createPendingId: () => "cancel-promotion",
+    terminationGraceMs: 50,
+    terminationForceWaitMs: 50,
+    waitForCredentialPoll: async () => {
+      files[pendingAuthPath] = '{"newer":true}';
+    },
+  });
+
+  await copyStarted;
+  let cancellationFinished = false;
+  const cancellation = login.cancel().then(() => {
+    cancellationFinished = true;
+  });
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+  assert.equal(cancellationFinished, false);
+
+  releaseCopy();
+  await cancellation;
+  await assert.rejects(login.completion, /stopped|fresh login/i);
+  assert.equal(files[authPath], '{"older":true}');
+});
+
+test("startOAuthLogin rejects cancellation when the detached process group survives both signals", async () => {
+  const signals = [];
+  const spawnProcess = () => {
+    const child = new EventEmitter();
+    child.pid = 4343;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {
+      throw new Error("The detached process group must be signalled instead.");
+    };
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem: createMemoryFileSystem({}),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "darwin",
+    spawnProcess,
+    createPendingId: () => "surviving-process-group",
+    killProcess(pid, signal) {
+      signals.push([pid, signal]);
+    },
+    terminationGraceMs: 0,
+    terminationForceWaitMs: 0,
+  });
+
+  await assert.rejects(
+    login.cancel(),
+    /could not be stopped safely/i,
+  );
+  assert.deepEqual(signals, [
+    [-4343, "SIGTERM"],
+    [-4343, 0],
+    [-4343, 0],
+    [-4343, "SIGKILL"],
+    [-4343, 0],
+    [-4343, 0],
+  ]);
+});
+
+test("startOAuthLogin rejects cancellation when Windows taskkill cannot confirm its tree", async () => {
+  const calls = [];
+  const spawnProcess = (command, args) => {
+    calls.push({ command, args });
+    const child = new EventEmitter();
+    if (command === "taskkill") {
+      queueMicrotask(() => finishChild(child, 1));
+      return child;
+    }
+    child.pid = 5454;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {
+      throw new Error("taskkill must own the Windows process tree.");
+    };
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem: createMemoryFileSystem({}),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    execPath: "C:\\portable\\node.exe",
+    spawnProcess,
+    createPendingId: () => "taskkill-nonzero",
+    terminationGraceMs: 0,
+    terminationForceWaitMs: 0,
+  });
+
+  await assert.rejects(
+    login.cancel(),
+    /could not be stopped safely/i,
+  );
+  assert.deepEqual(calls.slice(1), [
+    { command: "taskkill", args: ["/pid", "5454", "/t"] },
+    { command: "taskkill", args: ["/pid", "5454", "/t", "/f"] },
+  ]);
+});
+
+test("startOAuthLogin bounds a hung Windows taskkill and reports unconfirmed termination", async () => {
+  const calls = [];
+  const spawnProcess = (command, args) => {
+    calls.push({ command, args });
+    const child = new EventEmitter();
+    if (command === "taskkill") {
+      return child;
+    }
+    child.pid = 5555;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {
+      throw new Error("taskkill must own the Windows process tree.");
+    };
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem: createMemoryFileSystem({}),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    execPath: "C:\\portable\\node.exe",
+    spawnProcess,
+    createPendingId: () => "taskkill-hung",
+    terminationGraceMs: 0,
+    terminationForceWaitMs: 0,
+  });
+
+  await assert.rejects(
+    login.cancel(),
+    /could not be stopped safely/i,
+  );
+  assert.deepEqual(calls.slice(1), [
+    { command: "taskkill", args: ["/pid", "5555", "/t"] },
+    { command: "taskkill", args: ["/pid", "5555", "/t", "/f"] },
+  ]);
+});
+
+test("startOAuthLogin reports cancellation as indeterminate after final credential commit begins", async () => {
+  const files = {};
+  const homeDirectory = resolve("oauth-rename-barrier-home");
+  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
+  files[authPath] = '{"older":true}';
+  const memoryFileSystem = createMemoryFileSystem(files);
+  let pendingAuthPath;
+  let releaseRename;
+  const renameRelease = new Promise((resolvePromise) => {
+    releaseRename = resolvePromise;
+  });
+  let markRenameStarted;
+  const renameStarted = new Promise((resolvePromise) => {
+    markRenameStarted = resolvePromise;
+  });
+  const fileSystem = {
+    ...memoryFileSystem,
+    async rename(source, destination) {
+      markRenameStarted();
+      await renameRelease;
+      files[destination] = files[source];
+      delete files[source];
+    },
+  };
+  const spawnProcess = (_command, args) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => queueMicrotask(() => finishChild(child, 1));
+    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem,
+    env: {},
+    homeDirectory,
+    platform: "darwin",
+    spawnProcess,
+    createPendingId: () => "rename-barrier",
+    terminationGraceMs: 50,
+    terminationForceWaitMs: 50,
+    waitForCredentialPoll: async () => {
+      files[pendingAuthPath] = '{"newer":true}';
+    },
+  });
+
+  await renameStarted;
+  let cancellationSettled = false;
+  const cancellation = login.cancel().finally(() => {
+    cancellationSettled = true;
+  });
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
+  assert.equal(cancellationSettled, false);
+
+  releaseRename();
+  await assert.rejects(cancellation, /could not be stopped safely/i);
+  assert.equal(files[authPath], '{"newer":true}');
+});
+
+test("startOAuthLogin bounds a never-settling staged promotion and blocks its later final write", async () => {
+  const files = {};
+  const homeDirectory = resolve("oauth-never-settling-promotion-home");
+  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
+  files[authPath] = '{"older":true}';
+  const memoryFileSystem = createMemoryFileSystem(files);
+  let pendingAuthPath;
+  let releaseCopy;
+  const copyRelease = new Promise((resolvePromise) => {
+    releaseCopy = resolvePromise;
+  });
+  let markCopyStarted;
+  const copyStarted = new Promise((resolvePromise) => {
+    markCopyStarted = resolvePromise;
+  });
+  const fileSystem = {
+    ...memoryFileSystem,
+    async copyFile(source, destination) {
+      markCopyStarted();
+      await copyRelease;
+      files[destination] = files[source];
+    },
+  };
+  const spawnProcess = (_command, args) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => queueMicrotask(() => finishChild(child, 1));
+    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem,
+    env: {},
+    homeDirectory,
+    platform: "darwin",
+    spawnProcess,
+    createPendingId: () => "never-settling-promotion",
+    terminationGraceMs: 0,
+    terminationForceWaitMs: 0,
+    waitForCredentialPoll: async () => {
+      files[pendingAuthPath] = '{"newer":true}';
+    },
+  });
+
+  await copyStarted;
+  try {
+    const result = await Promise.race([
+      login.cancel().then(
+        () => "resolved",
+        () => "rejected",
+      ),
+      new Promise((resolvePromise) => {
+        setTimeout(() => resolvePromise("timed out"), 50);
+      }),
+    ]);
+    assert.equal(result, "rejected");
+  } finally {
+    releaseCopy();
+  }
+  await new Promise((resolvePromise) => setImmediate(resolvePromise));
+  assert.equal(files[authPath], '{"older":true}');
+});
+
+test("startOAuthLogin marks a timeout retry-blocked when final credential commit has started", async () => {
+  const files = {};
+  const homeDirectory = resolve("oauth-timeout-rename-home");
+  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
+  files[authPath] = '{"older":true}';
+  const memoryFileSystem = createMemoryFileSystem(files);
+  let pendingAuthPath;
+  let releaseRename;
+  const renameRelease = new Promise((resolvePromise) => {
+    releaseRename = resolvePromise;
+  });
+  let markRenameStarted;
+  const renameStarted = new Promise((resolvePromise) => {
+    markRenameStarted = resolvePromise;
+  });
+  const fileSystem = {
+    ...memoryFileSystem,
+    async rename(source, destination) {
+      markRenameStarted();
+      await renameRelease;
+      files[destination] = files[source];
+      delete files[source];
+    },
+  };
+  let fireProcessTimeout;
+  const createTimer = (callback, milliseconds) => {
+    if (milliseconds === 315_000) {
+      fireProcessTimeout = callback;
+      return { milliseconds };
+    }
+    if (milliseconds === 0) {
+      queueMicrotask(callback);
+    }
+    return { milliseconds };
+  };
+  const spawnProcess = (_command, args) => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => queueMicrotask(() => finishChild(child, 1));
+    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem,
+    env: {},
+    homeDirectory,
+    platform: "darwin",
+    spawnProcess,
+    createPendingId: () => "timeout-rename",
+    createTimer,
+    clearTimer() {},
+    terminationGraceMs: 50,
+    terminationForceWaitMs: 50,
+    waitForCredentialPoll: async () => {
+      files[pendingAuthPath] = '{"newer":true}';
+    },
+  });
+
+  await renameStarted;
+  fireProcessTimeout();
+  releaseRename();
+  await assert.rejects(login.completion, (error) => {
+    assert.equal(error.retryBlocked, true);
+    assert.match(error.message, /could not be stopped safely/i);
+    return true;
+  });
+  assert.equal(files[authPath], '{"newer":true}');
+});
+
+test("startOAuthLogin marks unconfirmed cleanup retry-blocked after returning a URL", async () => {
+  const signals = [];
+  let child;
+  const spawnProcess = () => {
+    child = new EventEmitter();
+    child.pid = 6262;
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.kill = () => {
+      throw new Error("The detached process group must be signalled instead.");
+    };
+    queueMicrotask(() => {
+      child.stdout.emit(
+        "data",
+        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+      );
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem: createMemoryFileSystem({}),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "darwin",
+    spawnProcess,
+    createPendingId: () => "unconfirmed-after-url",
+    killProcess(pid, signal) {
+      signals.push([pid, signal]);
+    },
+    terminationGraceMs: 0,
+    terminationForceWaitMs: 0,
+  });
+
+  finishChild(child, 1);
+  await assert.rejects(login.completion, (error) => {
+    assert.equal(error.retryBlocked, true);
+    assert.match(error.message, /could not be stopped safely/i);
+    return true;
+  });
+  assert.deepEqual(signals, [
+    [-6262, "SIGTERM"],
+    [-6262, 0],
+    [-6262, 0],
+    [-6262, "SIGKILL"],
+    [-6262, 0],
+    [-6262, 0],
+  ]);
 });

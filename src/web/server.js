@@ -31,6 +31,7 @@ import { startCodexDeviceLogin } from "../services/codex-login.js";
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
+const OAUTH_SHUTDOWN_WAIT_MS = 2_000;
 
 const defaultServices = {
   getAuthStatus,
@@ -108,6 +109,37 @@ function enforceRateLimit(state, key) {
   }
   recent.push(now);
   state.rateLimits.set(key, recent);
+}
+
+function waitForBoundedResult(promise, milliseconds) {
+  if (!promise) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolvePromise) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolvePromise(false);
+      }
+    }, milliseconds);
+    Promise.resolve(promise).then(
+      () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolvePromise(true);
+        }
+      },
+      () => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolvePromise(true);
+        }
+      },
+    );
+  });
 }
 
 function readJsonBody(request) {
@@ -190,6 +222,32 @@ function safeErrorMessage(error) {
     return "The request could not be completed safely.";
   }
   return message;
+}
+
+async function cancelOAuthLogin(state, login) {
+  try {
+    await login.attempt.cancel();
+  } catch {
+    if (state.oauthLogin === login) {
+      login.status = "error";
+      login.retryBlocked = true;
+      login.error =
+        "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
+    }
+    state.oauthRetryBlocked = true;
+    state.oauthStartupError =
+      "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
+    throw Object.assign(
+      new Error(
+        "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
+      ),
+      { retryBlocked: true, statusCode: 409 },
+    );
+  }
+
+  if (state.oauthLogin === login && login.status === "pending") {
+    login.status = "cancelled";
+  }
 }
 
 async function loadDefaultUiFiles() {
@@ -297,8 +355,16 @@ async function handleApi(request, response, path, state) {
   if (request.method === "GET" && path === "/api/oauth/status") {
     const login = state.oauthLogin;
     sendJson(response, 200, {
-      status: login?.status ?? "idle",
-      ...(login?.status === "error" ? { error: login.error } : {}),
+      status: login?.status ?? (state.oauthStartupError ? "error" : "idle"),
+      ...(login ? { attemptId: login.attemptId } : {}),
+      ...(login?.status === "error"
+        ? { error: login.error }
+        : state.oauthStartupError
+          ? { error: state.oauthStartupError }
+          : {}),
+      ...(state.oauthRetryBlocked || login?.retryBlocked === true
+        ? { retryBlocked: true }
+        : {}),
     });
     return;
   }
@@ -342,41 +408,145 @@ async function handleApi(request, response, path, state) {
         { statusCode: 403 },
       );
     }
-    enforceRateLimit(state, path);
-    if (state.oauthLogin?.status === "pending") {
-      state.oauthLogin.attempt.cancel();
-      try {
-        await state.oauthLogin.attempt.completion;
-      } catch {
-        // Starting again intentionally replaces the previous local attempt.
-      }
+    if (state.closing) {
+      throw Object.assign(new Error("The local wizard is closing."), {
+        statusCode: 409,
+      });
     }
+    if (state.oauthRetryBlocked || state.oauthLogin?.retryBlocked === true) {
+      throw Object.assign(
+        new Error(
+          "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
+        ),
+        { retryBlocked: true, statusCode: 409 },
+      );
+    }
+    if (state.oauthLoginStartInFlight) {
+      throw Object.assign(
+        new Error("A ChatGPT sign-in start is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    enforceRateLimit(state, path);
+    state.oauthLoginStartInFlight = true;
+    state.oauthStartupError = null;
+    let startAttempted = false;
+    let startPromise;
+    try {
+      const previousLogin = state.oauthLogin;
+      if (previousLogin?.status === "pending") {
+        await cancelOAuthLogin(state, previousLogin);
+      }
 
-    const attempt = await state.services.startOAuthLogin();
-    const login = {
-      attempt,
-      error: null,
-      status: "pending",
-    };
-    state.oauthLogin = login;
-    attempt.completion.then(
-      () => {
-        if (state.oauthLogin === login) {
-          login.status = "success";
+      if (state.closing) {
+        throw Object.assign(new Error("The local wizard is closing."), {
+          statusCode: 409,
+        });
+      }
+      if (
+        state.oauthLogin === previousLogin &&
+        previousLogin?.status !== "pending" &&
+        previousLogin?.retryBlocked !== true
+      ) {
+        state.oauthLogin = null;
+      }
+      startAttempted = true;
+      startPromise = Promise.resolve(state.services.startOAuthLogin());
+      state.oauthLoginStartPromise = startPromise;
+      const attempt = await startPromise;
+      const login = {
+        attempt,
+        attemptId: randomUUID(),
+        error: null,
+        retryBlocked: false,
+        status: "pending",
+      };
+      state.oauthLogin = login;
+      attempt.completion.then(
+        () => {
+          if (
+            state.oauthLogin === login &&
+            login.status === "pending" &&
+            !state.closing
+          ) {
+            login.status = "success";
+          }
+        },
+        (error) => {
+          if (
+            state.oauthLogin === login &&
+            login.status === "pending" &&
+            !state.closing
+          ) {
+            login.status = "error";
+            login.error = safeErrorMessage(error);
+            if (error?.retryBlocked === true) {
+              login.retryBlocked = true;
+              state.oauthRetryBlocked = true;
+              state.oauthStartupError = login.error;
+            }
+          }
+        },
+      );
+      if (state.closing) {
+        try {
+          await cancelOAuthLogin(state, login);
+        } catch {
+          // The server is already closing and must not restart this helper.
         }
-      },
-      (error) => {
-        if (state.oauthLogin === login) {
-          login.status = "error";
-          login.error = safeErrorMessage(error);
-        }
-      },
-    );
-    sendJson(response, 200, { authorizationUrl: attempt.authorizationUrl });
-    return;
+        throw Object.assign(new Error("The local wizard is closing."), {
+          statusCode: 409,
+        });
+      }
+      sendJson(response, 200, {
+        authorizationUrl: attempt.authorizationUrl,
+        attemptId: login.attemptId,
+      });
+      return;
+    } catch (error) {
+      const message = safeErrorMessage(error);
+      if (startAttempted) {
+        state.oauthStartupError = message;
+      }
+      if (error?.retryBlocked === true) {
+        state.oauthRetryBlocked = true;
+        state.oauthStartupError = message;
+      }
+      throw error;
+    } finally {
+      if (state.oauthLoginStartPromise === startPromise) {
+        state.oauthLoginStartPromise = null;
+      }
+      state.oauthLoginStartInFlight = false;
+    }
   }
 
   const body = await readJsonBody(request);
+
+  if (path === "/api/oauth/cancel") {
+    requireLiveLocalAction(state, "Live ChatGPT sign-in");
+    const login = state.oauthLogin;
+    if (
+      !login ||
+      login.status !== "pending" ||
+      !body ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      typeof body.attemptId !== "string" ||
+      body.attemptId !== login.attemptId
+    ) {
+      throw Object.assign(
+        new Error("The ChatGPT sign-in attempt has already changed. Start again."),
+        { statusCode: 409 },
+      );
+    }
+    await cancelOAuthLogin(state, login);
+    sendJson(response, 200, {
+      status: login.status,
+      attemptId: login.attemptId,
+    });
+    return;
+  }
 
   if (path === "/api/local/plan") {
     const plan = createLocalDeploymentPlan({
@@ -670,6 +840,7 @@ function createRequestHandler(state) {
       if (!response.headersSent) {
         sendJson(response, error.statusCode ?? 400, {
           error: safeErrorMessage(error),
+          ...(error.retryBlocked === true ? { retryBlocked: true } : {}),
         });
       } else {
         response.end();
@@ -684,6 +855,7 @@ export async function startWizardServer({
   uiFiles,
   port = 0,
   previewMode = false,
+  oauthShutdownWaitMs = OAUTH_SHUTDOWN_WAIT_MS,
 } = {}) {
   if (typeof sessionToken !== "string" || sessionToken.length < 32) {
     throw new TypeError("A strong wizard session token is required.");
@@ -699,12 +871,17 @@ export async function startWizardServer({
     discovery: null,
     networksByContainer: new Map(),
     oauthLogin: null,
+    oauthRetryBlocked: false,
+    oauthStartupError: null,
+    oauthLoginStartInFlight: false,
+    oauthLoginStartPromise: null,
     localPlan: null,
     localInstallInFlight: false,
     codexLogin: null,
     codexLoginStartInFlight: false,
     rateLimits: new Map(),
     previewMode: previewMode === true,
+    oauthShutdownWaitMs,
     closing: false,
   };
   const server = createServer(createRequestHandler(state));
@@ -724,13 +901,26 @@ export async function startWizardServer({
     origin: state.origin,
     async close() {
       state.closing = true;
-      state.oauthLogin?.attempt.cancel();
+      await waitForBoundedResult(
+        state.oauthLoginStartPromise,
+        state.oauthShutdownWaitMs,
+      );
+      if (state.oauthLogin?.status === "pending") {
+        try {
+          await cancelOAuthLogin(state, state.oauthLogin);
+        } catch {
+          // The bounded OAuth cancellation result must not prevent server shutdown.
+        }
+      }
       const codexLogin = state.codexLogin;
       state.codexLogin = null;
       codexLogin?.cancel();
       state.connection?.close();
       state.connection = null;
-      await new Promise((resolve) => server.close(resolve));
+      await waitForBoundedResult(
+        new Promise((resolve) => server.close(resolve)),
+        state.oauthShutdownWaitMs,
+      );
     },
   };
 }

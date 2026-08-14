@@ -10,6 +10,10 @@ const state = {
   discovery: null,
   networks: null,
   installAttempted: false,
+  oauthAttemptId: null,
+  oauthRetryBlocked: false,
+  oauthLoginGeneration: 0,
+  oauthLoginWindow: null,
 };
 
 const element = (id) => document.getElementById(id);
@@ -245,16 +249,63 @@ function validateAuthorizationUrl(value) {
   return url.toString();
 }
 
-async function waitForOAuthCompletion() {
+function validateOAuthAttemptId(value) {
+  if (typeof value !== "string" || !/^[0-9a-f-]{8,128}$/iu.test(value)) {
+    throw new Error(
+      "The wizard returned an unexpected sign-in attempt. Start again.",
+    );
+  }
+  return value;
+}
+
+function setOAuthStopControlVisible(visible) {
+  const stopButton = element("stop-login-button");
+  stopButton.hidden = !visible;
+  stopButton.disabled = !visible;
+  stopButton.setAttribute("aria-busy", "false");
+}
+
+function blockOAuthRetry() {
+  state.oauthRetryBlocked = true;
+  state.oauthAttemptId = null;
+  state.oauthLoginWindow?.close?.();
+  state.oauthLoginWindow = null;
+  element("login-link").hidden = true;
+  element("login-link").removeAttribute("href");
+  setOAuthStopControlVisible(false);
+  const loginButton = element("login-button");
+  setBusy(loginButton, false);
+  loginButton.disabled = true;
+}
+
+async function waitForOAuthCompletion(expectedAttemptId) {
   for (let attempt = 0; attempt < 330; attempt += 1) {
     const result = await api("/api/oauth/status");
+    if (result.retryBlocked === true) {
+      const error = new Error(
+        result.error ??
+          "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
+      );
+      error.oauthRetryBlocked = true;
+      throw error;
+    }
+    if (result.attemptId !== expectedAttemptId) {
+      throw new Error(
+        "The ChatGPT sign-in was replaced by a newer attempt. Start again.",
+      );
+    }
     if (result.status === "success") {
       return;
     }
     if (result.status === "error") {
-      throw new Error(
+      const error = new Error(
         result.error ?? "ChatGPT sign-in did not finish. Start again.",
       );
+      error.oauthRetryBlocked = result.retryBlocked === true;
+      throw error;
+    }
+    if (result.status === "cancelled") {
+      throw new Error("ChatGPT sign-in was stopped. Start again.");
     }
     await delay(attempt < 40 ? 250 : 1_000);
   }
@@ -324,7 +375,9 @@ async function api(path, { method = "GET", body } = {}) {
     );
   }
   if (!response.ok) {
-    throw new Error(result.error ?? "The request failed.");
+    const error = new Error(result.error ?? "The request failed.");
+    error.oauthRetryBlocked = result.retryBlocked === true;
+    throw error;
   }
   return result;
 }
@@ -450,13 +503,21 @@ async function discover() {
 
 element("login-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  if (state.oauthRetryBlocked) {
+    return;
+  }
   const loginLink = element("login-link");
+  const loginGeneration = state.oauthLoginGeneration + 1;
+  state.oauthLoginGeneration = loginGeneration;
+  state.oauthAttemptId = null;
   const loginWindow = window.open("about:blank", "_blank");
+  state.oauthLoginWindow = loginWindow;
   let loginWindowNavigated = false;
   prepareOAuthPopup(loginWindow);
   clearError();
   loginLink.hidden = true;
   loginLink.removeAttribute("href");
+  setOAuthStopControlVisible(false);
   setBusy(button, true, "Waiting for browser sign-in…");
   setMessage(
     "Preparing a fresh ChatGPT sign-in. The existing local credential will be replaced only after sign-in succeeds.",
@@ -467,6 +528,12 @@ element("login-button").addEventListener("click", async (event) => {
       body: {},
     });
     const authorizationUrl = validateAuthorizationUrl(result.authorizationUrl);
+    const attemptId = validateOAuthAttemptId(result.attemptId);
+    if (state.oauthLoginGeneration !== loginGeneration) {
+      return;
+    }
+    state.oauthAttemptId = attemptId;
+    setOAuthStopControlVisible(true);
     loginLink.href = authorizationUrl;
     loginLink.hidden = false;
     if (loginWindow) {
@@ -477,7 +544,10 @@ element("login-button").addEventListener("click", async (event) => {
     setMessage(
       "Complete the newly opened sign-in within five minutes. If no tab opened, use “Open fresh ChatGPT sign-in” below. If an OpenAI OAuth browser extension intercepts the callback, disable it temporarily and start again.",
     );
-    await waitForOAuthCompletion();
+    await waitForOAuthCompletion(attemptId);
+    if (state.oauthLoginGeneration !== loginGeneration) {
+      return;
+    }
     loginLink.hidden = true;
     loginLink.removeAttribute("href");
     await refreshAuthStatus({ fresh: true });
@@ -485,9 +555,66 @@ element("login-button").addEventListener("click", async (event) => {
     if (loginWindow && !loginWindowNavigated) {
       loginWindow.close();
     }
-    showError(error);
+    if (state.oauthLoginGeneration === loginGeneration) {
+      if (error.oauthRetryBlocked === true) {
+        blockOAuthRetry();
+      }
+      showError(error);
+    }
   } finally {
-    setBusy(button, false);
+    if (state.oauthLoginGeneration === loginGeneration) {
+      state.oauthAttemptId = null;
+      state.oauthLoginWindow = null;
+      setOAuthStopControlVisible(false);
+      setBusy(button, false);
+      if (state.oauthRetryBlocked) {
+        button.disabled = true;
+      }
+    }
+  }
+});
+
+element("stop-login-button").addEventListener("click", async (event) => {
+  const stopButton = event.currentTarget;
+  const attemptId = state.oauthAttemptId;
+  const loginGeneration = state.oauthLoginGeneration;
+  if (typeof attemptId !== "string") {
+    return;
+  }
+  clearError();
+  setBusy(stopButton, true, "Stopping sign-in…");
+  try {
+    const result = await api("/api/oauth/cancel", {
+      method: "POST",
+      body: { attemptId },
+    });
+    if (
+      state.oauthLoginGeneration !== loginGeneration ||
+      result.attemptId !== attemptId ||
+      result.status !== "cancelled"
+    ) {
+      return;
+    }
+    state.oauthLoginGeneration += 1;
+    state.oauthAttemptId = null;
+    state.oauthLoginWindow?.close?.();
+    state.oauthLoginWindow = null;
+    element("login-link").hidden = true;
+    element("login-link").removeAttribute("href");
+    setBusy(element("login-button"), false);
+    setOAuthStopControlVisible(false);
+    setMessage("ChatGPT sign-in stopped. You can start again.");
+  } catch (error) {
+    if (state.oauthLoginGeneration === loginGeneration) {
+      if (error.oauthRetryBlocked === true) {
+        state.oauthLoginGeneration += 1;
+        blockOAuthRetry();
+      }
+      showError(error);
+      if (!state.oauthRetryBlocked) {
+        setBusy(stopButton, false);
+      }
+    }
   }
 });
 
