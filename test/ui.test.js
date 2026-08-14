@@ -292,6 +292,36 @@ test("local OAuth prepares and navigates its popup before severing opener access
   assert.match(html, /id="login-link"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/u);
 });
 
+test("OAuth UI offers an accessible stop control and rejects stale polling after replacement", async () => {
+  const [app, html] = await Promise.all([
+    readFile("src/ui/app.js", "utf8"),
+    readFile("src/ui/index.html", "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /<button id="stop-login-button" class="button secondary" type="button" hidden>\s*Stop ChatGPT sign-in\s*<\/button>/u,
+  );
+  assert.match(app, /async function waitForOAuthCompletion\(expectedAttemptId\)/u);
+  assert.match(
+    app,
+    /result\.retryBlocked === true[\s\S]*oauthRetryBlocked = true[\s\S]*result\.attemptId !== expectedAttemptId/u,
+  );
+  assert.match(
+    app,
+    /result\.attemptId !== expectedAttemptId[\s\S]*replaced by a newer attempt/u,
+  );
+  assert.match(
+    app,
+    /if \(error\.oauthRetryBlocked === true\) \{\s*blockOAuthRetry\(\);/u,
+  );
+  assert.match(app, /\/api\/oauth\/cancel/u);
+  assert.match(app, /body: \{ attemptId \}/u);
+  assert.match(app, /oauthLoginGeneration/u);
+  assert.match(app, /oauthRetryBlocked/u);
+  assert.match(app, /stop-login-button/u);
+});
+
 test("wizard theme preferences store only the selected color mode", async () => {
   const theme = await readFile("src/ui/theme.js", "utf8");
 
