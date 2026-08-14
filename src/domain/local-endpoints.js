@@ -359,7 +359,10 @@ tool_suggest = false
 export function createCodexDockerfile() {
   return `FROM node:22-bookworm-slim
 
-RUN npm install --global --ignore-scripts @openai/codex@${CODEX_CLI_VERSION} \\
+RUN apt-get update \\
+    && apt-get install --no-install-recommends -y ca-certificates \\
+    && rm -rf /var/lib/apt/lists/* \\
+    && npm install --global --ignore-scripts @openai/codex@${CODEX_CLI_VERSION} \\
     && npm cache clean --force \\
     && mkdir -p /etc/codex /home/node/.codex /workspace \\
     && chown -R node:node /home/node/.codex /workspace

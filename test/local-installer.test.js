@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { EventEmitter } from "node:events";
+import * as nodeFileSystem from "node:fs/promises";
 import {
   lstat,
   mkdir,
@@ -8,6 +11,7 @@ import {
   rm,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,11 +20,15 @@ import test from "node:test";
 
 import { createLocalDeploymentPlan } from "../src/domain/local-endpoints.js";
 import {
+  acquireLocalEndpointChangeLock,
+  activateLocalClientCredentialRotation,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
   installLocalEndpoint,
   restartLocalCodex,
+  prepareLocalClientCredentialRotation,
   resolveLocalInstallRoot,
+  verifyCodexWebSocketCapability,
 } from "../src/services/local-installer.js";
 
 const platformKey = `sk-${"p".repeat(48)}`;
@@ -42,8 +50,10 @@ function createRunner({
   foreignOwnership = false,
   publisherHost = "127.0.0.1",
   publishedPort = 12435,
+  replaceFailureCount = 0,
 } = {}) {
   const calls = [];
+  let replacementFailures = replaceFailureCount;
   const runner = async (spec) => {
     calls.push(spec);
     const args = spec.args.join(" ");
@@ -84,12 +94,21 @@ function createRunner({
         code: 0,
       };
     }
+    if (args.includes("up -d --wait") && args.includes("--force-recreate")) {
+      if (replacementFailures > 0) {
+        replacementFailures -= 1;
+        return { stdout: "", stderr: "", code: 1 };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    }
     if (args.includes("rm --force --stop")) {
       return { stdout: "", stderr: "", code: cleanupCode };
     }
     if (args.includes("ps --all --services")) {
       return {
-        stdout: cleanupStillRunning ? "gateway\n" : "",
+        stdout: cleanupStillRunning
+          ? `${args.endsWith(" codex") ? "codex" : "gateway"}\n`
+          : "",
         stderr: "",
         code: 0,
       };
@@ -130,6 +149,118 @@ function createFetch() {
   fetchImpl.calls = calls;
   return fetchImpl;
 }
+
+function createCodexCapabilityVerifier({ error } = {}) {
+  const calls = [];
+  const verify = async (input) => {
+    calls.push(input);
+    if (error) {
+      throw error;
+    }
+  };
+  verify.calls = calls;
+  return verify;
+}
+
+test("Codex capability verification performs an authenticated WebSocket upgrade", async () => {
+  const socket = new EventEmitter();
+  let connectionOptions;
+  let request;
+  let destroyed = false;
+  socket.setTimeout = () => {};
+  socket.destroy = () => {
+    destroyed = true;
+  };
+  socket.write = (value) => {
+    request = value;
+    const websocketKey = /^Sec-WebSocket-Key: (.+)$/mu.exec(value)?.[1];
+    const accept = createHash("sha1")
+      .update(`${websocketKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+      .digest("base64");
+    queueMicrotask(() => {
+      socket.emit(
+        "data",
+        Buffer.from(
+          [
+            "HTTP/1.1 101 Switching Protocols",
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            `Sec-WebSocket-Accept: ${accept}`,
+            "",
+            "",
+          ].join("\r\n"),
+          "latin1",
+        ),
+      );
+    });
+  };
+
+  await verifyCodexWebSocketCapability(
+    { port: 14500, clientCredential: capability },
+    {
+      connectSocket(options, onConnect) {
+        connectionOptions = options;
+        queueMicrotask(onConnect);
+        return socket;
+      },
+      randomBytes: () => Buffer.alloc(16, 5),
+    },
+  );
+
+  assert.deepEqual(connectionOptions, { host: "127.0.0.1", port: 14500 });
+  assert.match(request, new RegExp(`^Authorization: Bearer ${capability}$`, "mu"));
+  assert.equal(destroyed, true);
+});
+
+test("Codex capability verification rejects non-RFC WebSocket handshakes", async (t) => {
+  for (const [name, statusLine, upgradeHeader] of [
+    ["HTTP 1.0", "HTTP/1.0 101 Switching Protocols", "Upgrade: websocket"],
+    ["whitespace before colon", "HTTP/1.1 101 Switching Protocols", "Upgrade : websocket"],
+  ]) {
+    await t.test(name, async () => {
+      const socket = new EventEmitter();
+      socket.setTimeout = () => {};
+      socket.destroy = () => {};
+      socket.write = (value) => {
+        const websocketKey = /^Sec-WebSocket-Key: (.+)$/mu.exec(value)?.[1];
+        const accept = createHash("sha1")
+          .update(`${websocketKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+          .digest("base64");
+        queueMicrotask(() => {
+          socket.emit(
+            "data",
+            Buffer.from(
+              [
+                statusLine,
+                upgradeHeader,
+                "Connection: Upgrade",
+                `Sec-WebSocket-Accept: ${accept}`,
+                "",
+                "",
+              ].join("\r\n"),
+              "latin1",
+            ),
+          );
+        });
+      };
+
+      await assert.rejects(
+        () =>
+          verifyCodexWebSocketCapability(
+            { port: 14500, clientCredential: capability },
+            {
+              connectSocket(_options, onConnect) {
+                queueMicrotask(onConnect);
+                return socket;
+              },
+              randomBytes: () => Buffer.alloc(16, 5),
+            },
+          ),
+        /Codex client credential could not be verified/u,
+      );
+    });
+  }
+});
 
 test("local Docker discovery is read-only and sanitizes versions", async () => {
   const runProcess = createRunner();
@@ -200,6 +331,7 @@ test("Codex credential reload attests, restarts, and waits for only the managed 
       randomBytes: () => Buffer.alloc(32, 7),
       isPortAvailable: async () => true,
       fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
     },
   );
   const installDirectory = await resolveLocalInstallRoot({
@@ -232,6 +364,1059 @@ test("Codex credential reload attests, restarts, and waits for only the managed 
     () => restartLocalCodex({ installDirectory: "/tmp/not-managed" }, { runProcess }),
     /invalid/i,
   );
+});
+
+test("credential rotation recreates and verifies the managed Codex service before returning a fresh capability", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({ publishedPort: 14500 });
+  const fetchImpl = createFetch();
+  const verifyCodexCapability = createCodexCapabilityVerifier();
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const randomValues = [
+    Buffer.alloc(32, 1),
+    Buffer.alloc(32, 7),
+    Buffer.alloc(32, 9),
+  ];
+  const randomBytes = () => randomValues.shift();
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  const installed = await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes,
+      isPortAvailable: async () => true,
+      fetchImpl,
+      verifyCodexCapability,
+    },
+  );
+  const installDirectory = await resolveLocalInstallRoot({
+    target: "codex-chatgpt",
+    env,
+  });
+  const composePath = join(installDirectory, "docker-compose.yml");
+  const originalCompose = await readFile(composePath, "utf8");
+  runProcess.calls.length = 0;
+  fetchImpl.calls.length = 0;
+  verifyCodexCapability.calls.length = 0;
+
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "codex-chatgpt" },
+    { env, runProcess, randomBytes, fetchImpl },
+  );
+  assert.equal(await readFile(composePath, "utf8"), originalCompose);
+  const activated = await activateLocalClientCredentialRotation(
+    staged,
+    { env, runProcess, fetchImpl, verifyCodexCapability },
+  );
+  const rotated = { ...staged, ...activated };
+
+  assert.equal(rotated.target, "codex-chatgpt");
+  assert.equal(rotated.endpoint, "ws://127.0.0.1:14500");
+  assert.equal(rotated.protocol, "codex-app-server-json-rpc");
+  assert.equal(rotated.credentialShownOnce, true);
+  assert.notEqual(rotated.clientCredential, installed.clientCredential);
+  assert.deepEqual(rotated.models, []);
+  assert.equal(rotated.deploymentMode, "updated");
+  assert.equal(rotated.experimental, true);
+  assert.equal(rotated.browserClients, false);
+  assert.match(
+    await readFile(composePath, "utf8"),
+    /--ws-token-sha256\n\s+- [a-f0-9]{64}/u,
+  );
+  assert.notEqual(await readFile(composePath, "utf8"), originalCompose);
+  assert.ok(
+    runProcess.calls.some(({ args }) =>
+      args.join(" ").includes("config --quiet"),
+    ),
+  );
+  assert.ok(
+    runProcess.calls.some(({ args }) =>
+      args
+        .join(" ")
+        .includes("up -d --wait --wait-timeout 90 --force-recreate --no-deps codex"),
+    ),
+  );
+  assert.equal(
+    runProcess.calls.some(({ args }) => args.includes("credential-seed")),
+    false,
+  );
+  assert.equal(fetchImpl.calls.length, 1);
+  assert.equal(fetchImpl.calls[0].options.headers, undefined);
+  assert.deepEqual(verifyCodexCapability.calls, [
+    { port: 14500, clientCredential: rotated.clientCredential },
+  ]);
+});
+
+test("Codex credential rotation rolls back when the fresh WebSocket capability is rejected", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const runProcess = createRunner({ publishedPort: 14500 });
+  const randomValues = [
+    Buffer.alloc(32, 3),
+    Buffer.alloc(32, 7),
+    Buffer.alloc(32, 9),
+  ];
+  const randomBytes = () => randomValues.shift();
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes,
+      isPortAvailable: async () => true,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+    },
+  );
+  const installDirectory = await resolveLocalInstallRoot({
+    target: "codex-chatgpt",
+    env,
+  });
+  const composePath = join(installDirectory, "docker-compose.yml");
+  const originalCompose = await readFile(composePath, "utf8");
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "codex-chatgpt" },
+    { env, runProcess, randomBytes },
+  );
+  runProcess.calls.length = 0;
+
+  await assert.rejects(
+    () =>
+      activateLocalClientCredentialRotation(staged, {
+        env,
+        runProcess,
+        fetchImpl: createFetch(),
+        verifyCodexCapability: createCodexCapabilityVerifier({
+          error: new Error("rejected capability"),
+        }),
+      }),
+    /previous credential remains active/u,
+  );
+
+  assert.equal(await readFile(composePath, "utf8"), originalCompose);
+  assert.equal(
+    runProcess.calls.filter(({ args }) => args.includes("--force-recreate")).length,
+    2,
+  );
+});
+
+test("credential rotation preserves the OpenAI upstream volume and verifies the fresh local credential", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner();
+  const fetchImpl = createFetch();
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const randomValues = [
+    Buffer.alloc(32, 2),
+    Buffer.alloc(32, 7),
+    Buffer.alloc(32, 9),
+  ];
+  const randomBytes = () => randomValues.shift();
+  const plan = createLocalDeploymentPlan({
+    target: "openai-api",
+    port: 12435,
+    allowedOrigins: ["http://localhost:3000"],
+  });
+  const installed = await installLocalEndpoint(
+    { plan, apiKey: platformKey, confirmed: true },
+    { env, runProcess, randomBytes, isPortAvailable: async () => true, fetchImpl },
+  );
+  runProcess.calls.length = 0;
+  fetchImpl.calls.length = 0;
+
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "openai-api" },
+    { env, runProcess, randomBytes, fetchImpl },
+  );
+  const activated = await activateLocalClientCredentialRotation(
+    staged,
+    { env, runProcess, fetchImpl },
+  );
+  const rotated = { ...staged, ...activated };
+
+  assert.equal(rotated.target, "openai-api");
+  assert.equal(rotated.endpoint, "http://127.0.0.1:12435/v1");
+  assert.notEqual(rotated.clientCredential, installed.clientCredential);
+  assert.deepEqual(rotated.models, ["gpt-5.6-terra"]);
+  assert.equal(rotated.deploymentMode, "updated");
+  assert.equal(rotated.experimental, false);
+  assert.equal(rotated.browserClients, true);
+  assert.equal(
+    runProcess.calls.some(({ args, input }) =>
+      args.includes("credential-seed") || input !== undefined,
+    ),
+    false,
+  );
+  const modelRequest = fetchImpl.calls.find(({ url }) =>
+    String(url).endsWith("/v1/models"),
+  );
+  assert.equal(
+    modelRequest.options.headers.Authorization,
+    `Bearer ${rotated.clientCredential}`,
+  );
+});
+
+test("credential rotation restores the prior verifier when service recreation fails", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({
+    publishedPort: 14500,
+    replaceFailureCount: 1,
+  });
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const randomValues = [
+    Buffer.alloc(32, 3),
+    Buffer.alloc(32, 7),
+    Buffer.alloc(32, 9),
+  ];
+  const randomBytes = () => randomValues.shift();
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes,
+      isPortAvailable: async () => true,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+    },
+  );
+  const installDirectory = await resolveLocalInstallRoot({
+    target: "codex-chatgpt",
+    env,
+  });
+  const composePath = join(installDirectory, "docker-compose.yml");
+  const originalCompose = await readFile(composePath, "utf8");
+  runProcess.calls.length = 0;
+
+  await assert.rejects(
+    () =>
+      prepareLocalClientCredentialRotation(
+        { target: "codex-chatgpt" },
+        { env, runProcess, randomBytes, fetchImpl: createFetch() },
+      ).then((staged) =>
+        activateLocalClientCredentialRotation(staged, {
+          env,
+          runProcess,
+          fetchImpl: createFetch(),
+        }),
+      ),
+    /rotation failed safely/u,
+  );
+
+  assert.equal(await readFile(composePath, "utf8"), originalCompose);
+  assert.equal(
+    runProcess.calls.filter(({ args }) => args.includes("--force-recreate")).length,
+    2,
+  );
+});
+
+test("credential rotation removes only the exact service when replacement and rollback recreation both fail", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({
+    publishedPort: 14500,
+    replaceFailureCount: 2,
+  });
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const randomValues = [
+    Buffer.alloc(32, 3),
+    Buffer.alloc(32, 7),
+    Buffer.alloc(32, 9),
+  ];
+  const randomBytes = () => randomValues.shift();
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes,
+      isPortAvailable: async () => true,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+    },
+  );
+  const installDirectory = await resolveLocalInstallRoot({
+    target: "codex-chatgpt",
+    env,
+  });
+  const composePath = join(installDirectory, "docker-compose.yml");
+  const originalCompose = await readFile(composePath, "utf8");
+  runProcess.calls.length = 0;
+
+  await assert.rejects(
+    () =>
+      prepareLocalClientCredentialRotation(
+        { target: "codex-chatgpt" },
+        { env, runProcess, randomBytes, fetchImpl: createFetch() },
+      ).then((staged) =>
+        activateLocalClientCredentialRotation(staged, {
+          env,
+          runProcess,
+          fetchImpl: createFetch(),
+        }),
+      ),
+    /local endpoint was stopped/u,
+  );
+
+  assert.equal(await readFile(composePath, "utf8"), originalCompose);
+  assert.equal(
+    runProcess.calls.filter(({ args }) => args.includes("--force-recreate")).length,
+    2,
+  );
+  const cleanup = runProcess.calls.find(({ args }) => args.includes("rm"));
+  const verification = runProcess.calls.find(
+    ({ args }) => args.includes("--all") && args.includes("--services"),
+  );
+  assert.deepEqual(cleanup.args.slice(-4), ["rm", "--force", "--stop", "codex"]);
+  assert.deepEqual(verification.args.slice(-4), [
+    "ps",
+    "--all",
+    "--services",
+    "codex",
+  ]);
+});
+
+test("credential rotation reports uncertainty when exact-service removal cannot be confirmed", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({
+    cleanupStillRunning: true,
+    publishedPort: 14500,
+    replaceFailureCount: 2,
+  });
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const randomValues = [
+    Buffer.alloc(32, 3),
+    Buffer.alloc(32, 7),
+    Buffer.alloc(32, 9),
+  ];
+  const randomBytes = () => randomValues.shift();
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes,
+      isPortAvailable: async () => true,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+    },
+  );
+  runProcess.calls.length = 0;
+
+  await assert.rejects(
+    () =>
+      prepareLocalClientCredentialRotation(
+        { target: "codex-chatgpt" },
+        { env, runProcess, randomBytes, fetchImpl: createFetch() },
+      ).then((staged) =>
+        activateLocalClientCredentialRotation(staged, {
+          env,
+          runProcess,
+          fetchImpl: createFetch(),
+        }),
+      ),
+    /could not confirm that the failed credential rotation was stopped/u,
+  );
+
+  const cleanup = runProcess.calls.find(({ args }) => args.includes("rm"));
+  const verification = runProcess.calls.find(
+    ({ args }) => args.includes("--all") && args.includes("--services"),
+  );
+  assert.deepEqual(cleanup.args.slice(-4), ["rm", "--force", "--stop", "codex"]);
+  assert.deepEqual(verification.args.slice(-4), [
+    "ps",
+    "--all",
+    "--services",
+    "codex",
+  ]);
+});
+
+test("credential rotation rolls back when managed-file permission repair fails after rename", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const runProcess = createRunner({ publishedPort: 14500 });
+  const randomValues = [
+    Buffer.alloc(32, 3),
+    Buffer.alloc(32, 7),
+    Buffer.alloc(32, 9),
+  ];
+  const randomBytes = () => randomValues.shift();
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes,
+      isPortAvailable: async () => true,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+    },
+  );
+  const installDirectory = await resolveLocalInstallRoot({
+    target: "codex-chatgpt",
+    env,
+  });
+  const composePath = join(installDirectory, "docker-compose.yml");
+  const originalCompose = await readFile(composePath, "utf8");
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "codex-chatgpt" },
+    { env, runProcess, randomBytes },
+  );
+  runProcess.calls.length = 0;
+
+  let replacementRenamed = false;
+  let injectedFailure = false;
+  const fileSystem = {
+    ...nodeFileSystem,
+    async rename(source, destination) {
+      await nodeFileSystem.rename(source, destination);
+      if (destination === composePath && !injectedFailure) {
+        replacementRenamed = true;
+      }
+    },
+    async chmod(path, mode) {
+      if (path === composePath && replacementRenamed && !injectedFailure) {
+        injectedFailure = true;
+        throw new Error("injected post-rename chmod failure");
+      }
+      return nodeFileSystem.chmod(path, mode);
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      activateLocalClientCredentialRotation(staged, {
+        env,
+        fileSystem,
+        runProcess,
+        fetchImpl: createFetch(),
+      }),
+    /previous credential remains active/u,
+  );
+
+  assert.equal(injectedFailure, true);
+  assert.equal(await readFile(composePath, "utf8"), originalCompose);
+  assert.equal(
+    runProcess.calls.filter(({ args }) => args.includes("--force-recreate")).length,
+    1,
+  );
+});
+
+test("project lock prevents independent Relmio processes from installing during credential activation", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess: createRunner({ publishedPort: 14500 }),
+      randomBytes: () => Buffer.alloc(32, 7),
+      isPortAvailable: async () => true,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+      processId: 40_001,
+      isProcessAlive: () => true,
+    },
+  );
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      runProcess: createRunner({ publishedPort: 14500 }),
+      randomBytes: () => Buffer.alloc(32, 9),
+    },
+  );
+
+  let releaseActivation;
+  let notifyActivationStarted;
+  const activationStarted = new Promise((resolvePromise) => {
+    notifyActivationStarted = resolvePromise;
+  });
+  const activationGate = new Promise((resolvePromise) => {
+    releaseActivation = resolvePromise;
+  });
+  t.after(() => releaseActivation());
+  const baseRunner = createRunner({ publishedPort: 14500 });
+  let blocked = false;
+  const blockingRunner = async (spec) => {
+    if (!blocked && spec.args.includes("--force-recreate")) {
+      blocked = true;
+      notifyActivationStarted();
+      await activationGate;
+    }
+    return baseRunner(spec);
+  };
+
+  const activation = activateLocalClientCredentialRotation(staged, {
+    env,
+    runProcess: blockingRunner,
+    fetchImpl: createFetch(),
+    verifyCodexCapability: createCodexCapabilityVerifier(),
+    processId: 40_002,
+    isProcessAlive: () => true,
+  });
+  await activationStarted;
+
+  await assert.rejects(
+    () =>
+      installLocalEndpoint(
+        { plan, confirmed: true },
+        {
+          env,
+          runProcess: createRunner({ publishedPort: 14500 }),
+          randomBytes: () => Buffer.alloc(32, 11),
+          isPortAvailable: async () => true,
+          fetchImpl: createFetch(),
+          processId: 40_003,
+          isProcessAlive: () => true,
+        },
+      ),
+    /Another Relmio process is changing this local endpoint/u,
+  );
+
+  releaseActivation();
+  assert.equal((await activation).deploymentMode, "updated");
+});
+
+test("Codex sign-in project lock excludes independent installation, activation, and restart", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  const runProcess = createRunner({ publishedPort: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes: () => Buffer.alloc(32, 7),
+      isPortAvailable: async () => true,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+      processId: 41_001,
+      isProcessAlive: () => true,
+    },
+  );
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      runProcess,
+      randomBytes: () => Buffer.alloc(32, 9),
+    },
+  );
+  const installDirectory = await resolveLocalInstallRoot({
+    target: "codex-chatgpt",
+    env,
+  });
+  const releaseLoginLock = await acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      processId: 41_002,
+      isProcessAlive: () => true,
+    },
+  );
+
+  const lockError = /Another Relmio process is changing this local endpoint/u;
+  await assert.rejects(
+    () =>
+      installLocalEndpoint(
+        { plan, confirmed: true },
+        {
+          env,
+          runProcess,
+          randomBytes: () => Buffer.alloc(32, 11),
+          isPortAvailable: async () => true,
+          fetchImpl: createFetch(),
+          processId: 41_003,
+          isProcessAlive: () => true,
+        },
+      ),
+    lockError,
+  );
+  await assert.rejects(
+    () =>
+      activateLocalClientCredentialRotation(staged, {
+        env,
+        runProcess,
+        fetchImpl: createFetch(),
+        processId: 41_004,
+        isProcessAlive: () => true,
+      }),
+    lockError,
+  );
+  await assert.rejects(
+    () =>
+      restartLocalCodex(
+        { installDirectory },
+        {
+          env,
+          runProcess,
+          processId: 41_005,
+          isProcessAlive: () => true,
+        },
+      ),
+    lockError,
+  );
+
+  await releaseLoginLock();
+  assert.equal(
+    (await activateLocalClientCredentialRotation(staged, {
+      env,
+      runProcess,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+      processId: 41_006,
+      isProcessAlive: () => true,
+    })).deploymentMode,
+    "updated",
+  );
+});
+
+test("only one independent process can reclaim the same stale project lock", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+  const ownerPath = join(lockPath, "owner.json");
+  await mkdir(lockPath, { mode: 0o700 });
+  await writeFile(
+    ownerPath,
+    `${JSON.stringify({ processId: 39_999, ownerToken: "stale-owner" })}\n`,
+    { mode: 0o600 },
+  );
+
+  let ownerReads = 0;
+  let releaseOwnerReads;
+  const bothOwnersRead = new Promise((resolvePromise) => {
+    releaseOwnerReads = resolvePromise;
+  });
+  const fileSystem = {
+    ...nodeFileSystem,
+    async readFile(path, ...args) {
+      const contents = await nodeFileSystem.readFile(path, ...args);
+      if (path === ownerPath && ownerReads < 2) {
+        ownerReads += 1;
+        if (ownerReads === 2) {
+          releaseOwnerReads();
+        }
+        await bothOwnersRead;
+      }
+      return contents;
+    },
+  };
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  const createInstall = (processId) =>
+    installLocalEndpoint(
+      { plan, confirmed: true },
+      {
+        env,
+        fileSystem,
+        runProcess: createRunner({ publishedPort: 14500 }),
+        randomBytes: () => Buffer.alloc(32, processId % 255),
+        isPortAvailable: async () => true,
+        fetchImpl: createFetch(),
+        verifyCodexCapability: createCodexCapabilityVerifier(),
+        processId,
+        isProcessAlive: () => false,
+      },
+    );
+
+  const results = await Promise.allSettled([
+    createInstall(40_010),
+    createInstall(40_011),
+  ]);
+  assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1);
+  const rejected = results.find(({ status }) => status === "rejected");
+  assert.match(
+    rejected.reason.message,
+    /Another Relmio process is changing this local endpoint/u,
+  );
+});
+
+test("a crashed stale-lock reclaimer can be recovered by a later process", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+  const reclaimPath = join(lockPath, ".reclaim");
+  await mkdir(reclaimPath, { recursive: true, mode: 0o700 });
+  await writeFile(
+    join(lockPath, "owner.json"),
+    `${JSON.stringify({ processId: 39_990, ownerToken: "stale-owner" })}\n`,
+    { mode: 0o600 },
+  );
+  await writeFile(
+    join(reclaimPath, "owner.json"),
+    `${JSON.stringify({ processId: 39_991, ownerToken: "crashed-reclaimer" })}\n`,
+    { mode: 0o600 },
+  );
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  const result = await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess: createRunner({ publishedPort: 14500 }),
+      randomBytes: () => Buffer.alloc(32, 13),
+      isPortAvailable: async () => true,
+      fetchImpl: createFetch(),
+      verifyCodexCapability: createCodexCapabilityVerifier(),
+      processId: 41_010,
+      isProcessAlive: () => false,
+    },
+  );
+  assert.equal(result.deploymentMode, "installed");
+});
+
+test("detached stale-lock cleanup failures do not orphan the new canonical lock", async (t) => {
+  for (const branch of ["primary", "reclaim"]) {
+    await t.test(branch, async (subtest) => {
+      const home = await createTestHome(subtest);
+      const env = { RELMIO_HOME: join(home, ".relmio") };
+      const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+      const reclaimPath = join(lockPath, ".reclaim");
+      await mkdir(branch === "reclaim" ? reclaimPath : lockPath, {
+        recursive: true,
+        mode: 0o700,
+      });
+      await writeFile(
+        join(lockPath, "owner.json"),
+        `${JSON.stringify({ processId: 39_970, ownerToken: "stale-owner" })}\n`,
+        { mode: 0o600 },
+      );
+      if (branch === "reclaim") {
+        await writeFile(
+          join(reclaimPath, "owner.json"),
+          `${JSON.stringify({ processId: 39_971, ownerToken: "stale-reclaimer" })}\n`,
+          { mode: 0o600 },
+        );
+      }
+
+      let injectedFailures = 0;
+      const fileSystem = {
+        ...nodeFileSystem,
+        async rm(path, options) {
+          const shouldFail = branch === "primary"
+            ? path.startsWith(`${lockPath}.stale-`)
+            : path.startsWith(`${reclaimPath}.stale-`);
+          if (shouldFail && injectedFailures === 0) {
+            injectedFailures += 1;
+            throw new Error("injected detached stale cleanup failure");
+          }
+          return nodeFileSystem.rm(path, options);
+        },
+      };
+
+      const releaseLock = await acquireLocalEndpointChangeLock(
+        { target: "codex-chatgpt" },
+        {
+          env,
+          fileSystem,
+          processId: branch === "primary" ? 41_011 : 41_012,
+          isProcessAlive: () => false,
+        },
+      );
+      assert.equal(injectedFailures, 1);
+      await releaseLock();
+      await assert.rejects(() => lstat(lockPath), /ENOENT/u);
+    });
+  }
+});
+
+test("stale primary locks recover from missing and truncated owner metadata", async (t) => {
+  for (const variant of ["missing", "truncated"]) {
+    await t.test(variant, async (subtest) => {
+      const home = await createTestHome(subtest);
+      const env = { RELMIO_HOME: join(home, ".relmio") };
+      const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+      const ownerPath = join(lockPath, "owner.json");
+      await mkdir(lockPath, { mode: 0o700 });
+      if (variant === "truncated") {
+        await writeFile(ownerPath, '{"processId":', { mode: 0o600 });
+      }
+      const staleTime = new Date(Date.now() - 60_000);
+      await utimes(variant === "missing" ? lockPath : ownerPath, staleTime, staleTime);
+
+      const releaseLock = await acquireLocalEndpointChangeLock(
+        { target: "codex-chatgpt" },
+        {
+          env,
+          processId: variant === "missing" ? 41_020 : 41_021,
+          isProcessAlive: () => false,
+        },
+      );
+      await releaseLock();
+      await assert.rejects(() => lstat(lockPath), /ENOENT/u);
+    });
+  }
+});
+
+test("stale reclaim locks recover from missing and truncated owner metadata", async (t) => {
+  for (const variant of ["missing", "truncated"]) {
+    await t.test(variant, async (subtest) => {
+      const home = await createTestHome(subtest);
+      const env = { RELMIO_HOME: join(home, ".relmio") };
+      const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+      const ownerPath = join(lockPath, "owner.json");
+      const reclaimPath = join(lockPath, ".reclaim");
+      const reclaimOwnerPath = join(reclaimPath, "owner.json");
+      await mkdir(reclaimPath, { recursive: true, mode: 0o700 });
+      await writeFile(
+        ownerPath,
+        `${JSON.stringify({ processId: 39_980, ownerToken: "stale-owner" })}\n`,
+        { mode: 0o600 },
+      );
+      if (variant === "truncated") {
+        await writeFile(reclaimOwnerPath, '{"processId":', { mode: 0o600 });
+      }
+      const staleTime = new Date(Date.now() - 60_000);
+      await utimes(
+        variant === "missing" ? reclaimPath : reclaimOwnerPath,
+        staleTime,
+        staleTime,
+      );
+
+      const releaseLock = await acquireLocalEndpointChangeLock(
+        { target: "codex-chatgpt" },
+        {
+          env,
+          processId: variant === "missing" ? 41_022 : 41_023,
+          isProcessAlive: () => false,
+        },
+      );
+      await releaseLock();
+      await assert.rejects(() => lstat(lockPath), /ENOENT/u);
+    });
+  }
+});
+
+test("a paused primary-lock creator cannot delete a successor lock after stale recovery", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+  const ownerPath = join(lockPath, "owner.json");
+  let resumeOwnerWrite;
+  let notifyOwnerWrite;
+  const ownerWriteStarted = new Promise((resolvePromise) => {
+    notifyOwnerWrite = resolvePromise;
+  });
+  const ownerWriteGate = new Promise((resolvePromise) => {
+    resumeOwnerWrite = resolvePromise;
+  });
+  const pausedFileSystem = {
+    ...nodeFileSystem,
+    async writeFile(path, ...args) {
+      if (path === ownerPath) {
+        notifyOwnerWrite();
+        await ownerWriteGate;
+      }
+      return nodeFileSystem.writeFile(path, ...args);
+    },
+  };
+
+  const pausedAcquisition = acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      fileSystem: pausedFileSystem,
+      processId: 41_030,
+      isProcessAlive: () => false,
+    },
+  );
+  void pausedAcquisition.catch(() => {});
+  await ownerWriteStarted;
+  const staleTime = new Date(Date.now() - 60_000);
+  await utimes(lockPath, staleTime, staleTime);
+
+  const releaseSuccessor = await acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    { env, processId: 41_031, isProcessAlive: () => false },
+  );
+  resumeOwnerWrite();
+  await assert.rejects(pausedAcquisition, /could not create its local project lock/u);
+  assert.equal(JSON.parse(await readFile(ownerPath, "utf8")).processId, 41_031);
+  await releaseSuccessor();
+});
+
+test("a paused reclaim creator cannot delete a successor lock after stale recovery", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+  const ownerPath = join(lockPath, "owner.json");
+  const reclaimPath = join(lockPath, ".reclaim");
+  const reclaimOwnerPath = join(reclaimPath, "owner.json");
+  await mkdir(lockPath, { mode: 0o700 });
+  await writeFile(
+    ownerPath,
+    `${JSON.stringify({ processId: 39_970, ownerToken: "stale-owner" })}\n`,
+    { mode: 0o600 },
+  );
+  let resumeReclaimWrite;
+  let notifyReclaimWrite;
+  const reclaimWriteStarted = new Promise((resolvePromise) => {
+    notifyReclaimWrite = resolvePromise;
+  });
+  const reclaimWriteGate = new Promise((resolvePromise) => {
+    resumeReclaimWrite = resolvePromise;
+  });
+  const pausedFileSystem = {
+    ...nodeFileSystem,
+    async writeFile(path, ...args) {
+      if (path === reclaimOwnerPath) {
+        notifyReclaimWrite();
+        await reclaimWriteGate;
+      }
+      return nodeFileSystem.writeFile(path, ...args);
+    },
+  };
+
+  const pausedAcquisition = acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      fileSystem: pausedFileSystem,
+      processId: 41_032,
+      isProcessAlive: () => false,
+    },
+  );
+  void pausedAcquisition.catch(() => {});
+  await reclaimWriteStarted;
+  const staleTime = new Date(Date.now() - 60_000);
+  await utimes(reclaimPath, staleTime, staleTime);
+
+  const releaseSuccessor = await acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    { env, processId: 41_033, isProcessAlive: () => false },
+  );
+  resumeReclaimWrite();
+  await assert.rejects(
+    pausedAcquisition,
+    /Another Relmio process is changing this local endpoint/u,
+  );
+  assert.equal(JSON.parse(await readFile(ownerPath, "utf8")).processId, 41_033);
+  await releaseSuccessor();
+});
+
+test("a post-open primary owner write cannot survive stale lock replacement", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+  const ownerPath = join(lockPath, "owner.json");
+  let resumeOwnerWrite;
+  let notifyOwnerOpened;
+  const ownerOpened = new Promise((resolvePromise) => {
+    notifyOwnerOpened = resolvePromise;
+  });
+  const ownerWriteGate = new Promise((resolvePromise) => {
+    resumeOwnerWrite = resolvePromise;
+  });
+  const pausedFileSystem = {
+    ...nodeFileSystem,
+    async writeFile(path, contents, options) {
+      if (path !== ownerPath) {
+        return nodeFileSystem.writeFile(path, contents, options);
+      }
+      const handle = await nodeFileSystem.open(path, options.flag, options.mode);
+      notifyOwnerOpened();
+      await ownerWriteGate;
+      try {
+        await handle.writeFile(contents);
+      } finally {
+        await handle.close();
+      }
+    },
+  };
+
+  const pausedAcquisition = acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      fileSystem: pausedFileSystem,
+      processId: 41_034,
+      isProcessAlive: () => false,
+    },
+  );
+  void pausedAcquisition.catch(() => {});
+  await ownerOpened;
+  const staleTime = new Date(Date.now() - 60_000);
+  await utimes(ownerPath, staleTime, staleTime);
+
+  const releaseSuccessor = await acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    { env, processId: 41_035, isProcessAlive: () => false },
+  );
+  resumeOwnerWrite();
+  await assert.rejects(pausedAcquisition, /could not create its local project lock/u);
+  assert.equal(JSON.parse(await readFile(ownerPath, "utf8")).processId, 41_035);
+  await releaseSuccessor();
+});
+
+test("a post-open reclaim owner write cannot survive stale lock replacement", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+  const ownerPath = join(lockPath, "owner.json");
+  const reclaimPath = join(lockPath, ".reclaim");
+  const reclaimOwnerPath = join(reclaimPath, "owner.json");
+  await mkdir(lockPath, { mode: 0o700 });
+  await writeFile(
+    ownerPath,
+    `${JSON.stringify({ processId: 39_960, ownerToken: "stale-owner" })}\n`,
+    { mode: 0o600 },
+  );
+  let resumeReclaimWrite;
+  let notifyReclaimOpened;
+  const reclaimOpened = new Promise((resolvePromise) => {
+    notifyReclaimOpened = resolvePromise;
+  });
+  const reclaimWriteGate = new Promise((resolvePromise) => {
+    resumeReclaimWrite = resolvePromise;
+  });
+  const pausedFileSystem = {
+    ...nodeFileSystem,
+    async writeFile(path, contents, options) {
+      if (path !== reclaimOwnerPath) {
+        return nodeFileSystem.writeFile(path, contents, options);
+      }
+      const handle = await nodeFileSystem.open(path, options.flag, options.mode);
+      notifyReclaimOpened();
+      await reclaimWriteGate;
+      try {
+        await handle.writeFile(contents);
+      } finally {
+        await handle.close();
+      }
+    },
+  };
+
+  const pausedAcquisition = acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      fileSystem: pausedFileSystem,
+      processId: 41_036,
+      isProcessAlive: () => false,
+    },
+  );
+  void pausedAcquisition.catch(() => {});
+  await reclaimOpened;
+  const staleTime = new Date(Date.now() - 60_000);
+  await utimes(reclaimOwnerPath, staleTime, staleTime);
+
+  const releaseSuccessor = await acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    { env, processId: 41_037, isProcessAlive: () => false },
+  );
+  resumeReclaimWrite();
+  await assert.rejects(
+    pausedAcquisition,
+    /Another Relmio process is changing this local endpoint/u,
+  );
+  assert.equal(JSON.parse(await readFile(ownerPath, "utf8")).processId, 41_037);
+  await releaseSuccessor();
 });
 
 test("install refuses missing confirmation before filesystem or Docker actions", async (t) => {
@@ -418,6 +1603,7 @@ test("OpenAI install keeps the Platform key only in a private seeded Docker volu
 test("Codex install has no Platform secret and returns native App Server details", async (t) => {
   const home = await createTestHome(t);
   const runProcess = createRunner({ publishedPort: 14500 });
+  const verifyCodexCapability = createCodexCapabilityVerifier();
   const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
 
   const result = await installLocalEndpoint(
@@ -428,6 +1614,7 @@ test("Codex install has no Platform secret and returns native App Server details
       randomBytes: () => Buffer.alloc(32, 7),
       isPortAvailable: async () => true,
       fetchImpl: createFetch(),
+      verifyCodexCapability,
     },
   );
 
@@ -442,6 +1629,9 @@ test("Codex install has no Platform secret and returns native App Server details
     experimental: true,
     browserClients: false,
   });
+  assert.deepEqual(verifyCodexCapability.calls, [
+    { port: 14500, clientCredential: capability },
+  ]);
   const installRoot = await resolveLocalInstallRoot({
     target: "codex-chatgpt",
     env: { RELMIO_HOME: join(home, ".relmio") },
@@ -461,6 +1651,46 @@ test("Codex install has no Platform secret and returns native App Server details
   assert.match(requirements, /"relmio-workspace" = true/);
   assert.doesNotMatch(requirements, /allowed_sandbox_modes/);
   assert.equal((await stat(join(installRoot, "requirements.toml"))).mode & 0o777, 0o600);
+});
+
+test("Codex install removes only its exact service when capability authentication fails", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({ publishedPort: 14500 });
+  const verifyCodexCapability = createCodexCapabilityVerifier({
+    error: new Error("The Codex client credential could not be verified."),
+  });
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+
+  await assert.rejects(
+    () =>
+      installLocalEndpoint(
+        { plan, confirmed: true },
+        {
+          env: { RELMIO_HOME: join(home, ".relmio") },
+          runProcess,
+          randomBytes: () => Buffer.alloc(32, 7),
+          isPortAvailable: async () => true,
+          fetchImpl: createFetch(),
+          verifyCodexCapability,
+        },
+      ),
+    /Codex client credential could not be verified/u,
+  );
+
+  assert.deepEqual(verifyCodexCapability.calls, [
+    { port: 14500, clientCredential: capability },
+  ]);
+  const cleanup = runProcess.calls.find(({ args }) => args.includes("rm"));
+  const verification = runProcess.calls.find(
+    ({ args }) => args.includes("--all") && args.includes("--services"),
+  );
+  assert.deepEqual(cleanup.args.slice(-4), ["rm", "--force", "--stop", "codex"]);
+  assert.deepEqual(verification.args.slice(-4), [
+    "ps",
+    "--all",
+    "--services",
+    "codex",
+  ]);
 });
 
 test("installer refuses unmanaged and symlinked managed roots", async (t) => {

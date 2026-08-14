@@ -1,6 +1,7 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import packageManifest from "../../package.json" with { type: "json" };
 
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
 import { installSidecar } from "../services/installer.js";
@@ -18,13 +19,19 @@ import {
   validatePort,
 } from "../domain/validation.js";
 import { SIDECAR_HOSTNAME } from "../domain/templates.js";
-import { createLocalDeploymentPlan } from "../domain/local-endpoints.js";
 import {
+  createLocalDeploymentPlan,
+  validateLocalTarget,
+} from "../domain/local-endpoints.js";
+import {
+  acquireLocalEndpointChangeLock,
+  activateLocalClientCredentialRotation,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
   installLocalEndpoint,
   resolveLocalInstallRoot,
   restartLocalCodex,
+  prepareLocalClientCredentialRotation,
 } from "../services/local-installer.js";
 import { startCodexDeviceLogin } from "../services/codex-login.js";
 
@@ -32,6 +39,34 @@ const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
 const OAUTH_SHUTDOWN_WAIT_MS = 2_000;
+const LOCAL_ROTATION_STAGE_TTL_MS = 2 * 60 * 1000;
+const PACKAGE_VERSION = packageManifest.version;
+
+async function getProjectMeta({ fetchImpl = fetch } = {}) {
+  let stars = null;
+  try {
+    const response = await fetchImpl(
+      "https://api.github.com/repos/Demonbane18/relmio",
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": `relmio/${PACKAGE_VERSION}`,
+        },
+        redirect: "error",
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (response.ok) {
+      const value = (await response.json())?.stargazers_count;
+      if (Number.isSafeInteger(value) && value >= 0) {
+        stars = value;
+      }
+    }
+  } catch {
+    // The local control keeps a visible fallback when GitHub is unavailable.
+  }
+  return { stars, version: PACKAGE_VERSION };
+}
 
 const defaultServices = {
   getAuthStatus,
@@ -44,7 +79,11 @@ const defaultServices = {
   installSidecar,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
+  getProjectMeta,
   installLocalEndpoint,
+  acquireLocalEndpointChangeLock,
+  activateLocalClientCredentialRotation,
+  prepareLocalClientCredentialRotation,
   resolveLocalInstallRoot,
   restartLocalCodex,
   startCodexDeviceLogin,
@@ -268,7 +307,7 @@ async function loadDefaultUiFiles() {
 
   return {
     "/": files[0],
-    "/local": files[1],
+    "/local": files[1].replaceAll("__RELMIO_PACKAGE_VERSION__", PACKAGE_VERSION),
     "/app.js": files[2],
     "/local.js": files[3],
     "/oauth-popup.js": files[4],
@@ -310,6 +349,38 @@ function createSafeLocalInstallResult(result) {
     experimental: result.experimental === true,
     browserClients: result.browserClients === true,
   };
+}
+
+function createSafeLocalActivationResult(result) {
+  return {
+    target: result.target,
+    endpoint: result.endpoint,
+    protocol: result.protocol,
+    models: Array.isArray(result.models) ? [...result.models] : [],
+    deploymentMode: result.deploymentMode,
+    experimental: result.experimental === true,
+    browserClients: result.browserClients === true,
+  };
+}
+
+function createSafeProjectMeta(result) {
+  return {
+    stars:
+      Number.isSafeInteger(result?.stars) && result.stars >= 0
+        ? result.stars
+        : null,
+    version: PACKAGE_VERSION,
+  };
+}
+
+function getPendingLocalCredentialRotation(state) {
+  if (
+    state.localCredentialRotationPending &&
+    state.localCredentialRotationPending.expiresAt <= Date.now()
+  ) {
+    state.localCredentialRotationPending = null;
+  }
+  return state.localCredentialRotationPending;
 }
 
 function createSafeDockerStatus(status, previewMode) {
@@ -377,6 +448,15 @@ async function handleApi(request, response, path, state) {
       response,
       200,
       createSafeDockerStatus(status, state.previewMode),
+    );
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/local/project-meta") {
+    sendJson(
+      response,
+      200,
+      createSafeProjectMeta(await state.services.getProjectMeta()),
     );
     return;
   }
@@ -568,9 +648,15 @@ async function handleApi(request, response, path, state) {
     try {
       requireLiveLocalAction(state, "Local endpoint installation");
       enforceRateLimit(state, path);
-      if (state.localInstallInFlight) {
+      if (
+        state.localInstallInFlight ||
+        state.localCredentialRotationInFlight ||
+        getPendingLocalCredentialRotation(state) ||
+        state.codexLoginStartInFlight ||
+        state.codexLogin?.status === "pending"
+      ) {
         throw Object.assign(
-          new Error("A local endpoint installation is already in progress."),
+          new Error("A local endpoint change is already in progress."),
           { statusCode: 409 },
         );
       }
@@ -600,26 +686,105 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (path === "/api/local/client-credential/rotate") {
+    requireLiveLocalAction(state, "Local client credential rotation");
+    enforceRateLimit(state, path);
+    if (
+      state.localCredentialRotationInFlight ||
+      state.localInstallInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending"
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      throw new Error("Choose the installed local endpoint before rotating its credential.");
+    }
+
+    state.localCredentialRotationInFlight = true;
+    try {
+      const result = await state.services.prepareLocalClientCredentialRotation({
+        target: validateLocalTarget(body.target),
+      });
+      const rotationId = randomUUID();
+      state.localCredentialRotationPending = {
+        rotationId,
+        target: result.target,
+        tokenSha256: result.tokenSha256,
+        expiresAt: Date.now() + LOCAL_ROTATION_STAGE_TTL_MS,
+      };
+      sendJson(response, 200, {
+        ...createSafeLocalInstallResult(result),
+        rotationId,
+      });
+    } finally {
+      state.localCredentialRotationInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/client-credential/activate") {
+    requireLiveLocalAction(state, "Local client credential activation");
+    enforceRateLimit(state, path);
+    if (
+      state.localCredentialRotationInFlight ||
+      state.localInstallInFlight ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending"
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    const pending = getPendingLocalCredentialRotation(state);
+    if (!pending || !tokenMatches(body?.rotationId, pending.rotationId)) {
+      throw new Error("Stage a fresh local client credential before activating it.");
+    }
+
+    state.localCredentialRotationPending = null;
+    state.localCredentialRotationInFlight = true;
+    try {
+      const result = await state.services.activateLocalClientCredentialRotation({
+        target: pending.target,
+        clientCredential: body.clientCredential,
+        tokenSha256: pending.tokenSha256,
+      });
+      sendJson(response, 200, createSafeLocalActivationResult(result));
+    } finally {
+      state.localCredentialRotationInFlight = false;
+    }
+    return;
+  }
+
   if (path === "/api/local/codex/login") {
     requireLiveLocalAction(state, "Local Codex sign-in");
     enforceRateLimit(state, path);
-    if (state.codexLoginStartInFlight) {
+    if (
+      state.codexLoginStartInFlight ||
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state)
+    ) {
       throw Object.assign(
-        new Error("A local Codex sign-in start is already in progress."),
+        new Error("A local endpoint change is already in progress."),
         { statusCode: 409 },
       );
     }
 
     state.codexLoginStartInFlight = true;
+    let finishStart;
+    const startPromise = new Promise((resolvePromise) => {
+      finishStart = resolvePromise;
+    });
+    state.codexLoginStartPromise = startPromise;
+    let releaseChangeLock;
+    let lockTransferred = false;
     try {
-      const installDirectory = await state.services.resolveLocalInstallRoot({
-        target: "codex-chatgpt",
-      });
-      const { dockerHost, projectName } =
-        await state.services.attestLocalCodexInstallation({
-          installDirectory,
-        });
-
       const previous = state.codexLogin;
       if (previous?.status === "pending") {
         state.codexLogin = null;
@@ -630,26 +795,61 @@ async function handleApi(request, response, path, state) {
           // A fresh attempt intentionally supersedes the old device-code login.
         }
       }
+      if (state.closing) {
+        throw Object.assign(new Error("The local wizard is closing."), {
+          statusCode: 409,
+        });
+      }
+
+      releaseChangeLock = await state.services.acquireLocalEndpointChangeLock({
+        target: "codex-chatgpt",
+      });
+      if (state.closing) {
+        throw Object.assign(new Error("The local wizard is closing."), {
+          statusCode: 409,
+        });
+      }
+      const installDirectory = await state.services.resolveLocalInstallRoot({
+        target: "codex-chatgpt",
+      });
+      const { dockerHost, projectName } =
+        await state.services.attestLocalCodexInstallation({
+          installDirectory,
+        });
 
       const attempt = await state.services.startCodexDeviceLogin({
         installDirectory,
         dockerHost,
         projectName,
       });
+      if (state.closing) {
+        attempt.cancel();
+        try {
+          await attempt.completion;
+        } catch {
+          // Shutdown intentionally cancels a helper that finished starting late.
+        }
+        throw Object.assign(new Error("The local wizard is closing."), {
+          statusCode: 409,
+        });
+      }
       const login = {
         cancel: attempt.cancel,
-        completion: attempt.completion,
+        completion: null,
         error: null,
         status: "pending",
       };
       state.codexLogin = login;
-      void (async () => {
+      login.completion = (async () => {
         try {
-          await login.completion;
+          await attempt.completion;
           if (state.codexLogin !== login || state.closing) {
             return;
           }
-          await state.services.restartLocalCodex({ installDirectory });
+          await state.services.restartLocalCodex(
+            { installDirectory },
+            { changeLockHeld: true },
+          );
           if (state.codexLogin === login && !state.closing) {
             login.status = "success";
           }
@@ -658,14 +858,24 @@ async function handleApi(request, response, path, state) {
             login.status = "error";
             login.error = safeErrorMessage(error);
           }
+        } finally {
+          await releaseChangeLock();
         }
       })();
+      lockTransferred = true;
       sendJson(response, 200, {
         verificationUrl: attempt.verificationUrl,
         userCode: attempt.userCode,
       });
     } finally {
+      if (!lockTransferred && releaseChangeLock) {
+        await releaseChangeLock();
+      }
       state.codexLoginStartInFlight = false;
+      finishStart();
+      if (state.codexLoginStartPromise === startPromise) {
+        state.codexLoginStartPromise = null;
+      }
     }
     return;
   }
@@ -877,8 +1087,11 @@ export async function startWizardServer({
     oauthLoginStartPromise: null,
     localPlan: null,
     localInstallInFlight: false,
+    localCredentialRotationInFlight: false,
+    localCredentialRotationPending: null,
     codexLogin: null,
     codexLoginStartInFlight: false,
+    codexLoginStartPromise: null,
     rateLimits: new Map(),
     previewMode: previewMode === true,
     oauthShutdownWaitMs,
@@ -915,6 +1128,14 @@ export async function startWizardServer({
       const codexLogin = state.codexLogin;
       state.codexLogin = null;
       codexLogin?.cancel();
+      await waitForBoundedResult(
+        state.codexLoginStartPromise,
+        state.oauthShutdownWaitMs,
+      );
+      await waitForBoundedResult(
+        codexLogin?.completion,
+        state.oauthShutdownWaitMs,
+      );
       state.connection?.close();
       state.connection = null;
       await waitForBoundedResult(

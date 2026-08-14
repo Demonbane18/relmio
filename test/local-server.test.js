@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { startWizardServer } from "../src/web/server.js";
@@ -11,7 +12,12 @@ const codexProjectName = `relmio-codex-chatgpt-${"01".repeat(16)}`;
 async function startLocalWizard(t, services, { previewMode = false } = {}) {
   const wizard = await startWizardServer({
     sessionToken,
-    services,
+    services: {
+      async acquireLocalEndpointChangeLock() {
+        return async () => {};
+      },
+      ...services,
+    },
     previewMode,
     uiFiles: {
       "/": "",
@@ -58,6 +64,8 @@ test("default wizard assets include the local endpoint flow", async (t) => {
   const page = await fetch(`${wizard.origin}/local`);
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-type") ?? "", /^text\/html/u);
+  const packageManifest = JSON.parse(await readFile("package.json", "utf8"));
+  assert.ok((await page.text()).includes(`v${packageManifest.version}`));
 
   const script = await fetch(`${wizard.origin}/local.js`);
   assert.equal(script.status, 200);
@@ -87,6 +95,22 @@ test("local Docker status exposes the native Windows support boundary", async (t
   assert.deepEqual(await response.json(), {
     dockerAvailable: false,
     unsupportedPlatform: true,
+  });
+});
+
+test("local project metadata exposes only the public GitHub star count and package version", async (t) => {
+  const wizard = await startLocalWizard(t, {
+    async getProjectMeta() {
+      return { stars: 28, version: "untrusted", credential: "must-not-leak" };
+    },
+  });
+  const response = await api(wizard, "/api/local/project-meta");
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  assert.equal(text.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(text), {
+    stars: 28,
+    version: JSON.parse(await readFile("package.json", "utf8")).version,
   });
 });
 
@@ -198,10 +222,124 @@ test("local Docker status, planning, and installation expose only safe fields", 
   assert.match((await replay.json()).error, /fresh local endpoint plan/iu);
 });
 
+test("local credential rotation is setup-token protected, live-only, rate-limited, and redacts upstream credentials", async (t) => {
+  const prepareCalls = [];
+  const activationCalls = [];
+  const wizard = await startLocalWizard(t, {
+    async prepareLocalClientCredentialRotation(input) {
+      prepareCalls.push(input);
+      return {
+        target: "codex-chatgpt",
+        endpoint: "ws://127.0.0.1:14500",
+        protocol: "codex-app-server-json-rpc",
+        clientCredential: "fresh-local-capability-shown-once",
+        credentialShownOnce: true,
+        models: [],
+        tokenSha256: "a".repeat(64),
+        deploymentMode: "staged",
+        experimental: true,
+        browserClients: false,
+        upstreamChatGptCredential: "must-not-be-returned",
+      };
+    },
+    async activateLocalClientCredentialRotation(input) {
+      activationCalls.push(input);
+      return {
+        target: input.target,
+        endpoint: "ws://127.0.0.1:14500",
+        protocol: "codex-app-server-json-rpc",
+        models: [],
+        deploymentMode: "updated",
+        experimental: true,
+        browserClients: false,
+        upstreamChatGptCredential: "must-not-be-returned",
+      };
+    },
+  });
+
+  const first = await postJson(wizard, "/api/local/client-credential/rotate", {
+    target: "codex-chatgpt",
+  });
+  assert.equal(first.status, 200);
+  const firstText = await first.text();
+  assert.equal(firstText.includes("must-not-be-returned"), false);
+  const firstBody = JSON.parse(firstText);
+  assert.deepEqual(firstBody, {
+    target: "codex-chatgpt",
+    endpoint: "ws://127.0.0.1:14500",
+    protocol: "codex-app-server-json-rpc",
+    clientCredential: "fresh-local-capability-shown-once",
+    credentialShownOnce: true,
+    models: [],
+    deploymentMode: "staged",
+    experimental: true,
+    browserClients: false,
+    rotationId: firstBody.rotationId,
+  });
+  assert.equal(typeof firstBody.rotationId, "string");
+  assert.equal(firstText.includes("tokenSha256"), false);
+  assert.deepEqual(prepareCalls, [{ target: "codex-chatgpt" }]);
+
+  const firstActivation = await postJson(
+    wizard,
+    "/api/local/client-credential/activate",
+    {
+      rotationId: firstBody.rotationId,
+      clientCredential: firstBody.clientCredential,
+    },
+  );
+  assert.equal(firstActivation.status, 200);
+  const activationText = await firstActivation.text();
+  assert.equal(activationText.includes("must-not-be-returned"), false);
+  assert.equal(activationText.includes("fresh-local-capability"), false);
+
+  for (let attempt = 0; attempt < 9; attempt += 1) {
+    const response = await postJson(
+      wizard,
+      "/api/local/client-credential/rotate",
+      { target: "codex-chatgpt" },
+    );
+    assert.equal(response.status, 200);
+    const staged = await response.json();
+    const activated = await postJson(
+      wizard,
+      "/api/local/client-credential/activate",
+      {
+        rotationId: staged.rotationId,
+        clientCredential: staged.clientCredential,
+      },
+    );
+    assert.equal(activated.status, 200);
+  }
+  const limited = await postJson(wizard, "/api/local/client-credential/rotate", {
+    target: "codex-chatgpt",
+  });
+  assert.equal(limited.status, 429);
+  assert.match((await limited.json()).error, /too many attempts/iu);
+  assert.equal(prepareCalls.length, 10);
+  assert.equal(activationCalls.length, 10);
+
+  const preview = await startLocalWizard(
+    t,
+    {
+      async prepareLocalClientCredentialRotation() {
+        throw new Error("should not run");
+      },
+    },
+    { previewMode: true },
+  );
+  const disabled = await postJson(preview, "/api/local/client-credential/rotate", {
+    target: "codex-chatgpt",
+  });
+  assert.equal(disabled.status, 403);
+  assert.match((await disabled.json()).error, /disabled in sanitized preview mode/iu);
+});
+
 test("local installation rejects concurrent attempts and releases its lock after failure", async (t) => {
   let releaseFirstInstall;
   let notifyFirstInstallStarted;
   let installCalls = 0;
+  let rotationCalls = 0;
   const firstInstallStarted = new Promise((resolve) => {
     notifyFirstInstallStarted = resolve;
   });
@@ -229,6 +367,10 @@ test("local installation rejects concurrent attempts and releases its lock after
         experimental: plan.experimental,
         browserClients: plan.browserClients,
       };
+    },
+    async prepareLocalClientCredentialRotation() {
+      rotationCalls += 1;
+      throw new Error("rotation should remain locked");
     },
   });
 
@@ -258,6 +400,18 @@ test("local installation rejects concurrent attempts and releases its lock after
   assert.match((await concurrent.json()).error, /already in progress/iu);
   assert.equal(installCalls, 1);
 
+  const concurrentRotation = await postJson(
+    wizard,
+    "/api/local/client-credential/rotate",
+    { target: "openai-api" },
+  );
+  assert.equal(concurrentRotation.status, 409);
+  assert.match(
+    (await concurrentRotation.json()).error,
+    /already in progress/iu,
+  );
+  assert.equal(rotationCalls, 0);
+
   releaseFirstInstall();
   assert.equal((await firstInstall).status, 400);
 
@@ -268,6 +422,107 @@ test("local installation rejects concurrent attempts and releases its lock after
   });
   assert.equal(retried.status, 200);
   assert.equal(installCalls, 2);
+});
+
+test("credential rotation blocks installation until the managed service change completes", async (t) => {
+  let releaseRotation;
+  let notifyRotationStarted;
+  let installCalls = 0;
+  const rotationStarted = new Promise((resolve) => {
+    notifyRotationStarted = resolve;
+  });
+  const rotationGate = new Promise((resolve) => {
+    releaseRotation = resolve;
+  });
+  t.after(() => releaseRotation());
+
+  const wizard = await startLocalWizard(t, {
+    async prepareLocalClientCredentialRotation() {
+      notifyRotationStarted();
+      await rotationGate;
+      return {
+        target: "codex-chatgpt",
+        endpoint: "ws://127.0.0.1:14500",
+        protocol: "codex-app-server-json-rpc",
+        clientCredential,
+        tokenSha256: "b".repeat(64),
+        credentialShownOnce: true,
+        models: [],
+        deploymentMode: "staged",
+        experimental: true,
+        browserClients: false,
+      };
+    },
+    async activateLocalClientCredentialRotation({ target }) {
+      return {
+        target,
+        endpoint: "ws://127.0.0.1:14500",
+        protocol: "codex-app-server-json-rpc",
+        models: [],
+        deploymentMode: "updated",
+        experimental: true,
+        browserClients: false,
+      };
+    },
+    async installLocalEndpoint({ plan }) {
+      installCalls += 1;
+      return {
+        target: plan.target,
+        endpoint: plan.endpoint,
+        protocol: plan.protocol,
+        clientCredential,
+        credentialShownOnce: true,
+        models: [],
+        deploymentMode: "updated",
+        experimental: plan.experimental,
+        browserClients: plan.browserClients,
+      };
+    },
+  });
+
+  const rotation = postJson(
+    wizard,
+    "/api/local/client-credential/rotate",
+    { target: "codex-chatgpt" },
+  );
+  await rotationStarted;
+
+  const plan = await createPlan(wizard, {
+    target: "codex-chatgpt",
+    port: 14500,
+    allowedOrigins: [],
+  });
+  const concurrentInstall = await postJson(wizard, "/api/local/install", {
+    planId: plan.planId,
+    confirmed: true,
+  });
+  assert.equal(concurrentInstall.status, 409);
+  assert.match(
+    (await concurrentInstall.json()).error,
+    /already in progress/iu,
+  );
+  assert.equal(installCalls, 0);
+
+  releaseRotation();
+  const stagedResponse = await rotation;
+  assert.equal(stagedResponse.status, 200);
+  const staged = await stagedResponse.json();
+  const activation = await postJson(
+    wizard,
+    "/api/local/client-credential/activate",
+    {
+      rotationId: staged.rotationId,
+      clientCredential: staged.clientCredential,
+    },
+  );
+  assert.equal(activation.status, 200);
+
+  const retriedInstall = await postJson(wizard, "/api/local/install", {
+    planId: plan.planId,
+    confirmed: true,
+  });
+  assert.equal(retriedInstall.status, 200);
+  assert.equal(installCalls, 1);
 });
 
 test("a local plan is consumed before a failed install and errors redact secrets and paths", async (t) => {
@@ -354,8 +609,8 @@ test("Codex device-code sign-in requires installation and restarts only its loca
         },
       };
     },
-    async restartLocalCodex(input) {
-      restartInput = input;
+    async restartLocalCodex(input, dependencies) {
+      restartInput = { input, dependencies };
     },
   });
 
@@ -411,7 +666,10 @@ test("Codex device-code sign-in requires installation and restarts only its loca
     await new Promise((resolve) => setImmediate(resolve));
   }
   assert.deepEqual(restartInput, {
-    installDirectory: "/Users/fixture/.relmio/local/codex-chatgpt",
+    input: {
+      installDirectory: "/Users/fixture/.relmio/local/codex-chatgpt",
+    },
+    dependencies: { changeLockHeld: true },
   });
   const completed = await api(
     wizard,
@@ -419,6 +677,75 @@ test("Codex device-code sign-in requires installation and restarts only its loca
   );
   assert.deepEqual(await completed.json(), { status: "success" });
   assert.equal(cancelCalls, 0);
+});
+
+test("pending Codex sign-in blocks installation and credential rotation in the same wizard", async (t) => {
+  let finishLogin;
+  let releases = 0;
+  let installCalls = 0;
+  let rotationCalls = 0;
+  const completion = new Promise((resolvePromise) => {
+    finishLogin = resolvePromise;
+  });
+  const wizard = await startLocalWizard(t, {
+    async acquireLocalEndpointChangeLock() {
+      return async () => {
+        releases += 1;
+      };
+    },
+    resolveLocalInstallRoot() {
+      return "/Users/fixture/.relmio/local/codex-chatgpt";
+    },
+    async attestLocalCodexInstallation() {
+      return {
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        projectName: codexProjectName,
+      };
+    },
+    async startCodexDeviceLogin() {
+      return {
+        verificationUrl: "https://auth.openai.com/codex/device",
+        userCode: "LOCK-CODE",
+        completion,
+        cancel() {},
+      };
+    },
+    async restartLocalCodex() {},
+    async installLocalEndpoint() {
+      installCalls += 1;
+    },
+    async prepareLocalClientCredentialRotation() {
+      rotationCalls += 1;
+    },
+  });
+  assert.equal(
+    (await postJson(wizard, "/api/local/codex/login", {})).status,
+    200,
+  );
+  const plan = await createPlan(wizard, {
+    target: "codex-chatgpt",
+    port: 14500,
+    allowedOrigins: [],
+  });
+  const install = await postJson(wizard, "/api/local/install", {
+    planId: plan.planId,
+    confirmed: true,
+  });
+  assert.equal(install.status, 409);
+  const rotation = await postJson(
+    wizard,
+    "/api/local/client-credential/rotate",
+    { target: "codex-chatgpt" },
+  );
+  assert.equal(rotation.status, 409);
+  assert.equal(installCalls, 0);
+  assert.equal(rotationCalls, 0);
+
+  finishLogin({ success: true });
+  for (let attempt = 0; attempt < 10 && releases === 0; attempt += 1) {
+    await new Promise((resolvePromise) => setImmediate(resolvePromise));
+  }
+  assert.equal(releases, 1);
 });
 
 test("a fresh wizard server can sign in an attested existing Codex installation", async (t) => {
@@ -528,6 +855,45 @@ test("Codex sign-in rejects a concurrent start and releases its start lock", asy
   });
   assert.equal(attestationCalls, 2);
   assert.equal(loginCalls, 1);
+});
+
+test("wizard shutdown waits for Codex sign-in startup and releases its project lock", async (t) => {
+  let releaseAcquisition;
+  let notifyAcquisitionStarted;
+  let lockReleases = 0;
+  let loginCalls = 0;
+  const acquisitionStarted = new Promise((resolvePromise) => {
+    notifyAcquisitionStarted = resolvePromise;
+  });
+  const acquisitionGate = new Promise((resolvePromise) => {
+    releaseAcquisition = resolvePromise;
+  });
+  const wizard = await startLocalWizard(t, {
+    async acquireLocalEndpointChangeLock() {
+      notifyAcquisitionStarted();
+      await acquisitionGate;
+      return async () => {
+        lockReleases += 1;
+      };
+    },
+    resolveLocalInstallRoot() {
+      return "/Users/fixture/.relmio/local/codex-chatgpt";
+    },
+    async attestLocalCodexInstallation() {
+      throw new Error("attestation must not run while closing");
+    },
+    async startCodexDeviceLogin() {
+      loginCalls += 1;
+    },
+  });
+  const login = postJson(wizard, "/api/local/codex/login", {});
+  await acquisitionStarted;
+  const closing = wizard.close();
+  releaseAcquisition();
+  await closing;
+  assert.equal((await login).status, 409);
+  assert.equal(lockReleases, 1);
+  assert.equal(loginCalls, 0);
 });
 
 test("Codex sign-in releases its start lock and preserves pending-login replacement", async (t) => {

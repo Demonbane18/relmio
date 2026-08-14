@@ -242,6 +242,9 @@ test("Codex image and config pin the official App Server and ChatGPT login", () 
 
   assert.match(dockerfile, /@openai\/codex@0\.147\.0/);
   assert.match(dockerfile, /--ignore-scripts/);
+  assert.match(dockerfile, /apt-get update/);
+  assert.match(dockerfile, /apt-get install --no-install-recommends -y ca-certificates/);
+  assert.match(dockerfile, /rm -rf \/var\/lib\/apt\/lists\/\*/);
   assert.match(dockerfile, /COPY --chown=node:node config\.toml/);
   assert.match(
     dockerfile,
