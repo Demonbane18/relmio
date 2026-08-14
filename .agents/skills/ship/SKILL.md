@@ -10,6 +10,33 @@ external write as a separately authorized step. Never use local npm tokens,
 never weaken branch protection, and never report a publish, release, tag, merge,
 or deploy that has not been verified.
 
+## Distribution audit contract
+
+Explicitly invoke `release-relmio-everywhere` before and after publication.
+Read `/Users/demonbane/.codex/skills/release-relmio-everywhere/SKILL.md`
+completely, then use its deterministic audit as follows:
+
+1. Before release edits, audit the currently published baseline version and
+   require every applicable required check to pass:
+
+   ```sh
+   node /Users/demonbane/.codex/skills/release-relmio-everywhere/scripts/audit-distribution.mjs \
+     --repo "$PWD" --version "<published-version>" --json
+   ```
+
+2. Immediately before the first authorized external publication, run the same
+   audit with `<target-version>`. Require all local metadata, installer, and
+   behavior checks to pass. Record failures for not-yet-published npm, GitHub,
+   Vercel-hosted, Homebrew, or catalog surfaces as the explicit publication
+   delta; any other failure blocks publication. Never describe this expected
+   nonzero pre-publication result as a green audit.
+3. After all authorized, applicable publication and distribution writes, run
+   the target-version audit again. Require `ok: true` and every required check
+   to report `PASS`; WinGet may report `NOT-PUBLIC` only when no public Relmio
+   documentation advertises it. A nonzero result blocks release completion.
+4. Include both pre-publication and post-publication audit matrices in the final
+   evidence record, with every changed external system and unresolved surface.
+
 ## 1. Establish the release candidate
 
 1. Start from a clean, isolated worktree on a short-lived release branch.
