@@ -179,6 +179,25 @@ test("security guidance distinguishes loopback endpoints from the n8n bridge", a
   assert.match(security, /not encryption at rest or end-to-end encryption/u);
 });
 
+test("local endpoint guides document safe standalone client credential rotation", async () => {
+  const [readme, npmReadme, localGuide] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+    readFile("docs/local-endpoints.md", "utf8"),
+  ]);
+
+  for (const guide of [readme, npmReadme]) {
+    assert.match(guide, /\*\*Rotate client credential\*\*/u);
+    assert.match(guide, /keeps the upstream Platform API key or Codex credential/u);
+    assert.match(guide, /limits any failed rollback\s+to the exact managed service/u);
+  }
+
+  assert.match(localGuide, /previous capability remains active/u);
+  assert.match(localGuide, /authenticated Codex WebSocket handshake/u);
+  assert.match(localGuide, /preserves the upstream Platform API key/u);
+  assert.match(localGuide, /restores the previous verifier and re-attests its\s+health and loopback publication/u);
+});
+
 test("beginner documentation states the critical safety and product limits", async () => {
   const files = await Promise.all(
     [

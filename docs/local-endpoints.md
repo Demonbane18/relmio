@@ -616,3 +616,4 @@ does not interpret membership as permission to repurpose ChatGPT credentials
 for general API calls, share an account, bypass safeguards, or alter the scope
 of another OpenAI agreement. The local Codex option stays inside the official
 Codex protocol; general `/v1` calls continue to require Platform credentials.
+

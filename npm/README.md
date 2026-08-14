@@ -96,6 +96,11 @@ publish a fixed 10-day lifetime; do not plan around one. This provider
 credential is separate from Relmio's local capability, which remains valid
 until you rotate it.
 
+To replace only that local capability, use **Rotate client credential** on the
+Ready screen. Relmio keeps the upstream Platform API key or Codex credential
+and workspace volumes, verifies the replacement, and limits any failed rollback
+to the exact managed service.
+
 ## Common problems
 
 1. **Docker is not running:** start Docker Desktop or Docker Engine with
@@ -121,3 +126,4 @@ Full guides use absolute HTTPS links:
 Source and issues: https://github.com/Demonbane18/relmio
 
 License: Apache-2.0
+

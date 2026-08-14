@@ -148,6 +148,11 @@ publish a fixed 10-day lifetime; do not plan around one. This provider
 credential is separate from Relmio's local capability, which remains valid
 until you rotate it.
 
+To replace only that local capability, use **Rotate client credential** on the
+Ready screen. Relmio keeps the upstream Platform API key or Codex credential
+and workspace volumes, verifies the replacement, and limits any failed rollback
+to the exact managed service.
+
 ## Common problems
 
 1. **Docker is not running.** Start Docker Desktop or Docker Engine with
@@ -195,3 +200,4 @@ agreement that applies to your account.
 Relmio is provided as-is without warranties. OpenAI or an upstream service may
 change or discontinue access at any time, and you accept the risks of using
 this experimental community project.
+
