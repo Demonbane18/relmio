@@ -2,6 +2,28 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+function relativeLuminance(hex) {
+  const channels = hex
+    .match(/[\da-f]{2}/giu)
+    .map((channel) => Number.parseInt(channel, 16) / 255)
+    .map((channel) =>
+      channel <= 0.04045
+        ? channel / 12.92
+        : ((channel + 0.055) / 1.055) ** 2.4,
+    );
+  return (
+    0.2126 * channels[0] +
+    0.7152 * channels[1] +
+    0.0722 * channels[2]
+  );
+}
+
+function contrastRatio(first, second) {
+  const light = Math.max(relativeLuminance(first), relativeLuminance(second));
+  const dark = Math.min(relativeLuminance(first), relativeLuminance(second));
+  return (light + 0.05) / (dark + 0.05);
+}
+
 test("local endpoint wizard exposes an accessible four-step flow", async () => {
   const html = await readFile("src/ui/local.html", "utf8");
 
@@ -32,7 +54,42 @@ test("local endpoint wizard exposes an accessible four-step flow", async () => {
   assert.match(html, /id="device-code-link"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/u);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/u);
   assert.doesNotMatch(html, /\sonclick=/iu);
-  assert.doesNotMatch(html, /theme\.js/u);
+});
+
+test("local wizard header always exposes persistent theme controls, support links, and the package version placeholder", async () => {
+  const [html, theme, localStyles] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/theme.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  assert.match(html, /<script src="\/theme\.js" type="module"><\/script>/u);
+  assert.match(
+    html,
+    /class="header-actions"[\s\S]*name="color-theme" value="system"[\s\S]*name="color-theme" value="light"[\s\S]*name="color-theme" value="dark"/u,
+  );
+  assert.match(
+    html,
+    /class="local-repository-button"[\s\S]*href="https:\/\/github\.com\/Demonbane18\/relmio"[\s\S]*GitHub[\s\S]*id="local-repository-stars">\?</u,
+  );
+  assert.match(
+    html,
+    /class="local-support-button"[\s\S]*href="https:\/\/ko-fi\.com\/paldogies"/u,
+  );
+  assert.match(html, /v__RELMIO_PACKAGE_VERSION__/u);
+  assert.match(theme, /relmio-color-mode/u);
+  assert.match(theme, /localStorage\.getItem/u);
+  assert.match(theme, /localStorage\.setItem/u);
+  assert.doesNotMatch(
+    theme,
+    /password|credential|token|fingerprint/iu,
+  );
+  assert.match(
+    localStyles,
+    /\.local-repository-action\s*\{[^}]*background:\s*var\(--background\);[^}]*color:\s*var\(--text\);/u,
+  );
+  assert.ok(contrastRatio("#f4f2ec", "#0d1b18") >= 4.5);
+  assert.ok(contrastRatio("#101513", "#edf3f0") >= 4.5);
 });
 
 test("local wizard states the OpenAI and Codex credential boundaries", async () => {
@@ -145,8 +202,11 @@ test("local wizard calls only the dedicated local API contract", async () => {
 
   for (const path of [
     "/api/local/docker/status",
+    "/api/local/project-meta",
     "/api/local/plan",
     "/api/local/install",
+    "/api/local/client-credential/rotate",
+    "/api/local/client-credential/activate",
     "/api/local/codex/login",
     "/api/local/codex/login/status",
   ]) {
@@ -156,12 +216,38 @@ test("local wizard calls only the dedicated local API contract", async () => {
   assert.match(script, /result\.previewMode === true/u);
   assert.match(script, /result\.planId/u);
   assert.match(script, /result\.clientCredential/u);
+  assert.match(script, /new Intl\.NumberFormat/u);
   assert.match(script, /result\.verificationUrl/u);
   assert.match(script, /result\.userCode/u);
   assert.match(script, /recover that container's ChatGPT session credential/u);
   assert.match(script, /Treat it like your ChatGPT password/u);
   assert.doesNotMatch(script, /\/api\/oauth\/login/u);
   assert.doesNotMatch(script, /\/api\/install["']/u);
+});
+
+test("local wizard makes credential rotation explicit and replaces only DOM text after a fresh response", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+  ]);
+
+  assert.match(html, /id="rotate-credential-button"/u);
+  assert.match(
+    html,
+    /Relmio shows the replacement first, then activates and verifies\s+it/u,
+  );
+  assert.match(
+    html,
+    /After successful activation, the previous credential no longer works/u,
+  );
+  assert.doesNotMatch(html, /permanently revokes the previous/u);
+  assert.match(script, /api\("\/api\/local\/client-credential\/rotate"/u);
+  assert.match(script, /api\("\/api\/local\/client-credential\/activate"/u);
+  assert.match(script, /setBusy\(button, true, "Rotating credential…"\)/u);
+  assert.match(script, /renderInstallResult\(staged\)/u);
+  assert.match(script, /requestAnimationFrame/u);
+  assert.match(script, /result-credential"\)\.textContent = result\.clientCredential/u);
+  assert.doesNotMatch(script, /\.innerHTML\b/u);
 });
 
 test("main wizard offers token-preserving local endpoint navigation", async () => {
@@ -189,4 +275,11 @@ test("local CSS preserves responsive, visible security controls", async () => {
   assert.match(css, /@media \(max-width: 48rem\)/u);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/u);
   assert.doesNotMatch(css, /position:\s*fixed/u);
+  assert.match(css, /\.local-wizard \.toast-stack\s*\{[\s\S]*overflow:\s*visible/u);
+  assert.match(
+    css,
+    /\.local-wizard #global-message-text,[\s\S]*white-space:\s*normal[\s\S]*overflow-wrap:\s*anywhere/u,
+  );
+  assert.match(css, /\.local-wizard \.safety-note > span\s*\{[\s\S]*display:\s*block/u);
+  assert.doesNotMatch(css, /text-overflow:\s*ellipsis/u);
 });

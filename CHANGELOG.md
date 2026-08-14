@@ -7,6 +7,33 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.5.0] - 2026-08-15
+
+### Added
+
+- Add a **Rotate client credential** action for installed local endpoints that
+  shows the replacement capability before activation and preserves the upstream
+  Platform key or Codex credential/workspace volumes.
+
+### Changed
+
+- Keep System, Light, and Dark appearance controls plus Ko-fi, GitHub stars, and
+  the current package version available throughout the local install wizard.
+
+### Fixed
+
+- Install operating-system CA certificates in the isolated Codex image so the
+  official ChatGPT device-code sign-in can establish its trusted TLS connection.
+- Wrap local safety and error notifications instead of clipping longer text.
+
+### Security
+
+- Verify the generated Codex capability with a strict authenticated WebSocket
+  upgrade before reporting installation or rotation success.
+- Serialize installation, sign-in, restart, and credential rotation across
+  Relmio processes, with attested stale-lock recovery and fail-closed rollback
+  that restores the prior verifier and re-attests endpoint readiness.
+
 ## [0.4.1] - 2026-08-14
 
 ### Changed

@@ -9,6 +9,7 @@ const state = {
   dockerAvailable: false,
   planId: null,
   plan: null,
+  installedTarget: null,
 };
 
 const messageBox = element("global-message");
@@ -221,6 +222,7 @@ function renderInstallResult(result) {
   }
 
   const isOpenAiApi = result.target === "openai-api";
+  state.installedTarget = result.target;
   element("result-endpoint").textContent = result.endpoint;
   element("result-credential").textContent = result.clientCredential;
   element("codex-production-warning").hidden = isOpenAiApi;
@@ -444,6 +446,44 @@ element("install-button").addEventListener("click", async (event) => {
   }
 });
 
+element("rotate-credential-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  if (!state.installedTarget) {
+    showError(new Error("Install a local endpoint before rotating its credential."));
+    return;
+  }
+
+  setBusy(button, true, "Rotating credential…");
+  setMessage(
+    "Generating a replacement credential before activating it…",
+  );
+  try {
+    const staged = await api("/api/local/client-credential/rotate", {
+      method: "POST",
+      body: { target: state.installedTarget },
+    });
+    renderInstallResult(staged);
+    setMessage("Replacement credential received. Activating and verifying it now…");
+    await new Promise((resolvePromise) => window.requestAnimationFrame(resolvePromise));
+    await new Promise((resolvePromise) => window.requestAnimationFrame(resolvePromise));
+    const activated = await api("/api/local/client-credential/activate", {
+      method: "POST",
+      body: {
+        rotationId: staged.rotationId,
+        clientCredential: staged.clientCredential,
+      },
+    });
+    renderInstallResult({ ...staged, ...activated });
+    setMessage("Client credential rotated. Copy the new one now; the previous one no longer works.");
+  } catch (error) {
+    setMessage("The replacement credential was not confirmed active. Follow the error guidance before retrying.");
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
 element("codex-login-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   const resultBox = element("device-code-result");
@@ -546,5 +586,23 @@ async function refreshDockerStatus() {
   }
 }
 
+async function refreshProjectMeta() {
+  const result = await api("/api/local/project-meta");
+  const stars = Number.isSafeInteger(result.stars) && result.stars >= 0
+    ? new Intl.NumberFormat("en", {
+        notation: result.stars >= 1_000 ? "compact" : "standard",
+        maximumFractionDigits: 1,
+      }).format(result.stars)
+    : "?";
+  element("local-repository-stars").textContent = stars;
+  element("local-repository-button").setAttribute(
+    "aria-label",
+    `Open Relmio version ${result.version} on GitHub. ${
+      stars === "?" ? "GitHub star count is unavailable." : `${result.stars} GitHub stars.`
+    } Opens in a new tab.`,
+  );
+}
+
 renderTarget();
 refreshDockerStatus().catch(showError);
+refreshProjectMeta().catch(() => {});

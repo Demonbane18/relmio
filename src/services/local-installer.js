@@ -1,6 +1,6 @@
 import { createHash, randomBytes as createRandomBytes, randomUUID } from "node:crypto";
 import * as defaultFileSystem from "node:fs/promises";
-import { createServer } from "node:net";
+import { createConnection, createServer } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
@@ -27,6 +27,7 @@ const ROOT_MARKER = ".managed-by-relmio-root.json";
 const MARKER_SCHEMA_VERSION = 2;
 const ROOT_MARKER_SCHEMA_VERSION = 1;
 const COMPOSE_FILENAME = "docker-compose.yml";
+const INCOMPLETE_LOCK_STALE_MS = 30_000;
 const PROJECTS = Object.freeze({
   "openai-api": Object.freeze({
     projectPrefix: "relmio-openai-api",
@@ -291,10 +292,12 @@ async function writeManagedFile(fileSystem, path, contents, mode) {
   }
 
   const temporaryPath = `${path}.tmp-${randomUUID()}`;
+  let committed = false;
   try {
     await fileSystem.writeFile(temporaryPath, contents, { flag: "wx", mode });
     await fileSystem.chmod(temporaryPath, mode);
     await fileSystem.rename(temporaryPath, path);
+    committed = true;
     await fileSystem.chmod(path, mode);
   } catch {
     try {
@@ -302,8 +305,323 @@ async function writeManagedFile(fileSystem, path, contents, mode) {
     } catch {
       // The temporary file may not have been created.
     }
-    throw new Error("Relmio could not write its local managed files.");
+    const error = new Error("Relmio could not write its local managed files.");
+    error.committed = committed;
+    throw error;
   }
+}
+
+function createClientCredential(randomBytes) {
+  const capabilityBytes = randomBytes(32);
+  if (!Buffer.isBuffer(capabilityBytes) || capabilityBytes.length !== 32) {
+    throw new Error("Relmio could not generate a strong local capability.");
+  }
+  const clientCredential = capabilityBytes.toString("base64url");
+  const tokenSha256 = createHash("sha256")
+    .update(clientCredential)
+    .digest("hex");
+  return { clientCredential, tokenSha256 };
+}
+
+function validateClientCredentialVerifier(value) {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) {
+    throw new TypeError("The staged local client credential is invalid.");
+  }
+  return value;
+}
+
+function defaultIsProcessAlive(processId) {
+  try {
+    process.kill(processId, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
+function parseLockOwner(value) {
+  try {
+    const owner = JSON.parse(value);
+    if (
+      Number.isSafeInteger(owner?.processId) &&
+      owner.processId > 0 &&
+      typeof owner?.ownerToken === "string" &&
+      owner.ownerToken.length > 0 &&
+      owner.ownerToken.length <= 128
+    ) {
+      return owner;
+    }
+  } catch {
+    // An incomplete owner record is recoverable only after its metadata is stale.
+  }
+  return null;
+}
+
+async function readLockOwnerState(fileSystem, ownerPath, directoryPath) {
+  let serialized;
+  try {
+    serialized = await fileSystem.readFile(ownerPath, "utf8");
+  } catch (error) {
+    if (!isMissing(error)) {
+      throw error;
+    }
+  }
+  const metadata = await fileSystem.lstat(
+    serialized === undefined ? directoryPath : ownerPath,
+  );
+  return {
+    owner: serialized === undefined ? null : parseLockOwner(serialized),
+    serialized,
+    modifiedAtMs: metadata.mtimeMs,
+  };
+}
+
+function isIncompleteLockStale(state) {
+  return (
+    state.owner === null &&
+    Number.isFinite(state.modifiedAtMs) &&
+    Date.now() - state.modifiedAtMs >= INCOMPLETE_LOCK_STALE_MS
+  );
+}
+
+function lockOwnerStateMatches(left, right) {
+  if (left.owner && right.owner) {
+    return (
+      left.owner.processId === right.owner.processId &&
+      left.owner.ownerToken === right.owner.ownerToken
+    );
+  }
+  return left.owner === null && right.owner === null && left.serialized === right.serialized;
+}
+
+async function assertPublishedLockOwner(
+  fileSystem,
+  ownerPath,
+  directoryPath,
+  { processId, ownerToken },
+) {
+  const state = await readLockOwnerState(fileSystem, ownerPath, directoryPath);
+  if (
+    state.owner?.processId !== processId ||
+    state.owner?.ownerToken !== ownerToken
+  ) {
+    throw new Error("The local lock owner changed during publication.");
+  }
+}
+
+async function removeDetachedStaleLock(fileSystem, path) {
+  try {
+    await fileSystem.rm(path, { recursive: true, force: true });
+  } catch {
+    // A uniquely renamed stale artifact is outside the canonical lock path and
+    // must not strand the newly published owner when best-effort cleanup fails.
+  }
+}
+
+async function acquireLocalProjectLock(
+  { installRoot, target },
+  {
+    fileSystem = defaultFileSystem,
+    processId = process.pid,
+    isProcessAlive = defaultIsProcessAlive,
+  } = {},
+) {
+  const safeTarget = validateLocalTarget(target);
+  const safeInstallRoot = validateInstallDirectory(installRoot, safeTarget);
+  const lockPath = join(
+    dirname(resolve(safeInstallRoot, "..", "..")),
+    `.relmio-local-${safeTarget}.lock`,
+  );
+  const ownerPath = join(lockPath, "owner.json");
+  const ownerToken = randomUUID();
+
+  async function createLock() {
+    await fileSystem.mkdir(lockPath, { mode: 0o700 });
+    try {
+      await fileSystem.writeFile(
+        ownerPath,
+        `${JSON.stringify({ processId, ownerToken })}\n`,
+        { flag: "wx", mode: 0o600 },
+      );
+      await assertPublishedLockOwner(fileSystem, ownerPath, lockPath, {
+        processId,
+        ownerToken,
+      });
+    } catch {
+      // Leave an incomplete directory for stale recovery. Removing the shared
+      // path here could delete a successor lock after this creator was paused.
+      throw new Error("Relmio could not create its local project lock.");
+    }
+  }
+
+  try {
+    await createLock();
+  } catch (error) {
+    if (error?.code !== "EEXIST") {
+      throw error;
+    }
+
+    let ownerState;
+    try {
+      ownerState = await readLockOwnerState(fileSystem, ownerPath, lockPath);
+    } catch {
+      throw new Error("Another Relmio process is changing this local endpoint.");
+    }
+    const owner = ownerState.owner;
+    if (
+      (owner === null && !isIncompleteLockStale(ownerState)) ||
+      (owner !== null &&
+        (owner.ownerToken === ownerToken ||
+          owner.processId === processId ||
+          isProcessAlive(owner.processId)))
+    ) {
+      throw new Error("Another Relmio process is changing this local endpoint.");
+    }
+
+    const reclaimPath = join(lockPath, ".reclaim");
+    const reclaimOwnerPath = join(reclaimPath, "owner.json");
+    let reclaimClaimed = false;
+    async function createReclaimClaim() {
+      await fileSystem.mkdir(reclaimPath, { mode: 0o700 });
+      try {
+        await fileSystem.writeFile(
+          reclaimOwnerPath,
+          `${JSON.stringify({ processId, ownerToken })}\n`,
+          { flag: "wx", mode: 0o600 },
+        );
+        await assertPublishedLockOwner(
+          fileSystem,
+          reclaimOwnerPath,
+          reclaimPath,
+          { processId, ownerToken },
+        );
+      } catch {
+        // The same identity rule applies to reclaim publication: never remove
+        // a shared path after an owner write that may have lost a race.
+        throw new Error("Relmio could not create its reclaim lock.");
+      }
+    }
+    try {
+      try {
+        await createReclaimClaim();
+      } catch (error) {
+        if (error?.code !== "EEXIST") {
+          throw error;
+        }
+        const reclaimState = await readLockOwnerState(
+          fileSystem,
+          reclaimOwnerPath,
+          reclaimPath,
+        );
+        const reclaimOwner = reclaimState.owner;
+        if (
+          (reclaimOwner === null && !isIncompleteLockStale(reclaimState)) ||
+          (reclaimOwner !== null &&
+            (reclaimOwner.processId === processId ||
+              isProcessAlive(reclaimOwner.processId)))
+        ) {
+          throw new Error("Another process owns the reclaim lock.");
+        }
+        const staleReclaimPath = `${reclaimPath}.stale-${randomUUID()}`;
+        await fileSystem.rename(reclaimPath, staleReclaimPath);
+        await createReclaimClaim();
+        await removeDetachedStaleLock(fileSystem, staleReclaimPath);
+      }
+      reclaimClaimed = true;
+      const reclaimOwner = JSON.parse(
+        await fileSystem.readFile(reclaimOwnerPath, "utf8"),
+      );
+      if (reclaimOwner?.ownerToken !== ownerToken) {
+        throw new Error("The reclaim lock owner changed.");
+      }
+      const currentOwnerState = await readLockOwnerState(
+        fileSystem,
+        ownerPath,
+        lockPath,
+      );
+      if (!lockOwnerStateMatches(currentOwnerState, ownerState)) {
+        throw new Error("The local project lock owner changed.");
+      }
+      const stalePath = `${lockPath}.stale-${randomUUID()}`;
+      await fileSystem.rename(lockPath, stalePath);
+      reclaimClaimed = false;
+      await createLock();
+      await removeDetachedStaleLock(fileSystem, stalePath);
+    } catch {
+      if (reclaimClaimed) {
+        try {
+          const reclaimState = await readLockOwnerState(
+            fileSystem,
+            reclaimOwnerPath,
+            reclaimPath,
+          );
+          if (
+            reclaimState.owner?.processId === processId &&
+            reclaimState.owner?.ownerToken === ownerToken
+          ) {
+            await fileSystem.rm(reclaimPath, { recursive: true, force: true });
+          }
+        } catch {
+          // A changed or contended lock remains owned by the other process.
+        }
+      }
+      throw new Error("Another Relmio process is changing this local endpoint.");
+    }
+  }
+
+  return async () => {
+    try {
+      const owner = JSON.parse(await fileSystem.readFile(ownerPath, "utf8"));
+      if (owner?.ownerToken === ownerToken) {
+        await fileSystem.rm(lockPath, { recursive: true, force: true });
+      }
+    } catch {
+      // Never hide a completed endpoint operation because lock cleanup failed.
+    }
+  };
+}
+
+export async function acquireLocalEndpointChangeLock(
+  { target },
+  {
+    fileSystem = defaultFileSystem,
+    env = process.env,
+    homeDirectory = homedir(),
+    platform = process.platform,
+    processId = process.pid,
+    isProcessAlive = defaultIsProcessAlive,
+  } = {},
+) {
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const safeTarget = validateLocalTarget(target);
+  const installRoot = await resolveLocalInstallRoot({
+    target: safeTarget,
+    env,
+    homeDirectory,
+    fileSystem,
+    platform,
+  });
+  return acquireLocalProjectLock(
+    { installRoot, target: safeTarget },
+    { fileSystem, processId, isProcessAlive },
+  );
+}
+
+function replaceClientCredentialVerifier({ target, composeFile, tokenSha256 }) {
+  if (typeof composeFile !== "string" || composeFile.length > 512 * 1024) {
+    throw new Error("The managed local endpoint configuration is invalid.");
+  }
+
+  const pattern =
+    target === "openai-api"
+      ? /^([ \t]*RELMIO_GATEWAY_TOKEN_SHA256:[ \t]*)[a-f0-9]{64}([ \t]*)$/gmu
+      : /^([ \t]*-[ \t]+--ws-token-sha256[ \t]*\n[ \t]*-[ \t]+)[a-f0-9]{64}([ \t]*)$/gmu;
+  const matches = [...composeFile.matchAll(pattern)];
+  if (matches.length !== 1) {
+    throw new Error("The managed local endpoint configuration is invalid.");
+  }
+  return composeFile.replace(pattern, `$1${tokenSha256}$2`);
 }
 
 export function isLoopbackPortAvailable(port) {
@@ -431,6 +749,13 @@ export async function restartLocalCodex(
   dependencies = {},
 ) {
   const runProcess = dependencies.runProcess ?? runLocalProcess;
+  const releaseLock = dependencies.changeLockHeld === true
+    ? async () => {}
+    : await acquireLocalProjectLock(
+        { installRoot: installDirectory, target: "codex-chatgpt" },
+        dependencies,
+      );
+  try {
   const attested = await attestLocalCodexInstallation(
     { installDirectory },
     dependencies,
@@ -464,6 +789,34 @@ export async function restartLocalCodex(
     dockerHost: attested.dockerHost,
   });
   return { restarted: true };
+  } finally {
+    await releaseLock();
+  }
+}
+
+function createServiceRecreateSpec({
+  target,
+  installRoot,
+  dockerHost,
+  projectName,
+}) {
+  const project = PROJECTS[target];
+  return {
+    label: "Local client credential rotation",
+    file: "docker",
+    args: createComposeArgs(target, projectName, [
+      "up",
+      "-d",
+      "--wait",
+      "--wait-timeout",
+      "90",
+      "--force-recreate",
+      "--no-deps",
+      project.serviceName,
+    ]),
+    cwd: installRoot,
+    dockerHost,
+  };
 }
 
 function createProjectName(target, installId) {
@@ -773,7 +1126,7 @@ async function verifyHttpEndpoint({ plan, clientCredential, fetchImpl }) {
     throw new Error("The local endpoint did not pass its readiness check.");
   }
 
-  if (plan.target !== "openai-api") {
+  if (plan.target !== "openai-api" || clientCredential === undefined) {
     return [];
   }
 
@@ -800,6 +1153,121 @@ async function verifyHttpEndpoint({ plan, clientCredential, fetchImpl }) {
   }
 }
 
+export function verifyCodexWebSocketCapability(
+  { port, clientCredential },
+  {
+    connectSocket = createConnection,
+    randomBytes = createRandomBytes,
+    timeoutMs = 10_000,
+  } = {},
+) {
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port });
+  if (
+    typeof clientCredential !== "string" ||
+    !/^[A-Za-z0-9_-]{43}$/u.test(clientCredential)
+  ) {
+    throw new TypeError("The staged local client credential is invalid.");
+  }
+  const keyBytes = randomBytes(16);
+  if (!Buffer.isBuffer(keyBytes) || keyBytes.length !== 16) {
+    throw new Error("Relmio could not verify the Codex client capability.");
+  }
+  const websocketKey = keyBytes.toString("base64");
+  const expectedAccept = createHash("sha1")
+    .update(`${websocketKey}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+    .digest("base64");
+
+  return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false;
+    let response = "";
+    const socket = connectSocket(
+      { host: "127.0.0.1", port: plan.port },
+      () => {
+        socket.write(
+          [
+            "GET / HTTP/1.1",
+            `Host: 127.0.0.1:${plan.port}`,
+            "Upgrade: websocket",
+            "Connection: Upgrade",
+            `Sec-WebSocket-Key: ${websocketKey}`,
+            "Sec-WebSocket-Version: 13",
+            `Authorization: Bearer ${clientCredential}`,
+            "",
+            "",
+          ].join("\r\n"),
+        );
+      },
+    );
+
+    const finish = (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      socket.destroy();
+      if (error) {
+        rejectPromise(
+          new Error("The Codex client credential could not be verified."),
+        );
+      } else {
+        resolvePromise();
+      }
+    };
+
+    socket.setTimeout(timeoutMs, () => finish(new Error("timeout")));
+    socket.on("error", finish);
+    socket.on("close", () => finish(new Error("closed")));
+    socket.on("data", (chunk) => {
+      response += chunk.toString("latin1");
+      if (response.length > 16 * 1024) {
+        finish(new Error("oversized"));
+        return;
+      }
+      const headerEnd = response.indexOf("\r\n\r\n");
+      if (headerEnd === -1) {
+        return;
+      }
+      const lines = response.slice(0, headerEnd).split("\r\n");
+      if (!/^HTTP\/1\.1 101(?: |$)/u.test(lines.shift() ?? "")) {
+        finish(new Error("unauthorized"));
+        return;
+      }
+      const headers = new Map();
+      for (const line of lines) {
+        const separator = line.indexOf(":");
+        if (separator <= 0) {
+          finish(new Error("malformed"));
+          return;
+        }
+        const rawName = line.slice(0, separator);
+        if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/u.test(rawName)) {
+          finish(new Error("malformed"));
+          return;
+        }
+        const name = rawName.toLowerCase();
+        const value = line.slice(separator + 1).trim();
+        if (headers.has(name)) {
+          finish(new Error("duplicate"));
+          return;
+        }
+        headers.set(name, value);
+      }
+      if (
+        headers.get("upgrade")?.toLowerCase() !== "websocket" ||
+        !headers
+          .get("connection")
+          ?.split(",")
+          .some((value) => value.trim().toLowerCase() === "upgrade") ||
+        headers.get("sec-websocket-accept") !== expectedAccept
+      ) {
+        finish(new Error("invalid upgrade"));
+        return;
+      }
+      finish();
+    });
+  });
+}
+
 async function defaultReadGatewaySource() {
   return defaultFileSystem.readFile(
     new URL("../gateway/openai.js", import.meta.url),
@@ -807,8 +1275,8 @@ async function defaultReadGatewaySource() {
   );
 }
 
-export async function attestLocalCodexInstallation(
-  { installDirectory },
+async function attestManagedLocalEndpoint(
+  { target, installDirectory, missingMessage, notRunningMessage },
   {
     fileSystem = defaultFileSystem,
     runProcess = runLocalProcess,
@@ -816,22 +1284,23 @@ export async function attestLocalCodexInstallation(
   } = {},
 ) {
   assertSupportedPlatform(platform);
+  const safeTarget = validateLocalTarget(target);
   const safeDirectory = validateInstallDirectory(
     installDirectory,
-    "codex-chatgpt",
+    safeTarget,
   );
   const relmioHome = resolve(safeDirectory, "..", "..");
   const managed = await inspectManagedRoot({
     fileSystem,
     relmioHome,
     installRoot: safeDirectory,
-    target: "codex-chatgpt",
+    target: safeTarget,
   });
   if (managed.deploymentMode !== "updated" || !managed.marker) {
-    throw new Error("Install the local Codex endpoint before signing in.");
+    throw new Error(missingMessage);
   }
   await attestDockerOwnership({
-    target: "codex-chatgpt",
+    target: safeTarget,
     installRoot: safeDirectory,
     dockerHost: managed.marker.dockerHost,
     installId: managed.marker.installId,
@@ -839,24 +1308,297 @@ export async function attestLocalCodexInstallation(
     runProcess,
   });
   const verification = createVerificationSpecs({
-    target: "codex-chatgpt",
+    target: safeTarget,
     installRoot: safeDirectory,
     dockerHost: managed.marker.dockerHost,
     projectName: managed.marker.projectName,
   });
   const running = await runOrThrow(runProcess, verification.running);
-  if (!running.stdout.split(/\s+/u).includes("codex")) {
-    throw new Error("The managed local Codex endpoint is not running.");
+  if (!running.stdout.split(/\s+/u).includes(PROJECTS[safeTarget].serviceName)) {
+    throw new Error(
+      notRunningMessage ?? "The managed local endpoint is not running.",
+    );
   }
   const publication = await runOrThrow(runProcess, verification.publication);
   validatePublishedEndpoint(publication.stdout, {
-    target: "codex-chatgpt",
+    target: safeTarget,
     port: managed.marker.port,
   });
   return {
+    target: safeTarget,
+    installDirectory: safeDirectory,
+    port: managed.marker.port,
     dockerHost: managed.marker.dockerHost,
     projectName: managed.marker.projectName,
   };
+}
+
+export async function attestLocalCodexInstallation(
+  { installDirectory },
+  dependencies = {},
+) {
+  const attested = await attestManagedLocalEndpoint(
+    {
+      target: "codex-chatgpt",
+      installDirectory,
+      missingMessage: "Install the local Codex endpoint before signing in.",
+      notRunningMessage: "The managed local Codex endpoint is not running.",
+    },
+    dependencies,
+  );
+  return {
+    dockerHost: attested.dockerHost,
+    projectName: attested.projectName,
+  };
+}
+
+export async function prepareLocalClientCredentialRotation(
+  { target },
+  {
+    fileSystem = defaultFileSystem,
+    env = process.env,
+    homeDirectory = homedir(),
+    runProcess = runLocalProcess,
+    randomBytes = createRandomBytes,
+    platform = process.platform,
+  } = {},
+) {
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const safeTarget = validateLocalTarget(target);
+  const installDirectory = await resolveLocalInstallRoot({
+    target: safeTarget,
+    env,
+    homeDirectory,
+    fileSystem,
+    platform,
+  });
+  const attested = await attestManagedLocalEndpoint(
+    {
+      target: safeTarget,
+      installDirectory,
+      missingMessage:
+        "Install the local endpoint before rotating its client credential.",
+    },
+    { fileSystem, runProcess, platform },
+  );
+  const { clientCredential, tokenSha256 } = createClientCredential(randomBytes);
+  const plan = createLocalDeploymentPlan({
+    target: safeTarget,
+    port: attested.port,
+    allowedOrigins: [],
+  });
+  return {
+    target: plan.target,
+    endpoint: plan.endpoint,
+    protocol: plan.protocol,
+    clientCredential,
+    tokenSha256,
+    credentialShownOnce: true,
+    models: [],
+    deploymentMode: "staged",
+    experimental: plan.experimental,
+    browserClients: plan.browserClients,
+  };
+}
+
+export async function activateLocalClientCredentialRotation(
+  { target, clientCredential, tokenSha256 },
+  {
+    fileSystem = defaultFileSystem,
+    env = process.env,
+    homeDirectory = homedir(),
+    runProcess = runLocalProcess,
+    fetchImpl = fetch,
+    verifyCodexCapability = verifyCodexWebSocketCapability,
+    platform = process.platform,
+    processId = process.pid,
+    isProcessAlive = defaultIsProcessAlive,
+  } = {},
+) {
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const safeTarget = validateLocalTarget(target);
+  const safeVerifier = validateClientCredentialVerifier(tokenSha256);
+  if (
+    typeof clientCredential !== "string" ||
+    createHash("sha256").update(clientCredential).digest("hex") !== safeVerifier
+  ) {
+    throw new TypeError("The staged local client credential is invalid.");
+  }
+  const installDirectory = await resolveLocalInstallRoot({
+    target: safeTarget,
+    env,
+    homeDirectory,
+    fileSystem,
+    platform,
+  });
+  const releaseLock = await acquireLocalProjectLock(
+    { installRoot: installDirectory, target: safeTarget },
+    { fileSystem, processId, isProcessAlive },
+  );
+  try {
+  const attested = await attestManagedLocalEndpoint(
+    {
+      target: safeTarget,
+      installDirectory,
+      missingMessage:
+        "Install the local endpoint before rotating its client credential.",
+    },
+    { fileSystem, runProcess, platform },
+  );
+  const composePath = join(installDirectory, COMPOSE_FILENAME);
+  await assertRegularManagedMarker(
+    fileSystem,
+    composePath,
+    "The managed local endpoint configuration is invalid.",
+  );
+  let previousCompose;
+  try {
+    previousCompose = await fileSystem.readFile(composePath, "utf8");
+  } catch {
+    throw new Error("The managed local endpoint configuration is invalid.");
+  }
+
+  const replacementCompose = replaceClientCredentialVerifier({
+    target: safeTarget,
+    composeFile: previousCompose,
+    tokenSha256: safeVerifier,
+  });
+  const plan = createLocalDeploymentPlan({
+    target: safeTarget,
+    port: attested.port,
+    allowedOrigins: [],
+  });
+  const validateCompose = () =>
+    runOrThrow(runProcess, {
+      label: "Local Compose validation",
+      file: "docker",
+      args: createComposeArgs(safeTarget, attested.projectName, [
+        "config",
+        "--quiet",
+      ]),
+      cwd: installDirectory,
+      dockerHost: attested.dockerHost,
+    });
+  let configurationWritten = false;
+
+  try {
+    await writeManagedFile(fileSystem, composePath, replacementCompose, 0o600);
+    configurationWritten = true;
+    await validateCompose();
+    await runOrThrow(
+      runProcess,
+      createServiceRecreateSpec({
+        target: safeTarget,
+        installRoot: installDirectory,
+        dockerHost: attested.dockerHost,
+        projectName: attested.projectName,
+      }),
+    );
+    await attestManagedLocalEndpoint(
+      {
+        target: safeTarget,
+        installDirectory,
+        missingMessage:
+          "Install the local endpoint before rotating its client credential.",
+      },
+      { fileSystem, runProcess, platform },
+    );
+    const models = await verifyHttpEndpoint({
+      plan,
+      clientCredential,
+      fetchImpl,
+    });
+    if (safeTarget === "codex-chatgpt") {
+      await verifyCodexCapability({
+        port: plan.port,
+        clientCredential,
+      });
+    }
+    return {
+      target: plan.target,
+      endpoint: plan.endpoint,
+      protocol: plan.protocol,
+      models,
+      deploymentMode: "updated",
+      experimental: plan.experimental,
+      browserClients: plan.browserClients,
+    };
+  } catch (error) {
+    if (error?.committed === true) {
+      configurationWritten = true;
+    }
+    if (!configurationWritten) {
+      throw new Error("Relmio could not rotate the local client credential.");
+    }
+
+    try {
+      await writeManagedFile(fileSystem, composePath, previousCompose, 0o600);
+      await validateCompose();
+      await runOrThrow(
+        runProcess,
+        createServiceRecreateSpec({
+          target: safeTarget,
+          installRoot: installDirectory,
+          dockerHost: attested.dockerHost,
+          projectName: attested.projectName,
+        }),
+      );
+      await attestManagedLocalEndpoint(
+        {
+          target: safeTarget,
+          installDirectory,
+          missingMessage:
+            "Install the local endpoint before rotating its client credential.",
+        },
+        { fileSystem, runProcess, platform },
+      );
+      await verifyHttpEndpoint({ plan, fetchImpl });
+    } catch {
+      let stopped = false;
+      try {
+        await runOrThrow(
+          runProcess,
+          createCleanupSpec({
+            target: safeTarget,
+            installRoot: installDirectory,
+            dockerHost: attested.dockerHost,
+            projectName: attested.projectName,
+          }),
+        );
+        const remaining = await runOrThrow(
+          runProcess,
+          createCleanupVerificationSpec({
+            target: safeTarget,
+            installRoot: installDirectory,
+            dockerHost: attested.dockerHost,
+            projectName: attested.projectName,
+          }),
+        );
+        stopped = !remaining.stdout
+          .split(/\s+/u)
+          .includes(PROJECTS[safeTarget].serviceName);
+      } catch {
+        // The endpoint is left stopped only when Docker confirms the exact service is gone.
+      }
+      if (stopped) {
+        throw new Error(
+          "Local credential rotation failed safely. The local endpoint was stopped.",
+        );
+      }
+      throw new Error(
+        "Relmio could not confirm that the failed credential rotation was stopped. Inspect the Relmio Docker project before retrying.",
+      );
+    }
+
+    throw new Error(
+      "Local credential rotation failed safely. The previous verifier was restored and the managed endpoint was re-attested.",
+    );
+  }
+  } finally {
+    await releaseLock();
+  }
 }
 
 export async function installLocalEndpoint(
@@ -870,7 +1612,10 @@ export async function installLocalEndpoint(
     isPortAvailable = isLoopbackPortAvailable,
     readGatewaySource = defaultReadGatewaySource,
     fetchImpl = fetch,
+    verifyCodexCapability = verifyCodexWebSocketCapability,
     platform = process.platform,
+    processId = process.pid,
+    isProcessAlive = defaultIsProcessAlive,
   } = {},
 ) {
   if (confirmed !== true) {
@@ -895,6 +1640,11 @@ export async function installLocalEndpoint(
     fileSystem,
     platform,
   });
+  const releaseLock = await acquireLocalProjectLock(
+    { installRoot, target: normalizedPlan.target },
+    { fileSystem, processId, isProcessAlive },
+  );
+  try {
   const relmioHome = resolve(installRoot, "..", "..");
   const managed = await inspectManagedRoot({
     fileSystem,
@@ -1069,6 +1819,12 @@ export async function installLocalEndpoint(
       clientCredential,
       fetchImpl,
     });
+    if (normalizedPlan.target === "codex-chatgpt") {
+      await verifyCodexCapability({
+        port: normalizedPlan.port,
+        clientCredential,
+      });
+    }
   } catch (error) {
     if (deploymentStarted) {
       let cleanupConfirmed = false;
@@ -1117,4 +1873,7 @@ export async function installLocalEndpoint(
     experimental: normalizedPlan.experimental,
     browserClients: normalizedPlan.browserClients,
   };
+  } finally {
+    await releaseLock();
+  }
 }

@@ -74,6 +74,35 @@ test("README keeps every local install path and layman diagrams visible", async 
   }
 });
 
+test("local endpoint guides document safe standalone client credential rotation", async () => {
+  const [readme, npmReadme, localGuide] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+    readFile("docs/local-endpoints.md", "utf8"),
+  ]);
+
+  for (const guide of [readme, npmReadme]) {
+    assert.match(guide, /\*\*Rotate client credential\*\*/u);
+    assert.match(guide, /preserves the upstream Platform API key/u);
+    assert.match(
+      guide,
+      /targets\s+only\s+the\s+exact\s+managed\s+service\s+for\s+shutdown\s+and\s+reports\s+whether\s+that\s+stopped\s+state\s+could\s+be\s+verified/u,
+    );
+  }
+
+  assert.match(localGuide, /previous capability remains active/u);
+  assert.match(localGuide, /authenticated Codex WebSocket handshake/u);
+  assert.match(localGuide, /preserves the upstream Platform API key/u);
+  assert.match(
+    localGuide,
+    /restores\s+the\s+previous\s+verifier\s+and\s+re-attests\s+its\s+health\s+and\s+loopback\s+publication/u,
+  );
+  assert.match(
+    localGuide,
+    /does\s+not\s+retain\s+the\s+previous\s+raw\s+client\s+credential/u,
+  );
+});
+
 test("beginner documentation states the critical safety and product limits", async () => {
   const files = await Promise.all(
     [

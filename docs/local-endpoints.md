@@ -77,19 +77,28 @@ Engine.
 
 ## Safe updates and credential rotation
 
-Rerun the browser wizard, select the same target and port, and review the plan
-again. Relmio verifies the existing marker and Docker resource ownership,
-reuses that installation's unique Compose identity, replaces only that managed
-service, and generates a new local client capability. Copy the new capability
-from the one-time result and update the client; the previous capability no
-longer authenticates.
+To replace only the credential used by your local client, select **Rotate client
+credential** on the installed endpoint's Ready screen. Relmio first stages and
+shows the new one-time capability while the previous capability remains active.
+It then updates and validates the managed Compose configuration, recreates only
+the attested service, and verifies the new bearer against `/v1/models` or the
+authenticated Codex WebSocket handshake before reporting success.
 
-For `openai-api`, every update requires the current Platform API key again. To
-rotate both credentials, supply the replacement Platform key during the update;
-Relmio atomically reseeds its private named volume and independently rotates the
-local client capability. For `codex-chatgpt`, an update retains the private
-Codex home and workspace volumes unless you explicitly delete them, but still
-rotates the local capability.
+This client-only rotation preserves the upstream Platform API key in its private
+named volume and preserves the Codex home and workspace volumes. If activation
+or verification fails, Relmio restores the previous verifier and re-attests its
+health and loopback publication. Relmio does not retain the previous raw client
+credential, so rollback does not replay an authenticated request with it. If
+that rollback cannot be confirmed, Relmio attempts to stop only the exact
+managed service and reports whether the stopped state could be verified.
+
+Rerun the browser wizard with the same target and port when you need a complete
+managed update. Relmio verifies the marker and Docker resource ownership and
+reuses the installation's unique Compose identity. For `openai-api`, provide the
+current or replacement Platform API key during that full update; Relmio reseeds
+its private named volume independently from the local client capability. A full
+`codex-chatgpt` update retains the private Codex home and workspace volumes unless
+you explicitly delete them.
 
 Do not hand-edit the marker, Compose file, credential volume, or verifier. If
 the marker or resource labels do not attest as one Relmio installation, the
