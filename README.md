@@ -548,6 +548,12 @@ captures the callback, temporarily disable that extension and start the
 refresh again from the wizard. The active wizard must receive the callback on
 `localhost:1455`.
 
+While a fresh login is pending, **Stop sign-in** terminates the helper Relmio
+started before allowing another attempt. The wizard rejects results from older
+tabs after a replacement starts. If Relmio cannot confirm that the helper or a
+credential write stopped safely, retry remains disabled; close the wizard and
+OAuth helper, then restart Relmio before signing in again.
+
 ### 3. Verify the VPS before entering its password
 
 Enter the VPS address exactly as your provider shows it. Select **Check server
@@ -1028,6 +1034,9 @@ recoverable uninstall, and pinned upstream upgrades, follow
   browser while its terminal remains open.
 - **Sign-in says expired:** close the old OAuth tab and begin a fresh refresh
   from the active wizard.
+- **Sign-in is stuck or port `1455` stays busy:** use **Stop sign-in** in the
+  active wizard before starting another attempt. If retry remains disabled,
+  close the wizard and OAuth helper, then restart Relmio.
 - **Extension page appears:** temporarily disable the extension that captured
   `localhost:1455`.
 - **SSH fails:** recheck the full address, port, root password, provider

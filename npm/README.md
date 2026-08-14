@@ -78,6 +78,11 @@ the private VPS/n8n sidecar and the separate local Docker endpoint paths.
 > OAuth extension captures that callback, temporarily disable it during local sign-in,
 > complete the wizard sign-in, and then re-enable it.
 
+While a fresh local login is pending, **Stop sign-in** terminates the helper
+Relmio started before allowing another attempt. Results from older tabs are
+rejected after a replacement starts. If cleanup cannot be confirmed, retry
+remains disabled; close the wizard and OAuth helper, then restart Relmio.
+
 <figure>
   <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/examples/hosted-chat-connected.png" alt="Relmio hosted chat showing a connected ChatGPT session and a ready prompt field" width="720">
   <figcaption>Successful hosted-chat state: the browser extension completed the OAuth handoff and Relmio shows the ChatGPT session as connected.</figcaption>

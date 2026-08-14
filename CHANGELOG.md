@@ -7,6 +7,25 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.4.1] - 2026-08-14
+
+### Changed
+
+- Add a manual **Stop sign-in** action while a fresh ChatGPT login is pending,
+  then detect and reject results from superseded wizard attempts.
+
+### Fixed
+
+- Terminate the OAuth helper process tree when sign-in is stopped or Relmio
+  exits, preventing a rejected or abandoned attempt from continuing to hold
+  the `localhost:1455` callback port.
+
+### Security
+
+- Fail closed when OAuth process cleanup or credential promotion cannot be
+  confirmed, blocking another login until Relmio restarts instead of risking
+  an ambiguous helper or credential state.
+
 ## [0.4.0] - 2026-08-13
 
 ### Added
