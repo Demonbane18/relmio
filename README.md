@@ -41,6 +41,16 @@ OpenAI Platform API key or authorization for arbitrary OpenAI API calls.
 - Local capabilities and the Chat Adapter bearer are sensitive. Do not put
   them in browser code, logs, or a shell command line.
 
+## ChatGPT sign-in lifetime
+
+ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
+them automatically during active use before they expire, so active sessions
+usually continue without another browser login. The official [OpenAI
+authentication documentation](https://learn.chatgpt.com/docs/auth) does not
+publish a fixed 10-day lifetime; do not plan around one. This provider
+credential is separate from Relmio's local capability, which remains valid
+until you rotate it.
+
 ## Common problems
 
 1. **Docker is not running.** Start Docker Desktop or Docker Engine with

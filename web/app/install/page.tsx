@@ -75,8 +75,25 @@ export default function InstallPage() {
 
           <p className="install-boundary">
             <strong>Local endpoint choice:</strong> The OpenAI-compatible /v1
-            option uses a Platform API key. ChatGPT sign-in is only for
-            experimental Codex App Server clients.
+            option uses a Platform API key. ChatGPT sign-in is only for the
+            experimental Codex App Server and Chat Adapter paths.
+          </p>
+
+          <p className="install-boundary">
+            <strong>ChatGPT token lifetime:</strong> ChatGPT/Codex sign-in
+            tokens expire, but the official Codex client refreshes them
+            automatically during active use before they expire, so active
+            sessions usually continue without another browser login. The{" "}
+            <a
+              href="https://learn.chatgpt.com/docs/auth"
+              target="_blank"
+              rel="noreferrer"
+            >
+              official OpenAI authentication documentation
+            </a>{" "}
+            does not publish a fixed 10-day lifetime; do not plan around one.
+            That upstream provider credential is separate from Relmio&apos;s
+            local client capability, which remains valid until you rotate it.
           </p>
 
           <div className="install-command-stage" id="install-command">

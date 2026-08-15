@@ -25,6 +25,16 @@ ChatGPT sign-in does not become an OpenAI Platform API key. Codex transports
 are not generic `/v1` services and should never be exposed on a LAN or public
 network.
 
+## ChatGPT sign-in lifetime
+
+ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
+them automatically during active use before they expire, so active sessions
+usually continue without another browser login. The official [OpenAI
+authentication documentation](https://learn.chatgpt.com/docs/auth) does not
+publish a fixed 10-day lifetime; do not plan around one. This provider
+credential is separate from Relmio's local capability, which remains valid
+until you rotate it.
+
 ## Common problems
 
 1. **Docker is not running:** start Docker Desktop or Docker Engine with

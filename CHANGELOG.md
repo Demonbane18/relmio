@@ -19,6 +19,10 @@ checks the registry separately after publication.
 
 - Distill the root and npm READMEs into product, installation, security, and
   common-problem overviews that link to repository-authored hosted guides.
+- Clarify across the READMEs, hosted install page, and canonical docs that
+  ChatGPT/Codex sign-in tokens refresh during active use, that the official
+  documentation publishes no fixed 10-day lifetime, and that the provider
+  credential is separate from Relmio's rotatable client capability.
 
 ### Security
 

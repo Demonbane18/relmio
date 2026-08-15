@@ -23,6 +23,15 @@ and use only the complete wizard URL printed by that active process. Start one
 fresh ChatGPT device-code attempt and complete the newest code. A ChatGPT
 subscription credential is valid only for the Codex targets; the generic
 OpenAI-compatible `/v1` target requires a separately billed Platform API key.
+ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
+them automatically during active use before they expire, so active sessions
+usually continue without another browser login. The official [OpenAI
+authentication documentation](https://learn.chatgpt.com/docs/auth) does not
+publish a fixed 10-day lifetime; do not plan around one. This provider
+credential is separate from Relmio's local capability, which remains valid
+until you rotate it. If Relmio reports the credential is invalid or refresh no
+longer succeeds, select **Start ChatGPT sign-in** again in the active local
+wizard. The VPS sidecar flow labels that action **Refresh ChatGPT sign-in**.
 
 ## Local image build failed
 

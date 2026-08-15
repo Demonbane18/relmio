@@ -55,6 +55,51 @@ test("README surfaces are concise product entry points linked to canonical docs"
   assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
 });
 
+test("published documentation explains ChatGPT token refresh and lifetime boundaries", async () => {
+  const paths = [
+    "README.md",
+    "npm/README.md",
+    "docs/local-endpoints.md",
+    "docs/faq.md",
+    "docs/troubleshooting.md",
+    "docs/security.md",
+    "web/app/docs/generated-content.ts",
+  ];
+  const contents = await Promise.all(paths.map((path) => readFile(path, "utf8")));
+  const generated = contents.at(-1);
+
+  for (const published of contents.slice(0, -1)) {
+    assert.match(published, /ChatGPT\/Codex sign-in tokens expire/u);
+    assert.match(
+      published,
+      /official Codex client refreshes\s+them automatically during active use before they expire/u,
+    );
+    assert.match(
+      published,
+      /active sessions\s+usually continue without another browser login/u,
+    );
+    assert.match(
+      published,
+      /official\s+(?:\[[^\]]+\]\([^\)]+\)|OpenAI documentation)\s+does not\s+publish a fixed 10-day lifetime/u,
+    );
+    assert.match(published, /do not plan around one/u);
+    assert.match(
+      published,
+      /provider\s+credential is separate from Relmio's local\s+capability[\s\S]*remains valid\s+until you rotate it/u,
+    );
+  }
+  assert.match(generated, /ChatGPT\/Codex sign-in tokens expire/u);
+  assert.match(
+    generated,
+    /official Codex client refreshes\\nthem automatically during active use before they expire/u,
+  );
+  assert.match(generated, /fixed 10-day lifetime/u);
+  assert.match(
+    await readFile("docs/troubleshooting.md", "utf8"),
+    /If Relmio reports the credential is invalid or refresh no\s+longer succeeds, select \*\*Start ChatGPT sign-in\*\* again in the active local\s+wizard[\s\S]*labels that action \*\*Refresh ChatGPT sign-in\*\*/u,
+  );
+});
+
 test("canonical local endpoint guidance documents credential rotation", async () => {
   const localGuide = await readFile("docs/local-endpoints.md", "utf8");
 

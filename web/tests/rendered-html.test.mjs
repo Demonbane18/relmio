@@ -142,7 +142,20 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   );
   assert.match(
     html,
-    /ChatGPT sign-in is only for experimental Codex App Server clients\./,
+    /ChatGPT sign-in is only for the experimental Codex App Server and Chat Adapter paths\./,
+  );
+  assert.match(
+    html,
+    /ChatGPT\/Codex sign-in tokens expire, but the official Codex client refreshes them automatically during active use before they expire, so active sessions usually continue without another browser login\./,
+  );
+  assert.match(
+    html,
+    /href="https:\/\/learn\.chatgpt\.com\/docs\/auth"/,
+  );
+  assert.match(html, /does not publish a fixed 10-day lifetime; do not plan around one\./);
+  assert.match(
+    html,
+    /That upstream provider credential is separate from Relmio&#x27;s local client capability, which remains valid until you rotate it\./,
   );
   assert.match(
     html,

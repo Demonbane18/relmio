@@ -7,6 +7,16 @@ Platform API key, with Platform billing. ChatGPT sign-in is only for the
 experimental Codex paths and is never represented as generic `/v1`
 authorization.
 
+## How long does a ChatGPT/Codex sign-in token last?
+
+ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
+them automatically during active use before they expire, so active sessions
+usually continue without another browser login. The official [OpenAI
+authentication documentation](https://learn.chatgpt.com/docs/auth) does not
+publish a fixed 10-day lifetime; do not plan around one. This provider
+credential is separate from Relmio's local capability, which remains valid
+until you rotate it.
+
 ## Can I expose the local endpoints to my network?
 
 No. Relmio's local endpoint plans bind only to `127.0.0.1`. Do not reverse
