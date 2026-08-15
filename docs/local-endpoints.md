@@ -140,8 +140,9 @@ For a quick private test:
 
 ```bash
 export RELMIO_LOCAL_KEY="<capability shown once by the wizard>"
-curl http://127.0.0.1:12435/v1/models \
-  -H "Authorization: Bearer $RELMIO_LOCAL_KEY"
+printf 'Authorization: Bearer %s\n' "$RELMIO_LOCAL_KEY" |
+  curl http://127.0.0.1:12435/v1/models --header @-
+unset RELMIO_LOCAL_KEY
 ```
 
 The upstream key is passed only over stdin to a transient, network-disabled
@@ -241,11 +242,12 @@ shell command:
 ```bash
 read -r -s RELMIO_CODEX_CHAT_KEY
 printf '\n'
-curl --fail-with-body --silent --show-error \
-  --request POST http://127.0.0.1:14501/chat \
-  -H "Authorization: Bearer $RELMIO_CODEX_CHAT_KEY" \
-  -H "Content-Type: application/json" \
-  --data '{"input":"Reply with a short hello."}'
+printf 'Authorization: Bearer %s\n' "$RELMIO_CODEX_CHAT_KEY" |
+  curl --fail-with-body --silent --show-error \
+    --request POST http://127.0.0.1:14501/chat \
+    --header @- \
+    --header "Content-Type: application/json" \
+    --data '{"input":"Reply with a short hello."}'
 unset RELMIO_CODEX_CHAT_KEY
 ```
 

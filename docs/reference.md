@@ -18,22 +18,24 @@ printf '\n'
 Start a conversation:
 
 ```bash
-curl --fail-with-body --silent --show-error \
-  --request POST "$RELMIO_CHAT_BASE_URL/chat" \
-  --header "Authorization: Bearer $RELMIO_CHAT_CLIENT_CREDENTIAL" \
-  --header "Content-Type: application/json" \
-  --data '{"input":"Reply with exactly: adapter works"}'
+printf 'Authorization: Bearer %s\n' "$RELMIO_CHAT_CLIENT_CREDENTIAL" |
+  curl --fail-with-body --silent --show-error \
+    --request POST "$RELMIO_CHAT_BASE_URL/chat" \
+    --header @- \
+    --header "Content-Type: application/json" \
+    --data '{"input":"Reply with exactly: adapter works"}'
 ```
 
 Copy the returned `conversationId`, then send a continuation:
 
 ```bash
 export RELMIO_CONVERSATION_ID="CONVERSATION_ID_FROM_THE_PREVIOUS_RESPONSE"
-curl --fail-with-body --silent --show-error \
-  --request POST "$RELMIO_CHAT_BASE_URL/chat" \
-  --header "Authorization: Bearer $RELMIO_CHAT_CLIENT_CREDENTIAL" \
-  --header "Content-Type: application/json" \
-  --data "{\"input\":\"Continue with one short sentence.\",\"conversationId\":\"$RELMIO_CONVERSATION_ID\"}"
+printf 'Authorization: Bearer %s\n' "$RELMIO_CHAT_CLIENT_CREDENTIAL" |
+  curl --fail-with-body --silent --show-error \
+    --request POST "$RELMIO_CHAT_BASE_URL/chat" \
+    --header @- \
+    --header "Content-Type: application/json" \
+    --data "{\"input\":\"Continue with one short sentence.\",\"conversationId\":\"$RELMIO_CONVERSATION_ID\"}"
 ```
 
 Unset the shell credential when finished:

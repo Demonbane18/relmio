@@ -472,6 +472,15 @@ function requireLiveLocalAction(state, action) {
   }
 }
 
+function requireReadyLocalChatTester(state) {
+  if (state.localInstalledTarget !== "codex-chat") {
+    throw Object.assign(
+      new Error("Install the Codex Chat Adapter before starting its local tester."),
+      { statusCode: 409 },
+    );
+  }
+}
+
 async function handleApi(request, response, path, state) {
   requireApiToken(request, state);
   requireSameOrigin(request, state);
@@ -668,6 +677,7 @@ async function handleApi(request, response, path, state) {
 
   if (path === "/api/local/chat-test/key") {
     requireLiveLocalAction(state, "Local chat testing");
+    requireReadyLocalChatTester(state);
     enforceRateLimit(state, path);
     sendJson(
       response,
@@ -679,6 +689,7 @@ async function handleApi(request, response, path, state) {
 
   if (path === "/api/local/chat-test/message") {
     requireLiveLocalAction(state, "Local chat testing");
+    requireReadyLocalChatTester(state);
     enforceRateLimit(state, path);
     try {
       sendJson(
@@ -697,6 +708,7 @@ async function handleApi(request, response, path, state) {
 
   if (path === "/api/local/chat-test/reset") {
     requireLiveLocalAction(state, "Local chat testing");
+    requireReadyLocalChatTester(state);
     enforceRateLimit(state, path);
     await state.localChatTest.reset(body);
     sendJson(response, 200, { forgotten: true });
@@ -770,12 +782,14 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight = true;
       acquiredInstallLock = true;
       state.localPlan = null;
+      state.localInstalledTarget = null;
       const result = await state.services.installLocalEndpoint({
         plan: pending.plan,
         apiKey: body.apiKey,
         confirmed: body.confirmed,
       });
 
+      state.localInstalledTarget = pending.plan.target;
       sendJson(response, 200, createSafeLocalInstallResult(result));
     } finally {
       if (acquiredInstallLock) {
@@ -1200,6 +1214,7 @@ export async function startWizardServer({
     oauthLoginStartInFlight: false,
     oauthLoginStartPromise: null,
     localPlan: null,
+    localInstalledTarget: null,
     localInstallInFlight: false,
     localCredentialRotationInFlight: false,
     localCredentialRotationPending: null,

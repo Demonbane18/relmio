@@ -123,7 +123,50 @@ test("local chat tester APIs keep the setup-token boundary and return no credent
       return { forgotten: true, privateKey: "must-not-leak" };
     },
   };
-  const wizard = await startLocalWizard(t, { localChatTest: tester });
+  const wizard = await startLocalWizard(t, {
+    localChatTest: tester,
+    async installLocalEndpoint() {
+      return {
+        target: "codex-chat",
+        endpoint: "http://127.0.0.1:14501",
+        protocol: "relmio-codex-chat",
+        clientCredential,
+        credentialShownOnce: true,
+        models: [],
+        deploymentMode: "installed",
+        experimental: true,
+        browserClients: false,
+      };
+    },
+  });
+
+  const notReady = await postJson(wizard, "/api/local/chat-test/key", {});
+  assert.equal(notReady.status, 409);
+  assert.match((await notReady.json()).error, /Install the Codex Chat Adapter/iu);
+
+  const planned = await createPlan(wizard, {
+    target: "codex-chat",
+    port: "14501",
+    allowedOrigins: [],
+  });
+  const installed = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+  });
+  assert.equal(installed.status, 200);
+
+  for (const path of [
+    "/api/local/chat-test/key",
+    "/api/local/chat-test/message",
+    "/api/local/chat-test/reset",
+  ]) {
+    const wrongMethod = await api(wizard, path, {
+      method: "PUT",
+      body: "{}",
+    });
+    assert.equal(wrongMethod.status, 405);
+    assert.match((await wrongMethod.json()).error, /Method not allowed/iu);
+  }
 
   const key = await postJson(wizard, "/api/local/chat-test/key", {});
   assert.equal(key.status, 200);

@@ -100,6 +100,23 @@ test("published documentation explains ChatGPT token refresh and lifetime bounda
   );
 });
 
+test("local endpoint curl samples keep bearer credentials out of process arguments", async () => {
+  const guides = await Promise.all(
+    ["docs/local-endpoints.md", "docs/reference.md"].map((path) =>
+      readFile(path, "utf8"),
+    ),
+  );
+
+  for (const guide of guides) {
+    assert.doesNotMatch(
+      guide,
+      /(?:--header|-H) "Authorization: Bearer \$RELMIO_[A-Z_]+"/u,
+    );
+    assert.match(guide, /printf 'Authorization: Bearer %s\\n'/u);
+    assert.match(guide, /(?:--header|-H) @-/u);
+  }
+});
+
 test("canonical local endpoint guidance documents credential rotation", async () => {
   const localGuide = await readFile("docs/local-endpoints.md", "utf8");
 

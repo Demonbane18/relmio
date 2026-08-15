@@ -7,29 +7,31 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.7.0] - 2026-08-16
+
 ### Added
 
-- Add a same-origin local wizard chatbot that tests the experimental Chat
-  Adapter through an ephemeral encrypted credential session, plus sample Chat
-  Adapter and raw Codex App Server test commands.
-- Add generated hosted documentation routes for getting started, local
-  endpoints, VPS and n8n, troubleshooting, FAQ, security, and reference guides.
+- Add an encrypted in-wizard tester for the experimental Chat Adapter, plus
+  safe sample Chat Adapter and Codex App Server commands for local testing.
+- Add generated hosted guides for getting started, local endpoints, VPS and
+  n8n, troubleshooting, FAQ, security, and reference information.
 
 ### Changed
 
-- Distill the root and npm READMEs into product, installation, security, and
-  common-problem overviews that link to repository-authored hosted guides.
-- Clarify across the READMEs, hosted install page, and canonical docs that
-  ChatGPT/Codex sign-in tokens refresh during active use, that the official
-  documentation publishes no fixed 10-day lifetime, and that the provider
-  credential is separate from Relmio's rotatable client capability.
+- Synchronize concise root and npm READMEs around product, installation,
+  security, and common-problem overviews that link to hosted guides.
+- Fact-check ChatGPT/Codex token-refresh guidance across documentation: tokens
+  refresh during active use, the official documentation specifies no fixed
+  10-day lifetime, and the provider credential remains distinct from Relmio's
+  rotatable client capability.
 
 ### Security
 
-- Accept tester destinations only as literal loopback HTTP addresses, keep
-  tester private keys in memory for a bounded lifetime, encrypt the entered
-  credential before it crosses the browser boundary, and erase or abort tester
-  sessions when forgotten, rotated, or shut down.
+- Limit tester destinations to literal loopback HTTP addresses, retain private
+  keys only in memory for a bounded lifetime, encrypt entered credentials
+  before they cross the browser boundary, require POST after a completed Chat
+  Adapter install, keep sample bearer values out of process arguments, and
+  erase or abort sessions when forgotten, rotated, or shut down.
 
 ## [0.6.0] - 2026-08-15
 
