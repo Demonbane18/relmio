@@ -1,18 +1,20 @@
 # Local Docker endpoints
 
 Relmio can install a provider endpoint in Docker on the same computer as your
-app. The local installer is deliberately split into two protocols with two
-different authentication methods:
+app. The local installer keeps three explicit client contracts across two
+different provider authentication methods:
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|
 | **OpenAI API: compatible clients** | OpenAI-compatible HTTP under `/v1` | Server-side OpenAI Platform API key only | A private local app, SDK, or same-owner development web app |
 | **Codex with ChatGPT: agent clients** | Official Codex App Server JSON-RPC over WebSocket | ChatGPT sign-in through Codex | A trusted native Codex/App Server client owned by the same person |
+| **Codex Chat Adapter: development backends** | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in through Codex | A trusted local backend or development server owned by the same person |
 
 Relmio does not exchange or translate a ChatGPT OAuth/session credential into
-an OpenAI-compatible `/v1` bearer credential. The Codex option keeps Codex's
-thread, turn, approval, and streamed-event semantics instead of pretending to
-be the OpenAI API.
+an OpenAI-compatible `/v1` bearer credential. The native Codex option keeps
+Codex's thread, turn, approval, and streamed-event semantics. The adapter
+translates only a small Relmio-owned `/chat` contract into that official
+protocol; it does not imitate the OpenAI API.
 
 This is a documentation-backed engineering boundary, not legal advice or a
 guarantee that a particular account or use case is permitted. Review the
@@ -24,10 +26,11 @@ agreements and policies that apply to your account.
   this release depends on POSIX owner-only directory and file permissions for
   local credentials.
 - Docker Engine or Docker Desktop with Docker Compose v2 on the local computer
-- A free loopback port (`12435` by default for OpenAI API or `14500` for Codex)
+- A free loopback port (`12435` for OpenAI API, `14500` for native Codex,
+  or `14501` for the Codex Chat Adapter by default)
 - One of these provider credentials:
   - an OpenAI Platform API key for the OpenAI-compatible endpoint; or
-  - a ChatGPT account eligible for Codex for the App Server endpoint
+  - a ChatGPT account eligible for Codex for either Codex target
 - A trusted local app that can keep the Relmio capability secret
 
 The local path does not need a VPS or SSH access and does not modify the
@@ -45,8 +48,8 @@ project on the local computer.
 
 2. Open the one-time local wizard URL printed in the terminal and choose
    **Local endpoints**.
-3. Choose **OpenAI API: compatible clients** or **Codex with ChatGPT: agent
-   clients**.
+3. Choose **OpenAI API: compatible clients**, **Codex with ChatGPT: agent
+   clients**, or **Codex Chat Adapter: development backends**.
 4. Keep the default port or select another unused local port. For the OpenAI
    API option, add any browser origins that must be allowed and enter your
    Platform API key.
@@ -64,6 +67,7 @@ inside its managed path. Its local files live under:
 ```text
 ~/.relmio/local/openai-api
 ~/.relmio/local/codex-chatgpt
+~/.relmio/local/codex-chat
 ```
 
 Advanced or test environments can set `RELMIO_HOME` before starting the
@@ -81,8 +85,9 @@ To replace only the credential used by your local client, select **Rotate client
 credential** on the installed endpoint's Ready screen. Relmio first stages and
 shows the new one-time capability while the previous capability remains active.
 It then updates and validates the managed Compose configuration, recreates only
-the attested service, and verifies the new bearer against `/v1/models` or the
-authenticated Codex WebSocket handshake before reporting success.
+the attested service, and verifies the new bearer against `/v1/models`, the
+authenticated Codex WebSocket handshake, or the adapter's authenticated probe
+before reporting success.
 
 This client-only rotation preserves the upstream Platform API key in its private
 named volume and preserves the Codex home and workspace volumes. If activation
@@ -97,8 +102,8 @@ managed update. Relmio verifies the marker and Docker resource ownership and
 reuses the installation's unique Compose identity. For `openai-api`, provide the
 current or replacement Platform API key during that full update; Relmio reseeds
 its private named volume independently from the local client capability. A full
-`codex-chatgpt` update retains the private Codex home and workspace volumes unless
-you explicitly delete them.
+`codex-chatgpt` or `codex-chat` update retains the private Codex home and
+workspace volumes unless you explicitly delete them.
 
 Do not hand-edit the marker, Compose file, credential volume, or verifier. If
 the marker or resource labels do not attest as one Relmio installation, the
@@ -205,9 +210,61 @@ workspace and credential volume. The service receives no host directory,
 Docker socket, SSH key, browser profile, or host home-directory mount. This
 reduces host exposure; it does not make an untrusted App Server client safe.
 
+## Codex Chat Adapter: development backends
+
+The adapter result screen provides:
+
+```text
+Endpoint: http://127.0.0.1:14501
+Authorization: Bearer <the Relmio capability shown once by the wizard>
+Protocol: Relmio Codex Chat HTTP
+```
+
+After completing the same official Codex device-code sign-in, a local backend
+can start a conversation with:
+
+```bash
+export RELMIO_CODEX_CHAT_KEY="<capability shown once by the wizard>"
+curl http://127.0.0.1:14501/chat \
+  -H "Authorization: Bearer $RELMIO_CODEX_CHAT_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"input":"Reply with a short hello."}'
+```
+
+The response contains only the App Server thread ID and final conversational
+text:
+
+```json
+{
+  "conversationId": "thread-id-from-the-first-response",
+  "output": "Hello!"
+}
+```
+
+Send that `conversationId` with the next `input` to continue the same
+conversation. The adapter initializes the official App Server, starts or
+resumes the thread, runs a read-only conversational turn, and returns the
+authoritative final agent message. The model sandbox has no network access and
+uses a root-deny filesystem policy that reads only Codex's minimal runtime
+paths and the empty private workspace. It explicitly denies
+`/home/node/.codex`, the private volume containing the ChatGPT session.
+
+This route is deliberately not `/v1/chat/completions` or `/v1/responses`.
+OpenAI SDKs and tools that require those schemas still need the Platform-backed
+OpenAI API target. The adapter rejects every request carrying an `Origin`
+header and sends no CORS permission, so browser JavaScript must not call it
+directly. Keep the bearer in a trusted local backend or development server and
+let the browser call that server's own session-aware route.
+
+The adapter is experimental because it depends on the experimental App Server
+interface. It is loopback-only, single-owner development tooling, not a hosted,
+LAN, multi-user, or production service. It enforces bounded request bodies,
+output, concurrency, process lifetime, and sanitized failures, but those
+controls do not create a general-purpose API entitlement.
+
 ## Network and container boundary
 
-Both local Compose projects publish exactly one host mapping:
+Every local Compose project publishes exactly one host mapping:
 
 ```text
 127.0.0.1:<selected-port>:<container-port>
@@ -216,12 +273,13 @@ Both local Compose projects publish exactly one host mapping:
 They are not available through the computer's LAN address. Each long-running
 service runs as a non-root user, drops Linux capabilities, sets
 `no-new-privileges`, uses a read-only root filesystem, and has bounded
-temporary storage and resource limits. Neither service mounts the Docker
+temporary storage and resource limits. None of the services mounts the Docker
 socket or a general host directory. The one-shot OpenAI seed helper has no
 network, port, or logs and retains only `CHOWN` while running as root long
 enough to atomically set ownership on the volume entry.
 The OpenAI gateway receives only its private API-key named volume, mounted
-read-only; Codex receives no host path and uses separate private named volumes.
+read-only; both Codex targets receive no host path and use target-specific
+private named volumes.
 
 The loopback binding and capability are complementary controls. Other
 processes running as the same local user may still be able to reach a loopback
@@ -244,7 +302,8 @@ literal values only after confirming all of these conditions:
 In every example, manually replace each angle-bracket placeholder with the
 already-validated literal. Do not use `eval`, source the JSON, or construct a
 Docker command from unvalidated marker text. The only valid service name is
-`gateway` for `openai-api` or `codex` for `codex-chatgpt`.
+`gateway` for `openai-api`, `codex` for `codex-chatgpt`, or `codex-chat`
+for `codex-chat`.
 
 ### Recover from a failed install
 
@@ -285,7 +344,7 @@ service:
 docker --host <dockerHost> compose \
   --project-name <projectName> \
   --file <absolute-managed-compose> \
-  rm --stop --force <gateway-or-codex>
+  rm --stop --force <gateway-or-codex-or-codex-chat>
 ```
 
 This recovery command does not target other services, remove the project
@@ -344,7 +403,8 @@ docker --host <dockerHost> compose \
 `--volumes` irreversibly deletes the managed Codex home and workspace volumes,
 including the container's ChatGPT credentials. After Docker confirms the
 matching resources are gone, you may remove only the exact
-`~/.relmio/local/codex-chatgpt` managed directory through your file manager.
+`~/.relmio/local/codex-chatgpt` or `~/.relmio/local/codex-chat` managed
+directory for the target you verified through your file manager.
 
 ## Troubleshooting
 
@@ -358,8 +418,9 @@ matching resources are gone, you may remove only the exact
 - **Browser request rejected:** enter the exact page origin, including scheme
   and port, then update the managed endpoint. Wildcards are intentionally not
   supported.
-- **Browser cannot connect to Codex:** this is expected. App Server's raw
-  WebSocket is for trusted native clients, not browser-origin connections.
+- **Browser cannot connect to Codex:** this is expected. Both Codex targets
+  reject browser-origin requests. Use the raw App Server from a trusted native
+  client or keep the Chat Adapter bearer in a local backend.
 - **Codex reports signed out:** repeat the device-code sign-in in the local
   wizard. Never copy a Codex credential file between users.
 - **Native Windows:** this local Docker feature is unsupported. Run Relmio in a
@@ -373,6 +434,7 @@ credentials and Codex/ChatGPT authentication:
 
 - [OpenAI API authentication](https://developers.openai.com/api/reference/overview#authentication)
 - [Codex authentication](https://learn.chatgpt.com/docs/auth)
+- [Codex permission profiles](https://learn.chatgpt.com/docs/permissions)
 - [Codex App Server protocol and WebSocket limitations](https://learn.chatgpt.com/docs/app-server)
 - [Codex for Open Source program terms](https://learn.chatgpt.com/docs/codex-for-oss-terms)
 

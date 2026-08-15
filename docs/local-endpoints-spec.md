@@ -2,7 +2,8 @@
 
 ## Status
 
-Approved for implementation on `codex/local-openai-endpoint` on 2026-08-13.
+Originally approved on 2026-08-13 and extended for the additive
+`codex/local-codex-chat-adapter` target on 2026-08-15.
 
 This spec is product and engineering guidance based on the current official
 OpenAI documentation. It is not a legal opinion. Relmio must not claim that
@@ -13,16 +14,19 @@ OpenAI has endorsed, certified, or pre-approved the project.
 Add a local Docker installation path to the Relmio browser wizard without
 weakening the existing VPS/n8n safety boundary.
 
-Relmio offers two intentionally different local providers:
+Relmio offers three intentionally different local client contracts:
 
 1. `openai-api` is an OpenAI-compatible HTTP gateway backed by the user's
    OpenAI Platform API key.
 2. `codex-chatgpt` is the official Codex App Server protocol backed by the
    user's ChatGPT/Codex sign-in.
+3. `codex-chat` is a small Relmio-specific HTTP chat adapter backed by the
+   same official App Server lifecycle and ChatGPT/Codex sign-in.
 
 Relmio must never exchange, translate, or present a ChatGPT/Codex credential as
-a general OpenAI API bearer credential. The Codex provider must not expose an
-OpenAI-shaped `/v1` compatibility surface.
+a general OpenAI API bearer credential. Neither Codex target may expose an
+OpenAI-shaped `/v1` compatibility surface. The adapter owns only its narrow
+`POST /chat` contract.
 
 ## Official-source boundary
 
@@ -53,7 +57,7 @@ The existing VPS/n8n wizard remains a separate legacy setup path. The wizard
 landing experience adds a prominent **Local endpoints** option which opens a
 dedicated local installer.
 
-The local installer starts with two provider cards:
+The local installer starts with three provider cards:
 
 ### OpenAI API
 
@@ -81,7 +85,21 @@ The local installer starts with two provider cards:
   - An explicit statement that this is Codex JSON-RPC, not OpenAI `/v1`
   - An explicit experimental/non-production notice
 
-Both flows show a review screen and require a final confirmation before any
+### Codex Chat Adapter
+
+- Label: **Codex Chat Adapter — development backends**
+- Default HTTP port: `14501`
+- Uses the same pinned official Codex CLI and official device-code sign-in.
+- Result:
+  - Endpoint: `http://127.0.0.1:<port>`
+  - A newly generated Relmio bearer token, displayed once
+  - A device-code sign-in action
+  - An explicit server-side-only statement
+  - An explicit statement that `POST /chat` is Relmio-specific, not OpenAI
+    `/v1`
+  - An explicit experimental/non-production notice
+
+All three flows show a review screen and require a final confirmation before any
 filesystem or Docker write.
 
 This release supports macOS, Linux, and Linux under WSL2. Native Windows is
@@ -143,7 +161,9 @@ is released in a `finally` path after both success and failure.
 ### `POST /api/local/codex/login`
 
 Starts an official Codex App Server device-code login through a one-shot stdio
-App Server process attached to the same persistent Codex home volume.
+App Server process attached to the selected Codex target's persistent home
+volume. The request identifies either `codex-chatgpt` or `codex-chat`;
+every other target is rejected before process construction.
 
 Every login attempt resolves the managed Codex directory and attests its
 schema-2 marker and matching Docker resources, even in a fresh wizard process.
@@ -249,12 +269,77 @@ The host mapping is exactly `127.0.0.1:<selected-port>:4500`.
   The capability is therefore password-equivalent and limited to a trusted,
   same-owner native client.
 
+## Codex Chat Adapter contract
+
+The adapter container starts a dependency-free Node HTTP service and launches
+the pinned official `codex app-server --strict-config --stdio` process only
+for a bounded chat operation. It uses the target's private Codex home and
+workspace volumes and never exposes the App Server transport on the host.
+
+### Listener and authentication
+
+- Container listener: `0.0.0.0:14501`
+- Host publication: `127.0.0.1:<selected-port>:14501`
+- `GET /health` is the only unauthenticated, non-forwarding route.
+- Every route except `GET /health` requires exactly one
+  `Authorization: Bearer <Relmio capability>` header.
+- Only the SHA-256 verifier is persisted and comparison is constant-time.
+- Requests with an `Origin` header are rejected and no CORS permission is
+  emitted.
+
+### Request and response
+
+The accepted JSON object contains only:
+
+```json
+{
+  "input": "Required nonempty conversational input",
+  "conversationId": "Optional App Server thread ID"
+}
+```
+
+The successful response contains only:
+
+```json
+{
+  "conversationId": "The started or resumed thread ID",
+  "output": "The authoritative final agent message"
+}
+```
+
+The adapter performs `initialize`, `initialized`, `thread/start` or
+`thread/resume`, and `turn/start`. The turn is constrained to the empty
+private workspace with a read-only sandbox. Its filesystem policy denies root
+by default, permits only Codex's minimal runtime paths and `/workspace`, and
+explicitly denies `/home/node/.codex`; turn network access is disabled. The
+instruction not to inspect or modify files, run commands, call tools, or access
+external resources remains defense in depth, not the credential boundary.
+`item/completed` agent-message text is authoritative; bounded deltas are kept
+separate by `itemId`, with only the most recent item's text used as a
+compatibility fallback. Success requires `turn/completed` with
+`status: completed`.
+
+### Resource and failure bounds
+
+- Header, body, input, conversation ID, stdout, stderr, line, and output sizes
+  are bounded.
+- Concurrent chats, turn duration, child-process termination grace, and the
+  final wait for an unreaped process are bounded. The concurrency slot remains
+  occupied until the helper closes or that final bound expires.
+- Client disconnect, timeout, malformed protocol, overflow, and failed turns
+  terminate the helper.
+- HTTP errors are generic and never include App Server output, process errors,
+  ChatGPT credentials, or stderr.
+- Installation and credential rotation verify readiness/authentication without
+  starting a model turn or requiring sign-in before the device-code step.
+
 ## Local filesystem and process boundary
 
 Managed roots:
 
 - `~/.relmio/local/openai-api`
 - `~/.relmio/local/codex-chatgpt`
+- `~/.relmio/local/codex-chat`
 
 `RELMIO_HOME` may replace `~/.relmio` for testing or advanced use, but it must
 be an absolute path whose final component is `.relmio`.
@@ -282,7 +367,7 @@ Controls:
 
 ## Container hardening
 
-Both long-running endpoint services:
+All three long-running endpoint services:
 
 - run as a non-root user;
 - set `no-new-privileges`;
@@ -326,26 +411,29 @@ gateway; it is removed immediately after seeding.
 | LAN/public exposure | literal `127.0.0.1` Compose binding plus template and runtime inspection tests |
 | Local cross-site request | bearer capability, exact Origin allowlist, strict preflight, Host validation |
 | Upstream key disclosure | separate local/upstream credentials, stdin-seeded private named volume, redacted errors, no body logging |
-| ChatGPT token repurposing | official App Server only; no `/v1` adapter for Codex |
+| ChatGPT token repurposing | official App Server lifecycle only; the adapter is Relmio-specific and exposes no `/v1` route |
 | Command injection | validated scalar values, spawn argument arrays, no shell |
 | Managed-path takeover | refuse unmanaged roots and every symlinked component |
 | Streaming resource exhaustion | header/body/concurrency/time bounds and backpressure |
 | Docker privilege compromise | document Docker control as a privileged local boundary; mount no Docker socket into services |
 | Secret recovery from UI | show capabilities once; never use browser storage; rotate on reinstall |
-| Codex capability compromise | explicit credential-equivalent warning; trusted same-owner native clients only; private container volumes and no host mounts |
+| Codex capability compromise | explicit trust warning; target-specific least-privilege interfaces, private container volumes, no host mounts, and server-side-only adapter use |
+| Model-induced credential read | root-deny model filesystem profile, minimal runtime read allowlist, explicit `/home/node/.codex` deny, empty private workspace, and no turn network access |
 
 ## Acceptance criteria
 
-- The browser wizard visibly offers both local providers and the legacy VPS
+- The browser wizard visibly offers all three local contracts and the legacy VPS
   path remains separate.
-- Platform keys are accepted only by `openai-api`; ChatGPT auth is accepted only
-  by official App Server.
+- Platform keys are accepted only by `openai-api`; both Codex targets use only
+  official App Server-backed ChatGPT authentication.
 - Generated Compose files publish only literal loopback bindings.
 - Every non-health gateway operation that can reach OpenAI and every App Server
   WebSocket handshake is capability-authenticated; exact-origin CORS preflight
   is a non-forwarding metadata exception.
 - Gateway unit/integration tests cover auth, origins, Host validation,
   streaming, cancellation, upstream errors, and secret redaction.
+- Adapter tests cover auth, Origin rejection, request/protocol validation,
+  process cleanup, bounds, concurrency, final-output selection, and redaction.
 - Local installer tests prove confirmation, unmanaged-root refusal, symlink
   refusal, port collision behavior, exact Docker arguments, file modes, and
   absence of n8n commands.

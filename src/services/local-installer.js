@@ -6,6 +6,10 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import {
   createCodexComposeFile,
+  createCodexChatComposeFile,
+  createCodexChatConfig,
+  createCodexChatDockerfile,
+  createCodexChatRequirements,
   createCodexConfig,
   createCodexDockerfile,
   createCodexRequirements,
@@ -38,6 +42,11 @@ const PROJECTS = Object.freeze({
     projectPrefix: "relmio-codex-chatgpt",
     serviceName: "codex",
     containerPort: 4_500,
+  }),
+  "codex-chat": Object.freeze({
+    projectPrefix: "relmio-codex-chat",
+    serviceName: "codex-chat",
+    containerPort: 14_501,
   }),
 });
 const DOCKER_SELECTION_VARIABLES = Object.freeze([
@@ -613,10 +622,9 @@ function replaceClientCredentialVerifier({ target, composeFile, tokenSha256 }) {
     throw new Error("The managed local endpoint configuration is invalid.");
   }
 
-  const pattern =
-    target === "openai-api"
-      ? /^([ \t]*RELMIO_GATEWAY_TOKEN_SHA256:[ \t]*)[a-f0-9]{64}([ \t]*)$/gmu
-      : /^([ \t]*-[ \t]+--ws-token-sha256[ \t]*\n[ \t]*-[ \t]+)[a-f0-9]{64}([ \t]*)$/gmu;
+  const pattern = target === "openai-api" || target === "codex-chat"
+    ? /^([ \t]*RELMIO_GATEWAY_TOKEN_SHA256:[ \t]*)[a-f0-9]{64}([ \t]*)$/gmu
+    : /^([ \t]*-[ \t]+--ws-token-sha256[ \t]*\n[ \t]*-[ \t]+)[a-f0-9]{64}([ \t]*)$/gmu;
   const matches = [...composeFile.matchAll(pattern)];
   if (matches.length !== 1) {
     throw new Error("The managed local endpoint configuration is invalid.");
@@ -745,30 +753,34 @@ export async function getLocalDockerStatus({
 }
 
 export async function restartLocalCodex(
-  { installDirectory },
+  { installDirectory, target = "codex-chatgpt" },
   dependencies = {},
 ) {
+  const safeTarget = validateLocalTarget(target);
+  if (safeTarget !== "codex-chatgpt" && safeTarget !== "codex-chat") {
+    throw new TypeError("The Codex login target is invalid.");
+  }
   const runProcess = dependencies.runProcess ?? runLocalProcess;
   const releaseLock = dependencies.changeLockHeld === true
     ? async () => {}
     : await acquireLocalProjectLock(
-        { installRoot: installDirectory, target: "codex-chatgpt" },
+        { installRoot: installDirectory, target: safeTarget },
         dependencies,
       );
   try {
   const attested = await attestLocalCodexInstallation(
-    { installDirectory },
+    { installDirectory, target: safeTarget },
     dependencies,
   );
 
   await runOrThrow(runProcess, {
     label: "Codex credential reload",
     file: "docker",
-    args: createComposeArgs("codex-chatgpt", attested.projectName, [
+    args: createComposeArgs(safeTarget, attested.projectName, [
       "restart",
       "--timeout",
       "10",
-      "codex",
+      PROJECTS[safeTarget].serviceName,
     ]),
     cwd: installDirectory,
     dockerHost: attested.dockerHost,
@@ -776,14 +788,14 @@ export async function restartLocalCodex(
   await runOrThrow(runProcess, {
     label: "Codex readiness wait",
     file: "docker",
-    args: createComposeArgs("codex-chatgpt", attested.projectName, [
+    args: createComposeArgs(safeTarget, attested.projectName, [
       "up",
       "-d",
       "--wait",
       "--wait-timeout",
       "90",
       "--no-deps",
-      "codex",
+      PROJECTS[safeTarget].serviceName,
     ]),
     cwd: installDirectory,
     dockerHost: attested.dockerHost,
@@ -1111,7 +1123,7 @@ function parseModelIds(value) {
 }
 
 async function verifyHttpEndpoint({ plan, clientCredential, fetchImpl }) {
-  const healthPath = plan.target === "openai-api" ? "/health" : "/readyz";
+  const healthPath = plan.target === "codex-chatgpt" ? "/readyz" : "/health";
   const httpEndpoint = `http://127.0.0.1:${plan.port}${healthPath}`;
   let health;
   try {
@@ -1124,6 +1136,29 @@ async function verifyHttpEndpoint({ plan, clientCredential, fetchImpl }) {
   }
   if (!health.ok) {
     throw new Error("The local endpoint did not pass its readiness check.");
+  }
+
+  if (plan.target === "codex-chat" && clientCredential !== undefined) {
+    let verification;
+    try {
+      verification = await fetchImpl(
+        `http://127.0.0.1:${plan.port}/auth/verify`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${clientCredential}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+    } catch {
+      throw new Error(
+        "The Codex Chat client credential could not be verified.",
+      );
+    }
+    if (!verification.ok) {
+      throw new Error(
+        "The Codex Chat client credential could not be verified.",
+      );
+    }
   }
 
   if (plan.target !== "openai-api" || clientCredential === undefined) {
@@ -1275,6 +1310,13 @@ async function defaultReadGatewaySource() {
   );
 }
 
+async function defaultReadCodexChatSource() {
+  return defaultFileSystem.readFile(
+    new URL("../gateway/codex-chat.js", import.meta.url),
+    "utf8",
+  );
+}
+
 async function attestManagedLocalEndpoint(
   { target, installDirectory, missingMessage, notRunningMessage },
   {
@@ -1334,12 +1376,16 @@ async function attestManagedLocalEndpoint(
 }
 
 export async function attestLocalCodexInstallation(
-  { installDirectory },
+  { installDirectory, target = "codex-chatgpt" },
   dependencies = {},
 ) {
+  const safeTarget = validateLocalTarget(target);
+  if (safeTarget !== "codex-chatgpt" && safeTarget !== "codex-chat") {
+    throw new TypeError("The Codex login target is invalid.");
+  }
   const attested = await attestManagedLocalEndpoint(
     {
-      target: "codex-chatgpt",
+      target: safeTarget,
       installDirectory,
       missingMessage: "Install the local Codex endpoint before signing in.",
       notRunningMessage: "The managed local Codex endpoint is not running.",
@@ -1611,6 +1657,7 @@ export async function installLocalEndpoint(
     randomBytes = createRandomBytes,
     isPortAvailable = isLoopbackPortAvailable,
     readGatewaySource = defaultReadGatewaySource,
+    readCodexChatSource = defaultReadCodexChatSource,
     fetchImpl = fetch,
     verifyCodexCapability = verifyCodexWebSocketCapability,
     platform = process.platform,
@@ -1725,6 +1772,39 @@ export async function installLocalEndpoint(
       fileSystem,
       join(installRoot, "gateway.mjs"),
       gatewaySource,
+      0o600,
+    );
+  } else if (normalizedPlan.target === "codex-chat") {
+    const gatewaySource = await readCodexChatSource();
+    if (
+      typeof gatewaySource !== "string" ||
+      gatewaySource.length === 0 ||
+      gatewaySource.length > 512 * 1024
+    ) {
+      throw new Error("The packaged Codex Chat runtime is invalid.");
+    }
+    dockerfile = createCodexChatDockerfile();
+    composeFile = createCodexChatComposeFile({
+      port: normalizedPlan.port,
+      tokenSha256,
+      installId,
+    });
+    await writeManagedFile(
+      fileSystem,
+      join(installRoot, "gateway.mjs"),
+      gatewaySource,
+      0o600,
+    );
+    await writeManagedFile(
+      fileSystem,
+      join(installRoot, "config.toml"),
+      createCodexChatConfig(),
+      0o600,
+    );
+    await writeManagedFile(
+      fileSystem,
+      join(installRoot, "requirements.toml"),
+      createCodexChatRequirements(),
       0o600,
     );
   } else {

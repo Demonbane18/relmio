@@ -4,6 +4,10 @@ import test from "node:test";
 import {
   CODEX_CLI_VERSION,
   LOCAL_TARGETS,
+  createCodexChatComposeFile,
+  createCodexChatConfig,
+  createCodexChatDockerfile,
+  createCodexChatRequirements,
   createCodexComposeFile,
   createCodexConfig,
   createCodexDockerfile,
@@ -23,9 +27,10 @@ import {
 const verifier = "a".repeat(64);
 const installId = "b".repeat(32);
 
-test("local endpoint validation accepts the two explicit provider contracts", () => {
+test("local endpoint validation accepts the explicit provider contracts", () => {
   assert.equal(validateLocalTarget("openai-api"), "openai-api");
   assert.equal(validateLocalTarget("codex-chatgpt"), "codex-chatgpt");
+  assert.equal(validateLocalTarget("codex-chat"), "codex-chat");
   assert.equal(validateLocalPort("12435"), 12435);
   assert.equal(
     validatePlatformApiKey(`sk-${"a".repeat(48)}`),
@@ -143,6 +148,65 @@ test("Codex deployment plan preserves official App Server semantics", () => {
   });
 });
 
+test("Codex Chat has its own loopback HTTP contract and hardened adapter image", () => {
+  const plan = createLocalDeploymentPlan({ target: "codex-chat", port: 14501 });
+  assert.deepEqual(plan, {
+    target: "codex-chat",
+    label: "Codex Chat Adapter",
+    bindHost: "127.0.0.1",
+    port: 14501,
+    endpoint: "http://127.0.0.1:14501",
+    protocol: "relmio-codex-chat-http",
+    upstreamAuth: "chatgpt-via-codex",
+    allowedOrigins: [],
+    browserClients: false,
+    experimental: true,
+    managedPath: "~/.relmio/local/codex-chat",
+  });
+
+  const dockerfile = createCodexChatDockerfile();
+  const config = createCodexChatConfig();
+  const requirements = createCodexChatRequirements();
+  const compose = createCodexChatComposeFile({
+    port: 14501,
+    tokenSha256: verifier,
+    installId,
+  });
+  assert.match(dockerfile, /@openai\/codex@0\.147\.0/);
+  assert.match(dockerfile, /COPY --chown=node:node gateway\.mjs/);
+  assert.match(dockerfile, /ENTRYPOINT \["node", "\/app\/gateway\.mjs"\]/);
+  assert.match(config, /^approval_policy = "never"$/mu);
+  assert.match(config, /^default_permissions = "relmio-chat-readonly"$/mu);
+  assert.match(
+    config,
+    /^\[permissions\.relmio-chat-readonly\]\nextends = ":read-only"$/mu,
+  );
+  assert.match(config, /^\[permissions\.relmio-chat-readonly\.filesystem\]$/mu);
+  assert.match(config, /^":root" = "deny"$/mu);
+  assert.match(config, /^":minimal" = "read"$/mu);
+  assert.match(config, /^":tmpdir" = "deny"$/mu);
+  assert.match(config, /^":slash_tmp" = "deny"$/mu);
+  assert.match(config, /^"\/workspace" = "read"$/mu);
+  assert.match(config, /^"\/home\/node\/\.codex" = "deny"$/mu);
+  assert.match(requirements, /^allowed_approval_policies = \["never"\]$/mu);
+  assert.match(
+    requirements,
+    /^\[allowed_permission_profiles\]\n"relmio-chat-readonly" = true$/mu,
+  );
+  assert.doesNotMatch(requirements, /allowed_approval_policies = \["on-request"\]/u);
+  assert.match(compose, /127\.0\.0\.1:14501:14501/);
+  assert.match(compose, /RELMIO_GATEWAY_TOKEN_SHA256: a{64}/);
+  assert.match(compose, /RELMIO_GATEWAY_HOST: 0\.0\.0\.0/);
+  assert.match(compose, /RELMIO_GATEWAY_PORT: "14501"/);
+  assert.match(compose, /codex-home:\/home\/node\/\.codex/);
+  assert.match(compose, /codex-workspace:\/workspace/);
+  assert.match(compose, /127\.0\.0\.1:14501\/health/);
+  assert.match(compose, /no-new-privileges:true/);
+  assert.match(compose, /cap_drop:\n\s+- ALL/);
+  assert.match(compose, /read_only: true/);
+  assert.doesNotMatch(compose, /0\.0\.0\.0:14501|:::14501|\/var\/run\/docker\.sock|n8n/i);
+});
+
 test("OpenAI gateway Compose uses a private seeded volume without weakening runtime isolation", () => {
   const compose = createOpenAiGatewayComposeFile({
     port: 12435,
@@ -255,6 +319,8 @@ test("Codex image and config pin the official App Server and ChatGPT login", () 
   assert.match(config, /cli_auth_credentials_store = "file"/);
   assert.match(config, /forced_login_method = "chatgpt"/);
   assert.match(config, /^default_permissions = "relmio-workspace"$/m);
+  assert.doesNotMatch(config, /^":root" = "deny"$/mu);
+  assert.doesNotMatch(config, /\/home\/node\/\.codex/u);
   assert.match(config, /\[permissions\.relmio-workspace\]/);
   assert.match(config, /extends = ":workspace"/);
   assert.match(
@@ -306,6 +372,7 @@ test("Codex Compose isolates the official server behind one loopback binding", (
 
 test("local target metadata remains closed and immutable", () => {
   assert.deepEqual(Object.keys(LOCAL_TARGETS).sort(), [
+    "codex-chat",
     "codex-chatgpt",
     "openai-api",
   ]);

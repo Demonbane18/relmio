@@ -103,6 +103,20 @@ test("local endpoint guides document safe standalone client credential rotation"
   );
 });
 
+test("security guidance distinguishes all three local endpoint trust contracts", async () => {
+  const security = await readFile("docs/security.md", "utf8");
+
+  assert.match(security, /every raw Codex WebSocket[\s\S]*every Codex Chat Adapter route except `GET \/health`/u);
+  assert.match(security, /Chat Adapter rejects every request carrying an `Origin` header/u);
+  assert.match(security, /All three long-running endpoint containers/u);
+  assert.match(security, /Each Codex target receives its own private named/u);
+  assert.match(security, /named read-only permission profile with network[\s\S]*disabled/u);
+  assert.match(security, /trusted local backend or development server/u);
+  assert.match(security, /not[\s\S]*`\/v1\/chat\/completions`[\s\S]*`\/v1\/responses`/u);
+  assert.doesNotMatch(security, /Both long-running endpoint containers/u);
+  assert.doesNotMatch(security, /Do not expose either endpoint/u);
+});
+
 test("beginner documentation states the critical safety and product limits", async () => {
   const files = await Promise.all(
     [

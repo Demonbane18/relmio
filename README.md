@@ -1,7 +1,7 @@
 <div align="center">
   <img src="docs/images/brand/relmio-mark.svg" alt="Relmio logo" width="88">
   <h1>Relmio</h1>
-  <p>Set up private n8n relays, Platform-key OpenAI-compatible local endpoints, and experimental Codex App Server sessions.</p>
+  <p>Set up private n8n relays, Platform-key OpenAI-compatible endpoints, and experimental local Codex chat or App Server sessions.</p>
   <p>
     <a href="#choose-a-setup-path">Get started</a>
     &nbsp;·&nbsp;
@@ -78,8 +78,9 @@ Relmio is a local browser wizard with separate setup paths. Its existing
 VPS/n8n path installs
 [`openai-oauth@2.0.0`](https://github.com/EvanZhouDev/openai-oauth/releases/tag/v2.0.0)
 as a separate Docker sidecar beside a self-hosted n8n instance. Its local
-Docker path can install either an OpenAI-compatible gateway backed by a
-Platform API key or the official Codex App Server backed by ChatGPT sign-in.
+Docker path can install an OpenAI-compatible gateway backed by a Platform API
+key, the official Codex App Server, or a small server-side Codex chat adapter
+backed by ChatGPT sign-in.
 
 The existing n8n image, Compose file, container, and workflows stay untouched.
 
@@ -250,7 +251,8 @@ flowchart LR
 **Available now:** Relmio's existing path signs in locally, verifies a VPS over
 SSH, and deploys a private sidecar beside self-hosted n8n. A separate local
 Docker path offers an OpenAI-compatible endpoint backed only by a Platform API
-key and the official Codex App Server protocol backed by ChatGPT sign-in.
+key, the official Codex App Server protocol, and a deliberately smaller
+Relmio-specific chat adapter backed by ChatGPT sign-in.
 
 **Designed to grow:** the Relmio name, mark, and package are client-neutral
 so later releases can add providers and client types without weakening each
@@ -273,6 +275,14 @@ The existing VPS/n8n wizard remains available from native Windows.
 |---|---|---|---|
 | **OpenAI API: compatible clients** | `http://127.0.0.1:12435/v1` by default | Server-side OpenAI Platform API key only | Private local app, SDK, or same-owner development web app |
 | **Codex with ChatGPT: agent clients** | `ws://127.0.0.1:14500` by default | ChatGPT sign-in through Codex | Trusted native Codex/App Server client |
+| **Codex Chat Adapter: development backends** | `http://127.0.0.1:14501/chat` by default | ChatGPT sign-in through Codex | Trusted local backend or development server |
+
+The Chat Adapter starts each model turn with network access disabled and an
+explicit filesystem policy that permits only Codex's minimal runtime files and
+the empty private workspace. The model-accessible sandbox denies
+`/home/node/.codex`, where the official Codex client keeps its ChatGPT session.
+The adapter bearer must stay in your server-side development environment,
+never browser code.
 
 The OpenAI-compatible `/v1` endpoint is powered only by a Platform API key,
 which the wizard seeds over stdin into a private, labeled Docker volume; it
@@ -292,18 +302,24 @@ and the capability must never be embedded in a public frontend bundle. Platform
 requests use that API project's billing, credits, limits, and permissions, not
 a ChatGPT subscription.
 
-ChatGPT sign-in powers only the official experimental Codex App Server JSON-RPC
-protocol. It does not expose `/v1`, and Relmio never translates a ChatGPT
-OAuth/session token into a general API credential. OpenAI documents the WebSocket transport as
-experimental and unsupported for production, and it rejects browser-origin
-connections. Use it only with a trusted native client owned by the same person.
-Its capability is high-trust because it can operate the signed-in
-Codex session and files inside the isolated container workspace.
+ChatGPT sign-in powers Codex, not the OpenAI Platform API. The native target
+keeps the official experimental App Server JSON-RPC protocol. The separate
+adapter offers only Relmio's `POST /chat` request and returns a conversation ID
+plus final text; it is not `/v1/chat/completions`, `/v1/responses`, or an
+OpenAI SDK replacement. A local backend can keep its Relmio bearer secret while
+a browser calls that backend. Direct browser-origin requests to both Codex
+targets are rejected.
 
-Both services bind exactly to `127.0.0.1`, require the generated capability,
-and mount no host directory or Docker socket. The Codex service gets private
-named credential and workspace volumes. This local path does not connect to a
-VPS or modify n8n.
+OpenAI documents the underlying App Server WebSocket transport as experimental
+and unsupported for production. The raw App Server capability is especially
+high-trust because it can operate the signed-in Codex session and files inside
+the isolated container workspace. Keep either target loopback-only, same-owner,
+and limited to local development.
+
+All three services bind exactly to `127.0.0.1`, require the generated capability,
+and mount no host directory or Docker socket. Each Codex target gets its own
+private named credential and workspace volumes. This local path does not
+connect to a VPS or modify n8n.
 
 Read [Local Docker endpoints](docs/local-endpoints.md) before installing. It
 includes the wizard steps, client settings, exact-origin rules, billing

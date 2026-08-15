@@ -92,8 +92,8 @@
         <section class="intro" aria-labelledby="page-title">
           <h1 id="page-title">Run Relmio on localhost</h1>
           <p class="lede">
-            Choose the official credential path that matches your client. Both
-            options run in a hardened Docker container and bind only to
+            Choose the official credential path that matches your client. All
+            three options run in hardened Docker containers and bind only to
             <code>127.0.0.1</code>.
           </p>
         </section>
@@ -197,6 +197,20 @@
                   Official Codex JSON-RPC over WebSocket, using ChatGPT sign-in.
                   This is not an OpenAI-compatible <code>/v1</code> endpoint and
                   browsers cannot connect directly. Codex App Server WebSocket is experimental and unsupported for production workloads.
+                </span>
+              </span>
+            </label>
+
+            <label class="target-card warning-card">
+              <input type="radio" name="target" value="codex-chat" />
+              <span class="target-card-copy">
+                <strong>Codex Chat Adapter</strong>
+                <span class="target-meta">Experimental · trusted local backends or development servers only</span>
+                <span>
+                  Relmio-specific authenticated <code>POST /chat</code>, backed by
+                  official Codex App Server and ChatGPT sign-in. This is not an
+                  OpenAI-compatible <code>/v1</code> endpoint and browser bundles
+                  must never connect to it.
                 </span>
               </span>
             </label>
@@ -358,8 +372,8 @@
         </div>
 
         <aside id="codex-install-warning" class="high-trust-warning" hidden>
-          <strong>High-trust capability</strong>
-          <p>
+          <strong id="codex-install-warning-title">High-trust capability</strong>
+          <p id="codex-install-warning-detail">
             Anyone holding the generated client credential can control Codex
             inside its isolated container, act through your signed-in ChatGPT
             session, and may be able to recover that container's ChatGPT session
@@ -445,10 +459,8 @@
         </dl>
 
         <aside id="codex-production-warning" class="high-trust-warning" hidden>
-          <strong>Experimental WebSocket transport</strong>
-          <p>
-            Codex App Server WebSocket is experimental and unsupported for production workloads.
-          </p>
+          <strong id="codex-production-warning-title">Experimental Codex integration</strong>
+          <p id="codex-production-warning-detail"></p>
         </aside>
 
         <section id="codex-login" class="codex-login" aria-labelledby="codex-login-title" hidden>

@@ -13,6 +13,8 @@ const VERIFICATION_URL = "https://auth.openai.com/codex/device";
 const LOCAL_DOCKER_HOST = "unix:///var/run/docker.sock";
 const PROJECT_NAME =
   "relmio-codex-chatgpt-0123456789abcdef0123456789abcdef";
+const ADAPTER_PROJECT_NAME =
+  "relmio-codex-chat-0123456789abcdef0123456789abcdef";
 const CHILD_ENVIRONMENT = Object.freeze({
   PATH: "/usr/bin",
   LANG: "C",
@@ -251,6 +253,25 @@ test("startCodexDeviceLogin pins Docker and waits for initialize before starting
   await assertPromisePending(login.completion);
   closeChild(fixture.child, 0);
   assert.deepEqual(await login.completion, { success: true });
+});
+
+test("Codex Chat login overrides the adapter entrypoint without accepting foreign projects", async () => {
+  const fixture = createSpawnFixture();
+  const login = startLogin(fixture, { projectName: ADAPTER_PROJECT_NAME });
+
+  assert.deepEqual(fixture.calls[0].args.slice(-7), [
+    "--no-deps",
+    "--entrypoint",
+    "codex",
+    "codex-chat",
+    "app-server",
+    "--strict-config",
+    "--stdio",
+  ]);
+  emitDeviceResponse(fixture.child);
+  const attempt = await login;
+  attempt.cancel();
+  await assert.rejects(attempt.completion, /cancelled/i);
 });
 
 test("startCodexDeviceLogin rejects unpinned Docker hosts and foreign project identities", async () => {

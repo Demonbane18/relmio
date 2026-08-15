@@ -130,12 +130,63 @@ test("local wizard shows Codex WebSocket production limits before and after inst
   );
   assert.match(
     html,
-    /data-step="4"[\s\S]*id="codex-production-warning"[\s\S]*Codex App Server WebSocket is experimental and unsupported for production workloads/u,
+    /data-step="4"[\s\S]*id="codex-production-warning"[\s\S]*id="codex-production-warning-detail"/u,
   );
   assert.match(
     script,
-    /element\("codex-production-warning"\)\.hidden = isOpenAiApi/u,
+    /Codex App Server WebSocket is experimental and unsupported for production workloads/u,
   );
+});
+
+test("local wizard presents Codex Chat as an experimental server-side HTTP adapter", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+  ]);
+
+  assert.match(html, /name="target" value="codex-chat"/u);
+  assert.match(html, /Codex Chat Adapter/u);
+  assert.match(html, /Relmio-specific authenticated <code>POST \/chat<\/code>/u);
+  assert.match(html, /browser bundles[\s\S]*must never connect/u);
+  assert.match(
+    html,
+    /trusted local backends or development servers only/u,
+  );
+  assert.match(script, /return target === "codex-chat"/u);
+  assert.match(script, /\? "14501"/u);
+  assert.match(script, /Relmio Codex Chat HTTP: POST \/chat/u);
+  assert.match(script, /no CORS/u);
+  assert.match(
+    script,
+    /Credential for trusted local backends or development servers only/u,
+  );
+  assert.match(
+    script,
+    /Experimental Codex Chat Adapter — trusted local backends or development servers only/u,
+  );
+  assert.match(
+    script,
+    /Experimental Chat Adapter — trusted local backends or development servers only/u,
+  );
+  assert.match(
+    script,
+    /Codex Chat Adapter for trusted local backends or development servers verified/u,
+  );
+  assert.match(
+    script,
+    /Keep it only in a trusted local backend or development server; never put it in browser code/u,
+  );
+  assert.match(
+    script,
+    /ready for your trusted local backend or development server/u,
+  );
+  assert.doesNotMatch(script, /trusted server-side (?:app|client)/iu);
+  assert.doesNotMatch(
+    script,
+    /Codex Chat[^\n]*(?:native process)|adapter is for[^\n]*native process/iu,
+  );
+  assert.match(script, /body: \{ target: state\.installedTarget \}/u);
+  assert.match(script, /\["openai-api", "codex-chatgpt", "codex-chat"\]/u);
 });
 
 test("local wizard clearly excludes native Windows", async () => {
@@ -221,6 +272,11 @@ test("local wizard calls only the dedicated local API contract", async () => {
   assert.match(script, /result\.userCode/u);
   assert.match(script, /recover that container's ChatGPT session credential/u);
   assert.match(script, /Treat it like your ChatGPT password/u);
+  assert.match(script, /trusted local backends and development servers only/u);
+  assert.match(
+    script,
+    /Codex Chat Adapter for trusted local backends or development servers verified/u,
+  );
   assert.doesNotMatch(script, /\/api\/oauth\/login/u);
   assert.doesNotMatch(script, /\/api\/install["']/u);
 });
