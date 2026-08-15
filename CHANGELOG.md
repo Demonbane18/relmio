@@ -7,6 +7,8 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.6.0] - 2026-08-15
+
 ### Added
 
 - Add an experimental loopback-only Codex Chat Adapter for trusted local
@@ -16,15 +18,18 @@ checks the registry separately after publication.
 
 ### Changed
 
-- Make Codex device sign-in target-aware so both the native App Server and the
-  chat adapter retain isolated, persistent ChatGPT credentials.
+- Make Codex device sign-in target-aware so the experimental Relmio `/chat`
+  adapter and native App Server retain isolated, persistent ChatGPT credentials;
+  a Platform API key powers neither target and remains reserved for the generic
+  OpenAI-compatible `/v1` endpoint.
 
 ### Security
 
 - Reject browser-origin adapter requests, keep the adapter separate from
-  OpenAI-compatible `/v1` semantics, explicitly deny model turns access to the
-  private Codex credential store, run chat turns read-only without network
-  access, and preserve loopback-only publication plus credential rotation.
+  Platform-key-backed generic OpenAI-compatible `/v1` semantics, explicitly deny
+  model turns access to the private Codex credential store, run chat turns
+  read-only without network access, and preserve loopback-only publication plus
+  credential rotation.
 
 ## [0.5.0] - 2026-08-15
 
