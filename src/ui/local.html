@@ -142,6 +142,13 @@
             hidden
           >
             <span id="global-error-text"></span>
+            <a
+              id="local-image-build-troubleshooting"
+              href="https://relmio.vercel.app/docs/troubleshooting#local-image-build-failed"
+              target="_blank"
+              rel="noopener noreferrer"
+              hidden
+            >View troubleshooting</a>
           </div>
         </div>
       </aside>
@@ -502,6 +509,98 @@
               Waiting for sign-in…
             </p>
           </div>
+        </section>
+
+        <section
+          id="chat-tester"
+          class="chat-tester"
+          aria-labelledby="chat-tester-title"
+          hidden
+        >
+          <div class="chat-tester-heading">
+            <div>
+              <p class="section-label">Local-only tester</p>
+              <h3 id="chat-tester-title">Test this local Chat Adapter</h3>
+              <p>
+                Relmio sends this browser only to its same-origin local wizard.
+                The wizard then calls the literal loopback adapter address.
+              </p>
+            </div>
+            <button
+              id="chat-tester-reset"
+              class="button secondary"
+              type="button"
+            >
+              Forget tester
+            </button>
+          </div>
+
+          <form id="chat-tester-secure-form" class="chat-tester-form">
+            <fieldset>
+              <legend>Secure a temporary test session</legend>
+              <label class="field">
+                <span>Adapter base URL</span>
+                <input
+                  id="chat-tester-endpoint"
+                  type="url"
+                  inputmode="url"
+                  autocomplete="off"
+                  spellcheck="false"
+                  maxlength="64"
+                  placeholder="http://127.0.0.1:14501"
+                  pattern="http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}\/?"
+                  required
+                />
+                <small>Literal <code>http://127.0.0.1:PORT</code> only.</small>
+              </label>
+              <label class="field">
+                <span>Client credential</span>
+                <input
+                  id="chat-tester-credential"
+                  type="password"
+                  autocomplete="off"
+                  autocapitalize="none"
+                  spellcheck="false"
+                  maxlength="512"
+                  required
+                />
+                <small id="chat-tester-security-note">
+                  The field is cleared as soon as you secure it. Encryption prevents accidental transit/storage exposure but not a compromised browser, extension, or local machine.
+                </small>
+              </label>
+            </fieldset>
+            <button id="chat-tester-secure" class="button primary" type="submit">
+              Secure credential for this test
+            </button>
+          </form>
+
+          <form id="chat-tester-message-form" class="chat-tester-message-form" hidden>
+            <label class="field" for="chat-tester-input">
+              <span>Message</span>
+              <textarea
+                id="chat-tester-input"
+                rows="3"
+                maxlength="8192"
+                spellcheck="true"
+                required
+              ></textarea>
+            </label>
+            <button id="chat-tester-send" class="button primary" type="submit">
+              Send test message
+            </button>
+          </form>
+
+          <p id="chat-tester-status" class="chat-tester-status" role="status" aria-live="polite">
+            Secure the local client credential to begin.
+          </p>
+          <p id="chat-tester-error" class="chat-tester-error" role="alert" hidden></p>
+          <ol
+            id="chat-tester-transcript"
+            class="chat-tester-transcript"
+            role="log"
+            aria-live="polite"
+            aria-label="Local adapter test transcript"
+          ></ol>
         </section>
 
         <aside id="client-warning" class="final-note"></aside>

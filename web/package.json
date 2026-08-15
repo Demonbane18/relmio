@@ -9,8 +9,10 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "build:vercel": "next build",
+    "docs:check": "node scripts/generate-docs.mjs --check",
+    "docs:generate": "node scripts/generate-docs.mjs",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "test": "npm run docs:check && npm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit"
   },
@@ -24,7 +26,9 @@
     "lucide-react": "1.28.0",
     "next": "16.2.12",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@astryxdesign/cli": "0.2.0",

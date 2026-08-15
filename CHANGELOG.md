@@ -7,6 +7,26 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Add a same-origin local wizard chatbot that tests the experimental Chat
+  Adapter through an ephemeral encrypted credential session, plus sample Chat
+  Adapter and raw Codex App Server test commands.
+- Add generated hosted documentation routes for getting started, local
+  endpoints, VPS and n8n, troubleshooting, FAQ, security, and reference guides.
+
+### Changed
+
+- Distill the root and npm READMEs into product, installation, security, and
+  common-problem overviews that link to repository-authored hosted guides.
+
+### Security
+
+- Accept tester destinations only as literal loopback HTTP addresses, keep
+  tester private keys in memory for a bounded lifetime, encrypt the entered
+  credential before it crosses the browser boundary, and erase or abort tester
+  sessions when forgotten, rotated, or shut down.
+
 ## [0.6.0] - 2026-08-15
 
 ### Added

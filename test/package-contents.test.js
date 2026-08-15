@@ -24,6 +24,8 @@ const expectedPackedFiles = new Set([
   "package.json",
   "docs/architecture.md",
   "docs/brand.md",
+  "docs/faq.md",
+  "docs/getting-started.md",
   "docs/local-endpoints-spec.md",
   "docs/local-endpoints.md",
   "docs/images/brand/relmio-concept-source.png",
@@ -49,10 +51,12 @@ const expectedPackedFiles = new Set([
   "docs/manual-install.md",
   "docs/n8n-configuration.md",
   "docs/npm-publish.md",
+  "docs/reference.md",
   "docs/roadmap.md",
   "docs/security.md",
   "docs/troubleshooting.md",
   "docs/video-outline.md",
+  "docs/vps-and-n8n.md",
   "scripts/build-npm-package.js",
   "scripts/check-release-metadata.js",
   "scripts/check-syntax.js",
@@ -70,6 +74,7 @@ const expectedPackedFiles = new Set([
   "src/services/codex-login.js",
   "src/services/discovery.js",
   "src/services/installer.js",
+  "src/services/local-chat-test.js",
   "src/services/local-installer.js",
   "src/services/oauth.js",
   "src/ui/app.js",
@@ -220,76 +225,25 @@ test("npm package contains only allowed files and every advertised local script"
   }
 });
 
-test("npm package substitutes a registry-safe README without changing GitHub diagrams", async (t) => {
+test("npm package substitutes the concise registry-safe package README", async (t) => {
   const workspaceDirectory = await mkdtemp(join(tmpdir(), "npm-readme-test-"));
   const stagingDirectory = join(workspaceDirectory, "staging");
   t.after(() => rm(workspaceDirectory, { recursive: true, force: true }));
 
   await stageNpmPackage(stagingDirectory);
 
-  const [githubReadme, npmReadme] = await Promise.all([
-    readFile(join(projectRoot, "README.md"), "utf8"),
+  const [expectedNpmReadme, npmReadme] = await Promise.all([
+    readFile(join(projectRoot, "npm", "README.md"), "utf8"),
     readFile(join(stagingDirectory, "README.md"), "utf8"),
   ]);
 
-  assert.match(githubReadme, /```mermaid/u);
+  assert.equal(npmReadme, expectedNpmReadme);
   assert.doesNotMatch(npmReadme, /```mermaid/u);
-  assert.match(
-    npmReadme,
-    /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/u,
-  );
   assert.match(npmReadme, /npx --yes --ignore-scripts relmio@latest/u);
-  assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\//u);
+  assert.match(npmReadme, /## What it can install/u);
+  assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\/docs\/reference/u);
   assert.doesNotMatch(npmReadme, /relmio\.jpfusin\.tech/u);
-  assert.match(npmReadme, /## Known limitations/u);
-  assert.match(npmReadme, /## Legal/u);
-  assert.match(npmReadme, /### Foundation and attribution/u);
-  assert.match(npmReadme, /openai-oauth.*Evan\s+Zhou\s+Dev/isu);
-  assert.match(npmReadme, /Hosted chat requires the browser extension/u);
-  assert.match(
-    npmReadme,
-    /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/u,
-  );
-  assert.match(npmReadme, /temporarily disable it during local sign-in/u);
-  assert.match(
-    npmReadme,
-    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-mark\.svg/u,
-  );
-  assert.match(
-    npmReadme,
-    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/setup\/05-bridge-ready\.png/u,
-  );
-  assert.match(
-    npmReadme,
-    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/setup\/00-install-methods\.png/u,
-  );
-  assert.match(
-    npmReadme,
-    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/n8n-openai-credential-connected\.png/u,
-  );
-  assert.match(
-    npmReadme,
-    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/telegram-model-results\.png/u,
-  );
-  assert.match(
-    npmReadme,
-    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/telegram-n8n-workflow-execution\.png/u,
-  );
-  assert.match(
-    npmReadme,
-    /https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/examples\/hosted-chat-connected\.png/u,
-  );
-  const koFiSupportBadge =
-    "https://img.shields.io/badge/Ko--fi-support-ff5e5b.svg?logo=ko-fi&logoColor=white";
-  assert.ok(npmReadme.includes(koFiSupportBadge));
-
-  for (const [, source] of npmReadme.matchAll(/<img[^>]+src="([^"]+)"/gu)) {
-    assert.ok(
-      /^https:\/\/cdn\.jsdelivr\.net\/npm\/relmio@latest\//u.test(source) ||
-        source === koFiSupportBadge,
-      `unexpected npm README image source: ${source}`,
-    );
-  }
+  assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
 });
 
 test("npm package builder emits the reviewed Relmio tarball", async (t) => {

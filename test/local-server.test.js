@@ -98,6 +98,93 @@ test("local Docker status exposes the native Windows support boundary", async (t
   });
 });
 
+test("local chat tester APIs keep the setup-token boundary and return no credentials", async (t) => {
+  const received = [];
+  const tester = {
+    async issueKey() {
+      return {
+        keyId: "tester-key-123",
+        publicKeyJwk: { kty: "RSA", n: "public-modulus", e: "AQAB" },
+        algorithm: "RSA-OAEP-256",
+        expiresAt: "2030-01-01T00:00:00.000Z",
+        privateKey: "must-not-leak",
+      };
+    },
+    async message(body) {
+      received.push(body);
+      return {
+        conversationId: "conversation-123",
+        output: "adapter response",
+        credential: "must-not-leak",
+      };
+    },
+    async reset(body) {
+      received.push(body);
+      return { forgotten: true, privateKey: "must-not-leak" };
+    },
+  };
+  const wizard = await startLocalWizard(t, { localChatTest: tester });
+
+  const key = await postJson(wizard, "/api/local/chat-test/key", {});
+  assert.equal(key.status, 200);
+  const keyText = await key.text();
+  assert.equal(keyText.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(keyText), {
+    keyId: "tester-key-123",
+    publicKeyJwk: { kty: "RSA", n: "public-modulus", e: "AQAB" },
+    algorithm: "RSA-OAEP-256",
+    expiresAt: "2030-01-01T00:00:00.000Z",
+  });
+
+  const message = await postJson(wizard, "/api/local/chat-test/message", {
+    endpointBaseUrl: "http://127.0.0.1:14501",
+    keyId: "tester-key-123",
+    encryptedCredential: "ciphertext-only",
+    input: "hello",
+  });
+  assert.equal(message.status, 200);
+  const messageText = await message.text();
+  assert.equal(messageText.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(messageText), {
+    conversationId: "conversation-123",
+    output: "adapter response",
+  });
+
+  const reset = await postJson(wizard, "/api/local/chat-test/reset", {
+    keyId: "tester-key-123",
+  });
+  assert.equal(reset.status, 200);
+  assert.deepEqual(await reset.json(), { forgotten: true });
+  assert.equal(received.length, 2);
+
+  const noToken = await fetch(`${wizard.origin}/api/local/chat-test/key`, {
+    method: "POST",
+    headers: { Origin: wizard.origin, "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(noToken.status, 401);
+
+  const crossOrigin = await fetch(`${wizard.origin}/api/local/chat-test/key`, {
+    method: "POST",
+    headers: {
+      Origin: "http://localhost:3000",
+      "Content-Type": "application/json",
+      "X-Setup-Token": sessionToken,
+    },
+    body: "{}",
+  });
+  assert.equal(crossOrigin.status, 403);
+
+  const preview = await startLocalWizard(
+    t,
+    { localChatTest: tester },
+    { previewMode: true },
+  );
+  const disabled = await postJson(preview, "/api/local/chat-test/key", {});
+  assert.equal(disabled.status, 403);
+  assert.match((await disabled.json()).error, /disabled in sanitized preview mode/iu);
+});
+
 test("local project metadata exposes only the public GitHub star count and package version", async (t) => {
   const wizard = await startLocalWizard(t, {
     async getProjectMeta() {
@@ -225,7 +312,13 @@ test("local Docker status, planning, and installation expose only safe fields", 
 test("local credential rotation is setup-token protected, live-only, rate-limited, and redacts upstream credentials", async (t) => {
   const prepareCalls = [];
   const activationCalls = [];
+  let testerResetCalls = 0;
   const wizard = await startLocalWizard(t, {
+    localChatTest: {
+      resetAll() {
+        testerResetCalls += 1;
+      },
+    },
     async prepareLocalClientCredentialRotation(input) {
       prepareCalls.push(input);
       return {
@@ -318,6 +411,7 @@ test("local credential rotation is setup-token protected, live-only, rate-limite
   assert.match((await limited.json()).error, /too many attempts/iu);
   assert.equal(prepareCalls.length, 10);
   assert.equal(activationCalls.length, 10);
+  assert.equal(testerResetCalls, 20);
 
   const preview = await startLocalWizard(
     t,

@@ -189,6 +189,55 @@ test("local wizard presents Codex Chat as an experimental server-side HTTP adapt
   assert.match(script, /\["openai-api", "codex-chatgpt", "codex-chat"\]/u);
 });
 
+test("Codex Chat ready state provides an in-wizard, ephemeral encrypted chat tester", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  assert.match(html, /id="chat-tester"[^>]*aria-labelledby="chat-tester-title"/u);
+  assert.match(html, /id="chat-tester-title">Test this local Chat Adapter<\/h3>/u);
+  assert.match(html, /id="chat-tester-endpoint"[^>]*placeholder="http:\/\/127\.0\.0\.1:14501"/u);
+  assert.match(html, /id="chat-tester-credential"[^>]*type="password"/u);
+  assert.match(html, /id="chat-tester-transcript"[^>]*role="log"[^>]*aria-live="polite"/u);
+  assert.match(html, /id="chat-tester-status"[^>]*role="status"/u);
+  assert.match(html, /id="chat-tester-error"[^>]*role="alert"/u);
+  assert.match(html, /id="chat-tester-reset"[^>]*>[\s\S]*Forget tester\s*<\/button>/u);
+  assert.match(
+    html,
+    /Encryption prevents accidental transit\/storage exposure but not a compromised browser, extension, or local machine\./u,
+  );
+  assert.match(script, /window\.crypto\.subtle\.importKey/u);
+  assert.match(script, /name: "RSA-OAEP", hash: "SHA-256"/u);
+  assert.match(script, /window\.crypto\.subtle\.encrypt/u);
+  assert.match(script, /clientCredentialInput\.value = "";/u);
+  assert.match(script, /api\("\/api\/local\/chat-test\/key"/u);
+  assert.match(script, /api\("\/api\/local\/chat-test\/message"/u);
+  assert.match(script, /api\("\/api\/local\/chat-test\/reset"/u);
+  assert.match(script, /appendChatTesterTurn/u);
+  assert.match(script, /\.textContent = text/u);
+  assert.doesNotMatch(script, /fetch\(\s*(?:endpointBaseUrl|adapter|chatTester)/u);
+  assert.doesNotMatch(script, /localStorage|sessionStorage|indexedDB|document\.cookie/u);
+  assert.match(css, /\.chat-tester\s*\{/u);
+  assert.match(css, /@media \(max-width: 48rem\)/u);
+});
+
+test("local image build failures reveal only safe guidance and the hosted troubleshooting route", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /id="local-image-build-troubleshooting"[^>]*href="https:\/\/relmio\.vercel\.app\/docs\/troubleshooting#local-image-build-failed"[^>]*>View troubleshooting<\/a>/u,
+  );
+  assert.match(script, /Local image build failed\./u);
+  assert.match(script, /could not build the local image/u);
+  assert.doesNotMatch(script, /Docker stderr|docker stderr/u);
+});
+
 test("local wizard clearly excludes native Windows", async () => {
   const [html, script] = await Promise.all([
     readFile("src/ui/local.html", "utf8"),

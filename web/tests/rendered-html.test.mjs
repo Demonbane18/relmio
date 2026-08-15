@@ -85,6 +85,27 @@ test("server-renders the Relmio product page", async () => {
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 
+test("server-renders canonical generated Markdown documentation routes", async () => {
+  const [indexResponse, troubleshootingResponse] = await Promise.all([
+    requestApp("/docs"),
+    requestApp("/docs/troubleshooting"),
+  ]);
+  assert.equal(indexResponse.status, 200);
+  assert.equal(troubleshootingResponse.status, 200);
+
+  const [indexHtml, troubleshootingHtml] = await Promise.all([
+    indexResponse.text(),
+    troubleshootingResponse.text(),
+  ]);
+  assert.match(indexHtml, /Relmio documentation/u);
+  assert.match(indexHtml, /href="\/docs\/getting-started"/u);
+  assert.match(indexHtml, /aria-label="Documentation navigation"/u);
+  assert.match(troubleshootingHtml, /Generated from <code>docs\/troubleshooting\.md<\/code>/u);
+  assert.match(troubleshootingHtml, /id="local-image-build-failed"/u);
+  assert.match(troubleshootingHtml, /Local image build failed/u);
+  assert.doesNotMatch(troubleshootingHtml, /dangerouslySetInnerHTML|rehype-raw/u);
+});
+
 test("renders a command-first n8n and Hostinger VPS install page", async () => {
   const response = await requestApp("/install");
   assert.equal(response.status, 200);
@@ -212,7 +233,7 @@ test("falls back safely when project metadata is malformed", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     stars: null,
-    version: "0.4.0",
+    version: "0.6.0",
   });
 });
 

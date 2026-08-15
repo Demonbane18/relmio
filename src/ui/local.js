@@ -10,6 +10,14 @@ const state = {
   planId: null,
   plan: null,
   installedTarget: null,
+  chatTester: {
+    conversationId: null,
+    encryptedCredential: null,
+    endpointBaseUrl: null,
+    expiresAt: null,
+    generation: 0,
+    keyId: null,
+  },
 };
 
 const messageBox = element("global-message");
@@ -31,11 +39,16 @@ function setMessage(text) {
 
 function clearError() {
   errorText.textContent = "";
+  element("local-image-build-troubleshooting").hidden = true;
   errorBox.hidden = true;
 }
 
 function showError(error) {
-  errorText.textContent = error?.message ?? "Something went wrong.";
+  const localImageBuildFailed = error?.message === "Local image build failed.";
+  errorText.textContent = localImageBuildFailed
+    ? "Relmio could not build the local image. Check that Docker is running, has enough disk space, and can pull its base image."
+    : error?.message ?? "Something went wrong.";
+  element("local-image-build-troubleshooting").hidden = !localImageBuildFailed;
   errorBox.hidden = false;
   errorBox.focus();
 }
@@ -269,6 +282,10 @@ function renderInstallResult(result) {
   element("result-credential").textContent = result.clientCredential;
   element("codex-production-warning").hidden = openAiApi;
   element("codex-login").hidden = openAiApi;
+  element("chat-tester").hidden = !codexChat;
+  if (codexChat && !state.chatTester.keyId) {
+    element("chat-tester-endpoint").value = result.endpoint;
+  }
   element("codex-production-warning-title").textContent = codexChat
     ? "Experimental Chat Adapter — trusted local backends or development servers only"
     : "Experimental WebSocket transport";
@@ -298,6 +315,114 @@ function renderInstallResult(result) {
         ? "Use this one-time credential only as a Bearer token for the Relmio-specific POST /chat endpoint. It is not an OpenAI API key, has no browser CORS support, and must remain in a trusted local backend or development server."
         : "This capability is not an OpenAI API key. Treat it like your ChatGPT password: the client is trusted to control the isolated container and may recover its ChatGPT session credential. It must speak official Codex App Server JSON-RPC over WebSocket.",
   );
+}
+
+function setChatTesterStatus(text) {
+  element("chat-tester-status").textContent = text;
+}
+
+function clearChatTesterError() {
+  element("chat-tester-error").textContent = "";
+  element("chat-tester-error").hidden = true;
+}
+
+function showChatTesterError(error) {
+  element("chat-tester-error").textContent =
+    error?.message ?? "The local adapter test could not be completed.";
+  element("chat-tester-error").hidden = false;
+}
+
+function appendChatTesterTurn(kind, text) {
+  const item = document.createElement("li");
+  const heading = document.createElement("strong");
+  const content = document.createElement("p");
+  heading.textContent = kind === "user" ? "You" : "Local adapter";
+  content.textContent = text;
+  item.className = `chat-tester-turn chat-tester-turn-${kind}`;
+  item.append(heading, content);
+  element("chat-tester-transcript").append(item);
+}
+
+function clearChatTesterState() {
+  state.chatTester.conversationId = null;
+  state.chatTester.encryptedCredential = null;
+  state.chatTester.endpointBaseUrl = null;
+  state.chatTester.expiresAt = null;
+  state.chatTester.keyId = null;
+  state.chatTester.generation += 1;
+  element("chat-tester-credential").value = "";
+  element("chat-tester-endpoint").value = "";
+  element("chat-tester-input").value = "";
+  element("chat-tester-secure-form").hidden = false;
+  element("chat-tester-message-form").hidden = true;
+  element("chat-tester-transcript").replaceChildren();
+  clearChatTesterError();
+}
+
+function assertChatTesterKey(result) {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    typeof result.keyId !== "string" ||
+    typeof result.expiresAt !== "string" ||
+    result.algorithm !== "RSA-OAEP-256" ||
+    !result.publicKeyJwk ||
+    result.publicKeyJwk.kty !== "RSA" ||
+    typeof result.publicKeyJwk.n !== "string" ||
+    typeof result.publicKeyJwk.e !== "string"
+  ) {
+    throw new Error("The local tester returned an unexpected encryption key.");
+  }
+  return result;
+}
+
+async function encryptChatTesterCredential(publicKeyJwk, clientCredential) {
+  if (!window.crypto?.subtle) {
+    throw new Error("This browser cannot create the required local test encryption key.");
+  }
+  const publicKey = await window.crypto.subtle.importKey(
+    "jwk",
+    publicKeyJwk,
+    { name: "RSA-OAEP", hash: "SHA-256" },
+    false,
+    ["encrypt"],
+  );
+  const encrypted = await window.crypto.subtle.encrypt(
+    { name: "RSA-OAEP" },
+    publicKey,
+    new TextEncoder().encode(clientCredential),
+  );
+  const bytes = new Uint8Array(encrypted);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCodePoint(byte);
+  }
+  return window.btoa(binary);
+}
+
+async function forgetChatTester({ announce = true } = {}) {
+  const keyId = state.chatTester.keyId;
+  clearChatTesterState();
+  if (!keyId) {
+    if (announce) {
+      setChatTesterStatus("The tester is cleared. Secure a credential to begin again.");
+    }
+    return;
+  }
+  try {
+    await api("/api/local/chat-test/reset", {
+      method: "POST",
+      body: { keyId },
+    });
+    if (announce) {
+      setChatTesterStatus("The tester key and transcript were forgotten.");
+    }
+  } catch (error) {
+    if (announce) {
+      showChatTesterError(error);
+      setChatTesterStatus("The browser tester was cleared. The local key will expire shortly.");
+    }
+  }
 }
 
 function validateVerificationUrl(value) {
@@ -519,6 +644,9 @@ element("rotate-credential-button").addEventListener("click", async (event) => {
     "Generating a replacement credential before activating it…",
   );
   try {
+    if (isCodexChat(state.installedTarget)) {
+      await forgetChatTester({ announce: false });
+    }
     const staged = await api("/api/local/client-credential/rotate", {
       method: "POST",
       body: { target: state.installedTarget },
@@ -539,6 +667,140 @@ element("rotate-credential-button").addEventListener("click", async (event) => {
   } catch (error) {
     setMessage("The replacement credential was not confirmed active. Follow the error guidance before retrying.");
     showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("chat-tester-secure-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = element("chat-tester-secure");
+  const resetButton = element("chat-tester-reset");
+  const endpointInput = element("chat-tester-endpoint");
+  const clientCredentialInput = element("chat-tester-credential");
+  if (!form.reportValidity()) {
+    return;
+  }
+
+  clearChatTesterError();
+  let clientCredential = clientCredentialInput.value;
+  clientCredentialInput.value = "";
+  let issuedKey;
+  resetButton.disabled = true;
+  setBusy(button, true, "Securing credential…");
+  setChatTesterStatus("Creating a short-lived local encryption key…");
+  try {
+    issuedKey = assertChatTesterKey(
+      await api("/api/local/chat-test/key", { method: "POST", body: {} }),
+    );
+    const encryptedCredential = await encryptChatTesterCredential(
+      issuedKey.publicKeyJwk,
+      clientCredential,
+    );
+    clientCredential = undefined;
+    state.chatTester.conversationId = null;
+    state.chatTester.encryptedCredential = encryptedCredential;
+    state.chatTester.endpointBaseUrl = endpointInput.value;
+    state.chatTester.expiresAt = issuedKey.expiresAt;
+    state.chatTester.keyId = issuedKey.keyId;
+    element("chat-tester-secure-form").hidden = true;
+    element("chat-tester-message-form").hidden = false;
+    setChatTesterStatus("Temporary test session secured. Send a message before the key expires.");
+    element("chat-tester-input").focus();
+  } catch (error) {
+    clientCredential = undefined;
+    if (issuedKey?.keyId) {
+      try {
+        await api("/api/local/chat-test/reset", {
+          method: "POST",
+          body: { keyId: issuedKey.keyId },
+        });
+      } catch {
+        // The only remaining server material is an expiring private key.
+      }
+    }
+    clearChatTesterState();
+    showChatTesterError(error);
+    setChatTesterStatus("The credential was cleared. Secure it again to retry.");
+  } finally {
+    clientCredential = undefined;
+    clientCredentialInput.value = "";
+    resetButton.disabled = false;
+    setBusy(button, false);
+  }
+});
+
+element("chat-tester-message-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = element("chat-tester-send");
+  const resetButton = element("chat-tester-reset");
+  const input = element("chat-tester-input");
+  if (!form.reportValidity()) {
+    return;
+  }
+  if (
+    !state.chatTester.keyId ||
+    !state.chatTester.encryptedCredential ||
+    !state.chatTester.endpointBaseUrl
+  ) {
+    showChatTesterError(
+      new Error("This test credential has expired or was forgotten. Secure it again."),
+    );
+    return;
+  }
+
+  clearChatTesterError();
+  const text = input.value;
+  const generation = state.chatTester.generation;
+  input.value = "";
+  appendChatTesterTurn("user", text);
+  resetButton.disabled = true;
+  setBusy(button, true, "Waiting for adapter…");
+  setChatTesterStatus("The local wizard is testing the adapter without exposing its credential to the page.");
+  try {
+    const result = await api("/api/local/chat-test/message", {
+      method: "POST",
+      body: {
+        endpointBaseUrl: state.chatTester.endpointBaseUrl,
+        keyId: state.chatTester.keyId,
+        encryptedCredential: state.chatTester.encryptedCredential,
+        input: text,
+        ...(state.chatTester.conversationId
+          ? { conversationId: state.chatTester.conversationId }
+          : {}),
+      },
+    });
+    if (
+      typeof result.conversationId !== "string" ||
+      typeof result.output !== "string"
+    ) {
+      throw new Error("The local adapter returned an unexpected response.");
+    }
+    if (state.chatTester.generation !== generation) {
+      return;
+    }
+    state.chatTester.conversationId = result.conversationId;
+    appendChatTesterTurn("assistant", result.output);
+    setChatTesterStatus("Response received. Continue this conversation or forget the tester.");
+  } catch (error) {
+    if (state.chatTester.generation === generation) {
+      showChatTesterError(error);
+      setChatTesterStatus("No adapter response was added. You can retry or forget this tester.");
+    }
+  } finally {
+    resetButton.disabled = false;
+    setBusy(button, false);
+  }
+});
+
+element("chat-tester-reset").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearChatTesterError();
+  setBusy(button, true, "Forgetting tester…");
+  try {
+    await forgetChatTester();
   } finally {
     setBusy(button, false);
   }
