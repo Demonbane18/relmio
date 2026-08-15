@@ -20,6 +20,16 @@ This is a documentation-backed engineering boundary, not legal advice or a
 guarantee that a particular account or use case is permitted. Review the
 agreements and policies that apply to your account.
 
+## ChatGPT/Codex sign-in lifetime
+
+ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
+them automatically during active use before they expire, so active sessions
+usually continue without another browser login. The official [OpenAI
+authentication documentation](https://learn.chatgpt.com/docs/auth) does not
+publish a fixed 10-day lifetime; do not plan around one. This provider
+credential is separate from Relmio's local capability, which remains valid
+until you rotate it.
+
 ## Requirements
 
 - macOS, Linux, or Linux under WSL2. Native Windows is not supported because
@@ -40,7 +50,8 @@ project on the local computer.
 ## Install with the browser wizard
 
 1. Start Relmio on the computer that will run the endpoint. Use one of the
-   commands in the [README](../README.md#quick-install), or run:
+   commands on the [hosted install page](https://relmio.vercel.app/install),
+   or run:
 
    ```bash
    npx --yes --ignore-scripts relmio@latest
@@ -129,8 +140,9 @@ For a quick private test:
 
 ```bash
 export RELMIO_LOCAL_KEY="<capability shown once by the wizard>"
-curl http://127.0.0.1:12435/v1/models \
-  -H "Authorization: Bearer $RELMIO_LOCAL_KEY"
+printf 'Authorization: Bearer %s\n' "$RELMIO_LOCAL_KEY" |
+  curl http://127.0.0.1:12435/v1/models --header @-
+unset RELMIO_LOCAL_KEY
 ```
 
 The upstream key is passed only over stdin to a transient, network-disabled
@@ -179,12 +191,15 @@ official verification URL, enter the device code, and complete authentication.
 Relmio starts the login through the official Codex App Server account method;
 it never returns the resulting ChatGPT access or refresh tokens.
 
-A compatible Codex CLI can connect like this:
+A compatible Codex CLI can connect like this. Read the capability without
+putting it in the command line:
 
 ```bash
-export CODEX_REMOTE_TOKEN="<capability shown once by the wizard>"
+read -r -s CODEX_REMOTE_TOKEN
+printf '\n'
 codex --remote ws://127.0.0.1:14500 \
   --remote-auth-token-env CODEX_REMOTE_TOKEN
+unset CODEX_REMOTE_TOKEN
 ```
 
 This is not an OpenAI `/v1` endpoint. A client must implement the official
@@ -221,14 +236,19 @@ Protocol: Relmio Codex Chat HTTP
 ```
 
 After completing the same official Codex device-code sign-in, a local backend
-can start a conversation with:
+can start a conversation with. Read the bearer rather than placing it in a
+shell command:
 
 ```bash
-export RELMIO_CODEX_CHAT_KEY="<capability shown once by the wizard>"
-curl http://127.0.0.1:14501/chat \
-  -H "Authorization: Bearer $RELMIO_CODEX_CHAT_KEY" \
-  -H "Content-Type: application/json" \
-  --data '{"input":"Reply with a short hello."}'
+read -r -s RELMIO_CODEX_CHAT_KEY
+printf '\n'
+printf 'Authorization: Bearer %s\n' "$RELMIO_CODEX_CHAT_KEY" |
+  curl --fail-with-body --silent --show-error \
+    --request POST http://127.0.0.1:14501/chat \
+    --header @- \
+    --header "Content-Type: application/json" \
+    --data '{"input":"Reply with a short hello."}'
+unset RELMIO_CODEX_CHAT_KEY
 ```
 
 The response contains only the App Server thread ID and final conversational
@@ -261,6 +281,27 @@ interface. It is loopback-only, single-owner development tooling, not a hosted,
 LAN, multi-user, or production service. It enforces bounded request bodies,
 output, concurrency, process lifetime, and sanitized failures, but those
 controls do not create a general-purpose API entitlement.
+
+### In-wizard Chat Adapter tester
+
+The Ready screen for an installed Chat Adapter includes a narrow local tester.
+It is intended for a literal `http://127.0.0.1:PORT` adapter address only. The
+browser never calls the adapter: it calls the local wizard's existing
+same-origin, `X-Setup-Token` protected APIs, and the wizard makes the
+server-side `POST /chat` request without an `Origin` header.
+
+When the user secures the displayed client credential, the browser clears the
+input and encrypts it with the tester's short-lived RSA-OAEP SHA-256 public
+key. The private key exists only in local server memory, expires after a few
+minutes, has a bounded session count, and can be invalidated with **Forget
+tester**. The browser retains only ciphertext and key ID for the test session;
+it keeps prompts and transcript only in current-page memory and DOM.
+
+This reduces accidental credential transit and storage exposure. It is not
+encryption at rest or end-to-end encryption, and it cannot protect against a
+compromised browser, extension, or local machine. The tester rejects redirects,
+non-loopback URLs, malformed or oversized data, concurrent key use, and
+adapter failures with redacted messages.
 
 ## Network and container boundary
 

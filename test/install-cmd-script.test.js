@@ -343,9 +343,9 @@ async function runCommandPrompt({ command, cwd, env }) {
 }
 
 async function documentedCmdInstallCommand() {
-  const readme = await readFile("README.md", "utf8");
-  const match = readme.match(
-    /### Windows Command Prompt\s+```bat\r?\n(?<command>[^\r\n]+)\r?\n```/u,
+  const troubleshooting = await readFile("docs/troubleshooting.md", "utf8");
+  const match = troubleshooting.match(
+    /Windows Command Prompt:\s+```bat\r?\n(?<command>[^\r\n]+)\r?\n```/u,
   );
   assert.ok(match?.groups?.command);
   return match.groups.command;
@@ -386,6 +386,12 @@ test(
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
   },
 );
+
+test("canonical troubleshooting exposes the tested CMD bootstrap command", async () => {
+  const command = await documentedCmdInstallCommand();
+  assert.match(command, /^for \/f "delims=" %F in /u);
+  assert.match(command, /https:\/\/relmio\.vercel\.app\/install\.cmd/u);
+});
 
 test(
   "documented CMD bootstrap preserves existing files and cleans its temporary script",

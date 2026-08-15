@@ -9,6 +9,39 @@ wizard or any manual VPS command. The documented commands are sidecar-only and
 do not delete, restart, or rebuild n8n, but they still access your VPS and write
 files there.
 
+## Docker is not running
+
+Start Docker Desktop or Docker Engine and wait until `docker info` and
+`docker compose version` both succeed. Close any stale Relmio wizard tab, start
+one fresh wizard session, and review the local plan again. Do not restart or
+rebuild unrelated containers while checking the local endpoint.
+
+## Authentication fails
+
+Close stale wizard and device-code tabs, keep the newest Relmio terminal open,
+and use only the complete wizard URL printed by that active process. Start one
+fresh ChatGPT device-code attempt and complete the newest code. A ChatGPT
+subscription credential is valid only for the Codex targets; the generic
+OpenAI-compatible `/v1` target requires a separately billed Platform API key.
+ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
+them automatically during active use before they expire, so active sessions
+usually continue without another browser login. The official [OpenAI
+authentication documentation](https://learn.chatgpt.com/docs/auth) does not
+publish a fixed 10-day lifetime; do not plan around one. This provider
+credential is separate from Relmio's local capability, which remains valid
+until you rotate it. If Relmio reports the credential is invalid or refresh no
+longer succeeds, select **Start ChatGPT sign-in** again in the active local
+wizard. The VPS sidecar flow labels that action **Refresh ChatGPT sign-in**.
+
+## Local image build failed
+
+The local wizard intentionally does not show Docker build output, filesystem
+paths, or stderr in the browser. Confirm Docker Desktop or Docker Engine is
+running, check that the local disk has room for the image, and confirm your
+network can reach the image registry. Then close the old wizard, start one new
+wizard session, review a fresh plan, and retry. Do not delete an existing
+managed endpoint or rebuild unrelated containers as a workaround.
+
 ## Hosted chat browser extension
 
 The hosted demo at [relmio.vercel.app](https://relmio.vercel.app/) needs the

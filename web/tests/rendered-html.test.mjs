@@ -67,6 +67,7 @@ test("server-renders the Relmio product page", async () => {
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
   assert.match(html, /class="repository-button"/);
+  assert.match(html, /Open Relmio version 0\.7\.0 on GitHub\./);
   assert.match(html, /class="support-button"/);
   assert.match(
     html,
@@ -83,6 +84,27 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /openai-oauth/);
   assert.match(html, /Evan Zhou Dev/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
+});
+
+test("server-renders canonical generated Markdown documentation routes", async () => {
+  const [indexResponse, troubleshootingResponse] = await Promise.all([
+    requestApp("/docs"),
+    requestApp("/docs/troubleshooting"),
+  ]);
+  assert.equal(indexResponse.status, 200);
+  assert.equal(troubleshootingResponse.status, 200);
+
+  const [indexHtml, troubleshootingHtml] = await Promise.all([
+    indexResponse.text(),
+    troubleshootingResponse.text(),
+  ]);
+  assert.match(indexHtml, /Relmio documentation/u);
+  assert.match(indexHtml, /href="\/docs\/getting-started"/u);
+  assert.match(indexHtml, /aria-label="Documentation navigation"/u);
+  assert.match(troubleshootingHtml, /Generated from <code>docs\/troubleshooting\.md<\/code>/u);
+  assert.match(troubleshootingHtml, /id="local-image-build-failed"/u);
+  assert.match(troubleshootingHtml, /Local image build failed/u);
+  assert.doesNotMatch(troubleshootingHtml, /dangerouslySetInnerHTML|rehype-raw/u);
 });
 
 test("renders a command-first n8n and Hostinger VPS install page", async () => {
@@ -121,7 +143,20 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   );
   assert.match(
     html,
-    /ChatGPT sign-in is only for experimental Codex App Server clients\./,
+    /ChatGPT sign-in is only for the experimental Codex App Server and Chat Adapter paths\./,
+  );
+  assert.match(
+    html,
+    /ChatGPT\/Codex sign-in tokens expire, but the official Codex client refreshes them automatically during active use before they expire, so active sessions usually continue without another browser login\./,
+  );
+  assert.match(
+    html,
+    /href="https:\/\/learn\.chatgpt\.com\/docs\/auth"/,
+  );
+  assert.match(html, /does not publish a fixed 10-day lifetime; do not plan around one\./);
+  assert.match(
+    html,
+    /That upstream provider credential is separate from Relmio&#x27;s local client capability, which remains valid until you rotate it\./,
   );
   assert.match(
     html,
@@ -212,7 +247,7 @@ test("falls back safely when project metadata is malformed", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     stars: null,
-    version: "0.4.0",
+    version: "0.7.0",
   });
 });
 

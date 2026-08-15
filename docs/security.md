@@ -6,6 +6,16 @@ key, a Codex/ChatGPT session, and generated local capabilities. Treat every one
 of these values as password-equivalent. Read this page before offering the
 wizard to another person.
 
+## ChatGPT/Codex sign-in lifetime
+
+ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
+them automatically during active use before they expire, so active sessions
+usually continue without another browser login. The official [OpenAI
+authentication documentation](https://learn.chatgpt.com/docs/auth) does not
+publish a fixed 10-day lifetime; do not plan around one. This provider
+credential is separate from Relmio's local capability, which remains valid
+until you rotate it.
+
 ## Trust model
 
 The design assumes:
@@ -111,6 +121,30 @@ shared, or production service.
   network, port, or logs; runs with a read-only root filesystem and strict
   resource limits; and uses root plus only `CHOWN` long enough to atomically
   make the stdin-seeded volume entry readable by the non-root gateway.
+
+### In-wizard Chat Adapter tester
+
+The Ready screen's Chat Adapter tester is a deliberately narrow convenience
+path, not a browser CORS exception. Its browser calls stay same-origin to the
+setup-token-protected wizard. Only the local wizard server calls the adapter,
+using a server-side `POST /chat` request without an `Origin` header.
+
+The tester accepts only a literal `http://127.0.0.1:PORT` base URL and appends
+`/chat` itself. It refuses `localhost`, IPv6, LAN/private/public addresses,
+credentials, query strings, fragments, redirects, malformed JSON, oversized
+payloads, excessive IDs/ciphertext, concurrent key use, and preview mode. The
+server bounds timeout and response size, validates the upstream shape, and
+returns only a conversation ID plus output with generic redacted errors.
+
+Before a test, the browser obtains an ephemeral RSA-OAEP SHA-256 public key
+from the local wizard, clears the credential input, and retains only ciphertext
+and key ID in page memory. The matching private key remains only in the local
+server's in-memory, time-limited, bounded session map and can be invalidated
+explicitly. Prompts and transcript are not persisted server-side.
+
+This is not encryption at rest or end-to-end encryption. It reduces accidental
+credential transit and storage exposure, but cannot protect a compromised
+browser, extension, or local machine.
 
 ## What “private” means here
 

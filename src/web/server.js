@@ -34,6 +34,7 @@ import {
   prepareLocalClientCredentialRotation,
 } from "../services/local-installer.js";
 import { startCodexDeviceLogin } from "../services/codex-login.js";
+import { createLocalChatTestService } from "../services/local-chat-test.js";
 
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
@@ -87,6 +88,7 @@ const defaultServices = {
   resolveLocalInstallRoot,
   restartLocalCodex,
   startCodexDeviceLogin,
+  createLocalChatTestService,
 };
 
 function setSecurityHeaders(response) {
@@ -373,6 +375,67 @@ function createSafeProjectMeta(result) {
   };
 }
 
+function createSafeLocalChatTestKey(result) {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    typeof result.keyId !== "string" ||
+    result.keyId.length === 0 ||
+    result.keyId.length > 128 ||
+    !result.publicKeyJwk ||
+    typeof result.publicKeyJwk !== "object" ||
+    Array.isArray(result.publicKeyJwk) ||
+    result.publicKeyJwk.kty !== "RSA" ||
+    typeof result.publicKeyJwk.n !== "string" ||
+    typeof result.publicKeyJwk.e !== "string" ||
+    result.publicKeyJwk.n.length === 0 ||
+    result.publicKeyJwk.n.length > 1_024 ||
+    result.publicKeyJwk.e.length === 0 ||
+    result.publicKeyJwk.e.length > 32 ||
+    result.algorithm !== "RSA-OAEP-256" ||
+    typeof result.expiresAt !== "string" ||
+    Number.isNaN(Date.parse(result.expiresAt))
+  ) {
+    throw Object.assign(new Error("The local tester could not start safely."), {
+      statusCode: 502,
+    });
+  }
+  return {
+    keyId: result.keyId,
+    publicKeyJwk: {
+      kty: "RSA",
+      n: result.publicKeyJwk.n,
+      e: result.publicKeyJwk.e,
+    },
+    algorithm: result.algorithm,
+    expiresAt: result.expiresAt,
+  };
+}
+
+function createSafeLocalChatTestResponse(result) {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    typeof result.conversationId !== "string" ||
+    result.conversationId.length === 0 ||
+    result.conversationId.length > 160 ||
+    typeof result.output !== "string" ||
+    result.output.length === 0 ||
+    result.output.length > 12 * 1_024
+  ) {
+    throw Object.assign(
+      new Error("The local adapter returned an unexpected response."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    conversationId: result.conversationId,
+    output: result.output,
+  };
+}
+
 function getPendingLocalCredentialRotation(state) {
   if (
     state.localCredentialRotationPending &&
@@ -405,6 +468,15 @@ function requireLiveLocalAction(state, action) {
     throw Object.assign(
       new Error(`${action} is disabled in sanitized preview mode.`),
       { statusCode: 403 },
+    );
+  }
+}
+
+function requireReadyLocalChatTester(state) {
+  if (state.localInstalledTarget !== "codex-chat") {
+    throw Object.assign(
+      new Error("Install the Codex Chat Adapter before starting its local tester."),
+      { statusCode: 409 },
     );
   }
 }
@@ -603,6 +675,46 @@ async function handleApi(request, response, path, state) {
 
   const body = await readJsonBody(request);
 
+  if (path === "/api/local/chat-test/key") {
+    requireLiveLocalAction(state, "Local chat testing");
+    requireReadyLocalChatTester(state);
+    enforceRateLimit(state, path);
+    sendJson(
+      response,
+      200,
+      createSafeLocalChatTestKey(await state.localChatTest.issueKey()),
+    );
+    return;
+  }
+
+  if (path === "/api/local/chat-test/message") {
+    requireLiveLocalAction(state, "Local chat testing");
+    requireReadyLocalChatTester(state);
+    enforceRateLimit(state, path);
+    try {
+      sendJson(
+        response,
+        200,
+        createSafeLocalChatTestResponse(await state.localChatTest.message(body)),
+      );
+    } finally {
+      if (body && typeof body === "object") {
+        body.encryptedCredential = undefined;
+        body.input = undefined;
+      }
+    }
+    return;
+  }
+
+  if (path === "/api/local/chat-test/reset") {
+    requireLiveLocalAction(state, "Local chat testing");
+    requireReadyLocalChatTester(state);
+    enforceRateLimit(state, path);
+    await state.localChatTest.reset(body);
+    sendJson(response, 200, { forgotten: true });
+    return;
+  }
+
   if (path === "/api/oauth/cancel") {
     requireLiveLocalAction(state, "Live ChatGPT sign-in");
     const login = state.oauthLogin;
@@ -670,12 +782,14 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight = true;
       acquiredInstallLock = true;
       state.localPlan = null;
+      state.localInstalledTarget = null;
       const result = await state.services.installLocalEndpoint({
         plan: pending.plan,
         apiKey: body.apiKey,
         confirmed: body.confirmed,
       });
 
+      state.localInstalledTarget = pending.plan.target;
       sendJson(response, 200, createSafeLocalInstallResult(result));
     } finally {
       if (acquiredInstallLock) {
@@ -707,6 +821,7 @@ async function handleApi(request, response, path, state) {
 
     state.localCredentialRotationInFlight = true;
     try {
+      state.localChatTest.resetAll?.();
       const result = await state.services.prepareLocalClientCredentialRotation({
         target: validateLocalTarget(body.target),
       });
@@ -749,6 +864,7 @@ async function handleApi(request, response, path, state) {
     state.localCredentialRotationPending = null;
     state.localCredentialRotationInFlight = true;
     try {
+      state.localChatTest.resetAll?.();
       const result = await state.services.activateLocalClientCredentialRotation({
         target: pending.target,
         clientCredential: body.clientCredential,
@@ -1079,9 +1195,13 @@ export async function startWizardServer({
     throw new TypeError("A strong wizard session token is required.");
   }
 
+  const resolvedServices = { ...defaultServices, ...services };
   const state = {
     sessionToken,
-    services: { ...defaultServices, ...services },
+    services: resolvedServices,
+    localChatTest:
+      resolvedServices.localChatTest ??
+      resolvedServices.createLocalChatTestService(),
     uiFiles: uiFiles ?? (await loadDefaultUiFiles()),
     origin: "http://127.0.0.1",
     connection: null,
@@ -1094,6 +1214,7 @@ export async function startWizardServer({
     oauthLoginStartInFlight: false,
     oauthLoginStartPromise: null,
     localPlan: null,
+    localInstalledTarget: null,
     localInstallInFlight: false,
     localCredentialRotationInFlight: false,
     localCredentialRotationPending: null,
@@ -1122,6 +1243,7 @@ export async function startWizardServer({
     origin: state.origin,
     async close() {
       state.closing = true;
+      state.localChatTest.dispose?.();
       await waitForBoundedResult(
         state.oauthLoginStartPromise,
         state.oauthShutdownWaitMs,

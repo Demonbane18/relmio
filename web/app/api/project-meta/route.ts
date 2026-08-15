@@ -1,4 +1,4 @@
-const fallbackVersion = "0.4.0";
+const fallbackVersion = "0.7.0";
 const cacheHeader = "public, s-maxage=900, stale-while-revalidate=3600";
 
 async function fetchMetadata(url: string, headers?: HeadersInit) {

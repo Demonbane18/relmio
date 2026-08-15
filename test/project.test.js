@@ -217,53 +217,22 @@ test("package-manager workflow builds review artifacts before release publicatio
   }
 });
 
-test("public README documents the latest npm walkthrough and screenshot records", async () => {
-  const readme = await readFile("README.md", "utf8");
+test("public README is a concise entry point to hosted canonical docs", async () => {
+  const [readme, gettingStarted, reference] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("docs/getting-started.md", "utf8"),
+    readFile("docs/reference.md", "utf8"),
+  ]);
 
-  assert.match(
-    readme,
-    /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/u,
-  );
-  assert.match(
-    readme,
-    /npx --yes --ignore-scripts relmio@latest/u,
-  );
-  const requiredReadmeImages = [
-    "docs/images/setup/00-install-methods.png",
-    "docs/images/setup/01-local-sign-in-ready.png",
-    "docs/images/setup/02-vps-identity-confirmed.png",
-    "docs/images/setup/03-n8n-detected.png",
-    "docs/images/setup/04-install-plan.png",
-    "docs/images/setup/05-bridge-ready.png",
-    "docs/images/examples/n8n-openai-credential-connected.png",
-    "docs/images/examples/gpt-56-model-selector.png",
-    "docs/images/examples/telegram-n8n-workflow-execution.png",
-    "docs/images/examples/telegram-model-results.png",
-  ];
-  for (const imagePath of requiredReadmeImages) {
-    assert.ok(readme.includes(imagePath), `README references ${imagePath}`);
-  }
-  assert.match(readme, /```mermaid/u);
-  assert.match(readme, /Copy credential settings/u);
-  assert.match(readme, /\[Changelog\]\(CHANGELOG\.md\)/u);
-  assert.match(readme, /img\.shields\.io\/npm\/v\/relmio/u);
-  assert.match(readme, /docs\/images\/brand\/relmio-mark\.svg/u);
-  assert.match(
-    readme,
-    /docs\/images\/examples\/hosted-chat-connected\.png/u,
-  );
-  assert.match(readme, /https:\/\/relmio\.vercel\.app\//u);
-  assert.match(
-    readme,
-    /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/u,
-  );
-  assert.match(readme, /Hosted chat requires the browser extension/u);
-  assert.match(readme, /temporarily disable it during local sign-in/u);
-  assert.match(readme, /### Foundation and attribution/u);
-  assert.match(readme, /openai-oauth.*Evan\s+Zhou\s+Dev/isu);
-  assert.doesNotMatch(readme, /relmio\.jpfusin\.tech/u);
-  assert.match(readme, /## Known limitations/u);
-  assert.match(readme, /## Legal/u);
+  assert.match(readme, /npx --yes --ignore-scripts relmio@latest/u);
+  assert.match(readme, /## Endpoints/u);
+  assert.match(readme, /## Critical security boundaries/u);
+  assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/getting-started/u);
+  assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/reference/u);
+  assert.doesNotMatch(readme, /```mermaid|relmio\.jpfusin\.tech/u);
+  assert.match(gettingStarted, /ChatGPT sign-in is never converted/u);
+  assert.match(reference, /--remote-auth-token-env/u);
+  assert.match(reference, /conversationId/u);
 });
 
 test("README walkthrough and proof images are metadata-free PNG files", async () => {

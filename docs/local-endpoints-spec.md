@@ -112,6 +112,33 @@ say so, and the installer must reject native Windows before any write.
 Every wizard API route continues to require the existing `X-Setup-Token` and
 same-origin protections.
 
+### Chat Adapter tester APIs
+
+The tester is available only after a live `codex-chat` installation reaches the
+Ready screen. Sanitized preview mode rejects all three routes. Each route uses
+the same `POST` exact-Origin and `X-Setup-Token` protections as the rest of
+the local wizard.
+
+- `POST /api/local/chat-test/key` returns only `keyId`, an RSA public JWK,
+  `RSA-OAEP-256`, and an expiry. Its private key remains only in the local
+  server's bounded, in-memory tester-session map.
+- `POST /api/local/chat-test/message` accepts a literal loopback adapter base
+  URL, `keyId`, RSA-OAEP SHA-256 ciphertext, a bounded input, and an optional
+  bounded conversation ID. It returns only validated `conversationId` and
+  `output`.
+- `POST /api/local/chat-test/reset` invalidates the specified in-memory key.
+
+The browser sends no adapter request and stores no tester data in browser
+storage. It clears the plaintext credential input before it awaits key issuance
+or encryption, then retains ciphertext and key ID only in page memory. The
+server does not retain prompts or transcript beyond a single request.
+
+The local proxy accepts only `http://127.0.0.1:<1-65535>` with an optional
+trailing slash. It rejects DNS names, IPv6, credentials, query strings,
+fragments, paths, redirects, malformed JSON, oversized request/response data,
+expiry, and concurrent use. It appends `/chat`, uses a bounded timeout, sends
+no `Origin` header, and returns generic redacted failures.
+
 ### `GET /api/local/docker/status`
 
 Returns local Docker and Compose availability. It never returns filesystem
