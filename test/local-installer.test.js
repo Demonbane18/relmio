@@ -72,13 +72,21 @@ function createRunner({
     }
     if (args.includes("ps --status running --services")) {
       return {
-        stdout: args.includes("relmio-openai-api") ? "gateway\n" : "codex\n",
+        stdout: args.includes("relmio-openai-api")
+          ? "gateway\n"
+          : args.includes("relmio-codex-chat-")
+            ? "codex-chat\n"
+            : "codex\n",
         stderr: "",
         code: 0,
       };
     }
     if (args.includes("ps --format json")) {
-      const targetPort = args.includes("relmio-openai-api") ? 10_531 : 4_500;
+      const targetPort = args.includes("relmio-openai-api")
+        ? 10_531
+        : args.includes("relmio-codex-chat-")
+          ? 14_501
+          : 4_500;
       return {
         stdout: JSON.stringify({
           Publishers: [
@@ -446,6 +454,67 @@ test("credential rotation recreates and verifies the managed Codex service befor
   assert.deepEqual(verifyCodexCapability.calls, [
     { port: 14500, clientCredential: rotated.clientCredential },
   ]);
+});
+
+test("Codex Chat rotation authenticates the fresh bearer without starting a model turn", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({ publishedPort: 14501 });
+  const fetchImpl = createFetch();
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const randomValues = [
+    Buffer.alloc(32, 4),
+    Buffer.alloc(32, 7),
+    Buffer.alloc(32, 9),
+  ];
+  const randomBytes = () => randomValues.shift();
+  const plan = createLocalDeploymentPlan({
+    target: "codex-chat",
+    port: 14501,
+  });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes,
+      isPortAvailable: async () => true,
+      readCodexChatSource: async () => "export const fixture = true;\n",
+      fetchImpl,
+    },
+  );
+  fetchImpl.calls.length = 0;
+
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "codex-chat" },
+    { env, runProcess, randomBytes },
+  );
+  const activated = await activateLocalClientCredentialRotation(staged, {
+    env,
+    runProcess,
+    fetchImpl,
+  });
+
+  assert.equal(activated.target, "codex-chat");
+  assert.deepEqual(
+    fetchImpl.calls.map(({ url }) => url),
+    [
+      "http://127.0.0.1:14501/health",
+      "http://127.0.0.1:14501/auth/verify",
+    ],
+  );
+  assert.equal(
+    fetchImpl.calls[1].options.headers.Authorization,
+    `Bearer ${staged.clientCredential}`,
+  );
+  assert.ok(
+    runProcess.calls.some(({ args }) =>
+      args
+        .join(" ")
+        .includes(
+          "up -d --wait --wait-timeout 90 --force-recreate --no-deps codex-chat",
+        ),
+    ),
+  );
 });
 
 test("Codex credential rotation rolls back when the fresh WebSocket capability is rejected", async (t) => {
@@ -1651,6 +1720,68 @@ test("Codex install has no Platform secret and returns native App Server details
   assert.match(requirements, /"relmio-workspace" = true/);
   assert.doesNotMatch(requirements, /allowed_sandbox_modes/);
   assert.equal((await stat(join(installRoot, "requirements.toml"))).mode & 0o777, 0o600);
+});
+
+test("Codex Chat install packages the adapter and verifies only its non-billing readiness route", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({ publishedPort: 14501 });
+  const fetchImpl = createFetch();
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const plan = createLocalDeploymentPlan({ target: "codex-chat", port: 14501 });
+
+  const result = await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes: () => Buffer.alloc(32, 7),
+      isPortAvailable: async () => true,
+      readCodexChatSource: async () => "export const adapterFixture = true;\n",
+      fetchImpl,
+    },
+  );
+
+  assert.deepEqual(result, {
+    target: "codex-chat",
+    endpoint: "http://127.0.0.1:14501",
+    protocol: "relmio-codex-chat-http",
+    clientCredential: capability,
+    credentialShownOnce: true,
+    models: [],
+    deploymentMode: "installed",
+    experimental: true,
+    browserClients: false,
+  });
+  assert.deepEqual(fetchImpl.calls, [
+    {
+      url: "http://127.0.0.1:14501/health",
+      options: { method: "GET", signal: fetchImpl.calls[0].options.signal },
+    },
+    {
+      url: "http://127.0.0.1:14501/auth/verify",
+      options: {
+        method: "GET",
+        headers: { Authorization: `Bearer ${capability}` },
+        signal: fetchImpl.calls[1].options.signal,
+      },
+    },
+  ]);
+  const installRoot = await resolveLocalInstallRoot({ target: "codex-chat", env });
+  assert.equal(
+    await readFile(join(installRoot, "gateway.mjs"), "utf8"),
+    "export const adapterFixture = true;\n",
+  );
+  const compose = await readFile(join(installRoot, "docker-compose.yml"), "utf8");
+  assert.match(compose, /127\.0\.0\.1:14501:14501/);
+  assert.doesNotMatch(compose, new RegExp(capability));
+  assert.ok(
+    runProcess.calls.some(({ args }) =>
+      args.join(" ").includes("build codex-chat"),
+    ),
+  );
+  assert.ok(
+    fetchImpl.calls.every(({ url }) => !String(url).includes("/v1/models")),
+  );
 });
 
 test("Codex install removes only its exact service when capability authentication fails", async (t) => {

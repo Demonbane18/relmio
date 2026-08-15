@@ -63,6 +63,7 @@ const expectedPackedFiles = new Set([
   "src/domain/templates.js",
   "src/domain/validation.js",
   "src/domain/local-endpoints.js",
+  "src/gateway/codex-chat.js",
   "src/gateway/openai.js",
   "src/infrastructure/local-process.js",
   "src/infrastructure/ssh.js",

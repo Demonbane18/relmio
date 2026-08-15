@@ -26,11 +26,18 @@ For a local Docker endpoint, the design additionally assumes:
   by the same person;
 - a browser origin allowlist is not being used as a substitute for secret
   storage; and
-- a Codex client is trusted with App Server's broad agent and account surface.
+- a raw Codex client is trusted with App Server's broad agent and account
+  surface, while the Chat Adapter bearer is held only by a trusted local
+  backend or development server.
 
 The raw Codex App Server is not a multi-user boundary. It is for a trusted
 native client owned by the same account holder, not a browser, shared service,
 public app, or untrusted plugin.
+
+The Codex Chat Adapter is a separate, narrower contract. It is for a trusted
+local backend or development server owned by the same account holder. Browser
+JavaScript must not call it directly, and it is not for a remote, hosted,
+shared, or production service.
 
 ## Controls implemented by the wizard
 
@@ -62,11 +69,12 @@ public app, or untrusted plugin.
 
 - Generated Compose files publish only literal
   `127.0.0.1:<selected-port>:<container-port>` mappings.
-- Every OpenAI `/v1` operation that can reach OpenAI and every Codex WebSocket
-  upgrade requires a random Relmio capability displayed once by the wizard;
-  only its SHA-256 verifier is persisted. Exact-origin CORS `OPTIONS` is a
-  non-forwarding metadata exception. The bearer remains valid until an
-  endpoint update rotates it.
+- Every OpenAI `/v1` operation that can reach OpenAI, every raw Codex WebSocket
+  upgrade, and every Codex Chat Adapter route except `GET /health` requires a
+  random Relmio capability displayed once by the wizard; only its SHA-256
+  verifier is persisted. Exact-origin CORS `OPTIONS` is a non-forwarding
+  exception only for the Platform-backed `/v1` gateway. The bearer remains
+  valid until an endpoint update rotates it.
 - The Platform API key is accepted only for the OpenAI gateway. A transient,
   network-disabled helper receives it over stdin and atomically seeds a private,
   labeled Docker volume that the gateway mounts read-only. No host key file or
@@ -77,9 +85,16 @@ public app, or untrusted plugin.
 - Browser requests to the OpenAI gateway require an exact configured `http`
   or `https` origin. Wildcards and `null` are rejected; requests without an
   `Origin` remain available to authenticated native clients and backends.
-- Codex receives private named credential and workspace volumes. No host
-  directory, Docker socket, SSH key, browser profile, or home directory is
-  mounted into either local service.
+- The Chat Adapter rejects every request carrying an `Origin` header, emits no
+  CORS permission, and exposes only its authenticated Relmio-specific
+  `POST /chat` contract plus readiness and credential-verification probes.
+- Each Codex target receives its own private named credential and workspace
+  volumes. No long-running local endpoint service mounts a host directory,
+  Docker socket, SSH key, browser profile, or host home directory.
+- Chat Adapter turns use a named read-only permission profile with network
+  disabled. Its model-visible filesystem policy denies root by default, allows
+  only Codex's minimal runtime paths and the empty private workspace, and
+  explicitly denies the persisted Codex credential store.
 - Local managed paths use mode `0700`, generated files use owner-only modes,
   symlinks are rejected, and existing unmanaged directories are not
   overwritten.
@@ -89,7 +104,7 @@ public app, or untrusted plugin.
 - Each install uses a random Compose project identity. Containers, networks,
   and volumes must carry matching Relmio ownership labels before update,
   restart, recovery, or sign-in actions are allowed.
-- Both long-running endpoint containers run as a non-root user, drop Linux
+- All three long-running endpoint containers run as a non-root user, drop Linux
   capabilities, set `no-new-privileges`, use a read-only root filesystem, and
   have bounded temporary storage and resource limits.
 - The one-shot OpenAI credential seed helper is the narrow exception: it has no
@@ -126,11 +141,16 @@ The local capabilities have separate consequences:
 
 - The OpenAI gateway capability can spend through the protected Platform API
   key, subject to that Platform project's permissions and limits.
-- The Codex capability can invoke broad App Server methods inside the isolated
-  container and use its signed-in ChatGPT/Codex session.
+- The raw Codex App Server capability can invoke broad App Server methods
+  inside its isolated container and use its signed-in ChatGPT/Codex session.
+- The separate Chat Adapter bearer can submit chat turns and resume its bounded
+  conversation threads through the signed-in Codex container. Its narrower
+  HTTP surface and model permission profile reduce access, but do not make the
+  bearer safe to expose or share.
 - An origin allowlist does not make a bearer embedded in browser JavaScript
-  private. Use browser access only for private same-owner local development.
-- Do not expose either endpoint on a LAN, public IP, domain, reverse proxy, or
+  private. The Chat Adapter rejects browser origins entirely; keep its bearer
+  in a trusted local backend or development server.
+- Do not expose any local endpoint on a LAN, public IP, domain, reverse proxy, or
   hosted service. Loopback binding and the bearer capability are both required.
 - If a capability is disclosed, update the endpoint to rotate it. If an
   upstream credential may be exposed, revoke or sign out through the provider
@@ -152,12 +172,17 @@ The local capabilities have separate consequences:
   is billed or credited to the associated Platform project; a ChatGPT
   subscription or Codex for Open Source benefit is not substituted for API
   billing.
-- The local Codex option preserves the official App Server JSON-RPC protocol.
+- The raw local Codex option preserves the official App Server JSON-RPC protocol.
   It does not provide `/v1/chat/completions`, `/v1/responses`, or any other
   OpenAI API compatibility route.
 - OpenAI documents App Server WebSocket transport as experimental and
   unsupported for production. It rejects browser-origin requests and is
   limited here to trusted native same-owner clients.
+- The Codex Chat Adapter uses the official App Server lifecycle internally but
+  exposes only Relmio's experimental `POST /chat` contract. It is not
+  `/v1/chat/completions`, `/v1/responses`, or an OpenAI SDK replacement; it
+  rejects browser origins and is limited to trusted local backends or
+  development servers.
 - Acceptance into Codex for Open Source is not treated by Relmio as permission
   to repurpose credentials, share an account, bypass controls, or broaden the
   scope of another agreement. Review the current

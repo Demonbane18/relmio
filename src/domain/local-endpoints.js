@@ -1,6 +1,8 @@
 import { validatePort } from "./validation.js";
+import packageManifest from "../../package.json" with { type: "json" };
 
 export const CODEX_CLI_VERSION = "0.147.0";
+const PACKAGE_VERSION = packageManifest.version;
 
 export const LOCAL_TARGETS = Object.freeze({
   "openai-api": Object.freeze({
@@ -18,6 +20,14 @@ export const LOCAL_TARGETS = Object.freeze({
     browserClients: false,
     experimental: true,
     containerPort: 4_500,
+  }),
+  "codex-chat": Object.freeze({
+    label: "Codex Chat Adapter",
+    protocol: "relmio-codex-chat-http",
+    upstreamAuth: "chatgpt-via-codex",
+    browserClients: false,
+    experimental: true,
+    containerPort: 14_501,
   }),
 });
 
@@ -114,7 +124,9 @@ export function createLocalDeploymentPlan({
   const endpoint =
     safeTarget === "openai-api"
       ? `http://127.0.0.1:${safePort}/v1`
-      : `ws://127.0.0.1:${safePort}`;
+      : safeTarget === "codex-chatgpt"
+        ? `ws://127.0.0.1:${safePort}`
+        : `http://127.0.0.1:${safePort}`;
 
   return {
     target: safeTarget,
@@ -145,8 +157,11 @@ ENTRYPOINT ["node", "/app/gateway.mjs"]
 
 export function createLocalDockerignore(target) {
   const safeTarget = validateLocalTarget(target);
-  return safeTarget === "openai-api"
-    ? "**\n!Dockerfile\n!gateway.mjs\n"
+  if (safeTarget === "openai-api") {
+    return "**\n!Dockerfile\n!gateway.mjs\n";
+  }
+  return safeTarget === "codex-chat"
+    ? "**\n!Dockerfile\n!gateway.mjs\n!config.toml\n!requirements.toml\n"
     : "**\n!Dockerfile\n!config.toml\n!requirements.toml\n";
 }
 
@@ -265,13 +280,29 @@ volumes:
 `;
 }
 
-export function createCodexConfig() {
-  return `approval_policy = "on-request"
+function renderCodexConfig({
+  approvalPolicy,
+  permissionProfile,
+  permissionProfileBase,
+  protectCredentialStore = false,
+}) {
+  const filesystemPermissions = protectCredentialStore
+    ? `
+[permissions.${permissionProfile}.filesystem]
+":root" = "deny"
+":minimal" = "read"
+":tmpdir" = "deny"
+":slash_tmp" = "deny"
+"/workspace" = "read"
+"/home/node/.codex" = "deny"
+`
+    : "";
+  return `approval_policy = "${approvalPolicy}"
 approvals_reviewer = "user"
 allow_login_shell = false
 check_for_update_on_startup = false
 cli_auth_credentials_store = "file"
-default_permissions = "relmio-workspace"
+default_permissions = "${permissionProfile}"
 forced_login_method = "chatgpt"
 web_search = "disabled"
 
@@ -281,10 +312,11 @@ enabled = false
 [feedback]
 enabled = false
 
-[permissions.relmio-workspace]
-extends = ":workspace"
+[permissions.${permissionProfile}]
+extends = "${permissionProfileBase}"
+${filesystemPermissions}
 
-[permissions.relmio-workspace.network]
+[permissions.${permissionProfile}.network]
 enabled = false
 
 [shell_environment_policy]
@@ -315,8 +347,25 @@ tool_suggest = false
 `;
 }
 
-export function createCodexRequirements() {
-  return `allowed_approval_policies = ["on-request"]
+export function createCodexConfig() {
+  return renderCodexConfig({
+    approvalPolicy: "on-request",
+    permissionProfile: "relmio-workspace",
+    permissionProfileBase: ":workspace",
+  });
+}
+
+export function createCodexChatConfig() {
+  return renderCodexConfig({
+    approvalPolicy: "never",
+    permissionProfile: "relmio-chat-readonly",
+    permissionProfileBase: ":read-only",
+    protectCredentialStore: true,
+  });
+}
+
+function renderCodexRequirements({ approvalPolicy, permissionProfile }) {
+  return `allowed_approval_policies = ["${approvalPolicy}"]
 allowed_approvals_reviewers = ["user"]
 allowed_login_methods = ["chatgpt"]
 allowed_web_search_modes = ["disabled"]
@@ -324,10 +373,10 @@ allow_managed_hooks_only = true
 allow_remote_control = false
 check_for_update_on_startup = false
 allow_login_shell = false
-default_permissions = "relmio-workspace"
+default_permissions = "${permissionProfile}"
 
 [allowed_permission_profiles]
-"relmio-workspace" = true
+"${permissionProfile}" = true
 
 [feedback]
 enabled = false
@@ -356,6 +405,20 @@ tool_suggest = false
 `;
 }
 
+export function createCodexRequirements() {
+  return renderCodexRequirements({
+    approvalPolicy: "on-request",
+    permissionProfile: "relmio-workspace",
+  });
+}
+
+export function createCodexChatRequirements() {
+  return renderCodexRequirements({
+    approvalPolicy: "never",
+    permissionProfile: "relmio-chat-readonly",
+  });
+}
+
 export function createCodexDockerfile() {
   return `FROM node:22-bookworm-slim
 
@@ -375,6 +438,113 @@ WORKDIR /workspace
 USER node
 
 ENTRYPOINT ["codex"]
+`;
+}
+
+export function createCodexChatDockerfile() {
+  return `FROM node:22-bookworm-slim
+
+WORKDIR /app
+
+RUN apt-get update \\
+    && apt-get install --no-install-recommends -y ca-certificates \\
+    && rm -rf /var/lib/apt/lists/* \\
+    && npm install --global --ignore-scripts @openai/codex@${CODEX_CLI_VERSION} \\
+    && npm cache clean --force \\
+    && mkdir -p /etc/codex /home/node/.codex /workspace \\
+    && chown -R node:node /home/node/.codex /workspace
+
+COPY --chmod=0444 requirements.toml /etc/codex/requirements.toml
+COPY --chown=node:node config.toml /home/node/.codex/config.toml
+COPY --chown=node:node gateway.mjs /app/gateway.mjs
+
+ENV CODEX_HOME=/home/node/.codex
+WORKDIR /workspace
+USER node
+
+ENTRYPOINT ["node", "/app/gateway.mjs"]
+`;
+}
+
+export function createCodexChatComposeFile({ port, tokenSha256, installId }) {
+  const safePort = validateLocalPort(port);
+  const safeVerifier = validateSha256Verifier(tokenSha256);
+  const safeInstallId = validateInstallId(installId);
+  const gatewayImage = `relmio-codex-chat-${safeInstallId}:local`;
+
+  return `services:
+  codex-chat:
+    image: ${gatewayImage}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      RELMIO_GATEWAY_TOKEN_SHA256: ${safeVerifier}
+      RELMIO_GATEWAY_HOST: 0.0.0.0
+      RELMIO_GATEWAY_PORT: "14501"
+      RELMIO_PACKAGE_VERSION: "${PACKAGE_VERSION}"
+    ports:
+      - "127.0.0.1:${safePort}:14501"
+    volumes:
+      - codex-home:/home/node/.codex
+      - codex-workspace:/workspace
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777,nodev,nosuid
+      - /run:size=16m,mode=0755,nodev,nosuid
+      - /home/node/.cache:uid=1000,gid=1000,mode=0700,nodev,nosuid
+    pids_limit: 128
+    mem_limit: 2g
+    cpus: 2.0
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 1024
+      core: 0
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - 'fetch("http://127.0.0.1:14501/health").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))'
+      interval: 10s
+      timeout: 5s
+      retries: 9
+      start_period: 20s
+    labels:
+      io.relmio.managed: "true"
+      io.relmio.target: "codex-chat"
+      io.relmio.install: "${safeInstallId}"
+
+networks:
+  default:
+    labels:
+      io.relmio.managed: "true"
+      io.relmio.target: "codex-chat"
+      io.relmio.install: "${safeInstallId}"
+
+volumes:
+  codex-home:
+    labels:
+      io.relmio.managed: "true"
+      io.relmio.target: "codex-chat"
+      io.relmio.install: "${safeInstallId}"
+  codex-workspace:
+    labels:
+      io.relmio.managed: "true"
+      io.relmio.target: "codex-chat"
+      io.relmio.install: "${safeInstallId}"
 `;
 }
 

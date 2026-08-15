@@ -9,7 +9,7 @@ import {
 
 const COMPOSE_FILE_NAME = "docker-compose.yml";
 const PROJECT_NAME_PATTERN =
-  /^relmio-codex-chatgpt-[a-f0-9]{32}$/u;
+  /^relmio-codex-(chatgpt|chat)-[a-f0-9]{32}$/u;
 const DEFAULT_RESPONSE_TIMEOUT_MS = 15_000;
 const DEFAULT_COMPLETION_TIMEOUT_MS = 300_000;
 const DEFAULT_TERMINATION_GRACE_MS = 2_000;
@@ -88,7 +88,12 @@ function validateOptions({
   if (maxLineBytes > maxStdoutBytes) {
     throw new TypeError("maxLineBytes cannot exceed maxStdoutBytes.");
   }
-  return { dockerHost: validatedDockerHost, projectName };
+  const projectKind = PROJECT_NAME_PATTERN.exec(projectName)?.[1];
+  return {
+    dockerHost: validatedDockerHost,
+    projectName,
+    serviceName: projectKind === "chat" ? "codex-chat" : "codex",
+  };
 }
 
 function validateVerificationUrl(value) {
@@ -205,7 +210,10 @@ export async function startCodexDeviceLogin({
         "run",
         "--rm",
         "--no-deps",
-        "codex",
+        ...(validated.serviceName === "codex-chat"
+          ? ["--entrypoint", "codex"]
+          : []),
+        validated.serviceName,
         "app-server",
         "--strict-config",
         "--stdio",

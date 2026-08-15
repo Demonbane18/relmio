@@ -794,6 +794,80 @@ test("a fresh wizard server can sign in an attested existing Codex installation"
   ]);
 });
 
+test("Codex Chat sign-in attests and restarts only the adapter project", async (t) => {
+  const installDirectory = "/Users/fixture/.relmio/local/codex-chat";
+  const projectName = `relmio-codex-chat-${"02".repeat(16)}`;
+  const calls = [];
+  const wizard = await startLocalWizard(t, {
+    async acquireLocalEndpointChangeLock(input) {
+      calls.push(["lock", input]);
+      return async () => calls.push(["unlock"]);
+    },
+    resolveLocalInstallRoot(input) {
+      calls.push(["resolve", input]);
+      return installDirectory;
+    },
+    async attestLocalCodexInstallation(input) {
+      calls.push(["attest", input]);
+      return {
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        projectName,
+      };
+    },
+    async startCodexDeviceLogin(input) {
+      calls.push(["login", input]);
+      return {
+        verificationUrl: "https://auth.openai.com/codex/device",
+        userCode: "CHAT-CODE",
+        completion: Promise.resolve({ success: true }),
+        cancel() {},
+      };
+    },
+    async restartLocalCodex(input, dependencies) {
+      calls.push(["restart", input, dependencies]);
+    },
+  });
+
+  const response = await postJson(wizard, "/api/local/codex/login", {
+    target: "codex-chat",
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    verificationUrl: "https://auth.openai.com/codex/device",
+    userCode: "CHAT-CODE",
+  });
+  for (
+    let attempt = 0;
+    attempt < 10 && !calls.some(([name]) => name === "unlock");
+    attempt += 1
+  ) {
+    await new Promise((resolvePromise) => setImmediate(resolvePromise));
+  }
+  assert.deepEqual(calls, [
+    ["lock", { target: "codex-chat" }],
+    ["resolve", { target: "codex-chat" }],
+    ["attest", { installDirectory, target: "codex-chat" }],
+    [
+      "login",
+      {
+        installDirectory,
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        projectName,
+      },
+    ],
+    [
+      "restart",
+      { installDirectory, target: "codex-chat" },
+      { changeLockHeld: true },
+    ],
+    ["unlock"],
+  ]);
+  assert.deepEqual(
+    await (await api(wizard, "/api/local/codex/login/status")).json(),
+    { status: "success" },
+  );
+});
+
 test("Codex sign-in rejects a concurrent start and releases its start lock", async (t) => {
   const installDirectory = "/Users/fixture/.relmio/local/codex-chatgpt";
   let releaseFirstAttestation;

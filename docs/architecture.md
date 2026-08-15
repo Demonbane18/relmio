@@ -29,28 +29,37 @@ flowchart LR
   W --> D["Local Docker Engine"]
   D --> G["OpenAI-compatible gateway<br>127.0.0.1:12435/v1"]
   D --> A["Codex App Server<br>127.0.0.1:14500"]
+  D --> H["Codex Chat Adapter<br>127.0.0.1:14501/chat"]
   G -->|"Platform API key"| P["OpenAI Platform API"]
   A -->|"Official Codex sign-in"| C["ChatGPT/Codex service"]
+  H -->|"Official App Server lifecycle"| C
 ```
 
-The two services are intentionally not interchangeable:
+The three services are intentionally not interchangeable:
 
 | Target | Wire protocol | Upstream credential |
 |---|---|---|
 | `openai-api` | OpenAI-compatible HTTP `/v1` | OpenAI Platform API key |
 | `codex-chatgpt` | Official Codex App Server JSON-RPC | ChatGPT sign-in managed by Codex |
+| `codex-chat` | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in managed by Codex |
 
 Relmio never adapts a ChatGPT/Codex credential into the local `/v1` gateway.
 The OpenAI gateway replaces the caller's Relmio capability with the
-protected Platform key only at the upstream boundary. The Codex service keeps
-the native initialization, thread, turn, approval, and event protocol.
+protected Platform key only at the upstream boundary. The native Codex service
+keeps the initialization, thread, turn, approval, and event protocol. The
+adapter invokes that same official lifecycle behind a bounded, read-only
+conversational contract without claiming OpenAI API compatibility. Its model
+sandbox denies network access and uses a root-deny filesystem policy with only
+minimal runtime paths plus `/workspace` readable; `/home/node/.codex` is
+explicitly denied so a model turn cannot read the persisted ChatGPT session.
 
-Both projects publish exactly one literal `127.0.0.1` binding and require a
+Each project publishes exactly one literal `127.0.0.1` binding and requires a
 generated bearer capability. Their managed roots are
-`~/.relmio/local/openai-api` and `~/.relmio/local/codex-chatgpt`. The Codex
-credential and workspace use private named Docker volumes; no host directory
-or Docker socket is mounted. See [Local Docker endpoints](local-endpoints.md)
-for setup and trust limitations.
+`~/.relmio/local/openai-api`, `~/.relmio/local/codex-chatgpt`, and
+`~/.relmio/local/codex-chat`. The Codex credentials and workspaces use
+target-specific private named Docker volumes; no host directory or Docker
+socket is mounted. See [Local Docker endpoints](local-endpoints.md) for setup
+and trust limitations.
 
 Before installation, Relmio resolves the selected Docker context to a local
 Unix socket and pins that exact socket on every later Docker command. Remote
@@ -182,3 +191,6 @@ sidecar authenticates upstream with the mounted OAuth file.
   or mismatched managed identity blocks local mutation.
 - A Codex login failure returns a sanitized status without returning App
   Server output or ChatGPT tokens.
+- A chat adapter request with a browser Origin, invalid bearer, malformed body,
+  protocol overflow, timeout, or failed turn is rejected with a sanitized
+  response and its App Server helper is terminated.

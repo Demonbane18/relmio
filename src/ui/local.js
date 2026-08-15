@@ -129,6 +129,14 @@ function readAllowedOrigins() {
     .filter((value) => value !== "");
 }
 
+function isCodexChat(target) {
+  return target === "codex-chat";
+}
+
+function isOpenAiApi(target) {
+  return target === "openai-api";
+}
+
 function invalidatePlan() {
   state.planId = null;
   state.plan = null;
@@ -140,15 +148,24 @@ function renderTarget() {
   state.target = selectedTarget();
   invalidatePlan();
 
-  const isOpenAiApi = state.target === "openai-api";
-  element("local-port").value = isOpenAiApi ? "12435" : "14500";
-  element("origins-field").hidden = !isOpenAiApi;
-  element("target-guidance-title").textContent = isOpenAiApi
+  const openAiApi = isOpenAiApi(state.target);
+  const codexChat = isCodexChat(state.target);
+  element("local-port").value = openAiApi
+    ? "12435"
+    : codexChat
+      ? "14501"
+      : "14500";
+  element("origins-field").hidden = !openAiApi;
+  element("target-guidance-title").textContent = openAiApi
     ? "Uses an OpenAI Platform API key"
-    : "Uses the official Codex ChatGPT sign-in";
-  element("target-guidance-detail").textContent = isOpenAiApi
+    : codexChat
+      ? "Uses official Codex ChatGPT sign-in through the experimental Relmio-specific Chat Adapter"
+      : "Uses the official Codex ChatGPT sign-in";
+  element("target-guidance-detail").textContent = openAiApi
     ? "Your Platform key is seeded over stdin into a private Docker volume and is never returned to the browser. A separate local client credential is generated for your apps."
-    : "This runs Codex App Server as its own experimental protocol. It does not translate the ChatGPT session into a generic OpenAI /v1 API and it does not accept direct browser connections.";
+    : codexChat
+      ? "This exposes Relmio-specific HTTP POST /chat for a trusted local backend or development server. It is not OpenAI /v1, has no CORS, and browser bundles must never connect directly."
+      : "This runs Codex App Server as its own experimental protocol. It does not translate the ChatGPT session into a generic OpenAI /v1 API and it does not accept direct browser connections.";
 }
 
 function appendPolicyNotice(container, heading, detail) {
@@ -160,32 +177,43 @@ function appendPolicyNotice(container, heading, detail) {
 }
 
 function renderPlan(plan) {
-  const isOpenAiApi = plan.target === "openai-api";
+  const openAiApi = isOpenAiApi(plan.target);
+  const codexChat = isCodexChat(plan.target);
   element("review-endpoint").textContent = plan.endpoint;
-  element("review-protocol").textContent = isOpenAiApi
+  element("review-protocol").textContent = openAiApi
     ? "OpenAI-compatible HTTP /v1"
-    : "Codex App Server JSON-RPC over WebSocket";
-  element("review-auth").textContent = isOpenAiApi
+    : codexChat
+      ? "Relmio Codex Chat HTTP: POST /chat"
+      : "Codex App Server JSON-RPC over WebSocket";
+  element("review-auth").textContent = openAiApi
     ? "OpenAI Platform API key"
     : "ChatGPT sign-in through official Codex";
-  element("review-browser").textContent = isOpenAiApi
+  element("review-browser").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
       ? `Only ${plan.allowedOrigins.length} exact allowed origin(s)`
       : "Native clients only until exact origins are added"
-    : "No — trusted native local clients only";
-  element("review-origins-row").hidden = !isOpenAiApi;
-  element("review-origins").textContent = isOpenAiApi
+    : codexChat
+      ? "No — trusted local backends and development servers only"
+      : "No — trusted native local clients only";
+  element("review-origins-row").hidden = !openAiApi;
+  element("review-origins").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
       ? plan.allowedOrigins.join(", ")
       : "None"
     : "";
   element("review-path").textContent = plan.managedPath;
 
-  if (isOpenAiApi) {
+  if (openAiApi) {
     appendPolicyNotice(
       element("review-policy"),
       "OpenAI Platform terms and billing apply",
       "This option sends requests to the OpenAI API with your developer Platform key. ChatGPT subscriptions and open-source program benefits do not turn a ChatGPT credential into an API key.",
+    );
+  } else if (codexChat) {
+    appendPolicyNotice(
+      element("review-policy"),
+      "Experimental Codex Chat Adapter — trusted local backends or development servers only",
+      "This option runs a small authenticated Relmio HTTP adapter on loopback. It accepts only POST /chat from a trusted local backend or development server. It has no CORS and is not OpenAI /v1. ChatGPT credentials stay in the isolated Codex Docker volume and never become Platform API keys.",
     );
   } else {
     appendPolicyNotice(
@@ -197,18 +225,31 @@ function renderPlan(plan) {
 }
 
 function prepareInstallPanel() {
-  const isOpenAiApi = state.plan.target === "openai-api";
+  const openAiApi = isOpenAiApi(state.plan.target);
+  const codexChat = isCodexChat(state.plan.target);
   const apiKey = element("platform-api-key");
-  element("api-key-field").hidden = !isOpenAiApi;
-  element("codex-install-warning").hidden = isOpenAiApi;
-  apiKey.required = isOpenAiApi;
+  element("api-key-field").hidden = !openAiApi;
+  element("codex-install-warning").hidden = openAiApi;
+  element("codex-install-warning-title").textContent = codexChat
+    ? "Credential for trusted local backends or development servers only"
+    : "High-trust capability";
+  element("codex-install-warning-detail").textContent = codexChat
+    ? "The generated bearer authorizes chat turns through your signed-in Codex container. Keep it only in a trusted local backend or development server; never put it in browser code."
+    : "Anyone holding the generated client credential can control Codex inside its isolated container, act through your signed-in ChatGPT session, and may be able to recover that container's ChatGPT session credential. Treat this capability like your ChatGPT password and give it only to a trusted native local app.";
+  apiKey.required = openAiApi;
   apiKey.value = "";
-  element("install-intro").textContent = isOpenAiApi
+  element("install-intro").textContent = openAiApi
     ? "Enter the OpenAI Platform API key this endpoint will use upstream. It is sent only to this local Relmio process."
-    : "Relmio will install the official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready.";
+    : codexChat
+      ? "Relmio will install the experimental Codex Chat Adapter and official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready."
+      : "Relmio will install the official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready.";
   setButtonLabel(
     element("install-button"),
-    isOpenAiApi ? "Install OpenAI API endpoint" : "Install Codex App Server",
+    openAiApi
+      ? "Install OpenAI API endpoint"
+      : codexChat
+        ? "Install Codex Chat Adapter"
+        : "Install Codex App Server",
   );
 }
 
@@ -216,29 +257,46 @@ function renderInstallResult(result) {
   if (
     typeof result.endpoint !== "string" ||
     typeof result.clientCredential !== "string" ||
-    !["openai-api", "codex-chatgpt"].includes(result.target)
+    !["openai-api", "codex-chatgpt", "codex-chat"].includes(result.target)
   ) {
     throw new Error("The local installer returned an unexpected response.");
   }
 
-  const isOpenAiApi = result.target === "openai-api";
+  const openAiApi = isOpenAiApi(result.target);
+  const codexChat = isCodexChat(result.target);
   state.installedTarget = result.target;
   element("result-endpoint").textContent = result.endpoint;
   element("result-credential").textContent = result.clientCredential;
-  element("codex-production-warning").hidden = isOpenAiApi;
-  element("codex-login").hidden = isOpenAiApi;
-  element("done-title").textContent = isOpenAiApi
+  element("codex-production-warning").hidden = openAiApi;
+  element("codex-login").hidden = openAiApi;
+  element("codex-production-warning-title").textContent = codexChat
+    ? "Experimental Chat Adapter — trusted local backends or development servers only"
+    : "Experimental WebSocket transport";
+  element("codex-production-warning-detail").textContent = codexChat
+    ? "The adapter is for trusted local backends or development servers only. It has a Relmio-specific POST /chat contract, no CORS, and is not OpenAI /v1."
+    : "Codex App Server WebSocket is experimental and unsupported for production workloads.";
+  element("done-title").textContent = openAiApi
     ? "OpenAI API endpoint is ready"
-    : "Codex App Server is installed";
-  element("done-detail").textContent = isOpenAiApi
+    : codexChat
+      ? "Codex Chat Adapter is installed"
+      : "Codex App Server is installed";
+  element("done-detail").textContent = openAiApi
     ? "Copy the endpoint and generated bearer credential into your local app."
-    : "Copy the endpoint and capability, then sign the isolated Codex container in to ChatGPT.";
+    : codexChat
+      ? "Copy the endpoint and generated bearer credential into your trusted local backend or development server, then sign the isolated Codex container in to ChatGPT."
+      : "Copy the endpoint and capability, then sign the isolated Codex container in to ChatGPT.";
   appendPolicyNotice(
     element("client-warning"),
-    isOpenAiApi ? "For local OpenAI-compatible clients" : "For trusted native Codex clients only",
-    isOpenAiApi
+    openAiApi
+      ? "For local OpenAI-compatible clients"
+      : codexChat
+        ? "For trusted local backends or development servers only"
+        : "For trusted native Codex clients only",
+    openAiApi
       ? "Use the generated client credential as the bearer API key. Your upstream Platform key remains private in the managed Docker volume."
-      : "This capability is not an OpenAI API key. Treat it like your ChatGPT password: the client is trusted to control the isolated container and may recover its ChatGPT session credential. It must speak official Codex App Server JSON-RPC over WebSocket.",
+      : codexChat
+        ? "Use this one-time credential only as a Bearer token for the Relmio-specific POST /chat endpoint. It is not an OpenAI API key, has no browser CORS support, and must remain in a trusted local backend or development server."
+        : "This capability is not an OpenAI API key. Treat it like your ChatGPT password: the client is trusted to control the isolated container and may recover its ChatGPT session credential. It must speak official Codex App Server JSON-RPC over WebSocket.",
   );
 }
 
@@ -432,7 +490,9 @@ element("install-button").addEventListener("click", async (event) => {
     setMessage(
       result.target === "openai-api"
         ? "Local OpenAI API endpoint verified. Copy its one-time client credential now."
-        : "Codex App Server verified. Copy its one-time capability and complete ChatGPT sign-in.",
+        : result.target === "codex-chat"
+          ? "Codex Chat Adapter for trusted local backends or development servers verified. Copy its one-time bearer and complete ChatGPT sign-in."
+          : "Codex App Server verified. Copy its one-time capability and complete ChatGPT sign-in.",
     );
   } catch (error) {
     invalidatePlan();
@@ -494,7 +554,7 @@ element("codex-login-button").addEventListener("click", async (event) => {
   try {
     const result = await api("/api/local/codex/login", {
       method: "POST",
-      body: {},
+      body: { target: state.installedTarget },
     });
     const verificationUrl = validateVerificationUrl(result.verificationUrl);
     const userCode = validateDeviceCode(result.userCode);
@@ -504,7 +564,9 @@ element("codex-login-button").addEventListener("click", async (event) => {
     resultBox.hidden = false;
     setMessage("Open the official OpenAI page and enter the displayed device code.");
     await waitForCodexLogin();
-    status.textContent = "ChatGPT sign-in completed. Codex is ready for your trusted native client.";
+    status.textContent = isCodexChat(state.installedTarget)
+      ? "ChatGPT sign-in completed. Codex Chat Adapter is ready for your trusted local backend or development server."
+      : "ChatGPT sign-in completed. Codex is ready for your trusted native client.";
     setMessage("Codex ChatGPT sign-in completed successfully.");
   } catch (error) {
     status.textContent = "ChatGPT sign-in did not complete.";

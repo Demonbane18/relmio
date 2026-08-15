@@ -776,6 +776,10 @@ async function handleApi(request, response, path, state) {
       );
     }
 
+    const target = validateLocalTarget(body?.target ?? "codex-chatgpt");
+    if (target !== "codex-chatgpt" && target !== "codex-chat") {
+      throw new Error("Choose a Codex local endpoint before signing in.");
+    }
     state.codexLoginStartInFlight = true;
     let finishStart;
     const startPromise = new Promise((resolvePromise) => {
@@ -802,7 +806,7 @@ async function handleApi(request, response, path, state) {
       }
 
       releaseChangeLock = await state.services.acquireLocalEndpointChangeLock({
-        target: "codex-chatgpt",
+        target,
       });
       if (state.closing) {
         throw Object.assign(new Error("The local wizard is closing."), {
@@ -810,11 +814,12 @@ async function handleApi(request, response, path, state) {
         });
       }
       const installDirectory = await state.services.resolveLocalInstallRoot({
-        target: "codex-chatgpt",
+        target,
       });
       const { dockerHost, projectName } =
         await state.services.attestLocalCodexInstallation({
           installDirectory,
+          ...(target === "codex-chat" ? { target } : {}),
         });
 
       const attempt = await state.services.startCodexDeviceLogin({
@@ -847,7 +852,10 @@ async function handleApi(request, response, path, state) {
             return;
           }
           await state.services.restartLocalCodex(
-            { installDirectory },
+            {
+              installDirectory,
+              ...(target === "codex-chat" ? { target } : {}),
+            },
             { changeLockHeld: true },
           );
           if (state.codexLogin === login && !state.closing) {
