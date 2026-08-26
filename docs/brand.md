@@ -12,11 +12,12 @@ applications.
 
 ![Relmio mark](images/brand/relmio-mark.svg)
 
-Two independent lanes converge around a right-facing negative-space arrow. The
-shape represents an authenticated upstream connection being relayed through a
-single compatible interface.
+The **Harbor Gate** mark uses two distinct boundaries around an open passage.
+Its teal entry stands upright while the ink route bends outward, representing
+a local credential boundary and a controlled path for requests and responses.
+The silhouette stays recognizable at favicon size without provider branding.
 
-The mark was developed from the checked-in generated concept source at
+The abstract mark was developed from the checked-in generated concept source at
 [`images/brand/relmio-concept-source.png`](images/brand/relmio-concept-source.png)
 and redrawn as compact SVG geometry for reliable rendering at small sizes.
 

@@ -10,7 +10,7 @@
     <title>Relmio | Local Endpoint Setup</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23137c74' d='M7 8h19l31 24H41L26 20v10L7 17Z'/%3E%3Cpath fill='%2312211f' d='M7 47l19-13v10l15-12h16L26 56H7Z'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%23137c74' d='M8 13 28 5v38c0 4-2 7-6 9L8 59Z'/%3E%3Cpath fill='%2312211f' d='M36 5l11 5c6 3 9 8 9 15v9c0 3 1 5 3 7l3 3c3 3 3 8 0 11s-8 3-11 0L40 44c-3-3-4-6-4-10Z'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/local.css" />
@@ -28,8 +28,8 @@
           aria-hidden="true"
           focusable="false"
         >
-          <path fill="#137c74" d="M7 8h19l31 24H41L26 20v10L7 17Z" />
-          <path fill="#12211f" d="M7 47l19-13v10l15-12h16L26 56H7Z" />
+          <path fill="#137c74" d="M8 13 28 5v38c0 4-2 7-6 9L8 59Z" />
+          <path fill="#12211f" d="M36 5l11 5c6 3 9 8 9 15v9c0 3 1 5 3 7l3 3c3 3 3 8 0 11s-8 3-11 0L40 44c-3-3-4-6-4-10Z" />
         </svg>
         <span>Relmio</span>
       </div>
@@ -90,9 +90,10 @@
     <main id="main-content" class="shell" tabindex="-1">
       <aside class="rail" aria-label="Local setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
-          <h1 id="page-title">Run Relmio on localhost</h1>
+          <p class="local-eyebrow">Local pre-flight</p>
+          <h1 id="page-title">One boundary at a time</h1>
           <p class="lede">
-            Choose the official credential path that matches your client. All
+            Run Relmio on localhost. Choose the official credential path that matches your client. All
             three options run in hardened Docker containers and bind only to
             <code>127.0.0.1</code>.
           </p>
@@ -519,7 +520,7 @@
         >
           <div class="chat-tester-heading">
             <div>
-              <p class="section-label">Local-only tester</p>
+              <p class="section-label">Streaming verification console</p>
               <h3 id="chat-tester-title">Test this local Chat Adapter</h3>
               <p>
                 Relmio sends this browser only to its same-origin local wizard.
@@ -533,6 +534,14 @@
             >
               Forget tester
             </button>
+          </div>
+
+          <div class="chat-tester-route" aria-label="Request route">
+            <span><strong>Browser</strong><small>Same origin</small></span>
+            <i aria-hidden="true">→</i>
+            <span><strong>Wizard relay</strong><small>Encrypted session</small></span>
+            <i aria-hidden="true">→</i>
+            <span><strong>Chat Adapter</strong><small>127.0.0.1 only</small></span>
           </div>
 
           <form id="chat-tester-secure-form" class="chat-tester-form">

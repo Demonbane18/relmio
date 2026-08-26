@@ -115,6 +115,64 @@ function sendJson(response, statusCode, body) {
   response.end(contents);
 }
 
+function requestAcceptsEventStream(request) {
+  const value = request.headers.accept;
+  return (
+    typeof value === "string" &&
+    value
+      .split(",")
+      .some((entry) => entry.trim().split(";", 1)[0] === "text/event-stream")
+  );
+}
+
+function startLocalChatTestStream(response) {
+  let ended = false;
+  response.writeHead(200, {
+    "Content-Encoding": "none",
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "X-Accel-Buffering": "no",
+    "X-Relmio-Stream": "v1",
+  });
+  const send = (event, data) => {
+    if (ended || response.writableEnded || response.destroyed) return;
+    response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  const keepalive = setInterval(() => {
+    if (!ended && !response.writableEnded && !response.destroyed) {
+      response.write(": keepalive\n\n");
+    }
+  }, 15_000);
+  keepalive.unref?.();
+  send("start", { requestId: randomUUID() });
+  return {
+    send(event, data) {
+      if (event === "progress" || event === "delta") send(event, data);
+    },
+    complete(result) {
+      if (ended) return;
+      send("terminal", {
+        outcome: "completed",
+        conversationId: result.conversationId,
+      });
+      ended = true;
+      clearInterval(keepalive);
+      response.end();
+    },
+    fail(code = "upstream_failed") {
+      if (ended) return;
+      send("error", { code, retryable: true });
+      send("terminal", { outcome: "failed" });
+      ended = true;
+      clearInterval(keepalive);
+      response.end();
+    },
+    dispose() {
+      ended = true;
+      clearInterval(keepalive);
+    },
+  };
+}
+
 function tokenMatches(actual, expected) {
   if (typeof actual !== "string") {
     return false;
@@ -691,13 +749,35 @@ async function handleApi(request, response, path, state) {
     requireLiveLocalAction(state, "Local chat testing");
     requireReadyLocalChatTester(state);
     enforceRateLimit(state, path);
+    const wantsStream = requestAcceptsEventStream(request);
+    const stream = wantsStream ? startLocalChatTestStream(response) : null;
+    const requestController = wantsStream ? new AbortController() : null;
+    const abortOnClose = () => {
+      if (!response.writableEnded) requestController?.abort();
+    };
+    response.once("close", abortOnClose);
     try {
-      sendJson(
-        response,
-        200,
-        createSafeLocalChatTestResponse(await state.localChatTest.message(body)),
+      const result = createSafeLocalChatTestResponse(
+        await state.localChatTest.message(body, {
+          ...(stream
+            ? {
+                onEvent: (event, data) => stream.send(event, data),
+                signal: requestController.signal,
+              }
+            : {}),
+        }),
       );
+      if (stream) stream.complete(result);
+      else sendJson(response, 200, result);
+    } catch (error) {
+      if (stream) {
+        stream.fail(error?.statusCode === 504 ? "timeout" : "upstream_failed");
+      } else {
+        throw error;
+      }
     } finally {
+      response.off("close", abortOnClose);
+      stream?.dispose();
       if (body && typeof body === "object") {
         body.encryptedCredential = undefined;
         body.input = undefined;

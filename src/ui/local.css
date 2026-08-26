@@ -6,6 +6,29 @@
   scroll-behavior: smooth;
 }
 
+.local-wizard .local-eyebrow {
+  margin: 0 0 0.4rem;
+  color: var(--accent-deep);
+  font: 800 0.6875rem/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.local-wizard .rail {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+
+.local-wizard .steps li {
+  min-height: 2.5rem;
+}
+
+.local-wizard .steps li[aria-current="step"] em {
+  color: var(--text);
+}
+
 .local-wizard .status-row {
   margin-bottom: 1rem;
 }
@@ -369,10 +392,14 @@
   display: grid;
   gap: 1rem;
   margin-top: 1.25rem;
-  padding: 1rem;
+  padding: clamp(1rem, 2vw, 1.5rem);
   border: 1px solid var(--accent-border);
   border-radius: var(--radius);
-  background: var(--accent-soft);
+  background:
+    linear-gradient(color-mix(in srgb, var(--accent) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, transparent) 1px, transparent 1px),
+    var(--accent-soft);
+  background-size: 28px 28px;
 }
 
 .chat-tester-heading {
@@ -393,6 +420,42 @@
 
 .chat-tester-heading .section-label {
   margin: 0;
+}
+
+.chat-tester-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+.chat-tester-route > span {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.chat-tester-route strong,
+.chat-tester-route small {
+  overflow-wrap: anywhere;
+}
+
+.chat-tester-route strong {
+  font-size: 0.8125rem;
+}
+
+.chat-tester-route small {
+  color: var(--text-muted);
+  font: 0.6875rem/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.chat-tester-route i {
+  color: var(--accent-deep);
+  font-style: normal;
 }
 
 .chat-tester-form fieldset {
@@ -460,6 +523,16 @@
   background: var(--accent-soft);
 }
 
+.chat-tester-turn-incomplete {
+  border-color: var(--warning-border);
+  border-style: dashed;
+  background: var(--warning-soft);
+}
+
+.chat-tester-turn-incomplete strong {
+  color: var(--warning);
+}
+
 .chat-tester-turn strong {
   display: block;
   margin-bottom: 0.25rem;
@@ -495,6 +568,14 @@
 
   .chat-tester-heading {
     flex-direction: column;
+  }
+
+  .chat-tester-route {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-tester-route i {
+    transform: rotate(90deg);
   }
 
   .review-details div {

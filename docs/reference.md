@@ -26,6 +26,23 @@ printf 'Authorization: Bearer %s\n' "$RELMIO_CHAT_CLIENT_CREDENTIAL" |
     --data '{"input":"Reply with exactly: adapter works"}'
 ```
 
+Stream a conversation and inspect its explicit terminal state:
+
+```bash
+printf 'Authorization: Bearer %s\n' "$RELMIO_CHAT_CLIENT_CREDENTIAL" |
+  curl --no-buffer --fail-with-body --silent --show-error \
+    --request POST "$RELMIO_CHAT_BASE_URL/chat" \
+    --header @- \
+    --header "Accept: text/event-stream" \
+    --header "Content-Type: application/json" \
+    --data '{"input":"What is love? Answer conversationally."}'
+```
+
+The event order is `start`, `progress`, zero or more `delta` events, then one
+`terminal`. Only `terminal: completed` is success. A failed terminal is
+preceded by a redacted `error` event and must not be treated as a partial
+answer.
+
 Copy the returned `conversationId`, then send a continuation:
 
 ```bash

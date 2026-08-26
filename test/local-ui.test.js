@@ -34,6 +34,8 @@ test("local endpoint wizard exposes an accessible four-step flow", async () => {
     html,
     /<aside class="rail" aria-label="Local setup progress and safety">/u,
   );
+  assert.match(html, /Local pre-flight/u);
+  assert.match(html, /One boundary at a time/u);
   assert.match(
     html,
     /<nav class="steps" aria-label="Local setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="4"/u,
@@ -198,6 +200,10 @@ test("Codex Chat ready state provides an in-wizard, ephemeral encrypted chat tes
 
   assert.match(html, /id="chat-tester"[^>]*aria-labelledby="chat-tester-title"/u);
   assert.match(html, /id="chat-tester-title">Test this local Chat Adapter<\/h3>/u);
+  assert.match(html, /Streaming verification console/u);
+  assert.match(html, /Request route/u);
+  assert.match(html, /Wizard relay/u);
+  assert.match(html, /Chat Adapter/u);
   assert.match(html, /id="chat-tester-endpoint"[^>]*placeholder="http:\/\/127\.0\.0\.1:14501"/u);
   assert.match(html, /id="chat-tester-credential"[^>]*type="password"/u);
   assert.match(html, /id="chat-tester-transcript"[^>]*role="log"[^>]*aria-live="polite"/u);
@@ -213,13 +219,23 @@ test("Codex Chat ready state provides an in-wizard, ephemeral encrypted chat tes
   assert.match(script, /window\.crypto\.subtle\.encrypt/u);
   assert.match(script, /clientCredentialInput\.value = "";/u);
   assert.match(script, /api\("\/api\/local\/chat-test\/key"/u);
-  assert.match(script, /api\("\/api\/local\/chat-test\/message"/u);
+  assert.match(script, /fetch\("\/api\/local\/chat-test\/message"/u);
+  assert.match(script, /Accept: "text\/event-stream"/u);
+  assert.match(script, /response\.body\.getReader\(\)/u);
+  assert.match(script, /let exhausted = false;/u);
+  assert.match(script, /await reader\.cancel\(\)/u);
+  assert.match(script, /event === "delta"/u);
+  assert.match(script, /assistantContent\.textContent \+= data\.text/u);
+  assert.match(script, /chat-tester-turn-incomplete/u);
+  assert.match(script, /Local adapter · incomplete/u);
+  assert.match(script, /event === "terminal"/u);
   assert.match(script, /api\("\/api\/local\/chat-test\/reset"/u);
   assert.match(script, /appendChatTesterTurn/u);
   assert.match(script, /\.textContent = text/u);
   assert.doesNotMatch(script, /fetch\(\s*(?:endpointBaseUrl|adapter|chatTester)/u);
   assert.doesNotMatch(script, /localStorage|sessionStorage|indexedDB|document\.cookie/u);
   assert.match(css, /\.chat-tester\s*\{/u);
+  assert.match(css, /\.chat-tester-turn-incomplete\s*\{/u);
   assert.match(css, /@media \(max-width: 48rem\)/u);
 });
 

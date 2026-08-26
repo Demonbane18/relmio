@@ -110,8 +110,11 @@ test("local chat tester APIs keep the setup-token boundary and return no credent
         privateKey: "must-not-leak",
       };
     },
-    async message(body) {
+    async message(body, options = {}) {
       received.push(body);
+      options.onEvent?.("progress", { phase: "working" });
+      options.onEvent?.("delta", { text: "adapter " });
+      options.onEvent?.("delta", { text: "response" });
       return {
         conversationId: "conversation-123",
         output: "adapter response",
@@ -193,12 +196,36 @@ test("local chat tester APIs keep the setup-token boundary and return no credent
     output: "adapter response",
   });
 
+  const streamed = await api(wizard, "/api/local/chat-test/message", {
+    method: "POST",
+    headers: { Accept: "text/event-stream" },
+    body: JSON.stringify({
+      endpointBaseUrl: "http://127.0.0.1:14501",
+      keyId: "tester-key-123",
+      encryptedCredential: "ciphertext-only",
+      input: "What is a robot?",
+    }),
+  });
+  assert.equal(streamed.status, 200);
+  assert.match(streamed.headers.get("content-type") ?? "", /^text\/event-stream\b/u);
+  assert.equal(streamed.headers.get("x-relmio-stream"), "v1");
+  const streamedText = await streamed.text();
+  assert.match(streamedText, /event: progress\ndata: \{"phase":"working"\}/u);
+  assert.match(streamedText, /event: delta\ndata: \{"text":"adapter "\}/u);
+  assert.match(streamedText, /event: delta\ndata: \{"text":"response"\}/u);
+  assert.match(
+    streamedText,
+    /event: terminal\ndata: \{"outcome":"completed","conversationId":"conversation-123"\}/u,
+  );
+  assert.equal((streamedText.match(/event: terminal/gu) ?? []).length, 1);
+  assert.doesNotMatch(streamedText, /must-not-leak|ciphertext-only/u);
+
   const reset = await postJson(wizard, "/api/local/chat-test/reset", {
     keyId: "tester-key-123",
   });
   assert.equal(reset.status, 200);
   assert.deepEqual(await reset.json(), { forgotten: true });
-  assert.equal(received.length, 2);
+  assert.equal(received.length, 3);
 
   const noToken = await fetch(`${wizard.origin}/api/local/chat-test/key`, {
     method: "POST",

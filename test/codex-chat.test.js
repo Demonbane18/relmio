@@ -198,6 +198,41 @@ function authenticatedHeaders() {
   };
 }
 
+async function readRelmioEvents(response) {
+  const reader = response.body.getReader();
+  const chunks = [];
+  const deadline = setTimeout(() => {
+    void reader.cancel("test stream deadline");
+  }, 1_000);
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    clearTimeout(deadline);
+    reader.releaseLock();
+  }
+  const blocks = Buffer.concat(chunks)
+    .toString("utf8")
+    .split(/\r?\n\r?\n/u)
+    .filter((block) => block.trim() && !block.trimStart().startsWith(":"));
+  return blocks.map((block) => {
+    const event = block
+      .split(/\r?\n/u)
+      .find((line) => line.startsWith("event:"))
+      ?.slice(6)
+      .trim();
+    const data = block
+      .split(/\r?\n/u)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    return { event, data: JSON.parse(data) };
+  });
+}
+
 function createStallingAppServer() {
   const child = new EventEmitter();
   child.stdin = new EventEmitter();
@@ -493,6 +528,86 @@ test("Codex Chat prefers item completion, keeps delta item IDs separate, and bou
     await gateway.close();
   }
 });
+
+test("Codex Chat streams progress, text deltas, and one completed terminal event", async (t) => {
+  const appServer = createCompletingAppServer({
+    delta: ["A robot ", "is a programmable machine."],
+    finalText: "A robot is a programmable machine.",
+  });
+  const gateway = await startCodexChatGateway({
+    host: "127.0.0.1",
+    port: 0,
+    tokenVerifier: hashCodexChatCredential(clientCredential),
+    spawnProcess() {
+      return appServer.child;
+    },
+  });
+  t.after(() => gateway.close());
+
+  const response = await fetch(`${gateway.origin}/chat`, {
+    method: "POST",
+    headers: {
+      ...authenticatedHeaders(),
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify({ input: "What is a robot?" }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type") ?? "", /^text\/event-stream\b/u);
+  assert.equal(response.headers.get("x-relmio-stream"), "v1");
+  const events = await readRelmioEvents(response);
+  assert.equal(events[0].event, "start");
+  assert.ok(events.some((event) => event.event === "progress"));
+  assert.deepEqual(
+    events.filter((event) => event.event === "delta").map((event) => event.data.text),
+    ["A robot ", "is a programmable machine."],
+  );
+  assert.deepEqual(events.at(-1), {
+    event: "terminal",
+    data: { outcome: "completed", conversationId: "thread_123" },
+  });
+  assert.equal(events.filter((event) => event.event === "terminal").length, 1);
+  const serialized = JSON.stringify(events);
+  assert.doesNotMatch(serialized, /turn_123|item_123/u);
+});
+
+for (const status of ["failed", "interrupted"]) {
+  test(`Codex Chat streams one redacted failed terminal event for ${status} turns`, async (t) => {
+    const appServer = createCompletingAppServer({
+      delta: [],
+      includeCompletedItem: false,
+      turnStatus: status,
+    });
+    const gateway = await startCodexChatGateway({
+      host: "127.0.0.1",
+      port: 0,
+      tokenVerifier: hashCodexChatCredential(clientCredential),
+      spawnProcess() {
+        return appServer.child;
+      },
+    });
+    t.after(() => gateway.close());
+
+    const response = await fetch(`${gateway.origin}/chat`, {
+      method: "POST",
+      headers: { ...authenticatedHeaders(), Accept: "text/event-stream" },
+      body: JSON.stringify({ input: "What is love?" }),
+    });
+    const events = await readRelmioEvents(response);
+    assert.equal(events.filter((event) => event.event === "error").length, 1);
+    assert.equal(events.filter((event) => event.event === "terminal").length, 1);
+    assert.deepEqual(events.at(-2), {
+      event: "error",
+      data: { code: "upstream_failed", retryable: true },
+    });
+    assert.deepEqual(events.at(-1), {
+      event: "terminal",
+      data: { outcome: "failed" },
+    });
+    assert.doesNotMatch(JSON.stringify(events), /turn_123|item_123|private/u);
+  });
+}
 
 test("Codex Chat contains child stdio errors behind a generic failure", async () => {
   for (const streamName of ["stdin", "stdout", "stderr"]) {

@@ -31,8 +31,8 @@ test("server-renders the Relmio product page", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Relmio \| Your ChatGPT plan, relayed<\/title>/i);
-  assert.match(html, /Your ChatGPT plan\./);
-  assert.match(html, /One clean path to your tools\./);
+  assert.match(html, /A private bridge/);
+  assert.match(html, /between your plan and your tools\./);
   assert.match(html, /Test a supported ChatGPT sign-in in the hosted chat\./);
   assert.match(
     html,
@@ -51,7 +51,11 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /lucide-sun/);
   assert.match(html, /lucide-moon/);
   assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
-  assert.match(html, /class="relay-visual"/);
+  assert.match(html, /class="[^"]*\bprivate-bridge\b/);
+  assert.match(html, /aria-label="Private request route"/);
+  assert.match(html, /Your app/);
+  assert.match(html, /Authenticated relay/);
+  assert.match(html, /Streamed back/);
   assert.match(html, /Connect, then ask\./);
   assert.match(html, /Before you connect: install the browser extension/);
   assert.match(
@@ -264,16 +268,20 @@ test("rejects non-string chat prompts before reading credentials", async () => {
   });
 });
 
-test("streams chat over the UI message protocol without proxy buffering", async () => {
-  const [chatConsole, chatRoute] = await Promise.all([
+test("streams chat over Relmio's explicit terminal-state protocol without proxy buffering", async () => {
+  const [chatConsole, chatRoute, streamReader] = await Promise.all([
     readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/relmio-stream.js", import.meta.url), "utf8"),
   ]);
 
-  assert.doesNotMatch(chatConsole, /streamProtocol:\s*"text"/u);
-  assert.match(chatRoute, /toUIMessageStreamResponse/u);
+  assert.doesNotMatch(chatConsole, /useCompletion/u);
+  assert.match(chatConsole, /readRelmioEvents/u);
+  assert.match(streamReader, /ReadableStream|getReader/u);
+  assert.match(chatRoute, /createOpenAIOAuthTransport/u);
+  assert.match(chatRoute, /encodeEvent\("delta"/u);
+  assert.match(chatRoute, /encodeEvent\("terminal"/u);
   assert.match(chatRoute, /"Content-Encoding":\s*"none"/u);
-  assert.match(chatRoute, /onError:\s*streamErrorMessage/u);
 });
 
 test("returns a streaming error event instead of an empty completion", async (t) => {
@@ -298,14 +306,15 @@ test("returns a streaming error event instead of an empty completion", async (t)
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "text/event-stream");
   assert.equal(response.headers.get("content-encoding"), "none");
-  assert.equal(response.headers.get("x-vercel-ai-ui-message-stream"), "v1");
+  assert.equal(response.headers.get("x-relmio-stream"), "v1");
 
   const stream = await response.text();
-  assert.match(stream, /"type":"error"/u);
+  assert.match(stream, /event: error/u);
   assert.match(
     stream,
-    /The response stream failed\. Reconnect ChatGPT and try again\./u,
+    /"code":"upstream_failed"/u,
   );
+  assert.match(stream, /event: terminal\ndata: \{"outcome":"failed"\}/u);
   assert.doesNotMatch(stream, /private upstream detail/u);
 });
 
@@ -333,10 +342,10 @@ test("identifies a ChatGPT challenge against the hosting network", async (t) => 
 
   assert.equal(response.status, 200);
   const stream = await response.text();
-  assert.match(stream, /"type":"error"/u);
+  assert.match(stream, /event: error/u);
   assert.match(
     stream,
-    /ChatGPT blocked requests from this hosting network\./u,
+    /"code":"hosting_network_blocked"/u,
   );
   assert.doesNotMatch(stream, /private challenge body|test-token/u);
 });
@@ -406,22 +415,113 @@ test("forwards incremental model text as separate chat stream events", async (t)
 
   assert.equal(response.status, 200);
   const stream = await response.text();
-  assert.match(stream, /"type":"text-delta".*"delta":"Hello"/u);
-  assert.match(stream, /"type":"text-delta".*"delta":" world"/u);
-  assert.ok(stream.indexOf('"delta":"Hello"') < stream.indexOf('"delta":" world"'));
-  assert.match(stream, /data: \[DONE\]/u);
+  assert.match(stream, /event: delta\ndata: \{"text":"Hello"\}/u);
+  assert.match(stream, /event: delta\ndata: \{"text":" world"\}/u);
+  assert.ok(stream.indexOf('"text":"Hello"') < stream.indexOf('"text":" world"'));
+  assert.match(stream, /event: terminal\ndata: \{"outcome":"completed"\}/u);
+  assert.doesNotMatch(stream, /response-test|message-test/u);
+});
+
+for (const terminalType of [
+  "response.failed",
+  "response.incomplete",
+  "response.cancelled",
+  "response.canceled",
+]) {
+  test(`turns ${terminalType} into one redacted failed terminal outcome`, async (t) => {
+    const privateDetail = `private-${terminalType}-detail`;
+    const upstreamStream = [
+      `data: ${JSON.stringify({
+        type: "response.created",
+        response: { id: "response-private", created_at: 1, model: "gpt-5.4-mini" },
+      })}\n\n`,
+      `data: ${JSON.stringify({
+        type: terminalType,
+        response: {
+          id: "response-private",
+          status: terminalType.slice("response.".length),
+          error: { message: privateDetail },
+          incomplete_details: { reason: privateDetail },
+        },
+      })}\n\n`,
+      "data: [DONE]\n\n",
+    ].join("");
+
+    t.mock.method(globalThis, "fetch", async (input) =>
+      String(input).includes("/responses")
+        ? new Response(upstreamStream, {
+            headers: { "content-type": "text/event-stream" },
+          })
+        : Response.json({ data: [] }),
+    );
+
+    const response = await requestApp("/api/chat", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-token",
+        "chatgpt-account-id": "test-account",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ prompt: "What is a robot?" }),
+    });
+
+    assert.equal(response.status, 200);
+    const stream = await response.text();
+    assert.equal((stream.match(/event: error/gu) ?? []).length, 1);
+    assert.equal((stream.match(/event: terminal/gu) ?? []).length, 1);
+    assert.match(stream, /"code":"upstream_failed"/u);
+    assert.match(stream, /"outcome":"failed"/u);
+    assert.doesNotMatch(stream, new RegExp(privateDetail, "u"));
+    assert.doesNotMatch(stream, /response-private|test-token/u);
+  });
+}
+
+test("fails a terminal-less upstream stream instead of reporting empty success", async (t) => {
+  t.mock.method(globalThis, "fetch", async (input) =>
+    String(input).includes("/responses")
+      ? new Response(
+          `data: ${JSON.stringify({
+            type: "response.created",
+            response: { id: "private-id", created_at: 1, model: "gpt-5.4-mini" },
+          })}\n\n`,
+          { headers: { "content-type": "text/event-stream" } },
+        )
+      : Response.json({ data: [] }),
+  );
+
+  const response = await requestApp("/api/chat", {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-token",
+      "chatgpt-account-id": "test-account",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ prompt: "What is love?" }),
+  });
+
+  const stream = await response.text();
+  assert.match(stream, /event: error/u);
+  assert.match(stream, /"code":"upstream_failed"/u);
+  assert.match(stream, /event: terminal\ndata: \{"outcome":"failed"\}/u);
+  assert.doesNotMatch(stream, /private-id/u);
 });
 
 test("ships the request-bound chat and removes starter assets", async () => {
-  const [chatConsole, chatRoute, layout, packageJson] = await Promise.all([
+  const [chatConsole, chatRoute, layout, packageJson, globalCss] = await Promise.all([
     readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
   assert.match(chatConsole, /openaiAuthHeaders/u);
   assert.match(chatConsole, /SignInWithChatGPT/u);
+  assert.match(chatConsole, /message-incomplete/u);
+  assert.match(chatConsole, /Relmio · incomplete/u);
+  assert.match(chatConsole, /<HStack className="console-statuses"/u);
+  assert.match(globalCss, /\.message-incomplete p \{[\s\S]*var\(--color-border-orange\)/u);
+  assert.match(globalCss, /\.message-incomplete > span \{[\s\S]*var\(--color-text-orange\)/u);
   assert.match(chatRoute, /openaiCredentials\(request\)/u);
   assert.match(chatRoute, /Cache-Control": "no-store"/u);
   assert.match(layout, /Relmio \| Your ChatGPT plan, relayed/u);
