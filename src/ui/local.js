@@ -131,6 +131,123 @@ async function api(path, { method = "GET", body } = {}) {
   return result;
 }
 
+function parseRelmioStreamEvent(block) {
+  const dataLines = [];
+  let event;
+  for (const line of block.split(/\r?\n/u)) {
+    if (line.startsWith("event:")) {
+      event = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+  if (!event || dataLines.length === 0) {
+    throw new Error("The local wizard returned an unreadable stream.");
+  }
+  let data;
+  try {
+    data = JSON.parse(dataLines.join("\n"));
+  } catch {
+    throw new Error("The local wizard returned an unreadable stream.");
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("The local wizard returned an unexpected stream event.");
+  }
+  return { event, data };
+}
+
+async function streamChatTesterMessage(body, onEvent) {
+  if (!token) {
+    throw new Error(
+      "This wizard link is incomplete. Close this tab and open the full URL printed by the active Relmio terminal.",
+    );
+  }
+  let response;
+  try {
+    response = await fetch("/api/local/chat-test/message", {
+      method: "POST",
+      headers: {
+        Accept: "text/event-stream",
+        "Content-Type": "application/json",
+        "X-Setup-Token": token,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("The local Relmio wizard is not reachable. Keep its terminal open and try again.");
+  }
+  if (
+    !response.ok ||
+    !response.body ||
+    !/^text\/event-stream(?:\s*;|$)/iu.test(response.headers.get("content-type") ?? "") ||
+    response.headers.get("x-relmio-stream") !== "v1"
+  ) {
+    throw new Error("The local wizard could not start a safe response stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let exhausted = false;
+  let streamError;
+  let terminal;
+  const consume = (block) => {
+    if (!block.trim() || block.trimStart().startsWith(":")) return;
+    if (terminal) {
+      throw new Error("The local wizard sent data after the terminal event.");
+    }
+    const item = parseRelmioStreamEvent(block);
+    if (item.event === "start") return;
+    if (item.event === "progress" || item.event === "delta") {
+      onEvent(item.event, item.data);
+      return;
+    }
+    if (item.event === "error") {
+      const messages = {
+        timeout: "The adapter test took too long. Try again.",
+        upstream_failed: "The local adapter could not complete this response.",
+      };
+      streamError = messages[item.data.code] ?? messages.upstream_failed;
+      return;
+    }
+    if (item.event === "terminal") {
+      terminal = item.data;
+      return;
+    }
+    throw new Error("The local wizard returned an unexpected stream event.");
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        exhausted = true;
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split(/\r?\n\r?\n/u);
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) consume(block);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) consume(buffer);
+  } finally {
+    if (!exhausted) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The same-origin stream may already have closed after a parse failure.
+      }
+    }
+    reader.releaseLock();
+  }
+
+  if (!terminal || terminal.outcome !== "completed" || typeof terminal.conversationId !== "string") {
+    throw new Error(streamError ?? "The adapter response ended before completion.");
+  }
+  return { conversationId: terminal.conversationId };
+}
+
 function selectedTarget() {
   return document.querySelector('input[name="target"]:checked')?.value;
 }
@@ -341,6 +458,7 @@ function appendChatTesterTurn(kind, text) {
   item.className = `chat-tester-turn chat-tester-turn-${kind}`;
   item.append(heading, content);
   element("chat-tester-transcript").append(item);
+  return content;
 }
 
 function clearChatTesterState() {
@@ -756,13 +874,13 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
   const generation = state.chatTester.generation;
   input.value = "";
   appendChatTesterTurn("user", text);
+  const assistantContent = appendChatTesterTurn("assistant", "");
   resetButton.disabled = true;
-  setBusy(button, true, "Waiting for adapter…");
-  setChatTesterStatus("The local wizard is testing the adapter without exposing its credential to the page.");
+  setBusy(button, true, "Streaming response…");
+  setChatTesterStatus("Connecting to the loopback adapter through the secured local wizard…");
   try {
-    const result = await api("/api/local/chat-test/message", {
-      method: "POST",
-      body: {
+    const result = await streamChatTesterMessage(
+      {
         endpointBaseUrl: state.chatTester.endpointBaseUrl,
         keyId: state.chatTester.keyId,
         encryptedCredential: state.chatTester.encryptedCredential,
@@ -771,23 +889,37 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
           ? { conversationId: state.chatTester.conversationId }
           : {}),
       },
-    });
-    if (
-      typeof result.conversationId !== "string" ||
-      typeof result.output !== "string"
-    ) {
-      throw new Error("The local adapter returned an unexpected response.");
-    }
+      (event, data) => {
+        if (state.chatTester.generation !== generation) return;
+        if (event === "progress") {
+          setChatTesterStatus("The adapter is working on the response…");
+        } else if (event === "delta" && typeof data.text === "string") {
+          assistantContent.textContent += data.text;
+          setChatTesterStatus("Streaming the adapter response…");
+        }
+      },
+    );
     if (state.chatTester.generation !== generation) {
       return;
     }
     state.chatTester.conversationId = result.conversationId;
-    appendChatTesterTurn("assistant", result.output);
+    if (!assistantContent.textContent) {
+      throw new Error("The local adapter completed without a visible response.");
+    }
     setChatTesterStatus("Response received. Continue this conversation or forget the tester.");
   } catch (error) {
     if (state.chatTester.generation === generation) {
+      if (!assistantContent.textContent) {
+        assistantContent.parentElement?.remove();
+        setChatTesterStatus("No completed adapter response was added. You can retry or forget this tester.");
+      } else {
+        const assistantTurn = assistantContent.parentElement;
+        assistantTurn?.classList.add("chat-tester-turn-incomplete");
+        const heading = assistantTurn?.querySelector("strong");
+        if (heading) heading.textContent = "Local adapter · incomplete";
+        setChatTesterStatus("The response stopped before completion. Partial text is marked incomplete and was not accepted.");
+      }
       showChatTesterError(error);
-      setChatTesterStatus("No adapter response was added. You can retry or forget this tester.");
     }
   } finally {
     resetButton.disabled = false;

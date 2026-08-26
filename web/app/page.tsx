@@ -1,5 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Card } from "@astryxdesign/core/Card";
+import { Grid } from "@astryxdesign/core/Grid";
+import { HStack } from "@astryxdesign/core/HStack";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Text } from "@astryxdesign/core/Text";
+import { Token } from "@astryxdesign/core/Token";
+import { VStack } from "@astryxdesign/core/VStack";
 import { ChatConsole } from "./components/ChatConsole";
 import { RepositoryButton } from "./components/RepositoryButton";
 import { SupportButton } from "./components/SupportButton";
@@ -78,11 +85,11 @@ export default function Home() {
         <div className="hero-copy">
           <p className="eyebrow">
             <span className="status-dot" aria-hidden="true" />
-            Private AI relay
+            Private bridge
           </p>
           <h1>
-            Your ChatGPT plan.
-            <span>One clean path to your tools.</span>
+            A private bridge
+            <span>between your plan and your tools.</span>
           </h1>
           <p className="hero-lede">
             Test a supported ChatGPT sign-in in the hosted chat. For n8n,
@@ -108,57 +115,53 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="relay-visual" aria-label="Relmio request flow">
-          <div className="visual-heading">
-            <div>
-              <p>Live route</p>
-              <strong>Browser → model</strong>
-            </div>
-            <span className="route-status">Ready</span>
-          </div>
-
-          <div className="route-lane route-lane-top">
-            <div className="route-node">
-              <span>01</span>
-              <strong>ChatGPT</strong>
-              <small>browser sign-in</small>
-            </div>
-            <div className="route-line" aria-hidden="true">
-              <i />
-            </div>
-            <div className="route-node route-node-accent">
-              <span>02</span>
-              <strong>Relmio</strong>
-              <small>request relay</small>
-            </div>
-          </div>
-
-          <div className="route-divider">
-            <span>Credentials remain device-local</span>
-          </div>
-
-          <div className="route-lane route-lane-bottom">
-            <div className="route-node">
-              <span>03</span>
-              <strong>Your client</strong>
-              <small>chat · n8n · SDK</small>
-            </div>
-            <div className="route-line route-line-dark" aria-hidden="true">
-              <i />
-            </div>
-            <div className="route-node">
-              <span>04</span>
-              <strong>AI response</strong>
-              <small>streamed back</small>
-            </div>
-          </div>
-
-          <div className="visual-footer">
-            <span>OpenAI-compatible</span>
-            <span>Request-bound auth</span>
-            <span>Streaming</span>
-          </div>
-        </div>
+        <VStack className="private-bridge" gap={0} aria-label="Private request route">
+          <HStack className="visual-heading" gap={4} justify="between" align="center">
+            <VStack gap={0.5}>
+              <Text type="code">Request route</Text>
+              <Text type="label" weight="bold">One boundary at a time</Text>
+            </VStack>
+            <Token
+              label="Ready"
+              size="sm"
+              color="teal"
+              endContent={<StatusDot variant="success" label="Route ready" />}
+            />
+          </HStack>
+          <Grid className="bridge-route" columns={5} gap={2} align="center">
+            <Card className="bridge-node" padding={5} elevation="low">
+              <VStack height="100%" gap={1}>
+                <Text type="code" color="accent">01</Text>
+                <Text type="label" weight="bold">Your app</Text>
+                <Text type="supporting" color="secondary">Trusted local backend</Text>
+              </VStack>
+            </Card>
+            <HStack className="bridge-link bridge-link-in" aria-hidden="true">
+              <StatusDot variant="accent" label="Request moving to Relmio" />
+            </HStack>
+            <Card className="bridge-node bridge-node-relmio" padding={5} variant="teal">
+              <VStack height="100%" gap={1}>
+                <Text type="code" color="inherit">02</Text>
+                <Text type="label" color="inherit" weight="bold">Relmio</Text>
+                <Text type="supporting" color="inherit">Authenticated relay</Text>
+              </VStack>
+            </Card>
+            <HStack className="bridge-link bridge-link-out" aria-hidden="true">
+              <StatusDot variant="accent" label="Response streaming to the app" />
+            </HStack>
+            <Card className="bridge-node" padding={5} elevation="low">
+              <VStack height="100%" gap={1}>
+                <Text type="code" color="accent">03</Text>
+                <Text type="label" weight="bold">AI response</Text>
+                <Text type="supporting" color="secondary">Streamed back</Text>
+              </VStack>
+            </Card>
+          </Grid>
+          <HStack className="bridge-boundary" gap={4} justify="between">
+            <Text type="code" color="secondary">Credential stays behind the boundary</Text>
+            <Text type="code" color="secondary">Response streams through</Text>
+          </HStack>
+        </VStack>
       </section>
 
       <section className="signal-strip" aria-label="Supported starting points">

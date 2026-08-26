@@ -15,7 +15,7 @@ const MAX_ENDPOINT_LENGTH = 64;
 const MAX_CIPHERTEXT_LENGTH = 4_096;
 const MAX_INPUT_LENGTH = 8_192;
 const MAX_CONVERSATION_ID_LENGTH = 160;
-const MAX_RESPONSE_BYTES = 16 * 1_024;
+const MAX_RESPONSE_BYTES = 512 * 1_024;
 const MAX_OUTPUT_LENGTH = 12 * 1_024;
 
 function requestError(message, statusCode = 400) {
@@ -173,6 +173,130 @@ function parseAdapterResponse(text) {
   };
 }
 
+function parseEventBlock(block) {
+  const dataLines = [];
+  let event;
+  for (const line of block.split(/\r?\n/u)) {
+    if (line.startsWith("event:")) {
+      event = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+  if (!event || dataLines.length === 0) {
+    throw adapterError();
+  }
+  let data;
+  try {
+    data = JSON.parse(dataLines.join("\n"));
+  } catch {
+    throw adapterError();
+  }
+  if (!isPlainObject(data)) {
+    throw adapterError();
+  }
+  return { event, data };
+}
+
+async function consumeAdapterStream(response, onEvent) {
+  if (
+    !/^text\/event-stream(?:\s*;|$)/iu.test(
+      response.headers?.get?.("content-type") ?? "",
+    ) ||
+    response.headers?.get?.("x-relmio-stream") !== "v1"
+  ) {
+    throw adapterError();
+  }
+  const reader = response.body?.getReader?.();
+  if (!reader) {
+    throw adapterError();
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let bytes = 0;
+  let conversationId;
+  let failed = false;
+  let output = "";
+  let terminal = false;
+  const processBlock = (block) => {
+    if (!block.trim() || block.trimStart().startsWith(":")) {
+      return;
+    }
+    const { event, data } = parseEventBlock(block);
+    if (event === "start") {
+      return;
+    }
+    if (event === "progress") {
+      onEvent("progress", { phase: "working" });
+      return;
+    }
+    if (event === "delta") {
+      if (
+        typeof data.text !== "string" ||
+        data.text.length === 0 ||
+        data.text.includes("\0") ||
+        output.length + data.text.length > MAX_OUTPUT_LENGTH
+      ) {
+        throw adapterError();
+      }
+      output += data.text;
+      onEvent("delta", { text: data.text });
+      return;
+    }
+    if (event === "error") {
+      failed = true;
+      return;
+    }
+    if (event === "terminal") {
+      if (terminal || !["completed", "failed"].includes(data.outcome)) {
+        throw adapterError();
+      }
+      terminal = true;
+      failed ||= data.outcome !== "completed";
+      if (!failed) {
+        if (!isBoundedText(data.conversationId, MAX_CONVERSATION_ID_LENGTH)) {
+          throw adapterError();
+        }
+        conversationId = data.conversationId;
+      }
+      return;
+    }
+    throw adapterError();
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > MAX_RESPONSE_BYTES) {
+        throw adapterError();
+      }
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split(/\r?\n\r?\n/u);
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) processBlock(block);
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) processBlock(buffer);
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      // The adapter stream may already be closed after a malformed terminal.
+    }
+    throw error;
+  } finally {
+    reader.releaseLock?.();
+  }
+
+  if (failed || !terminal || !conversationId || output.length === 0) {
+    throw adapterError();
+  }
+  return { conversationId, output };
+}
+
 function isTimeout(error) {
   return error?.name === "AbortError" || error?.name === "TimeoutError";
 }
@@ -265,8 +389,12 @@ export function createLocalChatTestService({
       }
     },
 
-    async message(untrustedRequest) {
+    async message(untrustedRequest, options = {}) {
       const request = validateMessageRequest(untrustedRequest);
+      const onEvent =
+        typeof options.onEvent === "function" ? options.onEvent : null;
+      const externalSignal =
+        options.signal instanceof AbortSignal ? options.signal : null;
       const session = getLiveSession(request.keyId);
       if (session.inFlight) {
         throw requestError("Wait for the current test message to finish.", 409);
@@ -275,6 +403,7 @@ export function createLocalChatTestService({
       let encryptedCredential;
       let decryptedCredential;
       let authorization;
+      let abortFromCaller;
       let timeout;
       try {
         encryptedCredential = decodeCiphertext(request.encryptedCredential);
@@ -302,6 +431,14 @@ export function createLocalChatTestService({
         let response;
         try {
           session.abortController = new AbortController();
+          abortFromCaller = () => session.abortController?.abort();
+          if (externalSignal?.aborted) {
+            abortFromCaller();
+          } else {
+            externalSignal?.addEventListener("abort", abortFromCaller, {
+              once: true,
+            });
+          }
           timeout = setTimeout(
             () => session.abortController?.abort(),
             requestTimeoutMs,
@@ -309,7 +446,7 @@ export function createLocalChatTestService({
           response = await fetchImpl(`${request.endpointBaseUrl}/chat`, {
             method: "POST",
             headers: {
-              Accept: "application/json",
+              Accept: onEvent ? "text/event-stream" : "application/json",
               Authorization: authorization,
               "Content-Type": "application/json",
             },
@@ -328,9 +465,12 @@ export function createLocalChatTestService({
         if (!response?.ok || response.status < 200 || response.status >= 300) {
           throw adapterError();
         }
-        return parseAdapterResponse(await readBoundedResponse(response));
+        return onEvent
+          ? await consumeAdapterStream(response, onEvent)
+          : parseAdapterResponse(await readBoundedResponse(response));
       } finally {
         clearTimeout(timeout);
+        externalSignal?.removeEventListener("abort", abortFromCaller);
         authorization = undefined;
         encryptedCredential?.fill(0);
         decryptedCredential?.fill(0);

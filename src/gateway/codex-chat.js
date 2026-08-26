@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
@@ -12,6 +12,7 @@ const MAX_PROTOCOL_STDOUT_BYTES = 256 * 1024;
 const MAX_PROTOCOL_STDERR_BYTES = 64 * 1024;
 const TURN_TIMEOUT_MS = 120_000;
 const TERMINATION_GRACE_MS = 2_000;
+const KEEPALIVE_INTERVAL_MS = 15_000;
 const CONVERSATIONAL_INSTRUCTION =
   "Provide a conversational answer only. Do not inspect or edit files, run commands, call tools, or access external resources.";
 
@@ -63,6 +64,70 @@ function sendJson(response, status, body) {
 
 function sendError(response, status, code) {
   sendJson(response, status, { error: { code } });
+}
+
+function acceptsEventStream(request) {
+  if (headerOccurrences(request, "accept") > 1) {
+    return false;
+  }
+  const value = request.headers.accept;
+  return (
+    typeof value === "string" &&
+    value
+      .split(",")
+      .some((entry) => entry.trim().split(";", 1)[0] === "text/event-stream")
+  );
+}
+
+function startEventStream(response, keepaliveIntervalMs) {
+  let ended = false;
+  response.writeHead(200, {
+    "Cache-Control": "no-store",
+    Connection: "keep-alive",
+    "Content-Encoding": "none",
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "X-Accel-Buffering": "no",
+    "X-Content-Type-Options": "nosniff",
+    "X-Relmio-Stream": "v1",
+  });
+  const send = (event, data) => {
+    if (ended || response.writableEnded || response.destroyed) {
+      return;
+    }
+    response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  const keepalive = setInterval(() => {
+    if (!ended && !response.writableEnded && !response.destroyed) {
+      response.write(": keepalive\n\n");
+    }
+  }, keepaliveIntervalMs);
+  keepalive.unref?.();
+  send("start", { requestId: randomUUID() });
+  return {
+    send,
+    complete(result) {
+      if (ended) return;
+      send("terminal", {
+        outcome: "completed",
+        conversationId: result.conversationId,
+      });
+      ended = true;
+      clearInterval(keepalive);
+      response.end();
+    },
+    fail(code = "upstream_failed", retryable = true) {
+      if (ended) return;
+      send("error", { code, retryable });
+      send("terminal", { outcome: "failed" });
+      ended = true;
+      clearInterval(keepalive);
+      response.end();
+    },
+    dispose() {
+      ended = true;
+      clearInterval(keepalive);
+    },
+  };
 }
 
 function hasValidBearer(request, verifier) {
@@ -196,6 +261,8 @@ function createAppServerOperation({
   input,
   conversationId,
   packageVersion,
+  onEvent,
+  onFailure,
   signal,
   spawnProcess,
   terminationGraceMs,
@@ -241,6 +308,7 @@ function createAppServerOperation({
     let finalOutput = null;
     let latestDeltaItemId = null;
     let deltaBytes = 0;
+    let emittedDeltaBytes = 0;
     const deltaOutputs = new Map();
     let phase = "initializing";
     let outcome = null;
@@ -298,6 +366,9 @@ function createAppServerOperation({
         return;
       }
       outcome = { error, result };
+      if (error) {
+        onFailure?.(error.message === "timeout" ? "timeout" : "upstream_failed");
+      }
       signal?.removeEventListener?.("abort", abortOperation);
       clearTimeout(timeout);
       timeout = undefined;
@@ -316,6 +387,7 @@ function createAppServerOperation({
     };
     const startThread = () => {
       phase = "thread";
+      onEvent?.("progress", { phase: "starting_thread" });
       write({
         id: 1,
         method: conversationId ? "thread/resume" : "thread/start",
@@ -337,6 +409,7 @@ function createAppServerOperation({
     };
     const startTurn = () => {
       phase = "turn";
+      onEvent?.("progress", { phase: "starting_turn" });
       write({
         id: 2,
         method: "turn/start",
@@ -418,11 +491,13 @@ function createAppServerOperation({
           return;
         }
         deltaBytes += partBytes;
+        emittedDeltaBytes += partBytes;
         latestDeltaItemId = params.itemId;
         deltaOutputs.set(
           params.itemId,
           `${deltaOutputs.get(params.itemId) ?? ""}${params.delta}`,
         );
+        onEvent?.("delta", { text: params.delta });
         return;
       }
       if (message.method === "item/completed") {
@@ -467,6 +542,9 @@ function createAppServerOperation({
         if (!output) {
           failProtocol();
           return;
+        }
+        if (emittedDeltaBytes === 0) {
+          onEvent?.("delta", { text: output });
         }
         settle(null, { conversationId: threadId, output });
         return;
@@ -552,6 +630,7 @@ function createAppServerOperation({
         },
       },
     });
+    onEvent?.("progress", { phase: "initializing" });
   });
 }
 
@@ -603,6 +682,7 @@ export async function startCodexChatGateway({
   spawnProcess = spawn,
   terminationGraceMs = TERMINATION_GRACE_MS,
   turnTimeoutMs = TURN_TIMEOUT_MS,
+  keepaliveIntervalMs = KEEPALIVE_INTERVAL_MS,
 } = {}) {
   if (!isLoopbackListenHost(host)) {
     throw new TypeError("Codex Chat must listen on a literal loopback-safe host.");
@@ -626,6 +706,13 @@ export async function startCodexChatGateway({
     turnTimeoutMs > 600_000
   ) {
     throw new TypeError("The Codex Chat turn timeout is invalid.");
+  }
+  if (
+    !Number.isSafeInteger(keepaliveIntervalMs) ||
+    keepaliveIntervalMs < 1 ||
+    keepaliveIntervalMs > 60_000
+  ) {
+    throw new TypeError("The Codex Chat keepalive interval is invalid.");
   }
   const verifier = validateTokenVerifier(tokenVerifier);
   const safePackageVersion = validatePackageVersion(packageVersion);
@@ -673,6 +760,7 @@ export async function startCodexChatGateway({
     activeOperation = true;
     const controller = new AbortController();
     let disconnected = false;
+    let eventStream;
     const onDisconnect = () => {
       if (request.aborted || !response.writableEnded) {
         disconnected = true;
@@ -686,9 +774,16 @@ export async function startCodexChatGateway({
         if (disconnected) {
           throw new Error("unavailable");
         }
+        if (acceptsEventStream(request)) {
+          eventStream = startEventStream(response, keepaliveIntervalMs);
+        }
         return createAppServerOperation({
           ...chat,
           packageVersion: safePackageVersion,
+          onEvent: eventStream?.send,
+          onFailure: eventStream
+            ? (code) => eventStream.fail(code)
+            : undefined,
           signal: controller.signal,
           spawnProcess,
           terminationGraceMs,
@@ -697,11 +792,16 @@ export async function startCodexChatGateway({
       })
       .then((result) => {
         if (!disconnected && !response.writableEnded) {
-          sendJson(response, 200, result);
+          if (eventStream) eventStream.complete(result);
+          else sendJson(response, 200, result);
         }
       })
       .catch((error) => {
         if (disconnected || response.writableEnded) {
+          return;
+        }
+        if (eventStream) {
+          eventStream.fail();
           return;
         }
         const status = error?.status;
@@ -713,6 +813,7 @@ export async function startCodexChatGateway({
         sendError(response, 503, "unavailable");
       })
       .finally(() => {
+        eventStream?.dispose();
         activeOperation = false;
       });
   });

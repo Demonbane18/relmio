@@ -24,11 +24,16 @@ page](https://relmio.vercel.app/install).
 | --- | --- | --- |
 | OpenAI API gateway | OpenAI-compatible `/v1` | User-supplied Platform API key; local apps and configured browser origins |
 | Codex App Server | Experimental JSON-RPC over WebSocket | ChatGPT sign-in plus a high-trust local capability; trusted native clients |
-| Codex Chat Adapter | Experimental `POST /chat` | ChatGPT sign-in plus a local bearer; trusted local backends or development servers |
+| Codex Chat Adapter | Experimental `POST /chat` (JSON or opt-in SSE) | ChatGPT sign-in plus a local bearer; trusted local backends or development servers |
 | n8n sidecar | Private `http://n8n-openai-oauth:10531/v1` | Existing n8n Docker network only |
 
 The Codex targets are not generic `/v1` endpoints. ChatGPT sign-in is never an
 OpenAI Platform API key or authorization for arbitrary OpenAI API calls.
+
+The experimental Chat Adapter's SSE stream succeeds only after its
+`terminal: completed` event. Its local tester stays behind the setup-token-
+protected wizard and uses a short-lived encrypted credential handoff, never a
+direct browser-to-adapter request.
 
 ## Critical security boundaries
 

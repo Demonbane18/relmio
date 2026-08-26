@@ -236,7 +236,7 @@ Protocol: Relmio Codex Chat HTTP
 ```
 
 After completing the same official Codex device-code sign-in, a local backend
-can start a conversation with. Read the bearer rather than placing it in a
+can start a conversation. Read the bearer rather than placing it in a
 shell command:
 
 ```bash
@@ -259,6 +259,24 @@ text:
   "conversationId": "thread-id-from-the-first-response",
   "output": "Hello!"
 }
+```
+
+To verify incremental delivery, request Relmio's versioned event stream. The
+stream emits `start`, `progress`, zero or more `delta` events, and exactly one
+`terminal` event. A completed terminal includes the `conversationId`; a failed
+terminal is preceded by a redacted `error` event:
+
+```bash
+read -r -s RELMIO_CODEX_CHAT_KEY
+printf '\n'
+printf 'Authorization: Bearer %s\n' "$RELMIO_CODEX_CHAT_KEY" |
+  curl --no-buffer --fail-with-body --silent --show-error \
+    --request POST http://127.0.0.1:14501/chat \
+    --header @- \
+    --header "Accept: text/event-stream" \
+    --header "Content-Type: application/json" \
+    --data '{"input":"What is a robot? Answer in two short sentences."}'
+unset RELMIO_CODEX_CHAT_KEY
 ```
 
 Send that `conversationId` with the next `input` to continue the same
@@ -301,7 +319,9 @@ This reduces accidental credential transit and storage exposure. It is not
 encryption at rest or end-to-end encryption, and it cannot protect against a
 compromised browser, extension, or local machine. The tester rejects redirects,
 non-loopback URLs, malformed or oversized data, concurrent key use, and
-adapter failures with redacted messages.
+adapter failures with redacted messages. Assistant text appears incrementally
+while the adapter is working; the tester reports success only after the
+completed terminal event arrives.
 
 ## Network and container boundary
 

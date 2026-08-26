@@ -5,12 +5,6 @@
   aria-labelledby="relmio-mark-title"
 >
   <title id="relmio-mark-title">Relmio mark</title>
-  <path
-    fill="#137c74"
-    d="M7 8h19l31 24H41L26 20v10L7 17Z"
-  />
-  <path
-    fill="#12211f"
-    d="M7 47l19-13v10l15-12h16L26 56H7Z"
-  />
+  <path fill="#137c74" d="M8 13 28 5v38c0 4-2 7-6 9L8 59Z" />
+  <path fill="#12211f" d="M36 5l11 5c6 3 9 8 9 15v9c0 3 1 5 3 7l3 3c3 3 3 8 0 11s-8 3-11 0L40 44c-3-3-4-6-4-10Z" />
 </svg>

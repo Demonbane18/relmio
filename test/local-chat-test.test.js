@@ -70,6 +70,100 @@ test("issues expiring RSA-OAEP keys and forwards only a bounded /chat contract",
   });
 });
 
+test("streams only sanitized adapter progress and text through the encrypted tester boundary", async () => {
+  const relayed = [];
+  const upstream = [
+    'event: start\ndata: {"requestId":"private-adapter-id"}\n\n',
+    'event: progress\ndata: {"phase":"starting_turn"}\n\n',
+    'event: delta\ndata: {"text":"A robot "}\n\n',
+    'event: delta\ndata: {"text":"is a programmable machine."}\n\n',
+    'event: terminal\ndata: {"outcome":"completed","conversationId":"conversation-123"}\n\n',
+  ].join("");
+  const service = createLocalChatTestService({
+    fetchImpl: async (_url, init) => {
+      assert.equal(init.headers.Accept, "text/event-stream");
+      return new Response(upstream, {
+        headers: {
+          "content-type": "text/event-stream; charset=utf-8",
+          "x-relmio-stream": "v1",
+        },
+      });
+    },
+  });
+  const request = await createRequest(service);
+
+  const result = await service.message(request, {
+    onEvent(event, data) {
+      relayed.push({ event, data });
+    },
+  });
+
+  assert.deepEqual(result, {
+    conversationId: "conversation-123",
+    output: "A robot is a programmable machine.",
+  });
+  assert.deepEqual(relayed, [
+    { event: "progress", data: { phase: "working" } },
+    { event: "delta", data: { text: "A robot " } },
+    { event: "delta", data: { text: "is a programmable machine." } },
+  ]);
+  assert.doesNotMatch(JSON.stringify(relayed), /private-adapter-id|starting_turn/u);
+});
+
+test("accepts bounded output split across many small SSE frames", async () => {
+  const fragmentCount = 2_000;
+  const upstream =
+    Array.from(
+      { length: fragmentCount },
+      () => 'event: delta\ndata: {"text":"x"}\n\n',
+    ).join("") +
+    'event: terminal\ndata: {"outcome":"completed","conversationId":"conversation-123"}\n\n';
+  assert.ok(Buffer.byteLength(upstream) > 16 * 1_024);
+  const service = createLocalChatTestService({
+    fetchImpl: async () =>
+      new Response(upstream, {
+        headers: {
+          "content-type": "text/event-stream",
+          "x-relmio-stream": "v1",
+        },
+      }),
+  });
+  const request = await createRequest(service);
+
+  const result = await service.message(request, { onEvent() {} });
+  assert.equal(result.output, "x".repeat(fragmentCount));
+});
+
+test("rejects a failed adapter stream without forwarding its private error payload", async () => {
+  const relayed = [];
+  const service = createLocalChatTestService({
+    fetchImpl: async () =>
+      new Response(
+        'event: error\ndata: {"code":"upstream_failed","detail":"private failure"}\n\n' +
+          'event: terminal\ndata: {"outcome":"failed"}\n\n',
+        {
+          headers: {
+            "content-type": "text/event-stream",
+            "x-relmio-stream": "v1",
+          },
+        },
+      ),
+  });
+  const request = await createRequest(service);
+
+  await assert.rejects(
+    service.message(request, {
+      onEvent(event, data) {
+        relayed.push({ event, data });
+      },
+    }),
+    (error) =>
+      error?.statusCode === 502 &&
+      !String(error.message).includes("private failure"),
+  );
+  assert.deepEqual(relayed, []);
+});
+
 test("rejects every non-literal-loopback adapter URL before decrypting", async () => {
   const service = createLocalChatTestService({
     fetchImpl: async () => {

@@ -403,7 +403,7 @@ main {
 }
 
 .hero-copy,
-.relay-visual {
+.private-bridge {
   position: relative;
 }
 
@@ -427,7 +427,7 @@ main {
   animation-delay: 280ms;
 }
 
-.relay-visual {
+.private-bridge {
   animation: rise 800ms var(--ease) 190ms both;
 }
 
@@ -619,6 +619,82 @@ main {
 }
 
 /* ---------- Relay visual ---------- */
+
+.private-bridge {
+  position: relative;
+  overflow: hidden;
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-container);
+  background:
+    linear-gradient(var(--color-accent-muted) var(--border-width), transparent var(--border-width)),
+    linear-gradient(90deg, var(--color-accent-muted) var(--border-width), transparent var(--border-width)),
+    var(--color-background-surface);
+  background-size: var(--spacing-8) var(--spacing-8);
+  box-shadow: var(--shadow-high);
+}
+
+.bridge-route {
+  grid-template-columns: minmax(0, 1fr) var(--spacing-10) minmax(0, 1fr) var(--spacing-10) minmax(0, 1fr);
+  padding: var(--spacing-10) var(--spacing-6) var(--spacing-8);
+}
+
+.bridge-node {
+  min-height: calc(var(--spacing-12) * 3);
+  border-radius: var(--radius-container);
+}
+
+.bridge-node-relmio {
+  min-height: calc(var(--spacing-11) * 4);
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  transform: translateY(calc(var(--spacing-1-5) * -1));
+}
+
+.bridge-link {
+  position: relative;
+  height: calc(var(--border-width) * 2);
+  background: var(--color-border-teal);
+}
+
+.bridge-link::before,
+.bridge-link::after {
+  position: absolute;
+  top: 50%;
+  width: var(--spacing-1);
+  height: var(--spacing-1);
+  border-radius: var(--radius-full);
+  background: var(--color-icon-teal);
+  content: "";
+  transform: translateY(-50%);
+}
+
+.bridge-link::before {
+  left: calc(var(--border-width) * -1);
+}
+
+.bridge-link::after {
+  right: calc(var(--border-width) * -1);
+}
+
+.bridge-link .astryx-statusdot {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  border: calc(var(--border-width) * 2) solid var(--color-background-surface);
+  box-shadow: 0 0 0 var(--spacing-1) var(--color-accent-muted);
+  animation: bridge-packet calc(var(--duration-slow) * 4) var(--ease-standard) infinite;
+}
+
+.bridge-link-out .astryx-statusdot {
+  animation-delay: calc(var(--duration-slow) * 2);
+}
+
+.bridge-boundary {
+  padding: var(--spacing-4) var(--spacing-6);
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-background-muted);
+}
 
 .relay-visual {
   background: var(--surface);
@@ -1325,6 +1401,16 @@ main {
   border-radius: 16px 4px 16px 16px;
   background: linear-gradient(140deg, var(--teal) 10%, var(--teal-deep) 95%);
   color: var(--white);
+}
+
+.message-incomplete p {
+  border-color: var(--color-border-orange);
+  border-style: dashed;
+  background: var(--color-background-orange);
+}
+
+.message-incomplete > span {
+  color: var(--color-text-orange);
 }
 
 .typing-dots {
@@ -2043,6 +2129,17 @@ footer > div {
   }
 }
 
+@keyframes bridge-packet {
+  0%,
+  14% {
+    transform: translate(0, -50%);
+  }
+  72%,
+  100% {
+    transform: translate(calc(var(--spacing-10) - var(--spacing-3)), -50%);
+  }
+}
+
 @keyframes marquee {
   from {
     transform: translateX(0);
@@ -2115,7 +2212,7 @@ footer > div {
     max-width: 760px;
   }
 
-  .relay-visual {
+  .private-bridge {
     max-width: 640px;
   }
 
@@ -2342,6 +2439,34 @@ footer > div {
 
   footer > div {
     justify-self: start;
+  }
+
+  .bridge-route {
+    grid-template-columns: minmax(0, 1fr) var(--spacing-6) minmax(0, 1fr) var(--spacing-6) minmax(0, 1fr);
+    padding-inline: var(--spacing-3);
+  }
+
+  .bridge-node {
+    min-height: calc(var(--spacing-10) * 3);
+  }
+
+  .bridge-node-relmio {
+    min-height: calc(var(--spacing-12) * 3);
+  }
+
+  .bridge-link .astryx-statusdot {
+    animation-name: bridge-packet-mobile;
+  }
+}
+
+@keyframes bridge-packet-mobile {
+  0%,
+  14% {
+    transform: translate(0, -50%);
+  }
+  72%,
+  100% {
+    transform: translate(calc(var(--spacing-6) - var(--spacing-3)), -50%);
   }
 }
 
