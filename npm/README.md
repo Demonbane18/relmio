@@ -18,12 +18,17 @@ final confirmation before it writes files or deploys a VPS sidecar.
 | --- | --- | --- |
 | Local OpenAI gateway | OpenAI-compatible `/v1` | Your OpenAI Platform API key |
 | Codex App Server | Experimental JSON-RPC/WebSocket | ChatGPT sign-in and a high-trust local capability |
-| Codex Chat Adapter | Experimental `POST /chat` | ChatGPT sign-in and a bearer for trusted local backends |
+| Codex Chat Adapter | Experimental `POST /chat` (JSON or opt-in SSE) | ChatGPT sign-in and a bearer for trusted local backends |
 | n8n sidecar | Private Docker-network `/v1` bridge | A local ChatGPT sign-in file, never a host port |
 
 ChatGPT sign-in does not become an OpenAI Platform API key. Codex transports
 are not generic `/v1` services and should never be exposed on a LAN or public
 network.
+
+The experimental Chat Adapter's SSE stream succeeds only after its
+`terminal: completed` event. Its local tester stays behind the setup-token-
+protected wizard and uses a short-lived encrypted credential handoff, never a
+direct browser-to-adapter request.
 
 ## ChatGPT sign-in lifetime
 

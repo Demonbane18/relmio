@@ -7,6 +7,31 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.8.0] - 2026-08-26
+
+### Added
+
+- Let trusted local backends and development servers receive Chat Adapter turns
+  as opt-in Server-Sent Events, with progress and text deltas followed by one
+  explicit terminal outcome so a completed response is distinguishable from a
+  redacted failure.
+- Let the setup-token-protected local wizard tester show that incremental
+  response flow after a short-lived encrypted credential handoff, without a
+  direct browser-to-adapter request.
+- Refresh the hosted chat experience and local installer presentation, and
+  adopt the Harbor Gate abstract mark across Relmio surfaces.
+
+### Changed
+
+- Document the streaming contract, local tester behavior, and its limits in the
+  canonical endpoint/reference guides and generated hosted documentation.
+
+### Security
+
+- Keep the Chat Adapter experimental, loopback-only, and limited to trusted
+  local backends or development servers; it rejects browser origins and is not
+  an OpenAI `/v1` endpoint or a substitute for an OpenAI Platform API key.
+
 ## [0.7.0] - 2026-08-16
 
 ### Added
