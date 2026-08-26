@@ -7,6 +7,12 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- Adopt the Gateway Android logo across the GitHub and npm READMEs, hosted
+  site, and local wizard, and add a prominent Legal warning against bypassing
+  rate limits, restrictions, or safeguards.
+
 ## [0.8.0] - 2026-08-26
 
 ### Added
