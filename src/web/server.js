@@ -363,6 +363,7 @@ async function loadDefaultUiFiles() {
     readFile(new URL("../ui/icons/monitor.svg", import.meta.url), "utf8"),
     readFile(new URL("../ui/icons/sun.svg", import.meta.url), "utf8"),
     readFile(new URL("../ui/icons/moon.svg", import.meta.url), "utf8"),
+    readFile(new URL("../ui/relmio-icon.png", import.meta.url)),
   ]);
 
   return {
@@ -378,6 +379,7 @@ async function loadDefaultUiFiles() {
     "/icons/monitor.svg": files[9],
     "/icons/sun.svg": files[10],
     "/icons/moon.svg": files[11],
+    "/relmio-icon.png": files[12],
   };
 }
 
@@ -1241,9 +1243,11 @@ function createRequestHandler(state) {
           ? "text/javascript; charset=utf-8"
           : path.endsWith(".svg")
             ? "image/svg+xml; charset=utf-8"
-            : path.endsWith(".css")
-              ? "text/css; charset=utf-8"
-              : "text/html; charset=utf-8";
+            : path.endsWith(".png")
+              ? "image/png"
+              : path.endsWith(".css")
+                ? "text/css; charset=utf-8"
+                : "text/html; charset=utf-8";
       const contents = state.uiFiles[path];
       response.writeHead(200, {
         "Content-Type": contentType,

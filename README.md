@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/brand/relmio-logo.png" alt="Relmio gateway android logo" width="180">
+</p>
+
 # Relmio
 
 Relmio helps you test a supported ChatGPT sign-in in a hosted chat, connect
@@ -81,3 +85,24 @@ until you rotate it.
 For source-level guides, see [`docs/`](docs/). Security guidance is in
 [`docs/security.md`](docs/security.md). Relmio is licensed under the
 [Apache License 2.0](LICENSE).
+
+## Legal
+
+Relmio is an unofficial, community-maintained project. It is not affiliated
+with, endorsed by, or sponsored by OpenAI.
+
+Treat ChatGPT/Codex credentials like passwords. Use only your own account,
+keep credentials private, and never pool, share, or redistribute access
+tokens. Any request made with those credentials must be authorized by the
+account owner.
+
+You are responsible for following OpenAI's [Terms of Use](https://openai.com/policies/terms-of-use/),
+[Usage Policies](https://openai.com/policies/usage-policies/), and any other
+agreement that applies to your account.
+
+> [!WARNING]
+> **Do not bypass rate limits, restrictions, or safeguards.**
+
+Relmio is provided as-is without warranties. OpenAI or an upstream service may
+change or discontinue access at any time, and you accept the risks of using
+this experimental community project.
