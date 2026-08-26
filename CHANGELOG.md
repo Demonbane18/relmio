@@ -7,11 +7,16 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.8.1] - 2026-08-26
+
 ### Changed
 
 - Adopt the Gateway Android logo across the GitHub and npm READMEs, hosted
-  site, and local wizard, and add a prominent Legal warning against bypassing
-  rate limits, restrictions, or safeguards.
+  site, and local wizard.
+- Refresh the Open Graph and social-preview card with the Gateway Android while
+  preserving the Relmio relay message and visual flow.
+- Add a prominent Legal warning against bypassing rate limits, restrictions, or
+  safeguards.
 
 ## [0.8.0] - 2026-08-26
 

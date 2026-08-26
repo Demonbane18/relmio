@@ -9,6 +9,7 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     logo,
     hostedIcon,
     localIcon,
+    socialPreview,
     readme,
     npmReadme,
     brandGuide,
@@ -21,6 +22,7 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     readFile("docs/images/brand/relmio-logo.png"),
     readFile("web/public/relmio-icon.png"),
     readFile("src/ui/relmio-icon.png"),
+    readFile("web/public/og.png"),
     readFile("README.md", "utf8"),
     readFile("npm/README.md", "utf8"),
     readFile("docs/brand.md", "utf8"),
@@ -34,6 +36,12 @@ test("gateway android is the canonical logo across public surfaces", async () =>
   assert.deepEqual(logo.subarray(0, PNG_SIGNATURE.length), PNG_SIGNATURE);
   assert.deepEqual(hostedIcon, logo);
   assert.deepEqual(localIcon, logo);
+  assert.deepEqual(
+    socialPreview.subarray(0, PNG_SIGNATURE.length),
+    PNG_SIGNATURE,
+  );
+  assert.equal(socialPreview.readUInt32BE(16), 1200);
+  assert.equal(socialPreview.readUInt32BE(20), 630);
   assert.ok(
     readme.indexOf('src="docs/images/brand/relmio-logo.png"') <
       readme.indexOf("# Relmio"),
@@ -43,6 +51,8 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     /cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-logo\.png/u,
   );
   assert.match(brandGuide, /images\/brand\/relmio-logo\.png/u);
+  assert.match(metadata, /new URL\("\/og\.png", metadataBase\)/u);
+  assert.match(metadata, /width: 1200, height: 630/u);
 
   for (const source of [metadata, hostedPage, installPage]) {
     assert.match(source, /relmio-icon\.png/u);
