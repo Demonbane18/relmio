@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-logo.png" alt="Relmio gateway android logo" width="180">
+</p>
+
 # Relmio
 
 This package starts Relmio's local setup wizard for a private n8n sidecar or a

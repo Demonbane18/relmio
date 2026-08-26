@@ -8,18 +8,19 @@ private OpenAI-compatible OAuth sidecar for self-hosted n8n, while the product
 direction can grow to support other OpenAI-compatible clients and SDK-based
 applications.
 
-## Mark
+## Logo and icon
 
-![Relmio mark](images/brand/relmio-mark.svg)
+![Relmio gateway android logo](images/brand/relmio-logo.png)
 
-The **Harbor Gate** mark uses two distinct boundaries around an open passage.
-Its teal entry stands upright while the ink route bends outward, representing
-a local credential boundary and a controlled path for requests and responses.
-The silhouette stays recognizable at favicon size without provider branding.
+The **Gateway Android** turns Relmio's model relay into a friendly, minimal
+guide standing inside a protected passage. Its teal face represents the live
+AI connection, while the ivory arch depicts the local boundary through which
+requests are deliberately relayed. The two quiet eyes keep it recognizable at
+favicon size without borrowing another provider's branding.
 
-The abstract mark was developed from the checked-in generated concept source at
-[`images/brand/relmio-concept-source.png`](images/brand/relmio-concept-source.png)
-and redrawn as compact SVG geometry for reliable rendering at small sizes.
+The checked-in 512-pixel PNG is the canonical logo and icon asset. It was
+derived from the selected generated source, then resized once for consistent
+rendering across the README, hosted app, and local wizard.
 
 ## Colors
 
@@ -29,11 +30,11 @@ and redrawn as compact SVG geometry for reliable rendering at small sizes.
 | Midnight ink | `#12211f` | Secondary lane, text, high-contrast surfaces |
 | Signal tint | `#e7f3f0` | Quiet selected and informational surfaces |
 | Canvas | `#f4f2ed` | Warm application background |
+| Gateway moss | `#8fa58b` | Logo field and calm supporting brand surfaces |
 
-Use the two-color mark on light backgrounds. On a dark surface, place the
-unchanged mark on a white or canvas-colored tile with enough padding. Do not
-rotate, stretch, outline, add gradients, or recreate the mark with provider
-brand colors.
+Keep the logo square and preserve its built-in moss background on both light
+and dark surfaces. Do not crop, rotate, stretch, outline, recolor, or recreate
+the logo with provider brand colors.
 
 ## Compatibility names
 

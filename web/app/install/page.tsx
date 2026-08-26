@@ -40,7 +40,7 @@ export default function InstallPage() {
         <div className="site-header-inner">
           <Link className="brand" href="/" aria-label="Relmio home">
             <Image
-              src="/relmio-mark.svg"
+              src="/relmio-icon.png"
               alt=""
               width={38}
               height={38}

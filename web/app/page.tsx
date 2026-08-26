@@ -60,7 +60,7 @@ export default function Home() {
         <div className="site-header-inner">
           <a className="brand" href="#top" aria-label="Relmio home">
             <Image
-              src="/relmio-mark.svg"
+              src="/relmio-icon.png"
               alt=""
               width={38}
               height={38}
@@ -287,7 +287,7 @@ export default function Home() {
 
       <footer>
         <a className="brand footer-brand" href="#top" aria-label="Relmio home">
-          <Image src="/relmio-mark.svg" alt="" width={32} height={32} />
+          <Image src="/relmio-icon.png" alt="" width={32} height={32} />
           <span>Relmio</span>
         </a>
         <p>

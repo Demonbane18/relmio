@@ -1126,15 +1126,11 @@ footer p {
 /* ---------- Dark mode refinement ---------- */
 
 :root[data-theme="dark"] .brand-mark {
-  padding: 0.125rem;
-  background: #f7f8f5;
   box-shadow: 0 0 0 1px rgb(255 255 255 / 14%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) .brand-mark {
-    padding: 0.125rem;
-    background: #f7f8f5;
     box-shadow: 0 0 0 1px rgb(255 255 255 / 14%);
   }
 }
