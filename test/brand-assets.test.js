@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const SOCIAL_PREVIEW_SHA256 =
+  "2e9101fd535776a6b2c3866e914bc09ec2e00d6a14b118e63a9de0a73bc7a8b7";
 
 test("gateway android is the canonical logo across public surfaces", async () => {
   const [
@@ -42,6 +45,16 @@ test("gateway android is the canonical logo across public surfaces", async () =>
   );
   assert.equal(socialPreview.readUInt32BE(16), 1200);
   assert.equal(socialPreview.readUInt32BE(20), 630);
+  assert.equal(
+    createHash("sha256").update(socialPreview).digest("hex"),
+    SOCIAL_PREVIEW_SHA256,
+  );
+  await Promise.all([
+    assert.rejects(access("docs/images/brand/relmio-mark.svg"), {
+      code: "ENOENT",
+    }),
+    assert.rejects(access("web/public/relmio-mark.svg"), { code: "ENOENT" }),
+  ]);
   assert.ok(
     readme.indexOf('src="docs/images/brand/relmio-logo.png"') <
       readme.indexOf("# Relmio"),

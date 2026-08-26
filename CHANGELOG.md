@@ -12,7 +12,7 @@ checks the registry separately after publication.
 ### Changed
 
 - Adopt the Gateway Android logo across the GitHub and npm READMEs, hosted
-  site, and local wizard.
+  site, and local wizard, and stop publishing the retired Harbor Gate mark.
 - Refresh the Open Graph and social-preview card with the Gateway Android while
   preserving the Relmio relay message and visual flow.
 - Add a prominent Legal warning against bypassing rate limits, restrictions, or

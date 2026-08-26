@@ -30,7 +30,6 @@ const expectedPackedFiles = new Set([
   "docs/local-endpoints.md",
   "docs/images/brand/relmio-concept-source.png",
   "docs/images/brand/relmio-logo.png",
-  "docs/images/brand/relmio-mark.svg",
   "docs/images/examples/gpt-56-ai-agent-luna-run.png",
   "docs/images/examples/gpt-56-ai-agent-sol-run.png",
   "docs/images/examples/gpt-56-ai-agent-workflow.png",
