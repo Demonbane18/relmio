@@ -230,6 +230,41 @@ test("AI Assistant uses compact explicit containers bound to its full installati
   assert.doesNotMatch(disabledCompose, /container_name: relmio-ai-[a-f0-9]{16}-search/u);
 });
 
+test("AI Assistant Compose uses immutable pinned production images and rejects floating references", () => {
+  const reviewedImages = {
+    api: "ghcr.io/n8n-io/n8n-sandbox-service-api:1.1.1@sha256:21672029fee08495e2398cff7fc370ff60ce0e7c461610732bf2f5265cb75704",
+    runner: "ghcr.io/n8n-io/n8n-sandbox-service-runner-dind:1.1.1@sha256:9de7a8aad7f0d2293716daff40206be60577a59a2c2dae641dd9a425c18bf6fd",
+    sandbox: "ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8",
+    searxng: "ghcr.io/searxng/searxng:2026.8.28-a30b2d474@sha256:addd2cf36efb4b9815a2820a522aef7cce4da0d1c0e4527f6675f5663332fc9b",
+  };
+  const installation = generatedInstallation();
+  const compose = createAssistantComposeFile({ networkName: "proxy", installation });
+  const disabledCompose = createAssistantComposeFile({
+    networkName: "proxy",
+    installation: { ...installation, includeSearxng: false },
+  });
+  const productionImageReferences = [
+    ...[...compose.matchAll(/^\s*image:\s*(\S+)$/gmu)].map((match) => match[1]),
+    compose.match(/SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE:\s*(\S+)/u)?.[1],
+  ];
+
+  assert.ok(productionImageReferences.every(Boolean));
+  assert.deepEqual(
+    [...new Set(productionImageReferences)].sort(),
+    Object.values(reviewedImages).sort(),
+  );
+  for (const reference of productionImageReferences) {
+    assert.match(reference, /:[a-z0-9][a-z0-9._-]*@sha256:[a-f0-9]{64}$/u);
+    assert.doesNotMatch(reference, /:(?:latest|stable)(?:@|$)/u);
+    assert.doesNotMatch(reference, /\$\{|\$\(/u);
+  }
+  for (const reference of Object.values(reviewedImages).slice(0, 3)) {
+    assert.ok(disabledCompose.includes(reference));
+  }
+  assert.ok(!disabledCompose.includes(reviewedImages.searxng));
+  assert.doesNotMatch(disabledCompose, /relmio-searxng/u);
+});
+
 test("AI Assistant reuses only the marker-bound project and aliases on a managed update", async () => {
   const installation = generatedInstallation();
   const remote = createFakeRemote({

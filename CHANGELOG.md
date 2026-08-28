@@ -30,6 +30,9 @@ checks the registry separately after publication.
   sandbox secrets, attest ownership-bound random Compose identities and network
   aliases, serialize VPS-sidecar and assistant mutations under one single-use
   plan lock, and retain the strict no-n8n-mutation boundary.
+- Pin every generated AI Assistant companion production image to its reviewed
+  immutable tag and OCI index digest, with regression coverage that rejects
+  floating or digestless references, including the nested sandbox image.
 
 ## [0.8.1] - 2026-08-26
 

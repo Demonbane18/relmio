@@ -123,6 +123,27 @@ resource name, then starts only SearXNG. Disabling an already managed SearXNG
 service would stop or remove it, so Relmio rejects that change and requires a
 separately authorized cleanup path instead.
 
+## Immutable companion image pins
+
+Every generated production image reference is the reviewed full
+`tag@sha256:<OCI-index-digest>` value. The API/certificate service, privileged
+runner, and nested sandbox are reviewed as one compatible n8n Sandbox Service
+unit; optional SearXNG is pinned independently. Generated Compose never uses
+`latest`, `stable`, a tag-only reference, a digest-only reference, environment
+interpolation, or user input for these images.
+
+The upstream review sources are the [n8n Sandbox Service repository](https://github.com/n8n-io/n8n-sandbox-service), its [API](https://github.com/n8n-io/n8n-sandbox-service/pkgs/container/n8n-sandbox-service-api), [runner](https://github.com/n8n-io/n8n-sandbox-service/pkgs/container/n8n-sandbox-service-runner-dind), and [nested sandbox](https://github.com/n8n-io/n8n-sandbox-service/pkgs/container/n8n-sandbox-service-sandbox) GHCR package pages; and the [SearXNG repository](https://github.com/searxng/searxng) and [GHCR package page](https://github.com/searxng/searxng/pkgs/container/searxng). The n8n setup documentation remains authoritative for product configuration.
+
+For a managed companion, an image change is never automatic: update Relmio
+locally, reconnect for host-key confirmation and read-only discovery, review the
+exact companion-only plan, preserve the recorded SearXNG choice unless you
+deliberately change it, and provide final confirmation. Then verify that only
+managed companion resources changed, no host ports were published, and n8n is
+healthy. Roll back only with the full previously reviewed immutable pin set
+through that same separately confirmed managed update; never pull a moving tag
+or mutate n8n directly. The maintainer procedure is in
+[maintenance.md](maintenance.md#updating-or-rolling-back-ai-assistant-companion-images).
+
 ## Model routes
 
 ### Direct OpenAI provider

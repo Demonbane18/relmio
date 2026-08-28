@@ -122,6 +122,21 @@ shared, or production service.
   resource limits; and uses root plus only `CHOWN` long enough to atomically
   make the stdin-seeded volume entry readable by the non-root gateway.
 
+### AI Assistant companion image integrity
+
+The generated AI Assistant companion uses reviewed, immutable
+`tag@sha256:<OCI-index-digest>` image references for its API/certificate image,
+privileged runner, nested sandbox image, and optional SearXNG service. The
+Compose format cannot enforce image provenance itself, so the source-level
+regression guard forbids floating or digestless production references,
+including the nested `SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE` value.
+
+There is no automatic remote upgrade. An upgrade or rollback is a separately
+confirmed managed companion update after read-only discovery and exact-plan
+review; it must preserve the no-n8n-mutation boundary, ownership attestation,
+and no-host-port verification. See the exact procedure in
+[maintenance.md](maintenance.md#updating-or-rolling-back-ai-assistant-companion-images).
+
 ### In-wizard Chat Adapter tester
 
 The Ready screen's Chat Adapter tester is a deliberately narrow convenience

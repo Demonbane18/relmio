@@ -6,6 +6,13 @@ import {
 } from "./assistant.js";
 import { validateDockerName } from "./validation.js";
 
+export const ASSISTANT_COMPANION_IMAGES = Object.freeze({
+  api: "ghcr.io/n8n-io/n8n-sandbox-service-api:1.1.1@sha256:21672029fee08495e2398cff7fc370ff60ce0e7c461610732bf2f5265cb75704",
+  runner: "ghcr.io/n8n-io/n8n-sandbox-service-runner-dind:1.1.1@sha256:9de7a8aad7f0d2293716daff40206be60577a59a2c2dae641dd9a425c18bf6fd",
+  sandbox: "ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8",
+  searxng: "ghcr.io/searxng/searxng:2026.8.28-a30b2d474@sha256:addd2cf36efb4b9815a2820a522aef7cce4da0d1c0e4527f6675f5663332fc9b",
+});
+
 const SANDBOX_SECRET_FIELDS = Object.freeze([
   "sandboxApiKey",
   "runnerRegistrationToken",
@@ -88,7 +95,7 @@ export function createAssistantComposeFile({ networkName, installation }) {
 services:
   relmio-sandbox-certs:
     container_name: ${containerNames.certs}
-    image: ghcr.io/n8n-io/n8n-sandbox-service-api:latest
+    image: ${ASSISTANT_COMPANION_IMAGES.api}
     user: '0:0'
     entrypoint: ['sh', '-c']
     command:
@@ -108,7 +115,7 @@ services:
 
   relmio-sandbox-api:
     container_name: ${containerNames.api}
-    image: ghcr.io/n8n-io/n8n-sandbox-service-api:latest
+    image: ${ASSISTANT_COMPANION_IMAGES.api}
     depends_on:
       relmio-sandbox-certs:
         condition: service_completed_successfully
@@ -142,7 +149,7 @@ services:
 
   relmio-sandbox-runner-1:
     container_name: ${containerNames.runner}
-    image: ghcr.io/n8n-io/n8n-sandbox-service-runner-dind:latest
+    image: ${ASSISTANT_COMPANION_IMAGES.runner}
     privileged: true
     depends_on:
       relmio-sandbox-api:
@@ -155,7 +162,7 @@ services:
       SANDBOX_RUNNER_CONTROL_GRPC_LISTEN_ADDR: ':9091'
       SANDBOX_RUNNER_CONTROL_GRPC_ADVERTISE_ADDR: relmio-sandbox-runner-1:9091
       SANDBOX_RUNNER_ID: runner-1
-      SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE: ghcr.io/n8n-io/n8n-sandbox-service-sandbox:latest
+      SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE: ${ASSISTANT_COMPANION_IMAGES.sandbox}
       SANDBOX_RUNNER_REGISTRATION_GRPC_CA_FILE: /tls/runner/ca.crt
       SANDBOX_RUNNER_REGISTRATION_GRPC_CERT_FILE: /tls/runner/grpc-client.crt
       SANDBOX_RUNNER_REGISTRATION_GRPC_KEY_FILE: /tls/runner/grpc-client.key
@@ -173,7 +180,7 @@ services:
 
 ${safeInstallation.includeSearxng ? `  relmio-searxng:
     container_name: ${containerNames.searxng}
-    image: ghcr.io/searxng/searxng:latest
+    image: ${ASSISTANT_COMPANION_IMAGES.searxng}
     environment:
       SEARXNG_SECRET: \${SEARXNG_SECRET}
     volumes:
