@@ -69,11 +69,14 @@ OpenAI CEO Sam Altman also [announced ChatGPT-account sign-in for
 OpenClaw](https://x.com/sama/status/2050357911915028689).
 
 These sources support specific documented patterns; they are not blanket
-approval, protocol certification, or legal advice. Program acceptance supports
-the maintainer and open-source work; it does not approve every integration.
-Relmio never presents ChatGPT credentials as a generic `/v1` API key, and its
-n8n AI Assistant path requires a user-owned OpenAI Platform API key. The legacy
-OAuth sidecar remains experimental/private/policy-uncertain. Read the full
+approval, protocol certification, a contractual amendment, or legal advice.
+Program acceptance supports the maintainer and open-source work; it does not
+approve every integration. Relmio never presents ChatGPT credentials as a
+generic `/v1` API key, and its n8n AI Assistant path requires a user-owned
+OpenAI Platform API key. Relmio prohibits account pooling or sharing,
+credential forwarding, subscription-to-API conversion or resale, and
+rate-limit or safeguard bypass. The legacy OAuth sidecar remains
+experimental/private/policy-uncertain. Read the full
 [policy evidence and scope](https://relmio.vercel.app/docs/security#policy-evidence-and-scope).
 
 ## ChatGPT sign-in lifetime

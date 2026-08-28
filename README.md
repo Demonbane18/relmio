@@ -87,13 +87,16 @@ than treating a ChatGPT subscription as a reusable API key:
   OpenClaw ([statement](https://x.com/sama/status/2050357911915028689)).
 
 These sources are evidence for the specific documented patterns, not a blanket
-OpenAI endorsement, legal opinion, or promise that every third-party adapter
-or future release is compliant. Program acceptance supports the maintainer and
-open-source work; it is not a protocol-by-protocol compliance certification.
+OpenAI endorsement, legal opinion, contractual amendment, or promise that
+every third-party adapter or future release is compliant. Program acceptance
+supports the maintainer and open-source work; it is not a protocol-by-protocol
+compliance certification.
 Relmio therefore keeps native Codex traffic in the official App Server
 lifecycle, does not present ChatGPT credentials as a generic `/v1` API key,
 and requires a user-owned OpenAI Platform API key for the n8n AI Assistant
-model route. The legacy n8n OAuth sidecar remains
+model route. Relmio prohibits account pooling or sharing, credential
+forwarding, subscription-to-API conversion or resale, and rate-limit or
+safeguard bypass. The legacy n8n OAuth sidecar remains
 experimental/private/policy-uncertain. See the complete [policy evidence and
 scope](docs/security.md#policy-evidence-and-scope).
 
