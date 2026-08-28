@@ -2,11 +2,14 @@ export const INSTALL_ROOT = "/docker/n8n-openai-oauth";
 export const PROJECT_NAME = "n8n-openai-oauth";
 export const SERVICE_NAME = "openai-oauth";
 export const MANAGED_MARKER_PATH = `${INSTALL_ROOT}/.managed-by-n8n-openai-oauth`;
+export const SHARED_ROOT_MARKER_PATH = `${INSTALL_ROOT}/.managed-by-relmio-root`;
+export const SHARED_ROOT_MARKER_CONTENT = "relmio-managed-root:v1\n";
+export const SIDECAR_MARKER_CONTENT = "Managed by n8n-openai-oauth-setup.\n";
 
 const COMPOSE_PREFIX =
   "docker compose --project-name n8n-openai-oauth --file /docker/n8n-openai-oauth/docker-compose.yml";
 
-export const PRECHECK_COMMAND = `if [ -e ${INSTALL_ROOT} ]; then if [ -f ${MANAGED_MARKER_PATH} ]; then printf '%s\\n' managed; else exit 42; fi; else printf '%s\\n' new; fi`;
+export const PRECHECK_COMMAND = `if [ -e ${INSTALL_ROOT} ]; then if [ -L ${INSTALL_ROOT} ] || [ ! -d ${INSTALL_ROOT} ] || [ -L ${SHARED_ROOT_MARKER_PATH} ] || [ -L ${MANAGED_MARKER_PATH} ]; then exit 43; elif [ -e ${SHARED_ROOT_MARKER_PATH} ]; then if [ ! -f ${SHARED_ROOT_MARKER_PATH} ] || [ "$(cat ${SHARED_ROOT_MARKER_PATH})" != "${SHARED_ROOT_MARKER_CONTENT.trim()}" ]; then exit 42; elif [ -e ${MANAGED_MARKER_PATH} ]; then if [ ! -f ${MANAGED_MARKER_PATH} ] || [ "$(cat ${MANAGED_MARKER_PATH})" != "${SIDECAR_MARKER_CONTENT.trim()}" ]; then exit 42; else printf '%s\\n' managed; fi; else printf '%s\\n' new; fi; elif [ -f ${MANAGED_MARKER_PATH} ] && [ "$(cat ${MANAGED_MARKER_PATH})" = "${SIDECAR_MARKER_CONTENT.trim()}" ]; then printf '%s\\n' managed; else exit 42; fi; else printf '%s\\n' new; fi`;
 
 const DEPLOYMENT_COMMANDS = Object.freeze([
   `install -d -m 0755 ${INSTALL_ROOT}`,

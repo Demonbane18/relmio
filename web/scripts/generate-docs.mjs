@@ -23,6 +23,11 @@ const pages = [
     sourcePath: "docs/vps-and-n8n.md",
   },
   {
+    slug: "ai-assistant",
+    title: "n8n AI Assistant",
+    sourcePath: "docs/ai-assistant.md",
+  },
+  {
     slug: "troubleshooting",
     title: "Troubleshooting",
     sourcePath: "docs/troubleshooting.md",

@@ -7,6 +7,33 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.9.0] - 2026-08-28
+
+### Added
+
+- Add `relmio assistant`, a dedicated local wizard and isolated companion
+  Compose plan for n8n AI Assistant's self-hosted sandbox and optional SearXNG
+  web search.
+
+### Changed
+
+- Add sourced OpenAI policy context to the GitHub README, npm README, and
+  canonical security guide, including the maintainer's Codex for Open Source
+  acceptance, while preserving the distinction between supported Codex/ChatGPT
+  sign-in patterns and unsupported subscription-to-API conversion, resale,
+  account sharing, or safeguard bypass.
+
+### Security
+
+- Keep the privileged Docker-in-Docker runner separate from the selected n8n
+  network, publish no companion host ports, generate and redact independent
+  sandbox secrets, attest ownership-bound random Compose identities and network
+  aliases, serialize VPS-sidecar and assistant mutations under one single-use
+  plan lock, and retain the strict no-n8n-mutation boundary.
+- Pin every generated AI Assistant companion production image to its reviewed
+  immutable tag and OCI index digest, with regression coverage that rejects
+  floating or digestless references, including the nested sandbox image.
+
 ## [0.8.1] - 2026-08-26
 
 ### Changed
@@ -614,6 +641,7 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
+[0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 [0.1.7]: https://github.com/Demonbane18/relmio/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Demonbane18/relmio/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Demonbane18/relmio/compare/v0.1.4...v0.1.5

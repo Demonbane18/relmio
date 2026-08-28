@@ -23,9 +23,14 @@ export function isCliEntryPath(entryPath, realpath = realpathSync) {
 }
 
 export function cliMode(argumentsList) {
-  return argumentsList.length === 1 &&
+  if (
+    argumentsList.length === 1 &&
     (argumentsList[0] === "--version" || argumentsList[0] === "-v")
-    ? "version"
+  ) {
+    return "version";
+  }
+  return argumentsList.length === 1 && argumentsList[0] === "assistant"
+    ? "assistant"
     : "wizard";
 }
 
@@ -41,8 +46,12 @@ export async function runCli({
   log = console.log,
   readPackage = () => readFile(packageJsonUrl, "utf8"),
   isInteractive = hasInteractiveTerminal,
+  startServer = startWizardServer,
+  open = openBrowser,
+  attachReopen = attachBrowserReopenOnEnter,
 } = {}) {
-  if (cliMode(argumentsList) === "version") {
+  const mode = cliMode(argumentsList);
+  if (mode === "version") {
     const packageJson = JSON.parse(await readPackage());
     if (typeof packageJson.version !== "string" || packageJson.version === "") {
       throw new Error("Relmio package metadata does not contain a version.");
@@ -59,21 +68,25 @@ export async function runCli({
   }
 
   const sessionToken = randomBytes(32).toString("base64url");
-  const wizard = await startWizardServer({ sessionToken });
-  const url = `${wizard.origin}/?session=${sessionToken}`;
+  const wizard = await startServer({ sessionToken });
+  const url = `${wizard.origin}${mode === "assistant" ? "/assistant" : "/"}?session=${sessionToken}`;
 
   log("");
   log("Relmio");
   log("---------");
   log(`Local wizard: ${url}`);
   log("");
-  log("This creates a separate sidecar and never restarts n8n.");
+  log(
+    mode === "assistant"
+      ? "This creates only the separate AI Assistant companion and never restarts n8n."
+      : "This creates a separate sidecar and never restarts n8n.",
+  );
   log("Keep this Terminal window open while using the wizard.");
   log("Press Control+C to stop.");
   log("");
 
-  openBrowser(url);
-  const detachBrowserReopen = attachBrowserReopenOnEnter({ url });
+  open(url);
+  const detachBrowserReopen = attachReopen({ url });
 
   let closing = false;
   async function close() {

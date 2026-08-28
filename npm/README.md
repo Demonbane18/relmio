@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-logo.png" alt="Relmio gateway android logo" width="180">
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-logo-rounded.svg" alt="Relmio gateway android logo" width="180" height="180">
 </p>
 
 # Relmio
@@ -24,15 +24,60 @@ final confirmation before it writes files or deploys a VPS sidecar.
 | Codex App Server | Experimental JSON-RPC/WebSocket | ChatGPT sign-in and a high-trust local capability |
 | Codex Chat Adapter | Experimental `POST /chat` (JSON or opt-in SSE) | ChatGPT sign-in and a bearer for trusted local backends |
 | n8n sidecar | Private Docker-network `/v1` bridge | A local ChatGPT sign-in file, never a host port |
+| n8n AI Assistant companion | Private sandbox; opt-in SearXNG web search | OpenAI Platform API key entered directly in n8n |
 
 ChatGPT sign-in does not become an OpenAI Platform API key. Codex transports
 are not generic `/v1` services and should never be exposed on a LAN or public
 network.
 
+## n8n AI Assistant companion
+
+Run `relmio assistant` for the separate sandbox and optional SearXNG companion.
+Web search is off by default and is bound as an exact boolean to the reviewed
+plan and confirmation; Relmio does not add it silently.
+It uses verified SSH, read-only n8n discovery, and an existing Docker network;
+it never reads ChatGPT/Codex OAuth or changes the existing n8n project.
+ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. AI
+Assistant is Preview, so review generated workflows before use.
+
+This self-hosted path has a privileged Docker-in-Docker runner for
+advanced/local testing and publishes no host ports; n8n recommends Daytona for
+production. In n8n, enter your own Platform API key directly and keep your
+current supported model selection, including `openai/gpt-5.6-sol` while n8n
+continues to accept it. A separately deployed, Platform-key-backed Relmio endpoint
+may be used through n8n's optional custom endpoint form; its private Relmio
+client credential is not an OpenAI-issued API key. The OAuth sidecar remains
+experimental/private/policy-uncertain and is never auto-selected.
+
 The experimental Chat Adapter's SSE stream succeeds only after its
 `terminal: completed` event. Its local tester stays behind the setup-token-
 protected wizard and uses a short-lived encrypted credential handoff, never a
 direct browser-to-adapter request.
+
+## OpenAI policy evidence and limits
+
+Relmio's maintainer was accepted into OpenAI's [Codex for Open Source
+program](https://learn.chatgpt.com/docs/codex-for-oss-terms) for this project
+in August 2026 and received its limited-duration ChatGPT Pro benefit.
+OpenAI's [advanced Codex configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers)
+documents custom model providers and OSS mode with Ollama or LM Studio.
+OpenAI Codex Lead Thibault “Tibo” Sottiaux has publicly distinguished supported
+**Sign in with ChatGPT** clients from unsupported subscription-to-API
+conversion, resale, or multi-user sharing ([statement](https://x.com/thsottiaux/status/2090675027670978569)),
+and [confirmed Codex can use open-source models](https://x.com/thsottiaux/status/2067399435009622521).
+OpenAI CEO Sam Altman also [announced ChatGPT-account sign-in for
+OpenClaw](https://x.com/sama/status/2050357911915028689).
+
+These sources support specific documented patterns; they are not blanket
+approval, protocol certification, a contractual amendment, or legal advice.
+Program acceptance supports the maintainer and open-source work; it does not
+approve every integration. Relmio never presents ChatGPT credentials as a
+generic `/v1` API key, and its n8n AI Assistant path requires a user-owned
+OpenAI Platform API key. Relmio prohibits account pooling or sharing,
+credential forwarding, subscription-to-API conversion or resale, and
+rate-limit or safeguard bypass. The legacy OAuth sidecar remains
+experimental/private/policy-uncertain. Read the full
+[policy evidence and scope](https://relmio.vercel.app/docs/security#policy-evidence-and-scope).
 
 ## ChatGPT sign-in lifetime
 
@@ -61,6 +106,7 @@ Full guides use absolute HTTPS links:
 - https://relmio.vercel.app/docs/getting-started
 - https://relmio.vercel.app/docs/local-endpoints
 - https://relmio.vercel.app/docs/vps-and-n8n
+- https://relmio.vercel.app/docs/ai-assistant
 - https://relmio.vercel.app/docs/troubleshooting#local-image-build-failed
 - https://relmio.vercel.app/docs/security
 - https://relmio.vercel.app/docs/reference

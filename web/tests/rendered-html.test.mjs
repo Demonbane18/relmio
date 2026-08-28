@@ -105,7 +105,12 @@ test("server-renders canonical generated Markdown documentation routes", async (
   assert.match(indexHtml, /Relmio documentation/u);
   assert.match(indexHtml, /href="\/docs\/getting-started"/u);
   assert.match(indexHtml, /aria-label="Documentation navigation"/u);
-  assert.match(troubleshootingHtml, /Generated from <code>docs\/troubleshooting\.md<\/code>/u);
+  assert.match(indexHtml, /Find a guide/u);
+  assert.match(
+    troubleshootingHtml,
+    /Canonical guide · Source <code>docs\/troubleshooting\.md<\/code>/u,
+  );
+  assert.match(troubleshootingHtml, /aria-label="Adjacent documentation"/u);
   assert.match(troubleshootingHtml, /id="local-image-build-failed"/u);
   assert.match(troubleshootingHtml, /Local image build failed/u);
   assert.doesNotMatch(troubleshootingHtml, /dangerouslySetInnerHTML|rehype-raw/u);

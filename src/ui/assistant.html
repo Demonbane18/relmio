@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Install an isolated n8n AI Assistant sandbox and optional SearXNG companion services."
+    />
+    <title>Relmio | n8n AI Assistant</title>
+    <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/assistant.css" />
+    <script src="/theme.js" type="module"></script>
+    <script src="/assistant.js" type="module"></script>
+  </head>
+  <body class="assistant-wizard" data-current-step="1">
+    <a class="skip-link" href="#main-content">Skip to AI Assistant setup</a>
+
+    <header class="site-header">
+      <div class="brand">
+        <img class="brand-mark" src="/relmio-icon.png" alt="" width="28" height="28" />
+        <span>Relmio</span>
+      </div>
+      <fieldset class="theme-picker">
+        <legend class="visually-hidden">Color theme</legend>
+        <label title="Use system appearance">
+          <input type="radio" name="color-theme" value="system" checked />
+          <span class="theme-icon theme-icon-system" aria-hidden="true"></span>
+          <span class="visually-hidden">System</span>
+        </label>
+        <label title="Use light appearance">
+          <input type="radio" name="color-theme" value="light" />
+          <span class="theme-icon theme-icon-light" aria-hidden="true"></span>
+          <span class="visually-hidden">Light</span>
+        </label>
+        <label title="Use dark appearance">
+          <input type="radio" name="color-theme" value="dark" />
+          <span class="theme-icon theme-icon-dark" aria-hidden="true"></span>
+          <span class="visually-hidden">Dark</span>
+        </label>
+      </fieldset>
+    </header>
+
+    <main id="main-content" class="shell" tabindex="-1">
+      <aside class="rail" aria-label="AI Assistant setup progress and safety">
+        <section class="intro" aria-labelledby="page-title">
+          <h1 id="page-title">n8n AI Assistant companion</h1>
+          <p class="lede">
+            Add an isolated sandbox and optional private SearXNG search service
+            without changing the existing n8n project.
+          </p>
+        </section>
+
+        <nav class="steps" aria-label="AI Assistant setup progress">
+          <ol>
+            <li data-step-marker="1" aria-current="step"><span>1</span><em>Connect</em></li>
+            <li data-step-marker="2"><span>2</span><em>Select n8n</em></li>
+            <li data-step-marker="3"><span>3</span><em>Review</em></li>
+            <li data-step-marker="4"><span>4</span><em>Ready</em></li>
+          </ol>
+        </nav>
+
+        <div class="toast-stack" aria-label="AI Assistant safety notices">
+          <aside class="toast safety-note">
+            <strong>Existing n8n stays untouched</strong>
+            <span>
+              No n8n Compose edit, rebuild, restart, recreate, exec, host
+              port, or proxy route.
+            </span>
+          </aside>
+          <aside class="toast safety-note backup-note">
+            <strong>Credential boundary</strong>
+            <span>
+              ChatGPT/Codex subscription sign-in is not an OpenAI Platform API
+              key. Relmio does not offer it as the compliant model provider.
+            </span>
+          </aside>
+          <div id="global-message" class="toast message" role="status" aria-live="polite">
+            <span id="global-message-text">Review the self-hosted sandbox boundary.</span>
+          </div>
+          <div id="global-error" class="toast error" role="alert" tabindex="-1" hidden>
+            <span id="global-error-text"></span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="panel" data-step="1" aria-labelledby="vps-title">
+        <div class="panel-heading">
+          <h2 id="vps-title" tabindex="-1">Confirm the privileged sandbox boundary</h2>
+          <p>
+            AI Assistant is Preview. Workflows it generates require human review
+            before use, especially in production.
+          </p>
+        </div>
+
+        <aside class="assistant-warning" aria-label="Privileged runner warning">
+          <strong>Advanced/local-test only</strong>
+          <p>
+            The self-hosted runner uses privileged Docker-in-Docker and should be
+            treated as equivalent to host root. n8n recommends Daytona for
+            production sandboxing.
+          </p>
+        </aside>
+
+        <form id="vps-form">
+          <div class="field-grid">
+            <label class="field">
+              <span>VPS address</span>
+              <input id="host" name="host" inputmode="url" autocomplete="off" required />
+              <small>Use the hostname or IP exactly as your provider shows it.</small>
+            </label>
+            <label class="field compact">
+              <span>SSH port</span>
+              <input id="port" name="port" type="number" min="1" max="65535" value="22" required />
+            </label>
+            <label class="field compact">
+              <span>Username</span>
+              <input id="username" name="username" autocomplete="username" value="root" required />
+            </label>
+            <label class="field">
+              <span>VPS password</span>
+              <input id="password" name="password" type="password" autocomplete="current-password" disabled required />
+              <small>Used only for this verified SSH connection and never saved.</small>
+            </label>
+          </div>
+
+          <button id="fingerprint-button" class="button secondary" type="button">Check server identity</button>
+          <div id="fingerprint-box" class="fingerprint" hidden>
+            <span>SSH fingerprint</span>
+            <code id="fingerprint-value"></code>
+            <label class="check-row">
+              <input id="fingerprint-confirm" type="checkbox" />
+              <span>I checked this fingerprint and this is the intended VPS.</span>
+            </label>
+          </div>
+
+          <label class="check-row approval">
+            <input id="privileged-confirm" type="checkbox" />
+            <span>
+              I understand the runner is privileged Docker-in-Docker and this
+              path is for advanced local testing, not the production-recommended
+              Daytona sandbox.
+            </span>
+          </label>
+
+          <div class="actions">
+            <button id="connect-button" class="button primary" type="submit" disabled>
+              Connect and inspect Docker
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel" data-step="2" aria-labelledby="n8n-title" hidden>
+        <div class="panel-heading">
+          <h2 id="n8n-title" tabindex="-1">Choose the detected n8n network</h2>
+          <p>Discovery uses read-only Docker commands. It never executes inside n8n.</p>
+        </div>
+        <div class="version-strip" aria-label="Detected Docker versions">
+          <span>Docker <strong id="docker-version">Not detected</strong></span>
+          <span>Compose <strong id="compose-version">Not detected</strong></span>
+        </div>
+        <div class="field-grid single">
+          <label class="field">
+            <span>Running n8n container</span>
+            <select id="container-select"></select>
+          </label>
+          <label class="field">
+            <span>Existing shared Docker network</span>
+            <select id="network-select"></select>
+            <small>Only the sandbox API attaches with its private alias unless you opt in to web search.</small>
+          </label>
+          <p id="instance-ai-status" class="assistant-note" role="status">
+            Checking whether this n8n container enables the AI Assistant module.
+          </p>
+          <aside
+            id="instance-ai-guidance"
+            class="assistant-warning instance-ai-guidance"
+            aria-labelledby="instance-ai-guidance-title"
+          >
+            <strong id="instance-ai-guidance-title">Required n8n prerequisite</strong>
+            <p>
+              The existing n8n service must have
+              <code>N8N_ENABLED_MODULES=instance-ai</code> applied before Relmio
+              can continue. If it is already configured without
+              <code>instance-ai</code>, append <code>instance-ai</code> as a
+              distinct comma-delimited token while preserving existing module
+              entries; do not replace unknown existing values.
+            </p>
+            <ol class="prerequisite-steps">
+              <li>Use your existing Hostinger/deployment workflow to update the n8n service.</li>
+              <li>Redeploy or restart n8n, then verify that it is healthy.</li>
+              <li>Reconnect to Relmio and run discovery again.</li>
+            </ol>
+            <details class="prerequisite-boundary">
+              <summary>Why Relmio cannot apply this change</summary>
+              <p>
+                Relmio reports only this allowlisted status and never displays
+                the raw environment value. It will not edit the existing n8n Compose
+                file, image, or environment; restart or recreate n8n;
+                or exec into n8n.
+              </p>
+            </details>
+          </aside>
+          <label class="check-row">
+            <input id="include-searxng" type="checkbox" />
+            <span>
+              <strong>Optional SearXNG JSON web search</strong>
+              <small>Off by default. Select it only if you want a private Docker-internal web-search service for n8n’s AI Assistant.</small>
+            </span>
+          </label>
+        </div>
+        <div class="actions">
+          <p id="review-readiness" class="action-hint" role="status">
+            Relmio must verify <code>instance-ai</code> before a plan can be reviewed.
+          </p>
+          <button
+            id="review-button"
+            class="button primary"
+            type="button"
+            aria-describedby="review-readiness"
+            disabled
+          >
+            Review exact plan
+          </button>
+        </div>
+      </section>
+
+      <section class="panel" data-step="3" aria-labelledby="review-title" hidden>
+        <div class="panel-heading">
+          <h2 id="review-title" tabindex="-1">Review before installing</h2>
+          <p>The remote deployment starts only after this exact confirmation.</p>
+        </div>
+        <div class="review-grid">
+          <section aria-labelledby="will-title">
+            <h3 id="will-title">The wizard will</h3>
+            <ul class="check-list">
+              <li>Create <code>/docker/n8n-openai-oauth/assistant-sandbox</code></li>
+              <li>Start only the managed AI Assistant companion project</li>
+              <li>Attach sandbox API to <strong id="review-network">Not selected</strong></li>
+              <li id="review-instance-ai">AI Assistant prerequisite has not been reviewed</li>
+              <li id="review-web-search">Web search selection has not been reviewed</li>
+              <li>Generate separate 256-bit sandbox, runner, and private SearXNG secrets</li>
+              <li>Check sandbox health, expected services, and no published host port</li>
+            </ul>
+          </section>
+          <section aria-labelledby="wont-title">
+            <h3 id="wont-title">The wizard will not</h3>
+            <ul class="no-list">
+              <li>Edit, rebuild, stop, restart, recreate, or exec into n8n</li>
+              <li>Upload your OpenAI Platform API key or ChatGPT/Codex OAuth</li>
+              <li>Publish sandbox, runner, or SearXNG ports to the VPS host</li>
+              <li>Enable a model provider or change n8n settings automatically</li>
+            </ul>
+          </section>
+        </div>
+        <label class="check-row approval">
+          <input id="install-confirm" type="checkbox" />
+          <span>
+            I approve this privileged, self-hosted AI Assistant companion and
+            understand that AI Assistant is Preview and workflows require human review.
+          </span>
+        </label>
+        <div class="actions">
+          <button id="install-button" class="button primary" type="button" disabled>
+            Install the companion
+          </button>
+        </div>
+      </section>
+
+      <section class="panel success-panel" data-step="4" aria-labelledby="ready-title" hidden>
+        <div class="success-heading">
+          <div class="success-mark" aria-hidden="true">✓</div>
+          <div class="panel-heading">
+            <h2 id="ready-title" tabindex="-1">AI Assistant companion is ready</h2>
+            <p>URLs are stable generated result values; the sandbox key is shown only in this result view.</p>
+          </div>
+        </div>
+
+        <aside class="assistant-warning">
+          <strong>Preview with human review</strong>
+          <p>Review every generated workflow before activation. For production sandboxing, use Daytona as n8n recommends.</p>
+        </aside>
+
+        <h3>1. Sandbox dialog</h3>
+        <dl class="result-list">
+          <div><dt>Sandbox Service URL</dt><dd><code id="sandbox-url">Not installed</code></dd></div>
+          <div><dt>Sandbox API key</dt><dd><code id="sandbox-api-key">Shown after installation</code></dd></div>
+        </dl>
+
+        <h3>2. Web search dialog</h3>
+        <dl class="result-list">
+          <div><dt>SearXNG Instance URL</dt><dd><code id="searxng-url">Web search disabled</code></dd></div>
+        </dl>
+        <p id="searxng-note" class="assistant-note">Web search was disabled, so no SearXNG service or settings file was installed. Its retained private secret is never user-facing.</p>
+
+        <h3>3. Model route</h3>
+        <dl class="result-list">
+          <div><dt>Model provider</dt><dd><code>OpenAI</code></dd></div>
+          <div><dt>Model</dt><dd><code>Keep the current supported selection</code></dd></div>
+        </dl>
+        <p>
+          Enter your user-owned OpenAI Platform API key directly in n8n. Relmio
+          does not read, receive, or store that model key.
+        </p>
+        <p>
+          Keep your existing supported n8n model selection—including
+          <code>openai/gpt-5.6-sol</code>—while n8n continues to accept it.
+          Change models only if n8n rejects the current selection or you
+          deliberately choose another supported model.
+        </p>
+
+        <h3>Platform account guardrails</h3>
+        <aside class="assistant-warning">
+          <strong>No setup can guarantee an account is never flagged.</strong>
+          <p>
+            Use a dedicated OpenAI Platform project/key, store it server-side in
+            n8n, set project rate/spend limits and alerts, monitor usage, grant
+            least user access, rotate or revoke credentials as needed, require
+            human review, and never expose this provider path publicly.
+          </p>
+          <p>
+            Relmio cannot inject per-user safety identifiers or moderation into
+            n8n’s direct provider path.
+          </p>
+        </aside>
+
+        <details class="assistant-disclosure">
+          <summary>Optional Ollama-style custom endpoint</summary>
+          <p>
+            n8n’s custom/self-hosted OpenAI-compatible screen defaults to an
+            Ollama-style endpoint. Use this only for a separately deployed,
+            n8n-reachable Relmio OpenAI-compatible endpoint backed by your own
+            OpenAI Platform API key. This companion wizard does not create one.
+          </p>
+          <dl class="result-list">
+            <div><dt>Base URL</dt><dd><code>your Platform-key-backed Relmio /v1 endpoint</code></dd></div>
+            <div><dt>API key</dt><dd>Use that endpoint’s private Relmio client credential. It is not an OpenAI-issued API key.</dd></div>
+            <div><dt>Model ID</dt><dd>Use a model ID exposed by that Platform-key-backed endpoint.</dd></div>
+          </dl>
+          <p>
+            The existing ChatGPT/Codex OAuth VPS sidecar can be technically
+            compatible, but remains experimental/private/policy-uncertain. It
+            is not auto-selected, enabled, or presented as TOS-approved.
+          </p>
+        </details>
+      </section>
+    </main>
+  </body>
+</html>

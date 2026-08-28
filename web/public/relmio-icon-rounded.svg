@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Relmio</title>
+  <defs>
+    <clipPath id="rounded-square">
+      <rect width="512" height="512" rx="112" />
+    </clipPath>
+    <linearGradient id="sage" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b0c0a6" />
+      <stop offset="1" stop-color="#879f87" />
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#12938f" />
+      <stop offset="1" stop-color="#047c79" />
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#rounded-square)">
+    <rect width="512" height="512" fill="url(#sage)" />
+    <rect x="126" y="70" width="430" height="560" rx="215" fill="#f6f0e9" />
+    <rect x="190" y="218" width="194" height="390" rx="97" fill="url(#teal)" />
+    <rect x="190" y="315" width="194" height="293" fill="url(#teal)" />
+    <circle cx="242" cy="292" r="20" fill="#f6f0e9" />
+    <circle cx="332" cy="292" r="20" fill="#f6f0e9" />
+  </g>
+</svg>

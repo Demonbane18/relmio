@@ -22,6 +22,9 @@ placeholder; it is not an OpenAI Platform API key.
 
 ## Follow-on guides
 
+- [AI Assistant companion](./ai-assistant.md) covers the separate Preview
+  sandbox, Docker-in-Docker warning, optional SearXNG search, and the direct
+  OpenAI Platform-key model route.
 - [Configure n8n nodes](./n8n-configuration.md) has copy-ready AI Agent and
   HTTP Request recipes.
 - [Beginner manual installation](./manual-install.md) is the auditable fallback

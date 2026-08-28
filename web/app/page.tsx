@@ -70,7 +70,8 @@ export default function Home() {
           </a>
           <nav aria-label="Primary navigation">
             <a href="#how-it-works">How it works</a>
-            <a href="#security">Security</a>
+            <Link href="/install">Install</Link>
+            <Link href="/docs">Docs</Link>
             <a href="#chat">Chat</a>
           </nav>
           <div className="header-actions">

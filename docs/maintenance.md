@@ -111,6 +111,67 @@ Do not change `openai-oauth@2.0.0` casually. An upgrade requires:
 
 Keep the old Docker image until the new one passes.
 
+## Updating or rolling back AI Assistant companion images
+
+The AI Assistant companion has no automatic remote image upgrade. Relmio never
+edits the existing n8n Compose file, image, or environment, and never directly
+mutates n8n as part of a companion update or rollback.
+
+Maintainers must treat the Sandbox Service API, privileged runner, and nested
+sandbox image as one compatibility unit. Before changing
+`ASSISTANT_COMPANION_IMAGES` in `src/domain/assistant-templates.js`:
+
+1. Review the official [n8n Sandbox Service release notes and source](https://github.com/n8n-io/n8n-sandbox-service), its [API](https://github.com/n8n-io/n8n-sandbox-service/pkgs/container/n8n-sandbox-service-api), [runner](https://github.com/n8n-io/n8n-sandbox-service/pkgs/container/n8n-sandbox-service-runner-dind), and [nested sandbox](https://github.com/n8n-io/n8n-sandbox-service/pkgs/container/n8n-sandbox-service-sandbox) package registries, plus the [SearXNG source](https://github.com/searxng/searxng) and [SearXNG package registry](https://github.com/searxng/searxng/pkgs/container/searxng).
+2. For every candidate, verify the reviewed tag resolves to the intended OCI
+   **index** digest and the required Linux platforms. Record a full immutable
+   `tag@sha256:<digest>` reference; never substitute `latest`, `stable`, a
+   tag-only reference, or a digest-only reference.
+   Inspect each numbered or source-revision tag with the same command pattern:
+
+   ```bash
+   docker buildx imagetools inspect \
+     ghcr.io/UPSTREAM/IMAGE:REVIEWED_VERSION_TAG
+   ```
+
+   Record the top-level `Digest` and required Linux platform entries from that
+   output. Then repeat the inspection with the proposed full
+   `tag@sha256:<digest>` reference and require the same top-level digest. This
+   is maintainer evidence gathering only; it does not authorize an update to a
+   running companion.
+3. Update only the exact source constants, add or update a generated-Compose
+   regression, and run these local release gates from the repository root:
+
+   ```bash
+   node --test \
+     --test-name-pattern="immutable|floating|pinned" \
+     test/assistant.test.js
+   npm run check
+   npm audit --audit-level=high
+   npm pack --dry-run
+   npm --prefix web run lint
+   npm --prefix web run typecheck
+   npm --prefix web run build:vercel
+   npm --prefix web test
+   npm --prefix web audit --audit-level=high
+   ```
+
+   Obtain a fresh security review of the exact change set after every fix.
+   Release only after all gates pass.
+
+For an already managed companion, the administrator updates Relmio locally,
+reconnects and completes host-key confirmation plus read-only discovery, then
+reviews the exact companion-only plan. Keep the recorded SearXNG selection
+unless intentionally changing it, provide the separate final confirmation, and
+then verify that only ownership-labeled companion resources changed, there are
+no host-published ports, and n8n remains healthy. Do not treat a local Relmio
+update as remote-upgrade authorization.
+
+To roll back, restore the previously reviewed complete `tag@sha256` set through
+the same locally updated Relmio build and separately confirmed managed update.
+Repeat read-only discovery, exact-plan review, final confirmation, and the
+post-update checks above. Never roll back by pulling a moving tag or by editing,
+restarting, recreating, or otherwise mutating n8n.
+
 ## If n8n is upgraded
 
 This project does not alter the n8n image. A normal n8n image update can still

@@ -40,8 +40,8 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: "Relmio",
     keywords: ["ai", "chatgpt", "codex", "openai"],
     icons: {
-      icon: "/relmio-icon.png",
-      shortcut: "/relmio-icon.png",
+      icon: "/relmio-icon-rounded.svg",
+      shortcut: "/relmio-icon-rounded.svg",
     },
     openGraph: {
       title,
