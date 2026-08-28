@@ -222,6 +222,34 @@ The local capabilities have separate consequences:
   scope of another agreement. Review the current
   [program terms](https://learn.chatgpt.com/docs/codex-for-oss-terms).
 
+### Policy evidence and scope
+
+The following sources support the narrow provider and authentication patterns
+that Relmio documents. They are not a blanket approval of Relmio, a substitute
+for the current agreements governing an account, or legal advice.
+
+| Evidence | What it supports | What it does not establish |
+| --- | --- | --- |
+| Maintainer acceptance (private OpenAI email, August 2026) and the [Codex for Open Source Program Terms](https://learn.chatgpt.com/docs/codex-for-oss-terms) | Relmio's maintainer was accepted into the program for this project and received a limited-duration ChatGPT Pro benefit covering Codex access. The program is designed to support maintainers of important open-source software. | Program acceptance supports the maintainer and open-source work. It is not an OpenAI security review, product endorsement, or protocol-by-protocol compliance certification. The acceptance email is not published because it contains personal account information. |
+| OpenAI's [Advanced Configuration — OSS mode and local providers](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers) | Codex supports custom model-provider configuration and an OSS mode with local providers such as Ollama or LM Studio. | It does not authorize turning a ChatGPT subscription credential into a general API credential or bypassing provider restrictions. |
+| [Thibault “Tibo” Sottiaux](https://openai.com/index/openai-to-acquire-astral/), Codex Lead at OpenAI: [open-model statement](https://x.com/thsottiaux/status/2067399435009622521) | The Codex App, CLI, and SDK can run with open-source models rather than only OpenAI models. | Model-provider flexibility does not change authentication, billing, account, or usage-policy requirements. |
+| Tibo: [account-use statement](https://x.com/thsottiaux/status/2090675027670978569) | Using one's own subscription through **Sign in with ChatGPT**, including compatible open-source clients, was distinguished from unsupported conversion of subscription access into API traffic. | It does not approve resale, pooling, forwarding credentials, sharing across users, or subscription-to-API conversion. A social post is not a contractual amendment. |
+| OpenAI CEO Sam Altman: [OpenClaw statement](https://x.com/sama/status/2050357911915028689) | OpenClaw was publicly announced as supporting ChatGPT-account sign-in and subscription use. | Approval of one named integration does not automatically approve unrelated protocols, adapters, deployments, or credential handling. |
+
+Relmio applies these distinctions as engineering controls:
+
+- Native Codex uses the official Codex App Server lifecycle and preserves its
+  protocol instead of exporting a generic OpenAI `/v1` service.
+- The bounded Codex Chat Adapter remains an experimental Relmio-specific
+  interface for the same owner; it is not an OpenAI API replacement.
+- The n8n AI Assistant model route uses a user-owned OpenAI Platform project
+  and API key entered directly in n8n. Relmio never receives that key.
+- The legacy n8n OAuth sidecar remains explicitly
+  experimental/private/policy-uncertain and is not described as approved by
+  the sources above.
+- Relmio prohibits account sharing, pooling, resale, subscription-to-API
+  conversion, rate-limit or safeguard bypass, and credential forwarding.
+
 This repository does not claim that every possible use of the bridge is
 permitted. The account owner is responsible for reviewing the current
 [OpenAI Terms](https://openai.com/policies/terms-of-use/) and usage policies.

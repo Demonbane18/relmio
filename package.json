@@ -1,6 +1,6 @@
 {
   "name": "relmio",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "description": "Install private local OpenAI API and Codex endpoints with explicit provider credential boundaries, plus the existing isolated n8n sidecar.",
   "keywords": [
     "relmio",

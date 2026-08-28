@@ -54,6 +54,28 @@ The experimental Chat Adapter's SSE stream succeeds only after its
 protected wizard and uses a short-lived encrypted credential handoff, never a
 direct browser-to-adapter request.
 
+## OpenAI policy evidence and limits
+
+Relmio's maintainer was accepted into OpenAI's [Codex for Open Source
+program](https://learn.chatgpt.com/docs/codex-for-oss-terms) for this project
+in August 2026 and received its limited-duration ChatGPT Pro benefit.
+OpenAI's [advanced Codex configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers)
+documents custom model providers and OSS mode with Ollama or LM Studio.
+OpenAI Codex Lead Thibault “Tibo” Sottiaux has publicly distinguished supported
+**Sign in with ChatGPT** clients from unsupported subscription-to-API
+conversion, resale, or multi-user sharing ([statement](https://x.com/thsottiaux/status/2090675027670978569)),
+and [confirmed Codex can use open-source models](https://x.com/thsottiaux/status/2067399435009622521).
+OpenAI CEO Sam Altman also [announced ChatGPT-account sign-in for
+OpenClaw](https://x.com/sama/status/2050357911915028689).
+
+These sources support specific documented patterns; they are not blanket
+approval, protocol certification, or legal advice. Program acceptance supports
+the maintainer and open-source work; it does not approve every integration.
+Relmio never presents ChatGPT credentials as a generic `/v1` API key, and its
+n8n AI Assistant path requires a user-owned OpenAI Platform API key. The legacy
+OAuth sidecar remains experimental/private/policy-uncertain. Read the full
+[policy evidence and scope](https://relmio.vercel.app/docs/security#policy-evidence-and-scope).
+
 ## ChatGPT sign-in lifetime
 
 ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes

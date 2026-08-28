@@ -64,6 +64,39 @@ The experimental Chat Adapter's SSE stream succeeds only after its
 protected wizard and uses a short-lived encrypted credential handoff, never a
 direct browser-to-adapter request.
 
+## OpenAI policy evidence and limits
+
+Relmio's supported paths follow published OpenAI product boundaries rather
+than treating a ChatGPT subscription as a reusable API key:
+
+- Relmio's maintainer was accepted into the [Codex for Open Source
+  program](https://learn.chatgpt.com/docs/codex-for-oss-terms) for this project
+  in August 2026 and received the program's limited-duration ChatGPT Pro
+  benefit. The private acceptance email is retained by the maintainer and is
+  not published because it contains personal account information.
+- OpenAI's [advanced Codex configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers)
+  documents custom model providers and OSS mode with local providers such as
+  Ollama and LM Studio.
+- [Thibault “Tibo” Sottiaux](https://openai.com/index/openai-to-acquire-astral/),
+  Codex Lead at OpenAI, has publicly stated that the Codex App, CLI, and SDK
+  can use open-source models, and separately distinguished supported
+  **Sign in with ChatGPT** clients from unsupported subscription-to-API
+  conversion, resale, or multi-user sharing ([open-model statement](https://x.com/thsottiaux/status/2067399435009622521),
+  [account-use statement](https://x.com/thsottiaux/status/2090675027670978569)).
+- OpenAI CEO Sam Altman publicly announced ChatGPT-account sign-in for
+  OpenClaw ([statement](https://x.com/sama/status/2050357911915028689)).
+
+These sources are evidence for the specific documented patterns, not a blanket
+OpenAI endorsement, legal opinion, or promise that every third-party adapter
+or future release is compliant. Program acceptance supports the maintainer and
+open-source work; it is not a protocol-by-protocol compliance certification.
+Relmio therefore keeps native Codex traffic in the official App Server
+lifecycle, does not present ChatGPT credentials as a generic `/v1` API key,
+and requires a user-owned OpenAI Platform API key for the n8n AI Assistant
+model route. The legacy n8n OAuth sidecar remains
+experimental/private/policy-uncertain. See the complete [policy evidence and
+scope](docs/security.md#policy-evidence-and-scope).
+
 ## Critical security boundaries
 
 - Local endpoints bind only to `127.0.0.1`; do not expose them through a LAN,
