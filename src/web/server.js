@@ -5,6 +5,7 @@ import packageManifest from "../../package.json" with { type: "json" };
 
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
 import { installSidecar } from "../services/installer.js";
+import { installAssistant } from "../services/assistant-installer.js";
 import {
   getAuthStatus,
   readAuthContents,
@@ -19,6 +20,9 @@ import {
   validatePort,
 } from "../domain/validation.js";
 import { SIDECAR_HOSTNAME } from "../domain/templates.js";
+import {
+  ASSISTANT_ROOT,
+} from "../domain/assistant.js";
 import {
   createLocalDeploymentPlan,
   validateLocalTarget,
@@ -78,6 +82,7 @@ const defaultServices = {
   discoverN8n,
   discoverNetworks,
   installSidecar,
+  installAssistant,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
   getProjectMeta,
@@ -289,6 +294,95 @@ function requireConnection(state) {
   return state.connection;
 }
 
+function rejectActiveVpsMutation(state) {
+  if (state.closing) {
+    throw Object.assign(new Error("The local wizard is closing."), {
+      statusCode: 409,
+    });
+  }
+  if (state.vpsMutationInFlight) {
+    throw Object.assign(
+      new Error("A VPS installation is already in progress. Wait for it to finish before trying another installation."),
+      { statusCode: 409 },
+    );
+  }
+}
+
+function acquireVpsMutationLock(state) {
+  rejectActiveVpsMutation(state);
+  const lock = Symbol("vps-mutation");
+  let resolveCompletion;
+  state.vpsMutationInFlight = true;
+  state.vpsMutationLock = lock;
+  state.vpsMutationCompletion = new Promise((resolve) => {
+    resolveCompletion = resolve;
+  });
+  return () => {
+    if (state.vpsMutationLock === lock) {
+      state.vpsMutationInFlight = false;
+      state.vpsMutationLock = null;
+      state.vpsMutationCompletion = null;
+      resolveCompletion();
+    }
+  };
+}
+
+function requireReviewedVpsPlan(plan, body, label) {
+  if (
+    !plan ||
+    plan.containerName !== body.containerName ||
+    plan.networkName !== body.networkName
+  ) {
+    throw new Error(`Review a fresh ${label} plan before installing.`);
+  }
+}
+
+function requireAssistantSearxngSelection(value) {
+  if (typeof value !== "boolean") {
+    throw new Error("Choose whether to include optional SearXNG web search.");
+  }
+  return value;
+}
+
+function requireEnabledInstanceAi(state, containerName) {
+  const instanceAi = state.networksByContainer.get(containerName)?.instanceAi;
+  if (instanceAi?.status === "enabled") return instanceAi;
+  if (instanceAi?.status === "missing" || instanceAi?.status === "configured") {
+    throw new Error(
+      "The selected n8n container needs N8N_ENABLED_MODULES to include instance-ai. Update its existing deployment separately; restart n8n outside this wizard only if you later authorize that action.",
+    );
+  }
+  throw new Error("The selected n8n container's AI Assistant prerequisite could not be verified.");
+}
+
+function requireReviewedAssistantPlan(state, plan, body) {
+  requireReviewedVpsPlan(plan, body, "AI Assistant");
+  if (plan.includeSearxng !== body.includeSearxng) {
+    throw new Error("Review a fresh AI Assistant plan for the selected web-search option.");
+  }
+  const instanceAi = requireEnabledInstanceAi(state, body.containerName);
+  if (plan.instanceAi?.status !== instanceAi.status) {
+    throw new Error("Review a fresh AI Assistant plan after prerequisite discovery.");
+  }
+}
+
+function requireFreshAssistantInstallState(plan, networks, body) {
+  if (!Array.isArray(networks?.networks) || !networks.networks.includes(body.networkName)) {
+    throw new Error(
+      "The selected Docker network changed after plan review. Review a fresh AI Assistant plan before installing.",
+    );
+  }
+  const instanceAi = networks.instanceAi;
+  if (instanceAi?.status !== "enabled") {
+    throw new Error(
+      "The selected n8n container needs N8N_ENABLED_MODULES to include instance-ai. Update its existing deployment separately; restart n8n outside this wizard only if you later authorize that action.",
+    );
+  }
+  if (plan.instanceAi?.status !== instanceAi.status) {
+    throw new Error("Review a fresh AI Assistant plan after prerequisite discovery.");
+  }
+}
+
 function requireDiscoveredContainer(state, containerName) {
   const container = state.discovery?.containers.find(
     (candidate) => candidate.name === containerName,
@@ -310,7 +404,11 @@ function requireDiscoveredNetwork(state, containerName, networkName) {
 
 function safeErrorMessage(error) {
   const message =
-    typeof error?.message === "string" ? error.message : "Request failed.";
+    typeof error?.safeMessage === "string"
+      ? error.safeMessage
+      : typeof error?.message === "string"
+        ? error.message
+        : "Request failed.";
   if (
     message.length > 240 ||
     /[\r\n]/u.test(message) ||
@@ -356,6 +454,9 @@ async function loadDefaultUiFiles() {
     readFile(new URL("../ui/app.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/local.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/oauth-popup.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/assistant.html", import.meta.url), "utf8"),
+    readFile(new URL("../ui/assistant.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/assistant.css", import.meta.url), "utf8"),
     readFile(new URL("../ui/theme.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/time.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/styles.css", import.meta.url), "utf8"),
@@ -364,6 +465,7 @@ async function loadDefaultUiFiles() {
     readFile(new URL("../ui/icons/sun.svg", import.meta.url), "utf8"),
     readFile(new URL("../ui/icons/moon.svg", import.meta.url), "utf8"),
     readFile(new URL("../ui/relmio-icon.png", import.meta.url)),
+    readFile(new URL("../ui/relmio-icon-rounded.svg", import.meta.url), "utf8"),
   ]);
 
   return {
@@ -372,14 +474,18 @@ async function loadDefaultUiFiles() {
     "/app.js": files[2],
     "/local.js": files[3],
     "/oauth-popup.js": files[4],
-    "/theme.js": files[5],
-    "/time.js": files[6],
-    "/styles.css": files[7],
-    "/local.css": files[8],
-    "/icons/monitor.svg": files[9],
-    "/icons/sun.svg": files[10],
-    "/icons/moon.svg": files[11],
-    "/relmio-icon.png": files[12],
+    "/assistant": files[5],
+    "/assistant.js": files[6],
+    "/assistant.css": files[7],
+    "/theme.js": files[8],
+    "/time.js": files[9],
+    "/styles.css": files[10],
+    "/local.css": files[11],
+    "/icons/monitor.svg": files[12],
+    "/icons/sun.svg": files[13],
+    "/icons/moon.svg": files[14],
+    "/relmio-icon.png": files[15],
+    "/relmio-icon-rounded.svg": files[16],
   };
 }
 
@@ -1087,6 +1193,7 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/ssh/fingerprint") {
+    rejectActiveVpsMutation(state);
     enforceRateLimit(state, path);
     const host = validateHostname(body.host);
     const port = validatePort(body.port);
@@ -1094,12 +1201,14 @@ async function handleApi(request, response, path, state) {
       host,
       port,
     });
+    rejectActiveVpsMutation(state);
     state.scannedHost = { host, port, fingerprint };
     sendJson(response, 200, { fingerprint });
     return;
   }
 
   if (path === "/api/ssh/connect") {
+    rejectActiveVpsMutation(state);
     enforceRateLimit(state, path);
     const host = validateHostname(body.host);
     const port = validatePort(body.port);
@@ -1118,8 +1227,9 @@ async function handleApi(request, response, path, state) {
     state.connection?.close();
     state.connection = null;
 
+    let candidateConnection = null;
     try {
-      state.connection = await state.services.connectVerified({
+      candidateConnection = await state.services.connectVerified({
         host,
         port,
         username: body.username,
@@ -1127,43 +1237,67 @@ async function handleApi(request, response, path, state) {
         agent: body.useAgent ? process.env.SSH_AUTH_SOCK : undefined,
         expectedFingerprint: scannedHost.fingerprint,
       });
+      rejectActiveVpsMutation(state);
+      state.connection = candidateConnection;
+      candidateConnection = null;
     } finally {
       body.password = undefined;
+      try {
+        candidateConnection?.close();
+      } catch {
+        // A stale connection must never become the shared VPS connection.
+      }
     }
 
     state.scannedHost = null;
     state.discovery = null;
     state.networksByContainer.clear();
+    state.sidecarPlan = null;
+    state.assistantPlan = null;
     sendJson(response, 200, { connected: true });
     return;
   }
 
   if (path === "/api/discover") {
+    rejectActiveVpsMutation(state);
     const connection = requireConnection(state);
-    state.discovery = await state.services.discoverN8n(connection);
+    const discovery = await state.services.discoverN8n(connection);
+    rejectActiveVpsMutation(state);
+    state.discovery = discovery;
     state.networksByContainer.clear();
+    state.sidecarPlan = null;
+    state.assistantPlan = null;
     sendJson(response, 200, state.discovery);
     return;
   }
 
   if (path === "/api/networks") {
+    rejectActiveVpsMutation(state);
     const connection = requireConnection(state);
     requireDiscoveredContainer(state, body.containerName);
     const networks = await state.services.discoverNetworks(
       connection,
       body.containerName,
     );
+    rejectActiveVpsMutation(state);
     state.networksByContainer.set(body.containerName, networks);
+    state.sidecarPlan = null;
+    state.assistantPlan = null;
     sendJson(response, 200, networks);
     return;
   }
 
   if (path === "/api/plan") {
+    rejectActiveVpsMutation(state);
     requireDiscoveredNetwork(
       state,
       body.containerName,
       body.networkName,
     );
+    state.sidecarPlan = {
+      containerName: body.containerName,
+      networkName: body.networkName,
+    };
     sendJson(response, 200, {
       installDirectory: "/docker/n8n-openai-oauth",
       sidecarProject: "n8n-openai-oauth",
@@ -1176,16 +1310,93 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
-  if (path === "/api/install") {
+  if (path === "/api/assistant/plan") {
+    rejectActiveVpsMutation(state);
+    const includeSearxng = requireAssistantSearxngSelection(body.includeSearxng);
+    requireDiscoveredNetwork(
+      state,
+      body.containerName,
+      body.networkName,
+    );
+    const instanceAi = requireEnabledInstanceAi(state, body.containerName);
+    state.assistantPlan = {
+      containerName: body.containerName,
+      networkName: body.networkName,
+      includeSearxng,
+      instanceAi,
+    };
+    sendJson(response, 200, {
+      installDirectory: ASSISTANT_ROOT,
+      companionProject: "generated ownership-bound project after confirmation",
+      sandboxUrl: "generated after verified installation",
+      includeSearxng,
+      webSearch: includeSearxng ? "enabled" : "disabled",
+      ...(includeSearxng ? { searxngUrl: "generated after verified installation" } : {}),
+      networkName: body.networkName,
+      instanceAi,
+      existingN8nChanges: [],
+      existingN8nRestarts: 0,
+      publishedPorts: [],
+      privilegedRunner: true,
+      preview: true,
+    });
+    return;
+  }
+
+  if (path === "/api/assistant/install") {
+    rejectActiveVpsMutation(state);
+    enforceRateLimit(state, path);
+    const includeSearxng = requireAssistantSearxngSelection(body.includeSearxng);
+    requireDiscoveredNetwork(
+      state,
+      body.containerName,
+      body.networkName,
+    );
+    const reviewedPlan = state.assistantPlan;
+    requireReviewedAssistantPlan(state, reviewedPlan, body);
     const connection = requireConnection(state);
+    state.assistantPlan = null;
+    const releaseVpsMutationLock = acquireVpsMutationLock(state);
+    try {
+      const freshNetworks = await state.services.discoverNetworks(
+        connection,
+        body.containerName,
+      );
+      requireFreshAssistantInstallState(reviewedPlan, freshNetworks, body);
+      const result = await state.services.installAssistant({
+        remote: connection,
+        networkName: body.networkName,
+        confirmed: body.confirmed,
+        includeSearxng,
+      });
+      sendJson(response, 200, result);
+    } finally {
+      try {
+        connection.close();
+        if (state.connection === connection) {
+          state.connection = null;
+        }
+      } finally {
+        releaseVpsMutationLock();
+      }
+    }
+    return;
+  }
+
+  if (path === "/api/install") {
+    rejectActiveVpsMutation(state);
+    enforceRateLimit(state, path);
+    requireDiscoveredNetwork(
+      state,
+      body.containerName,
+      body.networkName,
+    );
+    requireReviewedVpsPlan(state.sidecarPlan, body, "sidecar");
+    const connection = requireConnection(state);
+    state.sidecarPlan = null;
+    const releaseVpsMutationLock = acquireVpsMutationLock(state);
     let result;
     try {
-      enforceRateLimit(state, path);
-      requireDiscoveredNetwork(
-        state,
-        body.containerName,
-        body.networkName,
-      );
       const authStatus = await state.services.getAuthStatus();
       if (!authStatus.exists) {
         throw new Error("Sign in with ChatGPT before installing.");
@@ -1200,9 +1411,13 @@ async function handleApi(request, response, path, state) {
         confirmed: body.confirmed,
       });
     } finally {
-      connection.close();
-      if (state.connection === connection) {
-        state.connection = null;
+      try {
+        connection.close();
+        if (state.connection === connection) {
+          state.connection = null;
+        }
+      } finally {
+        releaseVpsMutationLock();
       }
     }
 
@@ -1211,8 +1426,11 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/disconnect") {
+    rejectActiveVpsMutation(state);
     state.connection?.close();
     state.connection = null;
+    state.sidecarPlan = null;
+    state.assistantPlan = null;
     sendJson(response, 200, { disconnected: true });
     return;
   }
@@ -1225,6 +1443,10 @@ function createRequestHandler(state) {
     setSecurityHeaders(response);
 
     try {
+      if (state.closing) {
+        sendJson(response, 503, { error: "The local wizard is closing." });
+        return;
+      }
       const url = new URL(request.url, state.origin);
       const path = url.pathname;
 
@@ -1292,6 +1514,11 @@ export async function startWizardServer({
     scannedHost: null,
     discovery: null,
     networksByContainer: new Map(),
+    sidecarPlan: null,
+    assistantPlan: null,
+    vpsMutationInFlight: false,
+    vpsMutationLock: null,
+    vpsMutationCompletion: null,
     oauthLogin: null,
     oauthRetryBlocked: false,
     oauthStartupError: null,
@@ -1327,6 +1554,7 @@ export async function startWizardServer({
     origin: state.origin,
     async close() {
       state.closing = true;
+      const serverClose = new Promise((resolve) => server.close(resolve));
       state.localChatTest.dispose?.();
       await waitForBoundedResult(
         state.oauthLoginStartPromise,
@@ -1350,12 +1578,15 @@ export async function startWizardServer({
         codexLogin?.completion,
         state.oauthShutdownWaitMs,
       );
-      state.connection?.close();
-      state.connection = null;
-      await waitForBoundedResult(
-        new Promise((resolve) => server.close(resolve)),
+      const vpsMutationFinished = await waitForBoundedResult(
+        state.vpsMutationCompletion,
         state.oauthShutdownWaitMs,
       );
+      if (vpsMutationFinished) {
+        state.connection?.close();
+        state.connection = null;
+      }
+      await waitForBoundedResult(serverClose, state.oauthShutdownWaitMs);
     },
   };
 }

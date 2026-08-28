@@ -60,6 +60,31 @@ test("non-interactive default launch exits without starting the wizard", async (
   ]);
 });
 
+test("assistant CLI opens and wires the exact dedicated assistant wizard URL", async () => {
+  const opened = [];
+  const reopenUrls = [];
+  await runCli({
+    argumentsList: ["assistant"],
+    isInteractive: () => true,
+    log: () => {},
+    startServer: async () => ({
+      origin: "http://127.0.0.1:4567",
+      async close() {},
+    }),
+    open: (url) => opened.push(url),
+    attachReopen: ({ url }) => {
+      reopenUrls.push(url);
+      return () => {};
+    },
+  });
+
+  assert.equal(opened.length, 1);
+  assert.deepEqual(reopenUrls, opened);
+  const url = new URL(opened[0]);
+  assert.equal(url.pathname, "/assistant");
+  assert.match(url.search, /^\?session=[A-Za-z0-9_-]{43}$/u);
+});
+
 test("CLI entry detection resolves package-manager symlinks", () => {
   const sourcePath = resolve("src/cli.js");
   const aliases = new Map([

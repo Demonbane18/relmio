@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   MANAGED_MARKER_PATH,
   PRECHECK_COMMAND,
+  SHARED_ROOT_MARKER_PATH,
   createVerificationCommands,
 } from "../src/domain/safety.js";
 import { installSidecar } from "../src/services/installer.js";
@@ -118,6 +119,12 @@ test("installSidecar refuses to overwrite an unmanaged directory", async () => {
   assert.deepEqual(remote.uploads, []);
 });
 
+test("sidecar precheck accepts the Relmio shared root so assistant-first installs remain compatible", () => {
+  assert.match(PRECHECK_COMMAND, new RegExp(SHARED_ROOT_MARKER_PATH.replaceAll("/", "\\/")));
+  assert.match(PRECHECK_COMMAND, /\.managed-by-n8n-openai-oauth/);
+  assert.match(PRECHECK_COMMAND, /\[ -L \/docker\/n8n-openai-oauth \]/);
+});
+
 test("installSidecar uploads secrets separately and starts only the sidecar", async () => {
   const remote = createFakeRemote();
 
@@ -135,6 +142,11 @@ test("installSidecar uploads secrets separately and starts only the sidecar", as
   assert.deepEqual(result.models, ["gpt-5.6-sol", "gpt-5.6-terra"]);
 
   assert.ok(remote.uploads.some((upload) => upload.path === MANAGED_MARKER_PATH));
+  assert.ok(
+    remote.uploads.some(
+      (upload) => upload.path === SHARED_ROOT_MARKER_PATH && upload.mode === 0o600,
+    ),
+  );
   assert.ok(
     remote.uploads.some(
       (upload) =>

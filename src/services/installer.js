@@ -2,6 +2,9 @@ import {
   INSTALL_ROOT,
   MANAGED_MARKER_PATH,
   PRECHECK_COMMAND,
+  SHARED_ROOT_MARKER_CONTENT,
+  SHARED_ROOT_MARKER_PATH,
+  SIDECAR_MARKER_CONTENT,
   assertSidecarOnlyCommands,
   createDeploymentCommands,
   createVerificationCommands,
@@ -13,8 +16,6 @@ import {
 } from "../domain/templates.js";
 
 const MAX_AUTH_FILE_BYTES = 128 * 1024;
-const MARKER_CONTENT = "Managed by n8n-openai-oauth-setup.\n";
-
 function validateAuthContents(contents) {
   if (!Buffer.isBuffer(contents)) {
     throw new TypeError("The OAuth credential file is invalid.");
@@ -112,8 +113,14 @@ async function failPublicationSafetyCheck(remote, cleanupCommand, reason) {
     cleanupSucceeded = false;
   }
   if (!cleanupSucceeded) {
-    throw new Error(
-      `${reason} Automatic cleanup could not be confirmed. Do not use the sidecar until it is removed from /docker/n8n-openai-oauth.`,
+    throw Object.assign(
+      new Error(
+        `${reason} Automatic cleanup could not be confirmed. Do not use the sidecar until it is removed from /docker/n8n-openai-oauth.`,
+      ),
+      {
+        safeMessage:
+          "Automatic cleanup could not be confirmed. Do not use the sidecar until an administrator confirms its removal.",
+      },
     );
   }
   throw new Error(
@@ -162,7 +169,8 @@ export async function installSidecar({
   await runOrThrow(remote, deploymentCommands[0], "Sidecar directory creation");
   await runOrThrow(remote, deploymentCommands[1], "Auth directory creation");
 
-  await remote.upload(MANAGED_MARKER_PATH, MARKER_CONTENT, 0o644);
+  await remote.upload(SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT, 0o600);
+  await remote.upload(MANAGED_MARKER_PATH, SIDECAR_MARKER_CONTENT, 0o644);
   await remote.upload(`${INSTALL_ROOT}/Dockerfile`, dockerfile, 0o644);
   await remote.upload(
     `${INSTALL_ROOT}/docker-compose.yml`,

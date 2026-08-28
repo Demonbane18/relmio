@@ -352,7 +352,14 @@ main {
   color: #0d1b18;
 }
 
-.install-back-link {
+.install-nav {
+  display: flex;
+  align-items: center;
+  justify-self: center;
+  gap: var(--spacing-4);
+}
+
+.install-nav a {
   justify-self: center;
   color: var(--ink-soft);
   font-size: 0.86rem;
@@ -360,7 +367,8 @@ main {
   transition: color 180ms var(--ease);
 }
 
-.install-back-link:hover {
+.install-nav a:hover,
+.install-nav a:focus-visible {
   color: var(--teal);
 }
 
@@ -2279,7 +2287,7 @@ footer > div {
     display: none;
   }
 
-  .install-back-link {
+  .install-nav {
     display: none;
   }
 

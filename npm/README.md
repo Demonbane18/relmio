@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-logo.png" alt="Relmio gateway android logo" width="180">
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-logo-rounded.svg" alt="Relmio gateway android logo" width="180" height="180">
 </p>
 
 # Relmio
@@ -24,10 +24,30 @@ final confirmation before it writes files or deploys a VPS sidecar.
 | Codex App Server | Experimental JSON-RPC/WebSocket | ChatGPT sign-in and a high-trust local capability |
 | Codex Chat Adapter | Experimental `POST /chat` (JSON or opt-in SSE) | ChatGPT sign-in and a bearer for trusted local backends |
 | n8n sidecar | Private Docker-network `/v1` bridge | A local ChatGPT sign-in file, never a host port |
+| n8n AI Assistant companion | Private sandbox; opt-in SearXNG web search | OpenAI Platform API key entered directly in n8n |
 
 ChatGPT sign-in does not become an OpenAI Platform API key. Codex transports
 are not generic `/v1` services and should never be exposed on a LAN or public
 network.
+
+## n8n AI Assistant companion
+
+Run `relmio assistant` for the separate sandbox and optional SearXNG companion.
+Web search is off by default and is bound as an exact boolean to the reviewed
+plan and confirmation; Relmio does not add it silently.
+It uses verified SSH, read-only n8n discovery, and an existing Docker network;
+it never reads ChatGPT/Codex OAuth or changes the existing n8n project.
+ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. AI
+Assistant is Preview, so review generated workflows before use.
+
+This self-hosted path has a privileged Docker-in-Docker runner for
+advanced/local testing and publishes no host ports; n8n recommends Daytona for
+production. In n8n, enter your own Platform API key directly and keep your
+current supported model selection, including `openai/gpt-5.6-sol` while n8n
+continues to accept it. A separately deployed, Platform-key-backed Relmio endpoint
+may be used through n8n's optional custom endpoint form; its private Relmio
+client credential is not an OpenAI-issued API key. The OAuth sidecar remains
+experimental/private/policy-uncertain and is never auto-selected.
 
 The experimental Chat Adapter's SSE stream succeeds only after its
 `terminal: completed` event. Its local tester stays behind the setup-token-
@@ -61,6 +81,7 @@ Full guides use absolute HTTPS links:
 - https://relmio.vercel.app/docs/getting-started
 - https://relmio.vercel.app/docs/local-endpoints
 - https://relmio.vercel.app/docs/vps-and-n8n
+- https://relmio.vercel.app/docs/ai-assistant
 - https://relmio.vercel.app/docs/troubleshooting#local-image-build-failed
 - https://relmio.vercel.app/docs/security
 - https://relmio.vercel.app/docs/reference

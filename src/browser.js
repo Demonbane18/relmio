@@ -26,13 +26,14 @@ function isPrivateWizardUrl(value) {
       url.hostname === "127.0.0.1" &&
       url.port !== "" &&
       Number(url.port) > 0 &&
-      url.pathname === "/" &&
+      (url.pathname === "/" || url.pathname === "/assistant") &&
       url.username === "" &&
       url.password === "" &&
       url.hash === "" &&
       typeof session === "string" &&
       /^[A-Za-z0-9_-]{43}$/u.test(session) &&
-      url.search === `?session=${session}`
+      url.search === `?session=${session}` &&
+      value === `http://127.0.0.1:${url.port}${url.pathname}?session=${session}`
     );
   } catch {
     return false;

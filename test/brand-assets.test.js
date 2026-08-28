@@ -10,8 +10,11 @@ const SOCIAL_PREVIEW_SHA256 =
 test("gateway android is the canonical logo across public surfaces", async () => {
   const [
     logo,
+    roundedLogo,
     hostedIcon,
+    hostedRoundedIcon,
     localIcon,
+    localRoundedIcon,
     socialPreview,
     readme,
     npmReadme,
@@ -21,10 +24,14 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     installPage,
     n8nWizard,
     localWizard,
+    assistantWizard,
   ] = await Promise.all([
     readFile("docs/images/brand/relmio-logo.png"),
+    readFile("docs/images/brand/relmio-logo-rounded.svg", "utf8"),
     readFile("web/public/relmio-icon.png"),
+    readFile("web/public/relmio-icon-rounded.svg", "utf8"),
     readFile("src/ui/relmio-icon.png"),
+    readFile("src/ui/relmio-icon-rounded.svg", "utf8"),
     readFile("web/public/og.png"),
     readFile("README.md", "utf8"),
     readFile("npm/README.md", "utf8"),
@@ -34,11 +41,15 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     readFile("web/app/install/page.tsx", "utf8"),
     readFile("src/ui/index.html", "utf8"),
     readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/assistant.html", "utf8"),
   ]);
 
   assert.deepEqual(logo.subarray(0, PNG_SIGNATURE.length), PNG_SIGNATURE);
   assert.deepEqual(hostedIcon, logo);
   assert.deepEqual(localIcon, logo);
+  assert.equal(hostedRoundedIcon, roundedLogo);
+  assert.equal(localRoundedIcon, roundedLogo);
+  assert.match(roundedLogo, /<clipPath id="rounded-square">/u);
   assert.deepEqual(
     socialPreview.subarray(0, PNG_SIGNATURE.length),
     PNG_SIGNATURE,
@@ -56,24 +67,25 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     assert.rejects(access("web/public/relmio-mark.svg"), { code: "ENOENT" }),
   ]);
   assert.ok(
-    readme.indexOf('src="docs/images/brand/relmio-logo.png"') <
+    readme.indexOf('src="docs/images/brand/relmio-logo-rounded.svg"') <
       readme.indexOf("# Relmio"),
   );
   assert.match(
     npmReadme,
-    /cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-logo\.png/u,
+    /cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-logo-rounded\.svg/u,
   );
   assert.match(brandGuide, /images\/brand\/relmio-logo\.png/u);
   assert.match(metadata, /new URL\("\/og\.png", metadataBase\)/u);
   assert.match(metadata, /width: 1200, height: 630/u);
 
-  for (const source of [metadata, hostedPage, installPage]) {
+  assert.match(metadata, /relmio-icon-rounded\.svg/u);
+  for (const source of [hostedPage, installPage]) {
     assert.match(source, /relmio-icon\.png/u);
     assert.doesNotMatch(source, /relmio-mark\.svg/u);
   }
 
-  for (const source of [n8nWizard, localWizard]) {
-    assert.match(source, /href="\/relmio-icon\.png"/u);
+  for (const source of [n8nWizard, localWizard, assistantWizard]) {
+    assert.match(source, /href="\/relmio-icon-rounded\.svg"/u);
     assert.match(
       source,
       /<img\s+class="brand-mark"\s+src="\/relmio-icon\.png"\s+alt=""\s+width="28"\s+height="28"/u,

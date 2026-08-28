@@ -7,6 +7,20 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Add `relmio assistant`, a dedicated local wizard and isolated companion
+  Compose plan for n8n AI Assistant's self-hosted sandbox and optional SearXNG
+  web search.
+
+### Security
+
+- Keep the privileged Docker-in-Docker runner separate from the selected n8n
+  network, publish no companion host ports, generate and redact independent
+  sandbox secrets, attest ownership-bound random Compose identities and network
+  aliases, serialize VPS-sidecar and assistant mutations under one single-use
+  plan lock, and retain the strict no-n8n-mutation boundary.
+
 ## [0.8.1] - 2026-08-26
 
 ### Changed

@@ -20,13 +20,13 @@ test("Windows browser launching invokes the default URL handler with the local U
   const calls = [];
   const child = new EventEmitter();
   child.unref = () => {};
-  openBrowser(url, {
+  assert.equal(openBrowser(url, {
     platform: "win32",
     spawnProcess(...args) {
       calls.push(args);
       return child;
     },
-  });
+  }), true);
 
   assert.deepEqual(calls, [
     ["cmd.exe", command.args, { detached: true, stdio: "ignore", shell: false }],
@@ -51,6 +51,58 @@ test("browser launching refuses URLs outside the exact private local wizard", ()
 
   assert.equal(opened, false);
   assert.deepEqual(calls, []);
+});
+
+test("browser launching accepts only the exact AI Assistant wizard route", () => {
+  const session = "b".repeat(43);
+  const url = `http://127.0.0.1:4567/assistant?session=${session}`;
+  const calls = [];
+  const child = new EventEmitter();
+  child.unref = () => {};
+
+  assert.equal(openBrowser(url, {
+    platform: "linux",
+    spawnProcess(...args) {
+      calls.push(args);
+      return child;
+    },
+  }), true);
+  assert.deepEqual(calls, [[
+    "xdg-open",
+    [url],
+    { detached: true, stdio: "ignore", shell: false },
+  ]]);
+
+  const rejectedUrls = [
+    ...["/assistant/extra", "/assistant%2Fextra", "/status", "//assistant"].map(
+      (pathname) => `http://127.0.0.1:4567${pathname}?session=${session}`,
+    ),
+    `http://127.0.0.1:4567/assistant?session=${session}&next=ignored`,
+    `https://127.0.0.1:4567/assistant?session=${session}`,
+    `http://localhost:4567/assistant?session=${session}`,
+    `http://127.0.0.1:4567/foo/../assistant?session=${session}`,
+    `http://127.0.0.1:4567/%2e/assistant?session=${session}`,
+    `http://127.0.0.1:4567/assistant/%2e%2e/assistant?session=${session}`,
+    `http://127.0.0.1:4567/assistant/../?session=${session}`,
+    `http://127.0.0.1:4567/.?session=${session}`,
+    `http://127.0.0.1:4567/assistant/?session=${session}`,
+    `http://127.0.0.1:4567/assistant/.?session=${session}`,
+    `http://127.1:4567/assistant?session=${session}`,
+    `http://%31%32%37.0.0.1:4567/assistant?session=${session}`,
+    `HTTP://127.0.0.1:4567/assistant?session=${session}`,
+    `http://127.0.0.1:04567/assistant?session=${session}`,
+    `http://127.0.0.1:80/assistant?session=${session}`,
+  ];
+  for (const rejectedUrl of rejectedUrls) {
+    assert.equal(openBrowser(rejectedUrl, {
+      platform: "linux",
+      spawnProcess(...args) {
+        calls.push(args);
+        return child;
+      },
+    }), false);
+  }
+  assert.equal(calls.length, 1);
 });
 
 test("macOS and Linux retain their native browser launchers", () => {

@@ -6,6 +6,7 @@ const expectedRoutes = [
   "getting-started",
   "local-endpoints",
   "vps-and-n8n",
+  "ai-assistant",
   "troubleshooting",
   "faq",
   "security",
@@ -19,6 +20,7 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
     readFile(new URL("../app/docs/generated-content.ts", import.meta.url), "utf8"),
   ]);
   const packageJson = JSON.parse(packageSource);
+  const renderedDocumentation = generated.replaceAll("\\n", "\n");
 
   assert.equal(packageJson.scripts["docs:generate"], "node scripts/generate-docs.mjs");
   assert.equal(packageJson.scripts["docs:check"], "node scripts/generate-docs.mjs --check");
@@ -29,6 +31,19 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
     assert.match(generated, new RegExp(`"${route}"`, "u"));
   }
   assert.match(generated, /@generated from repository Markdown/u);
+  assert.match(renderedDocumentation, /N8N_ENABLED_MODULES=instance-ai/u);
+  assert.match(
+    renderedDocumentation,
+    /append\s+`instance-ai`\s+as\s+a\s+distinct comma-delimited token[\s\S]*preserving existing\s+module entries/u,
+  );
+  assert.match(
+    renderedDocumentation,
+    /redeploy or restart n8n[\s\S]*healthy[\s\S]*reconnect to Relmio[\s\S]*discovery/u,
+  );
+  assert.match(
+    renderedDocumentation,
+    /will not edit the existing n8n Compose file, image, or environment;[\s\S]*restart or recreate n8n; or exec into n8n/u,
+  );
   assert.match(generator, /--check/u);
   assert.doesNotMatch(generator, /readFile\([^)]*README\.md/u);
 });
@@ -49,6 +64,12 @@ test("renders a responsive, safe documentation route with project controls", asy
   assert.match(documentPage, /SupportButton/u);
   assert.match(documentPage, /RepositoryButton/u);
   assert.match(documentPage, /aria-label="Documentation navigation"/u);
+  assert.match(documentPage, /DocumentationSearch/u);
+  assert.match(documentPage, /DocumentOutline/u);
+  assert.match(documentPage, /Browse documentation/u);
+  assert.match(documentPage, /Adjacent documentation/u);
   assert.doesNotMatch(documentPage, /rehypeRaw|dangerouslySetInnerHTML|innerHTML/u);
+  assert.match(styles, /\.layoutDetail/u);
+  assert.match(styles, /\.mobileNavigation/u);
   assert.match(styles, /@media \(max-width: 48rem\)/u);
 });

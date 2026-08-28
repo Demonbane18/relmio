@@ -48,9 +48,10 @@ export default function InstallPage() {
             />
             <span>Relmio</span>
           </Link>
-          <Link className="install-back-link" href="/">
-            Hosted chat
-          </Link>
+          <nav className="install-nav" aria-label="Primary navigation">
+            <Link href="/">Hosted chat</Link>
+            <Link href="/docs">Documentation</Link>
+          </nav>
           <div className="header-actions">
             <ThemeModeControl />
             <SupportButton />
@@ -136,6 +137,9 @@ export default function InstallPage() {
             </Link>
             <Link className="button button-secondary" href="/#security">
               Review the safety boundary
+            </Link>
+            <Link className="button button-secondary" href="/docs/ai-assistant">
+              Follow the setup guide
             </Link>
           </div>
         </div>
