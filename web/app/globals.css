@@ -2503,3 +2503,619 @@ footer > div {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Editorial Console: compact, token-led surfaces for the hosted app. */
+.editorial-home,
+.editorial-install {
+  min-height: 100dvh;
+  background: var(--color-background-body);
+  color: var(--color-text-primary);
+}
+
+.editorial-header {
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-background-body);
+}
+
+.editorial-header-inner,
+.editorial-footer-inner {
+  max-width: 84rem;
+  margin-inline: auto;
+  padding: var(--spacing-4) var(--spacing-6);
+}
+
+.editorial-brand,
+.editorial-nav a,
+.editorial-footer a {
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.editorial-brand .astryx-text {
+  letter-spacing: -0.02em;
+}
+
+.editorial-nav {
+  display: flex;
+  gap: var(--spacing-4);
+  min-width: 0;
+}
+
+.editorial-nav a,
+.editorial-footer a {
+  color: var(--color-text-secondary);
+  font-size: var(--text-supporting-size);
+  line-height: var(--text-supporting-leading);
+}
+
+.editorial-nav a:hover,
+.editorial-footer a:hover,
+.editorial-note a,
+.install-disclosure a {
+  color: var(--color-text-accent);
+}
+
+.editorial-hero,
+.editorial-process,
+.editorial-chat,
+.editorial-security,
+.install-lead,
+.install-toolbox,
+.install-reference {
+  max-width: 84rem;
+  margin-inline: auto;
+  padding: var(--spacing-8) var(--spacing-6);
+}
+
+.editorial-hero {
+  padding-top: var(--spacing-8);
+}
+
+.editorial-hero-grid,
+.editorial-chat-grid,
+.editorial-security-grid {
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+}
+
+.editorial-title {
+  max-width: 13ch;
+  letter-spacing: -0.04em;
+}
+
+.editorial-lede,
+.editorial-boundary,
+.editorial-section-heading .astryx-text,
+.editorial-chat-copy > .astryx-text {
+  max-width: 62ch;
+}
+
+.editorial-boundary,
+.editorial-device-note {
+  padding-left: var(--spacing-3);
+  border-left: var(--border-width) solid var(--color-border-emphasized);
+}
+
+.editorial-actions .astryx-button,
+.install-wizard-link,
+.install-footer .astryx-button,
+.send-button,
+.suggestion-row button {
+  min-height: var(--spacing-11);
+}
+
+.install-wizard-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--spacing-11);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: var(--border-width) solid var(--color-border-emphasized);
+  border-radius: var(--radius-element);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.request-route,
+.editorial-note,
+.install-toolbox {
+  padding: var(--spacing-6);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-container);
+  background: var(--color-background-surface);
+}
+
+.request-route-list,
+.editorial-capabilities,
+.editorial-boundaries,
+.install-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.request-route-list {
+  display: grid;
+  gap: var(--spacing-3);
+}
+
+.request-route-list li {
+  padding-block: var(--spacing-3);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.request-route-list li:last-child {
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.editorial-process {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  gap: var(--spacing-8);
+  align-items: start;
+}
+
+.editorial-capabilities {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--spacing-3);
+}
+
+.editorial-capabilities li,
+.install-steps li {
+  padding: var(--spacing-5);
+  border-top: var(--border-width) solid var(--color-border);
+  background: var(--color-background-surface);
+}
+
+.editorial-capabilities li:last-child {
+  grid-column: 1 / -1;
+}
+
+.editorial-chat {
+  border-block: var(--border-width) solid var(--color-border);
+  background: var(--color-background-muted);
+}
+
+.editorial-note {
+  background: var(--color-background-card);
+}
+
+.editorial-security-grid {
+  padding-top: var(--spacing-8);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.editorial-boundaries {
+  display: grid;
+  gap: var(--spacing-2);
+}
+
+.editorial-boundaries li {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-3);
+  min-height: var(--spacing-11);
+  padding-inline: var(--spacing-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.editorial-boundaries svg,
+.install-command svg,
+.send-button svg {
+  flex: 0 0 auto;
+  color: var(--color-icon-accent);
+}
+
+.editorial-footer {
+  grid-template-columns: minmax(0, 1fr);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.editorial-footer > .editorial-footer-inner {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+}
+
+.install-lead {
+  padding-bottom: var(--spacing-5);
+}
+
+.install-lead-copy {
+  max-width: 72ch;
+}
+
+.install-toolbox {
+  margin-top: var(--spacing-2);
+}
+
+.install-reference {
+  display: grid;
+  gap: var(--spacing-6);
+  padding-top: var(--spacing-5);
+}
+
+.install-reference details {
+  padding: var(--spacing-4);
+  border-top: var(--border-width) solid var(--color-border);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.install-reference summary {
+  min-height: var(--spacing-11);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font-weight: var(--font-weight-semibold);
+}
+
+.install-disclosure {
+  margin-top: var(--spacing-4);
+  max-width: 76ch;
+}
+
+.install-steps {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--spacing-3);
+}
+
+.install-method-picker {
+  display: grid;
+  gap: var(--spacing-4);
+}
+
+.install-method-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: var(--border-width) solid var(--color-border-emphasized);
+  border-radius: var(--radius-element);
+  overflow: hidden;
+}
+
+.install-method-tab {
+  min-height: var(--spacing-11);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: 0;
+  border-right: var(--border-width) solid var(--color-border);
+  background: var(--color-background-card);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-supporting-size);
+  font-weight: var(--font-weight-medium);
+}
+
+.install-method-tab:last-child {
+  border-right: 0;
+}
+
+.install-method-tab[aria-selected="true"] {
+  background: var(--color-accent-muted);
+  color: var(--color-text-accent);
+}
+
+.install-method-panel {
+  min-width: 0;
+}
+
+.install-command {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--spacing-3);
+  width: 100%;
+  min-height: calc(var(--spacing-11) * 2);
+  padding: var(--spacing-4);
+  border: var(--border-width) solid var(--color-border-emphasized);
+  border-radius: var(--radius-element);
+  --terminal-background: var(--color-on-light);
+  --terminal-foreground: var(--color-on-dark);
+  --terminal-accent: var(--color-on-dark);
+  --terminal-muted: var(--color-on-dark);
+  background: var(--terminal-background);
+  color: var(--terminal-foreground);
+  cursor: pointer;
+  text-align: left;
+}
+
+.install-command code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--terminal-foreground);
+  font-family: var(--font-family-code);
+  font-size: var(--text-supporting-size);
+}
+
+.install-command .astryx-text:first-child,
+.install-command svg {
+  color: var(--terminal-accent);
+}
+
+.install-command .astryx-text:last-child {
+  color: var(--terminal-muted);
+}
+
+.install-command.copied {
+  border-color: var(--color-border-teal);
+}
+
+.install-method-note {
+  max-width: 76ch;
+}
+
+.chat-console {
+  display: grid;
+  gap: var(--spacing-4);
+  padding: var(--spacing-5);
+  border: var(--border-width) solid var(--color-border-emphasized);
+  border-radius: var(--radius-container);
+  background: var(--color-background-card);
+}
+
+.chat-console-header,
+.auth-row,
+.chat-form {
+  padding-bottom: var(--spacing-4);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.auth-pill {
+  padding: var(--spacing-1) var(--spacing-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-full);
+  color: var(--color-text-secondary);
+}
+
+.auth-signed-in {
+  border-color: var(--color-border-teal);
+  color: var(--color-text-teal);
+}
+
+.conversation {
+  min-height: calc(var(--spacing-12) * 5);
+  max-height: 32rem;
+  overflow: auto;
+  padding-block: var(--spacing-2);
+}
+
+.conversation-empty {
+  min-height: calc(var(--spacing-12) * 4);
+  justify-content: center;
+  padding: var(--spacing-4);
+  border-left: var(--border-width) solid var(--color-border-emphasized);
+}
+
+.message {
+  max-width: 88%;
+  padding: var(--spacing-3) var(--spacing-4);
+  border-left: var(--border-width) solid var(--color-border-emphasized);
+  background: var(--color-background-muted);
+}
+
+.message-user {
+  margin-left: auto;
+  border-left: 0;
+  border-right: var(--border-width) solid var(--color-border-teal);
+}
+
+.message-incomplete p {
+  color: var(--color-text-orange);
+}
+
+.message-incomplete > span {
+  color: var(--color-text-orange);
+}
+
+.typing-indicator {
+  color: var(--color-icon-accent);
+}
+
+.chat-error {
+  padding: var(--spacing-3);
+  border-left: var(--border-width) solid var(--color-border-red);
+  background: var(--color-background-red);
+  color: var(--color-text-red);
+}
+
+.suggestion-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.suggestion-row button {
+  padding: var(--spacing-2) var(--spacing-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-element);
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-supporting-size);
+  text-align: left;
+}
+
+.suggestion-row button:disabled,
+.send-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.chat-compose-row {
+  align-items: flex-end;
+}
+
+.chat-compose-row textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--spacing-11);
+  max-height: 10rem;
+  padding: var(--spacing-3);
+  border: var(--border-width) solid var(--color-border-emphasized);
+  border-radius: var(--radius-element);
+  background: var(--color-background-card);
+  color: var(--color-text-primary);
+  font: inherit;
+  resize: vertical;
+}
+
+.send-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--spacing-11);
+  padding: var(--spacing-2);
+  border: var(--border-width) solid var(--color-accent);
+  border-radius: var(--radius-element);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  cursor: pointer;
+}
+
+.send-button svg {
+  color: currentColor;
+}
+
+.stop-button {
+  background: var(--color-background-card);
+  color: var(--color-text-accent);
+}
+
+/* Focus Mode overrides for legacy chat control styles. */
+.editorial-home .send-button {
+  position: static;
+  inset: auto;
+  right: auto;
+  bottom: auto;
+  flex: 0 0 auto;
+}
+
+.editorial-home .send-button:hover:not(:disabled) {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.editorial-home .stop-button:hover:not(:disabled) {
+  background: var(--color-background-card);
+  border-color: var(--color-accent);
+  color: var(--color-text-accent);
+}
+
+.editorial-home .suggestion-row button:hover:not(:disabled) {
+  background: var(--color-background-card);
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+:where(.editorial-home, .editorial-install) :focus-visible {
+  outline: var(--border-width) solid var(--color-accent);
+  outline-offset: var(--spacing-1);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .typing-indicator {
+    animation: editorial-spin var(--duration-slow) linear infinite;
+  }
+}
+
+@keyframes editorial-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (max-width: 48rem) {
+  .editorial-header-inner,
+  .editorial-footer-inner,
+  .editorial-hero,
+  .editorial-process,
+  .editorial-chat,
+  .editorial-security,
+  .install-lead,
+  .install-toolbox,
+  .install-reference {
+    padding-inline: var(--spacing-4);
+  }
+
+  .editorial-header-inner {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .editorial-nav {
+    width: 100%;
+    overflow-x: auto;
+    padding-bottom: var(--spacing-1);
+  }
+
+  .editorial-header-actions {
+    margin-left: auto;
+  }
+
+  .editorial-hero-grid,
+  .editorial-chat-grid,
+  .editorial-security-grid,
+  .editorial-process,
+  .install-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .install-steps li {
+    display: block;
+    grid-template-columns: none;
+    gap: 0;
+  }
+
+  .editorial-capabilities {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editorial-capabilities li:last-child {
+    grid-column: auto;
+  }
+
+  .install-method-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .install-method-tab {
+    min-width: 0;
+    border-right: var(--border-width) solid var(--color-border);
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .install-method-tab:nth-child(even),
+  .install-method-tab:last-child {
+    border-right: 0;
+  }
+
+  .install-method-tab:last-child {
+    border-bottom: 0;
+  }
+
+  .install-method-tab:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .install-command {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .install-command .astryx-text:last-child {
+    grid-column: 2 / -1;
+  }
+
+  .conversation {
+    min-height: calc(var(--spacing-12) * 4);
+  }
+
+  .message {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-indicator {
+    animation: none;
+  }
+}

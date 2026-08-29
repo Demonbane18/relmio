@@ -71,7 +71,7 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
   }));
 
   return (
-    <main className={styles.page} id="main-content">
+    <main className={`${styles.page} ${styles.editorialPage}`} id="main-content">
       <a className="skip-link" href="#docs-content">
         Skip to documentation
       </a>
@@ -99,7 +99,7 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
       </header>
 
       <section
-        className={`${styles.layout} ${page ? styles.layoutDetail : styles.layoutIndex}`}
+        className={`${styles.layout} ${styles.editorialLayout} ${page ? styles.layoutDetail : styles.layoutIndex}`}
         aria-label="Documentation"
       >
         <details className={styles.mobileNavigation}>

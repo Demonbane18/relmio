@@ -389,3 +389,67 @@
     text-align: left;
   }
 }
+
+.editorialPage {
+  min-height: 100dvh;
+  background: var(--color-background-body);
+}
+
+.editorialPage .header {
+  border-bottom: var(--border-width) solid var(--color-border);
+  background: var(--color-background-body);
+}
+
+.editorialPage .brand strong {
+  letter-spacing: -0.02em;
+}
+
+.editorialPage .primaryNav a,
+.editorialPage .footer a {
+  color: var(--color-text-secondary);
+}
+
+.editorialPage .primaryNav a:hover,
+.editorialPage .footer a:hover,
+.editorialPage .article a {
+  color: var(--color-text-accent);
+}
+
+.editorialLayout {
+  max-width: 84rem;
+  padding-top: var(--spacing-8);
+  padding-bottom: var(--spacing-8);
+}
+
+.editorialPage .sidebar {
+  border-right: var(--border-width) solid var(--color-border);
+}
+
+.editorialPage .sidebar > p,
+.editorialPage .sourceNote {
+  color: var(--color-text-accent);
+  font-family: var(--font-family-code);
+}
+
+.editorialPage .article {
+  max-width: 76ch;
+}
+
+.editorialPage .article h1,
+.editorialPage .article h2,
+.editorialPage .article h3 {
+  letter-spacing: -0.02em;
+}
+
+.editorialPage .pageList li {
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.editorialPage .pageList li:last-child {
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.editorialPage :focus-visible {
+  outline: var(--border-width) solid var(--color-accent);
+  outline-offset: var(--spacing-1);
+}
