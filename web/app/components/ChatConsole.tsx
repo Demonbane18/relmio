@@ -5,9 +5,12 @@ import {
   SignInWithChatGPT,
   type SignInWithChatGPTState,
 } from "@openai-oauth/react";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Token } from "@astryxdesign/core/Token";
 import { HStack } from "@astryxdesign/core/HStack";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
+import { Text } from "@astryxdesign/core/Text";
+import { Token } from "@astryxdesign/core/Token";
+import { VStack } from "@astryxdesign/core/VStack";
+import { LoaderCircle, SendHorizontal, Square } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -42,7 +45,7 @@ export function ChatConsole() {
   const [localError, setLocalError] = useState("");
   const [streamPhase, setStreamPhase] = useState("Ready");
   const abortRef = useRef<AbortController | null>(null);
-  const conversationRef = useRef<HTMLDivElement>(null);
+  const conversationRef = useRef<HTMLElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -188,33 +191,34 @@ export function ChatConsole() {
           : "teal";
 
   return (
-    <div className="chat-console">
-      <div className="chat-console-header">
-        <div>
-          <span className="console-kicker">Relmio chat</span>
-          <strong>gpt-5.4-mini</strong>
-        </div>
-        <HStack className="console-statuses" aria-live="polite">
-          <Token
-            label={streamPhase}
-            size="sm"
-            color={phaseColor}
-            endContent={
-              <StatusDot
-                variant={phaseVariant}
-                label={`Response state: ${streamPhase}`}
-                isPulsing={isLoading}
-              />
-            }
-          />
-          <span className={`auth-pill auth-${authStatus}`} aria-live="polite">
-            <i aria-hidden="true" />
-            {statusLabel}
-          </span>
+    <section className="chat-console" aria-label="Hosted chat console">
+      <header className="chat-console-header">
+        <HStack justify="between" align="center" gap={3} wrap="wrap">
+          <VStack gap={0.5}>
+            <Text as="p" className="console-kicker" type="code" color="accent">Relmio chat</Text>
+            <Text as="p" type="label" weight="bold">gpt-5.4-mini</Text>
+          </VStack>
+          <HStack className="console-statuses" aria-live="polite" gap={2} wrap="wrap">
+            <Token
+              label={streamPhase}
+              size="sm"
+              color={phaseColor}
+              endContent={
+                <StatusDot
+                  variant={phaseVariant}
+                  label={`Response state: ${streamPhase}`}
+                  isPulsing={isLoading}
+                />
+              }
+            />
+            <Text className={`auth-pill auth-${authStatus}`} type="supporting" aria-live="polite">
+              {statusLabel}
+            </Text>
+          </HStack>
         </HStack>
-      </div>
+      </header>
 
-      <div className="auth-row">
+      <HStack className="auth-row" gap={3} align="center" wrap="wrap">
         <SignInWithChatGPT
           className="chatgpt-connect"
           loadingLabel="Checking ChatGPT…"
@@ -226,54 +230,49 @@ export function ChatConsole() {
             if (state.status === "error") setLocalError(state.error.message);
           }}
         />
-        <p>Encrypted locally. Sent only with requests you make here.</p>
-      </div>
+        <Text as="p" type="supporting">Encrypted locally. Sent only with requests you make here.</Text>
+      </HStack>
 
-      <div
+      <section
         className="conversation"
         ref={conversationRef}
         aria-live="polite"
         aria-busy={isLoading}
       >
         {!lastPrompt && !completion ? (
-          <div className="conversation-empty">
-            <span aria-hidden="true">⌁</span>
-            <strong>Your private test lane is ready.</strong>
-            <p>Connect ChatGPT, choose a starter, or ask your own question.</p>
-          </div>
+          <VStack className="conversation-empty" gap={2}>
+            <Text as="p" type="label" weight="bold">Your private test lane is ready.</Text>
+            <Text as="p" type="supporting">Connect ChatGPT, choose a starter, or ask your own question.</Text>
+          </VStack>
         ) : (
-          <>
+          <VStack gap={3}>
             {lastPrompt ? (
-              <div className="message message-user">
-                <span>You</span>
-                <p>{lastPrompt}</p>
-              </div>
+              <article className="message message-user">
+                <Text as="span" type="code" color="secondary">You</Text>
+                <Text as="p" type="body">{lastPrompt}</Text>
+              </article>
             ) : null}
             {completion || isLoading ? (
-              <div className={`message message-assistant${isIncomplete ? " message-incomplete" : ""}`}>
-                <span>{isIncomplete ? "Relmio · incomplete" : "Relmio"}</span>
-                <p>
+              <article className={`message message-assistant${isIncomplete ? " message-incomplete" : ""}`}>
+                <Text as="span" type="code" color="accent">{isIncomplete ? "Relmio · incomplete" : "Relmio"}</Text>
+                <Text as="p" type="body">
                   {completion || (
-                    <span
-                      className="typing-dots"
+                    <LoaderCircle
+                      className="typing-indicator"
                       role="status"
                       aria-label={`Relmio is ${streamPhase.toLowerCase()}`}
-                    >
-                      <i />
-                      <i />
-                      <i />
-                    </span>
+                    />
                   )}
-                </p>
-              </div>
+                </Text>
+              </article>
             ) : null}
-          </>
+          </VStack>
         )}
-      </div>
+      </section>
 
-      {localError ? <p className="chat-error" role="alert">{localError}</p> : null}
+      {localError ? <Text as="p" className="chat-error" type="supporting" role="alert">{localError}</Text> : null}
 
-      <div className="suggestion-row" aria-label="Suggested prompts">
+      <section className="suggestion-row" aria-label="Suggested prompts">
         {suggestions.map((suggestion) => (
           <button
             key={suggestion}
@@ -284,42 +283,40 @@ export function ChatConsole() {
             {suggestion}
           </button>
         ))}
-      </div>
+      </section>
 
       <form className="chat-form" onSubmit={handleSubmit}>
-        <div className="form-label-row">
-          <label htmlFor="chat-prompt">Ask anything</label>
-          <span className="input-hint" aria-hidden="true">
-            Enter to send · Shift+Enter for a new line
-          </span>
-        </div>
-        <div>
-          <textarea
-            id="chat-prompt"
-            name="prompt"
-            ref={textareaRef}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask Relmio to help with a workflow…"
-            maxLength={3000}
-            rows={1}
-          />
-          {isLoading ? (
-            <button className="send-button stop-button" type="button" onClick={stop} aria-label="Stop response">
-              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" />
-              </svg>
-            </button>
-          ) : (
-            <button className="send-button" type="submit" disabled={!input.trim()} aria-label="Send message">
-              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                <path d="M8 12.75v-9.5M3.75 7.5 8 3.25 12.25 7.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          )}
-        </div>
+        <VStack gap={2}>
+          <HStack className="form-label-row" justify="between" gap={2} wrap="wrap">
+            <label htmlFor="chat-prompt">Ask anything</label>
+            <Text className="input-hint" type="supporting" aria-hidden="true">
+              Enter to send. Shift+Enter for a new line.
+            </Text>
+          </HStack>
+          <HStack className="chat-compose-row" gap={2} align="end">
+            <textarea
+              id="chat-prompt"
+              name="prompt"
+              ref={textareaRef}
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask Relmio to help with a workflow…"
+              maxLength={3000}
+              rows={1}
+            />
+            {isLoading ? (
+              <button className="send-button stop-button" type="button" onClick={stop} aria-label="Stop response">
+                <Square aria-hidden="true" />
+              </button>
+            ) : (
+              <button className="send-button" type="submit" disabled={!input.trim()} aria-label="Send message">
+                <SendHorizontal aria-hidden="true" />
+              </button>
+            )}
+          </HStack>
+        </VStack>
       </form>
-    </div>
+    </section>
   );
 }

@@ -1,5 +1,9 @@
 "use client";
 
+import { HStack } from "@astryxdesign/core/HStack";
+import { Text } from "@astryxdesign/core/Text";
+import { VStack } from "@astryxdesign/core/VStack";
+import { Check, Copy } from "lucide-react";
 import {
   type KeyboardEvent,
   useEffect,
@@ -90,9 +94,7 @@ export function CopyCommand() {
       nextIndex = installMethods.length - 1;
     }
 
-    if (nextIndex === null) {
-      return;
-    }
+    if (nextIndex === null) return;
 
     event.preventDefault();
     selectMethod(installMethods[nextIndex]);
@@ -115,21 +117,18 @@ export function CopyCommand() {
     }
 
     setCopiedMethod(method.id);
-    if (revertTimer.current !== null) {
-      window.clearTimeout(revertTimer.current);
-    }
-    revertTimer.current = window.setTimeout(
-      () => setCopiedMethod(null),
-      1800,
-    );
+    if (revertTimer.current !== null) window.clearTimeout(revertTimer.current);
+    revertTimer.current = window.setTimeout(() => setCopiedMethod(null), 1800);
   }
 
   return (
-    <div className="install-method-picker">
-      <div
+    <section className="install-method-picker" aria-label="Installation command selector">
+      <HStack
         className="install-method-tabs"
         role="tablist"
         aria-label="Installation method"
+        aria-orientation="horizontal"
+        gap={0}
       >
         {installMethods.map((method, index) => {
           const selected = selectedMethod === method.id;
@@ -154,14 +153,14 @@ export function CopyCommand() {
             </button>
           );
         })}
-      </div>
+      </HStack>
 
       {installMethods.map((method) => {
         const selected = selectedMethod === method.id;
         const copied = copiedMethod === method.id;
 
         return (
-          <div
+          <section
             key={method.id}
             className="install-method-panel"
             id={`install-method-${method.id}-panel`}
@@ -169,30 +168,28 @@ export function CopyCommand() {
             aria-labelledby={`install-method-${method.id}-tab`}
             hidden={!selected}
           >
-            <button
-              type="button"
-              className={`install-command${copied ? " copied" : ""}`}
-              onClick={() => copy(method)}
-              aria-label={`Copy installation command (${method.label}): ${method.command}`}
-              aria-describedby={`install-method-${method.id}-note`}
-            >
-              <span className="terminal-mark" aria-hidden="true">
-                {method.prompt}
-              </span>
-              <code>{method.command}</code>
-              <span className="copy-hint" role="status" aria-live="polite">
-                {copied ? "Copied" : "Copy"}
-              </span>
-            </button>
-            <p
-              className="install-method-note"
-              id={`install-method-${method.id}-note`}
-            >
-              {method.note}
-            </p>
-          </div>
+            <VStack gap={3}>
+              <button
+                type="button"
+                className={`install-command${copied ? " copied" : ""}`}
+                onClick={() => copy(method)}
+                aria-label={`Copy installation command (${method.label}): ${method.command}`}
+                aria-describedby={`install-method-${method.id}-note`}
+              >
+                <Text type="code" color="accent">{method.prompt}</Text>
+                <code>{method.command}</code>
+                {copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
+                <Text type="supporting" role="status" aria-live="polite">
+                  {copied ? "Copied" : "Copy"}
+                </Text>
+              </button>
+              <Text as="p" className="install-method-note" id={`install-method-${method.id}-note`} type="supporting">
+                {method.note}
+              </Text>
+            </VStack>
+          </section>
         );
       })}
-    </div>
+    </section>
   );
 }

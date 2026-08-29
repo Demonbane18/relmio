@@ -51,7 +51,7 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /lucide-sun/);
   assert.match(html, /lucide-moon/);
   assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
-  assert.match(html, /class="[^"]*\bprivate-bridge\b/);
+  assert.match(html, /class="[^"]*\beditorial-home\b/);
   assert.match(html, /aria-label="Private request route"/);
   assert.match(html, /Your app/);
   assert.match(html, /Authenticated relay/);
@@ -116,7 +116,7 @@ test("server-renders canonical generated Markdown documentation routes", async (
   assert.doesNotMatch(troubleshootingHtml, /dangerouslySetInnerHTML|rehype-raw/u);
 });
 
-test("renders a command-first n8n and Hostinger VPS install page", async () => {
+test("renders a command-first self-hosted n8n install page", async () => {
   const response = await requestApp("/install");
   assert.equal(response.status, 200);
 
@@ -143,7 +143,8 @@ test("renders a command-first n8n and Hostinger VPS install page", async () => {
   assert.match(html, /lucide-sun/);
   assert.match(html, /lucide-moon/);
   assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
-  assert.match(html, /Hostinger VPS/);
+  assert.match(html, /Self-hosted n8n/);
+  assert.doesNotMatch(html, /Hostinger VPS/);
   assert.match(html, /class="support-button"/);
   assert.match(html, /https:\/\/ko-fi\.com\/paldogies/);
   assert.match(

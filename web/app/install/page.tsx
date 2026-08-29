@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
+import { Button } from "@astryxdesign/core/Button";
+import { Heading } from "@astryxdesign/core/Heading";
+import { HStack } from "@astryxdesign/core/HStack";
+import { Text } from "@astryxdesign/core/Text";
+import { VStack } from "@astryxdesign/core/VStack";
 import { CopyCommand } from "../components/CopyCommand";
 import { RepositoryButton } from "../components/RepositoryButton";
 import { SupportButton } from "../components/SupportButton";
@@ -13,137 +18,102 @@ export const metadata: Metadata = {
 };
 
 const steps = [
-  {
-    index: "01",
-    title: "Choose an install method",
-    copy: "Use Homebrew, your local shell, or NPX. Windows does not need Git Bash.",
-  },
-  {
-    index: "02",
-    title: "Start locally",
-    copy: "Paste the command on your own computer and keep that terminal open.",
-  },
-  {
-    index: "03",
-    title: "Verify, then approve",
-    copy: "Confirm the SSH fingerprint and sidecar plan before any VPS write.",
-  },
-];
+  ["Choose an install method", "Use Homebrew, your local shell, or NPX. Windows does not need Git Bash."],
+  ["Start locally", "Paste the command on your own computer and keep that terminal open."],
+  ["Verify, then approve", "Confirm the target identity and sidecar plan before any deployment write."],
+] as const;
 
 export default function InstallPage() {
   return (
-    <main className="install-shell" id="main-content">
+    <main className="editorial-install" id="main-content">
       <a className="skip-link" href="#install-command">
         Skip to installation command
       </a>
-      <header className="site-header install-header">
-        <div className="site-header-inner">
-          <Link className="brand" href="/" aria-label="Relmio home">
-            <Image
-              src="/relmio-icon.png"
-              alt=""
-              width={38}
-              height={38}
-              priority
-            />
-            <span>Relmio</span>
+      <header className="editorial-header editorial-install-header">
+        <HStack className="editorial-header-inner" gap={4} justify="between" align="center">
+          <Link className="editorial-brand" href="/" aria-label="Relmio home">
+            <HStack gap={2} align="center">
+              <Image src="/relmio-icon.png" alt="" width={38} height={38} priority />
+              <Text type="label" weight="bold">Relmio</Text>
+            </HStack>
           </Link>
-          <nav className="install-nav" aria-label="Primary navigation">
+          <nav className="editorial-nav" aria-label="Primary navigation">
             <Link href="/">Hosted chat</Link>
             <Link href="/docs">Documentation</Link>
           </nav>
-          <div className="header-actions">
+          <HStack className="editorial-header-actions" gap={2} align="center">
             <ThemeModeControl />
             <SupportButton />
             <RepositoryButton />
-          </div>
-        </div>
+          </HStack>
+        </HStack>
       </header>
 
-      <section className="install-page">
-        <div className="install-panel">
-          <p className="eyebrow install-eyebrow">
-            <span className="status-dot" aria-hidden="true" />
-            n8n + Hostinger VPS
-          </p>
-          <h1>Install Relmio for n8n</h1>
-          <p className="install-lede">
-            Run one local wizard to sign in with ChatGPT, verify your VPS, and
-            install a private OpenAI-compatible sidecar beside n8n. Choose
-            Homebrew or the terminal already on your computer. Native Windows
-            works without Git Bash or a preinstalled Node.js runtime.
-          </p>
-
-          <p className="install-boundary">
-            <strong>Local endpoint choice:</strong> The OpenAI-compatible /v1
-            option uses a Platform API key. ChatGPT sign-in is only for the
-            experimental Codex App Server and Chat Adapter paths.
-          </p>
-
-          <p className="install-boundary">
-            <strong>ChatGPT token lifetime:</strong> ChatGPT/Codex sign-in
-            tokens expire, but the official Codex client refreshes them
-            automatically during active use before they expire, so active
-            sessions usually continue without another browser login. The{" "}
-            <a
-              href="https://learn.chatgpt.com/docs/auth"
-              target="_blank"
-              rel="noreferrer"
-            >
-              official OpenAI authentication documentation
-            </a>{" "}
-            does not publish a fixed 10-day lifetime; do not plan around one.
-            That upstream provider credential is separate from Relmio&apos;s
-            local client capability, which remains valid until you rotate it.
-          </p>
-
-          <div className="install-command-stage" id="install-command">
-            <p>Choose an installation method</p>
-            <CopyCommand />
-          </div>
-
-          <p className="install-boundary">
-            <strong>Package-manager status:</strong> Homebrew is available from
-            the public <code>Demonbane18/relmio</code> tap. The WinGet command
-            stays hidden until Microsoft accepts its catalog pull request and
-            the catalog updates.
-          </p>
-
-          <p className="install-boundary">
-            <strong>Run this on your own computer, not on the VPS.</strong>{" "}
-            The direct macOS/Linux and native Windows options reuse Node.js 22+
-            when available, or download and verify a temporary official
-            runtime. NPX is for computers that already have Node.js 22 or
-            newer. Relmio does not edit, rebuild, or restart your existing n8n
-            container.
-          </p>
-
-          <ol className="install-steps">
-            {steps.map((step) => (
-              <li key={step.index}>
-                <span>{step.index}</span>
-                <div>
-                  <strong>{step.title}</strong>
-                  <p>{step.copy}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-
-          <div className="install-page-actions">
-            <Link className="button button-primary" href="/">
-              Back to Relmio
-              <span aria-hidden="true">↖</span>
-            </Link>
-            <Link className="button button-secondary" href="/#security">
-              Review the safety boundary
-            </Link>
-            <Link className="button button-secondary" href="/docs/ai-assistant">
-              Follow the setup guide
-            </Link>
-          </div>
-        </div>
+      <section className="install-lead">
+        <VStack className="install-lead-copy" gap={3}>
+          <Text as="p" type="code" color="accent">Self-hosted n8n</Text>
+          <Heading level={1} type="display-2">Install Relmio for n8n</Heading>
+          <Text as="p" type="large" color="secondary">
+            Run one local wizard to sign in with ChatGPT, verify your target host, and install a private OpenAI-compatible sidecar beside n8n.
+          </Text>
+        </VStack>
       </section>
+
+      <section className="install-toolbox" id="install-command" data-install-toolbox>
+        <VStack gap={3}>
+          <VStack gap={1}>
+            <Text as="p" type="code" color="accent">Start here</Text>
+            <Heading level={2}>Choose an installation method</Heading>
+          </VStack>
+          <CopyCommand />
+        </VStack>
+      </section>
+
+      <section className="install-reference" aria-label="Installation details">
+        <details>
+          <summary>Read the installation and credential details</summary>
+          <VStack className="install-disclosure" gap={4}>
+            <Text as="p" type="supporting">
+              Choose Homebrew or the terminal already on your computer. Native Windows works without Git Bash or a preinstalled Node.js runtime.
+            </Text>
+            <Text as="p" type="supporting">
+              <strong>Local endpoint choice:</strong> The OpenAI-compatible /v1 option uses a Platform API key. ChatGPT sign-in is only for the experimental Codex App Server and Chat Adapter paths.
+            </Text>
+            <Text as="p" type="supporting">
+              <strong>ChatGPT token lifetime:</strong> ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes them automatically during active use before they expire, so active sessions usually continue without another browser login. The <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noreferrer">official OpenAI authentication documentation</a> does not publish a fixed 10-day lifetime; do not plan around one. That upstream provider credential is separate from Relmio&apos;s local client capability, which remains valid until you rotate it.
+            </Text>
+            <Text as="p" type="supporting">
+              <strong>Package-manager status:</strong> Homebrew is available from the public <code>Demonbane18/relmio</code> tap. The WinGet command stays hidden until Microsoft accepts its catalog pull request and the catalog updates.
+            </Text>
+            <Text as="p" type="supporting">
+              <strong>Run this on your own computer, not inside the n8n container.</strong> The direct macOS/Linux and native Windows options reuse Node.js 22+ when available, or download and verify a temporary official runtime. NPX is for computers that already have Node.js 22 or newer. Relmio does not edit, rebuild, or restart your existing n8n container.
+            </Text>
+          </VStack>
+        </details>
+
+        <ol className="install-steps">
+          {steps.map(([title, copy]) => (
+            <li key={title}>
+              <VStack gap={1}>
+                <Heading level={3}>{title}</Heading>
+                <Text as="p" type="supporting">{copy}</Text>
+              </VStack>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <footer className="editorial-footer install-footer">
+        <HStack className="editorial-footer-inner" gap={3} justify="between" align="center" wrap="wrap">
+          <Button label="Back to Relmio" href="/" variant="secondary" size="lg">
+            Back to Relmio
+          </Button>
+          <HStack gap={3} wrap="wrap">
+            <Link href="/#security">Review the safety boundary</Link>
+            <Link href="/docs/ai-assistant">Follow the setup guide</Link>
+          </HStack>
+        </HStack>
+      </footer>
     </main>
   );
 }
