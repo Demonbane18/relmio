@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import {
   chmod,
@@ -20,10 +20,24 @@ import {
   runLocalProcess,
   validateLocalDockerHost,
 } from "../../src/infrastructure/local-process.js";
+import {
+  createAssistantEnv,
+  createAssistantSecrets,
+  createSearxngSettings,
+} from "../../src/domain/assistant-templates.js";
 
 const PUBLIC_CONFIRMATION = "EXPOSE_DISPOSABLE_N8N";
+const PRIVILEGED_SANDBOX_CONFIRMATION = "RUN_PRIVILEGED_CODE_SANDBOX";
 const RESERVED_RELMIO_PORT = 10_531;
-const OWNER_MARKER_VERSION = 2;
+const OWNER_MARKER_VERSION = 3;
+const ASSISTANT_MODE_DISABLED = "disabled";
+const ASSISTANT_MODE_SANDBOX = "sandbox";
+const ASSISTANT_MODE_SANDBOX_WITH_SEARXNG = "sandbox-with-searxng";
+const assistantModes = new Set([
+  ASSISTANT_MODE_DISABLED,
+  ASSISTANT_MODE_SANDBOX,
+  ASSISTANT_MODE_SANDBOX_WITH_SEARXNG,
+]);
 const CONTEXT_INSPECTION_TIMEOUT_MS = 10_000;
 const COMPOSE_TIMEOUT_MS = Object.freeze({
   config: 30_000,
@@ -38,6 +52,8 @@ const runtimeDirectory = join(harnessDirectory, ".runtime");
 const lifecycleLockPath = join(runtimeDirectory, "lifecycle.lock");
 const ownershipMarkerPath = join(runtimeDirectory, "owner.json");
 const trafficPolicyPath = join(runtimeDirectory, "traffic-policy.yml");
+const assistantSecretsPath = join(runtimeDirectory, "assistant-secrets.env");
+const searxngSettingsPath = join(runtimeDirectory, "searxng-settings.yml");
 
 export const COMPOSE_PROJECT = `relmio-selfhosted-n8n-${createHash("sha256")
   .update(checkoutRoot)
@@ -62,7 +78,16 @@ const allowedEnvironmentKeys = new Set([
   "NGROK_INSPECTOR_PORT",
   "N8N_ENCRYPTION_KEY",
   "N8N_LOCAL_PORT",
+  "RELMIO_TEST_ASSISTANT_MODE",
+  "RELMIO_TEST_PRIVILEGED_SANDBOX_CONFIRMATION",
   "RELMIO_TEST_PUBLIC_CONFIRMATION",
+]);
+
+const assistantSecretKeys = Object.freeze([
+  "SANDBOX_API_KEYS",
+  "SANDBOX_API_RUNNER_REGISTRATION_TOKEN",
+  "SANDBOX_API_RUNNER_API_KEY",
+  "SEARXNG_SECRET",
 ]);
 
 const composeActions = Object.freeze({
@@ -82,8 +107,27 @@ const reservedDomainSuffixes = [
   ".test",
 ];
 
-function createExpectedOwnershipMarker(dockerHost) {
+function validateAssistantModeValue(value) {
+  if (typeof value !== "string" || !assistantModes.has(value)) {
+    throw new Error(
+      "RELMIO_TEST_ASSISTANT_MODE must be disabled, sandbox, or sandbox-with-searxng.",
+    );
+  }
+  return value;
+}
+
+function getAssistantSelection(assistantMode) {
+  const mode = validateAssistantModeValue(assistantMode);
   return Object.freeze({
+    assistantMode: mode,
+    enableCodeSandbox: mode !== ASSISTANT_MODE_DISABLED,
+    enableSearxng: mode === ASSISTANT_MODE_SANDBOX_WITH_SEARXNG,
+  });
+}
+
+function createExpectedOwnershipMarker(dockerHost, assistantMode) {
+  return Object.freeze({
+    assistantMode: validateAssistantModeValue(assistantMode),
     checkoutRoot,
     dockerHost: validateLocalDockerHost(dockerHost),
     project: COMPOSE_PROJECT,
@@ -192,6 +236,24 @@ function validateDomain(environment) {
   return domain;
 }
 
+function validateAssistantMode(environment, requireConfirmation = true) {
+  const selection = getAssistantSelection(
+    environment.RELMIO_TEST_ASSISTANT_MODE ?? ASSISTANT_MODE_DISABLED,
+  );
+  if (selection.enableCodeSandbox && requireConfirmation) {
+    const confirmation = requiredString(
+      environment,
+      "RELMIO_TEST_PRIVILEGED_SANDBOX_CONFIRMATION",
+    );
+    if (confirmation !== PRIVILEGED_SANDBOX_CONFIRMATION) {
+      throw new Error(
+        `RELMIO_TEST_PRIVILEGED_SANDBOX_CONFIRMATION must equal ${PRIVILEGED_SANDBOX_CONFIRMATION}.`,
+      );
+    }
+  }
+  return selection;
+}
+
 export function validateHarnessEnvironment(environment) {
   const authtoken = requiredString(environment, "NGROK_AUTHTOKEN");
   if (
@@ -263,7 +325,10 @@ export function validateHarnessEnvironment(environment) {
     throw new Error("GENERIC_TIMEZONE must be an IANA-style timezone name.");
   }
 
+  const assistantSelection = validateAssistantMode(environment);
+
   return Object.freeze({
+    ...assistantSelection,
     authtoken,
     basicAuthPassword,
     basicAuthUsername,
@@ -301,10 +366,20 @@ export function renderTrafficPolicy(configuration) {
   ].join("\n");
 }
 
-export function createComposeArguments(action) {
+export function createComposeArguments(
+  action,
+  assistantMode = ASSISTANT_MODE_DISABLED,
+) {
   if (!Object.hasOwn(composeActions, action)) {
     throw new Error("Unsupported harness action.");
   }
+  const selection = getAssistantSelection(assistantMode);
+  const profiles = [
+    ...(selection.enableCodeSandbox
+      ? ["--profile", "code-sandbox"]
+      : []),
+    ...(selection.enableSearxng ? ["--profile", "web-search"] : []),
+  ];
   return [
     "compose",
     "--project-name",
@@ -313,6 +388,7 @@ export function createComposeArguments(action) {
     ".env",
     "--file",
     "compose.yml",
+    ...profiles,
     ...composeActions[action],
   ];
 }
@@ -436,12 +512,16 @@ async function readOwnershipMarker(allowMissing = false) {
       : [];
   let expectedMarker;
   try {
-    expectedMarker = createExpectedOwnershipMarker(marker?.dockerHost);
+    expectedMarker = createExpectedOwnershipMarker(
+      marker?.dockerHost,
+      marker?.assistantMode,
+    );
   } catch {
     throw ownershipError();
   }
   if (
-    keys.join(",") !== "checkoutRoot,dockerHost,project,version" ||
+    keys.join(",") !==
+      "assistantMode,checkoutRoot,dockerHost,project,version" ||
     marker.version !== expectedMarker.version ||
     marker.project !== expectedMarker.project ||
     marker.checkoutRoot !== expectedMarker.checkoutRoot
@@ -452,11 +532,17 @@ async function readOwnershipMarker(allowMissing = false) {
   return marker;
 }
 
-async function ensureOwnershipMarker(dockerHost) {
-  const expectedMarker = createExpectedOwnershipMarker(dockerHost);
+async function ensureOwnershipMarker(dockerHost, assistantMode) {
+  const expectedMarker = createExpectedOwnershipMarker(
+    dockerHost,
+    assistantMode,
+  );
   const existingMarker = await readOwnershipMarker(true);
   if (existingMarker !== null) {
-    if (existingMarker.dockerHost !== expectedMarker.dockerHost) {
+    if (
+      existingMarker.dockerHost !== expectedMarker.dockerHost ||
+      existingMarker.assistantMode !== expectedMarker.assistantMode
+    ) {
       throw ownershipError();
     }
     return;
@@ -574,13 +660,166 @@ async function removeTrafficPolicy() {
   }
 }
 
-async function runDockerCompose(action, environment, dockerHost) {
+function parseAssistantSecrets(contents) {
+  if (
+    typeof contents !== "string" ||
+    contents.length === 0 ||
+    Buffer.byteLength(contents, "utf8") > 4096
+  ) {
+    throw new Error("The generated Assistant secret file is invalid.");
+  }
+  const values = Object.create(null);
+  for (const line of contents.split(/\r?\n/u).filter(Boolean)) {
+    const match = /^([A-Z][A-Z0-9_]*)=([A-Za-z0-9_-]{43})$/u.exec(line);
+    if (
+      match === null ||
+      !assistantSecretKeys.includes(match[1]) ||
+      Object.hasOwn(values, match[1])
+    ) {
+      throw new Error("The generated Assistant secret file is invalid.");
+    }
+    values[match[1]] = match[2];
+  }
+  if (
+    Object.keys(values).sort().join(",") !==
+      [...assistantSecretKeys].sort().join(",") ||
+    new Set(Object.values(values)).size !== assistantSecretKeys.length
+  ) {
+    throw new Error("The generated Assistant secret file is invalid.");
+  }
+  return values;
+}
+
+async function writeRuntimeFile(path, contents, finalMode, label) {
+  await ensureRuntimeDirectory();
+  const temporaryPath = join(
+    runtimeDirectory,
+    `.${label}-${process.pid}-${randomUUID()}.tmp`,
+  );
+  try {
+    await writeFile(temporaryPath, contents, {
+      encoding: "utf8",
+      flag: "wx",
+      mode: 0o600,
+    });
+    await chmod(temporaryPath, 0o600);
+    await rename(temporaryPath, path);
+    await chmod(path, finalMode);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
+}
+
+async function createAssistantRuntime(configuration, persistSecrets) {
+  if (!configuration.enableCodeSandbox) {
+    return Object.create(null);
+  }
+  const generatedSecrets = createAssistantSecrets({
+    randomBytes,
+    includeSearxng: configuration.enableSearxng,
+  });
+  const serializedSecrets = createAssistantEnv(generatedSecrets, {
+    includeSearxng: configuration.enableSearxng,
+  });
+  const secrets = parseAssistantSecrets(serializedSecrets);
+  if (persistSecrets) {
+    await writeRuntimeFile(
+      assistantSecretsPath,
+      serializedSecrets,
+      0o600,
+      "assistant-secrets",
+    );
+  }
+  if (configuration.enableSearxng) {
+    await writeRuntimeFile(
+      searxngSettingsPath,
+      createSearxngSettings(),
+      0o644,
+      "searxng-settings",
+    );
+  }
+  return secrets;
+}
+
+async function readAssistantRuntime(configuration) {
+  if (!configuration.enableCodeSandbox) {
+    return Object.create(null);
+  }
+  let metadata;
+  try {
+    metadata = await lstat(assistantSecretsPath);
+  } catch {
+    throw new Error(
+      "The owned Assistant secret file is missing or invalid; preserve the project and use down for cleanup.",
+    );
+  }
+  if (
+    !metadata.isFile() ||
+    metadata.isSymbolicLink() ||
+    metadata.size > 4096 ||
+    (process.platform !== "win32" && (metadata.mode & 0o077) !== 0)
+  ) {
+    throw new Error("The owned Assistant secret file is missing or invalid.");
+  }
+  let secrets;
+  try {
+    secrets = parseAssistantSecrets(await readFile(assistantSecretsPath, "utf8"));
+  } catch {
+    throw new Error("The owned Assistant secret file is missing or invalid.");
+  }
+
+  if (configuration.enableSearxng) {
+    let settingsMetadata;
+    let settings;
+    try {
+      settingsMetadata = await lstat(searxngSettingsPath);
+      settings = await readFile(searxngSettingsPath, "utf8");
+    } catch {
+      throw new Error("The owned SearXNG settings file is missing or invalid.");
+    }
+    if (
+      !settingsMetadata.isFile() ||
+      settingsMetadata.isSymbolicLink() ||
+      settingsMetadata.size > 4096 ||
+      settings !== createSearxngSettings() ||
+      (process.platform !== "win32" &&
+        (settingsMetadata.mode & 0o777) !== 0o644)
+    ) {
+      throw new Error("The owned SearXNG settings file is missing or invalid.");
+    }
+  }
+  return secrets;
+}
+
+async function removeAssistantRuntime() {
+  for (const path of [assistantSecretsPath, searxngSettingsPath]) {
+    try {
+      await unlink(path);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw new Error(
+          "The Compose project stopped, but generated Assistant files could not be removed.",
+        );
+      }
+    }
+  }
+}
+
+async function runDockerCompose(
+  action,
+  environment,
+  dockerHost,
+  assistantMode = ASSISTANT_MODE_DISABLED,
+  assistantSecrets = Object.create(null),
+) {
+  const assistantSelection = getAssistantSelection(assistantMode);
   let result;
   try {
     result = await runLocalProcess(
       {
         file: "docker",
-        args: createComposeArguments(action),
+        args: createComposeArguments(action, assistantMode),
         cwd: harnessDirectory,
         dockerHost,
         timeoutMs: COMPOSE_TIMEOUT_MS[action],
@@ -590,6 +829,26 @@ async function runDockerCompose(action, environment, dockerHost) {
           ...process.env,
           ...environment,
           COMPOSE_PROJECT_NAME: COMPOSE_PROJECT,
+          RELMIO_N8N_INSTANCE_AI_SANDBOX_ENABLED:
+            assistantSelection.enableCodeSandbox ? "true" : "false",
+          RELMIO_N8N_SANDBOX_SERVICE_URL:
+            assistantSelection.enableCodeSandbox
+              ? "http://relmio-sandbox-api:8080"
+              : "",
+          RELMIO_N8N_SANDBOX_SERVICE_API_KEY:
+            assistantSelection.enableCodeSandbox
+              ? assistantSecrets.SANDBOX_API_KEYS ?? ""
+              : "",
+          RELMIO_N8N_INSTANCE_AI_SEARXNG_URL:
+            assistantSelection.enableSearxng
+              ? "http://relmio-searxng:8080"
+              : "",
+          SANDBOX_API_KEYS: assistantSecrets.SANDBOX_API_KEYS ?? "",
+          SANDBOX_API_RUNNER_REGISTRATION_TOKEN:
+            assistantSecrets.SANDBOX_API_RUNNER_REGISTRATION_TOKEN ?? "",
+          SANDBOX_API_RUNNER_API_KEY:
+            assistantSecrets.SANDBOX_API_RUNNER_API_KEY ?? "",
+          SEARXNG_SECRET: assistantSecrets.SEARXNG_SECRET ?? "",
         },
       },
     );
@@ -606,6 +865,17 @@ async function runDockerCompose(action, environment, dockerHost) {
   }
   if (result.stderr.length > 0) {
     process.stderr.write(result.stderr);
+  }
+}
+
+function requireMatchingAssistantMode(existingOwnership, configuration) {
+  if (
+    existingOwnership !== null &&
+    existingOwnership.assistantMode !== configuration.assistantMode
+  ) {
+    throw new Error(
+      "RELMIO_TEST_ASSISTANT_MODE differs from the owned project; restore the recorded mode or run down before changing it.",
+    );
   }
 }
 
@@ -633,12 +903,30 @@ async function runCli() {
         ...environment,
         RELMIO_TEST_PUBLIC_CONFIRMATION: PUBLIC_CONFIRMATION,
       });
-      await writeTrafficPolicy(configuration);
+      requireMatchingAssistantMode(existingOwnership, configuration);
+      let assistantSecrets = Object.create(null);
       try {
-        await runDockerCompose("config", environment, dockerHost);
+        if (existingOwnership === null) {
+          await removeAssistantRuntime();
+          assistantSecrets = await createAssistantRuntime(
+            configuration,
+            false,
+          );
+        } else {
+          assistantSecrets = await readAssistantRuntime(configuration);
+        }
+        await writeTrafficPolicy(configuration);
+        await runDockerCompose(
+          "config",
+          environment,
+          dockerHost,
+          configuration.assistantMode,
+          assistantSecrets,
+        );
       } finally {
         if (existingOwnership === null) {
           await removeTrafficPolicy();
+          await removeAssistantRuntime();
         }
       }
       return;
@@ -650,20 +938,52 @@ async function runCli() {
         existingOwnership?.dockerHost ??
         (await resolveLocalDockerHost(process.env));
       const configuration = validateHarnessEnvironment(environment);
-      await writeTrafficPolicy(configuration);
+      requireMatchingAssistantMode(existingOwnership, configuration);
+      let assistantSecrets = Object.create(null);
       try {
-        await runDockerCompose("config", environment, dockerHost);
+        if (existingOwnership === null) {
+          await removeAssistantRuntime();
+          assistantSecrets = await createAssistantRuntime(
+            configuration,
+            true,
+          );
+        } else {
+          assistantSecrets = await readAssistantRuntime(configuration);
+        }
+        await writeTrafficPolicy(configuration);
+        await runDockerCompose(
+          "config",
+          environment,
+          dockerHost,
+          configuration.assistantMode,
+          assistantSecrets,
+        );
       } catch (error) {
         if (existingOwnership === null) {
           await removeTrafficPolicy();
+          await removeAssistantRuntime();
         }
         throw new Error(
-          `${error.message} Compose validation failed before this checkout started Docker resources.`,
+          `${error.message} Compose preflight failed before this checkout started Docker resources.`,
         );
       }
-      await ensureOwnershipMarker(dockerHost);
       try {
-        await runDockerCompose("up", environment, dockerHost);
+        await ensureOwnershipMarker(dockerHost, configuration.assistantMode);
+      } catch (error) {
+        if (existingOwnership === null) {
+          await removeTrafficPolicy();
+          await removeAssistantRuntime();
+        }
+        throw error;
+      }
+      try {
+        await runDockerCompose(
+          "up",
+          environment,
+          dockerHost,
+          configuration.assistantMode,
+          assistantSecrets,
+        );
       } catch (error) {
         throw new Error(
           `${error.message} Diagnostic state was preserved. Run node harness.mjs down from dev/selfhosted-n8n for the exact owned-project cleanup.`,
@@ -677,7 +997,15 @@ async function runCli() {
       const dockerHost =
         existingOwnership?.dockerHost ??
         (await resolveLocalDockerHost(process.env));
-      await runDockerCompose("status", environment, dockerHost);
+      const assistantMode =
+        existingOwnership?.assistantMode ??
+        validateAssistantMode(environment, false).assistantMode;
+      await runDockerCompose(
+        "status",
+        environment,
+        dockerHost,
+        assistantMode,
+      );
       return;
     }
 
@@ -686,7 +1014,9 @@ async function runCli() {
       "down",
       environment,
       existingOwnership.dockerHost,
+      existingOwnership.assistantMode,
     );
+    await removeAssistantRuntime();
     await removeTrafficPolicy();
     await removeOwnershipMarker();
   } finally {

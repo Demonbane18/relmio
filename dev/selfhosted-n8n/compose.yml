@@ -12,6 +12,11 @@ services:
       N8N_SECURE_COOKIE: "true"
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_ENABLED_MODULES: instance-ai
+      N8N_INSTANCE_AI_SANDBOX_ENABLED: ${RELMIO_N8N_INSTANCE_AI_SANDBOX_ENABLED:-false}
+      N8N_INSTANCE_AI_SANDBOX_PROVIDER: n8n-sandbox
+      N8N_SANDBOX_SERVICE_URL: ${RELMIO_N8N_SANDBOX_SERVICE_URL:-}
+      N8N_SANDBOX_SERVICE_API_KEY: ${RELMIO_N8N_SANDBOX_SERVICE_API_KEY:-}
+      N8N_INSTANCE_AI_SEARXNG_URL: ${RELMIO_N8N_INSTANCE_AI_SEARXNG_URL:-}
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
@@ -23,7 +28,8 @@ services:
     volumes:
       - n8n-data:/home/node/.n8n
     networks:
-      - harness
+      - edge
+      - assistant-shared
     healthcheck:
       test:
         - CMD
@@ -65,7 +71,7 @@ services:
       - ./ngrok.yml:/etc/ngrok/ngrok.yml:ro,Z
       - ./.runtime/traffic-policy.yml:/etc/ngrok/traffic-policy.yml:ro,Z
     networks:
-      - harness
+      - edge
     depends_on:
       n8n:
         condition: service_healthy
@@ -82,14 +88,136 @@ services:
       com.relmio.owner: ${COMPOSE_PROJECT_NAME}
       com.relmio.disposable: "true"
 
+  relmio-sandbox-certs:
+    profiles:
+      - code-sandbox
+    image: ghcr.io/n8n-io/n8n-sandbox-service-api:1.1.1@sha256:21672029fee08495e2398cff7fc370ff60ce0e7c461610732bf2f5265cb75704
+    restart: "no"
+    user: "0:0"
+    entrypoint:
+      - sh
+      - -c
+    command:
+      - >-
+        bootstrap-mtls.sh --out-dir /tls --api-san relmio-sandbox-api
+        --control-san-prefix relmio-sandbox-runner &&
+        chown -R sandbox-api:sandbox-api /tls/api
+    environment:
+      NUM_RUNNERS: "1"
+    volumes:
+      - sandbox-tls:/tls
+    networks:
+      - assistant-internal
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+
+  relmio-sandbox-api:
+    profiles:
+      - code-sandbox
+    image: ghcr.io/n8n-io/n8n-sandbox-service-api:1.1.1@sha256:21672029fee08495e2398cff7fc370ff60ce0e7c461610732bf2f5265cb75704
+    restart: "no"
+    depends_on:
+      relmio-sandbox-certs:
+        condition: service_completed_successfully
+    environment:
+      SANDBOX_API_KEYS: ${SANDBOX_API_KEYS:-}
+      SANDBOX_API_RUNNER_REGISTRATION_TOKEN: ${SANDBOX_API_RUNNER_REGISTRATION_TOKEN:-}
+      SANDBOX_API_RUNNER_API_KEY: ${SANDBOX_API_RUNNER_API_KEY:-}
+      SANDBOX_API_GRPC_TLS_CERT_FILE: /tls/api/grpc-server.crt
+      SANDBOX_API_GRPC_TLS_KEY_FILE: /tls/api/grpc-server.key
+      SANDBOX_API_GRPC_TLS_CLIENT_CA_FILE: /tls/api/ca.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_CA_FILE: /tls/api/ca.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_CERT_FILE: /tls/api/control-grpc-api-client.crt
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_KEY_FILE: /tls/api/control-grpc-api-client.key
+      SANDBOX_API_RUNNER_CONTROL_GRPC_TLS_SERVER_NAME: relmio-sandbox-runner-1
+    volumes:
+      - sandbox-tls:/tls:ro
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -qO-
+        - http://localhost:8080/healthz
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      assistant-internal:
+      assistant-shared:
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+
+  relmio-sandbox-runner-1:
+    profiles:
+      - code-sandbox
+    image: ghcr.io/n8n-io/n8n-sandbox-service-runner-dind:1.1.1@sha256:9de7a8aad7f0d2293716daff40206be60577a59a2c2dae641dd9a425c18bf6fd
+    restart: "no"
+    privileged: true
+    depends_on:
+      relmio-sandbox-api:
+        condition: service_healthy
+    environment:
+      SANDBOX_RUNNER_API_KEYS: ${SANDBOX_API_RUNNER_API_KEY:-}
+      SANDBOX_RUNNER_REGISTRATION_TOKEN: ${SANDBOX_API_RUNNER_REGISTRATION_TOKEN:-}
+      SANDBOX_RUNNER_API_GRPC_ADDR: relmio-sandbox-api:9090
+      SANDBOX_RUNNER_HTTP_BASE_URL: http://relmio-sandbox-runner-1:8080
+      SANDBOX_RUNNER_CONTROL_GRPC_LISTEN_ADDR: ":9091"
+      SANDBOX_RUNNER_CONTROL_GRPC_ADVERTISE_ADDR: relmio-sandbox-runner-1:9091
+      SANDBOX_RUNNER_ID: runner-1
+      SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE: ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8
+      SANDBOX_RUNNER_REGISTRATION_GRPC_CA_FILE: /tls/runner/ca.crt
+      SANDBOX_RUNNER_REGISTRATION_GRPC_CERT_FILE: /tls/runner/grpc-client.crt
+      SANDBOX_RUNNER_REGISTRATION_GRPC_KEY_FILE: /tls/runner/grpc-client.key
+      SANDBOX_RUNNER_REGISTRATION_GRPC_SERVER_NAME: relmio-sandbox-api
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_CERT_FILE: /tls/runner/control-grpc-server.crt
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_KEY_FILE: /tls/runner/control-grpc-server.key
+      SANDBOX_RUNNER_CONTROL_GRPC_TLS_CLIENT_CA_FILE: /tls/runner/ca.crt
+    volumes:
+      - sandbox-tls:/tls:ro
+    networks:
+      - assistant-internal
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+
+  relmio-searxng:
+    profiles:
+      - web-search
+    image: ghcr.io/searxng/searxng:2026.8.28-a30b2d474@sha256:addd2cf36efb4b9815a2820a522aef7cce4da0d1c0e4527f6675f5663332fc9b
+    restart: "no"
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
+    volumes:
+      - ./.runtime/searxng-settings.yml:/etc/searxng/settings.yml:ro,Z
+    networks:
+      - assistant-shared
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+
 volumes:
   n8n-data:
     labels:
       com.relmio.owner: ${COMPOSE_PROJECT_NAME}
       com.relmio.disposable: "true"
+  sandbox-tls:
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
 
 networks:
-  harness:
+  edge:
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+  assistant-shared:
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+  assistant-internal:
     labels:
       com.relmio.owner: ${COMPOSE_PROJECT_NAME}
       com.relmio.disposable: "true"

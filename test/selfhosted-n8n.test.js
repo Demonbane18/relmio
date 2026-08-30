@@ -21,6 +21,10 @@ import {
   renderTrafficPolicy,
   validateHarnessEnvironment,
 } from "../dev/selfhosted-n8n/harness.mjs";
+import {
+  ASSISTANT_COMPANION_IMAGES,
+  createSearxngSettings,
+} from "../src/domain/assistant-templates.js";
 
 const fixtureRoot = new URL("../dev/selfhosted-n8n/", import.meta.url);
 const fixturePath = fileURLToPath(fixtureRoot);
@@ -40,8 +44,19 @@ function validEnvironment(overrides = {}) {
     N8N_LOCAL_PORT: "5678",
     NGROK_INSPECTOR_PORT: "4040",
     RELMIO_TEST_PUBLIC_CONFIRMATION: "EXPOSE_DISPOSABLE_N8N",
+    RELMIO_TEST_ASSISTANT_MODE: "disabled",
+    RELMIO_TEST_PRIVILEGED_SANDBOX_CONFIRMATION: "not-confirmed",
     ...overrides,
   };
+}
+
+function enabledAssistantEnvironment(overrides = {}) {
+  return validEnvironment({
+    RELMIO_TEST_ASSISTANT_MODE: "sandbox-with-searxng",
+    RELMIO_TEST_PRIVILEGED_SANDBOX_CONFIRMATION:
+      "RUN_PRIVILEGED_CODE_SANDBOX",
+    ...overrides,
+  });
 }
 
 function serializeEnvironment(overrides = {}) {
@@ -60,16 +75,29 @@ async function createTemporaryCheckout(t, name) {
 
   const harnessDirectory = join(checkout, "dev", "selfhosted-n8n");
   const fakeBin = join(checkout, "fake-bin");
+  const domainDirectory = join(checkout, "src", "domain");
   const infrastructureDirectory = join(checkout, "src", "infrastructure");
   const dockerLog = join(checkout, "docker-calls.jsonl");
   await Promise.all([
     mkdir(harnessDirectory, { recursive: true }),
     mkdir(fakeBin, { recursive: true }),
+    mkdir(domainDirectory, { recursive: true }),
     mkdir(infrastructureDirectory, { recursive: true }),
   ]);
   await Promise.all([
     copyFile(join(fixturePath, "harness.mjs"), join(harnessDirectory, "harness.mjs")),
     copyFile(join(fixturePath, "compose.yml"), join(harnessDirectory, "compose.yml")),
+    ...[
+      "assistant.js",
+      "assistant-templates.js",
+      "safety.js",
+      "validation.js",
+    ].map((name) =>
+      copyFile(
+        fileURLToPath(new URL(`../src/domain/${name}`, import.meta.url)),
+        join(domainDirectory, name),
+      ),
+    ),
     copyFile(
       localProcessPath,
       join(infrastructureDirectory, "local-process.js"),
@@ -138,7 +166,7 @@ async function readDockerCalls(checkout) {
   }
 }
 
-test("self-hosted n8n fixture pins the reviewed images and exposes only n8n", async () => {
+test("self-hosted n8n fixture pins private Assistant dependencies and exposes only n8n", async () => {
   const [compose, ngrokConfig] = await Promise.all([
     readFile(new URL("compose.yml", fixtureRoot), "utf8"),
     readFile(new URL("ngrok.yml", fixtureRoot), "utf8"),
@@ -147,7 +175,14 @@ test("self-hosted n8n fixture pins the reviewed images and exposes only n8n", as
   const serviceNames = [...servicesBlock.matchAll(/^  ([a-z][a-z0-9-]*):$/gmu)]
     .map((match) => match[1]);
 
-  assert.deepEqual(serviceNames, ["n8n", "ngrok"]);
+  assert.deepEqual(serviceNames, [
+    "n8n",
+    "ngrok",
+    "relmio-sandbox-certs",
+    "relmio-sandbox-api",
+    "relmio-sandbox-runner-1",
+    "relmio-searxng",
+  ]);
 
   assert.match(
     compose,
@@ -157,8 +192,16 @@ test("self-hosted n8n fixture pins the reviewed images and exposes only n8n", as
     compose,
     /image:\s+docker\.io\/ngrok\/ngrok:3\.39\.11-alpine-6a536c4/u,
   );
+  for (const image of Object.values(ASSISTANT_COMPANION_IMAGES)) {
+    assert.ok(compose.includes(image), `missing reviewed image ${image}`);
+  }
   assert.doesNotMatch(compose, /image:\s+\S+:(?:latest|stable|beta)(?:@|\s|$)/mu);
   assert.match(compose, /N8N_ENABLED_MODULES:\s+instance-ai/u);
+  assert.match(compose, /N8N_INSTANCE_AI_SANDBOX_ENABLED/u);
+  assert.match(compose, /N8N_INSTANCE_AI_SANDBOX_PROVIDER:\s+n8n-sandbox/u);
+  assert.match(compose, /N8N_SANDBOX_SERVICE_URL/u);
+  assert.match(compose, /N8N_SANDBOX_SERVICE_API_KEY/u);
+  assert.match(compose, /N8N_INSTANCE_AI_SEARXNG_URL/u);
   assert.match(compose, /N8N_WEBHOOK_URL:\s+https:\/\/\$\{NGROK_DOMAIN/u);
   assert.match(compose, /N8N_EDITOR_BASE_URL:\s+https:\/\/\$\{NGROK_DOMAIN/u);
   assert.match(compose, /N8N_PROXY_HOPS:\s+"1"/u);
@@ -174,6 +217,16 @@ test("self-hosted n8n fixture pins the reviewed images and exposes only n8n", as
     /traffic-policy\.yml:\/etc\/ngrok\/traffic-policy\.yml:ro,Z/u,
   );
   assert.match(compose, /\/healthz\/readiness/u);
+  assert.match(compose, /profiles:\s*\n\s+- code-sandbox/u);
+  assert.match(compose, /profiles:\s*\n\s+- web-search/u);
+  assert.match(compose, /privileged:\s+true/u);
+  assert.match(compose, /SANDBOX_RUNNER_DOCKER_SANDBOX_IMAGE/u);
+  assert.match(compose, /bootstrap-mtls\.sh/u);
+  assert.match(compose, /http:\/\/localhost:8080\/healthz/u);
+  assert.match(
+    compose,
+    /\.\/\.runtime\/searxng-settings\.yml:\/etc\/searxng\/settings\.yml:ro,Z/u,
+  );
   assert.match(compose, /n8n-data:\/home\/node\/\.n8n/u);
   assert.match(
     compose,
@@ -186,6 +239,20 @@ test("self-hosted n8n fixture pins the reviewed images and exposes only n8n", as
   assert.match(
     compose,
     /com\.relmio\.owner:\s+\$\{COMPOSE_PROJECT_NAME\}/u,
+  );
+  assert.equal((compose.match(/^    ports:/gmu) ?? []).length, 2);
+  assert.equal((compose.match(/^      - "127\.0\.0\.1:/gmu) ?? []).length, 2);
+  assert.match(
+    compose,
+    /relmio-sandbox-api:[\s\S]*?networks:[\s\S]*?assistant-internal:[\s\S]*?assistant-shared:/u,
+  );
+  assert.match(
+    compose,
+    /relmio-sandbox-runner-1:[\s\S]*?networks:\s*\n\s+- assistant-internal/u,
+  );
+  assert.match(
+    compose,
+    /relmio-searxng:[\s\S]*?networks:\s*\n\s+- assistant-shared/u,
   );
   assert.doesNotMatch(compose, /relmio-selfhosted-n8n-test/u);
   assert.doesNotMatch(compose, /10531|docker\.sock|host\.docker\.internal/u);
@@ -200,6 +267,16 @@ test("harness configuration requires explicit public exposure and validates secr
   assert.equal(configuration.domain, "relmio-local-test.ngrok.app");
   assert.equal(configuration.localPort, 5678);
   assert.equal(configuration.inspectorPort, 4040);
+  assert.equal(configuration.assistantMode, "disabled");
+  assert.equal(configuration.enableCodeSandbox, false);
+  assert.equal(configuration.enableSearxng, false);
+
+  const assistantConfiguration = validateHarnessEnvironment(
+    enabledAssistantEnvironment(),
+  );
+  assert.equal(assistantConfiguration.assistantMode, "sandbox-with-searxng");
+  assert.equal(assistantConfiguration.enableCodeSandbox, true);
+  assert.equal(assistantConfiguration.enableSearxng, true);
 
   for (const overrides of [
     { RELMIO_TEST_PUBLIC_CONFIRMATION: "true" },
@@ -213,9 +290,22 @@ test("harness configuration requires explicit public exposure and validates secr
     { N8N_LOCAL_PORT: "10531" },
     { NGROK_INSPECTOR_PORT: "10531" },
     { NGROK_INSPECTOR_PORT: "70000" },
+    { RELMIO_TEST_ASSISTANT_MODE: "true" },
+    {
+      RELMIO_TEST_ASSISTANT_MODE: "sandbox",
+      RELMIO_TEST_PRIVILEGED_SANDBOX_CONFIRMATION: "yes",
+    },
   ]) {
     assert.throws(() => validateHarnessEnvironment(validEnvironment(overrides)));
   }
+
+  assert.throws(() =>
+    validateHarnessEnvironment(
+      enabledAssistantEnvironment({
+        RELMIO_TEST_PRIVILEGED_SANDBOX_CONFIRMATION: "not-confirmed",
+      }),
+    ),
+  );
 });
 
 test("traffic policy contains only one safely quoted basic-auth credential", () => {
@@ -258,6 +348,39 @@ test("harness lifecycle uses only its collision-resistant checkout project", () 
     "--wait-timeout",
     "90",
   ]);
+  assert.deepEqual(
+    createComposeArguments("up", "sandbox-with-searxng"),
+    [
+      "compose",
+      "--project-name",
+      COMPOSE_PROJECT,
+      "--env-file",
+      ".env",
+      "--file",
+      "compose.yml",
+      "--profile",
+      "code-sandbox",
+      "--profile",
+      "web-search",
+      "up",
+      "--detach",
+      "--wait",
+      "--wait-timeout",
+      "90",
+    ],
+  );
+  assert.deepEqual(createComposeArguments("status", "sandbox"), [
+    "compose",
+    "--project-name",
+    COMPOSE_PROJECT,
+    "--env-file",
+    ".env",
+    "--file",
+    "compose.yml",
+    "--profile",
+    "code-sandbox",
+    "ps",
+  ]);
   assert.deepEqual(createComposeArguments("down"), [
     "compose",
     "--project-name",
@@ -271,6 +394,7 @@ test("harness lifecycle uses only its collision-resistant checkout project", () 
     "--remove-orphans",
   ]);
   assert.throws(() => createComposeArguments("prune"));
+  assert.throws(() => createComposeArguments("up", "search-only"));
 });
 
 test("Compose project identity is stable per checkout and differs across checkouts", async (t) => {
@@ -330,6 +454,7 @@ test("down fails closed on missing or mismatched checkout ownership", async (t) 
   const marker = JSON.parse(await readFile(markerPath, "utf8"));
   const callsAfterUp = await readDockerCalls(checkout);
   assert.equal(marker.dockerHost, LOCAL_DOCKER_HOST);
+  assert.equal(marker.assistantMode, "disabled");
   assert.equal(callsAfterUp.length, 3);
   assert.equal(callsAfterUp[0][0], "context");
   assert.ok(
@@ -368,6 +493,64 @@ test("down fails closed on missing or mismatched checkout ownership", async (t) 
     stat(join(checkout.harnessDirectory, ".runtime", "traffic-policy.yml")),
     { code: "ENOENT" },
   );
+});
+
+test("Assistant mode persists generated secrets and drives exact profile cleanup", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("executable fake Docker boundary is POSIX-only");
+    return;
+  }
+  const checkout = await createTemporaryCheckout(t, "relmio-assistant-mode");
+  const environmentPath = join(checkout.harnessDirectory, ".env");
+  await writeFile(
+    environmentPath,
+    serializeEnvironment(enabledAssistantEnvironment()),
+    { mode: 0o600 },
+  );
+  await chmod(environmentPath, 0o600);
+
+  const started = runTemporaryHarness(checkout, "up");
+  assert.equal(started.status, 0, started.stderr);
+
+  const runtimePath = join(checkout.harnessDirectory, ".runtime");
+  const markerPath = join(runtimePath, "owner.json");
+  const secretsPath = join(runtimePath, "assistant-secrets.env");
+  const settingsPath = join(runtimePath, "searxng-settings.yml");
+  const [marker, secrets, secretsMetadata, settings, settingsMetadata] =
+    await Promise.all([
+      readFile(markerPath, "utf8").then(JSON.parse),
+      readFile(secretsPath, "utf8"),
+      stat(secretsPath),
+      readFile(settingsPath, "utf8"),
+      stat(settingsPath),
+    ]);
+  assert.equal(marker.assistantMode, "sandbox-with-searxng");
+  assert.equal(secretsMetadata.mode & 0o777, 0o600);
+  assert.equal(settingsMetadata.mode & 0o777, 0o644);
+  assert.equal(settings, createSearxngSettings());
+  const secretValues = secrets
+    .trim()
+    .split("\n")
+    .map((line) => line.slice(line.indexOf("=") + 1));
+  assert.equal(secretValues.length, 4);
+  assert.equal(new Set(secretValues).size, 4);
+  assert.ok(secretValues.every((value) => /^[A-Za-z0-9_-]{43}$/u.test(value)));
+
+  const upCalls = await readDockerCalls(checkout);
+  for (const call of upCalls.slice(1)) {
+    assert.ok(call.includes("code-sandbox"));
+    assert.ok(call.includes("web-search"));
+  }
+
+  await writeFile(environmentPath, serializeEnvironment(), { mode: 0o600 });
+  await chmod(environmentPath, 0o600);
+  const cleaned = runTemporaryHarness(checkout, "down");
+  assert.equal(cleaned.status, 0, cleaned.stderr);
+  const cleanupCall = (await readDockerCalls(checkout)).at(-1);
+  assert.ok(cleanupCall.includes("code-sandbox"));
+  assert.ok(cleanupCall.includes("web-search"));
+  await assert.rejects(stat(secretsPath), { code: "ENOENT" });
+  await assert.rejects(stat(settingsPath), { code: "ENOENT" });
 });
 
 test("failed up preserves diagnostic state and reports the exact cleanup", async (t) => {
@@ -416,6 +599,35 @@ test("successful config removes its generated policy without creating ownership"
   );
   await assert.rejects(
     stat(join(checkout.harnessDirectory, ".runtime", "owner.json")),
+    { code: "ENOENT" },
+  );
+});
+
+test("Assistant config validation leaves no generated secret or search files", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("executable fake Docker boundary is POSIX-only");
+    return;
+  }
+  const checkout = await createTemporaryCheckout(t, "relmio-assistant-config-clean");
+  const environmentPath = join(checkout.harnessDirectory, ".env");
+  await writeFile(
+    environmentPath,
+    serializeEnvironment(enabledAssistantEnvironment()),
+    { mode: 0o600 },
+  );
+  await chmod(environmentPath, 0o600);
+
+  const configured = runTemporaryHarness(checkout, "config");
+  assert.equal(configured.status, 0, configured.stderr);
+  const calls = await readDockerCalls(checkout);
+  assert.ok(calls.at(-1).includes("code-sandbox"));
+  assert.ok(calls.at(-1).includes("web-search"));
+  await assert.rejects(
+    stat(join(checkout.harnessDirectory, ".runtime", "assistant-secrets.env")),
+    { code: "ENOENT" },
+  );
+  await assert.rejects(
+    stat(join(checkout.harnessDirectory, ".runtime", "searxng-settings.yml")),
     { code: "ENOENT" },
   );
 });
@@ -486,12 +698,29 @@ test("fixture documentation states its proof and cleanup boundaries", async () =
   assert.match(guide, /private `Z` relabel[\s\S]*SELinux-enforcing/iu);
   assert.match(guide, /does not check the ngrok inspector/iu);
   assert.match(guide, /N8N_WEBHOOK_URL/u);
+  assert.match(guide, /sandbox-with-searxng/u);
+  assert.match(guide, /RUN_PRIVILEGED_CODE_SANDBOX/u);
+  assert.match(guide, /privileged[\s\S]*host-root-equivalent/iu);
+  assert.match(guide, /local development[\s\S]*(?:Daytona|Sysbox)/iu);
+  assert.match(guide, /SearXNG[\s\S]*JSON/iu);
+  assert.match(guide, /not[\s\S]*Code node task runner/iu);
+  assert.match(guide, /only n8n[\s\S]*ngrok/iu);
+  assert.match(guide, /untrusted[\s\S]*prompt injection/iu);
   assert.match(
     guide,
     /docs\.n8n\.io\/deploy\/host-n8n\/configure-n8n\/basic-configuration\/configuration-examples\/configure-webhook-urls-with-reverse-proxy\//u,
   );
   assert.match(environmentExample, /^NGROK_AUTHTOKEN=replace-/mu);
   assert.match(environmentExample, /^NGROK_DOMAIN=.+\.ngrok\.app$/mu);
+  assert.match(environmentExample, /^RELMIO_TEST_ASSISTANT_MODE=disabled$/mu);
+  assert.match(
+    environmentExample,
+    /^RELMIO_TEST_PRIVILEGED_SANDBOX_CONFIRMATION=not-confirmed$/mu,
+  );
+  assert.doesNotMatch(
+    environmentExample,
+    /SANDBOX_API_KEYS|SANDBOX_API_RUNNER|SEARXNG_SECRET/u,
+  );
   assert.doesNotMatch(environmentExample, /sk-[A-Za-z0-9]|eyJ[A-Za-z0-9_-]+\./u);
   assert.match(ignoreFile, /^\.env$/mu);
   assert.match(ignoreFile, /^\.runtime\/$/mu);
