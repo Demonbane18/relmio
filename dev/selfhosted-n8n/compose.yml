@@ -1,0 +1,95 @@
+services:
+  n8n:
+    image: docker.io/n8nio/n8n:2.36.8@sha256:cfe2704ff858395503d42548206c2c99ea351a205e941063a9d9b77b0f404478
+    restart: "no"
+    environment:
+      N8N_HOST: ${NGROK_DOMAIN}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      N8N_WEBHOOK_URL: https://${NGROK_DOMAIN}/
+      N8N_EDITOR_BASE_URL: https://${NGROK_DOMAIN}/
+      N8N_PROXY_HOPS: "1"
+      N8N_SECURE_COOKIE: "true"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      N8N_ENABLED_MODULES: instance-ai
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Asia/Manila}
+      TZ: ${GENERIC_TIMEZONE:-Asia/Manila}
+    ports:
+      - "127.0.0.1:${N8N_LOCAL_PORT}:5678"
+    volumes:
+      - n8n-data:/home/node/.n8n
+    networks:
+      - harness
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --quiet
+        - --spider
+        - http://127.0.0.1:5678/healthz/readiness
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /home/node/.cache:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+
+  ngrok:
+    image: docker.io/ngrok/ngrok:3.39.11-alpine-6a536c4
+    restart: "no"
+    command:
+      - http
+      - http://n8n:5678
+      - --url=https://${NGROK_DOMAIN}
+      - --traffic-policy-file=/etc/ngrok/traffic-policy.yml
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN}
+      NGROK_CONFIG: /etc/ngrok/ngrok.yml
+    ports:
+      - "127.0.0.1:${NGROK_INSPECTOR_PORT}:4040"
+    volumes:
+      - ./ngrok.yml:/etc/ngrok/ngrok.yml:ro,Z
+      - ./.runtime/traffic-policy.yml:/etc/ngrok/traffic-policy.yml:ro,Z
+    networks:
+      - harness
+    depends_on:
+      n8n:
+        condition: service_healthy
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /var/lib/ngrok:rw,noexec,nosuid,nodev,size=1m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+
+volumes:
+  n8n-data:
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
+
+networks:
+  harness:
+    labels:
+      com.relmio.owner: ${COMPOSE_PROJECT_NAME}
+      com.relmio.disposable: "true"
