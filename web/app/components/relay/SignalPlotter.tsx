@@ -225,7 +225,7 @@ export function SignalPlotter() {
                         }
                   }
                   className={styles.signalPacket}
-                  initial={false}
+                  initial={{ x: 12, y: activeRoute.sourceY, opacity: 0 }}
                   key={`signal-${activeRoute.id}`}
                   r="6"
                   transition={
