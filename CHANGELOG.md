@@ -16,12 +16,17 @@ checks the registry separately after publication.
 
 ### Changed
 
+- Redesign the hosted app as an Editorial Console with an interactive
+  four-route Signal Plotter and an improved multi-turn chat console that can
+  stop in-flight responses.
 - Describe the AI Assistant's SSH-connected self-hosted target without
   provider-specific Hostinger or VPS labels, and document that direct local
   Docker-socket discovery is not supported.
 
 ### Fixed
 
+- Stabilize reduced-motion hydration by giving the Signal Plotter a
+  deterministic initial signal state before animation begins.
 - Keep the hosted repository control's offline metadata fallback synchronized
   with the prepared release version.
 
