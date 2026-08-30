@@ -77,6 +77,24 @@ test("puts the complete terminal selector before compact safety detail", async (
   assert.match(page, /WinGet\s+remains hidden until Microsoft accepts/u);
 });
 
+test("prominently exposes the dedicated AI Assistant launcher without changing installer methods", async () => {
+  const [page, styles] = await Promise.all([
+    appFile("install/page.tsx"),
+    appFile("install/install.module.css"),
+  ]);
+
+  assert.match(page, /n8n AI Assistant companion/u);
+  assert.match(page, /npx --yes --ignore-scripts relmio@latest assistant/u);
+  assert.ok(
+    page.indexOf("n8n AI Assistant companion") < page.indexOf("data-install-toolbox"),
+    "the AI Assistant launcher must be visible before the general installer toolbox",
+  );
+  assert.match(
+    styles,
+    /\.assistantLaunch\s*\{[^}]*background:\s*var\(--color-on-light\);[^}]*color:\s*var\(--color-on-dark\);/su,
+  );
+});
+
 test("uses a two-row method grid at 375px without page overflow", async () => {
   const styles = await appFile("install/install.module.css");
   const mobile = styles.slice(styles.indexOf("@media (max-width: 48rem)"));

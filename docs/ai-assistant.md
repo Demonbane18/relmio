@@ -9,8 +9,10 @@ from Relmio's existing OAuth sidecar and never reads a ChatGPT/Codex sign-in.
 
 ## What the wizard changes
 
-After SSH host-key confirmation, read-only n8n discovery, a selected existing
-Docker network, and final confirmation exactly set to true, Relmio may first
+The wizard currently discovers n8n only through an **SSH-reachable host**.
+Direct local Docker-socket discovery is not supported. After SSH host-key
+confirmation, read-only n8n discovery, a selected existing Docker network, and
+final confirmation exactly set to true, Relmio may first
 create `/docker/n8n-openai-oauth` and write its shared mode-0600 Relmio root
 marker. It then creates only the `assistant-sandbox` child there. It uses the
 independent Compose project identity recorded in its strict, mode-0600 assistant
@@ -80,7 +82,7 @@ N8N_ENABLED_MODULES=module-a,module-b
 N8N_ENABLED_MODULES=module-a,module-b,instance-ai
 ```
 
-Use your existing Hostinger/deployment workflow; Relmio does not claim a
+Use your existing n8n deployment workflow; Relmio does not claim a
 provider-specific UI path. Apply the change to the existing n8n service, then
 redeploy or restart n8n, verify that n8n is healthy, reconnect to Relmio, and
 run discovery again before reviewing a new plan.
@@ -178,7 +180,7 @@ by a user-owned OpenAI Platform API key.
 - **Model ID:** a model ID exposed by the Platform-key-backed endpoint.
 
 The assistant wizard does not deploy a new remote Platform gateway. Relmio's
-existing ChatGPT/Codex OAuth VPS sidecar may be technically compatible, but is
+existing ChatGPT/Codex OAuth sidecar may be technically compatible, but is
 experimental/private/policy-uncertain. It is not auto-selected, enabled, or
 described as policy-approved for this configuration.
 

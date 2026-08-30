@@ -859,8 +859,11 @@ test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse bou
   );
   assert.match(
     html,
-    /existing Hostinger\/deployment workflow[\s\S]*redeploy or restart n8n[\s\S]*healthy[\s\S]*reconnect[\s\S]*discovery/i,
+    /existing n8n deployment workflow[\s\S]*redeploy or restart n8n[\s\S]*healthy[\s\S]*reconnect[\s\S]*discovery/i,
   );
+  assert.doesNotMatch(html, /(?:>|^)[^<]*(?:Hostinger|VPS)[^<]*(?=<|$)/im);
+  assert.match(browser, /Confirm the SSH host identity before supplying its password/u);
+  assert.match(browser, /The SSH host has not changed/u);
   assert.match(
     html,
     /will not edit[^.]*n8n Compose[^.]*image[^.]*environment[^.]*restart[^.]*recreate[^.]*exec into n8n/i,
@@ -890,6 +893,9 @@ test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse bou
   assert.match(browser, /includeSearxng: state\.reviewedIncludeSearxng/u);
   assert.match(browser, /Web search disabled/u);
   assert.match(guide, /N8N_ENABLED_MODULES[\s\S]*instance-ai/i);
+  assert.match(guide, /SSH-reachable host/i);
+  assert.match(guide, /direct local Docker-socket discovery is not supported/i);
+  assert.doesNotMatch(guide, /\b(?:Hostinger|VPS)\b/i);
   assert.match(guide, /N8N_ENABLED_MODULES=instance-ai/u);
   assert.match(
     guide,
@@ -909,4 +915,7 @@ test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse bou
   assert.match(guide, /may first\s+create\s+`\/docker\/n8n-openai-oauth`[\s\S]*shared mode-0600 Relmio root\s+marker[\s\S]*only the `assistant-sandbox` child[\s\S]*does not write existing n8n project files/i);
   assert.match(guide, /URLs are stable generated result values; only the sandbox API key is\s+one-time-displayed/i);
   assert.doesNotMatch(guide, /generated one-time result URL/i);
+  for (const contents of [readme, npmReadme]) {
+    assert.match(contents, /npx --yes --ignore-scripts relmio@latest assistant/u);
+  }
 });

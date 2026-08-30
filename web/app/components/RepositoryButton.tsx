@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { preparedReleaseVersion } from "../project-version";
 
 type ProjectMeta = {
   stars: number | null;
@@ -9,7 +10,7 @@ type ProjectMeta = {
 
 const fallbackMeta: ProjectMeta = {
   stars: null,
-  version: "0.7.0",
+  version: preparedReleaseVersion,
 };
 
 function formatStars(stars: number) {

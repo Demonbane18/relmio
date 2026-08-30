@@ -106,7 +106,7 @@
         <form id="vps-form">
           <div class="field-grid">
             <label class="field">
-              <span>VPS address</span>
+              <span>SSH host</span>
               <input id="host" name="host" inputmode="url" autocomplete="off" required />
               <small>Use the hostname or IP exactly as your provider shows it.</small>
             </label>
@@ -119,7 +119,7 @@
               <input id="username" name="username" autocomplete="username" value="root" required />
             </label>
             <label class="field">
-              <span>VPS password</span>
+              <span>SSH password</span>
               <input id="password" name="password" type="password" autocomplete="current-password" disabled required />
               <small>Used only for this verified SSH connection and never saved.</small>
             </label>
@@ -131,7 +131,7 @@
             <code id="fingerprint-value"></code>
             <label class="check-row">
               <input id="fingerprint-confirm" type="checkbox" />
-              <span>I checked this fingerprint and this is the intended VPS.</span>
+              <span>I checked this fingerprint and this is the intended SSH host.</span>
             </label>
           </div>
 
@@ -189,7 +189,7 @@
               entries; do not replace unknown existing values.
             </p>
             <ol class="prerequisite-steps">
-              <li>Use your existing Hostinger/deployment workflow to update the n8n service.</li>
+              <li>Use your existing n8n deployment workflow to update the n8n service.</li>
               <li>Redeploy or restart n8n, then verify that it is healthy.</li>
               <li>Reconnect to Relmio and run discovery again.</li>
             </ol>
@@ -250,7 +250,7 @@
             <ul class="no-list">
               <li>Edit, rebuild, stop, restart, recreate, or exec into n8n</li>
               <li>Upload your OpenAI Platform API key or ChatGPT/Codex OAuth</li>
-              <li>Publish sandbox, runner, or SearXNG ports to the VPS host</li>
+              <li>Publish sandbox, runner, or SearXNG ports to the SSH host</li>
               <li>Enable a model provider or change n8n settings automatically</li>
             </ul>
           </section>
@@ -340,7 +340,7 @@
             <div><dt>Model ID</dt><dd>Use a model ID exposed by that Platform-key-backed endpoint.</dd></div>
           </dl>
           <p>
-            The existing ChatGPT/Codex OAuth VPS sidecar can be technically
+            The existing ChatGPT/Codex OAuth sidecar can be technically
             compatible, but remains experimental/private/policy-uncertain. It
             is not auto-selected, enabled, or presented as TOS-approved.
           </p>
