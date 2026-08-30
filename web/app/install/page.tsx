@@ -2,38 +2,39 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@astryxdesign/core/Button";
-import { Heading } from "@astryxdesign/core/Heading";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Text } from "@astryxdesign/core/Text";
-import { VStack } from "@astryxdesign/core/VStack";
+import { ChevronDown } from "lucide-react";
 import { CopyCommand } from "../components/CopyCommand";
+import { HashLink } from "../components/HashLink";
 import { RepositoryButton } from "../components/RepositoryButton";
 import { SupportButton } from "../components/SupportButton";
 import { ThemeModeControl } from "../components/ThemeModeControl";
+import styles from "./install.module.css";
 
 export const metadata: Metadata = {
-  title: "Install Relmio for n8n",
+  title: "Install Relmio for self-hosted n8n",
   description:
     "Install the local Relmio wizard with Homebrew, macOS/Linux, PowerShell, Command Prompt, or NPX.",
 };
 
 const steps = [
-  ["Choose an install method", "Use Homebrew, your local shell, or NPX. Windows does not need Git Bash."],
-  ["Start locally", "Paste the command on your own computer and keep that terminal open."],
-  ["Verify, then approve", "Confirm the target identity and sidecar plan before any deployment write."],
+  ["Choose your terminal", "Pick the command that matches the computer in front of you."],
+  ["Start Relmio locally", "Run the wizard on your computer, never inside the n8n container."],
+  ["Verify before writes", "Confirm the target fingerprint and exact companion plan before approval."],
 ] as const;
 
 export default function InstallPage() {
   return (
-    <main className="editorial-install" id="main-content">
-      <a className="skip-link" href="#install-command">
+    <main className={`editorial-install ${styles.page}`} id="main-content">
+      <HashLink className="skip-link" focusTarget targetId="install-command">
         Skip to installation command
-      </a>
-      <header className="editorial-header editorial-install-header">
+      </HashLink>
+      <header className={`editorial-header editorial-install-header ${styles.header}`}>
         <HStack className="editorial-header-inner" gap={4} justify="between" align="center">
           <Link className="editorial-brand" href="/" aria-label="Relmio home">
             <HStack gap={2} align="center">
-              <Image src="/relmio-icon.png" alt="" width={38} height={38} priority />
+              <Image src="/relmio-icon.png" alt="" width={38} height={38} priority unoptimized />
               <Text type="label" weight="bold">Relmio</Text>
             </HStack>
           </Link>
@@ -49,61 +50,89 @@ export default function InstallPage() {
         </HStack>
       </header>
 
-      <section className="install-lead">
-        <VStack className="install-lead-copy" gap={3}>
-          <Text as="p" type="code" color="accent">Self-hosted n8n</Text>
-          <Heading level={1} type="display-2">Install Relmio for n8n</Heading>
-          <Text as="p" type="large" color="secondary">
-            Run one local wizard to sign in with ChatGPT, verify your target host, and install a private OpenAI-compatible sidecar beside n8n.
-          </Text>
-        </VStack>
+      <section className={styles.intro} aria-labelledby="install-title">
+        <p className={styles.eyebrow}>Self-hosted n8n · local installer</p>
+        <div className={styles.introGrid}>
+          <h1 id="install-title">Install Relmio on your computer.</h1>
+          <p>
+            Connect to a compatible self-hosted n8n setup, inspect the target,
+            then approve the exact companion plan only when it matches.
+          </p>
+        </div>
       </section>
 
-      <section className="install-toolbox" id="install-command" data-install-toolbox>
-        <VStack gap={3}>
-          <VStack gap={1}>
-            <Text as="p" type="code" color="accent">Start here</Text>
-            <Heading level={2}>Choose an installation method</Heading>
-          </VStack>
-          <CopyCommand />
-        </VStack>
-      </section>
+      <section
+        className={styles.toolbox}
+        id="install-command"
+        tabIndex={-1}
+        data-install-toolbox
+        aria-labelledby="install-method-title"
+      >
+        <div className={styles.toolboxHeading}>
+          <p>Start locally</p>
+          <h2 id="install-method-title">Choose an installation method</h2>
+        </div>
+        <CopyCommand />
 
-      <section className="install-reference" aria-label="Installation details">
-        <details>
-          <summary>Read the installation and credential details</summary>
-          <VStack className="install-disclosure" gap={4}>
-            <Text as="p" type="supporting">
-              Choose Homebrew or the terminal already on your computer. Native Windows works without Git Bash or a preinstalled Node.js runtime.
-            </Text>
-            <Text as="p" type="supporting">
-              <strong>Local endpoint choice:</strong> The OpenAI-compatible /v1 option uses a Platform API key. ChatGPT sign-in is only for the experimental Codex App Server and Chat Adapter paths.
-            </Text>
-            <Text as="p" type="supporting">
-              <strong>ChatGPT token lifetime:</strong> ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes them automatically during active use before they expire, so active sessions usually continue without another browser login. The <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noreferrer">official OpenAI authentication documentation</a> does not publish a fixed 10-day lifetime; do not plan around one. That upstream provider credential is separate from Relmio&apos;s local client capability, which remains valid until you rotate it.
-            </Text>
-            <Text as="p" type="supporting">
-              <strong>Package-manager status:</strong> Homebrew is available from the public <code>Demonbane18/relmio</code> tap. The WinGet command stays hidden until Microsoft accepts its catalog pull request and the catalog updates.
-            </Text>
-            <Text as="p" type="supporting">
-              <strong>Run this on your own computer, not inside the n8n container.</strong> The direct macOS/Linux and native Windows options reuse Node.js 22+ when available, or download and verify a temporary official runtime. NPX is for computers that already have Node.js 22 or newer. Relmio does not edit, rebuild, or restart your existing n8n container.
-            </Text>
-          </VStack>
-        </details>
-
-        <ol className="install-steps">
+        <ol className={styles.steps} aria-label="Installation sequence">
           {steps.map(([title, copy]) => (
             <li key={title}>
-              <VStack gap={1}>
-                <Heading level={3}>{title}</Heading>
-                <Text as="p" type="supporting">{copy}</Text>
-              </VStack>
+              <strong>{title}</strong>
+              <span>{copy}</span>
             </li>
           ))}
         </ol>
       </section>
 
-      <footer className="editorial-footer install-footer">
+      <section className={styles.reference} aria-label="Installation details">
+        <details className={styles.disclosure}>
+          <summary>
+            <span>
+              <strong>Safety, credentials, and runtime</strong>
+              <small>What the wizard uses and what it leaves untouched</small>
+            </span>
+            <ChevronDown aria-hidden="true" />
+          </summary>
+          <div className={styles.disclosureGrid}>
+            <section>
+              <h3>Where it runs</h3>
+              <p>
+                Run Relmio on your own computer, not inside the n8n container.
+                Direct installers reuse Node.js 22+ when available or download
+                and verify a temporary official runtime. NPX requires Node.js 22+.
+              </p>
+            </section>
+            <section>
+              <h3>Existing n8n boundary</h3>
+              <p>
+                Discovery starts read-only. Relmio does not edit, rebuild, or
+                restart your existing n8n container, and it stops for fingerprint,
+                plan, and final write confirmation.
+              </p>
+            </section>
+            <section>
+              <h3>Credential boundary</h3>
+              <p>
+                The OpenAI-compatible <code>/v1</code> route uses a Platform API
+                key. ChatGPT sign-in is only for the experimental Codex App Server
+                and Chat Adapter paths.
+              </p>
+            </section>
+            <section>
+              <h3>Packages and sessions</h3>
+              <p>
+                Homebrew is public through <code>Demonbane18/relmio</code>. WinGet
+                remains hidden until Microsoft accepts the catalog pull request and
+                the public catalog updates. ChatGPT tokens expire, but the official
+                client refreshes active sessions; OpenAI publishes no fixed 10-day
+                lifetime. <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noreferrer">Read the authentication guide</a>.
+              </p>
+            </section>
+          </div>
+        </details>
+      </section>
+
+      <footer className={`editorial-footer install-footer ${styles.footer}`}>
         <HStack className="editorial-footer-inner" gap={3} justify="between" align="center" wrap="wrap">
           <Button label="Back to Relmio" href="/" variant="secondary" size="lg">
             Back to Relmio

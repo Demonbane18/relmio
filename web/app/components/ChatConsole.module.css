@@ -1,0 +1,485 @@
+.shell {
+  --chat-border: var(--relay-line, var(--color-border));
+  --chat-canvas: var(--relay-surface, var(--color-background-surface));
+  --chat-raised: var(--relay-surface-raised, var(--color-background-card));
+  --chat-ink: var(--relay-ink, var(--color-text-primary));
+  --chat-muted: var(--relay-muted, var(--color-text-secondary));
+  --chat-teal: var(--relay-teal, var(--color-accent));
+  --chat-teal-soft: var(--relay-teal-soft, var(--color-accent-muted));
+  min-width: 0;
+  height: min(46rem, max(36rem, calc(100dvh - 8rem)));
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: var(--border-width) solid var(--chat-border);
+  border-radius: var(--radius-container, 1.125rem);
+  background: var(--chat-canvas);
+  color: var(--chat-ink);
+  box-shadow: 0 1rem 3rem color-mix(in srgb, var(--chat-ink) 10%, transparent);
+}
+
+.header {
+  padding: var(--spacing-3) var(--spacing-4);
+  border-bottom: var(--border-width) solid var(--chat-border);
+  background: var(--chat-raised);
+}
+
+.kicker {
+  margin: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.model {
+  margin: 0;
+  padding: var(--spacing-1) var(--spacing-2);
+  border: var(--border-width) solid var(--chat-border);
+  border-radius: var(--radius-full);
+  color: var(--chat-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.shell :global(.console-statuses) {
+  align-items: center;
+}
+
+.authStatus {
+  min-height: var(--spacing-8);
+  display: inline-flex;
+  align-items: center;
+  padding-inline: var(--spacing-2);
+  border: var(--border-width) solid var(--chat-border);
+  border-radius: var(--radius-full);
+  color: var(--chat-muted);
+}
+
+.sessionBoundary {
+  padding: var(--spacing-3) var(--spacing-4);
+  border-bottom: var(--border-width) solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-teal-soft) 44%, var(--chat-canvas));
+}
+
+.boundaryIcon {
+  width: var(--spacing-5);
+  height: var(--spacing-5);
+  flex: 0 0 auto;
+  color: var(--chat-teal);
+}
+
+.connectButton {
+  min-height: var(--spacing-11) !important;
+  padding-inline: var(--spacing-4) !important;
+  border: var(--border-width) solid var(--chat-ink) !important;
+  border-radius: var(--radius-element) !important;
+  background: var(--chat-ink) !important;
+  color: var(--chat-raised) !important;
+  cursor: pointer;
+  font-weight: var(--font-weight-semibold) !important;
+  transition:
+    background var(--duration-fast) ease,
+    border-color var(--duration-fast) ease,
+    transform var(--duration-fast) ease !important;
+}
+
+.connectButton:hover {
+  border-color: var(--chat-teal) !important;
+  background: var(--chat-teal) !important;
+  transform: translateY(-0.0625rem);
+}
+
+.boundaryCopy {
+  flex: 1 1 18rem;
+  max-width: 72ch;
+  margin: 0;
+  color: var(--chat-muted);
+}
+
+.sessionBoundary :global(span > a[rel="noreferrer"][target="_blank"]) {
+  color: var(--chat-muted) !important;
+  font-size: 0.6875rem !important;
+}
+
+.transcriptRegion {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--chat-canvas);
+}
+
+.transcript {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: var(--spacing-5);
+  scroll-behavior: auto;
+}
+
+.transcript:focus-visible {
+  outline-offset: calc(var(--spacing-1) * -1);
+}
+
+.emptyState {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: start;
+  gap: var(--spacing-2);
+  max-width: 38rem;
+  margin-inline: auto;
+  padding-block: var(--spacing-6);
+}
+
+.emptyIcon {
+  width: var(--spacing-8);
+  height: var(--spacing-8);
+  margin-bottom: var(--spacing-2);
+  padding: var(--spacing-2);
+  border: var(--border-width) solid var(--chat-border);
+  border-radius: var(--radius-element);
+  background: var(--chat-teal-soft);
+  color: var(--chat-teal);
+}
+
+.emptyCopy {
+  margin: 0 0 var(--spacing-3);
+  color: var(--chat-muted);
+}
+
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+
+.suggestions button,
+.jumpToLatest {
+  min-height: var(--spacing-11);
+  padding: var(--spacing-2) var(--spacing-3);
+  border: var(--border-width) solid var(--chat-border);
+  border-radius: var(--radius-element);
+  background: var(--chat-raised);
+  color: var(--chat-ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-supporting-size);
+  text-align: left;
+  transition:
+    border-color var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
+}
+
+.suggestions button:hover:not(:disabled),
+.jumpToLatest:hover {
+  border-color: var(--chat-teal);
+  color: var(--chat-teal);
+  transform: translateY(-0.0625rem);
+}
+
+.suggestions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.turnList {
+  display: grid;
+  align-content: start;
+  gap: var(--spacing-5);
+  min-height: 100%;
+}
+
+.message {
+  width: fit-content;
+  max-width: min(82%, 46rem);
+  padding: var(--spacing-3) var(--spacing-4);
+  border-inline-start: 0.1875rem solid var(--chat-border);
+  background: color-mix(in srgb, var(--chat-raised) 72%, transparent);
+  animation: message-enter var(--duration-fast) var(--ease-standard) both;
+}
+
+.message > span,
+.messageMeta {
+  display: block;
+  margin-bottom: var(--spacing-2);
+}
+
+.message p {
+  margin: 0;
+  color: var(--chat-ink);
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.userMessage {
+  justify-self: end;
+  border-inline-start: 0;
+  border-inline-end: 0.1875rem solid var(--chat-teal);
+  background: var(--chat-teal-soft);
+}
+
+.userMessage > span {
+  text-align: end;
+}
+
+.assistantMessage {
+  justify-self: start;
+}
+
+.messageMeta {
+  color: var(--chat-muted);
+}
+
+.messageMeta span:last-child:not(:first-child) {
+  text-transform: capitalize;
+}
+
+.messageIncomplete {
+  border-inline-start-color: var(--relay-amber, var(--color-border-orange));
+  background: var(--color-background-orange);
+}
+
+.messageIncomplete p,
+.messageIncomplete span {
+  color: var(--color-text-orange);
+}
+
+.typingIndicator {
+  width: var(--spacing-5);
+  height: var(--spacing-5);
+  color: var(--chat-teal);
+  animation: spin var(--duration-slow) linear infinite;
+}
+
+.jumpToLatest {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  margin: var(--spacing-2);
+  box-shadow: 0 var(--spacing-1) var(--spacing-4)
+    color-mix(in srgb, var(--chat-ink) 12%, transparent);
+}
+
+.jumpToLatest svg {
+  width: var(--spacing-4);
+  height: var(--spacing-4);
+}
+
+.composerDock {
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  display: block;
+  border-top: var(--border-width) solid var(--chat-border);
+  background: var(--chat-raised);
+}
+
+.error {
+  margin: var(--spacing-3) var(--spacing-4) 0;
+  padding: var(--spacing-3);
+  border-inline-start: 0.1875rem solid var(--color-border-red);
+  background: var(--color-background-red);
+  color: var(--color-text-red);
+}
+
+.composer {
+  display: grid;
+  gap: var(--spacing-2);
+  padding: var(--spacing-3) var(--spacing-4) var(--spacing-4);
+}
+
+.composerMeta {
+  color: var(--chat-muted);
+}
+
+.composerMeta label {
+  color: var(--chat-ink);
+  font-size: var(--text-supporting-size);
+  font-weight: var(--font-weight-semibold);
+}
+
+.composerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3rem;
+  align-items: end;
+  gap: var(--spacing-2);
+}
+
+.composerRow textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 4rem;
+  max-height: 12rem;
+  resize: none;
+  padding: var(--spacing-3) var(--spacing-4);
+  border: var(--border-width) solid var(--chat-border);
+  border-radius: var(--radius-element);
+  background: var(--chat-canvas);
+  color: var(--chat-ink);
+  font: inherit;
+  font-size: max(1rem, var(--text-body-size));
+  line-height: 1.5;
+  transition:
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+}
+
+.composerRow textarea:focus {
+  border-color: var(--chat-teal);
+  outline: 0;
+  box-shadow: 0 0 0 var(--spacing-1)
+    color-mix(in srgb, var(--chat-teal) 16%, transparent);
+}
+
+.composerRow textarea:focus-visible {
+  outline: 3px solid var(--relay-focus, var(--chat-teal));
+  outline-offset: 2px;
+}
+
+.composerRow textarea::placeholder {
+  color: var(--chat-muted);
+}
+
+.submitButton {
+  position: static;
+  width: 3rem;
+  height: 3rem;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: var(--border-width) solid var(--chat-teal);
+  border-radius: var(--radius-element);
+  background: var(--chat-teal);
+  color: var(--color-on-accent);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    transform var(--duration-fast) ease;
+}
+
+.submitButton:hover:not(:disabled) {
+  transform: translateY(-0.0625rem);
+}
+
+.submitButton:active:not(:disabled) {
+  transform: translateY(0) scale(0.96);
+}
+
+.submitButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.submitButton svg {
+  width: var(--spacing-5);
+  height: var(--spacing-5);
+}
+
+.stopButton {
+  background: var(--chat-raised);
+  color: var(--chat-teal);
+}
+
+.srOnly {
+  position: absolute;
+  width: 0.0625rem;
+  height: 0.0625rem;
+  padding: 0;
+  margin: -0.0625rem;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--spacing-1));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (max-width: 48rem) {
+  .shell {
+    height: min(42rem, max(34rem, calc(100dvh - 12.75rem)));
+    min-height: min(34rem, calc(100dvh - 12.75rem));
+    border-radius: var(--radius-element);
+  }
+
+  .header,
+  .sessionBoundary,
+  .transcript,
+  .composer {
+    padding-inline: var(--spacing-3);
+  }
+
+  .boundaryCopy {
+    flex-basis: 100%;
+  }
+
+  .message {
+    max-width: 94%;
+  }
+
+  .composerMeta > :last-child {
+    display: none;
+  }
+}
+
+@media (max-height: 42rem) {
+  .shell {
+    min-height: 30rem;
+  }
+
+  .sessionBoundary {
+    padding-block: var(--spacing-2);
+  }
+
+  .boundaryCopy {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message,
+  .typingIndicator {
+    animation: none;
+  }
+
+  .connectButton,
+  .suggestions button,
+  .jumpToLatest,
+  .submitButton {
+    transition: none !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .shell,
+  .header,
+  .sessionBoundary,
+  .message,
+  .composerDock,
+  .composerRow textarea {
+    border-color: CanvasText;
+  }
+
+  .userMessage,
+  .assistantMessage {
+    border-color: Highlight;
+  }
+}

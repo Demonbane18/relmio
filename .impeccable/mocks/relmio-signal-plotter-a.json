@@ -1,0 +1,20 @@
+{
+  "surface": "Relmio Vercel web app",
+  "direction": "Signal Plotter",
+  "prompt": "Desktop web interface composition A for Relmio signal plotter: asymmetric hero with four selectable routes feeding a central Relmio boundary, muted teal, graphite and off-white, compact install and chat actions, lower fold with route explanation and spacious chat.",
+  "approved": true,
+  "approval": "Delegated by the user with an explicit instruction to proceed without questions. Selected for the clearest product mechanism and strongest balance of distinctiveness, accessibility, and cross-surface scalability.",
+  "carryForward": [
+    "Asymmetric first viewport with a large interactive relay map",
+    "Four truthful route controls with visibly distinct credential boundaries",
+    "Muted teal route lines on graphite and soft off-white surfaces",
+    "Focused chat with one transcript scroller and a stable composer",
+    "Tactile route switching and clear request-state feedback"
+  ],
+  "doNotLiteralize": [
+    "Do not reproduce generated placeholder text or invented metrics",
+    "Do not show provider logos or route destinations not confirmed by repository evidence",
+    "Do not turn the route map into a static fake dashboard screenshot",
+    "Do not copy the comp's decorative toolbar controls"
+  ]
+}
