@@ -166,7 +166,7 @@ element("fingerprint-button").addEventListener("click", async (event) => {
     state.fingerprint = result.fingerprint;
     element("fingerprint-value").textContent = result.fingerprint;
     element("fingerprint-box").hidden = false;
-    setMessage("Confirm the VPS identity before supplying its password.");
+    setMessage("Confirm the SSH host identity before supplying its password.");
   } catch (error) {
     showError(error);
   } finally {
@@ -238,7 +238,7 @@ element("review-button").addEventListener("click", async (event) => {
     element("install-confirm").checked = false;
     element("install-button").disabled = true;
     showStep(3);
-    setMessage("Review the privileged companion plan. The VPS has not changed.");
+    setMessage("Review the privileged companion plan. The SSH host has not changed.");
   } catch (error) {
     showError(error);
   } finally {

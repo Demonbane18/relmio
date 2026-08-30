@@ -1,4 +1,6 @@
-const fallbackVersion = "0.7.0";
+import { preparedReleaseVersion } from "../../project-version";
+
+const fallbackVersion = preparedReleaseVersion;
 const cacheHeader = "public, s-maxage=900, stale-while-revalidate=3600";
 
 async function fetchMetadata(url: string, headers?: HeadersInit) {

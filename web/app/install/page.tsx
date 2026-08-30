@@ -61,6 +61,12 @@ export default function InstallPage() {
         </div>
       </section>
 
+      <section className={styles.assistantLaunch} aria-labelledby="assistant-launch-title">
+        <p>n8n AI Assistant companion</p>
+        <h2 id="assistant-launch-title">Launch its dedicated local wizard.</h2>
+        <code>npx --yes --ignore-scripts relmio@latest assistant</code>
+      </section>
+
       <section
         className={styles.toolbox}
         id="install-command"

@@ -7,6 +7,24 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.9.1] - 2026-08-31
+
+### Added
+
+- Add a prominent hosted installer launch option for the separate n8n AI
+  Assistant wizard, while retaining every existing general installer method.
+
+### Changed
+
+- Describe the AI Assistant's SSH-connected self-hosted target without
+  provider-specific Hostinger or VPS labels, and document that direct local
+  Docker-socket discovery is not supported.
+
+### Fixed
+
+- Keep the hosted repository control's offline metadata fallback synchronized
+  with the prepared release version.
+
 ## [0.9.0] - 2026-08-28
 
 ### Added

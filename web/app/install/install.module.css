@@ -69,6 +69,45 @@
   padding-block: 0 clamp(2rem, 5vh, 4rem);
 }
 
+.assistantLaunch {
+  width: min(100%, 84rem);
+  margin-inline: auto;
+  padding: 1.15rem clamp(1rem, 4vw, 4rem);
+  background: var(--color-on-light);
+  color: var(--color-on-dark);
+}
+
+.assistantLaunch p,
+.assistantLaunch h2 {
+  margin: 0;
+}
+
+.assistantLaunch p {
+  color: var(--color-on-dark);
+  font-family: var(--font-geist-mono), var(--font-family-code), monospace;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.assistantLaunch h2 {
+  margin-top: 0.35rem;
+  font-size: clamp(1.1rem, 2vw, 1.45rem);
+  font-weight: 630;
+}
+
+.assistantLaunch code {
+  display: block;
+  margin-top: 0.85rem;
+  overflow-wrap: anywhere;
+  color: var(--color-on-dark);
+  font-family: var(--font-geist-mono), var(--font-family-code), monospace;
+  font-size: clamp(0.78rem, 1.25vw, 0.92rem);
+  line-height: 1.75;
+  word-break: break-word;
+}
+
 .toolboxHeading {
   display: flex;
   gap: 1rem;

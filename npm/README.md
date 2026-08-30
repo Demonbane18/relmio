@@ -14,7 +14,7 @@ npx --yes --ignore-scripts relmio@latest
 ```
 
 The wizard opens a private `127.0.0.1` page, verifies Docker, and requires a
-final confirmation before it writes files or deploys a VPS sidecar.
+final confirmation before it writes files or deploys a self-hosted sidecar.
 
 ## What it can install
 
@@ -39,6 +39,10 @@ It uses verified SSH, read-only n8n discovery, and an existing Docker network;
 it never reads ChatGPT/Codex OAuth or changes the existing n8n project.
 ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. AI
 Assistant is Preview, so review generated workflows before use.
+
+```bash
+npx --yes --ignore-scripts relmio@latest assistant
+```
 
 This self-hosted path has a privileged Docker-in-Docker runner for
 advanced/local testing and publishes no host ports; n8n recommends Daytona for

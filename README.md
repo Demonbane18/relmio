@@ -19,7 +19,7 @@ npx --yes --ignore-scripts relmio@latest
 
 The local wizard prints a private `127.0.0.1` URL, checks Docker, presents the
 exact plan, and asks for final confirmation before it writes local files or a
-VPS sidecar. Other install options are on the [hosted install
+self-hosted sidecar. Other install options are on the [hosted install
 page](https://relmio.vercel.app/install).
 
 ## Endpoints
@@ -45,6 +45,10 @@ verified SSH, read-only discovery, and selected existing Docker network flow,
 but never reads ChatGPT/Codex OAuth. ChatGPT/Codex subscription sign-in is not
 an OpenAI Platform API key and Relmio does not present it as the compliant
 model route.
+
+```bash
+npx --yes --ignore-scripts relmio@latest assistant
+```
 
 AI Assistant is Preview: review every generated workflow before use. The
 companion uses n8n's self-hosted privileged Docker-in-Docker runner for
