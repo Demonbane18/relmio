@@ -71,5 +71,5 @@ test("renders a responsive, safe documentation route with project controls", asy
   assert.doesNotMatch(documentPage, /rehypeRaw|dangerouslySetInnerHTML|innerHTML/u);
   assert.match(styles, /\.layoutDetail/u);
   assert.match(styles, /\.mobileNavigation/u);
-  assert.match(styles, /@media \(max-width: 48rem\)/u);
+  assert.match(styles, /@media \(max-width: 52rem\)/u);
 });

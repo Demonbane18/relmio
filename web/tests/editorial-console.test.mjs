@@ -63,14 +63,23 @@ function contrastRatio(foreground, background) {
 }
 
 test("uses an editorial homepage without decorative status or marquee patterns", async () => {
-  const home = await appFile("page.tsx");
+  const [home, hashLink] = await Promise.all([
+    appFile("page.tsx"),
+    appFile("components/HashLink.tsx"),
+  ]);
 
   assert.match(home, /className="editorial-home"/u);
-  assert.match(home, /id="chat"/u);
+  assert.match(home, /id="chat-section"/u);
+  assert.match(home, /className="editorial-chat-console" id="chat"/u);
   assert.match(home, /id="security"/u);
   assert.match(home, /id="top"/u);
   assert.match(home, /href="\/install"/u);
   assert.match(home, /href="\/docs"/u);
+  assert.match(home, /<HashLink targetId="chat">Chat<\/HashLink>/u);
+  assert.match(hashLink, /target\.scrollIntoView/u);
+  assert.match(hashLink, /target\.focus\(\{ preventScroll: true \}\)/u);
+  assert.match(hashLink, /prefers-reduced-motion:\s*reduce/u);
+  assert.match(hashLink, /history\.(?:pushState|replaceState)/u);
   assert.doesNotMatch(home, /marquee|status-dot|index:\s*"0[123]"/u);
 });
 
@@ -107,7 +116,11 @@ test("makes the real installer command the first interactive toolbox", async () 
 });
 
 test("keeps hosted chat as a focused request-only console", async () => {
-  const chatConsole = await appFile("components/ChatConsole.tsx");
+  const [home, chatConsole, styles] = await Promise.all([
+    appFile("page.tsx"),
+    appFile("components/ChatConsole.tsx"),
+    appFile("globals.css"),
+  ]);
 
   assert.match(chatConsole, /aria-label="Hosted chat console"/u);
   assert.match(chatConsole, /aria-live="polite"/u);
@@ -115,82 +128,131 @@ test("keeps hosted chat as a focused request-only console", async () => {
   assert.match(chatConsole, /fetch\("\/api\/chat"/u);
   assert.match(chatConsole, /openaiAuthHeaders/u);
   assert.match(chatConsole, /readRelmioEvents/u);
-  assert.match(chatConsole, /abortRef/u);
+  assert.match(chatConsole, /activeRequestRef/u);
   assert.match(chatConsole, /maxLength=\{3000\}/u);
+  assert.match(
+    styles,
+    /\.editorial-chat-grid\s*\{[^}]*grid-template-columns:\s*minmax\(20rem,\s*0\.62fr\)\s*minmax\(0,\s*1\.38fr\);/su,
+  );
+  assert.match(
+    styles,
+    /#chat\.editorial-chat-console\s*\{[^}]*min-width:\s*0;[^}]*scroll-margin-top:\s*5\.5rem;/su,
+  );
+  assert.ok(
+    home.indexOf('className="editorial-chat-console" id="chat"') >
+      home.indexOf('className="editorial-chat-copy"'),
+    "the chat deep link must land on the console after the mobile explanation",
+  );
   assert.doesNotMatch(chatConsole, /conversation history|persistent history|<svg/iu);
 });
 
-test("keeps mobile installer steps full width with one-child markup", async () => {
-  const styles = await appFile("globals.css");
-  const editorialMobileStyles = styles.slice(
-    styles.lastIndexOf("@media (max-width: 48rem)"),
+test("keeps the mobile chat lane below the wrapped sticky header", async () => {
+  const [styles, chatStyles, docsStyles, installStyles] = await Promise.all([
+    appFile("globals.css"),
+    appFile("components/ChatConsole.module.css"),
+    appFile("docs/docs.module.css"),
+    appFile("install/install.module.css"),
+  ]);
+  const mobileStyles = styles.slice(styles.lastIndexOf("@media (max-width: 48rem)"));
+  const mobileChatStyles = chatStyles.slice(
+    chatStyles.indexOf("@media (max-width: 48rem)"),
   );
 
   assert.match(
+    mobileStyles,
+    /#chat\.editorial-chat-console\s*\{[^}]*scroll-margin-top:\s*12\.75rem;/su,
+  );
+  assert.match(
+    mobileChatStyles,
+    /\.shell\s*\{[^}]*height:\s*min\(42rem,\s*max\(34rem,\s*calc\(100dvh - 12\.75rem\)\)\);/su,
+  );
+  assert.match(
+    mobileStyles,
+    /#content-start,[\s\S]*#how-it-works,[\s\S]*#security\s*\{[^}]*scroll-margin-top:\s*12\.75rem;/u,
+  );
+  assert.match(
+    docsStyles.slice(docsStyles.indexOf("@media (max-width: 52rem)")),
+    /\.article\s*\{[^}]*scroll-margin-top:\s*12\.75rem;/su,
+  );
+  assert.match(
+    docsStyles.slice(docsStyles.indexOf("@media (max-width: 52rem)")),
+    /\.article\s+:where\(h1,\s*h2,\s*h3\)\s*\{[^}]*scroll-margin-top:\s*7\.5rem;/su,
+  );
+  assert.match(
+    installStyles.slice(installStyles.indexOf("@media (max-width: 48rem)")),
+    /\.toolbox\s*\{[^}]*scroll-margin-top:\s*12\.75rem;/su,
+  );
+});
+
+test("never animates documentation layout dimensions or padding", async () => {
+  const styles = await appFile("docs/docs.module.css");
+  const sidebarHover = styles.match(
+    /\.sidebar a:hover,[\s\S]*?\.sidebar a\[aria-current="page"\]\s*\{(?<declarations>[^}]*)\}/u,
+  )?.groups?.declarations;
+  const pageListHover = styles.match(
+    /\.pageList a:hover,[\s\S]*?\.pageList a:focus-visible\s*\{(?<declarations>[^}]*)\}/u,
+  )?.groups?.declarations;
+
+  assert.doesNotMatch(styles, /transition:[^;}]*\bpadding\b/su);
+  assert.doesNotMatch(styles, /transition-property:[^;}]*\bpadding\b/su);
+  assert.ok(sidebarHover, "missing documentation sidebar hover rule");
+  assert.ok(pageListHover, "missing documentation page-list hover rule");
+  assert.doesNotMatch(sidebarHover, /\bpadding(?:-inline)?\s*:/u);
+  assert.doesNotMatch(pageListHover, /\bpadding(?:-inline-start)?\s*:/u);
+});
+
+test("keeps global metadata neutral across separate credential routes", async () => {
+  const layout = await appFile("layout.tsx");
+
+  assert.match(layout, /Relmio \| AI routes with visible boundaries/u);
+  assert.match(layout, /without collapsing their credential boundaries/u);
+  assert.doesNotMatch(layout, /Your ChatGPT plan, relayed/u);
+  assert.doesNotMatch(layout, /private path from ChatGPT sign-in/iu);
+});
+
+test("keeps mobile installer steps full width with one-child markup", async () => {
+  const styles = await appFile("install/install.module.css");
+  const editorialMobileStyles = styles.slice(styles.indexOf("@media (max-width: 48rem)"));
+
+  assert.match(
     editorialMobileStyles,
-    /\.install-steps li\s*\{[^}]*display:\s*block;[^}]*grid-template-columns:\s*none;[^}]*gap:\s*0;[^}]*\}/su,
+    /\.steps\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);[^}]*\}/su,
+  );
+  assert.match(
+    editorialMobileStyles,
+    /\.steps li,[\s\S]*\.steps li \+ li\s*\{[^}]*border-left:\s*0;[^}]*\}/u,
   );
 });
 
 test("keeps Focus Mode send and stop icons at accessible hover contrast", async () => {
   const [styles, themeSource] = await Promise.all([
-    appFile("globals.css"),
+    appFile("components/ChatConsole.module.css"),
     appFile("relmio.js"),
   ]);
   const themeTokens = readThemeTokens(themeSource);
-  const sendHover = styles.match(
-    /\.editorial-home \.send-button:hover:not\(:disabled\)\s*\{(?<declarations>[^}]*)\}/u,
-  )?.groups?.declarations;
-  const stopHover = styles.match(
-    /\.editorial-home \.stop-button:hover:not\(:disabled\)\s*\{(?<declarations>[^}]*)\}/u,
-  )?.groups?.declarations;
-  const suggestionHover = styles.match(
-    /\.editorial-home \.suggestion-row button:hover:not\(:disabled\)\s*\{(?<declarations>[^}]*)\}/u,
-  )?.groups?.declarations;
-
-  assert.ok(sendHover, "missing Focus Mode send hover override");
-  assert.ok(stopHover, "missing Focus Mode stop hover override");
-  assert.ok(suggestionHover, "missing Focus Mode suggestion hover override");
-  assert.doesNotMatch(sendHover, /#[\da-f]{3,8}/iu);
-  assert.doesNotMatch(stopHover, /#[\da-f]{3,8}/iu);
-  assert.doesNotMatch(suggestionHover, /#[\da-f]{3,8}/iu);
-
-  const tokenFor = (declarations, property) =>
-    declarations.match(
-      new RegExp(`(?:^|[;\\n])\\s*${property}:\\s*var\\((--color-[^)]+)\\)`, "u"),
-    )?.[1];
-  const sendBackgroundToken = tokenFor(sendHover, "background");
-  const sendForegroundToken = tokenFor(sendHover, "color");
-  const stopBackgroundToken = tokenFor(stopHover, "background");
-  const stopForegroundToken = tokenFor(stopHover, "color");
-  const suggestionBackgroundToken = tokenFor(suggestionHover, "background");
-  const suggestionForegroundToken = tokenFor(suggestionHover, "color");
-
-  assert.equal(sendBackgroundToken, "--color-accent");
-  assert.equal(sendForegroundToken, "--color-on-accent");
-  assert.equal(stopBackgroundToken, "--color-background-card");
-  assert.equal(stopForegroundToken, "--color-text-accent");
-  assert.equal(suggestionBackgroundToken, "--color-background-card");
-  assert.equal(suggestionForegroundToken, "--color-text-primary");
+  assert.match(styles, /--chat-teal:\s*var\(--relay-teal,\s*var\(--color-accent\)\)/u);
+  assert.match(styles, /\.submitButton\s*\{[^}]*background:\s*var\(--chat-teal\);[^}]*color:\s*var\(--color-on-accent\);/su);
+  assert.match(styles, /\.stopButton\s*\{[^}]*background:\s*var\(--chat-raised\);[^}]*color:\s*var\(--chat-teal\);/su);
+  assert.match(styles, /\.suggestions button,[\s\S]*\.jumpToLatest\s*\{[^}]*background:\s*var\(--chat-raised\);[^}]*color:\s*var\(--chat-ink\);/u);
 
   for (const mode of ["light", "dark"]) {
     const sendBackground = parseHexColor(
-      themeColor(themeTokens, sendBackgroundToken, mode),
+      themeColor(themeTokens, "--color-accent", mode),
     );
     const sendForeground = parseHexColor(
-      themeColor(themeTokens, sendForegroundToken, mode),
+      themeColor(themeTokens, "--color-on-accent", mode),
     );
     const stopBackground = parseHexColor(
-      themeColor(themeTokens, stopBackgroundToken, mode),
+      themeColor(themeTokens, "--color-background-card", mode),
     );
     const stopForeground = parseHexColor(
-      themeColor(themeTokens, stopForegroundToken, mode),
+      themeColor(themeTokens, "--color-accent", mode),
     );
     const suggestionBackground = parseHexColor(
-      themeColor(themeTokens, suggestionBackgroundToken, mode),
+      themeColor(themeTokens, "--color-background-card", mode),
     );
     const suggestionForeground = parseHexColor(
-      themeColor(themeTokens, suggestionForegroundToken, mode),
+      themeColor(themeTokens, "--color-text-primary", mode),
     );
 
     assert.ok(
@@ -209,18 +271,30 @@ test("keeps Focus Mode send and stop icons at accessible hover contrast", async 
 });
 
 test("keeps Focus Mode compose controls in flow beside long prompts", async () => {
-  const styles = await appFile("globals.css");
+  const styles = await appFile("components/ChatConsole.module.css");
   const composeControl = styles.match(
-    /\.editorial-home \.send-button\s*\{(?<declarations>[^}]*)\}/u,
+    /\.submitButton\s*\{(?<declarations>[^}]*)\}/u,
   )?.groups?.declarations;
 
   assert.ok(composeControl, "missing Focus Mode compose control override");
   assert.match(composeControl, /position:\s*static;/u);
-  assert.match(composeControl, /inset:\s*auto;/u);
-  assert.match(composeControl, /right:\s*auto;/u);
-  assert.match(composeControl, /bottom:\s*auto;/u);
-  assert.match(composeControl, /flex:\s*0\s+0\s+auto;/u);
   assert.doesNotMatch(composeControl, /position:\s*absolute/u);
+});
+
+test("keeps a three-pixel visible focus ring across editorial controls", async () => {
+  const [styles, chatStyles] = await Promise.all([
+    appFile("globals.css"),
+    appFile("components/ChatConsole.module.css"),
+  ]);
+
+  assert.match(
+    styles,
+    /:where\(\.editorial-home,\s*\.editorial-install\) :focus-visible\s*\{[^}]*outline:\s*3px solid var\(--relay-focus,[^;]+;[^}]*outline-offset:\s*2px;/su,
+  );
+  assert.match(
+    chatStyles,
+    /\.composerRow textarea:focus-visible\s*\{[^}]*outline:\s*3px solid var\(--relay-focus,[^;]+;[^}]*outline-offset:\s*2px;/su,
+  );
 });
 
 test("keeps mobile editorial visual order aligned with DOM focus order", async () => {
@@ -279,56 +353,31 @@ test("lets editorial footers span the desktop footer over the legacy grid", asyn
 });
 
 test("keeps terminal and incomplete response colors accessible in both themes", async () => {
-  const [styles, themeSource] = await Promise.all([
-    appFile("globals.css"),
+  const [terminalStyles, chatStyles, themeSource] = await Promise.all([
+    appFile("install/install.module.css"),
+    appFile("components/ChatConsole.module.css"),
     appFile("relmio.js"),
   ]);
-  const terminalStart = styles.indexOf(".install-command {\n  display: grid;");
-  const terminalEnd = styles.indexOf(".install-command.copied {", terminalStart);
-  const terminalStyles = styles.slice(terminalStart, terminalEnd);
   const themeTokens = readThemeTokens(themeSource);
+  const terminalColor = (name) =>
+    terminalStyles.match(new RegExp(`--terminal-${name}:\\s*(#[0-9a-f]+)`, "iu"))?.[1];
+  const terminalBackground = parseHexColor(terminalColor("background"));
 
-  assert.ok(
-    terminalStart >= 0 && terminalEnd > terminalStart,
-    "missing terminal command styles",
-  );
-  assert.match(terminalStyles, /--terminal-background:\s*var\(--color-on-light\)/u);
-  assert.match(terminalStyles, /--terminal-foreground:\s*var\(--color-on-dark\)/u);
-  assert.match(terminalStyles, /--terminal-accent:\s*var\(--color-on-dark\)/u);
-  assert.match(terminalStyles, /--terminal-muted:\s*var\(--color-on-dark\)/u);
-  assert.doesNotMatch(terminalStyles, /#[\da-f]{3,8}/iu);
-
-  for (const mode of ["light", "dark"]) {
-    const terminalBackground = parseHexColor(
-      themeColor(themeTokens, "--color-on-light", mode),
+  assert.doesNotMatch(terminalStyles, /data-theme/iu);
+  assert.doesNotMatch(terminalStyles, /:root\[data-theme[^}]*--terminal/iu);
+  for (const role of ["foreground", "accent", "muted"]) {
+    assert.ok(
+      contrastRatio(parseHexColor(terminalColor(role)), terminalBackground) >= 4.5,
+      `${role} terminal contrast is below 4.5:1`,
     );
-    for (const role of ["foreground", "accent", "muted"]) {
-      const terminalColor = parseHexColor(
-        themeColor(
-          themeTokens,
-          terminalStyles.match(
-            new RegExp(`--terminal-${role}:\\s*var\\((--color-[^)]+)\\)`, "u"),
-          )?.[1],
-          mode,
-        ),
-      );
-      assert.ok(
-        contrastRatio(terminalColor, terminalBackground) >= 4.5,
-        `${role} terminal contrast is below 4.5:1 in ${mode} mode`,
-      );
-    }
   }
 
-  const incompleteRules = [
-    ...styles.matchAll(/\.message-incomplete p\s*\{([^}]*)\}/gu),
-  ];
-  const incompleteDeclarations = incompleteRules.at(-1)?.[1] ?? "";
-  assert.match(incompleteDeclarations, /color:\s*var\(--color-text-orange\)/u);
-  assert.doesNotMatch(incompleteDeclarations, /color:\s*var\(--color-border-orange\)/u);
+  assert.match(chatStyles, /\.messageIncomplete\s*\{[^}]*background:\s*var\(--color-background-orange\);/su);
+  assert.match(chatStyles, /\.messageIncomplete p,[\s\S]*color:\s*var\(--color-text-orange\);/u);
 
   for (const mode of ["light", "dark"]) {
     const orangeBackdrop = parseHexColor(
-      themeColor(themeTokens, "--color-background-muted", mode),
+      themeColor(themeTokens, "--color-background-surface", mode),
     );
     const orangeBackground = composite(
       parseHexColor(themeColor(themeTokens, "--color-background-orange", mode)),
@@ -375,5 +424,9 @@ test("gives documentation the same editorial console framing", async () => {
   assert.match(documentPage, /aria-label="Documentation navigation"/u);
   assert.match(documentPage, /DocumentOutline/u);
   assert.match(docsStyles, /\.editorialPage/u);
+  assert.match(
+    docsStyles,
+    /\.routeLegend li > strong\s*\{[^}]*color:\s*#eff9f6;/su,
+  );
   assert.doesNotMatch(documentPage, /dangerouslySetInnerHTML|rehypeRaw|innerHTML/u);
 });

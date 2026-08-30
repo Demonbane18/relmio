@@ -30,17 +30,19 @@ test("server-renders the Relmio product page", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Relmio \| Your ChatGPT plan, relayed<\/title>/i);
-  assert.match(html, /A private bridge/);
-  assert.match(html, /between your plan and your tools\./);
-  assert.match(html, /Test a supported ChatGPT sign-in in the hosted chat\./);
-  assert.match(
-    html,
-    /keep the relay inside your own Docker network\./,
-  );
+  assert.match(html, /<title>Relmio \| AI routes with visible boundaries<\/title>/i);
+  assert.match(html, /Route every request with boundaries you can see\./);
+  assert.match(html, /Four routes\. One visible path at a time\./);
+  assert.match(html, /aria-label="Relay contracts"/);
+  assert.match(html, /aria-pressed="true"/);
+  assert.match(html, /Model Relay/);
+  assert.match(html, /n8n Code Sandbox Builder/);
+  assert.match(html, /Codex Chat Adapter/);
+  assert.match(html, /Codex App Server/);
+  assert.match(html, /Platform API keys and ChatGPT sign-in remain separate credentials\./);
   assert.doesNotMatch(html, /OpenAI-shaped workflows you already use/);
-  assert.match(html, /Try the secure chat/);
-  assert.match(html, /href="\/install"[^>]*>Install wizard<\/a>/);
+  assert.match(html, /Open hosted chat/);
+  assert.match(html, /href="\/install"[^>]*>Install Relmio<\/a>/);
   assert.match(html, /data-astryx-theme="relmio"/);
   assert.match(html, /aria-label="Color theme"/);
   assert.match(html, /class="[^"]*\btheme-mode-control\b/);
@@ -52,10 +54,9 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /lucide-moon/);
   assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
   assert.match(html, /class="[^"]*\beditorial-home\b/);
-  assert.match(html, /aria-label="Private request route"/);
-  assert.match(html, /Your app/);
-  assert.match(html, /Authenticated relay/);
-  assert.match(html, /Streamed back/);
+  assert.match(html, /aria-label="Model Relay topology"/);
+  assert.match(html, /Boundary evidence/);
+  assert.match(html, /The contract stays legible after setup\./);
   assert.match(html, /Connect, then ask\./);
   assert.match(html, /Before you connect: install the browser extension/);
   assert.match(
@@ -76,14 +77,6 @@ test("server-renders the Relmio product page", async () => {
   assert.match(
     html,
     /href="https:\/\/ko-fi\.com\/paldogies"[^>]*target="_blank"[^>]*rel="noopener noreferrer"[^>]*aria-label="Support Relmio on Ko-fi \(opens in a new tab\)"/,
-  );
-  assert.match(
-    html,
-    /A Platform API key powers the OpenAI-compatible \/v1 endpoint\./,
-  );
-  assert.match(
-    html,
-    /ChatGPT sign-in powers only the experimental Codex App Server protocol\./,
   );
   assert.match(html, /openai-oauth/);
   assert.match(html, /Evan Zhou Dev/);
@@ -120,22 +113,22 @@ test("renders a command-first self-hosted n8n install page", async () => {
   const response = await requestApp("/install");
   assert.equal(response.status, 200);
 
-  const [html, installScript, commandPromptInstallScript, powerShellInstallScript, globalsCss] = await Promise.all([
+  const [html, installScript, commandPromptInstallScript, powerShellInstallScript, installStyles] = await Promise.all([
     response.text(),
     readFile(new URL("../dist/client/install.sh", import.meta.url), "utf8"),
     readFile(new URL("../dist/client/install.cmd", import.meta.url), "utf8"),
     readFile(new URL("../dist/client/install.ps1", import.meta.url), "utf8"),
-    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/install/install.module.css", import.meta.url), "utf8"),
   ]);
-  const desktopInstallTabsRule = globalsCss.match(
-    /\.install-method-tabs\s*\{(?<declarations>[^}]*)\}/u,
+  const desktopInstallTabsRule = installStyles.match(
+    /\.methodTabs\s*\{(?<declarations>[^}]*)\}/u,
   );
   assert.ok(desktopInstallTabsRule, "expected desktop install tabs rule");
   assert.match(
     desktopInstallTabsRule.groups.declarations,
     /grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\);/u,
   );
-  assert.match(html, /Install Relmio for n8n/);
+  assert.match(html, /Install Relmio on your computer\./);
   assert.match(html, /data-astryx-theme="relmio"/);
   assert.match(html, /aria-label="Color theme"/);
   assert.match(html, /class="[^"]*\btheme-mode-control\b/);
@@ -149,7 +142,7 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /https:\/\/ko-fi\.com\/paldogies/);
   assert.match(
     html,
-    /The OpenAI-compatible \/v1 option uses a Platform API key\./,
+    /The OpenAI-compatible <code>\/v1<\/code> route uses a Platform API key\./,
   );
   assert.match(
     html,
@@ -157,17 +150,13 @@ test("renders a command-first self-hosted n8n install page", async () => {
   );
   assert.match(
     html,
-    /ChatGPT\/Codex sign-in tokens expire, but the official Codex client refreshes them automatically during active use before they expire, so active sessions usually continue without another browser login\./,
+    /ChatGPT tokens expire, but the official client refreshes active sessions/,
   );
   assert.match(
     html,
     /href="https:\/\/learn\.chatgpt\.com\/docs\/auth"/,
   );
-  assert.match(html, /does not publish a fixed 10-day lifetime; do not plan around one\./);
-  assert.match(
-    html,
-    /That upstream provider credential is separate from Relmio&#x27;s local client capability, which remains valid until you rotate it\./,
-  );
+  assert.match(html, /OpenAI publishes no fixed 10-day lifetime\./);
   assert.match(
     html,
     /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/,
@@ -177,8 +166,7 @@ test("renders a command-first self-hosted n8n install page", async () => {
     /brew tap Demonbane18\/relmio &amp;&amp; brew install relmio/,
   );
   assert.doesNotMatch(html, /\bwinget install\b/i);
-  assert.match(html, /Homebrew is available/);
-  assert.match(html, /WinGet command.*hidden/);
+  assert.match(html, /Homebrew is public/);
   assert.match(
     html,
     /irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex/,
@@ -201,13 +189,13 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*NPX/);
   assert.match(html, /macOS, Linux, WSL, or Git Bash/);
   assert.match(html, /No Git Bash or preinstalled Node\.js required/);
-  assert.match(html, /Open Command Prompt, not PowerShell/);
-  assert.match(html, /PowerShell-free, non-admin bootstrap/);
-  assert.match(html, /NPX requires Node\.js 22 or newer/);
-  assert.match(html, /WinGet command stays hidden[^<]*catalog updates/);
-  assert.match(html, /Copy installation command/);
+  assert.match(html, /For Command Prompt, not PowerShell/);
+  assert.match(html, /non-admin bootstrap verifies a temporary runtime/);
+  assert.match(html, /already has Node\.js 22 or newer/);
+  assert.match(html, /WinGet remains hidden until Microsoft accepts[^<]*catalog pull request/);
+  assert.match(html, /Copy macOS \/ Linux installation command/);
   assert.match(html, /Choose an installation method/);
-  assert.match(html, /Run this on your own computer/);
+  assert.match(html, /Run Relmio on your own computer/);
   assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
   assert.match(installScript, /^#!\/bin\/sh/m);
   assert.match(installScript, /Node\.js download checksum did not match/);
@@ -513,24 +501,24 @@ test("fails a terminal-less upstream stream instead of reporting empty success",
 });
 
 test("ships the request-bound chat and removes starter assets", async () => {
-  const [chatConsole, chatRoute, layout, packageJson, globalCss] = await Promise.all([
+  const [chatConsole, chatStyles, chatRoute, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/ChatConsole.module.css", import.meta.url), "utf8"),
     readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
 
   assert.match(chatConsole, /openaiAuthHeaders/u);
   assert.match(chatConsole, /SignInWithChatGPT/u);
-  assert.match(chatConsole, /message-incomplete/u);
+  assert.match(chatConsole, /styles\.messageIncomplete/u);
   assert.match(chatConsole, /Relmio · incomplete/u);
   assert.match(chatConsole, /<HStack className="console-statuses"/u);
-  assert.match(globalCss, /\.message-incomplete p \{[\s\S]*var\(--color-border-orange\)/u);
-  assert.match(globalCss, /\.message-incomplete > span \{[\s\S]*var\(--color-text-orange\)/u);
+  assert.match(chatStyles, /\.messageIncomplete\s*\{[\s\S]*var\(--relay-amber,[^)]*--color-border-orange/u);
+  assert.match(chatStyles, /\.messageIncomplete p,[\s\S]*\.messageIncomplete span\s*\{[\s\S]*color:\s*var\(--color-text-orange\)/u);
   assert.match(chatRoute, /openaiCredentials\(request\)/u);
   assert.match(chatRoute, /Cache-Control": "no-store"/u);
-  assert.match(layout, /Relmio \| Your ChatGPT plan, relayed/u);
+  assert.match(layout, /Relmio \| AI routes with visible boundaries/u);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
   await assert.rejects(
     access(new URL("../app/_sites-preview", import.meta.url)),

@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { ArrowRight, Route } from "lucide-react";
 import {
   Children,
   isValidElement,
@@ -7,6 +8,7 @@ import {
 } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { HashLink } from "../components/HashLink";
 import { RepositoryButton } from "../components/RepositoryButton";
 import { SupportButton } from "../components/SupportButton";
 import { ThemeModeControl } from "../components/ThemeModeControl";
@@ -72,9 +74,9 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
 
   return (
     <main className={`${styles.page} ${styles.editorialPage}`} id="main-content">
-      <a className="skip-link" href="#docs-content">
+      <HashLink className="skip-link" focusTarget targetId="docs-content">
         Skip to documentation
-      </a>
+      </HashLink>
       <header className={styles.header}>
         <Link className={styles.brand} href="/" aria-label="Relmio home">
           <Image
@@ -118,15 +120,16 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
           </ul>
         </details>
         <nav className={styles.sidebar} aria-label="Documentation navigation">
-          <p>Documentation</p>
+          <p>Field manual</p>
           <ul>
-            {documentationPages.map((candidate) => (
+            {documentationPages.map((candidate, index) => (
               <li key={candidate.slug}>
                 <Link
                   href={`/docs/${candidate.slug}`}
                   aria-current={candidate.slug === page?.slug ? "page" : undefined}
                 >
-                  {candidate.title}
+                  <span aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
+                  <strong>{candidate.title}</strong>
                 </Link>
               </li>
             ))}
@@ -134,7 +137,7 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
         </nav>
 
         {page ? (
-          <article className={styles.article} id="docs-content">
+          <article className={styles.article} id="docs-content" tabIndex={-1}>
             <p className={styles.sourceNote}>
               Canonical guide · Source <code>{page.sourcePath}</code>
             </p>
@@ -164,13 +167,29 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
             </nav>
           </article>
         ) : (
-          <article className={styles.article} id="docs-content">
-            <h1>Relmio documentation</h1>
-            <p className={styles.intro}>
-              Practical guides for the local wizard, n8n sidecar, and deliberate
-              credential boundaries. Each page is generated from canonical
-              repository Markdown.
-            </p>
+          <article className={styles.article} id="docs-content" tabIndex={-1}>
+            <section className={styles.indexHero} aria-labelledby="docs-title">
+              <div>
+                <p className={styles.eyebrow}>Field manual · {documentationPages.length} canonical guides</p>
+                <h1 id="docs-title">Relmio documentation</h1>
+                <p className={styles.intro}>
+                  Follow every request from source to boundary to destination.
+                  These guides are generated from canonical repository Markdown.
+                </p>
+              </div>
+              <section className={styles.routeLegend} aria-label="Relmio request paths">
+                <div className={styles.routeLegendTitle}>
+                  <Route aria-hidden="true" size={18} strokeWidth={1.75} />
+                  <span>Request paths</span>
+                </div>
+                <ol>
+                  <li><span>01</span><strong>Model Relay</strong><ArrowRight aria-hidden="true" /></li>
+                  <li><span>02</span><strong>Sandbox Builder</strong><ArrowRight aria-hidden="true" /></li>
+                  <li><span>03</span><strong>Chat Adapter</strong><ArrowRight aria-hidden="true" /></li>
+                  <li><span>04</span><strong>App Server</strong><ArrowRight aria-hidden="true" /></li>
+                </ol>
+              </section>
+            </section>
             <DocumentationSearch pages={searchPages} />
           </article>
         )}

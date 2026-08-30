@@ -17,9 +17,29 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const title = "Relmio | Your ChatGPT plan, relayed";
+const title = "Relmio | AI routes with visible boundaries";
 const description =
-  "Connect a supported ChatGPT sign-in to a secure hosted chat and OpenAI-compatible workflows, beginning with self-hosted n8n.";
+  "Route model API requests, build an n8n code sandbox companion, or connect supported Codex clients without collapsing their credential boundaries.";
+
+const directionContract = `<!--
+THESIS
+Every request has a visible source, credential boundary, route, and destination.
+
+OWN-WORLD
+Relmio is a calm signal desk for self-hosted AI infrastructure, not a generic AI landing page.
+
+STORY
+The interface makes Model Relay, n8n Code Sandbox Builder, Codex Chat Adapter, and Codex App Server distinct, selectable, and truthful.
+
+FIRST VIEWPORT
+An asymmetric editorial introduction and an interactive relay topology explain the product before supporting detail.
+
+FORM
+Signal Plotter direction; concept seed 95cdc256; muted teal, graphite, warm canvas, semantic amber; motion expresses route and state.
+
+FINISH
+unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+-->`;
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -45,16 +65,14 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     openGraph: {
       title,
-      description:
-        "A private path from ChatGPT sign-in to the AI tools you already use.",
+      description,
       type: "website",
       images: [{ url: imageUrl, width: 1200, height: 630, alt: "Relmio" }],
     },
     twitter: {
       card: "summary_large_image",
       title,
-      description:
-        "A private path from ChatGPT sign-in to the AI tools you already use.",
+      description,
       images: [imageUrl],
     },
   };
@@ -68,6 +86,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
+        <script
+          id="impeccable-direction-contract"
+          type="text/plain"
+        >
+          {directionContract}
+        </script>
         <Providers>{children}</Providers>
       </body>
     </html>
