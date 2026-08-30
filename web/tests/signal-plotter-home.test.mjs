@@ -41,12 +41,18 @@ test("uses real pressed buttons and exposes the complete boundary story", async 
 
 test("animates the active path with an explicit reduced-motion final state", async () => {
   const plotter = await appFile("components/relay/SignalPlotter.tsx");
+  const signalPacket = plotter.match(/<motion\.circle[\s\S]*?\/>/u)?.[0] ?? "";
 
   assert.match(plotter, /from "motion\/react"/u);
   assert.match(plotter, /useReducedMotion\(\)/u);
   assert.match(plotter, /<AnimatePresence/u);
-  assert.match(plotter, /<motion\.circle/u);
+  assert.match(signalPacket, /<motion\.circle/u);
   assert.match(plotter, /reduceMotion\s*\?\s*\{ x: 500, y: 152, opacity: 1 \}/u);
+  assert.match(
+    signalPacket,
+    /initial=\{\{ x: 12, y: activeRoute\.sourceY, opacity: 0 \}\}/u,
+  );
+  assert.doesNotMatch(signalPacket, /initial=\{false\}/u);
   assert.match(plotter, /layoutId="active-relay-route"/u);
 });
 
