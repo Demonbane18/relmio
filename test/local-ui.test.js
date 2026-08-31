@@ -305,6 +305,14 @@ test("local wizard offers Code Sandbox with opt-in SearXNG as a separate n8n Ass
 
   assert.match(html, /id="result-sandbox-key-row"[^>]*hidden/u);
   assert.match(html, /id="result-searxng-row"[^>]*hidden/u);
+  assert.match(
+    html,
+    /id="result-searxng-row"[\s\S]*data-copy-target="result-searxng"[\s\S]*aria-label="Copy SearXNG URL"/u,
+  );
+  assert.match(
+    script,
+    /element\("copy-searxng-button"\)\.hidden =\s*!assistant \|\| result\.includeSearxng !== true/u,
+  );
   assert.match(html, /id="result-n8n-settings-row"[^>]*hidden/u);
   assert.match(html, /id="n8n-assistant-removal"[^>]*hidden/u);
   assert.match(html, /id="remove-assistant-confirm" type="checkbox"/u);

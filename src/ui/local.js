@@ -894,6 +894,8 @@ function renderInstallResult(result) {
   element("result-deployment").textContent = n8nTarget ? result.deploymentMode : "";
   element("result-sandbox-key-row").hidden = !assistant;
   element("result-searxng-row").hidden = !assistant;
+  element("copy-searxng-button").hidden =
+    !assistant || result.includeSearxng !== true;
   element("result-n8n-settings-row").hidden = !assistant;
   element("result-sandbox-key").textContent = assistant
     ? result.sandboxApiKey

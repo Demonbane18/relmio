@@ -666,7 +666,19 @@
           </div>
           <div id="result-searxng-row" hidden>
             <dt>SearXNG URL</dt>
-            <dd><code id="result-searxng"></code></dd>
+            <dd class="result-value">
+              <code id="result-searxng"></code>
+              <button
+                id="copy-searxng-button"
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-searxng"
+                data-copy-label="SearXNG URL"
+                aria-label="Copy SearXNG URL"
+              >
+                Copy
+              </button>
+            </dd>
           </div>
           <div id="result-n8n-settings-row" hidden>
             <dt>Required n8n environment values</dt>
