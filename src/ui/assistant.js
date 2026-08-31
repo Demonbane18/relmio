@@ -82,11 +82,11 @@ function fillSelect(select, items, selectedValue) {
 function formatInstanceAiStatus(instanceAi) {
   switch (instanceAi?.status) {
     case "enabled":
-      return "AI Assistant prerequisite enabled — N8N_ENABLED_MODULES includes instance-ai. Fresh rediscovery is required after n8n changes.";
+      return "AI Assistant is enabled: N8N_ENABLED_MODULES includes instance-ai. Refresh discovery after n8n changes.";
     case "configured":
-      return "AI Assistant prerequisite not met — N8N_ENABLED_MODULES is set but does not include instance-ai. Append instance-ai as a distinct comma-delimited token while preserving existing module entries, then redeploy or restart n8n outside this wizard.";
+      return "AI Assistant is not enabled: N8N_ENABLED_MODULES does not include instance-ai. Add it as a separate comma-delimited value, keep existing values, then redeploy or restart n8n outside this wizard.";
     case "missing":
-      return "AI Assistant prerequisite not met — add N8N_ENABLED_MODULES=instance-ai to the existing n8n service, then redeploy or restart n8n outside this wizard.";
+      return "AI Assistant is not enabled: add N8N_ENABLED_MODULES=instance-ai to the existing n8n service, then redeploy or restart n8n outside this wizard.";
     default:
       return "AI Assistant prerequisite could not be verified for this n8n container.";
   }
@@ -125,8 +125,8 @@ async function loadNetworks() {
   const prerequisiteReady = result.instanceAi?.status === "enabled";
   element("review-button").disabled = !prerequisiteReady;
   element("review-readiness").textContent = prerequisiteReady
-    ? "Prerequisite verified. Review the exact companion and SearXNG selection before any write."
-    : "Enable instance-ai, restart or redeploy n8n, then reconnect to Relmio before reviewing a plan.";
+    ? "Ready to review the companion and SearXNG choice. Nothing has been written."
+    : "Enable instance-ai, restart or redeploy n8n, then reconnect before reviewing a plan.";
   fillSelect(
     element("network-select"),
     result.networks.map((network) => ({ value: network, label: network })),
@@ -234,11 +234,11 @@ element("review-button").addEventListener("click", async (event) => {
     element("review-instance-ai").textContent = formatInstanceAiStatus(plan.instanceAi);
     element("review-web-search").textContent = plan.includeSearxng
       ? `Attach optional SearXNG web search to ${networkName} with its private alias`
-      : "Web search disabled — no SearXNG service, settings file, or URL will be installed";
+      : "Web search is off. No SearXNG service, settings file, or URL will be installed.";
     element("install-confirm").checked = false;
     element("install-button").disabled = true;
     showStep(3);
-    setMessage("Review the privileged companion plan. The SSH host has not changed.");
+    setMessage("Review this privileged companion plan. The SSH host has not changed.");
   } catch (error) {
     showError(error);
   } finally {
@@ -275,16 +275,28 @@ element("install-button").addEventListener("click", async (event) => {
       : "Unchanged on this managed update; the key is not redisplayed.";
     if (result.includeSearxng === true && typeof result.searxngUrl === "string") {
       element("searxng-url").textContent = result.searxngUrl;
-      element("searxng-note").textContent = "SearXNG uses its private server secret internally. There is no user-facing SearXNG key.";
+      element("searxng-note").textContent = "SearXNG keeps its server secret private. There is no SearXNG key for you to enter.";
     } else {
       element("searxng-url").textContent = "Web search disabled";
-      element("searxng-note").textContent = "Web search was disabled, so no SearXNG service or settings file was installed. Its retained private secret is never user-facing.";
+      element("searxng-note").textContent = "Web search is off, so no SearXNG service or settings file was installed. Its retained secret stays private.";
     }
     showStep(4);
-    setMessage("Companion verified. Enter the values directly in n8n’s AI Assistant settings.");
+    setMessage("Companion verified. Enter these values in n8n’s AI Assistant settings.");
   } catch (error) {
     showError(error);
   } finally {
     setBusy(button, false);
   }
 });
+
+element("setup-another-assistant").href = token
+  ? `/assistant?session=${encodeURIComponent(token)}`
+  : "/assistant";
+
+for (const button of document.querySelectorAll(".back-button")) {
+  button.addEventListener("click", () => {
+    clearError();
+    showStep(Number(button.dataset.back));
+    setMessage("No new assistant installation has started.");
+  });
+}

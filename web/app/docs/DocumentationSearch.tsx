@@ -39,7 +39,7 @@ export function DocumentationSearch({ pages }: { pages: SearchEntry[] }) {
       />
       <p className={styles.searchStatus} role="status" aria-live="polite">
         {visiblePages.length === pages.length && !normalized
-          ? `${pages.length} canonical guides`
+          ? `${pages.length} guides`
           : `${visiblePages.length} guide${visiblePages.length === 1 ? "" : "s"} found`}
       </p>
       {visiblePages.length > 0 ? (

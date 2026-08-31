@@ -5,6 +5,7 @@ import test from "node:test";
 const expectedRoutes = [
   "getting-started",
   "local-endpoints",
+  "local-n8n-stack",
   "vps-and-n8n",
   "ai-assistant",
   "troubleshooting",
@@ -31,6 +32,9 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
     assert.match(generated, new RegExp(`"${route}"`, "u"));
   }
   assert.match(generated, /@generated from repository Markdown/u);
+  assert.match(generator, /CHANGELOG\.md/u);
+  assert.match(generated, /export const changelogContent/u);
+  assert.match(renderedDocumentation, /## \[0\.10\.0\] - 2026-08-31/u);
   assert.match(renderedDocumentation, /N8N_ENABLED_MODULES=instance-ai/u);
   assert.match(
     renderedDocumentation,
@@ -72,4 +76,29 @@ test("renders a responsive, safe documentation route with project controls", asy
   assert.match(styles, /\.layoutDetail/u);
   assert.match(styles, /\.mobileNavigation/u);
   assert.match(styles, /@media \(max-width: 52rem\)/u);
+});
+
+test("keeps a hosted changelog page linked to the generated repository changelog", async () => {
+  const [page, documentPage, copyableCodeBlock, styles] = await Promise.all([
+    readFile(new URL("../app/changelog/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/docs/DocumentPage.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/docs/CopyableCodeBlock.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/docs/docs.module.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /changelogContent/u);
+  assert.match(page, /ReactMarkdown/u);
+  assert.match(page, /Release notes/u);
+  assert.match(page, /targetId="changelog-content"/u);
+  assert.match(page, /Skip to release notes/u);
+  assert.match(page, /id="changelog-content"/u);
+  assert.match(documentPage, /href="\/changelog"/u);
+  assert.match(documentPage, /CopyableCodeBlock/u);
+  assert.match(copyableCodeBlock, /aria-label=\{label\}/u);
+  assert.match(copyableCodeBlock, /title=\{label\}/u);
+  assert.match(copyableCodeBlock, /aria-live="polite"/u);
+  assert.match(copyableCodeBlock, /document\.execCommand\("copy"\)/u);
+  assert.match(styles, /\.copyCodeButton/u);
+  assert.match(styles, /\.copyCodeButton\s*\{[^}]*width:\s*2\.75rem;[^}]*height:\s*2\.75rem;/su);
+  assert.match(styles, /\.changelogArticle/u);
 });

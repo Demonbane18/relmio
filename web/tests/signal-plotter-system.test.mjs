@@ -16,13 +16,14 @@ test("persists the product-grounded Signal Plotter design system", async () => {
 
   assert.match(master, /Signal Plotter/u);
   assert.match(master, /concept seed:[^\n]*`95cdc256`/iu);
-  assert.match(master, /Model Relay/u);
-  assert.match(master, /n8n Code Sandbox Builder/u);
+  assert.match(master, /n8n with ChatGPT sign-in/u);
+  assert.match(master, /OpenAI API/u);
+  assert.match(master, /n8n Code Sandbox/u);
   assert.match(master, /Codex Chat Adapter/u);
   assert.match(master, /Codex App Server/u);
   assert.match(master, /one transcript scroll owner/iu);
   assert.doesNotMatch(master, /#7C3AED|AI purple \+ generation pink/u);
-  assert.match(home, /interactive route topology/iu);
+  assert.match(home, /interactive connection map/iu);
   assert.match(chat, /one transcript/iu);
   assert.match(install, /black\/graphite terminal/iu);
   assert.match(docs, /field manual/iu);
@@ -75,9 +76,10 @@ test("gives documentation an editorial field-manual hierarchy", async () => {
   ]);
 
   assert.match(page, /Field manual/u);
-  assert.match(page, /aria-label="Relmio request paths"/u);
-  assert.match(page, /Model Relay/u);
-  assert.match(page, /Sandbox Builder/u);
+  assert.match(page, /aria-label="Relmio setup guides"/u);
+  assert.match(page, /n8n \+ ChatGPT/u);
+  assert.match(page, /OpenAI API/u);
+  assert.match(page, /Code Sandbox/u);
   assert.match(page, /Chat Adapter/u);
   assert.match(page, /App Server/u);
   assert.match(styles, /\.article pre\s*\{[\s\S]*background:\s*#09100f;/u);

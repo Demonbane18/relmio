@@ -335,15 +335,15 @@ function networkPriority(network) {
 }
 
 function networkOptionLabel(network) {
-  const recommended = "Recommended — private Assistant network";
+  const recommended = "Recommended, private Assistant network";
   if (isAssistantNetwork(network.networkName)) {
-    return `${recommended} — ${network.networkName}`;
+    return `${recommended}, ${network.networkName}`;
   }
   if (isNgrokEdgeNetwork(network.networkName)) {
-    return `${network.networkName} — also contains ngrok`;
+    return `${network.networkName}, also contains ngrok`;
   }
   return network.disposable
-    ? `${network.networkName} — disposable test network`
+    ? `${network.networkName}, disposable test network`
     : network.networkName;
 }
 
@@ -439,7 +439,7 @@ async function refreshN8nDiscovery() {
   setSelectOptions(
     element("n8n-container"),
     state.n8nContainers.map((container) => ({
-      label: `${container.containerName} — ${container.image}`,
+      label: `${container.containerName}, ${container.image}`,
       value: container.containerId,
     })),
     "No running n8n container found",
@@ -675,8 +675,8 @@ function renderPlan(plan) {
       ? `Only ${plan.allowedOrigins.length} exact allowed origin(s)`
       : "Native clients only until exact origins are added"
     : codexChat
-      ? "No — trusted local backends and development servers only"
-      : "No — trusted native local clients only";
+      ? "No. Trusted local backends and development servers only"
+      : "No. Trusted native local clients only";
   element("review-origins-row").hidden = n8nTarget || stack || !openAiApi;
   element("review-origins").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
@@ -792,7 +792,7 @@ function renderPlan(plan) {
   } else if (codexChat) {
     appendPolicyNotice(
       element("review-policy"),
-      "Experimental Codex Chat Adapter — trusted local backends or development servers only",
+      "Experimental Codex Chat Adapter. Trusted local backends or development servers only",
       "This option runs a small authenticated Relmio HTTP adapter on loopback. It accepts only POST /chat from a trusted local backend or development server. It has no CORS and is not OpenAI /v1. ChatGPT credentials stay in the isolated Codex Docker volume and never become Platform API keys.",
     );
   } else {
@@ -1037,7 +1037,7 @@ function renderInstallResult(result) {
     element("chat-tester-endpoint").value = result.endpoint;
   }
   element("codex-production-warning-title").textContent = codexChat
-    ? "Experimental Chat Adapter — trusted local backends or development servers only"
+    ? "Experimental Chat Adapter. Trusted local backends or development servers only"
     : "Experimental WebSocket transport";
   element("codex-production-warning-detail").textContent = codexChat
     ? "The adapter is for trusted local backends or development servers only. It has a Relmio-specific POST /chat contract, no CORS, and is not OpenAI /v1."
@@ -1292,11 +1292,18 @@ async function copyText(value) {
 }
 
 function flashCopied(button) {
-  const originalLabel = button.textContent;
-  button.textContent = "Copied";
+  const originalLabel = button.getAttribute("aria-label");
+  const originalTitle = button.getAttribute("title");
+  button.setAttribute("aria-label", `${button.dataset.copyLabel} copied`);
+  button.setAttribute("title", `${button.dataset.copyLabel} copied`);
   button.classList.add("copied");
   window.setTimeout(() => {
-    button.textContent = originalLabel;
+    if (originalLabel) {
+      button.setAttribute("aria-label", originalLabel);
+    }
+    if (originalTitle) {
+      button.setAttribute("title", originalTitle);
+    }
     button.classList.remove("copied");
   }, 1_800);
 }

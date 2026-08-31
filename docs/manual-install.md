@@ -1,4 +1,4 @@
-# Beginner manual installation
+# Manual installation
 
 Use this guide if the browser wizard cannot be used, or if you need to
 reproduce, debug, or improve the underlying installation method. The wizard is

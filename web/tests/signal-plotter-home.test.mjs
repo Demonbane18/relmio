@@ -5,7 +5,7 @@ import test from "node:test";
 const appFile = (path) =>
   readFile(new URL(`../app/${path}`, import.meta.url), "utf8");
 
-test("renders one selectable topology for all four truthful relay contracts", async () => {
+test("renders one selectable map for all five setup options", async () => {
   const [home, plotter] = await Promise.all([
     appFile("page.tsx"),
     appFile("components/relay/SignalPlotter.tsx"),
@@ -13,8 +13,9 @@ test("renders one selectable topology for all four truthful relay contracts", as
 
   assert.match(home, /<SignalPlotter\s*\/>/u);
   for (const label of [
-    "Model Relay",
-    "n8n Code Sandbox Builder",
+    "n8n with ChatGPT sign-in",
+    "OpenAI API",
+    "n8n Code Sandbox",
     "Codex Chat Adapter",
     "Codex App Server",
   ]) {
@@ -29,14 +30,17 @@ test("uses real pressed buttons and exposes the complete boundary story", async 
 
   assert.match(plotter, /<button[\s\S]*aria-pressed=\{selected\}[\s\S]*type="button"/u);
   assert.match(plotter, /aria-controls="relay-route-detail"/u);
-  for (const field of ["Source", "Credential boundary", "Transport", "Destination"]) {
+  for (const field of ["Starts here", "Sign-in or key", "Connection", "Ends here"]) {
     assert.ok(plotter.includes(field), `missing route field: ${field}`);
   }
-  assert.match(plotter, /Relmio capability → protected Platform key/u);
+  assert.match(plotter, /Your ChatGPT\/Codex sign-in stays in a private sidecar volume/u);
+  assert.match(plotter, /unofficial, private, experimental, and policy-uncertain/u);
+  assert.match(plotter, /A local Relmio credential protects your Platform key/u);
   assert.match(plotter, /Sandbox API key shown once; separate runner secrets/u);
   assert.match(plotter, /Platform key is entered directly in n8n/u);
-  assert.match(plotter, /Relmio capability → protected ChatGPT sign-in/u);
+  assert.match(plotter, /A local Relmio credential protects your ChatGPT sign-in/u);
   assert.match(plotter, /never turns one into the other/u);
+  assert.doesNotMatch(plotter, /gatewayMouth|M 300 168 H 332/u);
 });
 
 test("animates the active path with an explicit reduced-motion final state", async () => {
@@ -56,7 +60,7 @@ test("animates the active path with an explicit reduced-motion final state", asy
   assert.match(plotter, /layoutId="active-relay-route"/u);
 });
 
-test("keeps the topology an asymmetric field instead of a four-card layout", async () => {
+test("keeps the connection map asymmetric instead of using a card grid", async () => {
   const styles = await appFile("components/relay/SignalPlotter.module.css");
 
   assert.match(

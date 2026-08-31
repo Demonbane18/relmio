@@ -43,6 +43,7 @@ export default function Home() {
             <HashLink targetId="how-it-works">How it works</HashLink>
             <Link href="/install">Install</Link>
             <Link href="/docs">Docs</Link>
+            <Link href="/changelog">Changelog</Link>
             <HashLink targetId="chat">Chat</HashLink>
           </nav>
           <HStack className="editorial-header-actions" gap={2} align="center">
@@ -75,7 +76,7 @@ export default function Home() {
               </VStack>
             </section>
             <Text as="p" className="editorial-device-note" type="supporting">
-              Device-local by design. Credentials are encrypted in this browser. Disconnect whenever you want to remove the local session.
+              This browser encrypts the credentials it stores. Disconnect to remove the local session.
             </Text>
           </VStack>
           <div className="editorial-chat-console" id="chat">
@@ -88,7 +89,7 @@ export default function Home() {
         <Grid className="editorial-security-grid" columns={2} gap={8} align="start">
           <VStack gap={3}>
             <Text as="p" type="code" color="accent">Safety boundary</Text>
-            <Heading level={2} type="display-2">Private where it matters.</Heading>
+            <Heading level={2} type="display-2">The n8n bridge stays private.</Heading>
             <Text as="p" type="large" color="secondary">
               The hosted chat is a browser demo. The n8n installer remains a local wizard that deploys a separate sidecar without changing your existing n8n container, image, or workflows.
             </Text>

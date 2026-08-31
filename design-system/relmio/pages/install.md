@@ -1,4 +1,4 @@
-# Install — Modular Terminal Override
+# Install: Guided Terminal
 
 - All installation methods and the active command must appear in the first desktop viewport.
 - Keep the active command on a black/graphite terminal surface in both themes.

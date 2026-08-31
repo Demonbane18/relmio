@@ -40,11 +40,12 @@ test("README surfaces are concise product entry points linked to canonical docs"
     readFile("npm/README.md", "utf8"),
   ]);
   for (const guide of [readme, npmReadme]) {
-    assert.match(guide, /Connect AI tools without mixing credentials/u);
-    assert.match(guide, /## Two lanes, no credential mixing/u);
-    assert.match(guide, /A ChatGPT subscription|ChatGPT\/Codex sign-in/u);
+    assert.match(guide, /Use ChatGPT sign-in with n8n/u);
+    assert.match(guide, /ChatGPT sign-in is not an OpenAI Platform API key/u);
+    assert.match(guide, /unofficial[\s\S]*private[\s\S]*policy-uncertain/iu);
     assert.match(guide, /img\.shields\.io\/github\/stars\/Demonbane18\/relmio/u);
     assert.match(guide, /## Quick install/u);
+    assert.match(guide, /## Pick a path/u);
     assert.match(guide, /## Common problems/u);
     assert.match(guide, /Docker is not running/u);
     assert.match(guide, /Authentication fails/u);
@@ -52,16 +53,10 @@ test("README surfaces are concise product entry points linked to canonical docs"
     assert.match(guide, /npx --yes --ignore-scripts relmio@latest/u);
     assert.doesNotMatch(guide, /```mermaid/u);
   }
-  assert.match(readme, /## Endpoints/u);
   assert.match(readme, /docs\/images\/brand\/relmio-banner-animated\.svg/u);
-  assert.match(readme, /docs\/images\/diagrams\/relmio-two-lanes\.png/u);
-  assert.match(readme, /## Critical security boundaries/u);
   assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/reference/u);
+  assert.match(readme, /https:\/\/relmio\.vercel\.app\/changelog/u);
   assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\/docs\/security/u);
-  assert.match(
-    npmReadme,
-    /cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/diagrams\/relmio-two-lanes\.png/u,
-  );
   assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
 });
 
@@ -88,7 +83,7 @@ test("published guides document the local n8n Assistant tools wizard contract", 
   assert.match(localGuide, /~\/\.relmio\/local\/n8n-ai-assistant/u);
   assert.match(localGuide, /N8N_SANDBOX_SERVICE_API_KEY/u);
   assert.match(localGuide, /N8N_INSTANCE_AI_SEARXNG_URL/u);
-  assert.match(assistantGuide, /direct local Docker-socket\s+discovery/u);
+  assert.match(assistantGuide, /local Docker-socket\s+discovery/u);
   assert.match(security, /privileged\s+Docker-in-Docker runner/u);
   assert.match(security, /no host\s+port/u);
 });
@@ -110,15 +105,15 @@ test("published documentation explains ChatGPT token refresh and lifetime bounda
     assert.match(published, /ChatGPT\/Codex sign-in tokens expire/u);
     assert.match(
       published,
-      /official Codex client refreshes\s+them automatically during active use before they expire/u,
+      /official Codex client refreshes\s+them\s+automatically during active use before they expire/iu,
     );
     assert.match(
       published,
-      /active sessions\s+usually continue without another browser login/u,
+      /active\s+sessions\s+usually\s+continue\s+without\s+another\s+browser\s+login/iu,
     );
     assert.match(
       published,
-      /official\s+(?:\[[^\]]+\]\([^\)]+\)|OpenAI documentation)\s+does not\s+publish a fixed 10-day lifetime/u,
+      /official\s+(?:\[[^\]]+\]\([^\)]+\)|OpenAI documentation)\s+does not\s+publish a fixed 10-day lifetime/iu,
     );
     assert.match(published, /do not plan around one/u);
     assert.match(
@@ -177,7 +172,7 @@ test("security guidance distinguishes loopback endpoints from the n8n bridge", a
   assert.match(security, /every raw Codex WebSocket[\s\S]*every Codex Chat Adapter route except `GET \/health`/u);
   assert.match(security, /Chat Adapter rejects every request carrying an `Origin` header/u);
   assert.match(security, /All three long-running loopback endpoint containers/u);
-  assert.match(security, /`n8n-openai-oauth` option is a distinct/u);
+  assert.match(security, /`n8n-openai-oauth` option is a Docker-network-only/u);
   assert.match(security, /local n8n sidecar publishes no host port/u);
   assert.match(security, /local n8n bridge is create\/remove-only/u);
   assert.match(
@@ -194,7 +189,7 @@ test("security guidance distinguishes loopback endpoints from the n8n bridge", a
   assert.match(security, /not encryption at rest or end-to-end encryption/u);
 });
 
-test("local endpoint guides document safe standalone client credential rotation", async () => {
+test("public guides link to canonical standalone client credential rotation details", async () => {
   const [readme, npmReadme, localGuide] = await Promise.all([
     readFile("README.md", "utf8"),
     readFile("npm/README.md", "utf8"),
@@ -202,9 +197,7 @@ test("local endpoint guides document safe standalone client credential rotation"
   ]);
 
   for (const guide of [readme, npmReadme]) {
-    assert.match(guide, /\*\*Rotate client credential\*\*/u);
-    assert.match(guide, /keeps the upstream Platform API key or Codex credential/u);
-    assert.match(guide, /limits any failed rollback\s+to the exact managed service/u);
+    assert.match(guide, /https:\/\/relmio\.vercel\.app\/docs\/local-endpoints/u);
   }
 
   assert.match(localGuide, /previous capability remains active/u);
@@ -224,7 +217,7 @@ test("beginner documentation states the critical safety and product limits", asy
   );
   const contents = files.join("\n");
 
-  assert.match(contents, /ChatGPT sign-in is never an\s+OpenAI Platform API key/i);
+  assert.match(contents, /ChatGPT sign-in is (?:not|never) an\s+OpenAI Platform API key/i);
   assert.match(contents, /never (?:edits|delete)[\s\S]*n8n/i);
   assert.match(contents, /unofficial/i);
   assert.match(contents, /OpenAI Terms/i);

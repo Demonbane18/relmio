@@ -30,19 +30,21 @@ test("server-renders the Relmio product page", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>Relmio \| AI routes with visible boundaries<\/title>/i);
-  assert.match(html, /Route every request with boundaries you can see\./);
-  assert.match(html, /Four routes\. One visible path at a time\./);
-  assert.match(html, /aria-label="Relay contracts"/);
+  assert.match(html, /<title>Relmio \| Connect local AI tools safely<\/title>/i);
+  assert.match(html, /Use your ChatGPT sign-in with the right local tool\./);
+  assert.match(html, /Choose what you are setting up/u);
+  assert.match(html, /aria-label="Setup options"/);
   assert.match(html, /aria-pressed="true"/);
-  assert.match(html, /Model Relay/);
-  assert.match(html, /n8n Code Sandbox Builder/);
+  assert.match(html, /n8n with ChatGPT sign-in/);
+  assert.match(html, /OpenAI API/);
+  assert.match(html, /n8n Code Sandbox/);
   assert.match(html, /Codex Chat Adapter/);
   assert.match(html, /Codex App Server/);
-  assert.match(html, /Platform API keys and ChatGPT sign-in remain separate credentials\./);
+  assert.match(html, /ChatGPT sign-in and Platform API keys do different jobs\./);
   assert.doesNotMatch(html, /OpenAI-shaped workflows you already use/);
   assert.match(html, /Open hosted chat/);
   assert.match(html, /href="\/install"[^>]*>Install Relmio<\/a>/);
+  assert.match(html, /href="\/changelog"[^>]*>Changelog<\/a>/);
   assert.match(html, /data-astryx-theme="relmio"/);
   assert.match(html, /aria-label="Color theme"/);
   assert.match(html, /class="[^"]*\btheme-mode-control\b/);
@@ -54,9 +56,9 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /lucide-moon/);
   assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
   assert.match(html, /class="[^"]*\beditorial-home\b/);
-  assert.match(html, /aria-label="Model Relay topology"/);
-  assert.match(html, /Boundary evidence/);
-  assert.match(html, /The contract stays legible after setup\./);
+  assert.match(html, /aria-label="n8n with ChatGPT sign-in connection map"/);
+  assert.match(html, /Before anything changes/);
+  assert.match(html, /What Relmio changes and leaves alone\./);
   assert.match(html, /Connect, then ask\./);
   assert.match(html, /Before you connect: install the browser extension/);
   assert.match(
@@ -68,7 +70,7 @@ test("server-renders the Relmio product page", async () => {
     /https:\/\/addons\.mozilla\.org\/firefox\/addon\/sign-in-with-chatgpt\//,
   );
   assert.match(html, /temporarily disable it during local sign-in/);
-  assert.match(html, /Private where it matters\./);
+  assert.match(html, /The n8n bridge stays private\./);
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
   assert.match(html, /class="repository-button"/);
@@ -196,6 +198,9 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /already has Node\.js 22 or newer/);
   assert.match(html, /WinGet remains hidden until Microsoft accepts[^<]*catalog pull request/);
   assert.match(html, /Copy macOS \/ Linux installation command/);
+  assert.match(html, /title="Copy macOS \/ Linux installation command"/);
+  assert.match(html, /aria-live="polite"/);
+  assert.doesNotMatch(html, /<span role="status"[^>]*>Copy<\/span>/);
   assert.match(html, /Choose an installation method/);
   assert.match(html, /Run Relmio on your own computer/);
   assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
@@ -209,6 +214,20 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(powerShellInstallScript, /Get-FileHash/);
   assert.match(powerShellInstallScript, /Node\.js download checksum did not match/);
   assert.match(powerShellInstallScript, /--ignore-scripts/);
+});
+
+test("renders the generated repository changelog as a hosted release-notes page", async () => {
+  const response = await requestApp("/changelog");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  assert.match(html, /<title>Changelog \| Relmio<\/title>/u);
+  assert.match(html, /Release notes/u);
+  assert.match(html, /What changed, in plain language\./u);
+  assert.match(html, /href="#changelog-content"[^>]*>Skip to release notes<\/a>/u);
+  assert.match(html, /0\.10\.0/u);
+  assert.match(html, /0\.9\.1/u);
+  assert.match(html, /href="\/docs"[^>]*>Docs<\/a>/u);
 });
 
 test("returns current repository stars and npm version for the GitHub control", async (t) => {
@@ -537,7 +556,7 @@ test("ships the request-bound chat and removes starter assets", async () => {
   assert.match(chatStyles, /\.messageIncomplete p,[\s\S]*\.messageIncomplete span\s*\{[\s\S]*color:\s*var\(--color-text-orange\)/u);
   assert.match(chatRoute, /openaiCredentials\(request\)/u);
   assert.match(chatRoute, /Cache-Control": "no-store"/u);
-  assert.match(layout, /Relmio \| AI routes with visible boundaries/u);
+  assert.match(layout, /Relmio \| Connect local AI tools safely/u);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
   await assert.rejects(
     access(new URL("../app/_sites-preview", import.meta.url)),

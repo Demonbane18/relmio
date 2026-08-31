@@ -1,56 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" role="img" aria-labelledby="title description">
-  <title id="title">Relmio — one wizard, clear AI boundaries</title>
-  <desc id="description">The Relmio gateway mark connects separate Platform API and private Codex routes without mixing credentials.</desc>
+  <title id="title">Relmio connects n8n to private model tools</title>
+  <desc id="description">A wordless hand-drawn animation shows an n8n workflow moving through a private lock and a doorway where the original green Relmio mascot waits.</desc>
   <defs>
-    <linearGradient id="background" x1="0" x2="1" y1="0" y2="1">
-      <stop stop-color="#071b16"/>
-      <stop offset="1" stop-color="#102c25"/>
-    </linearGradient>
-    <linearGradient id="door" x1="0" x2="0" y1="0" y2="1">
-      <stop stop-color="#20b7aa"/>
-      <stop offset="1" stop-color="#087f77"/>
-    </linearGradient>
-    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
-      <feGaussianBlur stdDeviation="7" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <pattern id="paper" width="28" height="28" patternUnits="userSpaceOnUse">
+      <circle cx="4" cy="7" r=".8" fill="#dbe8dc" opacity=".08"/>
+      <circle cx="19" cy="21" r=".6" fill="#dbe8dc" opacity=".06"/>
+    </pattern>
+    <filter id="rough" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="fractalNoise" baseFrequency=".018" numOctaves="2" seed="19" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.7"/>
     </filter>
+    <filter id="soft-shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="5" result="blur"/>
+      <feOffset dy="5" result="offset"/>
+      <feColorMatrix in="offset" values="0 0 0 0 0.01 0 0 0 0 0.08 0 0 0 0 0.06 0 0 0 .42 0"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <path id="route" d="M92 169 C178 169 201 89 285 122 S390 230 468 164 S620 105 710 161 S860 220 952 153 S1058 128 1118 158"/>
   </defs>
 
-  <rect width="1200" height="320" rx="28" fill="url(#background)"/>
-  <path d="M34 54h202M34 266h202M964 54h202M964 266h202" stroke="#2a5c50" stroke-width="2" stroke-dasharray="8 12"/>
+  <style>
+    .route { animation: route-flow 3.4s linear infinite; }
+    .pulse { transform-box: fill-box; transform-origin: center; animation: pulse 2.6s ease-in-out infinite; }
+    .float { animation: float 3.8s ease-in-out infinite; }
+    .float-late { animation: float 3.8s ease-in-out -1.7s infinite; }
+    .mascot { animation: mascot-step 3.8s ease-in-out infinite; }
+    .blink { animation: blink 4.8s steps(2, end) infinite; }
+    @keyframes route-flow { to { stroke-dashoffset: -34; } }
+    @keyframes pulse { 50% { transform: scale(1.06); opacity: 1; } }
+    @keyframes float { 50% { transform: translateY(-5px) rotate(.6deg); } }
+    @keyframes mascot-step { 50% { transform: translateY(-7px); } }
+    @keyframes blink { 0%, 46%, 54%, 100% { opacity: 1; } 50% { opacity: .18; } }
+    @media (prefers-reduced-motion: reduce) {
+      .route, .pulse, .float, .float-late, .mascot, .blink { animation: none; }
+      .traveler { display: none; }
+    }
+  </style>
 
-  <g opacity=".72" fill="none" stroke-linecap="round">
-    <path d="M52 109h197l72 51h86" stroke="#1a8f82" stroke-width="3"/>
-    <path d="M52 211h197l72-51h86" stroke="#b97722" stroke-width="3"/>
-    <path d="M793 160h86l72-51h197" stroke="#1a8f82" stroke-width="3"/>
-    <path d="M793 160h86l72 51h197" stroke="#b97722" stroke-width="3"/>
+  <rect width="1200" height="320" rx="28" fill="#0b211b"/>
+  <rect width="1200" height="320" rx="28" fill="url(#paper)"/>
+  <path d="M34 54h210M34 266h210M956 54h210M956 266h210" fill="none" stroke="#9eb29f" stroke-width="2" stroke-linecap="round" stroke-dasharray="4 12" opacity=".28" filter="url(#rough)"/>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#rough)">
+    <use href="#route" stroke="#1f4e42" stroke-width="8" opacity=".65"/>
+    <use class="route" href="#route" stroke="#62b9aa" stroke-width="3" stroke-dasharray="8 13"/>
   </g>
 
-  <g fill="#e8f7f2">
-    <circle cx="52" cy="109" r="5"><animate attributeName="opacity" values=".25;1;.25" dur="2.6s" repeatCount="indefinite"/></circle>
-    <circle cx="52" cy="211" r="5"><animate attributeName="opacity" values="1;.25;1" dur="2.6s" repeatCount="indefinite"/></circle>
-    <circle cx="1148" cy="109" r="5"><animate attributeName="opacity" values=".25;1;.25" dur="2.6s" begin=".5s" repeatCount="indefinite"/></circle>
-    <circle cx="1148" cy="211" r="5"><animate attributeName="opacity" values="1;.25;1" dur="2.6s" begin=".5s" repeatCount="indefinite"/></circle>
+  <circle class="traveler" r="7" fill="#f2c36f" stroke="#0b211b" stroke-width="3">
+    <animateMotion dur="3.4s" repeatCount="indefinite" rotate="auto"><mpath href="#route"/></animateMotion>
+  </circle>
+
+  <g transform="translate(62 72)">
+  <g class="float" fill="none" stroke="#8fb8aa" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" filter="url(#rough)">
+    <rect x="0" y="25" width="60" height="60" rx="13" fill="#102f27"/>
+    <circle cx="30" cy="55" r="11"/>
+    <path d="M60 55h45M93 44l12 11-12 11"/>
+    <rect x="105" y="0" width="70" height="70" rx="15" fill="#102f27" stroke="#d1b276"/>
+    <path d="M130 35h20M140 25v20" stroke="#d1b276"/>
+    <path d="M140 70v27M140 97l-35 33M140 97l35 33"/>
+    <circle cx="105" cy="130" r="12"/>
+    <circle cx="175" cy="130" r="12"/>
+  </g>
   </g>
 
-  <g transform="translate(452 34)">
-    <path d="M22 242V116C22 49 66 6 148 6s126 43 126 110v126" fill="#f6f0e6"/>
-    <path d="M72 242V126c0-45 26-73 76-73s76 28 76 73v116" fill="url(#door)"/>
-    <circle cx="123" cy="120" r="11" fill="#f6f0e6"/>
-    <circle cx="173" cy="120" r="11" fill="#f6f0e6"/>
-    <path d="M103 174c24 20 66 20 90 0" fill="none" stroke="#d6fff8" stroke-width="5" stroke-linecap="round" opacity=".75"/>
-    <ellipse cx="148" cy="250" rx="82" ry="10" fill="#0ce0cc" opacity=".18" filter="url(#glow)">
-      <animate attributeName="rx" values="66;90;66" dur="3s" repeatCount="indefinite"/>
-      <animate attributeName="opacity" values=".1;.32;.1" dur="3s" repeatCount="indefinite"/>
-    </ellipse>
+  <g transform="translate(350 92)">
+  <g class="pulse" opacity=".9" filter="url(#rough)">
+    <path d="M24 72V47c0-31 18-47 43-47s43 16 43 47v25" fill="none" stroke="#d8c6a0" stroke-width="6" stroke-linecap="round"/>
+    <rect x="6" y="66" width="122" height="94" rx="34" fill="#132f28" stroke="#d8c6a0" stroke-width="5"/>
+    <circle cx="67" cy="105" r="10" fill="#d49a43"/>
+    <path d="M67 115v20" stroke="#d49a43" stroke-width="7" stroke-linecap="round"/>
+    <path d="M18 170c24 8 79 8 102 0" fill="none" stroke="#42685d" stroke-width="3" stroke-linecap="round"/>
+  </g>
   </g>
 
-  <g font-family="ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fill="#f6f0e6">
-    <text x="56" y="77" font-size="18" letter-spacing="3" fill="#49cfc1">SUPPORTED API</text>
-    <text x="56" y="190" font-size="18" letter-spacing="3" fill="#e1a34f">PRIVATE EXPERIMENTAL</text>
-    <text x="825" y="88" font-size="56" font-weight="700">Relmio</text>
-    <text x="825" y="130" font-size="23" fill="#b7d2c9">One wizard. Clear boundaries.</text>
-    <text x="825" y="192" font-size="18" fill="#f6f0e6">Connect AI tools without mixing credentials.</text>
-    <text x="825" y="226" font-size="15" fill="#8db3a7">Local endpoints · n8n companions · Codex tools</text>
+  <!-- The cream arch is the doorway. -->
+  <g transform="translate(508 48)" filter="url(#soft-shadow)">
+    <path d="M0 220V102C0 39 42 0 112 0s112 39 112 102v118h-46V108c0-40-22-63-66-63s-66 23-66 63v112z" fill="#f6f0e9"/>
+  </g>
+
+  <!-- The green two-eyed figure is the original Relmio mascot. It has no mouth. -->
+  <g transform="translate(572 140)">
+  <g class="mascot">
+    <path d="M0 126V47C0 17 18 0 48 0s48 17 48 47v79z" fill="#087f7b"/>
+    <circle class="blink" cx="30" cy="47" r="10" fill="#f6f0e9"/>
+    <circle class="blink" cx="66" cy="47" r="10" fill="#f6f0e9"/>
+  </g>
+  </g>
+
+  <ellipse cx="620" cy="274" rx="84" ry="10" fill="#06130f" opacity=".44"/>
+
+  <g transform="translate(924 74)">
+  <g class="float-late" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#rough)">
+    <g transform="rotate(-4 70 58)">
+      <rect x="10" y="9" width="112" height="100" rx="21" fill="#103229" stroke="#65b8aa" stroke-width="4"/>
+      <path d="M66 34l9 17 20 3-14 14 4 20-19-9-18 9 3-20-14-14 20-3z" stroke="#65b8aa" stroke-width="4"/>
+    </g>
+    <g transform="translate(112 92) rotate(6 58 48)">
+      <rect width="116" height="96" rx="20" fill="#2a281c" stroke="#d0aa66" stroke-width="4"/>
+      <path d="M58 25l27 15v30L58 85 31 70V40zM31 40l27 16 27-16M58 56v29" stroke="#d0aa66" stroke-width="4"/>
+    </g>
+    <path d="M-8 68h-36M-32 57l-12 11 12 11" stroke="#65b8aa" stroke-width="4"/>
+  </g>
+  </g>
+
+  <g fill="#d8c6a0" opacity=".8">
+    <circle class="pulse" cx="308" cy="68" r="4"/>
+    <circle class="pulse" cx="905" cy="238" r="4"/>
+    <path d="M328 75l10-14M344 83l15-5M886 244l-15 8M900 254l-4 15" fill="none" stroke="#d8c6a0" stroke-width="4" stroke-linecap="round" filter="url(#rough)"/>
   </g>
 </svg>

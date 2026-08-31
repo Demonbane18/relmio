@@ -41,6 +41,7 @@ export default function InstallPage() {
           <nav className="editorial-nav" aria-label="Primary navigation">
             <Link href="/">Hosted chat</Link>
             <Link href="/docs">Documentation</Link>
+            <Link href="/changelog">Changelog</Link>
           </nav>
           <HStack className="editorial-header-actions" gap={2} align="center">
             <ThemeModeControl />

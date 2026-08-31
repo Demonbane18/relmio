@@ -1,9 +1,8 @@
 # New local n8n with ngrok
 
-Relmio can create a new, disposable self-hosted n8n installation and publish
-only its editor and webhook route through an authenticated ngrok endpoint. This
-is an add-on for people who do not already have a local n8n deployment. It is
-separate from the existing-n8n bridge and Assistant companion options.
+Relmio can create a new disposable n8n installation and publish only its editor
+and webhook route through ngrok Basic Auth. Use it when you do not already run
+local n8n. It is separate from the existing-n8n bridge and Assistant options.
 
 Relmio never adopts or changes another n8n installation. The new stack gets a
 random Compose project identity, exact ownership labels, its own n8n data
@@ -25,10 +24,9 @@ You need:
 - a strong Basic Auth username and password for the public route; and
 - two unused loopback ports for local n8n and the ngrok inspector.
 
-The ngrok endpoint is public internet infrastructure. Anyone can reach its
-authentication challenge, so use a unique password and do not share the URL or
-credentials. Relmio uses ngrok's recommended Traffic Policy Basic Auth rather
-than the deprecated command-line Basic Auth flag. See ngrok's official
+The ngrok endpoint is public. Anyone can reach its sign-in prompt, so use a
+unique password and keep the URL and credentials private. Relmio uses ngrok's
+Traffic Policy Basic Auth, not the deprecated command-line flag. See ngrok's
 [Docker guide](https://ngrok.com/docs/using-ngrok-with/docker) and
 [agent documentation](https://ngrok.com/docs/agent).
 
@@ -55,9 +53,8 @@ than the deprecated command-line Basic Auth flag. See ngrok's official
    Basic Auth challenge must block access. Enter the username and password you
    chose and confirm that n8n then loads before relying on the public route.
 
-The wizard clears the submitted ngrok and Basic Auth credentials from its
-browser state after the request. It returns URLs and service names, never the
-secrets written into the owner-only managed files.
+The wizard clears ngrok and Basic Auth credentials from the browser after the
+request. It returns URLs and service names, never the stored secrets.
 
 ## Network boundary
 

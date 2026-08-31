@@ -1,7 +1,7 @@
 {
   "name": "relmio",
   "version": "0.10.0",
-  "description": "Install private local OpenAI and Codex endpoints or isolated n8n companion services with explicit credential boundaries.",
+  "description": "Use ChatGPT/Codex sign-in with self-hosted n8n through a private Docker bridge, or set up a separate Platform API route.",
   "keywords": [
     "relmio",
     "gpt-5-6-sol",
@@ -9,12 +9,11 @@
     "gpt-5-6-luna",
     "gpt-2-0-image",
     "n8n",
-    "ai-agent",
-    "api-key",
-    "ai",
+    "openai-api",
     "chatgpt",
     "codex",
-    "openai"
+    "oauth",
+    "local-ai"
   ],
   "type": "module",
   "license": "Apache-2.0",

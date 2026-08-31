@@ -225,8 +225,8 @@ test("public README is a concise entry point to hosted canonical docs", async ()
   ]);
 
   assert.match(readme, /npx --yes --ignore-scripts relmio@latest/u);
-  assert.match(readme, /## Endpoints/u);
-  assert.match(readme, /## Critical security boundaries/u);
+  assert.match(readme, /## Pick a path/u);
+  assert.match(readme, /## Legal/u);
   assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/getting-started/u);
   assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/reference/u);
   assert.doesNotMatch(readme, /```mermaid|relmio\.jpfusin\.tech/u);

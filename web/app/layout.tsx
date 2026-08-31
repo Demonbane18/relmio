@@ -17,22 +17,22 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const title = "Relmio | AI routes with visible boundaries";
+const title = "Relmio | Connect local AI tools safely";
 const description =
-  "Route model API requests, build an n8n code sandbox companion, or connect supported Codex clients without collapsing their credential boundaries.";
+  "Connect n8n, OpenAI API tools, and supported Codex clients while keeping each sign-in, key, and connection separate.";
 
 const directionContract = `<!--
 THESIS
-Every request has a visible source, credential boundary, route, and destination.
+Every option shows where it starts, which sign-in or key it uses, how it connects, and where it ends.
 
 OWN-WORLD
-Relmio is a calm signal desk for self-hosted AI infrastructure, not a generic AI landing page.
+Relmio is a calm setup guide for local AI tools, not a generic AI landing page.
 
 STORY
-The interface makes Model Relay, n8n Code Sandbox Builder, Codex Chat Adapter, and Codex App Server distinct, selectable, and truthful.
+The interface keeps n8n with ChatGPT sign-in, the OpenAI API, n8n Code Sandbox, Codex Chat Adapter, and Codex App Server distinct and truthful.
 
 FIRST VIEWPORT
-An asymmetric editorial introduction and an interactive relay topology explain the product before supporting detail.
+An editorial introduction and an interactive connection map explain the options before the supporting detail.
 
 FORM
 Signal Plotter direction; concept seed 95cdc256; muted teal, graphite, warm canvas, semantic amber; motion expresses route and state.

@@ -1,4 +1,4 @@
-# Documentation — Field Manual Override
+# Documentation: Field Manual
 
 - Shared shell and tokens, but optimize for reading rather than spectacle.
 - A slim persistent table of contents may appear at desktop widths; on mobile use native disclosure/navigation.

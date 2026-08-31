@@ -3,10 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="description"
-      content="Install a local Relmio endpoint or a private Docker-network bridge for self-hosted n8n."
-    />
+    <meta name="description" content="Connect local apps or n8n to supported OpenAI models without mixing credentials." />
     <title>Relmio | Local Endpoint Setup</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
@@ -85,11 +82,11 @@
     <main id="main-content" class="shell" tabindex="-1">
       <aside class="rail" aria-label="Local setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
-          <p class="local-eyebrow">Local pre-flight</p>
-          <h1 id="page-title">One boundary at a time</h1>
+          <p class="local-eyebrow">Local setup</p>
+          <h1 id="page-title">Connect local apps or n8n</h1>
           <p class="lede">
-            Run Relmio beside your local apps. Endpoint options bind only to
-            <code>127.0.0.1</code>; the n8n bridge publishes no host port at all.
+            Sign in to ChatGPT/Codex for supported models through a private Docker route,
+            or use a Platform API key for the supported API route.
           </p>
         </section>
 
@@ -120,8 +117,8 @@
           >
             <strong>Two different credentials</strong>
             <span>
-              A ChatGPT subscription is not an OpenAI Platform API key.
-              Relmio never converts one into the other.
+              ChatGPT/Codex sign-in and an OpenAI Platform API key are different.
+              Relmio never turns one into the other.
             </span>
           </aside>
 
@@ -150,7 +147,7 @@
 
       <section class="panel" data-step="1" aria-labelledby="choose-title">
         <div class="panel-heading">
-          <h2 id="choose-title" tabindex="-1">Choose the local endpoint</h2>
+          <h2 id="choose-title" tabindex="-1">Choose what to set up</h2>
           <p>
             Docker stays on this computer. Relmio checks it without changing
             any running containers.
@@ -180,12 +177,11 @@
             <label class="target-card">
               <input type="radio" name="target" value="openai-api" checked />
               <span class="target-card-copy">
-                <strong>OpenAI API endpoint</strong>
+                <strong>OpenAI API</strong>
                 <span class="target-meta">Stable · apps and web apps</span>
                 <span>
-                  OpenAI-compatible <code>/v1</code>, backed only by your
-                  OpenAI Platform API key. Platform API usage is billed
-                  separately from ChatGPT.
+                  The supported <code>/v1</code> API for apps and web apps.
+                  It uses only your Platform API key; Platform billing is separate from ChatGPT.
                 </span>
               </span>
             </label>
@@ -220,12 +216,12 @@
             <label class="target-card warning-card">
               <input type="radio" name="target" value="n8n-openai-oauth" />
               <span class="target-card-copy">
-                <strong>Self-hosted n8n bridge</strong>
-                <span class="target-meta">Unofficial · private Docker network</span>
+                <strong>Existing n8n model bridge</strong>
+                <span class="target-meta">Unofficial · private · policy-uncertain</span>
                 <span>
-                  Runs the unofficial <code>openai-oauth</code> sidecar beside an
-                  existing local n8n container using your local ChatGPT sign-in.
-                  No host port—n8n reaches it only through their shared private Docker network.
+                  Connects an existing n8n container to supported ChatGPT/Codex models with the
+                  unofficial <code>openai-oauth</code> sidecar. It is private to a shared Docker
+                  network. There is no host port. Check OpenAI policy before using it.
                 </span>
               </span>
             </label>
@@ -249,8 +245,8 @@
                 <strong>New local n8n + ngrok</strong>
                 <span class="target-meta">Relmio-owned add-on · mandatory Basic Auth</span>
                 <span>
-                  Creates a brand-new Relmio-owned n8n stack and a public ngrok URL
-                  protected by Basic Auth. It never changes any existing n8n deployment.
+                  Creates a separate local n8n stack and an ngrok link protected by Basic Auth.
+                  It never changes an existing n8n deployment.
                 </span>
               </span>
             </label>
@@ -411,23 +407,23 @@
 
           <section id="n8n-stack-fields" class="n8n-stack-fields" hidden aria-labelledby="n8n-stack-fields-title">
             <div class="section-heading">
-              <h3 id="n8n-stack-fields-title">Create a new owned n8n stack</h3>
-              <p>Reviewing this form only attests local Docker. It creates no files, starts no containers, and does not expose ngrok.</p>
+              <h3 id="n8n-stack-fields-title">Set up a new local n8n stack</h3>
+              <p>Reviewing only checks local Docker. It creates nothing and does not expose ngrok.</p>
             </div>
             <aside class="policy-note">
-              <strong>Prepare ngrok in three steps</strong>
+              <strong>Set up ngrok in three steps</strong>
               <ol>
                 <li>Create or choose a static ngrok domain in the <a href="https://dashboard.ngrok.com/domains" target="_blank" rel="noopener noreferrer">ngrok dashboard</a>.</li>
-                <li>Copy an authtoken allowed to bind that domain from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">Your Authtoken</a>.</li>
-                <li>Choose a separate Basic Auth username and strong password for visitors to this n8n URL.</li>
+                <li>Get an authtoken allowed to use that domain from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">Your Authtoken</a>.</li>
+                <li>Choose a separate Basic Auth username and strong password for people opening this n8n link.</li>
               </ol>
-              <p>After installation, open the public URL in an anonymous browser: it must be blocked until you enter those Basic Auth credentials.</p>
+              <p>After installation, open the public link in a private browser window. It must stay blocked until you enter that Basic Auth pair.</p>
             </aside>
             <div class="field-grid local-fields">
               <label class="field">
                 <span>Reserved ngrok hostname</span>
                 <input id="ngrok-hostname" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="workflow.example.ngrok.app" required />
-                <small>Hostname only — no scheme, path, or port.</small>
+                <small>Hostname only. Do not include a scheme, path, or port.</small>
               </label>
               <label class="field compact">
                 <span>Loopback n8n port</span>
@@ -693,8 +689,10 @@
                 data-copy-target="result-endpoint"
                 data-copy-label="endpoint"
                 aria-label="Copy local endpoint"
+                title="Copy local endpoint"
               >
-                Copy
+                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg>
+                <svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
               </button>
             </dd>
           </div>
@@ -728,7 +726,7 @@
           </div>
           <div id="result-public-url-row" hidden>
             <dt>Public ngrok URL</dt>
-            <dd class="result-value"><code id="result-public-url"></code><button class="button secondary copy-value" type="button" data-copy-target="result-public-url" data-copy-label="public ngrok URL" aria-label="Copy public ngrok URL">Copy</button></dd>
+            <dd class="result-value"><code id="result-public-url"></code><button class="button secondary copy-value" type="button" data-copy-target="result-public-url" data-copy-label="public ngrok URL" aria-label="Copy public ngrok URL" title="Copy public ngrok URL"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
           </div>
           <div id="result-assistant-mode-row" hidden>
             <dt>Assistant selection</dt>
@@ -744,8 +742,9 @@
                 data-copy-target="result-sandbox-key"
                 data-copy-label="sandbox API key"
                 aria-label="Copy sandbox API key"
+                title="Copy sandbox API key"
               >
-                Copy
+                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
               </button>
             </dd>
           </div>
@@ -760,8 +759,9 @@
                 data-copy-target="result-searxng"
                 data-copy-label="SearXNG URL"
                 aria-label="Copy SearXNG URL"
+                title="Copy SearXNG URL"
               >
-                Copy
+                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
               </button>
             </dd>
           </div>
@@ -775,8 +775,9 @@
                 data-copy-target="result-n8n-settings"
                 data-copy-label="n8n environment values"
                 aria-label="Copy n8n environment values"
+                title="Copy n8n environment values"
               >
-                Copy
+                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
               </button>
             </dd>
           </div>
@@ -790,8 +791,9 @@
                 data-copy-target="result-credential"
                 data-copy-label="client credential"
                 aria-label="Copy client credential"
+                title="Copy client credential"
               >
-                Copy
+                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
               </button>
             </dd>
           </div>
@@ -825,8 +827,9 @@
                 data-copy-target="device-code"
                 data-copy-label="device code"
                 aria-label="Copy device code"
+                title="Copy device code"
               >
-                Copy
+                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
               </button>
             </div>
             <a
