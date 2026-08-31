@@ -229,6 +229,19 @@
                 </span>
               </span>
             </label>
+
+            <label class="target-card warning-card">
+              <input type="radio" name="target" value="n8n-ai-assistant" />
+              <span class="target-card-copy">
+                <strong>n8n AI Assistant tools</strong>
+                <span class="target-meta">Code Sandbox + optional SearXNG</span>
+                <span>
+                  Installs the private n8n Code Sandbox support services beside
+                  an existing local n8n container. Optionally add SearXNG JSON
+                  web search. Relmio never edits or restarts n8n itself.
+                </span>
+              </span>
+            </label>
           </fieldset>
 
           <div id="endpoint-fields" class="field-grid local-fields">
@@ -315,7 +328,7 @@
               </button>
             </div>
 
-            <div class="sidecar-oauth" aria-labelledby="n8n-oauth-title">
+            <div id="n8n-sidecar-oauth" class="sidecar-oauth" aria-labelledby="n8n-oauth-title">
               <div>
                 <h3 id="n8n-oauth-title">Local ChatGPT OAuth credential</h3>
                 <p id="n8n-oauth-status" role="status" aria-live="polite">
@@ -339,7 +352,7 @@
               </div>
             </div>
 
-            <aside class="policy-note sidecar-scope-note">
+            <aside id="n8n-sidecar-scope" class="policy-note sidecar-scope-note">
               <strong>Private model bridge only</strong>
               <p>
                 This installs the private model bridge only. It does not install
@@ -347,6 +360,41 @@
                 model-provider credentials are configured separately and directly in n8n.
               </p>
             </aside>
+
+            <div
+              id="n8n-assistant-options"
+              class="assistant-companion-options"
+              hidden
+            >
+              <aside class="high-trust-warning">
+                <strong>Privileged local sandbox runner</strong>
+                <p>
+                  Code Sandbox uses a privileged Docker-in-Docker runner for
+                  local development and testing. For production isolation, n8n
+                  currently recommends Daytona instead.
+                </p>
+              </aside>
+
+              <label class="check-row assistant-search-choice">
+                <input id="include-local-searxng" type="checkbox" />
+                <span>
+                  <strong>Optional SearXNG JSON web search</strong>
+                  <small>
+                    Off by default. Enable it only when this n8n AI Assistant
+                    needs a private self-hosted web-search backend.
+                  </small>
+                </span>
+              </label>
+
+              <aside class="policy-note">
+                <strong>Operator-owned n8n configuration</strong>
+                <p>
+                  Relmio provisions and verifies only the companion containers.
+                  You must apply the returned environment values to your own n8n
+                  deployment; any n8n restart remains your action.
+                </p>
+              </aside>
+            </div>
           </section>
 
           <aside id="target-guidance" class="policy-note" aria-live="polite">
@@ -375,7 +423,7 @@
 
         <dl class="result-list review-details">
           <div>
-            <dt>Endpoint</dt>
+            <dt id="review-endpoint-label">Endpoint</dt>
             <dd><code id="review-endpoint"></code></dd>
           </div>
           <div>
@@ -504,6 +552,16 @@
           </p>
         </aside>
 
+        <aside id="assistant-install-note" class="high-trust-warning" hidden>
+          <strong>Privileged local testing companion</strong>
+          <p>
+            Relmio will start only its ownership-bound Code Sandbox services and
+            optional SearXNG container. It will not edit, exec into, rebuild,
+            restart, stop, recreate, or change network membership on n8n. Apply
+            the returned n8n settings yourself after installation.
+          </p>
+        </aside>
+
         <div class="actions">
           <button class="button ghost back-button" type="button" data-back="2">
             Back
@@ -524,8 +582,8 @@
         </div>
 
         <aside id="one-time-note" class="one-time-note">
-          <strong>Copy this credential now</strong>
-          <p>
+          <strong id="one-time-note-title">Copy this credential now</strong>
+          <p id="one-time-note-detail">
             Relmio shows the generated client credential only in this install
             response. It cannot recover it after you leave this page.
           </p>
@@ -549,7 +607,7 @@
 
         <dl id="install-result-list" class="result-list">
           <div id="result-endpoint-row">
-            <dt>Endpoint</dt>
+            <dt id="result-endpoint-label">Endpoint</dt>
             <dd class="result-value">
               <code id="result-endpoint"></code>
               <button
@@ -590,6 +648,40 @@
           <div id="result-deployment-row" hidden>
             <dt>Deployment mode</dt>
             <dd id="result-deployment"></dd>
+          </div>
+          <div id="result-sandbox-key-row" hidden>
+            <dt>Sandbox API key</dt>
+            <dd class="result-value">
+              <code id="result-sandbox-key"></code>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-sandbox-key"
+                data-copy-label="sandbox API key"
+                aria-label="Copy sandbox API key"
+              >
+                Copy
+              </button>
+            </dd>
+          </div>
+          <div id="result-searxng-row" hidden>
+            <dt>SearXNG URL</dt>
+            <dd><code id="result-searxng"></code></dd>
+          </div>
+          <div id="result-n8n-settings-row" hidden>
+            <dt>Required n8n environment values</dt>
+            <dd class="result-value result-settings-value">
+              <pre id="result-n8n-settings"></pre>
+              <button
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-n8n-settings"
+                data-copy-label="n8n environment values"
+                aria-label="Copy n8n environment values"
+              >
+                Copy
+              </button>
+            </dd>
           </div>
           <div id="result-credential-row">
             <dt>Client credential</dt>
@@ -786,6 +878,41 @@
             </button>
             <p id="remove-bridge-status" role="status" aria-live="polite">
               The bridge remains installed until this separate confirmation is checked.
+            </p>
+          </div>
+        </section>
+
+        <section
+          id="n8n-assistant-removal"
+          class="n8n-sidecar-removal"
+          aria-labelledby="n8n-assistant-removal-title"
+          hidden
+        >
+          <h3 id="n8n-assistant-removal-title">Remove Assistant tools</h3>
+          <p>
+            Removes only Relmio's managed Code Sandbox, optional SearXNG,
+            private TLS volume, and managed files. It never removes or changes
+            n8n or the selected external Docker network.
+          </p>
+          <label class="check-row">
+            <input id="remove-assistant-confirm" type="checkbox" />
+            <span>
+              I authorize Relmio to remove only these managed Assistant
+              companions and their private volume and files. Keep n8n and the
+              external Docker network untouched.
+            </span>
+          </label>
+          <div class="sidecar-removal-actions">
+            <button
+              id="remove-assistant-button"
+              class="button secondary"
+              type="button"
+              disabled
+            >
+              Remove Assistant tools
+            </button>
+            <p id="remove-assistant-status" role="status" aria-live="polite">
+              The companion stack remains installed until this separate confirmation is checked.
             </p>
           </div>
         </section>

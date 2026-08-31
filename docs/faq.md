@@ -44,3 +44,9 @@ does not provide encryption at rest or end-to-end encryption.
 No. The local and VPS flows deploy a distinct sidecar only after you approve
 the displayed plan. They do not edit, exec into, rebuild, restart, stop, or
 recreate n8n, and they never publish port `10531` on the host.
+
+The local **n8n AI Assistant tools** option follows the same n8n lifecycle
+boundary. It creates only Relmio-owned Code Sandbox services and optional
+SearXNG, publishes no host port, and returns the environment values for you to
+apply. The privileged Docker-in-Docker runner is for local testing; use Daytona
+for production sandboxing.

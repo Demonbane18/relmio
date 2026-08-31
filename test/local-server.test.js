@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "local-server-test-session-token-1234567890";
@@ -604,6 +605,187 @@ test("local n8n sidecar install is single-use, uses the server-side OAuth path, 
   assert.equal(replay.status, 400);
   assert.match((await replay.json()).error, /fresh local endpoint plan/iu);
   assert.equal(installCalls.length, 1);
+});
+
+test("local n8n Assistant planning, install, and removal expose only the reviewed companion contract", async (t) => {
+  const prepared = [];
+  const installed = [];
+  let removed = 0;
+  const sandboxApiKey = "s".repeat(43);
+  const sandboxImage = ASSISTANT_COMPANION_IMAGES.sandbox;
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      return {
+        dockerAvailable: true,
+        dockerVersion: "28.3.2",
+        composeVersion: "2.38.2",
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        containers: [
+          {
+            containerId: "a".repeat(64),
+            containerName: "relmio-test-n8n",
+            image: "docker.n8n.io/n8nio/n8n:2.36.8",
+            networks: [
+              {
+                dockerNetworkId: "b".repeat(64),
+                networkName: "relmio-test_assistant-shared",
+                disposable: true,
+              },
+            ],
+          },
+        ],
+      };
+    },
+    prepareLocalN8nAssistantPlan(input) {
+      prepared.push(input);
+      return {
+        kind: "n8n-assistant",
+        target: "n8n-ai-assistant",
+        label: "n8n AI Assistant tools",
+        protocol: "n8n-instance-ai-companion",
+        ...input,
+        codeSandbox: true,
+        privilegedRunner: true,
+        hostPublication: "none",
+        managedPath: "~/.relmio/local/n8n-ai-assistant",
+        n8nConfigurationRequired: true,
+      };
+    },
+    async installLocalN8nAssistant(input) {
+      installed.push(input);
+      const sandboxUrl = "http://relmio-ai-sandbox-" + "c".repeat(32) + ":8080";
+      const searxngUrl = "http://relmio-ai-searxng-" + "d".repeat(32) + ":8080";
+      return {
+        target: "n8n-ai-assistant",
+        endpoint: sandboxUrl,
+        sandboxUrl,
+        sandboxApiKey,
+        searxngUrl,
+        protocol: "n8n-instance-ai-companion",
+        includeSearxng: true,
+        networkName: "relmio-test_assistant-shared",
+        n8nContainerName: "relmio-test-n8n",
+        hostPublication: "none",
+        privilegedRunner: true,
+        n8nConfigurationRequired: true,
+        n8nSettings: {
+          N8N_ENABLED_MODULES: "instance-ai",
+          N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+          N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+          N8N_INSTANCE_AI_SANDBOX_IMAGE: sandboxImage,
+          N8N_SANDBOX_SERVICE_URL: sandboxUrl,
+          N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey,
+          N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl,
+        },
+        deploymentMode: "installed",
+        credentialShownOnce: true,
+        privateRunnerToken: "must-not-leak",
+      };
+    },
+    async removeLocalN8nAssistant({ confirmed }) {
+      assert.equal(confirmed, true);
+      removed += 1;
+      return { target: "n8n-ai-assistant", removed: true };
+    },
+    async getAuthStatus() {
+      throw new Error("Assistant companion planning must not read ChatGPT OAuth");
+    },
+  });
+
+  const missingChoice = await postJson(wizard, "/api/local/plan", {
+    target: "n8n-ai-assistant",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  assert.equal(missingChoice.status, 400);
+  assert.match((await missingChoice.json()).error, /SearXNG|choose/iu);
+
+  const planned = await createPlan(wizard, {
+    target: "n8n-ai-assistant",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+    includeSearxng: true,
+  });
+  assert.deepEqual(prepared, [{
+    dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+    n8nContainerId: "a".repeat(64),
+    n8nContainerName: "relmio-test-n8n",
+    dockerNetworkId: "b".repeat(64),
+    networkName: "relmio-test_assistant-shared",
+    includeSearxng: true,
+  }]);
+  assert.deepEqual(planned.plan, {
+    kind: "n8n-assistant",
+    target: "n8n-ai-assistant",
+    label: "n8n AI Assistant tools",
+    protocol: "n8n-instance-ai-companion",
+    n8nContainerId: "a".repeat(64),
+    n8nContainerName: "relmio-test-n8n",
+    dockerNetworkId: "b".repeat(64),
+    networkName: "relmio-test_assistant-shared",
+    codeSandbox: true,
+    includeSearxng: true,
+    privilegedRunner: true,
+    hostPublication: "none",
+    managedPath: "~/.relmio/local/n8n-ai-assistant",
+    n8nConfigurationRequired: true,
+    disposableHarnessWarning: true,
+  });
+  assert.doesNotMatch(JSON.stringify(planned), /dockerHost|\/Users\//iu);
+
+  const response = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(installed.length, 1);
+  assert.deepEqual(installed[0], {
+    plan: {
+      kind: "n8n-assistant",
+      target: "n8n-ai-assistant",
+      label: "n8n AI Assistant tools",
+      protocol: "n8n-instance-ai-companion",
+      dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+      n8nContainerId: "a".repeat(64),
+      n8nContainerName: "relmio-test-n8n",
+      dockerNetworkId: "b".repeat(64),
+      networkName: "relmio-test_assistant-shared",
+      includeSearxng: true,
+      codeSandbox: true,
+      privilegedRunner: true,
+      hostPublication: "none",
+      managedPath: "~/.relmio/local/n8n-ai-assistant",
+      n8nConfigurationRequired: true,
+      disposableHarnessWarning: true,
+    },
+    confirmed: true,
+  });
+  const responseText = await response.text();
+  assert.doesNotMatch(responseText, /must-not-leak|privateRunnerToken|dockerHost/iu);
+  const result = JSON.parse(responseText);
+  assert.equal(result.sandboxApiKey, sandboxApiKey);
+  assert.equal(result.searxngUrl.endsWith(":8080"), true);
+  assert.deepEqual(result.n8nSettings, {
+    N8N_ENABLED_MODULES: "instance-ai",
+    N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+    N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+    N8N_INSTANCE_AI_SANDBOX_IMAGE: sandboxImage,
+    N8N_SANDBOX_SERVICE_URL: result.sandboxUrl,
+    N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey,
+    N8N_INSTANCE_AI_SEARXNG_URL: result.searxngUrl,
+  });
+
+  const removal = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/remove",
+    { confirmed: true },
+  );
+  assert.equal(removal.status, 200);
+  assert.deepEqual(await removal.json(), {
+    target: "n8n-ai-assistant",
+    removed: true,
+  });
+  assert.equal(removed, 1);
 });
 
 test("local n8n sidecar planning fails closed before storing a plan when ChatGPT OAuth is absent", async (t) => {

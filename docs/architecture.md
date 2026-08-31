@@ -21,8 +21,8 @@ flowchart LR
 
 The local installer is a separate path in the same browser wizard. It uses the
 local Docker Engine and never opens SSH or writes to a VPS. Three options create
-loopback endpoints; a fourth creates a private sidecar beside an existing local
-n8n container without changing n8n itself.
+loopback endpoints; two create private companion projects beside an existing
+local n8n container without changing n8n itself.
 
 ```mermaid
 flowchart LR
@@ -33,14 +33,16 @@ flowchart LR
   D --> H["Codex Chat Adapter<br>127.0.0.1:14501/chat"]
   D --> N["Existing local n8n<br>unchanged"]
   D --> S["openai-oauth sidecar<br>no host port"]
+  D --> X["Code Sandbox + optional SearXNG<br>no host ports"]
   N -->|"selected private Docker network<br>n8n-openai-oauth:10531"| S
+  N -->|"selected private Docker network<br>generated aliases"| X
   G -->|"Platform API key"| P["OpenAI Platform API"]
   A -->|"Official Codex sign-in"| C["ChatGPT/Codex service"]
   H -->|"Official App Server lifecycle"| C
   S -->|"unofficial OAuth bridge"| C
 ```
 
-The four options are intentionally not interchangeable:
+The five options are intentionally not interchangeable:
 
 | Target | Wire protocol | Upstream credential |
 |---|---|---|
@@ -48,6 +50,7 @@ The four options are intentionally not interchangeable:
 | `codex-chatgpt` | Official Codex App Server JSON-RPC | ChatGPT sign-in managed by Codex |
 | `codex-chat` | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in managed by Codex |
 | `n8n-openai-oauth` | Private OpenAI-compatible HTTP `/v1` for n8n only | Local ChatGPT OAuth copied into a private sidecar volume |
+| `n8n-ai-assistant` | n8n Instance AI Code Sandbox plus optional SearXNG JSON search | Generated sandbox key; model-provider credential configured directly in n8n |
 
 Relmio never adapts a ChatGPT/Codex credential into the local `/v1` gateway.
 The OpenAI gateway replaces the caller's Relmio capability with the
@@ -68,10 +71,13 @@ no host port; only containers on its selected existing network can resolve its
 private hostname. Their managed roots are
 `~/.relmio/local/openai-api`, `~/.relmio/local/codex-chatgpt`, and
 `~/.relmio/local/codex-chat`, with the sidecar under
-`~/.relmio/local/n8n-openai-oauth`. The Codex credentials and workspaces use
-target-specific private named Docker volumes; no host directory or Docker
-socket is mounted. See [Local Docker endpoints](local-endpoints.md) for setup
-and trust limitations.
+`~/.relmio/local/n8n-openai-oauth` and Assistant tools under
+`~/.relmio/local/n8n-ai-assistant`. The Codex credentials and workspaces use
+target-specific private named Docker volumes; no long-running loopback endpoint
+mounts the Docker socket. The Assistant runner is the explicit exception: it is
+a privileged Docker-in-Docker service on its own internal Compose network for
+local testing. See [Local Docker endpoints](local-endpoints.md) for setup and
+trust limitations.
 
 Before installation, Relmio resolves the selected Docker context to a local
 Unix socket and pins that exact socket on every later Docker command. Remote
@@ -87,6 +93,12 @@ new sidecar to the already-existing network. It never connects, edits, executes
 inside, rebuilds, restarts, stops, or recreates n8n. The source OAuth file is
 preserved; validated JSON is copied over stdin into a private labeled volume
 with no logging or network access during seeding.
+
+For `n8n-ai-assistant`, the reviewed plan records those same exact n8n and
+network identities plus the explicit SearXNG boolean. Relmio creates only its
+ownership-labeled sandbox project, verifies the exact running service set and
+zero host publication, and returns the n8n environment block without applying
+it. n8n lifecycle and configuration remain operator-owned.
 
 The local endpoint installer supports macOS, Linux, and Linux under WSL2.
 Native Windows is rejected before filesystem or Docker mutation because this

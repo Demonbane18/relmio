@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
+
 function relativeLuminance(hex) {
   const channels = hex
     .match(/[\da-f]{2}/giu)
@@ -235,9 +237,9 @@ test("local wizard offers a private n8n openai-oauth sidecar without exposing cr
   assert.match(script, /api\("\/api\/oauth\/status"/u);
   assert.match(script, /n8nContainerId:[\s\S]*dockerNetworkId:/u);
   assert.doesNotMatch(script, /n8nContainerId:[^}]*credential|dockerNetworkId:[^}]*credential/iu);
-  assert.match(script, /endpointFields\.hidden = sidecar/u);
-  assert.match(script, /portInput\.disabled = sidecar/u);
-  assert.match(script, /originsInput\.disabled = sidecar/u);
+  assert.match(script, /endpointFields\.hidden = n8nTarget/u);
+  assert.match(script, /portInput\.disabled = n8nTarget/u);
+  assert.match(script, /originsInput\.disabled = n8nTarget/u);
   assert.match(script, /"Local ChatGPT OAuth credential \(not Platform API key\)"/u);
   assert.match(html, /<dt>Host publication<\/dt>/u);
   assert.match(script, /"None"/u);
@@ -251,12 +253,62 @@ test("local wizard offers a private n8n openai-oauth sidecar without exposing cr
     /I reviewed this exact Docker-network-only plan and authorize Relmio to copy my local ChatGPT OAuth credential into its private managed volume and start only the new `openai-oauth` sidecar\.[\s\S]*Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish port 10531\./u,
   );
   assert.match(script, /one-time-note"\)\.hidden = sidecar/u);
-  assert.match(script, /credential-rotation-note"\)\.hidden = sidecar/u);
-  assert.match(script, /result-credential-row"\)\.hidden = sidecar/u);
-  assert.match(script, /codex-login"\)\.hidden = sidecar/u);
-  assert.match(script, /chat-tester"\)\.hidden = sidecar/u);
+  assert.match(script, /credential-rotation-note"\)\.hidden = n8nTarget/u);
+  assert.match(script, /result-credential-row"\)\.hidden = n8nTarget/u);
+  assert.match(script, /codex-login"\)\.hidden = n8nTarget/u);
+  assert.match(script, /chat-tester"\)\.hidden = n8nTarget/u);
   assert.match(css, /\.n8n-sidecar-fields\s*\{/u);
   assert.match(css, /@media \(max-width: 48rem\)/u);
+});
+
+test("local wizard offers Code Sandbox with opt-in SearXNG as a separate n8n Assistant companion", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  assert.match(html, /name="target" value="n8n-ai-assistant"/u);
+  assert.match(html, /n8n AI Assistant tools/u);
+  assert.match(html, /Code Sandbox \+ optional SearXNG/u);
+  assert.match(html, /id="include-local-searxng" type="checkbox"/u);
+  assert.doesNotMatch(html, /id="include-local-searxng"[^>]*checked/u);
+  assert.match(html, /SearXNG JSON web search/u);
+  assert.match(html, /Off by default/u);
+  assert.match(html, /privileged Docker-in-Docker runner/u);
+  assert.match(html, /local development and testing/u);
+  assert.match(html, /production[\s\S]*Daytona/u);
+  assert.match(
+    html,
+    /Relmio will not edit, exec into, rebuild,[\s\S]*restart, stop, recreate, or change network membership/u,
+  );
+  assert.match(
+    html,
+    /apply the returned environment values[\s\S]*restart remains your action/u,
+  );
+
+  assert.match(script, /return target === "n8n-ai-assistant"/u);
+  assert.match(script, /includeSearxng: element\("include-local-searxng"\)\.checked/u);
+  assert.match(script, /n8n-instance-ai-companion/u);
+  assert.match(script, /Creating and verifying the private Code Sandbox/u);
+  assert.match(script, /N8N_INSTANCE_AI_SANDBOX_ENABLED/u);
+  assert.match(script, /N8N_INSTANCE_AI_SEARXNG_URL/u);
+  assert.ok(script.includes(ASSISTANT_COMPANION_IMAGES.sandbox));
+  assert.match(script, /sandboxApiKey/u);
+  assert.match(script, /credentialShownOnce/u);
+  assert.match(script, /api\("\/api\/local\/n8n\/assistant\/remove"/u);
+  assert.match(script, /result-sandbox-key"\)\.textContent = ""/u);
+  assert.match(script, /result-n8n-settings"\)\.textContent = ""/u);
+  assert.match(script, /Code Sandbox and optional SearXNG resources/u);
+  assert.doesNotMatch(script, /localStorage[\s\S]{0,200}sandboxApiKey/iu);
+  assert.doesNotMatch(script, /innerHTML/u);
+
+  assert.match(html, /id="result-sandbox-key-row"[^>]*hidden/u);
+  assert.match(html, /id="result-searxng-row"[^>]*hidden/u);
+  assert.match(html, /id="result-n8n-settings-row"[^>]*hidden/u);
+  assert.match(html, /id="n8n-assistant-removal"[^>]*hidden/u);
+  assert.match(html, /id="remove-assistant-confirm" type="checkbox"/u);
+  assert.match(css, /\.assistant-companion-options\s*\{/u);
 });
 
 test("private n8n bridge cleanup has its own explicit ownership-bounded confirmation", async () => {

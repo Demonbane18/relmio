@@ -275,6 +275,14 @@ function isN8nSidecar(target) {
   return target === "n8n-openai-oauth";
 }
 
+function isN8nAssistant(target) {
+  return target === "n8n-ai-assistant";
+}
+
+function isN8nDockerTarget(target) {
+  return isN8nSidecar(target) || isN8nAssistant(target);
+}
+
 function setSelectOptions(select, options, emptyLabel, promptLabel) {
   const currentValue = select.value;
   const placeholder = document.createElement("option");
@@ -328,12 +336,13 @@ function networkOptionLabel(network) {
 
 function updateReviewAvailability() {
   const sidecar = isN8nSidecar(state.target);
-  const sidecarReady =
-    !sidecar ||
-    (state.n8nOAuthExists &&
+  const n8nTarget = isN8nDockerTarget(state.target);
+  const n8nReady =
+    !n8nTarget ||
+    ((!sidecar || state.n8nOAuthExists) &&
       element("n8n-container").value !== "" &&
       element("n8n-network").value !== "");
-  element("review-button").disabled = !state.dockerAvailable || !sidecarReady;
+  element("review-button").disabled = !state.dockerAvailable || !n8nReady;
 }
 
 function renderSidecarNetworkOptions() {
@@ -511,26 +520,33 @@ function renderTarget() {
   const openAiApi = isOpenAiApi(state.target);
   const codexChat = isCodexChat(state.target);
   const sidecar = isN8nSidecar(state.target);
+  const assistant = isN8nAssistant(state.target);
+  const n8nTarget = sidecar || assistant;
   const endpointFields = element("endpoint-fields");
   const portInput = element("local-port");
   const originsInput = element("allowed-origins");
-  if (!sidecar) {
+  if (!n8nTarget) {
     portInput.value = openAiApi ? "12435" : codexChat ? "14501" : "14500";
   }
-  endpointFields.hidden = sidecar;
-  portInput.disabled = sidecar;
-  portInput.required = !sidecar;
-  originsInput.disabled = sidecar;
-  element("origins-field").hidden = sidecar || !openAiApi;
-  element("n8n-sidecar-fields").hidden = !sidecar;
-  element("boundary-title").textContent = sidecar
+  endpointFields.hidden = n8nTarget;
+  portInput.disabled = n8nTarget;
+  portInput.required = !n8nTarget;
+  originsInput.disabled = n8nTarget;
+  element("origins-field").hidden = n8nTarget || !openAiApi;
+  element("n8n-sidecar-fields").hidden = !n8nTarget;
+  element("n8n-sidecar-oauth").hidden = !sidecar;
+  element("n8n-sidecar-scope").hidden = !sidecar;
+  element("n8n-assistant-options").hidden = !assistant;
+  element("boundary-title").textContent = n8nTarget
     ? "Docker-network-only guarantee"
     : "Loopback-only guarantee";
-  element("boundary-detail").textContent = sidecar
-    ? "Relmio publishes no host port. Only the selected n8n Docker network can reach the bridge."
+  element("boundary-detail").textContent = n8nTarget
+    ? "Relmio publishes no host port. Only the selected n8n Docker network can reach these managed services."
     : "Relmio publishes the selected port on 127.0.0.1, not your LAN or the public internet.";
   element("target-guidance-title").textContent = sidecar
     ? "Uses a local ChatGPT OAuth credential"
+    : assistant
+      ? "Installs n8n AI Assistant support services"
     : openAiApi
     ? "Uses an OpenAI Platform API key"
     : codexChat
@@ -538,15 +554,19 @@ function renderTarget() {
       : "Uses the official Codex ChatGPT sign-in";
   element("target-guidance-detail").textContent = sidecar
     ? "Relmio copies the validated local credential into its own private managed volume. No credential is sent to or returned through this browser."
+    : assistant
+      ? "Code Sandbox is always included. SearXNG JSON web search is optional and off by default. The generated sandbox API key is shown once; model-provider credentials stay separate and are configured directly in n8n."
     : openAiApi
     ? "Your Platform key is seeded over stdin into a private Docker volume and is never returned to the browser. A separate local client credential is generated for your apps."
     : codexChat
       ? "This exposes Relmio-specific HTTP POST /chat for a trusted local backend or development server. It is not OpenAI /v1, has no CORS, and browser bundles must never connect directly."
       : "This runs Codex App Server as its own experimental protocol. It does not translate the ChatGPT session into a generic OpenAI /v1 API and it does not accept direct browser connections.";
-  if (sidecar) {
+  if (n8nTarget) {
     if (!state.n8nDiscoveryLoaded) {
       refreshN8nDiscovery().catch(showError);
     }
+  }
+  if (sidecar) {
     refreshN8nOAuthStatus().catch(showError);
   }
   updateReviewAvailability();
@@ -574,9 +594,20 @@ function renderPlan(plan) {
   const openAiApi = isOpenAiApi(plan.target);
   const codexChat = isCodexChat(plan.target);
   const sidecar = isN8nSidecar(plan.target);
-  element("review-endpoint").textContent = plan.endpoint;
+  const assistant = isN8nAssistant(plan.target);
+  const n8nTarget = sidecar || assistant;
+  element("review-endpoint-label").textContent = assistant
+    ? "Support services"
+    : "Endpoint";
+  element("review-endpoint").textContent = assistant
+    ? plan.includeSearxng
+      ? "Code Sandbox + SearXNG"
+      : "Code Sandbox only"
+    : plan.endpoint;
   element("review-protocol").textContent = sidecar
     ? "OpenAI-compatible HTTP /v1 inside Docker"
+    : assistant
+      ? "n8n Instance AI companion services"
     : openAiApi
     ? "OpenAI-compatible HTTP /v1"
     : codexChat
@@ -584,10 +615,12 @@ function renderPlan(plan) {
       : "Codex App Server JSON-RPC over WebSocket";
   element("review-auth").textContent = sidecar
     ? "Local ChatGPT OAuth credential (not Platform API key)"
+    : assistant
+      ? "Model-provider credential configured separately in n8n"
     : openAiApi
     ? "OpenAI Platform API key"
     : "ChatGPT sign-in through official Codex";
-  element("review-browser-row").hidden = sidecar;
+  element("review-browser-row").hidden = n8nTarget;
   element("review-browser").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
       ? `Only ${plan.allowedOrigins.length} exact allowed origin(s)`
@@ -595,18 +628,18 @@ function renderPlan(plan) {
     : codexChat
       ? "No — trusted local backends and development servers only"
       : "No — trusted native local clients only";
-  element("review-origins-row").hidden = sidecar || !openAiApi;
+  element("review-origins-row").hidden = n8nTarget || !openAiApi;
   element("review-origins").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
       ? plan.allowedOrigins.join(", ")
       : "None"
     : "";
   for (const id of ["review-n8n-row", "review-network-row", "review-publication-row"]) {
-    element(id).hidden = !sidecar;
+    element(id).hidden = !n8nTarget;
   }
-  element("review-n8n").textContent = sidecar ? plan.n8nContainerName : "";
-  element("review-network").textContent = sidecar ? plan.networkName : "";
-  element("review-publication").textContent = sidecar ? "None" : "";
+  element("review-n8n").textContent = n8nTarget ? plan.n8nContainerName : "";
+  element("review-network").textContent = n8nTarget ? plan.networkName : "";
+  element("review-publication").textContent = n8nTarget ? "None" : "";
   element("review-path").textContent = plan.managedPath;
 
   if (sidecar) {
@@ -624,6 +657,23 @@ function renderPlan(plan) {
     ]);
     element("install-confirm-copy").textContent =
       "I reviewed this exact Docker-network-only plan and authorize Relmio to copy my local ChatGPT OAuth credential into its private managed volume and start only the new `openai-oauth` sidecar. I understand it is unofficial; Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish port 10531.";
+  } else if (assistant) {
+    replaceListItems(element("review-will"), [
+      "Create the ownership-bound Code Sandbox API, certificate initializer, and privileged Docker-in-Docker runner.",
+      plan.includeSearxng
+        ? "Create SearXNG with its JSON search API enabled on the selected private network."
+        : "Keep web search disabled; no SearXNG service, settings file, or URL will be created.",
+      "Attach only the sandbox API and optional SearXNG service to the exact selected existing Docker network.",
+      "Verify service health, the exact running set, optional JSON search, and zero host publication.",
+    ]);
+    replaceListItems(element("review-will-not"), [
+      "Edit, exec into, rebuild, restart, stop, recreate, or change network membership on the selected n8n container.",
+      "Publish the sandbox, runner, or SearXNG ports to localhost, your LAN, ngrok, or the internet.",
+      "Store or configure an AI model-provider credential for n8n.",
+      "Apply the returned n8n environment settings or restart n8n for you.",
+    ]);
+    element("install-confirm-copy").textContent =
+      "I reviewed this exact private companion plan and authorize Relmio to start its Code Sandbox services with a privileged Docker-in-Docker runner and the selected SearXNG option. I understand this is for local development and testing; Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish any companion port.";
   } else {
     replaceListItems(element("review-will"), [
       "Build one target-specific Docker image.",
@@ -646,6 +696,14 @@ function renderPlan(plan) {
       element("review-policy"),
       "Unofficial, private Docker-network bridge",
       "n8n will use http://n8n-openai-oauth:10531/v1 on the selected network. The API key placeholder is local-only. This option does not install Code Sandbox or SearXNG, and it does not turn ChatGPT OAuth into an OpenAI Platform API key.",
+    );
+  } else if (assistant) {
+    appendPolicyNotice(
+      element("review-policy"),
+      "Privileged local companion; operator-owned n8n configuration",
+      plan.includeSearxng
+        ? "Relmio will install Code Sandbox and private SearXNG. After verification, copy the one-time sandbox API key and returned URLs into your own n8n environment. Any n8n restart remains your action. Use Daytona instead for production sandboxing."
+        : "Relmio will install Code Sandbox without web search. After verification, copy the one-time sandbox API key and returned URL into your own n8n environment. Any n8n restart remains your action. Use Daytona instead for production sandboxing.",
     );
   } else if (openAiApi) {
     appendPolicyNotice(
@@ -672,10 +730,13 @@ function prepareInstallPanel() {
   const openAiApi = isOpenAiApi(state.plan.target);
   const codexChat = isCodexChat(state.plan.target);
   const sidecar = isN8nSidecar(state.plan.target);
+  const assistant = isN8nAssistant(state.plan.target);
+  const n8nTarget = sidecar || assistant;
   const apiKey = element("platform-api-key");
   element("api-key-field").hidden = !openAiApi;
-  element("codex-install-warning").hidden = openAiApi || sidecar;
+  element("codex-install-warning").hidden = openAiApi || n8nTarget;
   element("sidecar-install-note").hidden = !sidecar;
+  element("assistant-install-note").hidden = !assistant;
   element("codex-install-warning-title").textContent = codexChat
     ? "Credential for trusted local backends or development servers only"
     : "High-trust capability";
@@ -686,6 +747,8 @@ function prepareInstallPanel() {
   apiKey.value = "";
   element("install-intro").textContent = sidecar
     ? "Relmio will re-attest the selected running n8n container and Docker network, seed its private credential volume, and install only the new sidecar."
+    : assistant
+      ? "Relmio will re-attest the selected running n8n container and Docker network, then create and verify only its private Code Sandbox services and selected SearXNG option."
     : openAiApi
     ? "Enter the OpenAI Platform API key this endpoint will use upstream. It is sent only to this local Relmio process."
     : codexChat
@@ -695,6 +758,8 @@ function prepareInstallPanel() {
     element("install-button"),
     sidecar
       ? "Install private n8n bridge"
+      : assistant
+        ? "Install n8n Assistant tools"
       : openAiApi
       ? "Install OpenAI API endpoint"
       : codexChat
@@ -705,11 +770,52 @@ function prepareInstallPanel() {
 
 function renderInstallResult(result) {
   const sidecar = isN8nSidecar(result.target);
+  const assistant = isN8nAssistant(result.target);
+  const n8nTarget = sidecar || assistant;
   const endpointTargets = ["openai-api", "codex-chatgpt", "codex-chat"];
+  const assistantSettings = result?.n8nSettings;
+  const expectedAssistantSettings = assistant
+    ? {
+        N8N_ENABLED_MODULES: "instance-ai",
+        N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+        N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+        N8N_INSTANCE_AI_SANDBOX_IMAGE:
+          "ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8",
+        N8N_SANDBOX_SERVICE_URL: result.sandboxUrl,
+        N8N_SANDBOX_SERVICE_API_KEY: result.sandboxApiKey,
+        ...(result.includeSearxng
+          ? { N8N_INSTANCE_AI_SEARXNG_URL: result.searxngUrl }
+          : {}),
+      }
+    : null;
+  const assistantResultValid =
+    assistant &&
+    result.protocol === "n8n-instance-ai-companion" &&
+    result.endpoint === result.sandboxUrl &&
+    /^http:\/\/relmio-ai-sandbox-[a-f0-9]{32}:8080$/u.test(
+      result.sandboxUrl ?? "",
+    ) &&
+    /^[A-Za-z0-9_-]{43}$/u.test(result.sandboxApiKey ?? "") &&
+    typeof result.includeSearxng === "boolean" &&
+    (!result.includeSearxng ||
+      /^http:\/\/relmio-ai-searxng-[a-f0-9]{32}:8080$/u.test(
+        result.searxngUrl ?? "",
+      )) &&
+    result.hostPublication === "none" &&
+    result.privilegedRunner === true &&
+    result.n8nConfigurationRequired === true &&
+    result.credentialShownOnce === true &&
+    result.deploymentMode === "installed" &&
+    typeof result.networkName === "string" &&
+    assistantSettings &&
+    typeof assistantSettings === "object" &&
+    !Array.isArray(assistantSettings) &&
+    JSON.stringify(assistantSettings) === JSON.stringify(expectedAssistantSettings);
   if (
     typeof result.endpoint !== "string" ||
-    (!sidecar && typeof result.clientCredential !== "string") ||
-    (!endpointTargets.includes(result.target) && !sidecar) ||
+    (!n8nTarget && typeof result.clientCredential !== "string") ||
+    (!endpointTargets.includes(result.target) && !n8nTarget) ||
+    (assistant && !assistantResultValid) ||
     (sidecar &&
       (result.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
         result.apiKeyPlaceholder !== "local-only" ||
@@ -729,49 +835,82 @@ function renderInstallResult(result) {
   element("install-result-list").hidden = false;
   element("client-warning").hidden = false;
   element("n8n-sidecar-removal").hidden = !sidecar;
+  element("n8n-assistant-removal").hidden = !assistant;
   element("remove-bridge-confirm").checked = false;
   element("remove-bridge-confirm").disabled = false;
   element("remove-bridge-button").disabled = true;
   element("remove-bridge-status").textContent =
     "The bridge remains installed until this separate confirmation is checked.";
+  element("remove-assistant-confirm").checked = false;
+  element("remove-assistant-confirm").disabled = false;
+  element("remove-assistant-button").disabled = true;
+  element("remove-assistant-status").textContent =
+    "The companion stack remains installed until this separate confirmation is checked.";
+  element("result-endpoint-label").textContent = assistant
+    ? "Sandbox Service URL"
+    : "Endpoint";
   element("result-endpoint").textContent = result.endpoint;
   element("one-time-note").hidden = sidecar;
-  element("credential-rotation-note").hidden = sidecar;
-  element("result-credential-row").hidden = sidecar;
-  if (!sidecar) {
+  element("one-time-note-title").textContent = assistant
+    ? "Copy this sandbox key now"
+    : "Copy this credential now";
+  element("one-time-note-detail").textContent = assistant
+    ? "Relmio shows the sandbox API key only in this install response. Copy the complete environment block before leaving this page."
+    : "Relmio shows the generated client credential only in this install response. It cannot recover it after you leave this page.";
+  element("credential-rotation-note").hidden = n8nTarget;
+  element("result-credential-row").hidden = n8nTarget;
+  if (!n8nTarget) {
     element("result-credential").textContent = result.clientCredential;
   } else {
     element("result-credential").textContent = "";
   }
   for (const id of [
-    "result-api-key-row",
-    "result-responses-row",
     "result-n8n-row",
     "result-network-row",
     "result-publication-row",
-    "result-models-row",
     "result-deployment-row",
+  ]) {
+    element(id).hidden = !n8nTarget;
+  }
+  for (const id of [
+    "result-api-key-row",
+    "result-responses-row",
+    "result-models-row",
   ]) {
     element(id).hidden = !sidecar;
   }
   element("result-api-key").textContent = sidecar ? "local-only" : "";
   element("result-responses").textContent = sidecar ? "On" : "";
-  element("result-n8n").textContent = sidecar
+  element("result-n8n").textContent = n8nTarget
     ? result.n8nContainerName ?? state.plan?.n8nContainerName ?? "Selected n8n container"
     : "";
-  element("result-network").textContent = sidecar ? result.networkName : "";
-  element("result-publication").textContent = sidecar ? "None" : "";
+  element("result-network").textContent = n8nTarget ? result.networkName : "";
+  element("result-publication").textContent = n8nTarget ? "None" : "";
   element("result-models").textContent = sidecar
     ? result.models.length > 0
       ? result.models.join(", ")
       : "No models reported"
     : "";
-  element("result-deployment").textContent = sidecar ? result.deploymentMode : "";
-  element("codex-production-warning").hidden = openAiApi || sidecar;
-  element("codex-login").hidden = sidecar;
-  if (!sidecar) element("codex-login").hidden = openAiApi;
-  element("chat-tester").hidden = sidecar;
-  if (!sidecar) element("chat-tester").hidden = !codexChat;
+  element("result-deployment").textContent = n8nTarget ? result.deploymentMode : "";
+  element("result-sandbox-key-row").hidden = !assistant;
+  element("result-searxng-row").hidden = !assistant;
+  element("result-n8n-settings-row").hidden = !assistant;
+  element("result-sandbox-key").textContent = assistant
+    ? result.sandboxApiKey
+    : "";
+  element("result-searxng").textContent = assistant
+    ? result.includeSearxng
+      ? result.searxngUrl
+      : "Not installed"
+    : "";
+  element("result-n8n-settings").textContent = assistant
+    ? Object.entries(assistantSettings)
+      .map(([name, value]) => `${name}=${value}`)
+      .join("\n")
+    : "";
+  element("codex-production-warning").hidden = openAiApi || n8nTarget;
+  element("codex-login").hidden = n8nTarget || openAiApi;
+  element("chat-tester").hidden = n8nTarget || !codexChat;
   if (codexChat && !state.chatTester.keyId) {
     element("chat-tester-endpoint").value = result.endpoint;
   }
@@ -783,6 +922,8 @@ function renderInstallResult(result) {
     : "Codex App Server WebSocket is experimental and unsupported for production workloads.";
   element("done-title").textContent = sidecar
     ? "Private n8n bridge is ready"
+    : assistant
+      ? "n8n Assistant tools are ready"
     : openAiApi
     ? "OpenAI API endpoint is ready"
     : codexChat
@@ -790,6 +931,8 @@ function renderInstallResult(result) {
       : "Codex App Server is installed";
   element("done-detail").textContent = sidecar
     ? "Use the private base URL and local-only API key placeholder in n8n on the selected Docker network."
+    : assistant
+      ? "Copy the one-time environment block into your own n8n deployment. Relmio did not change or restart n8n."
     : openAiApi
     ? "Copy the endpoint and generated bearer credential into your local app."
     : codexChat
@@ -799,6 +942,8 @@ function renderInstallResult(result) {
     element("client-warning"),
     sidecar
       ? "For the selected self-hosted n8n container only"
+      : assistant
+        ? "Companions are ready; n8n configuration remains operator-owned"
       : openAiApi
       ? "For local OpenAI-compatible clients"
       : codexChat
@@ -806,6 +951,10 @@ function renderInstallResult(result) {
         : "For trusted native Codex clients only",
     sidecar
       ? "Set the base URL to http://n8n-openai-oauth:10531/v1, use local-only as the API key placeholder, and enable the Responses API. Host publication is None. This bridge is unofficial and installs neither AI Assistant Code Sandbox nor SearXNG."
+      : assistant
+        ? result.includeSearxng
+          ? "Code Sandbox and SearXNG JSON search were verified with no host publication. Merge instance-ai into any existing N8N_ENABLED_MODULES value, apply the copied settings, and restart n8n yourself. The privileged runner is for local development and testing; use Daytona for production."
+          : "Code Sandbox was verified with no host publication; SearXNG was not installed. Merge instance-ai into any existing N8N_ENABLED_MODULES value, apply the copied settings, and restart n8n yourself. The privileged runner is for local development and testing; use Daytona for production."
       : openAiApi
       ? "Use the generated client credential as the bearer API key. Your upstream Platform key remains private in the managed Docker volume."
       : codexChat
@@ -1030,23 +1179,32 @@ element("target-form").addEventListener("submit", async (event) => {
   setBusy(button, true, "Preparing plan…");
   try {
     const sidecar = isN8nSidecar(state.target);
+    const assistant = isN8nAssistant(state.target);
+    const n8nTarget = sidecar || assistant;
     if (
-      sidecar &&
-      (!state.n8nOAuthExists ||
+      n8nTarget &&
+      ((!assistant && !state.n8nOAuthExists) ||
         element("n8n-container").value === "" ||
         element("n8n-network").value === "")
     ) {
       throw new Error(
-        "Choose a running n8n container and shared Docker network, then complete local ChatGPT sign-in.",
+        assistant
+          ? "Choose a running n8n container and shared Docker network."
+          : "Choose a running n8n container and shared Docker network, then complete local ChatGPT sign-in.",
       );
     }
     const result = await api("/api/local/plan", {
       method: "POST",
-      body: sidecar
+      body: n8nTarget
         ? {
             target: state.target,
             n8nContainerId: element("n8n-container").value,
             dockerNetworkId: element("n8n-network").value,
+            ...(assistant
+              ? {
+                  includeSearxng: element("include-local-searxng").checked,
+                }
+              : {}),
           }
         : {
             target: state.target,
@@ -1068,7 +1226,7 @@ element("target-form").addEventListener("submit", async (event) => {
     renderPlan(result.plan);
     showStep(2);
     setMessage(
-      sidecar
+      n8nTarget
         ? "Review the exact Docker-network-only plan. Nothing has been written yet."
         : "Review the exact loopback plan. Nothing has been written yet.",
     );
@@ -1085,6 +1243,7 @@ for (const input of document.querySelectorAll('input[name="target"]')) {
 
 element("local-port").addEventListener("input", invalidatePlan);
 element("allowed-origins").addEventListener("input", invalidatePlan);
+element("include-local-searxng").addEventListener("change", invalidatePlan);
 element("n8n-container").addEventListener("change", () => {
   element("n8n-network").value = "";
   renderSidecarNetworkOptions();
@@ -1211,6 +1370,8 @@ element("install-button").addEventListener("click", async (event) => {
   setMessage(
     isN8nSidecar(state.plan.target)
       ? "Creating and verifying only the private Docker-network sidecar…"
+      : isN8nAssistant(state.plan.target)
+        ? "Creating and verifying the private Code Sandbox and selected SearXNG option…"
       : "Building and verifying the loopback-only Docker container…",
   );
   try {
@@ -1224,6 +1385,8 @@ element("install-button").addEventListener("click", async (event) => {
     setMessage(
       result.target === "n8n-openai-oauth"
         ? "Private n8n bridge verified with no host publication. Configure its private URL in n8n."
+        : result.target === "n8n-ai-assistant"
+          ? "Code Sandbox companions verified with no host publication. Copy the one-time n8n settings before leaving this page."
         : result.target === "openai-api"
         ? "Local OpenAI API endpoint verified. Copy its one-time client credential now."
         : result.target === "codex-chat"
@@ -1280,6 +1443,58 @@ element("remove-bridge-button").addEventListener("click", async (event) => {
     element("remove-bridge-status").textContent =
       "Bridge removed. The selected n8n container and external Docker network were not changed.";
     setMessage("Private n8n bridge removed; n8n and its external Docker network remain unchanged.");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+    if (removed) button.disabled = true;
+  }
+});
+
+element("remove-assistant-confirm").addEventListener("change", (event) => {
+  element("remove-assistant-button").disabled = !event.currentTarget.checked;
+});
+
+element("remove-assistant-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const confirmation = element("remove-assistant-confirm");
+  clearError();
+  if (
+    state.installedTarget !== "n8n-ai-assistant" ||
+    !confirmation.checked
+  ) {
+    showError(new Error("Confirm removal of these managed Assistant tools first."));
+    return;
+  }
+
+  let removed = false;
+  setBusy(button, true, "Removing Assistant tools…");
+  setMessage(
+    "Removing only Relmio-owned Code Sandbox and optional SearXNG resources. n8n and its external network remain untouched.",
+  );
+  try {
+    const result = await api("/api/local/n8n/assistant/remove", {
+      method: "POST",
+      body: { confirmed: true },
+    });
+    if (result.target !== "n8n-ai-assistant" || result.removed !== true) {
+      throw new Error("The local wizard returned an unexpected removal response.");
+    }
+    removed = true;
+    state.installedTarget = null;
+    element("result-sandbox-key").textContent = "";
+    element("result-n8n-settings").textContent = "";
+    confirmation.disabled = true;
+    element("install-result-list").hidden = true;
+    element("client-warning").hidden = true;
+    element("done-title").textContent = "n8n Assistant tools were removed";
+    element("done-detail").textContent =
+      "Relmio removed only its Code Sandbox, optional SearXNG, private TLS volume, and managed files. n8n and the external Docker network were left unchanged.";
+    element("remove-assistant-status").textContent =
+      "Assistant tools removed. The selected n8n container and external Docker network were not changed.";
+    setMessage(
+      "Managed n8n Assistant tools removed; n8n and its external Docker network remain unchanged.",
+    );
   } catch (error) {
     showError(error);
   } finally {

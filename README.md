@@ -4,10 +4,10 @@
 
 # Relmio
 
-Relmio helps you test a supported ChatGPT sign-in in a hosted chat, connect
-self-hosted n8n through a separate private Docker sidecar, or install a
-loopback-only local endpoint. It keeps ChatGPT/Codex credentials, OpenAI
-Platform API keys, and local client capabilities as three different contracts.
+Relmio helps you test a supported ChatGPT sign-in in a hosted chat, add private
+companion services beside self-hosted n8n, or install a loopback-only local
+endpoint. It keeps ChatGPT/Codex credentials, OpenAI Platform API keys, and
+local client capabilities as three different contracts.
 
 ## Quick install
 
@@ -19,9 +19,9 @@ npx --yes --ignore-scripts relmio@latest
 
 The local wizard prints a private `127.0.0.1` setup URL, checks Docker, presents
 the exact plan, and asks for final confirmation before it writes local files or
-starts a self-hosted sidecar. Loopback endpoints stay on `127.0.0.1`; the n8n
-bridge publishes no host port and is reachable only on the selected Docker
-network. Other install options are on the [hosted install
+starts an n8n companion. Loopback endpoints stay on `127.0.0.1`; n8n companions
+publish no host ports and are reachable only on the selected Docker network.
+Other install options are on the [hosted install
 page](https://relmio.vercel.app/install).
 
 ## Endpoints
@@ -54,20 +54,22 @@ Assistant model-provider credential remain separate, explicit setup choices.
 
 ## n8n AI Assistant companion
 
-Run `relmio assistant` to open the dedicated local wizard for the self-hosted
-AI Assistant sandbox and an explicit, opt-in SearXNG web-search companion. Web
-search is off by default and its exact boolean selection is bound to the
-reviewed plan and confirmation. It reuses the
-verified SSH, read-only discovery, and selected existing Docker network flow,
-but never reads ChatGPT/Codex OAuth. ChatGPT/Codex subscription sign-in is not
-an OpenAI Platform API key and Relmio does not present it as the compliant
-model route.
+Choose **n8n AI Assistant tools** in the local browser wizard to install Code
+Sandbox beside an existing local n8n container. SearXNG JSON web search is
+optional and off by default. Relmio binds the exact container, Docker network,
+and SearXNG choice to the reviewed plan, publishes no host port, and shows the
+sandbox API key plus n8n environment settings once after verification. It does
+not change or restart n8n; applying those settings remains your action.
+
+For an SSH-reachable n8n host instead, run the separate Assistant wizard:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest assistant
 ```
 
-AI Assistant is Preview: review every generated workflow before use. The
+Neither path reads ChatGPT/Codex OAuth. ChatGPT/Codex subscription sign-in is not
+an OpenAI Platform API key and Relmio does not present it as the compliant
+model route. AI Assistant is Preview: review every generated workflow before use. The
 companion uses n8n's self-hosted privileged Docker-in-Docker runner for
 advanced/local testing and keeps every host port unpublished. n8n recommends
 Daytona for production sandboxing. Enter a user-owned Platform API key directly
@@ -128,6 +130,9 @@ scope](docs/security.md#policy-evidence-and-scope).
 - The local and VPS n8n installers create a separate sidecar. They never edit
   the existing n8n Compose file or image and never publish port `10531` on the
   host.
+- The local AI Assistant option creates only its owned Code Sandbox and
+  optional SearXNG project. It never changes or restarts n8n and publishes no
+  companion host port.
 - The Chat Adapter rejects browser origins. Its new in-wizard tester calls only
   the setup-token-protected local wizard, never the adapter from the browser.
 - Local capabilities and the Chat Adapter bearer are sensitive. Do not put

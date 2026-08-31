@@ -4,7 +4,7 @@
 
 Originally approved on 2026-08-13, extended for the additive
 `codex/local-codex-chat-adapter` target on 2026-08-15, and extended on
-2026-08-31 for a private local n8n sidecar option.
+2026-08-31 for private local n8n sidecar and AI Assistant companion options.
 
 This spec is product and engineering guidance based on the current official
 OpenAI documentation. It is not a legal opinion. Relmio must not claim that
@@ -15,8 +15,8 @@ OpenAI has endorsed, certified, or pre-approved the project.
 Add a local Docker installation path to the Relmio browser wizard without
 weakening the existing VPS/n8n safety boundary.
 
-Relmio offers three intentionally different loopback client contracts plus one
-private n8n-only bridge:
+Relmio offers three intentionally different loopback client contracts plus two
+private n8n-only companion contracts:
 
 1. `openai-api` is an OpenAI-compatible HTTP gateway backed by the user's
    OpenAI Platform API key.
@@ -26,6 +26,8 @@ private n8n-only bridge:
    same official App Server lifecycle and ChatGPT/Codex sign-in.
 4. `n8n-openai-oauth` is an explicitly unofficial/private compatibility
    sidecar reachable only from an existing selected n8n Docker network.
+5. `n8n-ai-assistant` installs Code Sandbox and an explicit optional SearXNG
+   JSON-search service on the selected existing n8n Docker network.
 
 Relmio must never exchange, translate, or present a ChatGPT/Codex credential as
 a general OpenAI API bearer credential. Neither Codex target may expose an
@@ -66,7 +68,7 @@ The existing VPS/n8n wizard remains a separate legacy setup path. The wizard
 landing experience adds a prominent **Local endpoints** option which opens a
 dedicated local installer.
 
-The local installer starts with four provider cards:
+The local installer starts with five provider cards:
 
 ### OpenAI API
 
@@ -127,7 +129,24 @@ The local installer starts with four provider cards:
   stop, recreate, or connect a network to n8n; publish `10531`; create an ngrok
   or Traefik route; or install the AI Assistant Code Sandbox/SearXNG.
 
-All four flows show a review screen and require a final confirmation before any
+### n8n AI Assistant tools
+
+- Label: **n8n AI Assistant tools**
+- Meta: **Code Sandbox + optional SearXNG**
+- Requires one running official n8n container and an explicit shared-network
+  selection. It never reads the local ChatGPT OAuth credential.
+- Code Sandbox is always included. SearXNG JSON web search is an exact boolean,
+  off by default, and bound to the reviewed plan.
+- Result:
+  - Stable generated sandbox URL and one-time sandbox API key
+  - Optional stable generated SearXNG URL
+  - Exact n8n environment block for `instance-ai`, sandbox provider/image,
+    sandbox URL/key, and optional SearXNG URL
+  - Host publication: none
+- The review states that the runner is privileged for local testing, Daytona is
+  recommended for production, and Relmio will not change or restart n8n.
+
+All five flows show a review screen and require a final confirmation before any
 filesystem or Docker write.
 
 This release supports macOS, Linux, and Linux under WSL2. Native Windows is
@@ -212,6 +231,11 @@ generation to the plan. The safe response reports the private endpoint,
 network, no-host-publication boundary, managed path alias, and unofficial
 status; it never reports the OAuth path or contents.
 
+For `n8n-ai-assistant`, the request additionally contains the exact boolean
+`includeSearxng`. The safe response reports Code Sandbox as required, optional
+search status, the selected n8n/network identities, owner-managed path, no host
+publication, privileged-runner warning, and operator-owned n8n configuration.
+
 ### `POST /api/local/install`
 
 Request fields:
@@ -231,6 +255,12 @@ file server-side, re-attests the plan, copies it over stdin into a private
 volume, and returns only the private base URL, `local-only` placeholder,
 Responses API setting, selected network, verified models, and deployment mode.
 
+For `n8n-ai-assistant`, no provider credential is accepted. The installer
+re-attests the selected n8n/network, starts only its generated owned companion
+project, verifies exact services, sandbox health, no host publication, and
+optional SearXNG JSON, then returns only the one-time sandbox key and exact n8n
+settings. It never applies those settings or restarts n8n.
+
 Only one installation may execute in a wizard process at a time. A concurrent
 attempt receives `409` without consuming its reviewed plan. The in-flight lock
 is released in a `finally` path after both success and failure.
@@ -242,6 +272,12 @@ The service must attest the marker, Compose project, container, and private auth
 volume before it removes them. It never removes or disconnects the external
 n8n network, and it never targets the selected n8n container. Uncertain
 ownership fails closed and preserves the marker for recovery.
+
+### `POST /api/local/n8n/assistant/remove`
+
+Requires a separate exact confirmation and the same local-mutation lock. It
+attests and removes only the owned Assistant project and managed files. It does
+not remove or disconnect the external n8n network or target n8n.
 
 ### `POST /api/local/codex/login`
 
@@ -426,6 +462,7 @@ Managed roots:
 - `~/.relmio/local/codex-chatgpt`
 - `~/.relmio/local/codex-chat`
 - `~/.relmio/local/n8n-openai-oauth`
+- `~/.relmio/local/n8n-ai-assistant`
 
 `RELMIO_HOME` may replace `~/.relmio` for testing or advanced use, but it must
 be an absolute path whose final component is `.relmio`.
@@ -450,6 +487,9 @@ Controls:
 - The n8n bridge is create/remove-only in this release. A second install
   refuses the existing managed marker before Docker mutation; the user must
   separately confirm **Remove bridge** and then approve a fresh plan.
+- Assistant tools are also create/remove-only. A second install refuses the
+  existing marker; removal requires its own confirmation and exact ownership
+  attestation.
 - Local port availability is checked before a new install or a port change.
 - Upstream credentials are cleared from request objects after installation
   completes or fails.
@@ -483,6 +523,11 @@ no logging, and writes only the private labeled auth volume. The long-running
 sidecar joins exactly one selected external n8n network with the
 `n8n-openai-oauth` alias. No service mounts the Docker socket.
 
+The Assistant project has no host `ports` mapping. Its API and optional
+SearXNG service join the selected external network under collision-resistant
+generated aliases. The privileged Docker-in-Docker runner stays on its owned
+internal network and is explicitly limited to local development and testing.
+
 ## Threat model
 
 ### Assets
@@ -513,6 +558,8 @@ sidecar joins exactly one selected external n8n network with the
 | ChatGPT token repurposing in supported paths | official App Server lifecycle only; the adapter is Relmio-specific and exposes no `/v1` route; the private n8n bridge remains separately labeled unofficial/policy-uncertain |
 | Private sidecar exposure | zero host publishers, one exact reviewed external network, fixed Docker DNS alias, and no reverse-proxy labels |
 | Sidecar credential disclosure | server-side validation, stdin-only seed helper, private labeled volume, disabled seed logs, and redacted results |
+| Assistant host exposure | exact owned service set, no host publishers or proxy labels, generated private aliases, and post-start inspection |
+| Privileged runner compromise | explicit local-testing scope, owned internal network, immutable image pins, and Daytona recommendation for production |
 | Command injection | validated scalar values, spawn argument arrays, no shell |
 | Managed-path takeover | refuse unmanaged roots and every symlinked component |
 | Streaming resource exhaustion | header/body/concurrency/time bounds and backpressure |
@@ -524,7 +571,8 @@ sidecar joins exactly one selected external n8n network with the
 ## Acceptance criteria
 
 - The browser wizard visibly offers all three loopback contracts plus the local
-  self-hosted n8n bridge; the legacy VPS path remains separate.
+  self-hosted n8n bridge and n8n AI Assistant tools; the legacy VPS path remains
+  separate.
 - Platform keys are accepted only by `openai-api`; both Codex targets use only
   official App Server-backed ChatGPT authentication.
 - Loopback Compose files publish only literal `127.0.0.1` bindings; the n8n

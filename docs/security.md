@@ -89,6 +89,14 @@ shared, or production service.
 - The local n8n bridge is create/remove-only in this release. Relmio refuses an
   in-place reinstall before Docker mutation so a failed refresh cannot remove
   a previously working bridge or its private OAuth volume.
+- The separate `n8n-ai-assistant` option always installs Code Sandbox and adds
+  SearXNG only after an explicit boolean opt-in. Its privileged
+  Docker-in-Docker runner is for local development and testing, not production;
+  use Daytona for the production sandbox boundary.
+- Assistant services use exact ownership labels and generated identities,
+  attach only to the reviewed existing Docker network, and publish no host port
+  or reverse-proxy route. Relmio returns the sandbox key and n8n settings once,
+  but never changes or restarts n8n and never handles its model-provider key.
 - Validated OAuth JSON is copied server-side over stdin into a private labeled
   volume by a network-disabled, logging-disabled helper. The source credential
   file is preserved and neither its path nor contents are returned to the

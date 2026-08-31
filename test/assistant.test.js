@@ -894,7 +894,7 @@ test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse bou
   assert.match(browser, /Web search disabled/u);
   assert.match(guide, /N8N_ENABLED_MODULES[\s\S]*instance-ai/i);
   assert.match(guide, /SSH-reachable host/i);
-  assert.match(guide, /direct local Docker-socket discovery is not supported/i);
+  assert.match(guide, /direct local Docker-socket\s+discovery is supported/i);
   assert.doesNotMatch(guide, /\b(?:Hostinger|VPS)\b/i);
   assert.match(guide, /N8N_ENABLED_MODULES=instance-ai/u);
   assert.match(

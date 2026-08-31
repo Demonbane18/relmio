@@ -22,7 +22,9 @@ import {
 import { SIDECAR_HOSTNAME } from "../domain/templates.js";
 import {
   ASSISTANT_ROOT,
+  validateAssistantSearxngSelection,
 } from "../domain/assistant.js";
+import { ASSISTANT_COMPANION_IMAGES } from "../domain/assistant-templates.js";
 import {
   createLocalDeploymentPlan,
   validateLocalTarget,
@@ -32,6 +34,10 @@ import {
   LOCAL_N8N_SIDECAR_TARGET,
   createLocalN8nSidecarPlan,
 } from "../domain/local-n8n-sidecar.js";
+import {
+  LOCAL_N8N_ASSISTANT_TARGET,
+  createLocalN8nAssistantPlan,
+} from "../domain/local-n8n-assistant.js";
 import {
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
@@ -47,6 +53,10 @@ import {
   installLocalN8nSidecar,
   removeLocalN8nSidecar,
 } from "../services/local-n8n-sidecar-installer.js";
+import {
+  installLocalN8nAssistant,
+  removeLocalN8nAssistant,
+} from "../services/local-n8n-assistant-installer.js";
 import { startCodexDeviceLogin } from "../services/codex-login.js";
 import { createLocalChatTestService } from "../services/local-chat-test.js";
 
@@ -99,7 +109,10 @@ const defaultServices = {
   getProjectMeta,
   installLocalEndpoint,
   installLocalN8nSidecar,
+  installLocalN8nAssistant,
+  prepareLocalN8nAssistantPlan: createLocalN8nAssistantPlan,
   prepareLocalN8nSidecarPlan: createLocalN8nSidecarPlan,
+  removeLocalN8nAssistant,
   removeLocalN8nSidecar,
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
@@ -767,6 +780,122 @@ function createSafeLocalN8nPlan(plan) {
   };
 }
 
+function createSafeLocalN8nAssistantPlan(plan) {
+  return {
+    kind: plan.kind,
+    target: plan.target,
+    label: plan.label,
+    protocol: plan.protocol,
+    n8nContainerId: plan.n8nContainerId,
+    n8nContainerName: plan.n8nContainerName,
+    dockerNetworkId: plan.dockerNetworkId,
+    networkName: plan.networkName,
+    codeSandbox: plan.codeSandbox === true,
+    includeSearxng: plan.includeSearxng === true,
+    privilegedRunner: plan.privilegedRunner === true,
+    hostPublication: plan.hostPublication,
+    managedPath: plan.managedPath,
+    n8nConfigurationRequired: plan.n8nConfigurationRequired === true,
+    disposableHarnessWarning: plan.disposableHarnessWarning === true,
+  };
+}
+
+function requireSafeAssistantUrl(value, prefix) {
+  if (
+    typeof value !== "string" ||
+    !new RegExp(
+      `^http://${prefix}-[a-f0-9]{32}:8080$`,
+      "u",
+    ).test(value)
+  ) {
+    throw Object.assign(
+      new Error("The local n8n Assistant returned an invalid private URL."),
+      { statusCode: 502 },
+    );
+  }
+  return value;
+}
+
+function createSafeLocalN8nAssistantInstallResult(result) {
+  const sandboxUrl = requireSafeAssistantUrl(
+    result?.sandboxUrl ?? result?.endpoint,
+    "relmio-ai-sandbox",
+  );
+  const includeSearxng = result?.includeSearxng === true;
+  const searxngUrl = includeSearxng
+    ? requireSafeAssistantUrl(result?.searxngUrl, "relmio-ai-searxng")
+    : undefined;
+  const sandboxApiKey = result?.sandboxApiKey;
+  const settings = result?.n8nSettings;
+  const expectedSettings = {
+    N8N_ENABLED_MODULES: "instance-ai",
+    N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+    N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+    N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_COMPANION_IMAGES.sandbox,
+    N8N_SANDBOX_SERVICE_URL: sandboxUrl,
+    N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey,
+    ...(includeSearxng
+      ? { N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl }
+      : {}),
+  };
+  if (
+    result?.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    result.protocol !== "n8n-instance-ai-companion" ||
+    typeof sandboxApiKey !== "string" ||
+    !/^[A-Za-z0-9_-]{43}$/u.test(sandboxApiKey) ||
+    !settings ||
+    typeof settings !== "object" ||
+    Array.isArray(settings) ||
+    JSON.stringify(settings) !== JSON.stringify(expectedSettings) ||
+    result.deploymentMode !== "installed" ||
+    result.hostPublication !== "none" ||
+    result.privilegedRunner !== true ||
+    result.n8nConfigurationRequired !== true ||
+    result.credentialShownOnce !== true
+  ) {
+    throw Object.assign(
+      new Error("The local n8n Assistant returned an invalid result."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: result.target,
+    endpoint: sandboxUrl,
+    sandboxUrl,
+    sandboxApiKey,
+    ...(includeSearxng ? { searxngUrl } : {}),
+    protocol: result.protocol,
+    includeSearxng,
+    networkName: requireSafeDockerName(
+      result.networkName,
+      "Assistant network name",
+    ),
+    n8nContainerName: requireSafeDockerName(
+      result.n8nContainerName,
+      "n8n container name",
+    ),
+    hostPublication: "none",
+    privilegedRunner: true,
+    n8nConfigurationRequired: true,
+    n8nSettings: expectedSettings,
+    deploymentMode: "installed",
+    credentialShownOnce: true,
+  };
+}
+
+function createSafeLocalN8nAssistantRemovalResult(result) {
+  if (
+    result?.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    result.removed !== true
+  ) {
+    throw Object.assign(
+      new Error("The local n8n Assistant removal result is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  return { target: LOCAL_N8N_ASSISTANT_TARGET, removed: true };
+}
+
 function createSafeLocalN8nInstallResult(result) {
   const endpoint = result?.endpoint ?? result?.baseUrl;
   const models = result?.models;
@@ -1157,9 +1286,13 @@ async function handleApi(request, response, path, state) {
 
   if (path === "/api/local/plan") {
     let plan;
-    if (body?.target === "n8n-openai-oauth") {
+    if (
+      body?.target === LOCAL_N8N_SIDECAR_TARGET ||
+      body?.target === LOCAL_N8N_ASSISTANT_TARGET
+    ) {
       requireLiveLocalAction(state, "Local n8n sidecar planning");
-      if (localOAuthChangeInFlight(state)) {
+      const assistantTarget = body.target === LOCAL_N8N_ASSISTANT_TARGET;
+      if (!assistantTarget && localOAuthChangeInFlight(state)) {
         throw Object.assign(
           new Error("ChatGPT sign-in is already in progress."),
           { statusCode: 409 },
@@ -1181,25 +1314,42 @@ async function handleApi(request, response, path, state) {
       if (!network) {
         throw new Error("Select a Docker network attached to that n8n container.");
       }
-      const authStatus = await state.services.getAuthStatus();
-      if (
-        authStatus?.exists !== true ||
-        typeof authStatus.updatedAt !== "string" ||
-        Number.isNaN(Date.parse(authStatus.updatedAt))
-      ) {
-        throw new Error("Sign in with ChatGPT before reviewing this sidecar plan.");
-      }
-      plan = {
-        ...state.services.prepareLocalN8nSidecarPlan({
+      if (assistantTarget) {
+        const includeSearxng = validateAssistantSearxngSelection(
+          body.includeSearxng,
+        );
+        plan = {
+          ...state.services.prepareLocalN8nAssistantPlan({
+            dockerHost: discovery.dockerHost,
+            n8nContainerId: container.containerId,
+            n8nContainerName: container.containerName,
+            dockerNetworkId: network.dockerNetworkId,
+            networkName: network.networkName,
+            includeSearxng,
+          }),
+          disposableHarnessWarning: network.disposable === true,
+        };
+      } else {
+        const authStatus = await state.services.getAuthStatus();
+        if (
+          authStatus?.exists !== true ||
+          typeof authStatus.updatedAt !== "string" ||
+          Number.isNaN(Date.parse(authStatus.updatedAt))
+        ) {
+          throw new Error("Sign in with ChatGPT before reviewing this sidecar plan.");
+        }
+        plan = {
+          ...state.services.prepareLocalN8nSidecarPlan({
           dockerHost: discovery.dockerHost,
           n8nContainerId: container.containerId,
           n8nContainerName: container.containerName,
           dockerNetworkId: network.dockerNetworkId,
           networkName: network.networkName,
           authGeneration: authStatus.updatedAt,
-        }),
-        disposableHarnessWarning: network.disposable === true,
-      };
+          }),
+          disposableHarnessWarning: network.disposable === true,
+        };
+      }
     } else {
       plan = createLocalDeploymentPlan({
         target: body.target,
@@ -1214,7 +1364,9 @@ async function handleApi(request, response, path, state) {
       plan:
         plan.kind === "n8n-sidecar"
           ? createSafeLocalN8nPlan(plan)
-          : createSafeLocalPlan(plan),
+          : plan.kind === "n8n-assistant"
+            ? createSafeLocalN8nAssistantPlan(plan)
+            : createSafeLocalPlan(plan),
     });
     return;
   }
@@ -1265,6 +1417,11 @@ async function handleApi(request, response, path, state) {
           authPath: authStatus.path,
           confirmed: body.confirmed,
         });
+      } else if (pending.plan.kind === "n8n-assistant") {
+        result = await state.services.installLocalN8nAssistant({
+          plan: pending.plan,
+          confirmed: body.confirmed,
+        });
       } else {
         result = await state.services.installLocalEndpoint({
           plan: pending.plan,
@@ -1279,7 +1436,9 @@ async function handleApi(request, response, path, state) {
         200,
         pending.plan.kind === "n8n-sidecar"
           ? createSafeLocalN8nInstallResult(result)
-          : createSafeLocalInstallResult(result),
+          : pending.plan.kind === "n8n-assistant"
+            ? createSafeLocalN8nAssistantInstallResult(result)
+            : createSafeLocalInstallResult(result),
       );
     } finally {
       if (acquiredInstallLock) {
@@ -1317,6 +1476,43 @@ async function handleApi(request, response, path, state) {
         confirmed: true,
       });
       sendJson(response, 200, createSafeLocalN8nRemovalResult(result));
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/assistant/remove") {
+    requireLiveLocalAction(state, "Local n8n Assistant companion removal");
+    enforceRateLimit(state, path);
+    if (body?.confirmed !== true) {
+      throw new Error("Confirm removal of the managed local n8n Assistant tools.");
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localInstalledTarget = null;
+    try {
+      const result = await state.services.removeLocalN8nAssistant({
+        confirmed: true,
+      });
+      sendJson(
+        response,
+        200,
+        createSafeLocalN8nAssistantRemovalResult(result),
+      );
     } finally {
       state.localInstallInFlight = false;
     }

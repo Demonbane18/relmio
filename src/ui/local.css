@@ -314,6 +314,37 @@
   margin-top: 0;
 }
 
+.assistant-companion-options {
+  display: grid;
+  gap: 0.875rem;
+}
+
+.assistant-companion-options[hidden] {
+  display: none;
+}
+
+.assistant-companion-options .high-trust-warning,
+.assistant-companion-options .policy-note {
+  margin: 0;
+}
+
+.assistant-search-choice {
+  align-items: flex-start;
+  padding: 0.875rem;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.assistant-search-choice span {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.assistant-search-choice small {
+  color: var(--text-muted);
+}
+
 .n8n-sidecar-removal {
   display: grid;
   gap: 0.875rem;
@@ -344,6 +375,19 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
+}
+
+.result-settings-value {
+  align-items: flex-start;
+}
+
+.result-settings-value pre {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font: 0.75rem/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .field textarea {

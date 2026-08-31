@@ -4,8 +4,8 @@
 
 # Relmio
 
-This package starts Relmio's local setup wizard for a private n8n sidecar or a
-loopback-only local endpoint. It supports Node.js 22 or newer.
+This package starts Relmio's local setup wizard for private n8n companions or
+a loopback-only local endpoint. It supports Node.js 22 or newer.
 
 ## Quick install
 
@@ -32,19 +32,22 @@ network.
 
 ## n8n AI Assistant companion
 
-Run `relmio assistant` for the separate sandbox and optional SearXNG companion.
-Web search is off by default and is bound as an exact boolean to the reviewed
-plan and confirmation; Relmio does not add it silently.
-It uses verified SSH, read-only n8n discovery, and an existing Docker network;
-it never reads ChatGPT/Codex OAuth or changes the existing n8n project.
-ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. AI
-Assistant is Preview, so review generated workflows before use.
+Choose **n8n AI Assistant tools** in the local browser wizard to install Code
+Sandbox beside an existing local n8n container. SearXNG JSON web search is
+optional and off by default. The reviewed plan binds the exact container,
+Docker network, and SearXNG choice. Relmio shows the sandbox key and n8n
+environment settings once after verification; it does not change or restart
+n8n, and it publishes no host port.
+
+For an SSH-reachable n8n host, use the separate Assistant wizard:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest assistant
 ```
 
-This self-hosted path has a privileged Docker-in-Docker runner for
+Neither path reads ChatGPT/Codex OAuth. ChatGPT/Codex subscription sign-in is not
+an OpenAI Platform API key. AI Assistant is Preview, so review generated
+workflows before use. This self-hosted path has a privileged Docker-in-Docker runner for
 advanced/local testing and publishes no host ports; n8n recommends Daytona for
 production. In n8n, enter your own Platform API key directly and keep your
 current supported model selection, including `openai/gpt-5.6-sol` while n8n
