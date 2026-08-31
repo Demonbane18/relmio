@@ -127,9 +127,10 @@ export default function InstallPage() {
             <section>
               <h3>Packages and sessions</h3>
               <p>
-                Homebrew is public through <code>Demonbane18/relmio</code>. WinGet
-                remains hidden until Microsoft accepts the catalog pull request and
-                the public catalog updates. ChatGPT tokens expire, but the official
+                Homebrew is public through <code>Demonbane18/relmio</code>. Its
+                installer command trusts only the Relmio formula, not the whole tap.
+                WinGet remains hidden until Microsoft accepts the catalog pull request
+                and the public catalog updates. ChatGPT tokens expire, but the official
                 client refreshes active sessions; OpenAI publishes no fixed 10-day
                 lifetime. <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noreferrer">Read the authentication guide</a>.
               </p>

@@ -2,7 +2,7 @@
 
 Relmio can install a provider endpoint in Docker on the same computer as your
 app, or add a private model bridge beside an existing local n8n container. The
-local installer keeps five explicit contracts separated by provider
+local installer keeps six explicit contracts separated by provider
 authentication method and network boundary:
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
@@ -12,6 +12,7 @@ authentication method and network boundary:
 | **Codex Chat Adapter: development backends** | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in through Codex | A trusted local backend or development server owned by the same person |
 | **Self-hosted n8n bridge** | Private `http://n8n-openai-oauth:10531/v1` on one existing Docker network | Local ChatGPT OAuth copied into a private sidecar volume | Only the selected self-hosted n8n deployment |
 | **n8n AI Assistant tools** | Private Code Sandbox plus optional SearXNG JSON search on one existing Docker network | A generated sandbox key shown once; model-provider credentials stay in n8n | Only the selected self-hosted n8n deployment |
+| **New local n8n + ngrok** | A new owned n8n stack with loopback access and a Basic-Auth-protected public ngrok route | n8n credentials stay in its owned data volume; ngrok uses an operator-supplied token | A new disposable local n8n installation and its webhooks |
 
 Relmio does not exchange or translate a ChatGPT OAuth/session credential into
 an OpenAI-compatible `/v1` bearer credential. The native Codex option keeps
@@ -48,6 +49,8 @@ until you rotate it.
   Docker network; no host port is required
 - For n8n AI Assistant tools, the same running n8n and shared-network
   requirement, plus enough capacity for a privileged Docker-in-Docker runner
+- For a new local n8n stack, an ngrok authtoken and reserved hostname, strong
+  Basic Auth credentials, and two free loopback ports
 - One of these provider credentials:
   - an OpenAI Platform API key for the OpenAI-compatible endpoint; or
   - a ChatGPT account eligible for Codex for either Codex target; or
@@ -71,15 +74,16 @@ project on the local computer.
 
 2. Open the one-time local wizard URL printed in the terminal and choose
    **Local endpoints**.
-3. Choose one of the three loopback endpoints, **Self-hosted n8n bridge**, or
-   **n8n AI Assistant tools**.
+3. Choose one of the three loopback endpoints, **Self-hosted n8n bridge**,
+   **n8n AI Assistant tools**, or **New local n8n + ngrok**.
 4. For a loopback endpoint, keep the default port or select another unused
    local port. For the OpenAI API option, add any browser origins that must be
    allowed and enter your Platform API key. For the n8n bridge, sign in with
    ChatGPT locally, then explicitly choose the running n8n container and shared
    Docker network discovered by Relmio. For Assistant tools, choose whether to
    add SearXNG JSON web search; it is off by default and Code Sandbox is always
-   included.
+   included. For a new n8n stack, follow the dedicated
+   [new local n8n + ngrok guide](./local-n8n-stack.md).
 5. Review the exact bind or private-network boundary, managed path, protocol,
    and limitations. Confirm the plan before Relmio writes files or starts
    Docker.
@@ -101,6 +105,7 @@ inside its managed path. Its local files live under:
 ~/.relmio/local/codex-chat
 ~/.relmio/local/n8n-openai-oauth
 ~/.relmio/local/n8n-ai-assistant
+~/.relmio/local/n8n-stack
 ```
 
 Advanced or test environments can set `RELMIO_HOME` before starting the
@@ -616,4 +621,3 @@ does not interpret membership as permission to repurpose ChatGPT credentials
 for general API calls, share an account, bypass safeguards, or alter the scope
 of another OpenAI agreement. The local Codex option stays inside the official
 Codex protocol; general `/v1` calls continue to require Platform credentials.
-

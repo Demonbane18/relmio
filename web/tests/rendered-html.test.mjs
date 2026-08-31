@@ -72,7 +72,7 @@ test("server-renders the Relmio product page", async () => {
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
   assert.match(html, /class="repository-button"/);
-  assert.match(html, /Open Relmio version 0\.9\.1 on GitHub\./);
+  assert.match(html, /Open Relmio version 0\.10\.0 on GitHub\./);
   assert.match(html, /class="support-button"/);
   assert.match(
     html,
@@ -163,10 +163,12 @@ test("renders a command-first self-hosted n8n install page", async () => {
   );
   assert.match(
     html,
-    /brew tap Demonbane18\/relmio &amp;&amp; brew install relmio/,
+    /brew tap Demonbane18\/relmio &amp;&amp; brew trust --formula Demonbane18\/relmio\/relmio &amp;&amp; brew install relmio/,
   );
+  assert.doesNotMatch(html, /brew trust Demonbane18\/relmio(?:\s|&)/);
   assert.doesNotMatch(html, /\bwinget install\b/i);
   assert.match(html, /Homebrew is public/);
+  assert.match(html, /trusts only the Relmio formula/);
   assert.match(
     html,
     /irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex/,
@@ -245,7 +247,7 @@ test("falls back safely when project metadata is malformed", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     stars: null,
-    version: "0.9.1",
+    version: "0.10.0",
   });
 });
 

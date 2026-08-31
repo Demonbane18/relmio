@@ -10,7 +10,7 @@ test("keeps every supported installer method and exact public command", async ()
 
   for (const [id, label, command] of [
     ["posix", "macOS / Linux", "curl -fsSL https://relmio.vercel.app/install.sh | sh"],
-    ["homebrew", "Homebrew", "brew tap Demonbane18/relmio && brew install relmio"],
+    ["homebrew", "Homebrew", "brew tap Demonbane18/relmio && brew trust --formula Demonbane18/relmio/relmio && brew install relmio"],
     ["powershell", "PowerShell", "irm https://relmio.vercel.app/install.ps1 | iex"],
     ["cmd", "CMD", "https://relmio.vercel.app/install.cmd"],
     ["npx", "NPX", "npx --yes --ignore-scripts relmio@latest"],
@@ -21,6 +21,7 @@ test("keeps every supported installer method and exact public command", async ()
   }
 
   assert.doesNotMatch(picker, /winget install/iu);
+  assert.doesNotMatch(picker, /brew trust Demonbane18\/relmio(?:\s|$)/u);
 });
 
 test("renders an always-black terminal independent of page theme", async () => {
@@ -74,6 +75,7 @@ test("puts the complete terminal selector before compact safety detail", async (
   assert.ok(command < steps, "active command must precede the setup sequence");
   assert.ok(command < disclosure, "active command must precede safety disclosure");
   assert.match(page, /Homebrew is public/u);
+  assert.match(page, /trusts only the Relmio formula/u);
   assert.match(page, /WinGet\s+remains hidden until Microsoft accepts/u);
 });
 

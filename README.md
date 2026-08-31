@@ -1,13 +1,23 @@
 <p align="center">
-  <img src="docs/images/brand/relmio-logo-rounded.svg" alt="Relmio gateway android logo" width="180" height="180">
+  <img src="docs/images/brand/relmio-banner-animated.svg" alt="Relmio — one wizard with separate supported API and private experimental routes" width="1200">
 </p>
 
-# Relmio
+<h1 align="center">Relmio</h1>
 
-Relmio helps you test a supported ChatGPT sign-in in a hosted chat, add private
-companion services beside self-hosted n8n, or install a loopback-only local
-endpoint. It keeps ChatGPT/Codex credentials, OpenAI Platform API keys, and
-local client capabilities as three different contracts.
+<p align="center"><strong>One wizard. Clear boundaries. Connect AI tools without mixing credentials.</strong></p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/relmio"><img alt="npm version" src="https://img.shields.io/npm/v/relmio?logo=npm&amp;color=0f8f83"></a>
+  <a href="https://www.npmjs.com/package/relmio"><img alt="npm monthly downloads" src="https://img.shields.io/npm/dm/relmio?color=0f8f83"></a>
+  <a href="https://github.com/Demonbane18/relmio/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Demonbane18/relmio?style=flat&amp;logo=github&amp;color=0f8f83"></a>
+  <a href="https://github.com/Demonbane18/relmio/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/Demonbane18/relmio/ci.yml?branch=main&amp;label=CI"></a>
+  <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-0f8f83"></a>
+</p>
+
+Relmio is a safety-first setup wizard for local AI endpoints and private n8n
+companions. Pick a route, review its boundary, and install it without treating
+a ChatGPT subscription, a Platform API key, and a local client credential as
+the same thing.
 
 ## Quick install
 
@@ -19,10 +29,20 @@ npx --yes --ignore-scripts relmio@latest
 
 The local wizard prints a private `127.0.0.1` setup URL, checks Docker, presents
 the exact plan, and asks for final confirmation before it writes local files or
-starts an n8n companion. Loopback endpoints stay on `127.0.0.1`; n8n companions
-publish no host ports and are reachable only on the selected Docker network.
+starts Docker. Loopback endpoints stay on `127.0.0.1`; companions for an
+existing n8n publish no host ports. The separate new-n8n add-on publishes only
+the n8n route through mandatory ngrok Basic Auth after explicit confirmation.
 Other install options are on the [hosted install
 page](https://relmio.vercel.app/install).
+
+## Two lanes, no credential mixing
+
+![Relmio separates the supported Platform API route from the private experimental ChatGPT and Codex route](docs/images/diagrams/relmio-two-lanes.png)
+
+The supported API lane powers compatible n8n agents, HTTP requests, and LLM
+chains with your own OpenAI Platform API key. ChatGPT/Codex sign-in stays in a
+separate private experimental lane for trusted local tools—it never becomes a
+general-purpose API key.
 
 ## Endpoints
 
@@ -33,9 +53,22 @@ page](https://relmio.vercel.app/install).
 | Codex Chat Adapter | Experimental `POST /chat` (JSON or opt-in SSE) | ChatGPT sign-in plus a local bearer; trusted local backends or development servers |
 | n8n sidecar | Private `http://n8n-openai-oauth:10531/v1` | Existing n8n Docker network only |
 | n8n AI Assistant companion | Private sandbox; opt-in SearXNG web search | User-owned OpenAI Platform API key entered directly in n8n |
+| New local n8n + ngrok | New owned n8n stack, loopback access, and a Basic-Auth-protected public route | ngrok token plus n8n credentials stored only in the owned installation |
 
 The Codex targets are not generic `/v1` endpoints. ChatGPT sign-in is never an
 OpenAI Platform API key or authorization for arbitrary OpenAI API calls.
+
+## New local n8n + ngrok
+
+No n8n yet? Choose **New local n8n + ngrok** to create a separate,
+ownership-labeled disposable stack. Relmio pins every image by digest, binds
+local n8n and the ngrok inspector only to `127.0.0.1`, requires Traffic Policy
+Basic Auth on the public ngrok route, and can include Code Sandbox plus optional
+SearXNG. It never adopts or changes another n8n installation.
+
+The removal action is separately confirmed and deletes the owned n8n data
+volume, so export anything you want to keep. See the [new local n8n + ngrok
+guide](docs/local-n8n-stack.md) for the exact inputs and network boundary.
 
 ## Local n8n bridge
 
@@ -133,6 +166,9 @@ scope](docs/security.md#policy-evidence-and-scope).
 - The local AI Assistant option creates only its owned Code Sandbox and
   optional SearXNG project. It never changes or restarts n8n and publishes no
   companion host port.
+- The new-n8n add-on is the explicit public exception: only its owned n8n route
+  reaches ngrok, behind mandatory Basic Auth. Port `10531` and optional
+  Assistant services remain unpublished.
 - The Chat Adapter rejects browser origins. Its new in-wizard tester calls only
   the setup-token-protected local wizard, never the adapter from the browser.
 - Local capabilities and the Chat Adapter bearer are sensitive. Do not put
@@ -170,6 +206,7 @@ to the exact managed service.
 
 - [Getting started](https://relmio.vercel.app/docs/getting-started)
 - [Local endpoints and the Chat Adapter](https://relmio.vercel.app/docs/local-endpoints)
+- [New local n8n + ngrok](https://relmio.vercel.app/docs/local-n8n-stack)
 - [VPS and n8n](https://relmio.vercel.app/docs/vps-and-n8n)
 - [n8n AI Assistant companion](https://relmio.vercel.app/docs/ai-assistant)
 - [Troubleshooting](https://relmio.vercel.app/docs/troubleshooting)
@@ -200,4 +237,3 @@ agreement that applies to your account.
 Relmio is provided as-is without warranties. OpenAI or an upstream service may
 change or discontinue access at any time, and you accept the risks of using
 this experimental community project.
-

@@ -105,7 +105,7 @@ test("makes the real installer command the first interactive toolbox", async () 
 
   for (const command of [
     "curl -fsSL https://relmio.vercel.app/install.sh | sh",
-    "brew tap Demonbane18/relmio && brew install relmio",
+    "brew tap Demonbane18/relmio && brew trust --formula Demonbane18/relmio/relmio && brew install relmio",
     "irm https://relmio.vercel.app/install.ps1 | iex",
     "https://relmio.vercel.app/install.cmd",
     "npx --yes --ignore-scripts relmio@latest",
@@ -113,6 +113,7 @@ test("makes the real installer command the first interactive toolbox", async () 
     assert.ok(copyCommand.includes(command), `missing install command: ${command}`);
   }
   assert.doesNotMatch(copyCommand, /winget install/u);
+  assert.doesNotMatch(copyCommand, /brew trust Demonbane18\/relmio(?:\s|$)/u);
 });
 
 test("keeps hosted chat as a focused request-only console", async () => {
