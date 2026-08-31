@@ -42,7 +42,7 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
   );
   assert.match(
     renderedDocumentation,
-    /will not edit the existing n8n Compose file, image, or environment;[\s\S]*restart or recreate n8n; or exec into n8n/u,
+    /will not edit the existing n8n Compose file,\s+image, or environment;[\s\S]*restart or recreate n8n; or exec into n8n/u,
   );
   assert.match(generator, /--check/u);
   assert.doesNotMatch(generator, /readFile\([^)]*README\.md/u);

@@ -285,7 +285,7 @@ test("harness configuration requires explicit public exposure and validates secr
     { NGROK_BASIC_AUTH_USER: "bad:user" },
     { NGROK_BASIC_AUTH_PASSWORD: "short" },
     { NGROK_BASIC_AUTH_PASSWORD: "long-enough-password\nheader" },
-    { N8N_ENCRYPTION_KEY: "not-a-256-bit-hex-key" },
+    { N8N_ENCRYPTION_KEY: "invalid" },
     { N8N_LOCAL_PORT: "0" },
     { N8N_LOCAL_PORT: "10531" },
     { NGROK_INSPECTOR_PORT: "10531" },
