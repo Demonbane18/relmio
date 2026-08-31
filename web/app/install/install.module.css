@@ -243,12 +243,11 @@
 
 .copyButton {
   display: inline-flex;
-  min-width: 6.5rem;
-  min-height: 2.65rem;
-  gap: 0.5rem;
+  width: 2.75rem;
+  min-height: 2.75rem;
   align-items: center;
   justify-content: center;
-  padding: 0.45rem 0.8rem;
+  padding: 0.45rem;
   border: 1px solid var(--terminal-border);
   border-radius: 8px;
   background: #111c19;
@@ -527,7 +526,7 @@
   }
 
   .copyButton {
-    min-width: 5.7rem;
+    width: 2.75rem;
   }
 
   .commandLine {

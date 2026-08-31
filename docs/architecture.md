@@ -1,10 +1,10 @@
-# Architecture and n8n safety boundary
+# Architecture and n8n safety rules
 
 ## Design
 
-The wizard runs on the user's computer. It authenticates locally, opens one
-verified SSH connection, performs read-only discovery, shows a plan, and then
-creates a separate sidecar project on approval.
+The wizard runs on your computer. It signs in locally, verifies one SSH host,
+inspects it without changing it, shows the plan, then creates a separate
+sidecar only after approval.
 
 ```mermaid
 flowchart LR
@@ -42,7 +42,7 @@ flowchart LR
   S -->|"unofficial OAuth bridge"| C
 ```
 
-The five options are intentionally not interchangeable:
+The five options do different jobs:
 
 | Target | Wire protocol | Upstream credential |
 |---|---|---|
@@ -61,9 +61,9 @@ conversational contract without claiming OpenAI API compatibility. Its model
 sandbox denies network access and uses a root-deny filesystem policy with only
 minimal runtime paths plus `/workspace` readable; `/home/node/.codex` is
 explicitly denied so a model turn cannot read the persisted ChatGPT session.
-The n8n bridge is a separate, explicitly unofficial/private compatibility
-path. It is not a Platform-key gateway, is not exposed to arbitrary local
-clients, and is never described as supported or policy-approved.
+The n8n bridge is an unofficial private compatibility path. It is not a
+Platform-key gateway, is not for arbitrary local clients, and is not described
+as supported or policy-approved.
 
 Each of the three endpoint projects publishes exactly one literal `127.0.0.1`
 binding and requires a generated bearer capability. The n8n sidecar publishes

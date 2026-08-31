@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Install an isolated n8n AI Assistant sandbox and optional SearXNG companion services."
+      content="Add private AI Assistant tools to an existing n8n setup without changing n8n."
     />
     <title>Relmio | n8n AI Assistant</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
@@ -45,10 +45,10 @@
     <main id="main-content" class="shell" tabindex="-1">
       <aside class="rail" aria-label="AI Assistant setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
-          <h1 id="page-title">n8n AI Assistant companion</h1>
+          <h1 id="page-title">Add private AI Assistant tools</h1>
           <p class="lede">
-            Add an isolated sandbox and optional private SearXNG search service
-            without changing the existing n8n project.
+            Add a private sandbox and optional SearXNG search. Your existing
+            n8n stays unchanged.
           </p>
         </section>
 
@@ -63,7 +63,7 @@
 
         <div class="toast-stack" aria-label="AI Assistant safety notices">
           <aside class="toast safety-note">
-            <strong>Existing n8n stays untouched</strong>
+            <strong>n8n stays unchanged</strong>
             <span>
               No n8n Compose edit, rebuild, restart, recreate, exec, host
               port, or proxy route.
@@ -87,19 +87,18 @@
 
       <section class="panel" data-step="1" aria-labelledby="vps-title">
         <div class="panel-heading">
-          <h2 id="vps-title" tabindex="-1">Confirm the privileged sandbox boundary</h2>
+          <h2 id="vps-title" tabindex="-1">Check the sandbox limits</h2>
           <p>
-            AI Assistant is Preview. Workflows it generates require human review
-            before use, especially in production.
+            AI Assistant is Preview. Review every generated workflow before use,
+            especially in production.
           </p>
         </div>
 
         <aside class="assistant-warning" aria-label="Privileged runner warning">
-          <strong>Advanced/local-test only</strong>
+          <strong>Advanced local testing only</strong>
           <p>
-            The self-hosted runner uses privileged Docker-in-Docker and should be
-            treated as equivalent to host root. n8n recommends Daytona for
-            production sandboxing.
+            This runner uses privileged Docker-in-Docker. Treat it like host root.
+            n8n recommends Daytona for production sandboxing.
           </p>
         </aside>
 
@@ -212,6 +211,7 @@
           </label>
         </div>
         <div class="actions">
+          <button class="button ghost back-button" type="button" data-back="1">Back</button>
           <p id="review-readiness" class="action-hint" role="status">
             Relmio must verify <code>instance-ai</code> before a plan can be reviewed.
           </p>
@@ -263,6 +263,7 @@
           </span>
         </label>
         <div class="actions">
+          <button class="button ghost back-button" type="button" data-back="2">Back</button>
           <button id="install-button" class="button primary" type="button" disabled>
             Install the companion
           </button>
@@ -274,7 +275,7 @@
           <div class="success-mark" aria-hidden="true">✓</div>
           <div class="panel-heading">
             <h2 id="ready-title" tabindex="-1">AI Assistant companion is ready</h2>
-            <p>URLs are stable generated result values; the sandbox key is shown only in this result view.</p>
+            <p>Use these values in n8n. The sandbox key appears only in this result.</p>
           </div>
         </div>
 
@@ -283,19 +284,19 @@
           <p>Review every generated workflow before activation. For production sandboxing, use Daytona as n8n recommends.</p>
         </aside>
 
-        <h3>1. Sandbox dialog</h3>
+        <h3>1. Sandbox settings</h3>
         <dl class="result-list">
           <div><dt>Sandbox Service URL</dt><dd><code id="sandbox-url">Not installed</code></dd></div>
           <div><dt>Sandbox API key</dt><dd><code id="sandbox-api-key">Shown after installation</code></dd></div>
         </dl>
 
-        <h3>2. Web search dialog</h3>
+        <h3>2. Web search settings</h3>
         <dl class="result-list">
           <div><dt>SearXNG Instance URL</dt><dd><code id="searxng-url">Web search disabled</code></dd></div>
         </dl>
         <p id="searxng-note" class="assistant-note">Web search was disabled, so no SearXNG service or settings file was installed. Its retained private secret is never user-facing.</p>
 
-        <h3>3. Model route</h3>
+        <h3>3. Model provider</h3>
         <dl class="result-list">
           <div><dt>Model provider</dt><dd><code>OpenAI</code></dd></div>
           <div><dt>Model</dt><dd><code>Keep the current supported selection</code></dd></div>
@@ -305,20 +306,20 @@
           does not read, receive, or store that model key.
         </p>
         <p>
-          Keep your existing supported n8n model selection—including
-          <code>openai/gpt-5.6-sol</code>—while n8n continues to accept it.
+          Keep your current supported n8n model, including
+          <code>openai/gpt-5.6-sol</code>, while n8n accepts it.
           Change models only if n8n rejects the current selection or you
           deliberately choose another supported model.
         </p>
 
-        <h3>Platform account guardrails</h3>
+        <h3>Platform account limits</h3>
         <aside class="assistant-warning">
-          <strong>No setup can guarantee an account is never flagged.</strong>
+          <strong>No setup can promise an account will never be flagged.</strong>
           <p>
-            Use a dedicated OpenAI Platform project/key, store it server-side in
-            n8n, set project rate/spend limits and alerts, monitor usage, grant
-            least user access, rotate or revoke credentials as needed, require
-            human review, and never expose this provider path publicly.
+            Use a dedicated OpenAI Platform project and key. Keep it server-side
+            in n8n, set rate and spend limits with alerts, monitor use, limit
+            access, rotate or revoke credentials when needed, require human
+            review, and never expose this provider path publicly.
           </p>
           <p>
             Relmio cannot inject per-user safety identifiers or moderation into
@@ -329,10 +330,10 @@
         <details class="assistant-disclosure">
           <summary>Optional Ollama-style custom endpoint</summary>
           <p>
-            n8n’s custom/self-hosted OpenAI-compatible screen defaults to an
-            Ollama-style endpoint. Use this only for a separately deployed,
-            n8n-reachable Relmio OpenAI-compatible endpoint backed by your own
-            OpenAI Platform API key. This companion wizard does not create one.
+            n8n’s custom OpenAI-compatible screen defaults to an Ollama-style
+            endpoint. Use it only with a separately deployed, n8n-reachable
+            Relmio endpoint backed by your own OpenAI Platform API key. This
+            wizard does not create one.
           </p>
           <dl class="result-list">
             <div><dt>Base URL</dt><dd><code>your Platform-key-backed Relmio /v1 endpoint</code></dd></div>
@@ -340,11 +341,15 @@
             <div><dt>Model ID</dt><dd>Use a model ID exposed by that Platform-key-backed endpoint.</dd></div>
           </dl>
           <p>
-            The existing ChatGPT/Codex OAuth sidecar can be technically
-            compatible, but remains experimental/private/policy-uncertain. It
-            is not auto-selected, enabled, or presented as TOS-approved.
+            The existing ChatGPT/Codex OAuth sidecar may work, but it remains
+            unofficial, private, and policy-uncertain. It is not auto-selected,
+            enabled, or presented as TOS-approved.
           </p>
         </details>
+
+        <div class="actions">
+          <a id="setup-another-assistant" class="button secondary">Set up another option</a>
+        </div>
       </section>
     </main>
   </body>

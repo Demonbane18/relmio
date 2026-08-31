@@ -72,7 +72,7 @@ The local installer starts with five provider cards:
 
 ### OpenAI API
 
-- Label: **OpenAI API — compatible clients**
+- Label: **OpenAI API, compatible clients**
 - Default HTTP port: `12435`
 - Requires an OpenAI Platform API key beginning with `sk-`.
 - Accepts zero or more exact browser origins. No wildcard origin is allowed.
@@ -85,7 +85,7 @@ The local installer starts with five provider cards:
 
 ### Codex with ChatGPT
 
-- Label: **Codex with ChatGPT — agent clients**
+- Label: **Codex with ChatGPT, agent clients**
 - Default WebSocket port: `14500`
 - Uses pinned official `@openai/codex@0.147.0`.
 - Result:
@@ -98,7 +98,7 @@ The local installer starts with five provider cards:
 
 ### Codex Chat Adapter
 
-- Label: **Codex Chat Adapter — development backends**
+- Label: **Codex Chat Adapter, development backends**
 - Default HTTP port: `14501`
 - Uses the same pinned official Codex CLI and official device-code sign-in.
 - Result:
@@ -231,7 +231,7 @@ generation to the plan. The safe response reports the private endpoint,
 network, no-host-publication boundary, managed path alias, and unofficial
 status; it never reports the OAuth path or contents.
 
-For `n8n-ai-assistant`, the request additionally contains the exact boolean
+For `n8n-ai-assistant`, the request also contains the exact boolean
 `includeSearxng`. The safe response reports Code Sandbox as required, optional
 search status, the selected n8n/network identities, owner-managed path, no host
 publication, privileged-runner warning, and operator-owned n8n configuration.
@@ -586,7 +586,7 @@ internal network and is explicitly limited to local development and testing.
   process cleanup, bounds, concurrency, final-output selection, and redaction.
 - Local installer tests prove confirmation, unmanaged-root refusal, symlink
   refusal, port collision behavior, exact Docker arguments, file modes, and
-  absence of n8n lifecycle commands. Sidecar tests additionally prove exact
+  absence of n8n lifecycle commands. Sidecar tests also prove exact
   network identity, alias-collision rejection, stdin-only OAuth seeding, zero
   host publishers, and ownership-attested removal.
 - Server tests prove install serialization, lock release, and fresh-process

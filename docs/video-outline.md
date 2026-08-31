@@ -12,7 +12,7 @@ credits. This project does not create an OpenAI Platform API key.
 
 ## Seven-minute structure
 
-### 0:00 — The problem
+### 0:00 The problem
 
 - n8n's OpenAI credential expects an API key and supports a custom Base URL.
 - You already have a self-hosted n8n Docker deployment.
@@ -20,7 +20,7 @@ credits. This project does not create an OpenAI Platform API key.
 
 On screen: the README warning and the final architecture diagram.
 
-### 0:40 — The safety promise
+### 0:40 The safety promise
 
 - The wizard runs on the user's own computer.
 - It creates a second Docker Compose project.
@@ -30,7 +30,7 @@ On screen: the README warning and the final architecture diagram.
 
 On screen: the **Sidecar-only guarantee** and Step 4 review screen.
 
-### 1:30 — Why the design works
+### 1:30 Why the design works
 
 Use this simple explanation:
 
@@ -41,7 +41,7 @@ Use this simple explanation:
 
 On screen: the Mermaid flowchart in the README.
 
-### 2:20 — Start the wizard
+### 2:20 Start the wizard
 
 Open the hosted install page and choose the terminal already on the local
 computer. Show both the macOS/Linux and native Windows choices:
@@ -65,7 +65,7 @@ Explain that:
 - the printed setup URL is private and temporary;
 - the terminal must remain open until the wizard finishes.
 
-### 2:55 — Sign in and verify freshness
+### 2:55 Sign in and verify freshness
 
 - Complete the newest ChatGPT sign-in page.
 - Temporarily disable an OAuth browser extension only if it intercepts the
@@ -76,7 +76,7 @@ Explain that:
 
 Never show the auth file, browser session URL, cookies, or account details.
 
-### 3:40 — Connect to the VPS safely
+### 3:40 Connect to the VPS safely
 
 - Enter the complete address and SSH port.
 - Check the SHA-256 fingerprint before the password field unlocks.
@@ -86,7 +86,7 @@ Never show the auth file, browser session URL, cookies, or account details.
 Blur or replace the real address, fingerprint, username, and provider account
 details in the recording.
 
-### 4:25 — Detect n8n and approve the plan
+### 4:25 Detect n8n and approve the plan
 
 - Select the running n8n container.
 - Select the network shared with the sidecar.
@@ -96,7 +96,7 @@ details in the recording.
 Emphasize that discovery is read-only and remote writes begin only after
 approval.
 
-### 5:15 — Configure n8n
+### 5:15 Configure n8n
 
 Use:
 
@@ -113,7 +113,7 @@ use the earlier node version's default Chat Completions behavior. Test one
 simple prompt before adding tools. The model list depends on the signed-in
 account and may change.
 
-### 6:10 — Refresh and troubleshoot
+### 6:10 Refresh and troubleshoot
 
 - Run the same `@latest` command to refresh a session or update the
   wizard-managed sidecar.
@@ -124,7 +124,7 @@ account and may change.
 
 Point viewers to [Troubleshooting](troubleshooting.md).
 
-### 6:45 — Close with the limitations
+### 6:45 Close with the limitations
 
 - This is unofficial and experimental.
 - It does not create an OpenAI Platform API key.

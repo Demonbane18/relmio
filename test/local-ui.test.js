@@ -36,8 +36,8 @@ test("local endpoint wizard exposes an accessible four-step flow", async () => {
     html,
     /<aside class="rail" aria-label="Local setup progress and safety">/u,
   );
-  assert.match(html, /Local pre-flight/u);
-  assert.match(html, /One boundary at a time/u);
+  assert.match(html, /Local setup/u);
+  assert.match(html, /Connect local apps or n8n/u);
   assert.match(
     html,
     /<nav class="steps" aria-label="Local setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="4"/u,
@@ -103,9 +103,9 @@ test("local wizard header always exposes persistent theme controls, support link
 test("local wizard states the OpenAI and Codex credential boundaries", async () => {
   const html = await readFile("src/ui/local.html", "utf8");
 
-  assert.match(html, /A ChatGPT subscription is not an OpenAI Platform API key/u);
-  assert.match(html, /Relmio never converts one into the other/u);
-  assert.match(html, /Platform API usage is billed[\s\S]*separately from ChatGPT/u);
+  assert.match(html, /ChatGPT\/Codex sign-in and an OpenAI Platform API key are different/u);
+  assert.match(html, /Relmio never turns one into the other/u);
+  assert.match(html, /Platform billing is separate from ChatGPT/u);
   assert.match(html, /This is not an OpenAI-compatible <code>\/v1<\/code> endpoint/u);
   assert.match(html, /browsers cannot connect directly/u);
   assert.match(html, /High-trust capability/u);
@@ -115,7 +115,7 @@ test("local wizard states the OpenAI and Codex credential boundaries", async () 
   );
   assert.match(html, /Treat this capability like your ChatGPT password/u);
   assert.match(html, /trusted native local app/u);
-  assert.match(html, /bind only to[\s\S]*<code>127\.0\.0\.1<\/code>/u);
+  assert.match(html, /publishes the selected port on <code>127\.0\.0\.1<\/code>/u);
   assert.match(html, /id="install-confirm" type="checkbox"/u);
   assert.match(
     html,
@@ -170,11 +170,11 @@ test("local wizard presents Codex Chat as an experimental server-side HTTP adapt
   );
   assert.match(
     script,
-    /Experimental Codex Chat Adapter — trusted local backends or development servers only/u,
+    /Experimental Codex Chat Adapter\. Trusted local backends or development servers only/u,
   );
   assert.match(
     script,
-    /Experimental Chat Adapter — trusted local backends or development servers only/u,
+    /Experimental Chat Adapter\. Trusted local backends or development servers only/u,
   );
   assert.match(
     script,
@@ -205,11 +205,11 @@ test("local wizard offers a private n8n openai-oauth sidecar without exposing cr
   ]);
 
   assert.match(html, /name="target" value="n8n-openai-oauth"/u);
-  assert.match(html, /Self-hosted n8n bridge/u);
-  assert.match(html, /Unofficial · private Docker network/u);
+  assert.match(html, /Existing n8n model bridge/u);
+  assert.match(html, /Unofficial · private · policy-uncertain/u);
   assert.match(
     html,
-    /No host port[—-]n8n reaches it only through their shared private Docker network/u,
+    /private to a shared Docker[\s\S]*network\. There is no host port/u,
   );
   assert.match(
     html,
@@ -333,8 +333,8 @@ test("local wizard offers a new owned n8n plus Basic-Auth-protected ngrok stack 
   assert.match(html, /name="target" value="local-n8n-stack"/u);
   assert.match(html, /New local n8n \+ ngrok/u);
   assert.match(html, /Relmio-owned add-on[^<]*mandatory Basic Auth/u);
-  assert.match(html, /never changes any existing n8n/u);
-  assert.match(html, /id="ngrok-hostname"[\s\S]*no scheme, path, or port/u);
+  assert.match(html, /never changes an existing n8n deployment/u);
+  assert.match(html, /id="ngrok-hostname"[\s\S]*Do not include a scheme, path, or port/u);
   assert.match(html, /id="n8n-stack-port"[^>]*value="5679"/u);
   assert.match(html, /id="ngrok-inspector-port"[^>]*value="4041"/u);
   assert.match(html, /id="n8n-stack-timezone"[^>]*value="Asia\/Manila"/u);
@@ -349,7 +349,7 @@ test("local wizard offers a new owned n8n plus Basic-Auth-protected ngrok stack 
   assert.match(html, /permanently deletes[^<]*n8n data volume[^<]*workflows and credentials/iu);
   assert.match(html, /Export anything you need first/iu);
   assert.match(html, /Create or choose a static ngrok domain/iu);
-  assert.match(html, /anonymous browser[^<]*must be blocked/iu);
+  assert.match(html, /private browser window[\s\S]*must stay blocked/iu);
   assert.match(html, /id="setup-another-local"[^>]*>Set up another local option/u);
 
   assert.match(script, /return target === "local-n8n-stack"/u);
@@ -370,6 +370,30 @@ test("local wizard offers a new owned n8n plus Basic-Auth-protected ngrok stack 
   assert.match(script, /public ngrok URL protected by mandatory Basic Auth/u);
   assert.match(css, /\.n8n-stack-fields\s*\{/u);
   assert.doesNotMatch(script, /localStorage[\s\S]{0,200}(?:ngrokAuthtoken|basicAuthPassword)/iu);
+});
+
+test("local wizard makes copying compact, explains ngrok, and keeps Ready reversible", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/styles.css", "utf8"),
+  ]);
+
+  assert.doesNotMatch(html, />\s*Copy(?:\s+[^<]*)?\s*<\/button>/u);
+  assert.match(
+    html,
+    /data-copy-target="result-endpoint"[\s\S]*aria-label="Copy local endpoint"[\s\S]*title="Copy local endpoint"[\s\S]*class="copy-icon copy-icon-copy"[\s\S]*class="copy-icon copy-icon-check"/u,
+  );
+  assert.match(html, /Set up ngrok in three steps[\s\S]*static ngrok domain[\s\S]*authtoken[\s\S]*Basic Auth/u);
+  assert.match(html, /data-step="4"[\s\S]*id="setup-another-local"/u);
+  assert.doesNotMatch(html, /data-step="4"[\s\S]*data-back="3"/u);
+  assert.match(script, /button\.classList\.add\("copied"\)/u);
+  assert.match(css, /\.copy-value\.copied \.copy-icon-check/u);
+  assert.match(css, /\.copy-value\s*\{[^}]*min-height:\s*2\.75rem;[^}]*width:\s*2\.75rem;/su);
+  assert.match(
+    html,
+    /data-copy-target="result-n8n-settings"[\s\S]*d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"/u,
+  );
 });
 
 test("private n8n bridge cleanup has its own explicit ownership-bounded confirmation", async () => {
@@ -418,7 +442,7 @@ test("n8n bridge discovery recommends the private Assistant network and warns on
 
   assert.match(script, /networkName === "assistant-shared"/u);
   assert.match(script, /networkName\.endsWith\("_assistant-shared"\)/u);
-  assert.match(script, /"Recommended — private Assistant network"/u);
+  assert.match(script, /"Recommended, private Assistant network"/u);
   assert.match(script, /networkName === "edge"/u);
   assert.match(script, /networkName\.endsWith\("_edge"\)/u);
   assert.match(script, /also contains ngrok/u);
@@ -573,7 +597,7 @@ test("local wizard calls only the dedicated local API contract", async () => {
   assert.match(script, /result\.userCode/u);
   assert.match(script, /recover that container's ChatGPT session credential/u);
   assert.match(script, /Treat it like your ChatGPT password/u);
-  assert.match(script, /trusted local backends and development servers only/u);
+  assert.match(script, /Trusted local backends and development servers only/u);
   assert.match(
     script,
     /Codex Chat Adapter for trusted local backends or development servers verified/u,

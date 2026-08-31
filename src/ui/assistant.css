@@ -73,6 +73,10 @@
   font-size: 0.875rem;
 }
 
+.assistant-wizard .back-button {
+  margin-right: auto;
+}
+
 .assistant-note {
   position: relative;
   padding: 0.75rem 0.875rem 0.75rem 2.25rem;

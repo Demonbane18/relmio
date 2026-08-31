@@ -260,8 +260,8 @@ test("npm package substitutes the concise registry-safe package README", async (
   assert.equal(npmReadme, expectedNpmReadme);
   assert.doesNotMatch(npmReadme, /```mermaid/u);
   assert.match(npmReadme, /npx --yes --ignore-scripts relmio@latest/u);
-  assert.match(npmReadme, /## What it can install/u);
-  assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\/docs\/reference/u);
+  assert.match(npmReadme, /## Pick a path/u);
+  assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\/docs\/local-endpoints/u);
   assert.doesNotMatch(npmReadme, /relmio\.jpfusin\.tech/u);
   assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
 });

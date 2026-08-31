@@ -1,4 +1,4 @@
-# Hosted Chat — Focus Mode Override
+# Hosted Chat: Focus Mode
 
 - Dedicated work surface sized to the available viewport under the global header.
 - One transcript, one composer, one phase line, one session boundary. No side-by-side marketing column inside the chat route.

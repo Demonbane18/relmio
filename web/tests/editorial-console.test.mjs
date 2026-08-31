@@ -205,8 +205,8 @@ test("never animates documentation layout dimensions or padding", async () => {
 test("keeps global metadata neutral across separate credential routes", async () => {
   const layout = await appFile("layout.tsx");
 
-  assert.match(layout, /Relmio \| AI routes with visible boundaries/u);
-  assert.match(layout, /without collapsing their credential boundaries/u);
+  assert.match(layout, /Relmio \| Connect local AI tools safely/u);
+  assert.match(layout, /keeping each sign-in, key, and connection separate/u);
   assert.doesNotMatch(layout, /Your ChatGPT plan, relayed/u);
   assert.doesNotMatch(layout, /private path from ChatGPT sign-in/iu);
 });

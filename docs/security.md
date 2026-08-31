@@ -1,10 +1,9 @@
-# Security and limitations
+# Security and limits
 
-The VPS/n8n path handles a ChatGPT OAuth credential and an SSH authentication
-method. The local endpoint path can additionally handle an OpenAI Platform API
-key, a Codex/ChatGPT session, and generated local capabilities. Treat every one
-of these values as password-equivalent. Read this page before offering the
-wizard to another person.
+The VPS/n8n route handles a ChatGPT OAuth credential and SSH authentication.
+Local endpoints can also handle an OpenAI Platform API key, a Codex/ChatGPT
+session, and generated local capabilities. Treat all of them like passwords.
+Read this page before you offer the wizard to another person.
 
 ## ChatGPT/Codex sign-in lifetime
 
@@ -28,7 +27,7 @@ The design assumes:
 
 If any of those assumptions is false, do not use this design.
 
-For a local Docker endpoint, the design additionally assumes:
+For a local Docker endpoint, the design also assumes:
 
 - the local computer, operating-system account, and Docker Engine are trusted;
 - the app receiving the Relmio capability displayed once by the wizard is
@@ -49,7 +48,7 @@ local backend or development server owned by the same account holder. Browser
 JavaScript must not call it directly, and it is not for a remote, hosted,
 shared, or production service.
 
-## Controls implemented by the wizard
+## What the wizard does
 
 - The web server binds only to `127.0.0.1`.
 - Every API request needs a random 256-bit session token.
@@ -77,11 +76,10 @@ shared, or production service.
 
 ### Local endpoint controls
 
-- The local browser wizard's `n8n-openai-oauth` option is a distinct
-  Docker-network-only sidecar contract, not one of the loopback endpoints. It
-  binds a single-use reviewed plan to the exact running n8n container,
-  existing network, local Docker socket, and OAuth credential generation, then
-  re-attests them before mutation.
+- The local browser wizard's `n8n-openai-oauth` option is a Docker-network-only
+  sidecar, not a loopback endpoint. Before it writes, Relmio checks the exact
+  n8n container, existing network, local Docker socket, and OAuth credential
+  again.
 - The local n8n sidecar publishes no host port and has no reverse-proxy labels.
   Relmio attaches only the new sidecar to the selected existing network and
   never edits, executes inside, rebuilds, restarts, stops, recreates, or changes
@@ -277,7 +275,7 @@ for the current agreements governing an account, or legal advice.
 | Evidence | What it supports | What it does not establish |
 | --- | --- | --- |
 | Maintainer acceptance (private OpenAI email, August 2026) and the [Codex for Open Source Program Terms](https://learn.chatgpt.com/docs/codex-for-oss-terms) | Relmio's maintainer was accepted into the program for this project and received a limited-duration ChatGPT Pro benefit covering Codex access. The program is designed to support maintainers of important open-source software. | Program acceptance supports the maintainer and open-source work. It is not an OpenAI security review, product endorsement, or protocol-by-protocol compliance certification. The acceptance email is not published because it contains personal account information. |
-| OpenAI's [Advanced Configuration — OSS mode and local providers](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers) | Codex supports custom model-provider configuration and an OSS mode with local providers such as Ollama or LM Studio. | It does not authorize turning a ChatGPT subscription credential into a general API credential or bypassing provider restrictions. |
+| OpenAI's [Advanced Configuration, OSS mode and local providers](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers) | Codex supports custom model-provider configuration and an OSS mode with local providers such as Ollama or LM Studio. | It does not authorize turning a ChatGPT subscription credential into a general API credential or bypassing provider restrictions. |
 | [Thibault “Tibo” Sottiaux](https://openai.com/index/openai-to-acquire-astral/), Codex Lead at OpenAI: [open-model statement](https://x.com/thsottiaux/status/2067399435009622521) | The Codex App, CLI, and SDK can run with open-source models rather than only OpenAI models. | Model-provider flexibility does not change authentication, billing, account, or usage-policy requirements. |
 | Tibo: [account-use statement](https://x.com/thsottiaux/status/2090675027670978569) | Using one's own subscription through **Sign in with ChatGPT**, including compatible open-source clients, was distinguished from unsupported conversion of subscription access into API traffic. | It does not approve resale, pooling, forwarding credentials, sharing across users, or subscription-to-API conversion. A social post is not a contractual amendment. |
 | OpenAI CEO Sam Altman: [OpenClaw statement](https://x.com/sama/status/2050357911915028689) | OpenClaw was publicly announced as supporting ChatGPT-account sign-in and subscription use. | Approval of one named integration does not automatically approve unrelated protocols, adapters, deployments, or credential handling. |

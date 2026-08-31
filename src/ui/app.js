@@ -75,15 +75,17 @@ const revertTimers = new WeakMap();
 
 function flashCopied(button) {
   if (!button.dataset.label) {
-    button.dataset.label = button.textContent;
+    button.dataset.label = button.getAttribute("aria-label");
   }
-  button.textContent = "Copied";
+  button.setAttribute("aria-label", `${button.dataset.copyLabel} copied`);
+  button.setAttribute("title", `${button.dataset.copyLabel} copied`);
   button.classList.add("copied");
   window.clearTimeout(revertTimers.get(button));
   revertTimers.set(
     button,
     window.setTimeout(() => {
-      button.textContent = button.dataset.label;
+      button.setAttribute("aria-label", button.dataset.label);
+      button.setAttribute("title", button.dataset.label);
       button.classList.remove("copied");
     }, 1800),
   );
@@ -234,6 +236,10 @@ const handleCopyClick = createCopyClickHandler({
   setMessage,
   showError,
 });
+
+element("setup-another-vps").href = token
+  ? `/?session=${encodeURIComponent(token)}`
+  : "/";
 
 const delay = (milliseconds) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));

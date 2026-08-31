@@ -13,6 +13,7 @@ import { RepositoryButton } from "../components/RepositoryButton";
 import { SupportButton } from "../components/SupportButton";
 import { ThemeModeControl } from "../components/ThemeModeControl";
 import { DocumentationSearch } from "./DocumentationSearch";
+import { CopyableCodeBlock } from "./CopyableCodeBlock";
 import { DocumentOutline } from "./DocumentOutline";
 import { documentationPages } from "./generated-content";
 import styles from "./docs.module.css";
@@ -51,7 +52,7 @@ function summaryFromMarkdown(markdown: string) {
         !line.startsWith("```") &&
         !line.startsWith(">"),
     );
-  return (summary ?? "Open the canonical Relmio guide.")
+  return (summary ?? "Open the main Relmio guide.")
     .replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1")
     .replace(/[`*_]/gu, "")
     .slice(0, 180);
@@ -92,6 +93,7 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
           <Link href="/">Home</Link>
           <Link href="/install">Install</Link>
           <Link href="/docs" aria-current="page">Docs</Link>
+          <Link href="/changelog">Changelog</Link>
         </nav>
         <section className={styles.controls} aria-label="Project controls">
           <ThemeModeControl />
@@ -147,6 +149,7 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
                 h1: ({ children }) => <h1 id={headingId(children)}>{children}</h1>,
                 h2: ({ children }) => <h2 id={headingId(children)}>{children}</h2>,
                 h3: ({ children }) => <h3 id={headingId(children)}>{children}</h3>,
+                pre: ({ children }) => <CopyableCodeBlock>{children}</CopyableCodeBlock>,
               }}
             >
               {page.content}
@@ -170,23 +173,24 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
           <article className={styles.article} id="docs-content" tabIndex={-1}>
             <section className={styles.indexHero} aria-labelledby="docs-title">
               <div>
-                <p className={styles.eyebrow}>Field manual · {documentationPages.length} canonical guides</p>
+                <p className={styles.eyebrow}>Field manual · {documentationPages.length} guides</p>
                 <h1 id="docs-title">Relmio documentation</h1>
                 <p className={styles.intro}>
-                  Follow every request from source to boundary to destination.
-                  These guides are generated from canonical repository Markdown.
+                  See which sign-in or key each option uses, how it connects, and
+                  where it ends. These guides come from the repository documentation.
                 </p>
               </div>
-              <section className={styles.routeLegend} aria-label="Relmio request paths">
+              <section className={styles.routeLegend} aria-label="Relmio setup guides">
                 <div className={styles.routeLegendTitle}>
                   <Route aria-hidden="true" size={18} strokeWidth={1.75} />
-                  <span>Request paths</span>
+                  <span>Setup guides</span>
                 </div>
                 <ol>
-                  <li><span>01</span><strong>Model Relay</strong><ArrowRight aria-hidden="true" /></li>
-                  <li><span>02</span><strong>Sandbox Builder</strong><ArrowRight aria-hidden="true" /></li>
-                  <li><span>03</span><strong>Chat Adapter</strong><ArrowRight aria-hidden="true" /></li>
-                  <li><span>04</span><strong>App Server</strong><ArrowRight aria-hidden="true" /></li>
+                  <li><span>01</span><strong>n8n + ChatGPT</strong><ArrowRight aria-hidden="true" /></li>
+                  <li><span>02</span><strong>OpenAI API</strong><ArrowRight aria-hidden="true" /></li>
+                  <li><span>03</span><strong>Code Sandbox</strong><ArrowRight aria-hidden="true" /></li>
+                  <li><span>04</span><strong>Chat Adapter</strong><ArrowRight aria-hidden="true" /></li>
+                  <li><span>05</span><strong>App Server</strong><ArrowRight aria-hidden="true" /></li>
                 </ol>
               </section>
             </section>

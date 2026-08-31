@@ -44,6 +44,7 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     html,
     /class="rail"[\s\S]*<h1 id="page-title">[\s\S]*aria-label="Setup progress"[\s\S]*class="toast-stack"[\s\S]*<section class="panel" data-step="1"/u,
   );
+  assert.match(html, /unofficial, private, and policy-uncertain/u);
   assert.doesNotMatch(html, /class="(?:eyebrow|step-kicker)"/u);
   assert.doesNotMatch(html, /n8n OAuth Bridge/u);
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
@@ -123,6 +124,31 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   assert.match(html, /OpenAI credential[\s\S]*OpenAI Chat Model/u);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /\sonclick=/i);
+});
+
+test("VPS wizard uses icon-only copy controls and starts fresh from Ready", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/index.html", "utf8"),
+    readFile("src/ui/app.js", "utf8"),
+    readFile("src/ui/styles.css", "utf8"),
+  ]);
+
+  assert.doesNotMatch(html, />\s*Copy(?:\s+[^<]*)?\s*<\/button>/u);
+  assert.match(
+    html,
+    /data-copy-target="result-url"[\s\S]*aria-label="Copy Base URL"[\s\S]*title="Copy Base URL"[\s\S]*class="copy-icon copy-icon-copy"[\s\S]*class="copy-icon copy-icon-check"/u,
+  );
+  assert.match(
+    html,
+    /id="copy-settings"[\s\S]*aria-label="Copy OpenAI credential settings"[\s\S]*title="Copy OpenAI credential settings"/u,
+  );
+  assert.match(html, /data-step="5"[\s\S]*id="setup-another-vps"/u);
+  assert.doesNotMatch(html, /data-step="5"[\s\S]*data-back="4"/u);
+  assert.match(script, /element\("setup-another-vps"\)\.href = token/u);
+  assert.match(script, /button\.classList\.add\("copied"\)/u);
+  assert.match(css, /\.copy-value\.copied \.copy-icon-copy/u);
+  assert.match(css, /\.copy-value\.copied \.copy-icon-check/u);
+  assert.match(css, /\.copy-value\s*\{[^}]*min-height:\s*2\.75rem;[^}]*width:\s*2\.75rem;/su);
 });
 
 test("workspace CSS keeps the document still and notices in flow", async () => {

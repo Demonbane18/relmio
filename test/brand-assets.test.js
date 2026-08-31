@@ -74,8 +74,8 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     npmReadme,
     /cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-banner-animated\.svg/u,
   );
-  assert.match(readme, /One wizard\. Clear boundaries/u);
-  assert.match(npmReadme, /One wizard with separate supported API and private experimental routes/iu);
+  assert.match(readme, /Use ChatGPT sign-in with n8n/u);
+  assert.match(npmReadme, /alt="Animated Relmio mascot carrying a private n8n connection through its doorway"/u);
   assert.match(brandGuide, /images\/brand\/relmio-logo\.png/u);
   assert.match(metadata, /new URL\("\/og\.png", metadataBase\)/u);
   assert.match(metadata, /width: 1200, height: 630/u);

@@ -1,44 +1,40 @@
 # Getting started
 
-Relmio keeps each provider and network boundary as an intentionally separate
-path:
+Relmio installs local AI connections. Pick the one that matches your account
+and client.
 
-| Need | Use | Credential |
+| Need | Choose | Credential |
 | --- | --- | --- |
-| An OpenAI-compatible local endpoint | Local OpenAI API gateway (`/v1`) | Your OpenAI Platform API key |
-| A trusted native Codex integration | Codex App Server (JSON-RPC over WebSocket) | ChatGPT sign-in and a local capability |
-| A small local chat backend | Codex Chat Adapter (`POST /chat`) | ChatGPT sign-in and a local bearer credential |
-| An n8n bridge on local Docker or a VPS | The separate private n8n sidecar | Your locally created ChatGPT sign-in file |
-| Local n8n AI Assistant tools | Private Code Sandbox plus optional SearXNG | Generated sandbox key; model-provider credential configured directly in n8n |
+| A local OpenAI-compatible endpoint | OpenAI API gateway | Your OpenAI Platform API key |
+| A trusted native Codex client | Codex App Server | ChatGPT sign-in and a local capability |
+| A small local backend | Codex Chat Adapter | ChatGPT sign-in and a local bearer |
+| A bridge for local Docker n8n or a VPS | n8n OAuth sidecar | A local ChatGPT sign-in file |
+| n8n AI Assistant tools | Code Sandbox, with optional SearXNG | A generated sandbox key and a model credential entered in n8n |
 
 ChatGPT sign-in is never converted into an OpenAI Platform API key. The Codex
-options are experimental and are not generic `/v1` services.
+routes are experimental and are not general `/v1` services. The n8n OAuth
+sidecar is unofficial, private, and policy-uncertain.
 
 ## Install
 
-On macOS, Linux, WSL, or Git Bash, start the local wizard with:
+On macOS, Linux, WSL, or Git Bash:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The wizard prints a private loopback setup URL, verifies Docker before it
-changes anything, and asks for final confirmation before local or remote
-writes. Local endpoints bind to `127.0.0.1`, never to a LAN interface. The
-local n8n bridge and Assistant tools instead publish no host port and stay on
-one selected private Docker network. SearXNG web search is off by default.
+The wizard prints a private setup URL, checks Docker, shows the plan, and asks
+before it writes files or starts Docker. Local endpoints use `127.0.0.1`.
+The n8n bridge and Assistant tools use one selected Docker network and publish
+no host port. SearXNG is off by default.
 
-For installation options and prerequisites, see the [package
-README](https://www.npmjs.com/package/relmio). For a VPS/n8n walkthrough, see
-[VPS and n8n](./vps-and-n8n.md).
+## Choose a guide
 
-## Choose the next guide
-
-- [Local endpoints](./local-endpoints.md) for the local gateway, Codex App
-  Server, Chat Adapter, self-hosted n8n bridge, or local n8n Assistant tools.
-- [n8n AI Assistant companion](./ai-assistant.md) for the local-Docker and
-  SSH-host sandbox paths.
-- [Troubleshooting](./troubleshooting.md) when Docker, authentication, or a
-  local image build stops the flow.
-- [Security](./security.md) for credential and trust boundaries.
-- [Reference](./reference.md) for test commands and protocol notes.
+- [Local endpoints](./local-endpoints.md) for the gateway, Codex, the Chat
+  Adapter, the n8n bridge, and local Assistant tools.
+- [New local n8n + ngrok](./local-n8n-stack.md) if you do not already run n8n.
+- [AI Assistant companion](./ai-assistant.md) for Assistant setup and its
+  limits.
+- [VPS and n8n](./vps-and-n8n.md) for the remote sidecar route.
+- [Troubleshooting](./troubleshooting.md) when setup stops.
+- [Security](./security.md) for account, network, and credential rules.

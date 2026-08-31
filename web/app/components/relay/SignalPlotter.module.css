@@ -230,8 +230,7 @@
 }
 
 .routeRail,
-.activeRail,
-.gatewayMouth {
+.activeRail {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
@@ -266,11 +265,6 @@
 
 .gatewayEye {
   fill: var(--color-on-accent);
-}
-
-.gatewayMouth {
-  stroke: var(--color-on-accent);
-  stroke-width: 4;
 }
 
 .mapCaption {

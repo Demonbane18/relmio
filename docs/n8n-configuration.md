@@ -1,7 +1,7 @@
 # Configure n8n nodes
 
-Use this page after the wizard reaches **The private bridge is ready**. Each
-value is in its own code block so it can be copied separately.
+Use this page after the wizard says **The private bridge is ready**. Each value
+has its own code block for easy copying.
 
 ## 1. Create the OpenAI credential
 
@@ -13,7 +13,7 @@ In n8n, create or edit an **OpenAI** credential.
 local-only
 ```
 
-This is a required n8n placeholder, not an OpenAI Platform API key or secret.
+This required n8n placeholder is not an OpenAI Platform API key or secret.
 
 ### Base URL
 

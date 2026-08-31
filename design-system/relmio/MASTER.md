@@ -1,4 +1,4 @@
-# Relmio Design System — Signal Plotter
+# Relmio Design System: Signal Plotter
 
 > Generated with UI UX Pro Max, then product-grounded against `PRODUCT.md`, the approved Signal Plotter comp, the Impeccable craft floor, and the live Relmio routes. Page files under `pages/` override this master where noted.
 
@@ -9,7 +9,7 @@
 
 ## Thesis
 
-Every request has a visible source, credential boundary, route, and destination. Relmio should feel like a calm signal desk, not a generic AI landing page. The UI makes the four real product paths legible without merging their credential boundaries or implying unsupported capabilities.
+Every option shows where it starts, which sign-in or key it uses, how it connects, and where it ends. Relmio should feel like a calm setup guide, not a generic AI landing page. The UI keeps the five real options separate without implying unsupported capabilities.
 
 ## Brand tokens
 
@@ -59,7 +59,7 @@ Rules:
 
 ### Route controls
 
-- The home stage is one interactive topology, not four repeated feature cards.
+- The home stage is one interactive connection map, not repeated feature cards.
 - A route control is a real `button` with visible text, `aria-pressed`, and a 44px minimum target.
 - Selecting a route crossfades its description, moves one signal packet along a fixed path, updates the destination state, and exposes a direct deep link.
 - Keyboard: Tab selects a control; Enter/Space activates it; no hover-only information.
@@ -95,7 +95,7 @@ Motion explains cause and path. Keep the static information readable before anim
 - Signal packet: 650–900ms path travel, constant-rate segment movement, then a 180ms destination confirmation.
 - Content replacement: 140ms exit, 220ms enter, opacity + 6px transform only.
 - Button feedback: 90ms press, 160ms release.
-- Entrance: one restrained sequence for stage title and relay topology; no per-card fly-in soup.
+- Entrance: one restrained sequence for the stage title and connection map; no per-card fly-in sequence.
 - Use `transform` and `opacity`; never animate layout dimensions, top, or left.
 - Under `prefers-reduced-motion: reduce`, remove travel and spring movement, render final states immediately, and retain text/status feedback.
 
@@ -104,9 +104,9 @@ Motion explains cause and path. Keep the static information readable before anim
 | Viewport | Layout |
 | --- | --- |
 | 375px | One-column; route controls wrap or scroll only inside their labeled control row; stage remains fully operable; no page overflow. |
-| 768px | Stacked editorial split with a compact relay topology; installer tabs wrap; chat occupies one viewport-height work area. |
+| 768px | Stacked editorial split with a compact connection map; installer tabs wrap; chat occupies one viewport-height work area. |
 | 1024px | Asymmetric 5/7 split for narrative and interactive stage; persistent global navigation. |
-| 1440px | Full Signal Plotter topology with generous gutters and max-width containment. |
+| 1440px | Full connection map with generous gutters and max-width containment. |
 
 All mobile body/input text is at least 16px. Touch targets are at least 44×44px and separated by at least 8px.
 
@@ -116,15 +116,15 @@ All mobile body/input text is at least 16px. Touch targets are at least 44×44px
 - Focus is never hidden by sticky UI. Route detail changes do not steal focus.
 - Decorative SVG geometry is hidden from assistive technology; the route summary is available as text.
 - Respect reduced motion and forced colors; do not disable zoom.
-- Client code is isolated to the interactive relay, chat, theme, and copy controls.
-- Reserve topology and message dimensions to prevent CLS; no scroll listener that performs continuous React state writes.
+- Client code is isolated to the interactive connection map, chat, theme, and copy controls.
+- Reserve connection-map and message dimensions to prevent CLS; no scroll listener that performs continuous React state writes.
 - No third-party animation runtime larger than needed; lazy load below-fold interactive detail when practical.
 
 ## Product-truth guardrails
 
-- Keep these labels distinct and visible: **Model Relay**, **n8n Code Sandbox Builder**, **Codex Chat Adapter**, **Codex App Server**.
-- Model Relay uses an OpenAI Platform API key with loopback `/v1`.
-- Sandbox Builder is an n8n AI Assistant companion with a user-owned Platform key entered in n8n and optional SearXNG.
+- Keep these labels distinct and visible: **n8n with ChatGPT sign-in**, **OpenAI API**, **n8n Code Sandbox**, **Codex Chat Adapter**, and **Codex App Server**.
+- OpenAI API uses a Platform API key with loopback `/v1`.
+- n8n Code Sandbox is an AI Assistant companion with a user-owned Platform key entered in n8n and optional SearXNG.
 - Chat Adapter and App Server use supported ChatGPT sign-in paths and are experimental trusted-client surfaces.
 - Hosted chat is a bounded demo and does not claim tools, files, commands, or external browsing.
 - Do not add customer counts, benchmarks, uptime, adoption, or permanent model claims without authoritative evidence.

@@ -38,7 +38,10 @@ test("renders an always-black terminal independent of page theme", async () => {
 });
 
 test("keeps the installer tabs and copy control keyboard and screen-reader complete", async () => {
-  const picker = await appFile("components/CopyCommand.tsx");
+  const [picker, styles] = await Promise.all([
+    appFile("components/CopyCommand.tsx"),
+    appFile("install/install.module.css"),
+  ]);
 
   assert.match(picker, /role="tablist"/u);
   assert.match(picker, /role="tab"/u);
@@ -55,6 +58,8 @@ test("keeps the installer tabs and copy control keyboard and screen-reader compl
   assert.match(picker, /aria-label=\{`Copy \$\{method\.label\} installation command`\}/u);
   assert.match(picker, /role="status" aria-live="polite" aria-atomic="true"/u);
   assert.match(picker, /Copy failed/u);
+  assert.match(styles, /\.copyButton\s*\{[^}]*width:\s*2\.75rem;[^}]*min-height:\s*2\.75rem;/su);
+  assert.doesNotMatch(styles, /\.copyButton\s*\{[^}]*width:\s*(?:2\.[0-6]\d*|[01](?:\.\d+)?)rem;/su);
 });
 
 test("puts the complete terminal selector before compact safety detail", async () => {

@@ -1,9 +1,8 @@
 # n8n AI Assistant companion
 
-Relmio can install n8n's self-hosted AI Assistant sandbox plus an explicit,
-optional SearXNG web-search service through either direct local Docker-socket
-discovery or the SSH-host workflow. Both paths are deliberately separate from
-Relmio's existing OAuth sidecar and never read a ChatGPT/Codex sign-in.
+Relmio can install n8n's self-hosted AI Assistant sandbox and optional SearXNG
+web search through local Docker discovery or an SSH host. Neither route reads a
+ChatGPT/Codex sign-in or uses the OAuth sidecar.
 
 > **Preview:** AI Assistant is Preview. Review every generated workflow before
 > activating it, and use n8n's recommended Daytona sandbox for production.
@@ -11,10 +10,10 @@ Relmio's existing OAuth sidecar and never read a ChatGPT/Codex sign-in.
 ## What the wizard changes
 
 For n8n on the same computer, start the standard local wizard and choose
-**n8n AI Assistant tools**. Direct local Docker-socket discovery is supported
-on macOS, Linux, and Linux under WSL2. Relmio records the exact running n8n
-container, selected network, and SearXNG boolean in a single-use reviewed plan,
-then creates only `~/.relmio/local/n8n-ai-assistant` after final confirmation.
+**n8n AI Assistant tools**. Direct local Docker-socket discovery works on
+macOS, Linux, and Linux under WSL2. Relmio records the selected n8n container,
+network, and SearXNG choice, then creates only
+`~/.relmio/local/n8n-ai-assistant` after you confirm.
 
 For an SSH-reachable host, run `relmio assistant`. After SSH host-key
 confirmation, read-only n8n discovery, a selected existing Docker network, and
@@ -25,14 +24,13 @@ Both paths use an independent Compose project
 identity recorded in a strict, mode-0600 Assistant marker and keep n8n
 configuration operator-owned.
 
-The required sandbox companion has three services:
+The required companion has three services:
 
 - `relmio-sandbox-certs` bootstraps mTLS certificates once.
 - `relmio-sandbox-api` provides the n8n Sandbox Service API.
-- `relmio-sandbox-runner-1` is a privileged Docker-in-Docker runner on a
-  dedicated, non-published Compose bridge. Treat it as equivalent to root on
-  the host. The bridge retains egress so the runner can pull n8n's sandbox
-  image on first use.
+- `relmio-sandbox-runner-1` is a privileged Docker-in-Docker runner on its own
+  unpublished Compose network. Treat it as equivalent to root on the host. It
+  needs egress to pull n8n's sandbox image on first use.
 - `relmio-searxng` provides optional JSON web search only when you opt in during
   the reviewed plan. Web search is **off by default**; Relmio never adds it
   silently.

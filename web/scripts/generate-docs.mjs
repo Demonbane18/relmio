@@ -70,13 +70,15 @@ function rewriteRepositoryLinks(markdown) {
   );
 }
 
-function renderGeneratedModule(entries) {
+function renderGeneratedModule(entries, changelogContent) {
   return `/*
  * @generated from repository Markdown by web/scripts/generate-docs.mjs.
  * DO NOT EDIT. Edit the listed docs/*.md source and run npm run docs:generate.
  */
 
 export const documentationPages = ${JSON.stringify(entries, null, 2)} as const;
+
+export const changelogContent = ${JSON.stringify(changelogContent)};
 
 export type DocumentationSlug = (typeof documentationPages)[number]["slug"];
 
@@ -87,15 +89,18 @@ export const documentationBySlug: ReadonlyMap<string, (typeof documentationPages
 }
 
 async function generate() {
-  const entries = await Promise.all(
-    pages.map(async (page) => ({
-      ...page,
-      content: rewriteRepositoryLinks(
-        await readFile(resolve(repositoryRoot, page.sourcePath), "utf8"),
-      ),
-    })),
-  );
-  return renderGeneratedModule(entries);
+  const [entries, changelogContent] = await Promise.all([
+    Promise.all(
+      pages.map(async (page) => ({
+        ...page,
+        content: rewriteRepositoryLinks(
+          await readFile(resolve(repositoryRoot, page.sourcePath), "utf8"),
+        ),
+      })),
+    ),
+    readFile(resolve(repositoryRoot, "CHANGELOG.md"), "utf8"),
+  ]);
+  return renderGeneratedModule(entries, changelogContent);
 }
 
 const output = await generate();

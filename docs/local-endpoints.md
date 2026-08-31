@@ -1,9 +1,8 @@
 # Local Docker endpoints
 
-Relmio can install a provider endpoint in Docker on the same computer as your
-app, or add a private model bridge beside an existing local n8n container. The
-local installer keeps six explicit contracts separated by provider
-authentication method and network boundary:
+Relmio can install a Docker endpoint on your computer or add a private model
+bridge beside local n8n. Each option has its own sign-in method and network
+rule:
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|
@@ -23,9 +22,8 @@ unofficial/private compatibility path. It is not an OpenAI Platform API key,
 is not exposed as a general local endpoint, and is never described as supported
 or policy-approved.
 
-This is a documentation-backed engineering boundary, not legal advice or a
-guarantee that a particular account or use case is permitted. Review the
-agreements and policies that apply to your account.
+These are product limits, not legal advice or a promise that an account use is
+allowed. Review the agreements that apply to your account.
 
 ## ChatGPT/Codex sign-in lifetime
 
@@ -96,8 +94,8 @@ project on the local computer.
    If you selected Assistant tools, copy the one-time sandbox key and complete
    n8n environment block before leaving the result screen.
 
-Relmio refuses to overwrite an existing unmanaged directory or use a symlink
-inside its managed path. Its local files live under:
+Relmio will not overwrite an unmanaged directory or follow a symlink. Its
+local files live under:
 
 ```text
 ~/.relmio/local/openai-api
@@ -114,18 +112,17 @@ wizard to an absolute managed base whose final component is `.relmio`.
 Each target directory contains `.managed-by-relmio.json`. Endpoint markers
 record the target, port, Docker socket URI, installation ID, and unique Compose
 project name. The n8n bridge marker instead records the exact selected n8n
-container and network identities. The Assistant marker additionally records
+container and network identities. The Assistant marker also records
 its generated service identities and exact SearXNG selection. No marker
 contains a credential. Relmio uses that identity to distinguish its resources
 from another checkout or user's resources on the same Docker Engine.
 
 ## Self-hosted n8n bridge
 
-The n8n bridge installs only a new `openai-oauth` sidecar. The reviewed plan is
-bound to the selected running n8n container ID/name, Docker network ID/name,
-local Docker socket, and current OAuth credential generation. Relmio rechecks
-those values immediately before mutation and rejects network-alias collisions
-or drift.
+The n8n bridge installs only a new `openai-oauth` sidecar. Before it writes,
+Relmio checks the selected n8n container, Docker network, local Docker socket,
+and current OAuth credential again. It stops if the alias conflicts or those
+values changed.
 
 The generated Compose project contains no `ports` mapping, Traefik label, or
 ngrok route. Only the sidecar joins the selected external network, under the
@@ -513,8 +510,8 @@ docker --host <dockerHost> network inspect <literal-network-id>
 docker --host <dockerHost> volume inspect <literal-volume-name>
 ```
 
-Confirm all three labels—`io.relmio.managed=true`, the exact target, and the
-exact installation ID—match the marker. If any label or identity differs,
+Confirm all three labels, `io.relmio.managed=true`, the exact target, and the
+exact installation ID, match the marker. If any label or identity differs,
 stop. Only after they all match may you stop and remove the one managed
 service:
 

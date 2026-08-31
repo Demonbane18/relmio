@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Relmio connects compatible AI clients to a private ChatGPT/Codex OAuth sidecar, starting with self-hosted n8n."
+      content="Connect self-hosted n8n to supported ChatGPT/Codex models through a private Docker route."
     />
     <title>Relmio | n8n Setup</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
@@ -53,10 +53,11 @@
     <main id="main-content" class="shell" tabindex="-1">
       <aside class="rail" aria-label="Setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
-          <h1 id="page-title">Connect n8n without changing n8n</h1>
+          <h1 id="page-title">Connect n8n to supported models</h1>
           <p class="lede">
-            This wizard installs one separate Docker sidecar. Your existing n8n
-            image, Compose file, container, and workflows stay untouched.
+            Sign in to ChatGPT/Codex, then add one private Docker sidecar. Your
+            existing n8n image, Compose file, container, and workflows stay untouched.
+            The sidecar is unofficial, private, and policy-uncertain.
           </p>
         </section>
 
@@ -154,8 +155,8 @@
         <div class="panel-heading">
           <h2 id="signin-title" tabindex="-1">Use your local ChatGPT sign-in</h2>
           <p>
-            The OAuth credential stays on this computer until you approve its
-            encrypted SSH upload to your VPS.
+            ChatGPT/Codex sign-in stays on this computer until you approve its
+            encrypted SSH upload to your VPS. It is not a Platform API key.
           </p>
         </div>
 
@@ -211,8 +212,8 @@
         <div class="panel-heading">
           <h2 id="vps-title" tabindex="-1">Connect to your VPS</h2>
           <p>
-            Copy the address exactly from Hostinger. Your password is used only
-            for this live SSH connection and is never saved.
+            Use the address from Hostinger. Your password is used only for this
+            SSH connection and is never saved.
           </p>
         </div>
 
@@ -393,10 +394,7 @@
           <div class="success-mark" aria-hidden="true">✓</div>
           <div class="panel-heading">
             <h2 id="done-title" tabindex="-1">The private bridge is ready</h2>
-            <p>
-              Copy the OpenAI credential values first, then use one of the node
-              recipes below.
-            </p>
+            <p>Use these values in n8n on the same private Docker network.</p>
           </div>
         </div>
 
@@ -412,8 +410,9 @@
                 data-copy-target="result-url"
                 data-copy-label="Base URL"
                 aria-label="Copy Base URL"
+                title="Copy Base URL"
               >
-                Copy
+                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
               </button>
             </dd>
           </div>
@@ -427,8 +426,9 @@
                 data-copy-target="result-key"
                 data-copy-label="API key"
                 aria-label="Copy API key"
+                title="Copy API key"
               >
-                Copy
+                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
               </button>
             </dd>
           </div>
@@ -444,12 +444,14 @@
 
         <button
           id="copy-settings"
-          class="button primary"
+          class="button primary copy-value"
           type="button"
           data-copy-group="credential"
           data-copy-label="OpenAI credential settings"
+          aria-label="Copy OpenAI credential settings"
+          title="Copy OpenAI credential settings"
         >
-          Copy credential settings
+          <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
         </button>
 
         <details class="recipe-disclosure">
@@ -468,8 +470,9 @@
                     data-copy-target="result-model"
                     data-copy-label="model ID"
                     aria-label="Copy model ID"
+                    title="Copy model ID"
                   >
-                    Copy
+                    <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
                   </button>
                 </dd>
               </div>
@@ -504,8 +507,9 @@
                     data-copy-target="result-http-url"
                     data-copy-label="HTTP endpoint"
                     aria-label="Copy HTTP endpoint"
+                    title="Copy HTTP endpoint"
                   >
-                    Copy
+                    <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
                   </button>
                 </dd>
               </div>
@@ -535,8 +539,9 @@
                     data-copy-target="result-http-auth"
                     data-copy-label="Authorization header"
                     aria-label="Copy Authorization header"
+                    title="Copy Authorization header"
                   >
-                    Copy
+                    <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
                   </button>
                 </dd>
               </div>
@@ -558,20 +563,23 @@
                     data-copy-target="result-http-body"
                     data-copy-label="HTTP JSON body"
                     aria-label="Copy HTTP JSON body"
+                    title="Copy HTTP JSON body"
                   >
-                    Copy
+                    <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
                   </button>
                 </dd>
               </div>
             </dl>
             <button
               id="copy-http-recipe"
-              class="button secondary"
+              class="button secondary copy-value"
               type="button"
               data-copy-group="http"
               data-copy-label="HTTP request recipe"
+              aria-label="Copy HTTP request recipe"
+              title="Copy HTTP request recipe"
             >
-              Copy HTTP request recipe
+              <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
             </button>
           </div>
         </details>
@@ -582,6 +590,10 @@
           return to Terminal and press Control+C to close this local wizard;
           the VPS sidecar will keep running.
         </p>
+
+        <div class="actions">
+          <a id="setup-another-vps" class="button secondary">Set up another option</a>
+        </div>
       </section>
     </main>
 

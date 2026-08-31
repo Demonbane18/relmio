@@ -844,9 +844,13 @@ test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse bou
     readFile("npm/README.md", "utf8"),
     readFile("docs/ai-assistant.md", "utf8"),
   ]);
-  for (const contents of [html, readme, npmReadme, guide]) {
+  for (const contents of [html, guide]) {
     assert.match(contents, /ChatGPT\/Codex subscription sign-in is not\s+an OpenAI Platform API\s+key/i);
     assert.match(contents, /AI\s+Assistant is Preview/i);
+  }
+  for (const contents of [readme, npmReadme]) {
+    assert.match(contents, /ChatGPT sign-in is not an OpenAI Platform API key/i);
+    assert.match(contents, /AI Assistant tools/i);
   }
   assert.match(html, /id="instance-ai-status"/i);
   assert.match(html, /id="instance-ai-guidance"/i);
@@ -870,31 +874,31 @@ test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse bou
   );
   assert.match(html, /id="review-instance-ai"/i);
   assert.match(browser, /N8N_ENABLED_MODULES.*instance-ai/i);
-  assert.match(browser, /Fresh rediscovery is required after n8n changes/i);
+  assert.match(browser, /Refresh discovery after n8n changes/i);
   assert.match(browser, /focus\(\{ preventScroll: true \}\)/u);
   assert.match(browser, /review-button"\)\.disabled = !prerequisiteReady/u);
   assert.doesNotMatch(browser, /instanceAi\.(?:value|raw|environment)/u);
   assert.match(html, /openai\/gpt-5\.6-sol/);
   assert.match(css, /\.assistant-wizard \.safety-note[\s\S]*grid-template-columns:\s*1\.75rem minmax\(0, 1fr\)/u);
   assert.match(css, /\.assistant-wizard \.safety-note > strong,[\s\S]*\.assistant-wizard \.safety-note > span[\s\S]*grid-column:\s*2/u);
-  assert.match(html, /Keep your existing supported n8n model selection/i);
+  assert.match(html, /Keep your current supported n8n model/i);
   assert.match(css, /\.assistant-wizard \.steps ol[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/u);
   assert.match(sharedCss, /\.steps ol[\s\S]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/u);
   assert.match(html, /Base URL[\s\S]*API key[\s\S]*Model ID/);
   assert.match(html, /Ollama-style custom endpoint/i);
   assert.match(html, /not an OpenAI-issued API key/i);
-  assert.match(html, /experimental\/private\/policy-uncertain/i);
-  assert.match(html, /No setup can guarantee an account is never flagged/i);
+  assert.match(html, /unofficial, private, and policy-uncertain/i);
+  assert.match(html, /No setup can promise an account will never be flagged/i);
   assert.doesNotMatch(browser, /\.innerHTML\b/);
-  assert.match(html, /not auto-selected, enabled, or presented as TOS-approved/i);
-  assert.match(html, /URLs are stable generated result values; the sandbox key is shown only/i);
+  assert.match(html, /not auto-selected,[\s\S]*enabled, or presented as TOS-approved/i);
+  assert.match(html, /Use these values in n8n\. The sandbox key appears only/i);
   assert.match(html, /Optional SearXNG JSON web search[\s\S]*Off by default/i);
   assert.match(guide, /Web search is \*\*off by default\*\*[\s\S]*never adds it\s+silently/i);
   assert.match(browser, /includeSearxng: state\.reviewedIncludeSearxng/u);
   assert.match(browser, /Web search disabled/u);
   assert.match(guide, /N8N_ENABLED_MODULES[\s\S]*instance-ai/i);
   assert.match(guide, /SSH-reachable host/i);
-  assert.match(guide, /direct local Docker-socket\s+discovery is supported/i);
+  assert.match(guide, /direct local Docker-socket\s+discovery works/i);
   assert.doesNotMatch(guide, /\b(?:Hostinger|VPS)\b/i);
   assert.match(guide, /N8N_ENABLED_MODULES=instance-ai/u);
   assert.match(
@@ -916,6 +920,27 @@ test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse bou
   assert.match(guide, /URLs are stable generated result values; only the sandbox API key is\s+one-time-displayed/i);
   assert.doesNotMatch(guide, /generated one-time result URL/i);
   for (const contents of [readme, npmReadme]) {
-    assert.match(contents, /npx --yes --ignore-scripts relmio@latest assistant/u);
+    assert.match(contents, /https:\/\/relmio\.vercel\.app\/docs\/ai-assistant/u);
   }
+});
+
+test("Assistant VPS wizard uses plain language and keeps every later step reversible", async () => {
+  const [html, browser, css] = await Promise.all([
+    readFile("src/ui/assistant.html", "utf8"),
+    readFile("src/ui/assistant.js", "utf8"),
+    readFile("src/ui/assistant.css", "utf8"),
+  ]);
+
+  assert.match(html, /Add private AI Assistant tools/u);
+  assert.match(html, /private sandbox and optional SearXNG search[\s\S]*n8n stays unchanged/u);
+  assert.match(html, /ChatGPT\/Codex subscription sign-in is not an OpenAI Platform API\s+key/u);
+  assert.match(html, /data-step="2"[\s\S]*data-back="1"/u);
+  assert.match(html, /data-step="3"[\s\S]*data-back="2"/u);
+  assert.match(html, /data-step="4"[\s\S]*id="setup-another-assistant"/u);
+  assert.doesNotMatch(html, /data-step="4"[\s\S]*data-back="3"/u);
+  assert.match(browser, /element\("setup-another-assistant"\)\.href = token/u);
+  assert.match(browser, /querySelectorAll\("\.back-button"\)/u);
+  assert.match(css, /\.assistant-wizard \.back-button[\s\S]*margin-right:\s*auto/u);
+  assert.doesNotMatch(`${html}\n${browser}`, /—/u);
+  assert.doesNotMatch(html, /data-copy-target|data-copy-group/u);
 });

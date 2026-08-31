@@ -21,60 +21,74 @@ import styles from "./SignalPlotter.module.css";
 
 const routeDefinitions = [
   {
+    id: "n8n-chatgpt-bridge",
+    label: "n8n with ChatGPT sign-in",
+    icon: Server,
+    source: "Your self-hosted n8n",
+    credential: "Your ChatGPT/Codex sign-in stays in a private sidecar volume",
+    transport: "Private Docker network with no host port",
+    destination: "Supported models through the unofficial openai-oauth sidecar",
+    link: "/docs/local-endpoints#self-hosted-n8n-bridge",
+    linkLabel: "Read the n8n bridge guide",
+    note: "This option is unofficial, private, experimental, and policy-uncertain. It does not turn ChatGPT sign-in into a Platform API key.",
+    tone: "Unofficial n8n option",
+    sourceY: 32,
+  },
+  {
     id: "model-relay",
-    label: "Model Relay",
+    label: "OpenAI API",
     icon: Box,
     source: "Private local app or SDK",
-    credential: "Relmio capability → protected Platform key",
-    transport: "Loopback /v1 → HTTPS to api.openai.com",
+    credential: "A local Relmio credential protects your Platform key",
+    transport: "127.0.0.1 /v1, then HTTPS to api.openai.com",
     destination: "OpenAI Platform API",
     link: "/docs/local-endpoints#openai-api-compatible-clients",
-    linkLabel: "Read the Model Relay contract",
+    linkLabel: "Read the OpenAI API guide",
     note: "The key stays a Platform credential. ChatGPT sign-in is not converted into an API key.",
-    tone: "Platform route",
-    sourceY: 44,
+    tone: "Uses a Platform API key",
+    sourceY: 92,
   },
   {
     id: "sandbox-builder",
-    label: "n8n Code Sandbox Builder",
+    label: "n8n Code Sandbox",
     icon: Braces,
     source: "Self-hosted n8n AI Assistant",
     credential: "Sandbox API key shown once; separate runner secrets",
-    transport: "Private Docker network and mTLS sandbox API",
-    destination: "Sandbox API and isolated runner",
+    transport: "Private Docker network to the sandbox API",
+    destination: "Code Sandbox and its runner",
     link: "/docs/ai-assistant#what-the-wizard-changes",
-    linkLabel: "Review the n8n companion boundary",
+    linkLabel: "Read the AI Assistant guide",
     note: "The Platform key is entered directly in n8n, never supplied to the companion. Relmio does not edit the existing n8n container, image, or workflows.",
-    tone: "Human-gated plan",
-    sourceY: 116,
+    tone: "Separate n8n tool",
+    sourceY: 152,
   },
   {
     id: "chat-adapter",
     label: "Codex Chat Adapter",
     icon: MessageCircle,
     source: "Trusted local backend",
-    credential: "Relmio capability → protected ChatGPT sign-in",
-    transport: "Experimental loopback POST /chat",
+    credential: "A local Relmio credential protects your ChatGPT sign-in",
+    transport: "Experimental local POST /chat",
     destination: "Codex App Server lifecycle",
     link: "/docs/local-endpoints#codex-chat-adapter-development-backends",
-    linkLabel: "Read the Chat Adapter contract",
+    linkLabel: "Read the Chat Adapter guide",
     note: "This experimental route is for a backend you control. It is not an OpenAI-compatible Platform endpoint.",
-    tone: "Experimental route",
-    sourceY: 188,
+    tone: "Experimental",
+    sourceY: 212,
   },
   {
     id: "app-server",
     label: "Codex App Server",
     icon: Server,
     source: "Trusted native Codex client",
-    credential: "Relmio capability → protected ChatGPT sign-in",
-    transport: "Experimental loopback WebSocket JSON-RPC",
+    credential: "A local Relmio credential protects your ChatGPT sign-in",
+    transport: "Experimental local WebSocket connection",
     destination: "Codex App Server",
     link: "/docs/local-endpoints#codex-with-chatgpt-agent-clients",
-    linkLabel: "Read the App Server contract",
+    linkLabel: "Read the App Server guide",
     note: "The client must own the App Server lifecycle. Relmio does not make this a shared or public service.",
-    tone: "Experimental route",
-    sourceY: 260,
+    tone: "Experimental",
+    sourceY: 272,
   },
 ] as const;
 
@@ -86,7 +100,7 @@ const routePath = (sourceY: number) =>
   `M 12 ${sourceY} H 132 C 174 ${sourceY} 156 152 210 152 H 268`;
 
 export function SignalPlotter() {
-  const [activeRouteId, setActiveRouteId] = useState<RouteId>("model-relay");
+  const [activeRouteId, setActiveRouteId] = useState<RouteId>("n8n-chatgpt-bridge");
   const reduceMotion = useReducedMotion();
   const activeRoute = routeDefinitions.find(
     (route) => route.id === activeRouteId,
@@ -115,14 +129,14 @@ export function SignalPlotter() {
     <MotionConfig reducedMotion="user">
       <section className={styles.homeLead} id="content-start" tabIndex={-1}>
         <section className={styles.intro} aria-labelledby="home-title">
-          <p className={styles.kicker}>Private relay infrastructure</p>
+          <p className={styles.kicker}>Your OpenAI setup, kept separate</p>
           <h1 className={styles.title} id="home-title">
-            Route every request with boundaries you can see.
+            Use your ChatGPT sign-in with the right local tool.
           </h1>
           <p className={styles.lede}>
-            Relmio connects your own credentials to your own tools through four
-            explicit local contracts. Choose a route to inspect what crosses
-            each boundary.
+            Sign in with ChatGPT for the experimental Codex paths. Use a Platform
+            key for compatible <code>/v1</code> tools. Choose a path to see where
+            n8n, your credential, and the destination connect.
           </p>
           <nav className={styles.actions} aria-label="Get started">
             <HashLink className={styles.primaryAction} targetId="chat">
@@ -134,20 +148,19 @@ export function SignalPlotter() {
             </Link>
           </nav>
           <p className={styles.introBoundary}>
-            Platform API keys and ChatGPT sign-in remain separate credentials.
-            Relmio never turns one into the other.
+            ChatGPT sign-in and Platform API keys do different jobs. Relmio never turns one into the other.
           </p>
         </section>
 
         <section className={styles.plotter} aria-labelledby="plotter-title">
           <header className={styles.plotterHeader}>
-            <p className={styles.plotterEyebrow}>Live boundary map</p>
-            <h2 id="plotter-title">Select a relay contract</h2>
-            <p>Four routes. One visible path at a time.</p>
+            <p className={styles.plotterEyebrow}>How each option connects</p>
+            <h2 id="plotter-title">Choose what you are setting up</h2>
+            <p>See the sign-in, connection, and destination for each path.</p>
           </header>
 
           <section className={styles.topology}>
-            <nav className={styles.routeControls} aria-label="Relay contracts">
+            <nav className={styles.routeControls} aria-label="Setup options">
               {routeDefinitions.map((route) => {
                 const Icon = route.icon;
                 const selected = activeRoute.id === route.id;
@@ -181,7 +194,7 @@ export function SignalPlotter() {
               })}
             </nav>
 
-            <figure className={styles.routeMap} aria-label={`${activeRoute.label} topology`}>
+            <figure className={styles.routeMap} aria-label={`${activeRoute.label} connection map`}>
               <svg
                 aria-hidden="true"
                 className={styles.routeSvg}
@@ -238,12 +251,11 @@ export function SignalPlotter() {
                 <rect className={styles.gatewayBody} height="88" rx="22" width="76" x="278" y="108" />
                 <circle className={styles.gatewayEye} cx="300" cy="138" r="5" />
                 <circle className={styles.gatewayEye} cx="332" cy="138" r="5" />
-                <path className={styles.gatewayMouth} d="M 300 168 H 332" />
                 <circle className={styles.destinationNode} cx="500" cy="152" r="10" />
               </svg>
               <figcaption className={styles.mapCaption}>
                 <span>Source</span>
-                <span>Relmio boundary</span>
+                <span>Relmio</span>
                 <span>Destination</span>
               </figcaption>
             </figure>
@@ -266,19 +278,19 @@ export function SignalPlotter() {
               </header>
               <ol className={styles.routeStory}>
                 <li>
-                  <small>Source</small>
+                  <small>Starts here</small>
                   <strong>{activeRoute.source}</strong>
                 </li>
                 <li>
-                  <small>Credential boundary</small>
+                  <small>Sign-in or key</small>
                   <strong>{activeRoute.credential}</strong>
                 </li>
                 <li>
-                  <small>Transport</small>
+                  <small>Connection</small>
                   <strong>{activeRoute.transport}</strong>
                 </li>
                 <li>
-                  <small>Destination</small>
+                  <small>Ends here</small>
                   <strong>{activeRoute.destination}</strong>
                 </li>
               </ol>
@@ -300,20 +312,20 @@ export function SignalPlotter() {
         id="how-it-works"
       >
         <header className={styles.evidenceIntro}>
-          <p className={styles.kicker}>Boundary evidence</p>
-          <h2 id="boundary-title">The contract stays legible after setup.</h2>
+          <p className={styles.kicker}>Before anything changes</p>
+          <h2 id="boundary-title">What Relmio changes and leaves alone.</h2>
           <p>
-            Every route names its credential, transport, and destination. The
-            n8n companion wizard keeps remote writes behind host-key
-            verification, an exact plan, and final human confirmation.
+            Each option shows which credential it uses, where it connects, and
+            what it reaches. Before writing to a VPS, the wizard verifies the
+            server, shows the plan, and asks you to approve it.
           </p>
         </header>
         <dl className={styles.evidenceList}>
-          <dt>Loopback-first</dt>
+          <dt>Local only</dt>
           <dd>Local endpoints bind to 127.0.0.1 by default.</dd>
-          <dt>Request-bound demo</dt>
+          <dt>Hosted chat</dt>
           <dd>The hosted chat forwards credentials only with a request.</dd>
-          <dt>Human-gated setup</dt>
+          <dt>You approve changes</dt>
           <dd>The wizard shows the exact plan before any VPS write.</dd>
           <dt>n8n stays separate</dt>
           <dd>

@@ -260,6 +260,7 @@
 }
 
 .article pre {
+  position: relative;
   max-width: 100%;
   overflow-x: auto;
   padding: 1.25rem;
@@ -268,6 +269,75 @@
   background: #09100f;
   color: #eff9f6;
   box-shadow: 0 18px 42px rgb(4 10 9 / 18%);
+}
+
+.copyableCodeBlock {
+  position: relative;
+}
+
+.copyCodeButton {
+  position: absolute;
+  z-index: 1;
+  top: 0.625rem;
+  right: 0.625rem;
+  display: inline-flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid #43534e;
+  border-radius: 0.5rem;
+  background: #172622;
+  color: #eff9f6;
+  cursor: pointer;
+  transition: border-color 160ms var(--ease-standard), color 160ms var(--ease-standard);
+}
+
+.copyCodeButton:hover,
+.copyCodeButton[data-state="copied"] {
+  border-color: #75d9ce;
+  color: #75d9ce;
+}
+
+.copyCodeButton[data-state="error"] {
+  border-color: #ff9b93;
+  color: #ffb3ad;
+}
+
+.copyCodeButton:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.copyCodeButton svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.changelogArticle {
+  width: min(calc(100% - clamp(2rem, 7vw, 8rem)), 76ch);
+  margin: clamp(2rem, 5vw, 5.5rem) auto;
+  padding-bottom: clamp(3rem, 8vw, 7rem);
+}
+
+.changelogArticle > h1 + .intro {
+  margin-bottom: 3rem;
+}
+
+.changelogArticle h2 {
+  margin-top: 3.5rem;
 }
 
 .article pre code {

@@ -205,14 +205,21 @@ export function CopyCommand() {
                   onClick={(event) => void copy(method, event.currentTarget)}
                   aria-label={`Copy ${method.label} installation command`}
                   aria-describedby={`install-method-${method.id}-command install-method-${method.id}-note`}
+                  title={
+                    feedback === "copied"
+                      ? "Installation command copied"
+                      : feedback === "error"
+                        ? "Could not copy installation command"
+                        : `Copy ${method.label} installation command`
+                  }
                 >
                   {feedback === "copied" ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-                  <span role="status" aria-live="polite" aria-atomic="true">
+                  <span className={styles.srOnly} role="status" aria-live="polite" aria-atomic="true">
                     {feedback === "copied"
                       ? "Copied"
                       : feedback === "error"
                         ? "Copy failed"
-                        : "Copy"}
+                        : ""}
                   </span>
                 </button>
               </header>

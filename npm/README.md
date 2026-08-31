@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-banner-animated.svg" alt="Relmio — one wizard with separate supported API and private experimental routes" width="1200">
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-banner-animated.svg" alt="Animated Relmio mascot carrying a private n8n connection through its doorway" width="1200">
 </p>
 
 <h1 align="center">Relmio</h1>
 
-<p align="center"><strong>One wizard. Clear boundaries. Connect AI tools without mixing credentials.</strong></p>
+<p align="center"><strong>Use ChatGPT sign-in with n8n. Keep every credential where it belongs.</strong></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/relmio"><img alt="npm version" src="https://img.shields.io/npm/v/relmio?logo=npm&amp;color=0f8f83"></a>
@@ -14,8 +14,12 @@
   <a href="https://github.com/Demonbane18/relmio/blob/main/LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-0f8f83"></a>
 </p>
 
-This package starts Relmio's safety-first local setup wizard for private n8n
-companions and loopback-only AI endpoints. It supports Node.js 22 or newer.
+Relmio helps self-hosted n8n use models available through your own
+ChatGPT/Codex sign-in. It installs an unofficial `openai-oauth` sidecar on the
+same private Docker network as n8n. The bridge has no host port.
+
+ChatGPT sign-in is not an OpenAI Platform API key. Relmio keeps the private
+OAuth bridge and the supported Platform API path separate.
 
 ## Quick install
 
@@ -23,136 +27,78 @@ companions and loopback-only AI endpoints. It supports Node.js 22 or newer.
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The wizard opens a private `127.0.0.1` page, verifies Docker, and requires a
-final confirmation before it writes files or deploys a self-hosted sidecar.
+The command opens a private `127.0.0.1` browser wizard. It checks Docker, shows
+the plan, and asks before it writes files or starts containers.
 
-## Two lanes, no credential mixing
+## Pick a path
 
-![Relmio separates the supported Platform API route from the private experimental ChatGPT and Codex route](https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/diagrams/relmio-two-lanes.png)
+### Existing n8n model bridge
 
-The supported API lane powers compatible n8n agents, HTTP requests, and LLM
-chains with your own OpenAI Platform API key. ChatGPT/Codex sign-in stays in a
-separate private experimental lane for trusted local tools—it never becomes a
-general-purpose API key.
+Sign in with your own ChatGPT/Codex account, select the running n8n container
+and Docker network, then install the sidecar. Configure n8n with:
 
-## What it can install
-
-| Option | Contract | Credential boundary |
-| --- | --- | --- |
-| Local OpenAI gateway | OpenAI-compatible `/v1` | Your OpenAI Platform API key |
-| Codex App Server | Experimental JSON-RPC/WebSocket | ChatGPT sign-in and a high-trust local capability |
-| Codex Chat Adapter | Experimental `POST /chat` (JSON or opt-in SSE) | ChatGPT sign-in and a bearer for trusted local backends |
-| n8n sidecar | Private Docker-network `/v1` bridge | A local ChatGPT sign-in file, never a host port |
-| n8n AI Assistant companion | Private sandbox; opt-in SearXNG web search | OpenAI Platform API key entered directly in n8n |
-| New local n8n + ngrok | New owned n8n stack, loopback access, and a Basic-Auth-protected public route | ngrok token plus n8n credentials stored only in the owned installation |
-
-ChatGPT sign-in does not become an OpenAI Platform API key. Codex transports
-are not generic `/v1` services and should never be exposed on a LAN or public
-network.
-
-## New local n8n + ngrok
-
-Choose **New local n8n + ngrok** when you do not already have a local n8n
-deployment. Relmio creates only a new randomly identified disposable Compose
-project, pins every image by digest, keeps local n8n and the ngrok inspector on
-`127.0.0.1`, and protects the public n8n route with mandatory Traffic Policy
-Basic Auth. Code Sandbox and SearXNG remain optional private services and
-publish no host ports. Read the full guide at
-https://relmio.vercel.app/docs/local-n8n-stack.
-
-## n8n AI Assistant companion
-
-Choose **n8n AI Assistant tools** in the local browser wizard to install Code
-Sandbox beside an existing local n8n container. SearXNG JSON web search is
-optional and off by default. The reviewed plan binds the exact container,
-Docker network, and SearXNG choice. Relmio shows the sandbox key and n8n
-environment settings once after verification; it does not change or restart
-n8n, and it publishes no host port.
-
-For an SSH-reachable n8n host, use the separate Assistant wizard:
-
-```bash
-npx --yes --ignore-scripts relmio@latest assistant
+```text
+Base URL: http://n8n-openai-oauth:10531/v1
+API key: local-only
+Responses API: On
 ```
 
-Neither path reads ChatGPT/Codex OAuth. ChatGPT/Codex subscription sign-in is not
-an OpenAI Platform API key. AI Assistant is Preview, so review generated
-workflows before use. This self-hosted path has a privileged Docker-in-Docker runner for
-advanced/local testing and publishes no host ports; n8n recommends Daytona for
-production. In n8n, enter your own Platform API key directly and keep your
-current supported model selection, including `openai/gpt-5.6-sol` while n8n
-continues to accept it. A separately deployed, Platform-key-backed Relmio endpoint
-may be used through n8n's optional custom endpoint form; its private Relmio
-client credential is not an OpenAI-issued API key. The OAuth sidecar remains
-experimental/private/policy-uncertain and is never auto-selected.
+Relmio does not edit or restart n8n. The bridge is unofficial, private,
+experimental, and policy-uncertain.
 
-The experimental Chat Adapter's SSE stream succeeds only after its
-`terminal: completed` event. Its local tester stays behind the setup-token-
-protected wizard and uses a short-lived encrypted credential handoff, never a
-direct browser-to-adapter request.
+### New local n8n + ngrok
 
-## OpenAI policy evidence and limits
+Create a separate n8n stack when you do not have one yet. The wizard explains
+the ngrok domain, token, and Basic Auth fields. Only the new n8n route is
+public. Private model and Assistant services keep their host ports closed.
 
-Relmio's maintainer was accepted into OpenAI's [Codex for Open Source
-program](https://learn.chatgpt.com/docs/codex-for-oss-terms) for this project
-in August 2026 and received its limited-duration ChatGPT Pro benefit.
-OpenAI's [advanced Codex configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers)
-documents custom model providers and OSS mode with Ollama or LM Studio.
-OpenAI Codex Lead Thibault “Tibo” Sottiaux has publicly distinguished supported
-**Sign in with ChatGPT** clients from unsupported subscription-to-API
-conversion, resale, or multi-user sharing ([statement](https://x.com/thsottiaux/status/2090675027670978569)),
-and [confirmed Codex can use open-source models](https://x.com/thsottiaux/status/2067399435009622521).
-OpenAI CEO Sam Altman also [announced ChatGPT-account sign-in for
-OpenClaw](https://x.com/sama/status/2050357911915028689).
+### Supported OpenAI API
 
-These sources support specific documented patterns; they are not blanket
-approval, protocol certification, a contractual amendment, or legal advice.
-Program acceptance supports the maintainer and open-source work; it does not
-approve every integration. Relmio never presents ChatGPT credentials as a
-generic `/v1` API key, and its n8n AI Assistant path requires a user-owned
-OpenAI Platform API key. Relmio prohibits account pooling or sharing,
-credential forwarding, subscription-to-API conversion or resale, and
-rate-limit or safeguard bypass. The legacy OAuth sidecar remains
-experimental/private/policy-uncertain. Read the full
-[policy evidence and scope](https://relmio.vercel.app/docs/security#policy-evidence-and-scope).
+Choose **OpenAI API** and enter your own Platform API key. Platform usage is
+billed separately from ChatGPT. Relmio gives local clients a different local
+credential.
 
-## ChatGPT sign-in lifetime
+## n8n AI Assistant tools
 
-ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
-them automatically during active use before they expire, so active sessions
-usually continue without another browser login. The official [OpenAI
-authentication documentation](https://learn.chatgpt.com/docs/auth) does not
+Choose **n8n AI Assistant tools** in the local browser wizard to add Code
+Sandbox. SearXNG web search is optional and off by default. Relmio shows the
+sandbox key and n8n settings once. It does not change or restart n8n.
+
+Enter your supported model credential directly in n8n. The privileged local
+runner is for development and testing; n8n recommends Daytona for production.
+
+## Codex device sign-in
+
+The experimental Codex options use the official device-code sign-in. The
+ChatGPT credential stays inside the isolated Codex container. Use these routes
+only with trusted local apps or development backends.
+
+## Sign-in lifetime
+
+ChatGPT/Codex sign-in tokens expire. The official Codex client refreshes them
+automatically during active use before they expire, so active sessions usually
+continue without another browser login. Official OpenAI documentation does not
 publish a fixed 10-day lifetime; do not plan around one. This provider
 credential is separate from Relmio's local capability, which remains valid
 until you rotate it.
 
-To replace only that local capability, use **Rotate client credential** on the
-Ready screen. Relmio keeps the upstream Platform API key or Codex credential
-and workspace volumes, verifies the replacement, and limits any failed rollback
-to the exact managed service.
-
 ## Common problems
 
-1. **Docker is not running:** start Docker Desktop or Docker Engine with
-   Compose, then open a fresh wizard. See
-   https://relmio.vercel.app/docs/troubleshooting#docker-is-not-running.
-2. **Authentication fails:** close stale sign-in tabs and use only the newest
-   local wizard URL printed by the active terminal. See
-   https://relmio.vercel.app/docs/troubleshooting#authentication-fails.
-3. **Local image build failed:** check Docker, disk space, and registry
-   connectivity; the browser intentionally does not reveal Docker stderr or
-   local paths.
+- **Docker is not running.** Start Docker, then open a fresh wizard session.
+- **Authentication fails.** Close old sign-in tabs and use the newest local URL
+  printed by the active Relmio terminal.
+- **Local image build failed.** Check Docker, disk space, and registry access.
 
-Full guides use absolute HTTPS links:
+## Guides
 
+- https://relmio.vercel.app/install
 - https://relmio.vercel.app/docs/getting-started
 - https://relmio.vercel.app/docs/local-endpoints
 - https://relmio.vercel.app/docs/local-n8n-stack
-- https://relmio.vercel.app/docs/vps-and-n8n
 - https://relmio.vercel.app/docs/ai-assistant
-- https://relmio.vercel.app/docs/troubleshooting#local-image-build-failed
+- https://relmio.vercel.app/docs/troubleshooting
 - https://relmio.vercel.app/docs/security
-- https://relmio.vercel.app/docs/reference
+- https://relmio.vercel.app/changelog
 
 Source and issues: https://github.com/Demonbane18/relmio
 
