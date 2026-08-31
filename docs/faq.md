@@ -3,9 +3,10 @@
 ## Does a ChatGPT plan include a Platform API key?
 
 No. The OpenAI-compatible `/v1` local endpoint uses a user-supplied OpenAI
-Platform API key, with Platform billing. ChatGPT sign-in is only for the
-experimental Codex paths and is never represented as generic `/v1`
-authorization.
+Platform API key, with Platform billing. Supported ChatGPT sign-in remains
+inside the experimental Codex paths and is never represented as a Platform API
+key. The separate n8n OAuth sidecar is an unofficial, private compatibility
+bridge—not generic local `/v1` authorization or a supported Platform route.
 
 ## How long does a ChatGPT/Codex sign-in token last?
 
@@ -40,6 +41,12 @@ does not provide encryption at rest or end-to-end encryption.
 
 ## Can Relmio modify my n8n deployment?
 
-No. It deploys a distinct sidecar only after you approve the displayed plan.
-It does not edit existing n8n Compose files or images and never publishes port
-`10531` on the VPS host.
+No. The local and VPS flows deploy a distinct sidecar only after you approve
+the displayed plan. They do not edit, exec into, rebuild, restart, stop, or
+recreate n8n, and they never publish port `10531` on the host.
+
+The local **n8n AI Assistant tools** option follows the same n8n lifecycle
+boundary. It creates only Relmio-owned Code Sandbox services and optional
+SearXNG, publishes no host port, and returns the environment values for you to
+apply. The privileged Docker-in-Docker runner is for local testing; use Daytona
+for production sandboxing.

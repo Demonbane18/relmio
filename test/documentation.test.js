@@ -55,6 +55,29 @@ test("README surfaces are concise product entry points linked to canonical docs"
   assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
 });
 
+test("published guides document the local n8n Assistant tools wizard contract", async () => {
+  const [readme, npmReadme, localGuide, assistantGuide, security] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+    readFile("docs/local-endpoints.md", "utf8"),
+    readFile("docs/ai-assistant.md", "utf8"),
+    readFile("docs/security.md", "utf8"),
+  ]);
+
+  for (const guide of [readme, npmReadme]) {
+    assert.match(guide, /choose \*\*n8n AI Assistant tools\*\* in the local browser wizard/iu);
+    assert.match(guide, /SearXNG[\s\S]*off by default/iu);
+    assert.match(guide, /does not (?:change|edit)[\s\S]*restart\s+n8n/iu);
+  }
+  assert.match(localGuide, /\*\*n8n AI Assistant tools\*\*/u);
+  assert.match(localGuide, /~\/\.relmio\/local\/n8n-ai-assistant/u);
+  assert.match(localGuide, /N8N_SANDBOX_SERVICE_API_KEY/u);
+  assert.match(localGuide, /N8N_INSTANCE_AI_SEARXNG_URL/u);
+  assert.match(assistantGuide, /direct local Docker-socket\s+discovery/u);
+  assert.match(security, /privileged\s+Docker-in-Docker runner/u);
+  assert.match(security, /no host\s+port/u);
+});
+
 test("published documentation explains ChatGPT token refresh and lifetime boundaries", async () => {
   const paths = [
     "README.md",
@@ -133,12 +156,19 @@ test("canonical local endpoint guidance documents credential rotation", async ()
   );
 });
 
-test("security guidance distinguishes all three local endpoint trust contracts", async () => {
+test("security guidance distinguishes loopback endpoints from the n8n bridge", async () => {
   const security = await readFile("docs/security.md", "utf8");
 
   assert.match(security, /every raw Codex WebSocket[\s\S]*every Codex Chat Adapter route except `GET \/health`/u);
   assert.match(security, /Chat Adapter rejects every request carrying an `Origin` header/u);
-  assert.match(security, /All three long-running endpoint containers/u);
+  assert.match(security, /All three long-running loopback endpoint containers/u);
+  assert.match(security, /`n8n-openai-oauth` option is a distinct/u);
+  assert.match(security, /local n8n sidecar publishes no host port/u);
+  assert.match(security, /local n8n bridge is create\/remove-only/u);
+  assert.match(
+    security,
+    /never edits, executes inside, rebuilds, restarts, stops, recreates, or changes[\s\S]*network membership on n8n/u,
+  );
   assert.match(security, /Each Codex target receives its own private named/u);
   assert.match(security, /named read-only permission profile with network[\s\S]*disabled/u);
   assert.match(security, /trusted local backend or development server/u);

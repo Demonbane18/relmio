@@ -1,20 +1,26 @@
 # Local Docker endpoints
 
 Relmio can install a provider endpoint in Docker on the same computer as your
-app. The local installer keeps three explicit client contracts across two
-different provider authentication methods:
+app, or add a private model bridge beside an existing local n8n container. The
+local installer keeps five explicit contracts separated by provider
+authentication method and network boundary:
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|
 | **OpenAI API: compatible clients** | OpenAI-compatible HTTP under `/v1` | Server-side OpenAI Platform API key only | A private local app, SDK, or same-owner development web app |
 | **Codex with ChatGPT: agent clients** | Official Codex App Server JSON-RPC over WebSocket | ChatGPT sign-in through Codex | A trusted native Codex/App Server client owned by the same person |
 | **Codex Chat Adapter: development backends** | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in through Codex | A trusted local backend or development server owned by the same person |
+| **Self-hosted n8n bridge** | Private `http://n8n-openai-oauth:10531/v1` on one existing Docker network | Local ChatGPT OAuth copied into a private sidecar volume | Only the selected self-hosted n8n deployment |
+| **n8n AI Assistant tools** | Private Code Sandbox plus optional SearXNG JSON search on one existing Docker network | A generated sandbox key shown once; model-provider credentials stay in n8n | Only the selected self-hosted n8n deployment |
 
 Relmio does not exchange or translate a ChatGPT OAuth/session credential into
 an OpenAI-compatible `/v1` bearer credential. The native Codex option keeps
 Codex's thread, turn, approval, and streamed-event semantics. The adapter
 translates only a small Relmio-owned `/chat` contract into that official
-protocol; it does not imitate the OpenAI API.
+protocol; it does not imitate the OpenAI API. The n8n bridge is a separate,
+unofficial/private compatibility path. It is not an OpenAI Platform API key,
+is not exposed as a general local endpoint, and is never described as supported
+or policy-approved.
 
 This is a documentation-backed engineering boundary, not legal advice or a
 guarantee that a particular account or use case is permitted. Review the
@@ -36,12 +42,18 @@ until you rotate it.
   this release depends on POSIX owner-only directory and file permissions for
   local credentials.
 - Docker Engine or Docker Desktop with Docker Compose v2 on the local computer
-- A free loopback port (`12435` for OpenAI API, `14500` for native Codex,
-  or `14501` for the Codex Chat Adapter by default)
+- For a loopback endpoint, a free local port (`12435` for OpenAI API, `14500`
+  for native Codex, or `14501` for the Codex Chat Adapter by default)
+- For the n8n bridge, a running official n8n container with an existing shared
+  Docker network; no host port is required
+- For n8n AI Assistant tools, the same running n8n and shared-network
+  requirement, plus enough capacity for a privileged Docker-in-Docker runner
 - One of these provider credentials:
   - an OpenAI Platform API key for the OpenAI-compatible endpoint; or
-  - a ChatGPT account eligible for Codex for either Codex target
-- A trusted local app that can keep the Relmio capability secret
+  - a ChatGPT account eligible for Codex for either Codex target; or
+  - an existing local `openai-oauth` ChatGPT sign-in for the private n8n bridge
+- For loopback endpoints, a trusted local app that can keep the Relmio
+  capability secret
 
 The local path does not need a VPS or SSH access and does not modify the
 existing n8n deployment. It creates a separate Relmio-managed Docker Compose
@@ -59,18 +71,26 @@ project on the local computer.
 
 2. Open the one-time local wizard URL printed in the terminal and choose
    **Local endpoints**.
-3. Choose **OpenAI API: compatible clients**, **Codex with ChatGPT: agent
-   clients**, or **Codex Chat Adapter: development backends**.
-4. Keep the default port or select another unused local port. For the OpenAI
-   API option, add any browser origins that must be allowed and enter your
-   Platform API key.
-5. Review the exact bind address, managed path, protocol, and limitations.
-   Confirm the plan before Relmio writes files or starts Docker.
-6. Copy the generated local capability when the result screen displays it.
+3. Choose one of the three loopback endpoints, **Self-hosted n8n bridge**, or
+   **n8n AI Assistant tools**.
+4. For a loopback endpoint, keep the default port or select another unused
+   local port. For the OpenAI API option, add any browser origins that must be
+   allowed and enter your Platform API key. For the n8n bridge, sign in with
+   ChatGPT locally, then explicitly choose the running n8n container and shared
+   Docker network discovered by Relmio. For Assistant tools, choose whether to
+   add SearXNG JSON web search; it is off by default and Code Sandbox is always
+   included.
+5. Review the exact bind or private-network boundary, managed path, protocol,
+   and limitations. Confirm the plan before Relmio writes files or starts
+   Docker.
+6. For a loopback endpoint, copy the generated local capability when the result
+   screen displays it.
    Relmio shows the raw capability once and persists only its SHA-256 verifier.
    “Shown once” describes the wizard display; the bearer remains valid until
    you update the endpoint to rotate it.
 7. If you selected Codex, complete the device-code sign-in shown by the wizard.
+   If you selected Assistant tools, copy the one-time sandbox key and complete
+   n8n environment block before leaving the result screen.
 
 Relmio refuses to overwrite an existing unmanaged directory or use a symlink
 inside its managed path. Its local files live under:
@@ -79,16 +99,96 @@ inside its managed path. Its local files live under:
 ~/.relmio/local/openai-api
 ~/.relmio/local/codex-chatgpt
 ~/.relmio/local/codex-chat
+~/.relmio/local/n8n-openai-oauth
+~/.relmio/local/n8n-ai-assistant
 ```
 
 Advanced or test environments can set `RELMIO_HOME` before starting the
 wizard to an absolute managed base whose final component is `.relmio`.
 
-Each target directory contains `.managed-by-relmio.json`. Its schema-2 marker
-records the target, port, Docker socket URI, installation ID, and unique Compose
-project name; it contains no credential. Relmio uses that identity to distinguish
-its resources from another checkout or user's resources on the same Docker
-Engine.
+Each target directory contains `.managed-by-relmio.json`. Endpoint markers
+record the target, port, Docker socket URI, installation ID, and unique Compose
+project name. The n8n bridge marker instead records the exact selected n8n
+container and network identities. The Assistant marker additionally records
+its generated service identities and exact SearXNG selection. No marker
+contains a credential. Relmio uses that identity to distinguish its resources
+from another checkout or user's resources on the same Docker Engine.
+
+## Self-hosted n8n bridge
+
+The n8n bridge installs only a new `openai-oauth` sidecar. The reviewed plan is
+bound to the selected running n8n container ID/name, Docker network ID/name,
+local Docker socket, and current OAuth credential generation. Relmio rechecks
+those values immediately before mutation and rejects network-alias collisions
+or drift.
+
+The generated Compose project contains no `ports` mapping, Traefik label, or
+ngrok route. Only the sidecar joins the selected external network, under the
+alias `n8n-openai-oauth`; Relmio never changes n8n's network membership or
+lifecycle. The source OAuth file is preserved. Its validated JSON is copied
+over stdin into a private labeled volume by a one-shot helper with networking
+and logging disabled.
+
+Configure n8n with:
+
+```text
+Base URL: http://n8n-openai-oauth:10531/v1
+API key: local-only
+Responses API: On
+```
+
+That URL works only from containers on the selected network. It is not
+available through `127.0.0.1`, the host LAN, or ngrok. This option does not
+install n8n AI Assistant's Code Sandbox or SearXNG, and it does not configure an
+Assistant model-provider credential. Those remain separate, explicit choices.
+
+The n8n bridge is create/remove-only in this release. Relmio refuses an
+in-place reinstall so a failed refresh cannot tear down a previously working
+bridge or its private OAuth volume. Use the Ready screen's separately confirmed
+**Remove bridge** action, then prepare and approve a fresh plan.
+
+## n8n AI Assistant tools
+
+The local Assistant option creates a separate ownership-labeled Compose
+project containing the Code Sandbox API, certificate initializer, and a
+privileged Docker-in-Docker runner. If explicitly selected, it also creates a
+private SearXNG service with JSON responses enabled. SearXNG is off by default.
+Only the sandbox API and optional SearXNG service join the exact reviewed n8n
+network; none of the companion services publish a host port or reverse-proxy
+route.
+
+Relmio discovers the selected n8n container and network read-only, re-attests
+them before and after writing its own managed files, and never edits, executes
+inside, rebuilds, restarts, stops, recreates, or changes network membership on
+n8n. It verifies the owned resource set, exact running services, sandbox
+health, zero host publication, and optional SearXNG JSON response before it
+reports success.
+
+The result screen returns an environment block shaped like this, using the
+generated private URL and one-time key from that installation:
+
+```text
+N8N_ENABLED_MODULES=instance-ai
+N8N_INSTANCE_AI_SANDBOX_ENABLED=true
+N8N_INSTANCE_AI_SANDBOX_PROVIDER=n8n-sandbox
+N8N_INSTANCE_AI_SANDBOX_IMAGE=<immutable Relmio-reviewed sandbox image>
+N8N_SANDBOX_SERVICE_URL=http://relmio-ai-sandbox-<generated-id>:8080
+N8N_SANDBOX_SERVICE_API_KEY=<shown once>
+N8N_INSTANCE_AI_SEARXNG_URL=http://relmio-ai-searxng-<generated-id>:8080
+```
+
+The final SearXNG line is present only when web search was selected. If
+`N8N_ENABLED_MODULES` already contains other modules, preserve them and merge
+`instance-ai` as a comma-delimited entry instead of replacing the existing
+value. Apply these values and restart n8n through your own deployment workflow;
+Relmio does not change or restart n8n. Configure the AI model provider and its
+credential directly in n8n.
+
+The privileged runner is intended for local development and testing. Use
+n8n's recommended Daytona sandbox path for production. The Ready screen's
+separately confirmed **Remove n8n Assistant tools** action removes only the
+owned companion project and local managed files; the selected external network
+and n8n container remain untouched.
 
 ## Safe updates and credential rotation
 
@@ -325,7 +425,8 @@ completed terminal event arrives.
 
 ## Network and container boundary
 
-Every local Compose project publishes exactly one host mapping:
+Each of the three loopback endpoint projects publishes exactly one host
+mapping:
 
 ```text
 127.0.0.1:<selected-port>:<container-port>
@@ -342,11 +443,22 @@ The OpenAI gateway receives only its private API-key named volume, mounted
 read-only; both Codex targets receive no host path and use target-specific
 private named volumes.
 
+The n8n sidecar publishes no host mapping. It receives only its private OAuth
+volume and the reviewed external n8n network. It does not mount the Docker
+socket or any host path, and only its container is created or removed by this
+flow.
+
 The loopback binding and capability are complementary controls. Other
 processes running as the same local user may still be able to reach a loopback
 port, so protect the capability and keep the computer itself trusted.
 
 ## Recovery and uninstall
+
+The manual recovery commands below apply only to the three loopback endpoint
+targets. For `n8n-openai-oauth`, use the Ready screen's separately confirmed
+**Remove bridge** action. It attests and removes only the sidecar Compose
+project, private auth volume, image, and managed directory; it never removes or
+disconnects n8n or the selected external network.
 
 The commands below are intentionally scoped to one persisted installation.
 They are not safe until you verify ownership. First open, but do not execute or

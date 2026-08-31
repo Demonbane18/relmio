@@ -7,6 +7,26 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Add local n8n companion choices to the browser wizard: an unofficial private
+  `openai-oauth` sidecar for an existing n8n container and n8n AI Assistant
+  Code Sandbox support with optional SearXNG JSON web search.
+
+### Changed
+
+- Bind each companion plan to the exact running n8n container and selected
+  existing Docker network; neither path publishes a host port or edits,
+  restarts, stops, recreates, rebuilds, or executes inside n8n. Assistant
+  settings remain operator-applied.
+
+### Security
+
+- Keep credentials separate: the sidecar uses a private local ChatGPT OAuth
+  volume, while the Assistant model-provider credential is configured directly
+  in n8n and is not handled by Relmio. SearXNG remains optional and off by
+  default.
+
 ## [0.9.1] - 2026-08-31
 
 ### Added

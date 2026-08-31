@@ -1,22 +1,29 @@
 # n8n AI Assistant companion
 
-`relmio assistant` opens a dedicated local wizard for n8n's self-hosted AI
-Assistant sandbox plus an explicit, optional SearXNG web-search service. It is deliberately separate
-from Relmio's existing OAuth sidecar and never reads a ChatGPT/Codex sign-in.
+Relmio can install n8n's self-hosted AI Assistant sandbox plus an explicit,
+optional SearXNG web-search service through either direct local Docker-socket
+discovery or the SSH-host workflow. Both paths are deliberately separate from
+Relmio's existing OAuth sidecar and never read a ChatGPT/Codex sign-in.
 
 > **Preview:** AI Assistant is Preview. Review every generated workflow before
 > activating it, and use n8n's recommended Daytona sandbox for production.
 
 ## What the wizard changes
 
-The wizard currently discovers n8n only through an **SSH-reachable host**.
-Direct local Docker-socket discovery is not supported. After SSH host-key
+For n8n on the same computer, start the standard local wizard and choose
+**n8n AI Assistant tools**. Direct local Docker-socket discovery is supported
+on macOS, Linux, and Linux under WSL2. Relmio records the exact running n8n
+container, selected network, and SearXNG boolean in a single-use reviewed plan,
+then creates only `~/.relmio/local/n8n-ai-assistant` after final confirmation.
+
+For an SSH-reachable host, run `relmio assistant`. After SSH host-key
 confirmation, read-only n8n discovery, a selected existing Docker network, and
-final confirmation exactly set to true, Relmio may first
-create `/docker/n8n-openai-oauth` and write its shared mode-0600 Relmio root
-marker. It then creates only the `assistant-sandbox` child there. It uses the
-independent Compose project identity recorded in its strict, mode-0600 assistant
-marker and does not write existing n8n project files.
+final confirmation exactly set to true, Relmio may first create
+`/docker/n8n-openai-oauth` and write its shared mode-0600 Relmio root marker. It
+then creates only the `assistant-sandbox` child there. The SSH path does not write existing n8n project files.
+Both paths use an independent Compose project
+identity recorded in a strict, mode-0600 Assistant marker and keep n8n
+configuration operator-owned.
 
 The required sandbox companion has three services:
 
@@ -56,7 +63,7 @@ restarts, recreates, rebuilds, or executes inside n8n.
 
 ## Prerequisites Relmio will not change
 
-Before making a plan, Relmio read-only inspects the selected n8n container and
+The SSH-host workflow read-only inspects the selected n8n container and
 returns only an allowlisted prerequisite status: whether its
 `N8N_ENABLED_MODULES` setting is missing, configured without `instance-ai`, or
 enabled with `instance-ai`. It never returns the container environment or the
@@ -87,7 +94,10 @@ provider-specific UI path. Apply the change to the existing n8n service, then
 redeploy or restart n8n, verify that n8n is healthy, reconnect to Relmio, and
 run discovery again before reviewing a new plan.
 
-Relmio will not edit the existing n8n Compose file, image, or environment;
+The direct local wizard instead returns the complete required environment block
+after it verifies the companion stack. You apply that block through your own
+n8n deployment workflow. Relmio will not edit the existing n8n Compose file,
+image, or environment;
 restart or recreate n8n; or exec into n8n to make this prerequisite change.
 It reports only the allowlisted status, never the raw environment value. Plan
 for at least **4 GB RAM** and **2 vCPU** for the n8n and companion workload;
@@ -97,7 +107,8 @@ capacity needs can be higher for real workflows.
 
 Relmio generates four separate local 256-bit secrets: the sandbox API key,
 runner registration token, runner API key, and SearXNG secret. It uploads the
-secrets only in the managed mode-0600 `.env` file. The registration, runner,
+secrets only in the managed mode-0600 `.env` file on the SSH path and writes
+them only to that same owned file on the direct local path. The registration, runner,
 and SearXNG secrets are never returned or logged. The sandbox API key is shown
 once in the local result view. Even with web search disabled, the private
 SearXNG secret remains in that `.env`: this lets a later reviewed opt-in start
