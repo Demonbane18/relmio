@@ -17,9 +17,11 @@ On macOS, Linux, WSL, or Git Bash:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The local wizard prints a private `127.0.0.1` URL, checks Docker, presents the
-exact plan, and asks for final confirmation before it writes local files or a
-self-hosted sidecar. Other install options are on the [hosted install
+The local wizard prints a private `127.0.0.1` setup URL, checks Docker, presents
+the exact plan, and asks for final confirmation before it writes local files or
+starts a self-hosted sidecar. Loopback endpoints stay on `127.0.0.1`; the n8n
+bridge publishes no host port and is reachable only on the selected Docker
+network. Other install options are on the [hosted install
 page](https://relmio.vercel.app/install).
 
 ## Endpoints
@@ -34,6 +36,21 @@ page](https://relmio.vercel.app/install).
 
 The Codex targets are not generic `/v1` endpoints. ChatGPT sign-in is never an
 OpenAI Platform API key or authorization for arbitrary OpenAI API calls.
+
+## Local n8n bridge
+
+Choose **Self-hosted n8n bridge** in the local browser wizard to install the
+unofficial `openai-oauth` sidecar beside an existing, running local n8n
+container. Relmio discovers n8n and its Docker networks read-only, binds the
+reviewed plan to the exact selected container and network, copies the local
+ChatGPT OAuth credential into a private managed volume, and starts only the new
+sidecar. It does not edit, exec into, rebuild, restart, stop, or recreate n8n.
+
+n8n uses `http://n8n-openai-oauth:10531/v1` with the placeholder API key
+`local-only`. Relmio does not publish port `10531`, add an ngrok or reverse-proxy
+route, or expose that URL through `127.0.0.1`. This option installs only the
+private model bridge; the AI Assistant Code Sandbox, optional SearXNG, and an
+Assistant model-provider credential remain separate, explicit setup choices.
 
 ## n8n AI Assistant companion
 
@@ -106,10 +123,11 @@ scope](docs/security.md#policy-evidence-and-scope).
 
 ## Critical security boundaries
 
-- Local endpoints bind only to `127.0.0.1`; do not expose them through a LAN,
-  reverse proxy, domain, or public IP.
-- The n8n installer creates a separate sidecar. It never edits the existing
-  n8n Compose file or image and never publishes port `10531` on the VPS host.
+- Loopback endpoints bind only to `127.0.0.1`; do not expose them through a
+  LAN, reverse proxy, domain, or public IP.
+- The local and VPS n8n installers create a separate sidecar. They never edit
+  the existing n8n Compose file or image and never publish port `10531` on the
+  host.
 - The Chat Adapter rejects browser origins. Its new in-wizard tester calls only
   the setup-token-protected local wizard, never the adapter from the browser.
 - Local capabilities and the Chat Adapter bearer are sensitive. Do not put

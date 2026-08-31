@@ -28,6 +28,11 @@ import {
   validateLocalTarget,
 } from "../domain/local-endpoints.js";
 import {
+  LOCAL_N8N_SIDECAR_ENDPOINT,
+  LOCAL_N8N_SIDECAR_TARGET,
+  createLocalN8nSidecarPlan,
+} from "../domain/local-n8n-sidecar.js";
+import {
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
   attestLocalCodexInstallation,
@@ -37,6 +42,11 @@ import {
   restartLocalCodex,
   prepareLocalClientCredentialRotation,
 } from "../services/local-installer.js";
+import {
+  discoverLocalN8nSidecarTargets,
+  installLocalN8nSidecar,
+  removeLocalN8nSidecar,
+} from "../services/local-n8n-sidecar-installer.js";
 import { startCodexDeviceLogin } from "../services/codex-login.js";
 import { createLocalChatTestService } from "../services/local-chat-test.js";
 
@@ -85,8 +95,12 @@ const defaultServices = {
   installAssistant,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
+  discoverLocalN8nSidecarTargets,
   getProjectMeta,
   installLocalEndpoint,
+  installLocalN8nSidecar,
+  prepareLocalN8nSidecarPlan: createLocalN8nSidecarPlan,
+  removeLocalN8nSidecar,
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
   prepareLocalClientCredentialRotation,
@@ -629,6 +643,190 @@ function createSafeDockerStatus(status, previewMode) {
   };
 }
 
+function requireSafeDockerIdentifier(value, label) {
+  if (typeof value !== "string" || !/^[a-f0-9]{12,64}$/u.test(value)) {
+    throw Object.assign(new Error(`The discovered ${label} is invalid.`), {
+      statusCode: 502,
+    });
+  }
+  return value;
+}
+
+function requireSafeDockerName(value, label) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 128 ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(value)
+  ) {
+    throw Object.assign(new Error(`The discovered ${label} is invalid.`), {
+      statusCode: 502,
+    });
+  }
+  return value;
+}
+
+function requireSafeDisplayValue(value, label, maximumLength = 512) {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > maximumLength ||
+    /[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    throw Object.assign(new Error(`The discovered ${label} is invalid.`), {
+      statusCode: 502,
+    });
+  }
+  return value;
+}
+
+function createSafeLocalN8nDiscovery(discovery, previewMode) {
+  if (previewMode) {
+    return {
+      dockerAvailable: false,
+      previewMode: true,
+      containers: [],
+    };
+  }
+  if (discovery?.dockerAvailable !== true) {
+    return { dockerAvailable: false, containers: [] };
+  }
+  if (!Array.isArray(discovery.containers)) {
+    throw Object.assign(
+      new Error("The local n8n discovery response is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    dockerAvailable: true,
+    ...(typeof discovery.dockerVersion === "string"
+      ? {
+          dockerVersion: requireSafeDisplayValue(
+            discovery.dockerVersion,
+            "Docker version",
+            80,
+          ),
+        }
+      : {}),
+    ...(typeof discovery.composeVersion === "string"
+      ? {
+          composeVersion: requireSafeDisplayValue(
+            discovery.composeVersion,
+            "Compose version",
+            80,
+          ),
+        }
+      : {}),
+    containers: discovery.containers.map((container) => {
+      if (!Array.isArray(container?.networks)) {
+        throw Object.assign(
+          new Error("The discovered n8n network list is invalid."),
+          { statusCode: 502 },
+        );
+      }
+      return {
+        containerId: requireSafeDockerIdentifier(
+          container.containerId,
+          "n8n container ID",
+        ),
+        containerName: requireSafeDockerName(
+          container.containerName,
+          "n8n container name",
+        ),
+        image: requireSafeDisplayValue(container.image, "n8n image"),
+        networks: container.networks.map((network) => ({
+          dockerNetworkId: requireSafeDockerIdentifier(
+            network?.dockerNetworkId,
+            "Docker network ID",
+          ),
+          networkName: requireSafeDockerName(
+            network?.networkName,
+            "Docker network name",
+          ),
+          disposable: network?.disposable === true,
+        })),
+      };
+    }),
+  };
+}
+
+function createSafeLocalN8nPlan(plan) {
+  return {
+    kind: plan.kind,
+    target: plan.target,
+    label: plan.label,
+    n8nContainerId: plan.n8nContainerId,
+    n8nContainerName: plan.n8nContainerName,
+    dockerNetworkId: plan.dockerNetworkId,
+    networkName: plan.networkName,
+    endpoint: plan.endpoint,
+    upstreamAuth: plan.upstreamAuth,
+    hostPublication: plan.hostPublication,
+    managedPath: plan.managedPath,
+    disposableHarnessWarning: plan.disposableHarnessWarning === true,
+  };
+}
+
+function createSafeLocalN8nInstallResult(result) {
+  const endpoint = result?.endpoint ?? result?.baseUrl;
+  const models = result?.models;
+  if (
+    result?.target !== LOCAL_N8N_SIDECAR_TARGET ||
+    endpoint !== LOCAL_N8N_SIDECAR_ENDPOINT ||
+    result.protocol !== "openai-v1" ||
+    result.apiKeyPlaceholder !== "local-only" ||
+    !Array.isArray(models) ||
+    models.some(
+      (model) =>
+        typeof model !== "string" ||
+        model.length === 0 ||
+        model.length > 128 ||
+        !/^[A-Za-z0-9_.:-]+$/u.test(model),
+    ) ||
+    result.deploymentMode !== "installed" ||
+    typeof result.networkName !== "string" ||
+    result.hostPublication !== "none" ||
+    result.useResponsesApi !== true ||
+    result.unofficial !== true
+  ) {
+    throw Object.assign(
+      new Error("The local n8n sidecar returned an invalid result."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: result.target,
+    endpoint,
+    apiKeyPlaceholder: result.apiKeyPlaceholder,
+    protocol: result.protocol,
+    models: [...models],
+    deploymentMode: result.deploymentMode,
+    networkName: requireSafeDockerName(
+      result.networkName,
+      "sidecar network name",
+    ),
+    hostPublication: result.hostPublication,
+    responsesApi: result.useResponsesApi === true,
+    unofficial: result.unofficial === true,
+  };
+}
+
+function createSafeLocalN8nRemovalResult(result) {
+  if (
+    result?.target !== LOCAL_N8N_SIDECAR_TARGET ||
+    result.removed !== true
+  ) {
+    throw Object.assign(
+      new Error("The local n8n sidecar removal result is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: result.target,
+    removed: true,
+  };
+}
+
 function requireLiveLocalAction(state, action) {
   if (state.previewMode) {
     throw Object.assign(
@@ -636,6 +834,12 @@ function requireLiveLocalAction(state, action) {
       { statusCode: 403 },
     );
   }
+}
+
+function localOAuthChangeInFlight(state) {
+  return (
+    state.oauthLoginStartInFlight || state.oauthLogin?.status === "pending"
+  );
 }
 
 function requireReadyLocalChatTester(state) {
@@ -690,6 +894,19 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (request.method === "GET" && path === "/api/local/n8n/discover") {
+    const discovery = state.previewMode
+      ? null
+      : await state.services.discoverLocalN8nSidecarTargets();
+    state.localPlan = null;
+    sendJson(
+      response,
+      200,
+      createSafeLocalN8nDiscovery(discovery, state.previewMode),
+    );
+    return;
+  }
+
   if (request.method === "GET" && path === "/api/local/project-meta") {
     sendJson(
       response,
@@ -730,6 +947,16 @@ async function handleApi(request, response, path, state) {
       throw Object.assign(new Error("The local wizard is closing."), {
         statusCode: 409,
       });
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
     }
     if (state.oauthRetryBlocked || state.oauthLogin?.retryBlocked === true) {
       throw Object.assign(
@@ -929,16 +1156,65 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/local/plan") {
-    const plan = createLocalDeploymentPlan({
-      target: body.target,
-      port: body.port,
-      allowedOrigins: body.allowedOrigins,
-    });
+    let plan;
+    if (body?.target === "n8n-openai-oauth") {
+      requireLiveLocalAction(state, "Local n8n sidecar planning");
+      if (localOAuthChangeInFlight(state)) {
+        throw Object.assign(
+          new Error("ChatGPT sign-in is already in progress."),
+          { statusCode: 409 },
+        );
+      }
+      const discovery = await state.services.discoverLocalN8nSidecarTargets();
+      if (discovery?.dockerAvailable !== true) {
+        throw new Error("Docker is unavailable for local n8n discovery.");
+      }
+      const container = discovery.containers?.find(
+        (candidate) => candidate?.containerId === body.n8nContainerId,
+      );
+      if (!container) {
+        throw new Error("Select a running n8n container found by this wizard.");
+      }
+      const network = container.networks?.find(
+        (candidate) => candidate?.dockerNetworkId === body.dockerNetworkId,
+      );
+      if (!network) {
+        throw new Error("Select a Docker network attached to that n8n container.");
+      }
+      const authStatus = await state.services.getAuthStatus();
+      if (
+        authStatus?.exists !== true ||
+        typeof authStatus.updatedAt !== "string" ||
+        Number.isNaN(Date.parse(authStatus.updatedAt))
+      ) {
+        throw new Error("Sign in with ChatGPT before reviewing this sidecar plan.");
+      }
+      plan = {
+        ...state.services.prepareLocalN8nSidecarPlan({
+          dockerHost: discovery.dockerHost,
+          n8nContainerId: container.containerId,
+          n8nContainerName: container.containerName,
+          dockerNetworkId: network.dockerNetworkId,
+          networkName: network.networkName,
+          authGeneration: authStatus.updatedAt,
+        }),
+        disposableHarnessWarning: network.disposable === true,
+      };
+    } else {
+      plan = createLocalDeploymentPlan({
+        target: body.target,
+        port: body.port,
+        allowedOrigins: body.allowedOrigins,
+      });
+    }
     const planId = randomUUID();
     state.localPlan = { planId, plan };
     sendJson(response, 200, {
       planId,
-      plan: createSafeLocalPlan(plan),
+      plan:
+        plan.kind === "n8n-sidecar"
+          ? createSafeLocalN8nPlan(plan)
+          : createSafeLocalPlan(plan),
     });
     return;
   }
@@ -953,7 +1229,8 @@ async function handleApi(request, response, path, state) {
         state.localCredentialRotationInFlight ||
         getPendingLocalCredentialRotation(state) ||
         state.codexLoginStartInFlight ||
-        state.codexLogin?.status === "pending"
+        state.codexLogin?.status === "pending" ||
+        localOAuthChangeInFlight(state)
       ) {
         throw Object.assign(
           new Error("A local endpoint change is already in progress."),
@@ -971,19 +1248,77 @@ async function handleApi(request, response, path, state) {
       acquiredInstallLock = true;
       state.localPlan = null;
       state.localInstalledTarget = null;
-      const result = await state.services.installLocalEndpoint({
-        plan: pending.plan,
-        apiKey: body.apiKey,
-        confirmed: body.confirmed,
-      });
+      let result;
+      if (pending.plan.kind === "n8n-sidecar") {
+        const authStatus = await state.services.getAuthStatus();
+        if (
+          authStatus?.exists !== true ||
+          typeof authStatus.path !== "string" ||
+          authStatus.updatedAt !== pending.plan.authGeneration
+        ) {
+          throw new Error(
+            "The ChatGPT sign-in changed after plan review. Review a fresh local endpoint plan before installing.",
+          );
+        }
+        result = await state.services.installLocalN8nSidecar({
+          plan: pending.plan,
+          authPath: authStatus.path,
+          confirmed: body.confirmed,
+        });
+      } else {
+        result = await state.services.installLocalEndpoint({
+          plan: pending.plan,
+          apiKey: body.apiKey,
+          confirmed: body.confirmed,
+        });
+      }
 
       state.localInstalledTarget = pending.plan.target;
-      sendJson(response, 200, createSafeLocalInstallResult(result));
+      sendJson(
+        response,
+        200,
+        pending.plan.kind === "n8n-sidecar"
+          ? createSafeLocalN8nInstallResult(result)
+          : createSafeLocalInstallResult(result),
+      );
     } finally {
       if (acquiredInstallLock) {
         state.localInstallInFlight = false;
       }
       body.apiKey = undefined;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/remove") {
+    requireLiveLocalAction(state, "Local n8n sidecar removal");
+    enforceRateLimit(state, path);
+    if (body?.confirmed !== true) {
+      throw new Error("Confirm removal of the managed local n8n sidecar.");
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localInstalledTarget = null;
+    try {
+      const result = await state.services.removeLocalN8nSidecar({
+        confirmed: true,
+      });
+      sendJson(response, 200, createSafeLocalN8nRemovalResult(result));
+    } finally {
+      state.localInstallInFlight = false;
     }
     return;
   }

@@ -2,8 +2,9 @@
 
 ## Status
 
-Originally approved on 2026-08-13 and extended for the additive
-`codex/local-codex-chat-adapter` target on 2026-08-15.
+Originally approved on 2026-08-13, extended for the additive
+`codex/local-codex-chat-adapter` target on 2026-08-15, and extended on
+2026-08-31 for a private local n8n sidecar option.
 
 This spec is product and engineering guidance based on the current official
 OpenAI documentation. It is not a legal opinion. Relmio must not claim that
@@ -14,7 +15,8 @@ OpenAI has endorsed, certified, or pre-approved the project.
 Add a local Docker installation path to the Relmio browser wizard without
 weakening the existing VPS/n8n safety boundary.
 
-Relmio offers three intentionally different local client contracts:
+Relmio offers three intentionally different loopback client contracts plus one
+private n8n-only bridge:
 
 1. `openai-api` is an OpenAI-compatible HTTP gateway backed by the user's
    OpenAI Platform API key.
@@ -22,11 +24,18 @@ Relmio offers three intentionally different local client contracts:
    user's ChatGPT/Codex sign-in.
 3. `codex-chat` is a small Relmio-specific HTTP chat adapter backed by the
    same official App Server lifecycle and ChatGPT/Codex sign-in.
+4. `n8n-openai-oauth` is an explicitly unofficial/private compatibility
+   sidecar reachable only from an existing selected n8n Docker network.
 
 Relmio must never exchange, translate, or present a ChatGPT/Codex credential as
 a general OpenAI API bearer credential. Neither Codex target may expose an
 OpenAI-shaped `/v1` compatibility surface. The adapter owns only its narrow
 `POST /chat` contract.
+
+The n8n sidecar is not the local Platform-backed `/v1` gateway and is not a
+general local-client endpoint. It uses the existing `openai-oauth` compatibility
+helper, has no host publication, and must remain visibly labeled unofficial and
+policy-uncertain.
 
 ## Official-source boundary
 
@@ -57,7 +66,7 @@ The existing VPS/n8n wizard remains a separate legacy setup path. The wizard
 landing experience adds a prominent **Local endpoints** option which opens a
 dedicated local installer.
 
-The local installer starts with three provider cards:
+The local installer starts with four provider cards:
 
 ### OpenAI API
 
@@ -99,7 +108,26 @@ The local installer starts with three provider cards:
     `/v1`
   - An explicit experimental/non-production notice
 
-All three flows show a review screen and require a final confirmation before any
+### Self-hosted n8n bridge
+
+- Label: **Self-hosted n8n bridge**
+- Meta: **Unofficial · private Docker network**
+- Requires an existing local ChatGPT OAuth credential, one running official
+  n8n container, and an explicit shared-network selection.
+- Has no port, browser-origin, generated client-credential, rotation, Codex
+  login, or Chat Adapter tester controls.
+- Result:
+  - Base URL: `http://n8n-openai-oauth:10531/v1`
+  - API-key placeholder: `local-only`
+  - Responses API: on
+  - Exact selected network and verified model IDs
+  - Host publication: none
+  - A warning that only containers on the selected network can use the URL
+- The review states that Relmio will not edit, exec into, rebuild, restart,
+  stop, recreate, or connect a network to n8n; publish `10531`; create an ngrok
+  or Traefik route; or install the AI Assistant Code Sandbox/SearXNG.
+
+All four flows show a review screen and require a final confirmation before any
 filesystem or Docker write.
 
 This release supports macOS, Linux, and Linux under WSL2. Native Windows is
@@ -152,6 +180,15 @@ paths containing the user's home directory.
 }
 ```
 
+### `GET /api/local/n8n/discover`
+
+Returns only sanitized running official n8n containers and the exact Docker
+networks they already join. Each option carries a container ID/name and network
+ID/name used for selection. The active local Docker socket and OAuth path never
+enter the browser response. Disposable harness networks may carry a warning,
+and a private Assistant network is recommended ahead of a network that also
+contains ngrok.
+
 ### `POST /api/local/plan`
 
 Request:
@@ -168,6 +205,13 @@ The request never contains an upstream credential. The response contains an
 opaque, single-use `planId` and the validated binding, managed path alias,
 compatibility type, authentication type, and caveats.
 
+For `n8n-openai-oauth`, the request contains only `target`,
+`n8nContainerId`, and `dockerNetworkId`. Server-side discovery resolves and
+binds the exact names, IDs, local Docker socket, and current OAuth credential
+generation to the plan. The safe response reports the private endpoint,
+network, no-host-publication boundary, managed path alias, and unofficial
+status; it never reports the OAuth path or contents.
+
 ### `POST /api/local/install`
 
 Request fields:
@@ -181,9 +225,23 @@ change the reviewed target, port, or origins or replay a failed attempt.
 The response never includes the upstream Platform API key or ChatGPT
 credential. It includes the new local capability once.
 
+For `n8n-openai-oauth`, no API key or OAuth material is accepted from the
+browser. The installer reads and validates the already-signed-in local OAuth
+file server-side, re-attests the plan, copies it over stdin into a private
+volume, and returns only the private base URL, `local-only` placeholder,
+Responses API setting, selected network, verified models, and deployment mode.
+
 Only one installation may execute in a wizard process at a time. A concurrent
 attempt receives `409` without consuming its reviewed plan. The in-flight lock
 is released in a `finally` path after both success and failure.
+
+### `POST /api/local/n8n/remove`
+
+Requires a separate exact confirmation and the same global local-mutation lock.
+The service must attest the marker, Compose project, container, and private auth
+volume before it removes them. It never removes or disconnects the external
+n8n network, and it never targets the selected n8n container. Uncertain
+ownership fails closed and preserves the marker for recovery.
 
 ### `POST /api/local/codex/login`
 
@@ -367,6 +425,7 @@ Managed roots:
 - `~/.relmio/local/openai-api`
 - `~/.relmio/local/codex-chatgpt`
 - `~/.relmio/local/codex-chat`
+- `~/.relmio/local/n8n-openai-oauth`
 
 `RELMIO_HOME` may replace `~/.relmio` for testing or advanced use, but it must
 be an absolute path whose final component is `.relmio`.
@@ -385,7 +444,12 @@ Controls:
 - Docker is invoked with argument arrays and `shell: false`.
 - The command allowlist is scoped to the selected Relmio Compose project and
   service.
-- No command targets n8n or `/docker/n8n-openai-oauth`.
+- No local command targets the n8n container lifecycle. The sidecar flow may
+  inspect the reviewed n8n container/network and target only its own managed
+  `n8n-openai-oauth` Compose project.
+- The n8n bridge is create/remove-only in this release. A second install
+  refuses the existing managed marker before Docker mutation; the user must
+  separately confirm **Remove bridge** and then approve a fresh plan.
 - Local port availability is checked before a new install or a port change.
 - Upstream credentials are cleared from request objects after installation
   completes or fails.
@@ -394,7 +458,7 @@ Controls:
 
 ## Container hardening
 
-All three long-running endpoint services:
+All three long-running loopback endpoint services:
 
 - run as a non-root user;
 - set `no-new-privileges`;
@@ -412,12 +476,20 @@ root only long enough to replace the volume entry atomically and retains only
 the `CHOWN` capability needed to make that entry readable by the non-root
 gateway; it is removed immediately after seeding.
 
+The n8n sidecar follows the same non-root, read-only-root, dropped-capability,
+bounded-resource controls but has no `ports` mapping. Its separate OAuth seed
+helper receives validated JSON only over stdin, has `network_mode: none`, uses
+no logging, and writes only the private labeled auth volume. The long-running
+sidecar joins exactly one selected external n8n network with the
+`n8n-openai-oauth` alias. No service mounts the Docker socket.
+
 ## Threat model
 
 ### Assets
 
 - OpenAI Platform API key
 - Codex/ChatGPT refresh and access credentials in the Codex volume
+- ChatGPT OAuth credentials copied into the n8n sidecar's private auth volume
 - generated local capability tokens
 - user prompts, outputs, and Codex thread history
 - local applications that trust the endpoint
@@ -438,7 +510,9 @@ gateway; it is removed immediately after seeding.
 | LAN/public exposure | literal `127.0.0.1` Compose binding plus template and runtime inspection tests |
 | Local cross-site request | bearer capability, exact Origin allowlist, strict preflight, Host validation |
 | Upstream key disclosure | separate local/upstream credentials, stdin-seeded private named volume, redacted errors, no body logging |
-| ChatGPT token repurposing | official App Server lifecycle only; the adapter is Relmio-specific and exposes no `/v1` route |
+| ChatGPT token repurposing in supported paths | official App Server lifecycle only; the adapter is Relmio-specific and exposes no `/v1` route; the private n8n bridge remains separately labeled unofficial/policy-uncertain |
+| Private sidecar exposure | zero host publishers, one exact reviewed external network, fixed Docker DNS alias, and no reverse-proxy labels |
+| Sidecar credential disclosure | server-side validation, stdin-only seed helper, private labeled volume, disabled seed logs, and redacted results |
 | Command injection | validated scalar values, spawn argument arrays, no shell |
 | Managed-path takeover | refuse unmanaged roots and every symlinked component |
 | Streaming resource exhaustion | header/body/concurrency/time bounds and backpressure |
@@ -449,11 +523,12 @@ gateway; it is removed immediately after seeding.
 
 ## Acceptance criteria
 
-- The browser wizard visibly offers all three local contracts and the legacy VPS
-  path remains separate.
+- The browser wizard visibly offers all three loopback contracts plus the local
+  self-hosted n8n bridge; the legacy VPS path remains separate.
 - Platform keys are accepted only by `openai-api`; both Codex targets use only
   official App Server-backed ChatGPT authentication.
-- Generated Compose files publish only literal loopback bindings.
+- Loopback Compose files publish only literal `127.0.0.1` bindings; the n8n
+  sidecar Compose file publishes no host port.
 - Every non-health gateway operation that can reach OpenAI and every App Server
   WebSocket handshake is capability-authenticated; exact-origin CORS preflight
   is a non-forwarding metadata exception.
@@ -463,7 +538,9 @@ gateway; it is removed immediately after seeding.
   process cleanup, bounds, concurrency, final-output selection, and redaction.
 - Local installer tests prove confirmation, unmanaged-root refusal, symlink
   refusal, port collision behavior, exact Docker arguments, file modes, and
-  absence of n8n commands.
+  absence of n8n lifecycle commands. Sidecar tests additionally prove exact
+  network identity, alias-collision rejection, stdin-only OAuth seeding, zero
+  host publishers, and ownership-attested removal.
 - Server tests prove install serialization, lock release, and fresh-process
   Codex login only after persisted installation attestation.
 - Codex login tests use a fake stdio App Server process and cover initialization,
@@ -477,7 +554,8 @@ gateway; it is removed immediately after seeding.
 
 ## Out of scope
 
-- Public, LAN, hosted, reverse-proxied, or multi-user endpoints
+- Public, LAN, hosted, reverse-proxied, or multi-user endpoints; this includes
+  exposing the n8n sidecar through ngrok or a host port
 - Translating Codex turns into `/v1/chat/completions` or `/v1/responses`
 - Sharing, pooling, reselling, or redistributing any ChatGPT account or benefit
 - TLS termination (loopback-only transport is the boundary for this release)

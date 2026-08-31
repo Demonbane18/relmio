@@ -379,6 +379,533 @@ test("local Docker status, planning, and installation expose only safe fields", 
   assert.match((await replay.json()).error, /fresh local endpoint plan/iu);
 });
 
+test("local n8n sidecar discovery and planning bind exact private Docker resources without leaking local auth paths", async (t) => {
+  const prepared = [];
+  let discoveryCalls = 0;
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      discoveryCalls += 1;
+      return {
+        dockerAvailable: true,
+        dockerVersion: "28.3.2",
+        composeVersion: "2.38.2",
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        containers: [
+          {
+            containerId: "a".repeat(64),
+            containerName: "relmio-test-n8n",
+            image: "docker.n8n.io/n8nio/n8n:2.36.8",
+            internalSecret: "must-not-leak",
+            networks: [
+              {
+                dockerNetworkId: "b".repeat(64),
+                networkName: "relmio-test_default",
+                disposable: true,
+                internalLabel: "must-not-leak",
+              },
+            ],
+          },
+        ],
+      };
+    },
+    async getAuthStatus() {
+      return {
+        exists: true,
+        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
+        updatedAt: "2026-08-31T01:02:03.000Z",
+      };
+    },
+    prepareLocalN8nSidecarPlan(input) {
+      prepared.push(input);
+      return {
+        kind: "n8n-sidecar",
+        target: "n8n-openai-oauth",
+        label: "Self-hosted n8n bridge",
+        dockerHost: input.dockerHost,
+        n8nContainerId: input.n8nContainerId,
+        n8nContainerName: input.n8nContainerName,
+        dockerNetworkId: input.dockerNetworkId,
+        networkName: input.networkName,
+        authGeneration: input.authGeneration,
+        endpoint: "http://n8n-openai-oauth:10531/v1",
+        protocol: "openai-v1",
+        upstreamAuth: "chatgpt-oauth",
+        hostPublication: "none",
+        managedPath: "~/.relmio/local/n8n-openai-oauth",
+        disposableHarnessWarning: true,
+      };
+    },
+  });
+
+  const discovered = await api(wizard, "/api/local/n8n/discover");
+  assert.equal(discovered.status, 200);
+  const discoveredText = await discovered.text();
+  assert.doesNotMatch(discoveredText, /\/Users\/|must-not-leak|dockerHost/iu);
+  assert.deepEqual(JSON.parse(discoveredText), {
+    dockerAvailable: true,
+    dockerVersion: "28.3.2",
+    composeVersion: "2.38.2",
+    containers: [
+      {
+        containerId: "a".repeat(64),
+        containerName: "relmio-test-n8n",
+        image: "docker.n8n.io/n8nio/n8n:2.36.8",
+        networks: [
+          {
+            dockerNetworkId: "b".repeat(64),
+            networkName: "relmio-test_default",
+            disposable: true,
+          },
+        ],
+      },
+    ],
+  });
+
+  const planned = await createPlan(wizard, {
+    target: "n8n-openai-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  assert.equal(discoveryCalls, 2);
+  assert.deepEqual(prepared, [
+    {
+      dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+      n8nContainerId: "a".repeat(64),
+      n8nContainerName: "relmio-test-n8n",
+      dockerNetworkId: "b".repeat(64),
+      networkName: "relmio-test_default",
+      authGeneration: "2026-08-31T01:02:03.000Z",
+    },
+  ]);
+  const plannedText = JSON.stringify(planned);
+  assert.doesNotMatch(
+    plannedText,
+    /\/Users\/|must-not-leak|dockerHost|authGeneration/iu,
+  );
+  assert.deepEqual(planned.plan, {
+    kind: "n8n-sidecar",
+    target: "n8n-openai-oauth",
+    label: "Self-hosted n8n bridge",
+    n8nContainerId: "a".repeat(64),
+    n8nContainerName: "relmio-test-n8n",
+    dockerNetworkId: "b".repeat(64),
+    networkName: "relmio-test_default",
+    endpoint: "http://n8n-openai-oauth:10531/v1",
+    upstreamAuth: "chatgpt-oauth",
+    hostPublication: "none",
+    managedPath: "~/.relmio/local/n8n-openai-oauth",
+    disposableHarnessWarning: true,
+  });
+});
+
+test("local n8n sidecar install is single-use, uses the server-side OAuth path, and returns only safe fields", async (t) => {
+  const installCalls = [];
+  const authStatus = {
+    exists: true,
+    path: "/Users/fixture/.n8n-openai-oauth/auth.json",
+    updatedAt: "2026-08-31T01:02:03.000Z",
+  };
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      return {
+        dockerAvailable: true,
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        containers: [
+          {
+            containerId: "a".repeat(64),
+            containerName: "relmio-test-n8n",
+            image: "docker.n8n.io/n8nio/n8n:2.36.8",
+            networks: [
+              {
+                dockerNetworkId: "b".repeat(64),
+                networkName: "relmio-test_default",
+                disposable: false,
+              },
+            ],
+          },
+        ],
+      };
+    },
+    async getAuthStatus() {
+      return authStatus;
+    },
+    prepareLocalN8nSidecarPlan(input) {
+      return {
+        kind: "n8n-sidecar",
+        target: "n8n-openai-oauth",
+        label: "Self-hosted n8n bridge",
+        ...input,
+        endpoint: "http://n8n-openai-oauth:10531/v1",
+        protocol: "openai-v1",
+        upstreamAuth: "chatgpt-oauth",
+        hostPublication: "none",
+        managedPath: "~/.relmio/local/n8n-openai-oauth",
+        disposableHarnessWarning: false,
+      };
+    },
+    async installLocalN8nSidecar(input) {
+      installCalls.push(input);
+      return {
+        target: "n8n-openai-oauth",
+        endpoint: "http://n8n-openai-oauth:10531/v1",
+        baseUrl: "http://n8n-openai-oauth:10531/v1",
+        protocol: "openai-v1",
+        apiKeyPlaceholder: "local-only",
+        useResponsesApi: true,
+        models: ["gpt-5.6-sol"],
+        networkName: "relmio-test_default",
+        n8nContainerName: "relmio-test-n8n",
+        hostPublication: "none",
+        deploymentMode: "installed",
+        unofficial: true,
+        authContents: "must-not-leak",
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+      };
+    },
+  });
+
+  const planned = await createPlan(wizard, {
+    target: "n8n-openai-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  const response = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(installCalls.length, 1);
+  assert.equal(installCalls[0].authPath, authStatus.path);
+  assert.equal("apiKey" in installCalls[0], false);
+  assert.equal("authContents" in installCalls[0], false);
+  assert.equal(installCalls[0].confirmed, true);
+  const responseText = await response.text();
+  assert.doesNotMatch(
+    responseText,
+    /\/Users\/|must-not-leak|dockerHost|authContents/iu,
+  );
+  assert.deepEqual(JSON.parse(responseText), {
+    target: "n8n-openai-oauth",
+    endpoint: "http://n8n-openai-oauth:10531/v1",
+    apiKeyPlaceholder: "local-only",
+    protocol: "openai-v1",
+    models: ["gpt-5.6-sol"],
+    deploymentMode: "installed",
+    networkName: "relmio-test_default",
+    hostPublication: "none",
+    responsesApi: true,
+    unofficial: true,
+  });
+
+  const replay = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+  });
+  assert.equal(replay.status, 400);
+  assert.match((await replay.json()).error, /fresh local endpoint plan/iu);
+  assert.equal(installCalls.length, 1);
+});
+
+test("local n8n sidecar planning fails closed before storing a plan when ChatGPT OAuth is absent", async (t) => {
+  let prepareCalls = 0;
+  let installCalls = 0;
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      return {
+        dockerAvailable: true,
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        containers: [
+          {
+            containerId: "a".repeat(64),
+            containerName: "relmio-test-n8n",
+            image: "docker.n8n.io/n8nio/n8n:2.36.8",
+            networks: [
+              {
+                dockerNetworkId: "b".repeat(64),
+                networkName: "relmio-test_default",
+                disposable: false,
+              },
+            ],
+          },
+        ],
+      };
+    },
+    async getAuthStatus() {
+      return {
+        exists: false,
+        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
+      };
+    },
+    prepareLocalN8nSidecarPlan() {
+      prepareCalls += 1;
+      throw new Error("must not prepare without OAuth");
+    },
+    async installLocalN8nSidecar() {
+      installCalls += 1;
+      throw new Error("must not install without a reviewed plan");
+    },
+  });
+
+  const planned = await postJson(wizard, "/api/local/plan", {
+    target: "n8n-openai-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  assert.equal(planned.status, 400);
+  assert.match((await planned.json()).error, /sign in with ChatGPT/iu);
+  assert.equal(prepareCalls, 0);
+
+  const install = await postJson(wizard, "/api/local/install", {
+    planId: "not-a-real-plan-id",
+    confirmed: true,
+  });
+  assert.equal(install.status, 400);
+  assert.match((await install.json()).error, /fresh local endpoint plan/iu);
+  assert.equal(installCalls, 0);
+});
+
+test("local n8n sidecar removal requires explicit confirmation and shares the local mutation guard", async (t) => {
+  let releaseInstall;
+  let notifyInstallStarted;
+  let removeCalls = 0;
+  let oauthLoginCalls = 0;
+  const installStarted = new Promise((resolve) => {
+    notifyInstallStarted = resolve;
+  });
+  const installGate = new Promise((resolve) => {
+    releaseInstall = resolve;
+  });
+  t.after(() => releaseInstall());
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      return {
+        dockerAvailable: true,
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        containers: [
+          {
+            containerId: "a".repeat(64),
+            containerName: "relmio-test-n8n",
+            image: "docker.n8n.io/n8nio/n8n:2.36.8",
+            networks: [
+              {
+                dockerNetworkId: "b".repeat(64),
+                networkName: "relmio-test_default",
+                disposable: false,
+              },
+            ],
+          },
+        ],
+      };
+    },
+    async getAuthStatus() {
+      return {
+        exists: true,
+        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
+        updatedAt: "2026-08-31T01:02:03.000Z",
+      };
+    },
+    prepareLocalN8nSidecarPlan(input) {
+      return {
+        kind: "n8n-sidecar",
+        target: "n8n-openai-oauth",
+        label: "Self-hosted n8n bridge",
+        ...input,
+        endpoint: "http://n8n-openai-oauth:10531/v1",
+        protocol: "openai-v1",
+        upstreamAuth: "chatgpt-oauth",
+        hostPublication: "none",
+        managedPath: "~/.relmio/local/n8n-openai-oauth",
+        disposableHarnessWarning: false,
+      };
+    },
+    async installLocalN8nSidecar() {
+      notifyInstallStarted();
+      await installGate;
+      return {
+        target: "n8n-openai-oauth",
+        endpoint: "http://n8n-openai-oauth:10531/v1",
+        protocol: "openai-v1",
+        apiKeyPlaceholder: "local-only",
+        useResponsesApi: true,
+        models: [],
+        networkName: "relmio-test_default",
+        hostPublication: "none",
+        deploymentMode: "installed",
+        unofficial: true,
+      };
+    },
+    async removeLocalN8nSidecar({ confirmed }) {
+      removeCalls += 1;
+      assert.equal(confirmed, true);
+      return { target: "n8n-openai-oauth", removed: true };
+    },
+    async startOAuthLogin() {
+      oauthLoginCalls += 1;
+      throw new Error("OAuth must remain locked during installation");
+    },
+  });
+
+  const unconfirmed = await postJson(wizard, "/api/local/n8n/remove", {
+    confirmed: false,
+  });
+  assert.equal(unconfirmed.status, 400);
+  assert.match((await unconfirmed.json()).error, /confirm/iu);
+  assert.equal(removeCalls, 0);
+
+  const planned = await createPlan(wizard, {
+    target: "n8n-openai-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  const installing = postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+  });
+  await installStarted;
+
+  const concurrent = await postJson(wizard, "/api/local/n8n/remove", {
+    confirmed: true,
+  });
+  assert.equal(concurrent.status, 409);
+  assert.match((await concurrent.json()).error, /already in progress/iu);
+  assert.equal(removeCalls, 0);
+
+  const concurrentOAuth = await postJson(wizard, "/api/oauth/login", {});
+  assert.equal(concurrentOAuth.status, 409);
+  assert.match((await concurrentOAuth.json()).error, /already in progress/iu);
+  assert.equal(oauthLoginCalls, 0);
+
+  releaseInstall();
+  assert.equal((await installing).status, 200);
+
+  const removed = await postJson(wizard, "/api/local/n8n/remove", {
+    confirmed: true,
+  });
+  assert.equal(removed.status, 200);
+  assert.deepEqual(await removed.json(), {
+    target: "n8n-openai-oauth",
+    removed: true,
+  });
+  assert.equal(removeCalls, 1);
+});
+
+test("pending ChatGPT OAuth blocks sidecar planning, installation, and removal without consuming the reviewed plan", async (t) => {
+  let finishOAuth;
+  let authUpdatedAt = "2026-08-31T01:02:03.000Z";
+  let discoveryCalls = 0;
+  let installCalls = 0;
+  let removeCalls = 0;
+  const oauthCompletion = new Promise((resolve) => {
+    finishOAuth = resolve;
+  });
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      discoveryCalls += 1;
+      return {
+        dockerAvailable: true,
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        containers: [
+          {
+            containerId: "a".repeat(64),
+            containerName: "relmio-test-n8n",
+            image: "docker.n8n.io/n8nio/n8n:2.36.8",
+            networks: [
+              {
+                dockerNetworkId: "b".repeat(64),
+                networkName: "relmio-test_default",
+                disposable: false,
+              },
+            ],
+          },
+        ],
+      };
+    },
+    async getAuthStatus() {
+      return {
+        exists: true,
+        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
+        updatedAt: authUpdatedAt,
+      };
+    },
+    prepareLocalN8nSidecarPlan(input) {
+      return {
+        kind: "n8n-sidecar",
+        target: "n8n-openai-oauth",
+        label: "Self-hosted n8n bridge",
+        ...input,
+        endpoint: "http://n8n-openai-oauth:10531/v1",
+        protocol: "openai-v1",
+        upstreamAuth: "chatgpt-oauth",
+        hostPublication: "none",
+        managedPath: "~/.relmio/local/n8n-openai-oauth",
+      };
+    },
+    async startOAuthLogin() {
+      return {
+        authorizationUrl: "https://auth.openai.com/oauth/authorize",
+        completion: oauthCompletion,
+        async cancel() {
+          finishOAuth();
+        },
+      };
+    },
+    async installLocalN8nSidecar() {
+      installCalls += 1;
+      throw new Error("install must stay locked while OAuth is pending");
+    },
+    async removeLocalN8nSidecar() {
+      removeCalls += 1;
+      throw new Error("remove must stay locked while OAuth is pending");
+    },
+  });
+
+  const reviewed = await createPlan(wizard, {
+    target: "n8n-openai-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  assert.equal(discoveryCalls, 1);
+  const oauth = await postJson(wizard, "/api/oauth/login", {});
+  assert.equal(oauth.status, 200);
+
+  const install = await postJson(wizard, "/api/local/install", {
+    planId: reviewed.planId,
+    confirmed: true,
+  });
+  assert.equal(install.status, 409);
+  assert.equal(installCalls, 0);
+
+  const removal = await postJson(wizard, "/api/local/n8n/remove", {
+    confirmed: true,
+  });
+  assert.equal(removal.status, 409);
+  assert.equal(removeCalls, 0);
+
+  const replanning = await postJson(wizard, "/api/local/plan", {
+    target: "n8n-openai-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  assert.equal(replanning.status, 409);
+  assert.equal(discoveryCalls, 1);
+
+  authUpdatedAt = "2026-08-31T01:02:04.000Z";
+  finishOAuth();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const status = await api(wizard, "/api/oauth/status");
+    if ((await status.json()).status === "success") break;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  const retried = await postJson(wizard, "/api/local/install", {
+    planId: reviewed.planId,
+    confirmed: true,
+  });
+  assert.equal(retried.status, 400);
+  assert.match((await retried.json()).error, /changed after plan review/iu);
+  assert.equal(installCalls, 0);
+});
+
 test("local credential rotation is setup-token protected, live-only, rate-limited, and redacts upstream credentials", async (t) => {
   const prepareCalls = [];
   const activationCalls = [];
@@ -1201,8 +1728,17 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
       async getLocalDockerStatus() {
         calls.push("docker");
       },
+      async discoverLocalN8nSidecarTargets() {
+        calls.push("n8n-discover");
+      },
       async installLocalEndpoint() {
         calls.push("install");
+      },
+      async installLocalN8nSidecar() {
+        calls.push("n8n-install");
+      },
+      async removeLocalN8nSidecar() {
+        calls.push("n8n-remove");
       },
       async startCodexDeviceLogin() {
         calls.push("login");
@@ -1219,6 +1755,19 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
     dockerAvailable: false,
     previewMode: true,
   });
+  const n8nDiscovery = await api(wizard, "/api/local/n8n/discover");
+  assert.deepEqual(await n8nDiscovery.json(), {
+    dockerAvailable: false,
+    previewMode: true,
+    containers: [],
+  });
+
+  const n8nPlan = await postJson(wizard, "/api/local/plan", {
+    target: "n8n-openai-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  assert.equal(n8nPlan.status, 403);
 
   const planned = await createPlan(wizard, {
     target: "openai-api",
@@ -1231,6 +1780,11 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
     apiKey: platformApiKey,
   });
   assert.equal(install.status, 403);
+
+  const removal = await postJson(wizard, "/api/local/n8n/remove", {
+    confirmed: true,
+  });
+  assert.equal(removal.status, 403);
 
   const login = await postJson(
     wizard,

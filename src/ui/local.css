@@ -254,6 +254,98 @@
   grid-template-columns: minmax(8rem, 0.55fr) minmax(0, 1.45fr);
 }
 
+.n8n-sidecar-fields {
+  display: grid;
+  gap: 1rem;
+  margin: 0 0 1rem;
+  padding: 1rem;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+}
+
+.n8n-sidecar-fields[hidden] {
+  display: none;
+}
+
+.n8n-sidecar-fields .section-heading h3,
+.n8n-sidecar-fields .section-heading p,
+.sidecar-oauth h3,
+.sidecar-oauth p,
+.sidecar-status-row p {
+  margin: 0;
+}
+
+.n8n-sidecar-fields .section-heading p,
+.sidecar-oauth p,
+.sidecar-status-row p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.sidecar-selects {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.sidecar-status-row,
+.sidecar-oauth,
+.sidecar-oauth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sidecar-status-row,
+.sidecar-oauth {
+  justify-content: space-between;
+  padding: 0.875rem;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.sidecar-oauth > div:first-child {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sidecar-scope-note {
+  margin-top: 0;
+}
+
+.n8n-sidecar-removal {
+  display: grid;
+  gap: 0.875rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--warning-border);
+  border-radius: var(--radius);
+  background: var(--warning-soft);
+}
+
+.n8n-sidecar-removal[hidden] {
+  display: none;
+}
+
+.n8n-sidecar-removal h3,
+.n8n-sidecar-removal p {
+  margin: 0;
+}
+
+.n8n-sidecar-removal > p,
+.sidecar-removal-actions p {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.sidecar-removal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .field textarea {
   width: 100%;
   min-height: 5.75rem;
@@ -561,6 +653,7 @@
 @media (max-width: 48rem) {
   .target-picker,
   .local-fields,
+  .sidecar-selects,
   .local-review-grid,
   .chat-tester-form fieldset {
     grid-template-columns: minmax(0, 1fr);
@@ -568,6 +661,18 @@
 
   .chat-tester-heading {
     flex-direction: column;
+  }
+
+  .sidecar-status-row,
+  .sidecar-oauth,
+  .sidecar-removal-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sidecar-oauth-actions .button,
+  .sidecar-oauth-actions a.button {
+    width: 100%;
   }
 
   .chat-tester-route {

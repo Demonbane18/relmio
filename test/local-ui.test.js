@@ -191,6 +191,129 @@ test("local wizard presents Codex Chat as an experimental server-side HTTP adapt
   assert.match(script, /\["openai-api", "codex-chatgpt", "codex-chat"\]/u);
 });
 
+test("local wizard offers a private n8n openai-oauth sidecar without exposing credentials or a host port", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  assert.match(html, /name="target" value="n8n-openai-oauth"/u);
+  assert.match(html, /Self-hosted n8n bridge/u);
+  assert.match(html, /Unofficial · private Docker network/u);
+  assert.match(
+    html,
+    /No host port[—-]n8n reaches it only through their shared private Docker network/u,
+  );
+  assert.match(
+    html,
+    /will not edit, exec into, rebuild,[\s\S]*restart, stop, recreate, or change network membership/u,
+  );
+  assert.match(
+    html,
+    /This installs the private model bridge only\.[\s\S]*does not install\s+n8n AI Assistant(?:’s|'s) Code Sandbox or SearXNG/u,
+  );
+  assert.match(
+    html,
+    /id="n8n-sidecar-fields"[^>]*hidden[\s\S]*<label[^>]*for="n8n-container"[\s\S]*id="n8n-container"[^>]*aria-describedby="n8n-container-help"[\s\S]*<label[^>]*for="n8n-network"[\s\S]*id="n8n-network"[^>]*aria-describedby="n8n-network-help"/u,
+  );
+  assert.match(
+    html,
+    /id="n8n-discovery-status"[^>]*role="status"[^>]*aria-live="polite"/u,
+  );
+  assert.match(
+    html,
+    /id="n8n-oauth-status"[^>]*role="status"[^>]*aria-live="polite"/u,
+  );
+  assert.match(html, /id="n8n-oauth-sign-in"[^>]*>\s*Sign in to ChatGPT\s*<\/button>/u);
+  assert.match(html, /id="n8n-oauth-refresh"[^>]*>\s*Refresh status\s*<\/button>/u);
+
+  assert.match(script, /return target === "n8n-openai-oauth"/u);
+  assert.match(script, /api\("\/api\/local\/n8n\/discover"/u);
+  assert.match(script, /api\("\/api\/status"/u);
+  assert.match(script, /api\("\/api\/oauth\/login"/u);
+  assert.match(script, /api\("\/api\/oauth\/status"/u);
+  assert.match(script, /n8nContainerId:[\s\S]*dockerNetworkId:/u);
+  assert.doesNotMatch(script, /n8nContainerId:[^}]*credential|dockerNetworkId:[^}]*credential/iu);
+  assert.match(script, /endpointFields\.hidden = sidecar/u);
+  assert.match(script, /portInput\.disabled = sidecar/u);
+  assert.match(script, /originsInput\.disabled = sidecar/u);
+  assert.match(script, /"Local ChatGPT OAuth credential \(not Platform API key\)"/u);
+  assert.match(html, /<dt>Host publication<\/dt>/u);
+  assert.match(script, /"None"/u);
+  assert.match(script, /http:\/\/n8n-openai-oauth:10531\/v1/u);
+  assert.match(script, /"local-only"/u);
+  assert.match(html, /<dt>Responses API<\/dt>/u);
+  assert.match(script, /"On"/u);
+  assert.match(script, /"Install private n8n bridge"/u);
+  assert.match(
+    script,
+    /I reviewed this exact Docker-network-only plan and authorize Relmio to copy my local ChatGPT OAuth credential into its private managed volume and start only the new `openai-oauth` sidecar\.[\s\S]*Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish port 10531\./u,
+  );
+  assert.match(script, /one-time-note"\)\.hidden = sidecar/u);
+  assert.match(script, /credential-rotation-note"\)\.hidden = sidecar/u);
+  assert.match(script, /result-credential-row"\)\.hidden = sidecar/u);
+  assert.match(script, /codex-login"\)\.hidden = sidecar/u);
+  assert.match(script, /chat-tester"\)\.hidden = sidecar/u);
+  assert.match(css, /\.n8n-sidecar-fields\s*\{/u);
+  assert.match(css, /@media \(max-width: 48rem\)/u);
+});
+
+test("private n8n bridge cleanup has its own explicit ownership-bounded confirmation", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /id="n8n-sidecar-removal"[^>]*aria-labelledby="n8n-sidecar-removal-title"[^>]*hidden/u,
+  );
+  assert.match(html, /id="n8n-sidecar-removal-title">Remove bridge<\/h3>/u);
+  assert.match(
+    html,
+    /Removes only Relmio's managed[\s\S]*sidecar[\s\S]*private auth volume[\s\S]*managed files/u,
+  );
+  assert.match(
+    html,
+    /never removes or changes\s+n8n or the selected external Docker network/u,
+  );
+  assert.match(html, /id="remove-bridge-confirm" type="checkbox"/u);
+  assert.match(
+    html,
+    /id="remove-bridge-button"[^>]*disabled[^>]*>\s*Remove bridge\s*<\/button>/u,
+  );
+  assert.match(
+    html,
+    /id="remove-bridge-status"[^>]*role="status"[^>]*aria-live="polite"/u,
+  );
+  assert.match(
+    script,
+    /api\("\/api\/local\/n8n\/remove",\s*\{[\s\S]*method: "POST",[\s\S]*body: \{ confirmed: true \}/u,
+  );
+  assert.match(script, /element\("n8n-sidecar-removal"\)\.hidden = !sidecar/u);
+  assert.match(script, /element\("remove-bridge-confirm"\)\.checked/u);
+  assert.match(script, /result\.target !== "n8n-openai-oauth" \|\| result\.removed !== true/u);
+  assert.doesNotMatch(
+    script,
+    /api\("\/api\/local\/n8n\/remove"[\s\S]{0,300}(?:credential|authContents|networkId|containerId)/iu,
+  );
+});
+
+test("n8n bridge discovery recommends the private Assistant network and warns on the ngrok edge", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+
+  assert.match(script, /networkName === "assistant-shared"/u);
+  assert.match(script, /networkName\.endsWith\("_assistant-shared"\)/u);
+  assert.match(script, /"Recommended — private Assistant network"/u);
+  assert.match(script, /networkName === "edge"/u);
+  assert.match(script, /networkName\.endsWith\("_edge"\)/u);
+  assert.match(script, /also contains ngrok/u);
+  assert.match(script, /Choose a shared Docker network/u);
+  assert.doesNotMatch(script, /networks\[0\]/u);
+  assert.doesNotMatch(script, /containers\[0\]/u);
+});
+
 test("Codex Chat ready state provides an in-wizard, ephemeral encrypted chat tester", async () => {
   const [html, script, css] = await Promise.all([
     readFile("src/ui/local.html", "utf8"),
@@ -342,7 +465,7 @@ test("local wizard calls only the dedicated local API contract", async () => {
     script,
     /Codex Chat Adapter for trusted local backends or development servers verified/u,
   );
-  assert.doesNotMatch(script, /\/api\/oauth\/login/u);
+  assert.match(script, /api\("\/api\/oauth\/login"/u);
   assert.doesNotMatch(script, /\/api\/install["']/u);
 });
 

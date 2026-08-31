@@ -133,12 +133,19 @@ test("canonical local endpoint guidance documents credential rotation", async ()
   );
 });
 
-test("security guidance distinguishes all three local endpoint trust contracts", async () => {
+test("security guidance distinguishes loopback endpoints from the n8n bridge", async () => {
   const security = await readFile("docs/security.md", "utf8");
 
   assert.match(security, /every raw Codex WebSocket[\s\S]*every Codex Chat Adapter route except `GET \/health`/u);
   assert.match(security, /Chat Adapter rejects every request carrying an `Origin` header/u);
-  assert.match(security, /All three long-running endpoint containers/u);
+  assert.match(security, /All three long-running loopback endpoint containers/u);
+  assert.match(security, /`n8n-openai-oauth` option is a distinct/u);
+  assert.match(security, /local n8n sidecar publishes no host port/u);
+  assert.match(security, /local n8n bridge is create\/remove-only/u);
+  assert.match(
+    security,
+    /never edits, executes inside, rebuilds, restarts, stops, recreates, or changes[\s\S]*network membership on n8n/u,
+  );
   assert.match(security, /Each Codex target receives its own private named/u);
   assert.match(security, /named read-only permission profile with network[\s\S]*disabled/u);
   assert.match(security, /trusted local backend or development server/u);

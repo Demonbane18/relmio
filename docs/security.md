@@ -77,6 +77,22 @@ shared, or production service.
 
 ### Local endpoint controls
 
+- The local browser wizard's `n8n-openai-oauth` option is a distinct
+  Docker-network-only sidecar contract, not one of the loopback endpoints. It
+  binds a single-use reviewed plan to the exact running n8n container,
+  existing network, local Docker socket, and OAuth credential generation, then
+  re-attests them before mutation.
+- The local n8n sidecar publishes no host port and has no reverse-proxy labels.
+  Relmio attaches only the new sidecar to the selected existing network and
+  never edits, executes inside, rebuilds, restarts, stops, recreates, or changes
+  network membership on n8n.
+- The local n8n bridge is create/remove-only in this release. Relmio refuses an
+  in-place reinstall before Docker mutation so a failed refresh cannot remove
+  a previously working bridge or its private OAuth volume.
+- Validated OAuth JSON is copied server-side over stdin into a private labeled
+  volume by a network-disabled, logging-disabled helper. The source credential
+  file is preserved and neither its path nor contents are returned to the
+  browser, written into Compose/environment values, or included in errors.
 - Generated Compose files publish only literal
   `127.0.0.1:<selected-port>:<container-port>` mappings.
 - Every OpenAI `/v1` operation that can reach OpenAI, every raw Codex WebSocket
@@ -114,7 +130,7 @@ shared, or production service.
 - Each install uses a random Compose project identity. Containers, networks,
   and volumes must carry matching Relmio ownership labels before update,
   restart, recovery, or sign-in actions are allowed.
-- All three long-running endpoint containers run as a non-root user, drop Linux
+- All three long-running loopback endpoint containers run as a non-root user, drop Linux
   capabilities, set `no-new-privileges`, use a read-only root filesystem, and
   have bounded temporary storage and resource limits.
 - The one-shot OpenAI credential seed helper is the narrow exception: it has no

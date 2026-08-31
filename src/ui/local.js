@@ -10,6 +10,10 @@ const state = {
   planId: null,
   plan: null,
   installedTarget: null,
+  n8nContainers: [],
+  n8nDiscoveryLoaded: false,
+  n8nOAuthExists: false,
+  n8nOAuthGeneration: 0,
   chatTester: {
     conversationId: null,
     encryptedCredential: null,
@@ -267,6 +271,232 @@ function isOpenAiApi(target) {
   return target === "openai-api";
 }
 
+function isN8nSidecar(target) {
+  return target === "n8n-openai-oauth";
+}
+
+function setSelectOptions(select, options, emptyLabel, promptLabel) {
+  const currentValue = select.value;
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = options.length > 0 ? promptLabel : emptyLabel;
+  placeholder.disabled = options.length > 0;
+  const nodes = [placeholder, ...options.map(({ label, value }) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    return option;
+  })];
+  select.replaceChildren(...nodes);
+  if (options.some(({ value }) => value === currentValue)) {
+    select.value = currentValue;
+  } else {
+    select.value = "";
+  }
+  select.disabled = options.length === 0;
+}
+
+function isAssistantNetwork(networkName) {
+  return (
+    networkName === "assistant-shared" ||
+    networkName.endsWith("_assistant-shared")
+  );
+}
+
+function isNgrokEdgeNetwork(networkName) {
+  return networkName === "edge" || networkName.endsWith("_edge");
+}
+
+function networkPriority(network) {
+  if (isAssistantNetwork(network.networkName)) return 0;
+  if (isNgrokEdgeNetwork(network.networkName)) return 2;
+  return 1;
+}
+
+function networkOptionLabel(network) {
+  const recommended = "Recommended — private Assistant network";
+  if (isAssistantNetwork(network.networkName)) {
+    return `${recommended} — ${network.networkName}`;
+  }
+  if (isNgrokEdgeNetwork(network.networkName)) {
+    return `${network.networkName} — also contains ngrok`;
+  }
+  return network.disposable
+    ? `${network.networkName} — disposable test network`
+    : network.networkName;
+}
+
+function updateReviewAvailability() {
+  const sidecar = isN8nSidecar(state.target);
+  const sidecarReady =
+    !sidecar ||
+    (state.n8nOAuthExists &&
+      element("n8n-container").value !== "" &&
+      element("n8n-network").value !== "");
+  element("review-button").disabled = !state.dockerAvailable || !sidecarReady;
+}
+
+function renderSidecarNetworkOptions() {
+  const container = state.n8nContainers.find(
+    ({ containerId }) => containerId === element("n8n-container").value,
+  );
+  const networks = container?.networks ?? [];
+  const sortedNetworks = [...networks].sort(
+    (left, right) =>
+      networkPriority(left) - networkPriority(right) ||
+      left.networkName.localeCompare(right.networkName),
+  );
+  setSelectOptions(
+    element("n8n-network"),
+    sortedNetworks.map((network) => ({
+      label: networkOptionLabel(network),
+      value: network.dockerNetworkId,
+    })),
+    "No shared Docker network found",
+    "Choose a shared Docker network",
+  );
+  const selectedNetwork = networks.find(
+    ({ dockerNetworkId }) => dockerNetworkId === element("n8n-network").value,
+  );
+  element("n8n-discovery-status").textContent = selectedNetwork && isNgrokEdgeNetwork(selectedNetwork.networkName)
+    ? "This network also contains ngrok. The bridge still publishes no host port, but the private Assistant network is the recommended choice."
+    : selectedNetwork && isAssistantNetwork(selectedNetwork.networkName)
+      ? "Recommended private Assistant network selected. Remove the bridge before tearing down a disposable test stack."
+    : selectedNetwork?.disposable
+      ? "This is a disposable test network. Remove the bridge before tearing the test stack down."
+    : container
+      ? networks.length > 0
+        ? "Choose one shared Docker network. The private Assistant network is recommended when available."
+        : "The selected running n8n container has no eligible shared Docker network."
+      : "No running n8n container is selected.";
+  invalidatePlan();
+  updateReviewAvailability();
+}
+
+function validateN8nDiscovery(result) {
+  if (!result || !Array.isArray(result.containers)) {
+    throw new Error("The local wizard returned unexpected n8n discovery data.");
+  }
+  return result.containers.map((container) => {
+    if (
+      typeof container.containerId !== "string" ||
+      typeof container.containerName !== "string" ||
+      typeof container.image !== "string" ||
+      !Array.isArray(container.networks)
+    ) {
+      throw new Error("The local wizard returned unexpected n8n discovery data.");
+    }
+    return {
+      containerId: container.containerId,
+      containerName: container.containerName,
+      image: container.image,
+      networks: container.networks.map((network) => {
+        if (
+          typeof network.dockerNetworkId !== "string" ||
+          typeof network.networkName !== "string"
+        ) {
+          throw new Error("The local wizard returned unexpected n8n discovery data.");
+        }
+        return {
+          dockerNetworkId: network.dockerNetworkId,
+          networkName: network.networkName,
+          disposable: network.disposable === true,
+        };
+      }),
+    };
+  });
+}
+
+async function refreshN8nDiscovery() {
+  element("n8n-discovery-status").textContent =
+    "Discovering running n8n containers without changing Docker…";
+  const result = await api("/api/local/n8n/discover");
+  state.n8nContainers = validateN8nDiscovery(result);
+  state.n8nDiscoveryLoaded = true;
+  setSelectOptions(
+    element("n8n-container"),
+    state.n8nContainers.map((container) => ({
+      label: `${container.containerName} — ${container.image}`,
+      value: container.containerId,
+    })),
+    "No running n8n container found",
+    "Choose a running n8n container",
+  );
+  renderSidecarNetworkOptions();
+}
+
+function sidecarOAuthExists(result) {
+  return result?.authExists === true;
+}
+
+async function refreshN8nOAuthStatus({ announce = false } = {}) {
+  const status = element("n8n-oauth-status");
+  status.textContent = "Checking local ChatGPT sign-in…";
+  const result = await api("/api/status");
+  state.n8nOAuthExists = sidecarOAuthExists(result);
+  if (state.n8nOAuthExists) {
+    const updated = result.authUpdatedAt
+      ? ` Last updated ${new Date(result.authUpdatedAt).toLocaleString()}.`
+      : "";
+    status.textContent = `Signed in locally.${updated}`;
+    if (announce) {
+      setMessage("Local ChatGPT OAuth credential is ready for the private n8n bridge.");
+    }
+  } else {
+    status.textContent = "Not signed in. Complete ChatGPT sign-in before reviewing the bridge plan.";
+    if (announce) {
+      setMessage("A local ChatGPT OAuth credential is required before Relmio can prepare the bridge plan.");
+    }
+  }
+  updateReviewAvailability();
+  return result;
+}
+
+function validateOAuthAuthorizationUrl(value) {
+  if (typeof value !== "string" || value.length > 2048) {
+    throw new Error("Relmio refused an unexpected sign-in destination.");
+  }
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Relmio refused an unexpected sign-in destination.");
+  }
+  if (
+    url.origin !== "https://auth.openai.com" ||
+    url.pathname !== "/oauth/authorize" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hash !== ""
+  ) {
+    throw new Error("Relmio refused an unexpected sign-in destination.");
+  }
+  return url.toString();
+}
+
+function validateOAuthAttemptId(value) {
+  if (typeof value !== "string" || !/^[0-9a-f-]{8,128}$/iu.test(value)) {
+    throw new Error("The wizard returned an unexpected sign-in attempt.");
+  }
+  return value;
+}
+
+async function waitForN8nOAuth(expectedAttemptId, generation) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const result = await api("/api/oauth/status");
+    if (state.n8nOAuthGeneration !== generation) return false;
+    if (result.attemptId && result.attemptId !== expectedAttemptId) {
+      throw new Error("The ChatGPT sign-in was replaced by a newer attempt.");
+    }
+    if (result.status === "success") return true;
+    if (result.status === "error" || result.status === "cancelled") {
+      throw new Error(result.error ?? "ChatGPT sign-in did not finish.");
+    }
+    await delay(attempt < 40 ? 250 : 1_000);
+  }
+  throw new Error("The sign-in request expired. Start a fresh login.");
+}
+
 function invalidatePlan() {
   state.planId = null;
   state.plan = null;
@@ -280,22 +510,46 @@ function renderTarget() {
 
   const openAiApi = isOpenAiApi(state.target);
   const codexChat = isCodexChat(state.target);
-  element("local-port").value = openAiApi
-    ? "12435"
-    : codexChat
-      ? "14501"
-      : "14500";
-  element("origins-field").hidden = !openAiApi;
-  element("target-guidance-title").textContent = openAiApi
+  const sidecar = isN8nSidecar(state.target);
+  const endpointFields = element("endpoint-fields");
+  const portInput = element("local-port");
+  const originsInput = element("allowed-origins");
+  if (!sidecar) {
+    portInput.value = openAiApi ? "12435" : codexChat ? "14501" : "14500";
+  }
+  endpointFields.hidden = sidecar;
+  portInput.disabled = sidecar;
+  portInput.required = !sidecar;
+  originsInput.disabled = sidecar;
+  element("origins-field").hidden = sidecar || !openAiApi;
+  element("n8n-sidecar-fields").hidden = !sidecar;
+  element("boundary-title").textContent = sidecar
+    ? "Docker-network-only guarantee"
+    : "Loopback-only guarantee";
+  element("boundary-detail").textContent = sidecar
+    ? "Relmio publishes no host port. Only the selected n8n Docker network can reach the bridge."
+    : "Relmio publishes the selected port on 127.0.0.1, not your LAN or the public internet.";
+  element("target-guidance-title").textContent = sidecar
+    ? "Uses a local ChatGPT OAuth credential"
+    : openAiApi
     ? "Uses an OpenAI Platform API key"
     : codexChat
       ? "Uses official Codex ChatGPT sign-in through the experimental Relmio-specific Chat Adapter"
       : "Uses the official Codex ChatGPT sign-in";
-  element("target-guidance-detail").textContent = openAiApi
+  element("target-guidance-detail").textContent = sidecar
+    ? "Relmio copies the validated local credential into its own private managed volume. No credential is sent to or returned through this browser."
+    : openAiApi
     ? "Your Platform key is seeded over stdin into a private Docker volume and is never returned to the browser. A separate local client credential is generated for your apps."
     : codexChat
       ? "This exposes Relmio-specific HTTP POST /chat for a trusted local backend or development server. It is not OpenAI /v1, has no CORS, and browser bundles must never connect directly."
       : "This runs Codex App Server as its own experimental protocol. It does not translate the ChatGPT session into a generic OpenAI /v1 API and it does not accept direct browser connections.";
+  if (sidecar) {
+    if (!state.n8nDiscoveryLoaded) {
+      refreshN8nDiscovery().catch(showError);
+    }
+    refreshN8nOAuthStatus().catch(showError);
+  }
+  updateReviewAvailability();
 }
 
 function appendPolicyNotice(container, heading, detail) {
@@ -306,18 +560,34 @@ function appendPolicyNotice(container, heading, detail) {
   container.replaceChildren(strong, paragraph);
 }
 
+function replaceListItems(container, items) {
+  container.replaceChildren(
+    ...items.map((text) => {
+      const item = document.createElement("li");
+      item.textContent = text;
+      return item;
+    }),
+  );
+}
+
 function renderPlan(plan) {
   const openAiApi = isOpenAiApi(plan.target);
   const codexChat = isCodexChat(plan.target);
+  const sidecar = isN8nSidecar(plan.target);
   element("review-endpoint").textContent = plan.endpoint;
-  element("review-protocol").textContent = openAiApi
+  element("review-protocol").textContent = sidecar
+    ? "OpenAI-compatible HTTP /v1 inside Docker"
+    : openAiApi
     ? "OpenAI-compatible HTTP /v1"
     : codexChat
       ? "Relmio Codex Chat HTTP: POST /chat"
       : "Codex App Server JSON-RPC over WebSocket";
-  element("review-auth").textContent = openAiApi
+  element("review-auth").textContent = sidecar
+    ? "Local ChatGPT OAuth credential (not Platform API key)"
+    : openAiApi
     ? "OpenAI Platform API key"
     : "ChatGPT sign-in through official Codex";
+  element("review-browser-row").hidden = sidecar;
   element("review-browser").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
       ? `Only ${plan.allowedOrigins.length} exact allowed origin(s)`
@@ -325,15 +595,59 @@ function renderPlan(plan) {
     : codexChat
       ? "No — trusted local backends and development servers only"
       : "No — trusted native local clients only";
-  element("review-origins-row").hidden = !openAiApi;
+  element("review-origins-row").hidden = sidecar || !openAiApi;
   element("review-origins").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
       ? plan.allowedOrigins.join(", ")
       : "None"
     : "";
+  for (const id of ["review-n8n-row", "review-network-row", "review-publication-row"]) {
+    element(id).hidden = !sidecar;
+  }
+  element("review-n8n").textContent = sidecar ? plan.n8nContainerName : "";
+  element("review-network").textContent = sidecar ? plan.networkName : "";
+  element("review-publication").textContent = sidecar ? "None" : "";
   element("review-path").textContent = plan.managedPath;
 
-  if (openAiApi) {
+  if (sidecar) {
+    replaceListItems(element("review-will"), [
+      "Create only the new openai-oauth sidecar and its private managed credential volume.",
+      "Attach the sidecar to the exact selected existing Docker network.",
+      "Expose port 10531 only inside that Docker network.",
+      "Verify the private API and available models before reporting success.",
+    ]);
+    replaceListItems(element("review-will-not"), [
+      "Edit, exec into, rebuild, restart, stop, recreate, or change network membership on the selected n8n container.",
+      "Publish port 10531 to localhost, your LAN, ngrok, or the internet.",
+      "Return or display your ChatGPT OAuth credential in this browser.",
+      "Install n8n AI Assistant Code Sandbox or SearXNG.",
+    ]);
+    element("install-confirm-copy").textContent =
+      "I reviewed this exact Docker-network-only plan and authorize Relmio to copy my local ChatGPT OAuth credential into its private managed volume and start only the new `openai-oauth` sidecar. I understand it is unofficial; Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish port 10531.";
+  } else {
+    replaceListItems(element("review-will"), [
+      "Build one target-specific Docker image.",
+      "Bind the selected port exactly to 127.0.0.1.",
+      "Generate a separate one-time client credential.",
+      "Keep provider credentials in private Docker volumes.",
+    ]);
+    replaceListItems(element("review-will-not"), [
+      "Publish the endpoint to your LAN or internet.",
+      "Turn ChatGPT credentials into Platform API credentials.",
+      "Modify or restart your n8n container.",
+      "Reuse the existing Hostinger deployment.",
+    ]);
+    element("install-confirm-copy").textContent =
+      "I reviewed this exact loopback plan and authorize Relmio to write its managed local files and start this Docker container.";
+  }
+
+  if (sidecar) {
+    appendPolicyNotice(
+      element("review-policy"),
+      "Unofficial, private Docker-network bridge",
+      "n8n will use http://n8n-openai-oauth:10531/v1 on the selected network. The API key placeholder is local-only. This option does not install Code Sandbox or SearXNG, and it does not turn ChatGPT OAuth into an OpenAI Platform API key.",
+    );
+  } else if (openAiApi) {
     appendPolicyNotice(
       element("review-policy"),
       "OpenAI Platform terms and billing apply",
@@ -357,9 +671,11 @@ function renderPlan(plan) {
 function prepareInstallPanel() {
   const openAiApi = isOpenAiApi(state.plan.target);
   const codexChat = isCodexChat(state.plan.target);
+  const sidecar = isN8nSidecar(state.plan.target);
   const apiKey = element("platform-api-key");
   element("api-key-field").hidden = !openAiApi;
-  element("codex-install-warning").hidden = openAiApi;
+  element("codex-install-warning").hidden = openAiApi || sidecar;
+  element("sidecar-install-note").hidden = !sidecar;
   element("codex-install-warning-title").textContent = codexChat
     ? "Credential for trusted local backends or development servers only"
     : "High-trust capability";
@@ -368,14 +684,18 @@ function prepareInstallPanel() {
     : "Anyone holding the generated client credential can control Codex inside its isolated container, act through your signed-in ChatGPT session, and may be able to recover that container's ChatGPT session credential. Treat this capability like your ChatGPT password and give it only to a trusted native local app.";
   apiKey.required = openAiApi;
   apiKey.value = "";
-  element("install-intro").textContent = openAiApi
+  element("install-intro").textContent = sidecar
+    ? "Relmio will re-attest the selected running n8n container and Docker network, seed its private credential volume, and install only the new sidecar."
+    : openAiApi
     ? "Enter the OpenAI Platform API key this endpoint will use upstream. It is sent only to this local Relmio process."
     : codexChat
       ? "Relmio will install the experimental Codex Chat Adapter and official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready."
       : "Relmio will install the official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready.";
   setButtonLabel(
     element("install-button"),
-    openAiApi
+    sidecar
+      ? "Install private n8n bridge"
+      : openAiApi
       ? "Install OpenAI API endpoint"
       : codexChat
         ? "Install Codex Chat Adapter"
@@ -384,10 +704,21 @@ function prepareInstallPanel() {
 }
 
 function renderInstallResult(result) {
+  const sidecar = isN8nSidecar(result.target);
+  const endpointTargets = ["openai-api", "codex-chatgpt", "codex-chat"];
   if (
     typeof result.endpoint !== "string" ||
-    typeof result.clientCredential !== "string" ||
-    !["openai-api", "codex-chatgpt", "codex-chat"].includes(result.target)
+    (!sidecar && typeof result.clientCredential !== "string") ||
+    (!endpointTargets.includes(result.target) && !sidecar) ||
+    (sidecar &&
+      (result.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
+        result.apiKeyPlaceholder !== "local-only" ||
+        (result.responsesApi !== true && result.useResponsesApi !== true) ||
+        result.hostPublication !== "none" ||
+        typeof result.networkName !== "string" ||
+        result.deploymentMode !== "installed" ||
+        !Array.isArray(result.models) ||
+        result.models.some((model) => typeof model !== "string")))
   ) {
     throw new Error("The local installer returned an unexpected response.");
   }
@@ -395,11 +726,52 @@ function renderInstallResult(result) {
   const openAiApi = isOpenAiApi(result.target);
   const codexChat = isCodexChat(result.target);
   state.installedTarget = result.target;
+  element("install-result-list").hidden = false;
+  element("client-warning").hidden = false;
+  element("n8n-sidecar-removal").hidden = !sidecar;
+  element("remove-bridge-confirm").checked = false;
+  element("remove-bridge-confirm").disabled = false;
+  element("remove-bridge-button").disabled = true;
+  element("remove-bridge-status").textContent =
+    "The bridge remains installed until this separate confirmation is checked.";
   element("result-endpoint").textContent = result.endpoint;
-  element("result-credential").textContent = result.clientCredential;
-  element("codex-production-warning").hidden = openAiApi;
-  element("codex-login").hidden = openAiApi;
-  element("chat-tester").hidden = !codexChat;
+  element("one-time-note").hidden = sidecar;
+  element("credential-rotation-note").hidden = sidecar;
+  element("result-credential-row").hidden = sidecar;
+  if (!sidecar) {
+    element("result-credential").textContent = result.clientCredential;
+  } else {
+    element("result-credential").textContent = "";
+  }
+  for (const id of [
+    "result-api-key-row",
+    "result-responses-row",
+    "result-n8n-row",
+    "result-network-row",
+    "result-publication-row",
+    "result-models-row",
+    "result-deployment-row",
+  ]) {
+    element(id).hidden = !sidecar;
+  }
+  element("result-api-key").textContent = sidecar ? "local-only" : "";
+  element("result-responses").textContent = sidecar ? "On" : "";
+  element("result-n8n").textContent = sidecar
+    ? result.n8nContainerName ?? state.plan?.n8nContainerName ?? "Selected n8n container"
+    : "";
+  element("result-network").textContent = sidecar ? result.networkName : "";
+  element("result-publication").textContent = sidecar ? "None" : "";
+  element("result-models").textContent = sidecar
+    ? result.models.length > 0
+      ? result.models.join(", ")
+      : "No models reported"
+    : "";
+  element("result-deployment").textContent = sidecar ? result.deploymentMode : "";
+  element("codex-production-warning").hidden = openAiApi || sidecar;
+  element("codex-login").hidden = sidecar;
+  if (!sidecar) element("codex-login").hidden = openAiApi;
+  element("chat-tester").hidden = sidecar;
+  if (!sidecar) element("chat-tester").hidden = !codexChat;
   if (codexChat && !state.chatTester.keyId) {
     element("chat-tester-endpoint").value = result.endpoint;
   }
@@ -409,24 +781,32 @@ function renderInstallResult(result) {
   element("codex-production-warning-detail").textContent = codexChat
     ? "The adapter is for trusted local backends or development servers only. It has a Relmio-specific POST /chat contract, no CORS, and is not OpenAI /v1."
     : "Codex App Server WebSocket is experimental and unsupported for production workloads.";
-  element("done-title").textContent = openAiApi
+  element("done-title").textContent = sidecar
+    ? "Private n8n bridge is ready"
+    : openAiApi
     ? "OpenAI API endpoint is ready"
     : codexChat
       ? "Codex Chat Adapter is installed"
       : "Codex App Server is installed";
-  element("done-detail").textContent = openAiApi
+  element("done-detail").textContent = sidecar
+    ? "Use the private base URL and local-only API key placeholder in n8n on the selected Docker network."
+    : openAiApi
     ? "Copy the endpoint and generated bearer credential into your local app."
     : codexChat
       ? "Copy the endpoint and generated bearer credential into your trusted local backend or development server, then sign the isolated Codex container in to ChatGPT."
       : "Copy the endpoint and capability, then sign the isolated Codex container in to ChatGPT.";
   appendPolicyNotice(
     element("client-warning"),
-    openAiApi
+    sidecar
+      ? "For the selected self-hosted n8n container only"
+      : openAiApi
       ? "For local OpenAI-compatible clients"
       : codexChat
         ? "For trusted local backends or development servers only"
         : "For trusted native Codex clients only",
-    openAiApi
+    sidecar
+      ? "Set the base URL to http://n8n-openai-oauth:10531/v1, use local-only as the API key placeholder, and enable the Responses API. Host publication is None. This bridge is unofficial and installs neither AI Assistant Code Sandbox nor SearXNG."
+      : openAiApi
       ? "Use the generated client credential as the bearer API key. Your upstream Platform key remains private in the managed Docker volume."
       : codexChat
         ? "Use this one-time credential only as a Bearer token for the Relmio-specific POST /chat endpoint. It is not an OpenAI API key, has no browser CORS support, and must remain in a trusted local backend or development server."
@@ -649,14 +1029,31 @@ element("target-form").addEventListener("submit", async (event) => {
   invalidatePlan();
   setBusy(button, true, "Preparing plan…");
   try {
+    const sidecar = isN8nSidecar(state.target);
+    if (
+      sidecar &&
+      (!state.n8nOAuthExists ||
+        element("n8n-container").value === "" ||
+        element("n8n-network").value === "")
+    ) {
+      throw new Error(
+        "Choose a running n8n container and shared Docker network, then complete local ChatGPT sign-in.",
+      );
+    }
     const result = await api("/api/local/plan", {
       method: "POST",
-      body: {
-        target: state.target,
-        port: element("local-port").value,
-        allowedOrigins:
-          state.target === "openai-api" ? readAllowedOrigins() : [],
-      },
+      body: sidecar
+        ? {
+            target: state.target,
+            n8nContainerId: element("n8n-container").value,
+            dockerNetworkId: element("n8n-network").value,
+          }
+        : {
+            target: state.target,
+            port: element("local-port").value,
+            allowedOrigins:
+              state.target === "openai-api" ? readAllowedOrigins() : [],
+          },
     });
     if (
       typeof result.planId !== "string" ||
@@ -670,7 +1067,11 @@ element("target-form").addEventListener("submit", async (event) => {
     state.plan = result.plan;
     renderPlan(result.plan);
     showStep(2);
-    setMessage("Review the exact loopback plan. Nothing has been written yet.");
+    setMessage(
+      sidecar
+        ? "Review the exact Docker-network-only plan. Nothing has been written yet."
+        : "Review the exact loopback plan. Nothing has been written yet.",
+    );
   } catch (error) {
     showError(error);
   } finally {
@@ -684,6 +1085,92 @@ for (const input of document.querySelectorAll('input[name="target"]')) {
 
 element("local-port").addEventListener("input", invalidatePlan);
 element("allowed-origins").addEventListener("input", invalidatePlan);
+element("n8n-container").addEventListener("change", () => {
+  element("n8n-network").value = "";
+  renderSidecarNetworkOptions();
+});
+element("n8n-network").addEventListener("change", () => {
+  renderSidecarNetworkOptions();
+});
+
+element("n8n-discovery-refresh").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  setBusy(button, true, "Refreshing n8n…");
+  try {
+    await refreshN8nDiscovery();
+    setMessage("Running n8n containers and their existing Docker networks were refreshed read-only.");
+  } catch (error) {
+    state.n8nDiscoveryLoaded = false;
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("n8n-oauth-refresh").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  setBusy(button, true, "Refreshing sign-in…");
+  try {
+    await refreshN8nOAuthStatus({ announce: true });
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const link = element("n8n-oauth-link");
+  const generation = state.n8nOAuthGeneration + 1;
+  state.n8nOAuthGeneration = generation;
+  state.n8nOAuthExists = false;
+  updateReviewAvailability();
+  const loginWindow = window.open("about:blank", "_blank");
+  if (loginWindow) loginWindow.opener = null;
+  let navigated = false;
+  clearError();
+  link.hidden = true;
+  link.removeAttribute("href");
+  setBusy(button, true, "Waiting for ChatGPT…");
+  setMessage("Preparing a fresh local ChatGPT sign-in. Existing credentials change only after sign-in succeeds.");
+  try {
+    const result = await api("/api/oauth/login", {
+      method: "POST",
+      body: {},
+    });
+    const authorizationUrl = validateOAuthAuthorizationUrl(result.authorizationUrl);
+    const attemptId = validateOAuthAttemptId(result.attemptId);
+    if (state.n8nOAuthGeneration !== generation) return;
+    link.href = authorizationUrl;
+    link.hidden = false;
+    if (loginWindow) {
+      loginWindow.location.replace(authorizationUrl);
+      navigated = true;
+    }
+    element("n8n-oauth-status").textContent =
+      "Waiting for the fresh ChatGPT sign-in to finish…";
+    setMessage("Complete ChatGPT sign-in in the newly opened official OpenAI page.");
+    await waitForN8nOAuth(attemptId, generation);
+    if (state.n8nOAuthGeneration !== generation) return;
+    link.hidden = true;
+    link.removeAttribute("href");
+    await refreshN8nOAuthStatus({ announce: true });
+  } catch (error) {
+    if (loginWindow && !navigated) loginWindow.close();
+    if (state.n8nOAuthGeneration === generation) {
+      element("n8n-oauth-status").textContent =
+        "ChatGPT sign-in did not complete. Start a fresh sign-in or refresh status.";
+      showError(error);
+    }
+  } finally {
+    if (state.n8nOAuthGeneration === generation) {
+      setBusy(button, false);
+    }
+  }
+});
 
 element("install-confirm").addEventListener("change", (event) => {
   element("install-settings-button").disabled = !event.currentTarget.checked;
@@ -721,7 +1208,11 @@ element("install-button").addEventListener("click", async (event) => {
   };
   apiKeyInput.value = "";
   setBusy(button, true, "Installing locally…");
-  setMessage("Building and verifying the loopback-only Docker container…");
+  setMessage(
+    isN8nSidecar(state.plan.target)
+      ? "Creating and verifying only the private Docker-network sidecar…"
+      : "Building and verifying the loopback-only Docker container…",
+  );
   try {
     const result = await api("/api/local/install", {
       method: "POST",
@@ -731,7 +1222,9 @@ element("install-button").addEventListener("click", async (event) => {
     state.planId = null;
     showStep(4);
     setMessage(
-      result.target === "openai-api"
+      result.target === "n8n-openai-oauth"
+        ? "Private n8n bridge verified with no host publication. Configure its private URL in n8n."
+        : result.target === "openai-api"
         ? "Local OpenAI API endpoint verified. Copy its one-time client credential now."
         : result.target === "codex-chat"
           ? "Codex Chat Adapter for trusted local backends or development servers verified. Copy its one-time bearer and complete ChatGPT sign-in."
@@ -746,6 +1239,52 @@ element("install-button").addEventListener("click", async (event) => {
     requestBody.apiKey = undefined;
     apiKeyInput.value = "";
     setBusy(button, false);
+  }
+});
+
+element("remove-bridge-confirm").addEventListener("change", (event) => {
+  element("remove-bridge-button").disabled = !event.currentTarget.checked;
+});
+
+element("remove-bridge-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const confirmation = element("remove-bridge-confirm");
+  clearError();
+  if (
+    state.installedTarget !== "n8n-openai-oauth" ||
+    !confirmation.checked
+  ) {
+    showError(new Error("Confirm removal of this managed bridge first."));
+    return;
+  }
+
+  let removed = false;
+  setBusy(button, true, "Removing bridge…");
+  setMessage("Removing only Relmio-owned bridge resources. n8n and its external network remain untouched.");
+  try {
+    const result = await api("/api/local/n8n/remove", {
+      method: "POST",
+      body: { confirmed: true },
+    });
+    if (result.target !== "n8n-openai-oauth" || result.removed !== true) {
+      throw new Error("The local wizard returned an unexpected removal response.");
+    }
+    removed = true;
+    state.installedTarget = null;
+    confirmation.disabled = true;
+    element("install-result-list").hidden = true;
+    element("client-warning").hidden = true;
+    element("done-title").textContent = "Private n8n bridge was removed";
+    element("done-detail").textContent =
+      "Relmio removed only its sidecar, private auth volume, and managed files. n8n and the external Docker network were left unchanged.";
+    element("remove-bridge-status").textContent =
+      "Bridge removed. The selected n8n container and external Docker network were not changed.";
+    setMessage("Private n8n bridge removed; n8n and its external Docker network remain unchanged.");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+    if (removed) button.disabled = true;
   }
 });
 
@@ -1007,6 +1546,7 @@ async function refreshDockerStatus() {
   const indicator = element("docker-indicator");
   const reviewButton = element("review-button");
   if (result.previewMode === true) {
+    state.dockerAvailable = false;
     indicator.classList.remove("ready");
     element("docker-status-title").textContent = "Sanitized preview mode";
     element("docker-status-detail").textContent =
@@ -1016,6 +1556,7 @@ async function refreshDockerStatus() {
     return;
   }
   if (result.unsupportedPlatform === true) {
+    state.dockerAvailable = false;
     indicator.classList.remove("ready");
     element("docker-status-title").textContent =
       "Native Windows is not supported";
@@ -1030,7 +1571,7 @@ async function refreshDockerStatus() {
     element("docker-status-title").textContent = "Docker is ready";
     element("docker-status-detail").textContent =
       `Engine ${result.dockerVersion}; Compose ${result.composeVersion}`;
-    reviewButton.disabled = false;
+    updateReviewAvailability();
     setMessage("Docker is ready. Choose the credential path for your client.");
   } else {
     indicator.classList.remove("ready");

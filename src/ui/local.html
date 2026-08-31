@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Install a loopback-only Relmio endpoint for the OpenAI API or the official Codex App Server."
+      content="Install a local Relmio endpoint or a private Docker-network bridge for self-hosted n8n."
     />
     <title>Relmio | Local Endpoint Setup</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
@@ -88,9 +88,8 @@
           <p class="local-eyebrow">Local pre-flight</p>
           <h1 id="page-title">One boundary at a time</h1>
           <p class="lede">
-            Run Relmio on localhost. Choose the official credential path that matches your client. All
-            three options run in hardened Docker containers and bind only to
-            <code>127.0.0.1</code>.
+            Run Relmio beside your local apps. Endpoint options bind only to
+            <code>127.0.0.1</code>; the n8n bridge publishes no host port at all.
           </p>
         </section>
 
@@ -107,8 +106,8 @@
 
         <div class="toast-stack" aria-label="Local setup notifications">
           <aside class="toast safety-note" aria-label="Local-only guarantee">
-            <strong>Loopback-only guarantee</strong>
-            <span>
+            <strong id="boundary-title">Loopback-only guarantee</strong>
+            <span id="boundary-detail">
               Relmio publishes the selected port on <code>127.0.0.1</code>, not
               your LAN or the public internet.
             </span>
@@ -217,9 +216,22 @@
                 </span>
               </span>
             </label>
+
+            <label class="target-card warning-card">
+              <input type="radio" name="target" value="n8n-openai-oauth" />
+              <span class="target-card-copy">
+                <strong>Self-hosted n8n bridge</strong>
+                <span class="target-meta">Unofficial · private Docker network</span>
+                <span>
+                  Runs the unofficial <code>openai-oauth</code> sidecar beside an
+                  existing local n8n container using your local ChatGPT sign-in.
+                  No host port—n8n reaches it only through their shared private Docker network.
+                </span>
+              </span>
+            </label>
           </fieldset>
 
-          <div class="field-grid local-fields">
+          <div id="endpoint-fields" class="field-grid local-fields">
             <label class="field compact">
               <span>Local port</span>
               <input
@@ -250,6 +262,92 @@
               </small>
             </label>
           </div>
+
+          <section
+            id="n8n-sidecar-fields"
+            class="n8n-sidecar-fields"
+            aria-labelledby="n8n-sidecar-fields-title"
+            hidden
+          >
+            <div class="section-heading">
+              <h3 id="n8n-sidecar-fields-title">Choose the existing n8n boundary</h3>
+              <p>
+                Discovery is read-only. Relmio will not edit, exec into, rebuild,
+                restart, stop, recreate, or change network membership on the
+                selected n8n container.
+              </p>
+            </div>
+
+            <div class="field-grid sidecar-selects">
+              <label class="field" for="n8n-container">
+                <span>Running n8n container</span>
+                <select
+                  id="n8n-container"
+                  name="n8nContainerId"
+                  aria-describedby="n8n-container-help"
+                  disabled
+                ></select>
+                <small id="n8n-container-help">
+                  Only running containers identified as n8n are listed.
+                </small>
+              </label>
+
+              <label class="field" for="n8n-network">
+                <span>Shared private Docker network</span>
+                <select
+                  id="n8n-network"
+                  name="dockerNetworkId"
+                  aria-describedby="n8n-network-help"
+                  disabled
+                ></select>
+                <small id="n8n-network-help">
+                  The sidecar joins this existing network without changing n8n.
+                </small>
+              </label>
+            </div>
+
+            <div class="sidecar-status-row">
+              <p id="n8n-discovery-status" role="status" aria-live="polite">
+                Select this option to discover running n8n containers.
+              </p>
+              <button id="n8n-discovery-refresh" class="button secondary" type="button">
+                Refresh n8n discovery
+              </button>
+            </div>
+
+            <div class="sidecar-oauth" aria-labelledby="n8n-oauth-title">
+              <div>
+                <h3 id="n8n-oauth-title">Local ChatGPT OAuth credential</h3>
+                <p id="n8n-oauth-status" role="status" aria-live="polite">
+                  Checking local ChatGPT sign-in…
+                </p>
+              </div>
+              <div class="sidecar-oauth-actions">
+                <button id="n8n-oauth-sign-in" class="button secondary" type="button">
+                  Sign in to ChatGPT
+                </button>
+                <button id="n8n-oauth-refresh" class="button ghost" type="button">
+                  Refresh status
+                </button>
+                <a
+                  id="n8n-oauth-link"
+                  class="button secondary"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  hidden
+                >Open fresh ChatGPT sign-in</a>
+              </div>
+            </div>
+
+            <aside class="policy-note sidecar-scope-note">
+              <strong>Private model bridge only</strong>
+              <p>
+                This installs the private model bridge only. It does not install
+                n8n AI Assistant’s Code Sandbox or SearXNG. Assistant
+                model-provider credentials are configured separately and directly in n8n.
+              </p>
+            </aside>
+          </section>
 
           <aside id="target-guidance" class="policy-note" aria-live="polite">
             <strong id="target-guidance-title">Uses an OpenAI Platform API key</strong>
@@ -288,13 +386,25 @@
             <dt>Upstream sign-in</dt>
             <dd id="review-auth"></dd>
           </div>
-          <div>
+          <div id="review-browser-row">
             <dt>Browser clients</dt>
             <dd id="review-browser"></dd>
           </div>
           <div id="review-origins-row">
             <dt>Allowed origins</dt>
             <dd id="review-origins"></dd>
+          </div>
+          <div id="review-n8n-row" hidden>
+            <dt>n8n container</dt>
+            <dd id="review-n8n"></dd>
+          </div>
+          <div id="review-network-row" hidden>
+            <dt>Docker network</dt>
+            <dd id="review-network"></dd>
+          </div>
+          <div id="review-publication-row" hidden>
+            <dt>Host publication</dt>
+            <dd id="review-publication"></dd>
           </div>
           <div>
             <dt>Managed files</dt>
@@ -305,7 +415,7 @@
         <div class="review-grid local-review-grid">
           <section>
             <h3>Relmio will</h3>
-            <ul class="check-list">
+            <ul id="review-will" class="check-list">
               <li>Build one target-specific Docker image.</li>
               <li>Bind the selected port exactly to <code>127.0.0.1</code>.</li>
               <li>Generate a separate one-time client credential.</li>
@@ -314,7 +424,7 @@
           </section>
           <section>
             <h3>Relmio will not</h3>
-            <ul class="no-list">
+            <ul id="review-will-not" class="no-list">
               <li>Publish the endpoint to your LAN or internet.</li>
               <li>Turn ChatGPT credentials into Platform API credentials.</li>
               <li>Modify or restart your n8n container.</li>
@@ -328,7 +438,7 @@
         <div class="approval">
           <label class="check-row">
             <input id="install-confirm" type="checkbox" />
-            <span>
+            <span id="install-confirm-copy">
               I reviewed this exact loopback plan and authorize Relmio to write
               its managed local files and start this Docker container.
             </span>
@@ -385,6 +495,15 @@
           </p>
         </aside>
 
+        <aside id="sidecar-install-note" class="high-trust-warning" hidden>
+          <strong>Unofficial private bridge</strong>
+          <p>
+            Relmio will seed its private managed volume from your local ChatGPT
+            OAuth credential and start only the new sidecar. It will not change
+            or restart n8n, publish port <code>10531</code>, or install Code Sandbox or SearXNG.
+          </p>
+        </aside>
+
         <div class="actions">
           <button class="button ghost back-button" type="button" data-back="2">
             Back
@@ -404,7 +523,7 @@
           </div>
         </div>
 
-        <aside class="one-time-note">
+        <aside id="one-time-note" class="one-time-note">
           <strong>Copy this credential now</strong>
           <p>
             Relmio shows the generated client credential only in this install
@@ -412,7 +531,7 @@
           </p>
         </aside>
 
-        <aside class="credential-rotation-note">
+        <aside id="credential-rotation-note" class="credential-rotation-note">
           <strong>Rotate client credential</strong>
           <p>
             Relmio shows the replacement first, then activates and verifies it.
@@ -428,8 +547,8 @@
           </button>
         </aside>
 
-        <dl class="result-list">
-          <div>
+        <dl id="install-result-list" class="result-list">
+          <div id="result-endpoint-row">
             <dt>Endpoint</dt>
             <dd class="result-value">
               <code id="result-endpoint"></code>
@@ -444,7 +563,35 @@
               </button>
             </dd>
           </div>
-          <div>
+          <div id="result-api-key-row" hidden>
+            <dt>API key placeholder</dt>
+            <dd><code id="result-api-key"></code></dd>
+          </div>
+          <div id="result-responses-row" hidden>
+            <dt>Responses API</dt>
+            <dd id="result-responses"></dd>
+          </div>
+          <div id="result-n8n-row" hidden>
+            <dt>n8n container</dt>
+            <dd id="result-n8n"></dd>
+          </div>
+          <div id="result-network-row" hidden>
+            <dt>Docker network</dt>
+            <dd id="result-network"></dd>
+          </div>
+          <div id="result-publication-row" hidden>
+            <dt>Host publication</dt>
+            <dd id="result-publication"></dd>
+          </div>
+          <div id="result-models-row" hidden>
+            <dt>Models</dt>
+            <dd id="result-models"></dd>
+          </div>
+          <div id="result-deployment-row" hidden>
+            <dt>Deployment mode</dt>
+            <dd id="result-deployment"></dd>
+          </div>
+          <div id="result-credential-row">
             <dt>Client credential</dt>
             <dd class="result-value">
               <code id="result-credential"></code>
@@ -608,6 +755,40 @@
         </section>
 
         <aside id="client-warning" class="final-note"></aside>
+
+        <section
+          id="n8n-sidecar-removal"
+          class="n8n-sidecar-removal"
+          aria-labelledby="n8n-sidecar-removal-title"
+          hidden
+        >
+          <h3 id="n8n-sidecar-removal-title">Remove bridge</h3>
+          <p>
+            Removes only Relmio's managed <code>openai-oauth</code> sidecar,
+            private auth volume, and managed files. It never removes or changes
+            n8n or the selected external Docker network.
+          </p>
+          <label class="check-row">
+            <input id="remove-bridge-confirm" type="checkbox" />
+            <span>
+              I authorize Relmio to remove only this managed bridge and its
+              private auth volume and files. Keep n8n and the external Docker network untouched.
+            </span>
+          </label>
+          <div class="sidecar-removal-actions">
+            <button
+              id="remove-bridge-button"
+              class="button secondary"
+              type="button"
+              disabled
+            >
+              Remove bridge
+            </button>
+            <p id="remove-bridge-status" role="status" aria-live="polite">
+              The bridge remains installed until this separate confirmation is checked.
+            </p>
+          </div>
+        </section>
 
         <div class="actions">
           <a id="return-to-vps" class="button secondary">Set up the VPS version</a>
