@@ -34,6 +34,7 @@ function createWizardUrl(path) {
 }
 
 element("back-to-vps").href = createWizardUrl("/");
+element("setup-another-local").href = createWizardUrl("/local");
 element("return-to-vps").href = createWizardUrl("/");
 
 function setMessage(text) {
@@ -279,8 +280,20 @@ function isN8nAssistant(target) {
   return target === "n8n-ai-assistant";
 }
 
+function isN8nStack(target) {
+  return target === "local-n8n-stack";
+}
+
 function isN8nDockerTarget(target) {
   return isN8nSidecar(target) || isN8nAssistant(target);
+}
+
+function assistantModeLabel(mode) {
+  return mode === "sandbox-with-searxng"
+    ? "Code Sandbox + SearXNG"
+    : mode === "sandbox"
+      ? "Code Sandbox"
+      : "Disabled";
 }
 
 function setSelectOptions(select, options, emptyLabel, promptLabel) {
@@ -336,9 +349,10 @@ function networkOptionLabel(network) {
 
 function updateReviewAvailability() {
   const sidecar = isN8nSidecar(state.target);
+  const stack = isN8nStack(state.target);
   const n8nTarget = isN8nDockerTarget(state.target);
   const n8nReady =
-    !n8nTarget ||
+    stack || !n8nTarget ||
     ((!sidecar || state.n8nOAuthExists) &&
       element("n8n-container").value !== "" &&
       element("n8n-network").value !== "");
@@ -521,6 +535,7 @@ function renderTarget() {
   const codexChat = isCodexChat(state.target);
   const sidecar = isN8nSidecar(state.target);
   const assistant = isN8nAssistant(state.target);
+  const stack = isN8nStack(state.target);
   const n8nTarget = sidecar || assistant;
   const endpointFields = element("endpoint-fields");
   const portInput = element("local-port");
@@ -528,22 +543,45 @@ function renderTarget() {
   if (!n8nTarget) {
     portInput.value = openAiApi ? "12435" : codexChat ? "14501" : "14500";
   }
-  endpointFields.hidden = n8nTarget;
-  portInput.disabled = n8nTarget;
-  portInput.required = !n8nTarget;
-  originsInput.disabled = n8nTarget;
-  element("origins-field").hidden = n8nTarget || !openAiApi;
+  endpointFields.hidden = n8nTarget || stack;
+  portInput.disabled = n8nTarget || stack;
+  portInput.required = !n8nTarget && !stack;
+  originsInput.disabled = n8nTarget || stack;
+  element("origins-field").hidden = n8nTarget || stack || !openAiApi;
   element("n8n-sidecar-fields").hidden = !n8nTarget;
+  element("n8n-stack-fields").hidden = !stack;
+  element("n8n-stack-secrets").hidden = true;
+  for (const id of [
+    "ngrok-hostname",
+    "n8n-stack-port",
+    "ngrok-inspector-port",
+    "n8n-stack-timezone",
+    "n8n-stack-assistant-mode",
+  ]) {
+    element(id).disabled = !stack;
+    element(id).required = stack;
+  }
+  for (const id of ["ngrok-authtoken", "ngrok-basic-auth-username", "ngrok-basic-auth-password"]) {
+    element(id).disabled = true;
+    element(id).required = false;
+    element(id).value = "";
+  }
   element("n8n-sidecar-oauth").hidden = !sidecar;
   element("n8n-sidecar-scope").hidden = !sidecar;
   element("n8n-assistant-options").hidden = !assistant;
-  element("boundary-title").textContent = n8nTarget
+  element("boundary-title").textContent = stack
+    ? "Loopback n8n with authenticated public access"
+    : n8nTarget
     ? "Docker-network-only guarantee"
     : "Loopback-only guarantee";
-  element("boundary-detail").textContent = n8nTarget
+  element("boundary-detail").textContent = stack
+    ? "n8n and the ngrok inspector bind only to loopback. The separately public ngrok URL requires mandatory Basic Auth."
+    : n8nTarget
     ? "Relmio publishes no host port. Only the selected n8n Docker network can reach these managed services."
     : "Relmio publishes the selected port on 127.0.0.1, not your LAN or the public internet.";
-  element("target-guidance-title").textContent = sidecar
+  element("target-guidance-title").textContent = stack
+    ? "Creates a separate Relmio-owned n8n stack"
+    : sidecar
     ? "Uses a local ChatGPT OAuth credential"
     : assistant
       ? "Installs n8n AI Assistant support services"
@@ -552,7 +590,9 @@ function renderTarget() {
     : codexChat
       ? "Uses official Codex ChatGPT sign-in through the experimental Relmio-specific Chat Adapter"
       : "Uses the official Codex ChatGPT sign-in";
-  element("target-guidance-detail").textContent = sidecar
+  element("target-guidance-detail").textContent = stack
+    ? "This never discovers, edits, restarts, or reuses existing n8n. Code Sandbox uses a privileged local runner; add the existing private OAuth bridge later as a separate option."
+    : sidecar
     ? "Relmio copies the validated local credential into its own private managed volume. No credential is sent to or returned through this browser."
     : assistant
       ? "Code Sandbox is always included. SearXNG JSON web search is optional and off by default. The generated sandbox API key is shown once; model-provider credentials stay separate and are configured directly in n8n."
@@ -595,16 +635,23 @@ function renderPlan(plan) {
   const codexChat = isCodexChat(plan.target);
   const sidecar = isN8nSidecar(plan.target);
   const assistant = isN8nAssistant(plan.target);
+  const stack = isN8nStack(plan.target);
   const n8nTarget = sidecar || assistant;
-  element("review-endpoint-label").textContent = assistant
+  element("review-endpoint-label").textContent = stack
+    ? "Local n8n URL"
+    : assistant
     ? "Support services"
     : "Endpoint";
-  element("review-endpoint").textContent = assistant
+  element("review-endpoint").textContent = stack
+    ? plan.localUrl
+    : assistant
     ? plan.includeSearxng
       ? "Code Sandbox + SearXNG"
       : "Code Sandbox only"
     : plan.endpoint;
-  element("review-protocol").textContent = sidecar
+  element("review-protocol").textContent = stack
+    ? "New local n8n stack with ngrok Basic Auth"
+    : sidecar
     ? "OpenAI-compatible HTTP /v1 inside Docker"
     : assistant
       ? "n8n Instance AI companion services"
@@ -613,14 +660,16 @@ function renderPlan(plan) {
     : codexChat
       ? "Relmio Codex Chat HTTP: POST /chat"
       : "Codex App Server JSON-RPC over WebSocket";
-  element("review-auth").textContent = sidecar
+  element("review-auth").textContent = stack
+    ? "ngrok authtoken + mandatory Basic Auth (entered only during installation)"
+    : sidecar
     ? "Local ChatGPT OAuth credential (not Platform API key)"
     : assistant
       ? "Model-provider credential configured separately in n8n"
     : openAiApi
     ? "OpenAI Platform API key"
     : "ChatGPT sign-in through official Codex";
-  element("review-browser-row").hidden = n8nTarget;
+  element("review-browser-row").hidden = n8nTarget || stack;
   element("review-browser").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
       ? `Only ${plan.allowedOrigins.length} exact allowed origin(s)`
@@ -628,7 +677,7 @@ function renderPlan(plan) {
     : codexChat
       ? "No — trusted local backends and development servers only"
       : "No — trusted native local clients only";
-  element("review-origins-row").hidden = n8nTarget || !openAiApi;
+  element("review-origins-row").hidden = n8nTarget || stack || !openAiApi;
   element("review-origins").textContent = openAiApi
     ? plan.allowedOrigins.length > 0
       ? plan.allowedOrigins.join(", ")
@@ -640,9 +689,38 @@ function renderPlan(plan) {
   element("review-n8n").textContent = n8nTarget ? plan.n8nContainerName : "";
   element("review-network").textContent = n8nTarget ? plan.networkName : "";
   element("review-publication").textContent = n8nTarget ? "None" : "";
+  element("review-public-url-row").hidden = !stack;
+  element("review-assistant-mode-row").hidden = !stack;
+  element("review-public-url").textContent = stack ? plan.ngrokPublicUrl : "";
+  element("review-assistant-mode").textContent = stack
+    ? assistantModeLabel(plan.assistantMode)
+    : "";
   element("review-path").textContent = plan.managedPath;
 
-  if (sidecar) {
+  if (stack) {
+    for (const id of ["review-n8n-row", "review-network-row", "review-publication-row"]) {
+      element(id).hidden = true;
+    }
+    replaceListItems(element("review-will"), [
+      "Create a brand-new Relmio-owned n8n stack at the displayed managed path.",
+      `Bind n8n to ${plan.localUrl} and the ngrok inspector to loopback only.`,
+      `Expose ${plan.ngrokPublicUrl} only through ngrok with mandatory Basic Auth.`,
+      `Install the selected Assistant mode: ${assistantModeLabel(plan.assistantMode)}.`,
+    ]);
+    replaceListItems(element("review-will-not"), [
+      "Discover, edit, restart, stop, recreate, or reuse any existing n8n deployment.",
+      "Expose the n8n or ngrok inspector port to the LAN or public internet.",
+      "Display or return the ngrok authtoken, Basic Auth password, or generated n8n encryption key.",
+      "Add the existing private OAuth bridge; choose it afterward as a separate wizard option.",
+    ]);
+    element("install-confirm-copy").textContent =
+      "I reviewed this exact plan and authorize Relmio to create a brand-new owned n8n stack and a public ngrok URL protected by mandatory Basic Auth. I understand existing n8n deployments are untouched.";
+    appendPolicyNotice(
+      element("review-policy"),
+      "Public ngrok access is authenticated; local services remain loopback-only",
+      "The ngrok authtoken and Basic Auth credentials are required only after review. Code Sandbox uses a privileged local runner. The existing private OAuth bridge remains a separate wizard choice.",
+    );
+  } else if (sidecar) {
     replaceListItems(element("review-will"), [
       "Create only the new openai-oauth sidecar and its private managed credential volume.",
       "Attach the sidecar to the exact selected existing Docker network.",
@@ -731,12 +809,20 @@ function prepareInstallPanel() {
   const codexChat = isCodexChat(state.plan.target);
   const sidecar = isN8nSidecar(state.plan.target);
   const assistant = isN8nAssistant(state.plan.target);
-  const n8nTarget = sidecar || assistant;
+  const stack = isN8nStack(state.plan.target);
+  const n8nTarget = sidecar || assistant || stack;
   const apiKey = element("platform-api-key");
   element("api-key-field").hidden = !openAiApi;
   element("codex-install-warning").hidden = openAiApi || n8nTarget;
   element("sidecar-install-note").hidden = !sidecar;
   element("assistant-install-note").hidden = !assistant;
+  element("n8n-stack-install-note").hidden = !stack;
+  element("n8n-stack-secrets").hidden = !stack;
+  for (const id of ["ngrok-authtoken", "ngrok-basic-auth-username", "ngrok-basic-auth-password"]) {
+    element(id).required = stack;
+    element(id).disabled = !stack;
+    element(id).value = "";
+  }
   element("codex-install-warning-title").textContent = codexChat
     ? "Credential for trusted local backends or development servers only"
     : "High-trust capability";
@@ -745,7 +831,9 @@ function prepareInstallPanel() {
     : "Anyone holding the generated client credential can control Codex inside its isolated container, act through your signed-in ChatGPT session, and may be able to recover that container's ChatGPT session credential. Treat this capability like your ChatGPT password and give it only to a trusted native local app.";
   apiKey.required = openAiApi;
   apiKey.value = "";
-  element("install-intro").textContent = sidecar
+  element("install-intro").textContent = stack
+    ? "Enter the ngrok authtoken and mandatory Basic Auth credentials for the reviewed new owned stack. They are sent only to this local Relmio process and cleared immediately."
+    : sidecar
     ? "Relmio will re-attest the selected running n8n container and Docker network, seed its private credential volume, and install only the new sidecar."
     : assistant
       ? "Relmio will re-attest the selected running n8n container and Docker network, then create and verify only its private Code Sandbox services and selected SearXNG option."
@@ -756,7 +844,9 @@ function prepareInstallPanel() {
       : "Relmio will install the official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready.";
   setButtonLabel(
     element("install-button"),
-    sidecar
+    stack
+      ? "Create new local n8n + ngrok"
+      : sidecar
       ? "Install private n8n bridge"
       : assistant
         ? "Install n8n Assistant tools"
@@ -771,7 +861,9 @@ function prepareInstallPanel() {
 function renderInstallResult(result) {
   const sidecar = isN8nSidecar(result.target);
   const assistant = isN8nAssistant(result.target);
-  const n8nTarget = sidecar || assistant;
+  const stack = isN8nStack(result.target);
+  const n8nTarget = sidecar || assistant || stack;
+  const endpoint = stack ? result.localUrl : result.endpoint;
   const endpointTargets = ["openai-api", "codex-chatgpt", "codex-chat"];
   const assistantSettings = result?.n8nSettings;
   const expectedAssistantSettings = assistant
@@ -812,7 +904,7 @@ function renderInstallResult(result) {
     !Array.isArray(assistantSettings) &&
     JSON.stringify(assistantSettings) === JSON.stringify(expectedAssistantSettings);
   if (
-    typeof result.endpoint !== "string" ||
+    typeof endpoint !== "string" ||
     (!n8nTarget && typeof result.clientCredential !== "string") ||
     (!endpointTargets.includes(result.target) && !n8nTarget) ||
     (assistant && !assistantResultValid) ||
@@ -825,6 +917,14 @@ function renderInstallResult(result) {
         result.deploymentMode !== "installed" ||
         !Array.isArray(result.models) ||
         result.models.some((model) => typeof model !== "string")))
+    || (stack &&
+      (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/u.test(result.localUrl ?? "") ||
+        !/^https:\/\/[a-z0-9][a-z0-9.-]*\.[a-z0-9.-]+$/u.test(result.ngrokPublicUrl ?? "") ||
+        !/^relmio-local-n8n-[a-f0-9]{32}$/u.test(result.projectName ?? "") ||
+        !Array.isArray(result.containerServices) ||
+        !Array.isArray(result.networks) ||
+        !["disabled", "sandbox", "sandbox-with-searxng"].includes(result.assistantMode) ||
+        result.deploymentMode !== "new-disposable-stack"))
   ) {
     throw new Error("The local installer returned an unexpected response.");
   }
@@ -836,6 +936,7 @@ function renderInstallResult(result) {
   element("client-warning").hidden = false;
   element("n8n-sidecar-removal").hidden = !sidecar;
   element("n8n-assistant-removal").hidden = !assistant;
+  element("n8n-stack-removal").hidden = !stack;
   element("remove-bridge-confirm").checked = false;
   element("remove-bridge-confirm").disabled = false;
   element("remove-bridge-button").disabled = true;
@@ -846,11 +947,18 @@ function renderInstallResult(result) {
   element("remove-assistant-button").disabled = true;
   element("remove-assistant-status").textContent =
     "The companion stack remains installed until this separate confirmation is checked.";
-  element("result-endpoint-label").textContent = assistant
+  element("remove-n8n-stack-confirm").checked = false;
+  element("remove-n8n-stack-confirm").disabled = false;
+  element("remove-n8n-stack-button").disabled = true;
+  element("remove-n8n-stack-status").textContent =
+    "The owned stack remains installed until this separate confirmation is checked.";
+  element("result-endpoint-label").textContent = stack
+    ? "Local n8n URL"
+    : assistant
     ? "Sandbox Service URL"
     : "Endpoint";
-  element("result-endpoint").textContent = result.endpoint;
-  element("one-time-note").hidden = sidecar;
+  element("result-endpoint").textContent = endpoint;
+  element("one-time-note").hidden = sidecar || stack;
   element("one-time-note-title").textContent = assistant
     ? "Copy this sandbox key now"
     : "Copy this credential now";
@@ -881,19 +989,33 @@ function renderInstallResult(result) {
   }
   element("result-api-key").textContent = sidecar ? "local-only" : "";
   element("result-responses").textContent = sidecar ? "On" : "";
-  element("result-n8n").textContent = n8nTarget
+  element("result-n8n").textContent = stack
+    ? result.projectName
+    : n8nTarget
     ? result.n8nContainerName ?? state.plan?.n8nContainerName ?? "Selected n8n container"
     : "";
-  element("result-network").textContent = n8nTarget ? result.networkName : "";
-  element("result-publication").textContent = n8nTarget ? "None" : "";
+  element("result-network").textContent = stack
+    ? result.networks.join(", ")
+    : n8nTarget ? result.networkName : "";
+  element("result-publication").textContent = stack
+    ? result.hostPublication
+    : n8nTarget ? "None" : "";
   element("result-models").textContent = sidecar
     ? result.models.length > 0
       ? result.models.join(", ")
       : "No models reported"
     : "";
   element("result-deployment").textContent = n8nTarget ? result.deploymentMode : "";
+  element("result-public-url-row").hidden = !stack;
+  element("result-assistant-mode-row").hidden = !stack;
+  element("result-public-url").textContent = stack ? result.ngrokPublicUrl : "";
+  element("result-assistant-mode").textContent = stack
+    ? assistantModeLabel(result.assistantMode)
+    : "";
   element("result-sandbox-key-row").hidden = !assistant;
   element("result-searxng-row").hidden = !assistant;
+  element("copy-searxng-button").hidden =
+    !assistant || result.includeSearxng !== true;
   element("result-n8n-settings-row").hidden = !assistant;
   element("result-sandbox-key").textContent = assistant
     ? result.sandboxApiKey
@@ -920,7 +1042,9 @@ function renderInstallResult(result) {
   element("codex-production-warning-detail").textContent = codexChat
     ? "The adapter is for trusted local backends or development servers only. It has a Relmio-specific POST /chat contract, no CORS, and is not OpenAI /v1."
     : "Codex App Server WebSocket is experimental and unsupported for production workloads.";
-  element("done-title").textContent = sidecar
+  element("done-title").textContent = stack
+    ? "New local n8n + ngrok is ready"
+    : sidecar
     ? "Private n8n bridge is ready"
     : assistant
       ? "n8n Assistant tools are ready"
@@ -929,7 +1053,9 @@ function renderInstallResult(result) {
     : codexChat
       ? "Codex Chat Adapter is installed"
       : "Codex App Server is installed";
-  element("done-detail").textContent = sidecar
+  element("done-detail").textContent = stack
+    ? "Use the loopback n8n URL locally. Before relying on the public URL, verify manually that anonymous access is blocked and your Basic Auth credentials succeed."
+    : sidecar
     ? "Use the private base URL and local-only API key placeholder in n8n on the selected Docker network."
     : assistant
       ? "Copy the one-time environment block into your own n8n deployment. Relmio did not change or restart n8n."
@@ -940,7 +1066,9 @@ function renderInstallResult(result) {
       : "Copy the endpoint and capability, then sign the isolated Codex container in to ChatGPT.";
   appendPolicyNotice(
     element("client-warning"),
-    sidecar
+    stack
+      ? "Authenticated public ngrok route; owned disposable stack"
+      : sidecar
       ? "For the selected self-hosted n8n container only"
       : assistant
         ? "Companions are ready; n8n configuration remains operator-owned"
@@ -949,7 +1077,9 @@ function renderInstallResult(result) {
       : codexChat
         ? "For trusted local backends or development servers only"
         : "For trusted native Codex clients only",
-    sidecar
+    stack
+      ? "Use the displayed local n8n URL on this computer. Open the public ngrok URL in an anonymous browser first: it must reject access until you enter the Basic Auth credentials you provided. This is not an n8n or inspector host-port publication. Export needed workflows and credentials first. Remove only this owned disposable stack with the separate confirmation; existing n8n deployments remain untouched."
+      : sidecar
       ? "Set the base URL to http://n8n-openai-oauth:10531/v1, use local-only as the API key placeholder, and enable the Responses API. Host publication is None. This bridge is unofficial and installs neither AI Assistant Code Sandbox nor SearXNG."
       : assistant
         ? result.includeSearxng
@@ -1180,6 +1310,7 @@ element("target-form").addEventListener("submit", async (event) => {
   try {
     const sidecar = isN8nSidecar(state.target);
     const assistant = isN8nAssistant(state.target);
+    const stack = isN8nStack(state.target);
     const n8nTarget = sidecar || assistant;
     if (
       n8nTarget &&
@@ -1195,7 +1326,16 @@ element("target-form").addEventListener("submit", async (event) => {
     }
     const result = await api("/api/local/plan", {
       method: "POST",
-      body: n8nTarget
+      body: stack
+        ? {
+            target: state.target,
+            ngrokHostname: element("ngrok-hostname").value,
+            n8nPort: element("n8n-stack-port").value,
+            ngrokInspectorPort: element("ngrok-inspector-port").value,
+            timezone: element("n8n-stack-timezone").value,
+            assistantMode: element("n8n-stack-assistant-mode").value,
+          }
+        : n8nTarget
         ? {
             target: state.target,
             n8nContainerId: element("n8n-container").value,
@@ -1226,7 +1366,9 @@ element("target-form").addEventListener("submit", async (event) => {
     renderPlan(result.plan);
     showStep(2);
     setMessage(
-      n8nTarget
+      stack
+        ? "Review the exact new owned n8n + ngrok plan. Nothing has been written or exposed yet."
+        : n8nTarget
         ? "Review the exact Docker-network-only plan. Nothing has been written yet."
         : "Review the exact loopback plan. Nothing has been written yet.",
     );
@@ -1244,6 +1386,10 @@ for (const input of document.querySelectorAll('input[name="target"]')) {
 element("local-port").addEventListener("input", invalidatePlan);
 element("allowed-origins").addEventListener("input", invalidatePlan);
 element("include-local-searxng").addEventListener("change", invalidatePlan);
+for (const id of ["ngrok-hostname", "n8n-stack-port", "ngrok-inspector-port", "n8n-stack-timezone", "n8n-stack-assistant-mode"]) {
+  element(id).addEventListener("input", invalidatePlan);
+  element(id).addEventListener("change", invalidatePlan);
+}
 element("n8n-container").addEventListener("change", () => {
   element("n8n-network").value = "";
   renderSidecarNetworkOptions();
@@ -1349,6 +1495,12 @@ element("install-settings-button").addEventListener("click", () => {
 element("install-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   const apiKeyInput = element("platform-api-key");
+  const stack = isN8nStack(state.plan?.target);
+  const stackSecretInputs = [
+    element("ngrok-authtoken"),
+    element("ngrok-basic-auth-username"),
+    element("ngrok-basic-auth-password"),
+  ];
   clearError();
   if (!state.planId || !state.plan || !element("install-confirm").checked) {
     showStep(1);
@@ -1358,17 +1510,30 @@ element("install-button").addEventListener("click", async (event) => {
   if (state.plan.target === "openai-api" && !apiKeyInput.reportValidity()) {
     return;
   }
+  if (stack && stackSecretInputs.some((input) => !input.reportValidity())) {
+    return;
+  }
   const requestBody = {
     planId: state.planId,
     confirmed: element("install-confirm").checked,
     ...(state.plan.target === "openai-api"
       ? { apiKey: apiKeyInput.value }
       : {}),
+    ...(stack
+      ? {
+          ngrokAuthtoken: stackSecretInputs[0].value,
+          basicAuthUsername: stackSecretInputs[1].value,
+          basicAuthPassword: stackSecretInputs[2].value,
+        }
+      : {}),
   };
   apiKeyInput.value = "";
+  for (const input of stackSecretInputs) input.value = "";
   setBusy(button, true, "Installing locally…");
   setMessage(
-    isN8nSidecar(state.plan.target)
+    stack
+      ? "Creating and verifying the new owned n8n stack and authenticated ngrok endpoint…"
+      : isN8nSidecar(state.plan.target)
       ? "Creating and verifying only the private Docker-network sidecar…"
       : isN8nAssistant(state.plan.target)
         ? "Creating and verifying the private Code Sandbox and selected SearXNG option…"
@@ -1383,7 +1548,9 @@ element("install-button").addEventListener("click", async (event) => {
     state.planId = null;
     showStep(4);
     setMessage(
-      result.target === "n8n-openai-oauth"
+      result.target === "local-n8n-stack"
+        ? "New local n8n stack verified. The public ngrok URL is protected by mandatory Basic Auth."
+        : result.target === "n8n-openai-oauth"
         ? "Private n8n bridge verified with no host publication. Configure its private URL in n8n."
         : result.target === "n8n-ai-assistant"
           ? "Code Sandbox companions verified with no host publication. Copy the one-time n8n settings before leaving this page."
@@ -1400,7 +1567,15 @@ element("install-button").addEventListener("click", async (event) => {
     showError(error);
   } finally {
     requestBody.apiKey = undefined;
+    requestBody.ngrokAuthtoken = undefined;
+    requestBody.basicAuthUsername = undefined;
+    requestBody.basicAuthPassword = undefined;
     apiKeyInput.value = "";
+    for (const input of stackSecretInputs) {
+      input.value = "";
+      input.disabled = true;
+    }
+    element("n8n-stack-secrets").hidden = true;
     setBusy(button, false);
   }
 });
@@ -1495,6 +1670,48 @@ element("remove-assistant-button").addEventListener("click", async (event) => {
     setMessage(
       "Managed n8n Assistant tools removed; n8n and its external Docker network remain unchanged.",
     );
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+    if (removed) button.disabled = true;
+  }
+});
+
+element("remove-n8n-stack-confirm").addEventListener("change", (event) => {
+  element("remove-n8n-stack-button").disabled = !event.currentTarget.checked;
+});
+
+element("remove-n8n-stack-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const confirmation = element("remove-n8n-stack-confirm");
+  clearError();
+  if (state.installedTarget !== "local-n8n-stack" || !confirmation.checked) {
+    showError(new Error("Confirm removal of this owned n8n + ngrok stack first."));
+    return;
+  }
+  let removed = false;
+  setBusy(button, true, "Removing owned stack…");
+  setMessage("Removing only Relmio-owned n8n + ngrok resources. Existing n8n deployments remain untouched.");
+  try {
+    const result = await api("/api/local/n8n/stack/remove", {
+      method: "POST",
+      body: { confirmed: true },
+    });
+    if (result.target !== "local-n8n-stack" || result.removed !== true) {
+      throw new Error("The local wizard returned an unexpected removal response.");
+    }
+    removed = true;
+    state.installedTarget = null;
+    confirmation.disabled = true;
+    element("install-result-list").hidden = true;
+    element("client-warning").hidden = true;
+    element("done-title").textContent = "New local n8n + ngrok was removed";
+    element("done-detail").textContent =
+      "Relmio removed only its owned stack. Existing n8n deployments were not changed.";
+    element("remove-n8n-stack-status").textContent =
+      "Owned stack removed. Existing n8n deployments were not changed.";
+    setMessage("Owned local n8n + ngrok stack removed; existing n8n deployments remain untouched.");
   } catch (error) {
     showError(error);
   } finally {
@@ -1749,6 +1966,13 @@ for (const button of document.querySelectorAll("[data-copy-target]")) {
 for (const button of document.querySelectorAll(".back-button")) {
   button.addEventListener("click", () => {
     clearError();
+    if (isN8nStack(state.plan?.target)) {
+      element("n8n-stack-secrets").hidden = true;
+      for (const id of ["ngrok-authtoken", "ngrok-basic-auth-username", "ngrok-basic-auth-password"]) {
+        element(id).value = "";
+        element(id).disabled = true;
+      }
+    }
     showStep(Number(button.dataset.back));
     setMessage("No new local installation has started.");
   });

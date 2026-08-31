@@ -56,6 +56,10 @@ test("local endpoint wizard exposes an accessible four-step flow", async () => {
   );
   assert.match(html, /id="device-code-status"[^>]*role="status"[^>]*aria-live="polite"/u);
   assert.match(html, /id="device-code-link"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/u);
+  assert.match(
+    html,
+    /id="setup-another-local"[^>]*>Set up another local option/u,
+  );
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/u);
   assert.doesNotMatch(html, /\sonclick=/iu);
 });
@@ -305,10 +309,67 @@ test("local wizard offers Code Sandbox with opt-in SearXNG as a separate n8n Ass
 
   assert.match(html, /id="result-sandbox-key-row"[^>]*hidden/u);
   assert.match(html, /id="result-searxng-row"[^>]*hidden/u);
+  assert.match(
+    html,
+    /id="result-searxng-row"[\s\S]*data-copy-target="result-searxng"[\s\S]*aria-label="Copy SearXNG URL"/u,
+  );
+  assert.match(
+    script,
+    /element\("copy-searxng-button"\)\.hidden =\s*!assistant \|\| result\.includeSearxng !== true/u,
+  );
   assert.match(html, /id="result-n8n-settings-row"[^>]*hidden/u);
   assert.match(html, /id="n8n-assistant-removal"[^>]*hidden/u);
   assert.match(html, /id="remove-assistant-confirm" type="checkbox"/u);
   assert.match(css, /\.assistant-companion-options\s*\{/u);
+});
+
+test("local wizard offers a new owned n8n plus Basic-Auth-protected ngrok stack without retaining credentials", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  assert.match(html, /name="target" value="local-n8n-stack"/u);
+  assert.match(html, /New local n8n \+ ngrok/u);
+  assert.match(html, /Relmio-owned add-on[^<]*mandatory Basic Auth/u);
+  assert.match(html, /never changes any existing n8n/u);
+  assert.match(html, /id="ngrok-hostname"[\s\S]*no scheme, path, or port/u);
+  assert.match(html, /id="n8n-stack-port"[^>]*value="5679"/u);
+  assert.match(html, /id="ngrok-inspector-port"[^>]*value="4041"/u);
+  assert.match(html, /id="n8n-stack-timezone"[^>]*value="Asia\/Manila"/u);
+  assert.match(html, /id="n8n-stack-assistant-mode"[\s\S]*Code Sandbox \+ SearXNG/u);
+  assert.match(html, /privileged local runner/u);
+  assert.match(html, /private OAuth bridge can be added afterward as a separate wizard choice/u);
+  assert.match(html, /id="review-public-url-row"[\s\S]*Public ngrok URL/u);
+  assert.match(html, /id="ngrok-authtoken"[^>]*type="password"[^>]*autocomplete="off"/u);
+  assert.match(html, /id="ngrok-basic-auth-password"[^>]*type="password"[^>]*autocomplete="off"/u);
+  assert.match(html, /id="n8n-stack-removal"[^>]*hidden/u);
+  assert.match(html, /id="remove-n8n-stack-confirm" type="checkbox"/u);
+  assert.match(html, /permanently deletes[^<]*n8n data volume[^<]*workflows and credentials/iu);
+  assert.match(html, /Export anything you need first/iu);
+  assert.match(html, /Create or choose a static ngrok domain/iu);
+  assert.match(html, /anonymous browser[^<]*must be blocked/iu);
+  assert.match(html, /id="setup-another-local"[^>]*>Set up another local option/u);
+
+  assert.match(script, /return target === "local-n8n-stack"/u);
+  assert.match(script, /ngrokHostname:[\s\S]*ngrokInspectorPort:[\s\S]*assistantMode:/u);
+  assert.match(script, /ngrokAuthtoken:[\s\S]*basicAuthUsername:[\s\S]*basicAuthPassword:/u);
+  assert.match(script, /requestBody\.ngrokAuthtoken = undefined/u);
+  assert.match(script, /requestBody\.basicAuthPassword = undefined/u);
+  assert.match(script, /for \(const input of stackSecretInputs\) \{[\s\S]*input\.value = "";[\s\S]*input\.disabled = true;/u);
+  assert.match(script, /element\("n8n-stack-secrets"\)\.hidden = true/u);
+  assert.match(script, /element\(id\)\.disabled = !stack/u);
+  assert.match(script, /const n8nTarget = sidecar \|\| assistant \|\| stack;/u);
+  assert.match(script, /element\("result-deployment"\)\.textContent = n8nTarget \? result\.deploymentMode : ""/u);
+  assert.match(script, /"result-n8n-row",[\s\S]*"result-network-row",[\s\S]*"result-publication-row"[\s\S]*element\(id\)\.hidden = !n8nTarget/u);
+  assert.match(script, /Authenticated public ngrok route; owned disposable stack/u);
+  assert.match(script, /Remove only this owned disposable stack with the separate confirmation/u);
+  assert.match(script, /api\("\/api\/local\/n8n\/stack\/remove"/u);
+  assert.match(script, /body: \{ confirmed: true \}/u);
+  assert.match(script, /public ngrok URL protected by mandatory Basic Auth/u);
+  assert.match(css, /\.n8n-stack-fields\s*\{/u);
+  assert.doesNotMatch(script, /localStorage[\s\S]{0,200}(?:ngrokAuthtoken|basicAuthPassword)/iu);
 });
 
 test("private n8n bridge cleanup has its own explicit ownership-bounded confirmation", async () => {

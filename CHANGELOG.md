@@ -7,11 +7,18 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.10.0] - 2026-08-31
+
 ### Added
 
 - Add local n8n companion choices to the browser wizard: an unofficial private
   `openai-oauth` sidecar for an existing n8n container and n8n AI Assistant
   Code Sandbox support with optional SearXNG JSON web search.
+- Add a one-click, separately owned disposable n8n + ngrok stack with mandatory
+  Traffic Policy Basic Auth, loopback-only local ports, and optional Code
+  Sandbox plus SearXNG.
+- Add an animated Gateway Android README banner, a two-lane credential-boundary
+  diagram, package and project badges, and a concise product introduction.
 
 ### Changed
 
@@ -19,6 +26,19 @@ checks the registry separately after publication.
   existing Docker network; neither path publishes a host port or edits,
   restarts, stops, recreates, rebuilds, or executes inside n8n. Assistant
   settings remain operator-applied.
+- Let every completed local setup return to the token-preserving start screen
+  so another endpoint can be configured without restarting the wizard.
+- Use Homebrew's formula-scoped trust command for the public Relmio tap instead
+  of asking users to trust an entire third-party tap.
+
+### Fixed
+
+- Accept only Docker Compose's strict unpublished publisher placeholder while
+  retaining fail-closed rejection for real or malformed host publication.
+- Give disposable n8n's cache an owner-writable temporary filesystem so n8n AI
+  Assistant workspace initialization can complete.
+- Keep bind-mounted ngrok and SearXNG configuration readable by their non-root
+  containers while parent managed directories remain owner-only.
 
 ### Security
 
@@ -26,6 +46,9 @@ checks the registry separately after publication.
   volume, while the Assistant model-provider credential is configured directly
   in n8n and is not handled by Relmio. SearXNG remains optional and off by
   default.
+- Scope the new public exception to the owned n8n route behind mandatory Basic
+  Auth; port `10531`, Code Sandbox, and SearXNG remain unpublished, and removal
+  requires exact project-wide ownership attestation.
 
 ## [0.9.1] - 2026-08-31
 

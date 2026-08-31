@@ -45,7 +45,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
-      - /home/node/.cache:rw,noexec,nosuid,nodev,size=64m
+      - /home/node/.cache:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0700
     cap_drop:
       - ALL
     security_opt:

@@ -1,6 +1,6 @@
 {
   "name": "relmio",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Install private local OpenAI and Codex endpoints or isolated n8n companion services with explicit credential boundaries.",
   "keywords": [
     "relmio",

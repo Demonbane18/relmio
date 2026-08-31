@@ -272,6 +272,112 @@ test("local project metadata exposes only the public GitHub star count and packa
   });
 });
 
+test("new local n8n + ngrok plans stay non-mutating and never expose Docker context or secrets", async (t) => {
+  const dockerHost = "unix:///var/run/docker.sock";
+  const ngrokAuthtoken = "ngrok-secret-token";
+  const basicAuthPassword = "basic-auth-secret";
+  let plans = 0;
+  let installInput;
+  let removeInput;
+  const stackPlan = {
+    kind: "local-n8n-stack",
+    target: "local-n8n-stack",
+    label: "Disposable self-hosted n8n + ngrok",
+    dockerHost,
+    ngrokHostname: "workflow.example.ngrok.app",
+    n8nPort: 5679,
+    ngrokInspectorPort: 4041,
+    timezone: "Asia/Manila",
+    assistantMode: "sandbox-with-searxng",
+    localUrl: "http://127.0.0.1:5679",
+    ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    hostPublication: "loopback-only",
+    deploymentMode: "new-disposable-stack",
+    managedPath: "~/.relmio/local/n8n-stack",
+  };
+  const wizard = await startLocalWizard(t, {
+    async getLocalDockerStatus() {
+      return { dockerAvailable: true, dockerHost };
+    },
+    prepareLocalN8nStackPlan(input) {
+      plans += 1;
+      assert.equal(input.dockerHost, dockerHost);
+      return stackPlan;
+    },
+    async installLocalN8nStack(input) {
+      installInput = input;
+      return {
+        target: "local-n8n-stack",
+        localUrl: stackPlan.localUrl,
+        ngrokPublicUrl: stackPlan.ngrokPublicUrl,
+        projectName: `relmio-local-n8n-${"a".repeat(32)}`,
+        containerServices: ["n8n", "ngrok", "sandbox-api", "searxng"],
+        networks: ["edge", "assistant-shared", "assistant-internal"],
+        assistantSettings: {
+          sandboxUrl: "http://relmio-sandbox-api:8080",
+          searxngUrl: "http://relmio-searxng:8080",
+        },
+        assistantMode: stackPlan.assistantMode,
+        hostPublication: "n8n http://127.0.0.1:5679; ngrok inspector http://127.0.0.1:4041",
+        deploymentMode: "new-disposable-stack",
+        dockerHost,
+        basicAuthPassword,
+      };
+    },
+    async removeLocalN8nStack(input) {
+      removeInput = input;
+      return {
+        target: "local-n8n-stack",
+        removed: true,
+        deploymentMode: "removed-owned-disposable-stack",
+      };
+    },
+  });
+
+  const planned = await createPlan(wizard, {
+    target: "local-n8n-stack",
+    ngrokHostname: stackPlan.ngrokHostname,
+    n8nPort: "5679",
+    ngrokInspectorPort: "4041",
+    timezone: stackPlan.timezone,
+    assistantMode: stackPlan.assistantMode,
+  });
+  assert.equal(plans, 1);
+  assert.equal(JSON.stringify(planned).includes(dockerHost), false);
+  assert.equal(planned.plan.localUrl, stackPlan.localUrl);
+  assert.equal(planned.plan.ngrokPublicUrl, stackPlan.ngrokPublicUrl);
+
+  const installed = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+    ngrokAuthtoken,
+    basicAuthUsername: "relmio",
+    basicAuthPassword,
+  });
+  assert.equal(installed.status, 200);
+  const installedText = await installed.text();
+  assert.equal(installedText.includes(ngrokAuthtoken), false);
+  assert.equal(installedText.includes(basicAuthPassword), false);
+  assert.equal(installedText.includes(dockerHost), false);
+  assert.equal(installInput.publicExposureConfirmation, "EXPOSE_LOCAL_N8N_VIA_NGROK");
+  assert.deepEqual(installInput.secrets, {
+    ngrokAuthtoken,
+    basicAuthUsername: "relmio",
+    basicAuthPassword,
+  });
+
+  const unconfirmed = await postJson(wizard, "/api/local/n8n/stack/remove", {});
+  assert.equal(unconfirmed.status, 400);
+  const removed = await postJson(wizard, "/api/local/n8n/stack/remove", { confirmed: true });
+  assert.equal(removed.status, 200);
+  assert.deepEqual(removeInput, { confirmation: "REMOVE_LOCAL_N8N_STACK" });
+  assert.deepEqual(await removed.json(), {
+    target: "local-n8n-stack",
+    removed: true,
+    deploymentMode: "removed-owned-disposable-stack",
+  });
+});
+
 test("local Docker status, planning, and installation expose only safe fields", async (t) => {
   let installerInput;
   const wizard = await startLocalWizard(t, {

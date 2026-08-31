@@ -97,6 +97,13 @@ shared, or production service.
   attach only to the reviewed existing Docker network, and publish no host port
   or reverse-proxy route. Relmio returns the sandbox key and n8n settings once,
   but never changes or restarts n8n and never handles its model-provider key.
+- The separate **New local n8n + ngrok** option creates only a new randomly
+  identified Relmio-owned Compose project. It never adopts or changes an
+  existing n8n. Its explicit public exception is limited to the new n8n route,
+  protected by an ngrok Traffic Policy Basic Auth challenge; local n8n and the
+  inspector bind to `127.0.0.1`, and optional Assistant services publish no
+  host port or ngrok route. Removal requires exact marker and project-wide
+  resource-label attestation before deleting the owned disposable data volume.
 - Validated OAuth JSON is copied server-side over stdin into a private labeled
   volume by a network-disabled, logging-disabled helper. The source credential
   file is preserved and neither its path nor contents are returned to the

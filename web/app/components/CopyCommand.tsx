@@ -20,8 +20,8 @@ const installMethods = [
   {
     id: "homebrew",
     label: "Homebrew",
-    command: "brew tap Demonbane18/relmio && brew install relmio",
-    note: "For macOS or Linux computers with Homebrew. Installs Relmio and its Node.js dependency.",
+    command: "brew tap Demonbane18/relmio && brew trust --formula Demonbane18/relmio/relmio && brew install relmio",
+    note: "For macOS or Linux with Homebrew. Trusts only the Relmio formula, then installs Relmio and Node.js.",
     prompt: "$",
   },
   {

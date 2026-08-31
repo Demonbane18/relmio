@@ -628,8 +628,18 @@ function assertNoPublishedPorts(records, expectedServices) {
     if (!Array.isArray(publishers)) {
       throw new Error("The local companion published-port metadata is invalid.");
     }
-    if (publishers.length !== 0) {
-      throw new Error("A local companion published a host port.");
+    for (const publisher of publishers) {
+      if (
+        !publisher ||
+        !Number.isInteger(publisher.PublishedPort) ||
+        typeof publisher.URL !== "string" ||
+        publisher.PublishedPort < 0
+      ) {
+        throw new Error("The local companion published-port metadata is invalid.");
+      }
+      if (publisher.PublishedPort > 0 || publisher.URL !== "") {
+        throw new Error("A local companion published a host port.");
+      }
     }
   }
 }

@@ -40,6 +40,10 @@ test("README surfaces are concise product entry points linked to canonical docs"
     readFile("npm/README.md", "utf8"),
   ]);
   for (const guide of [readme, npmReadme]) {
+    assert.match(guide, /Connect AI tools without mixing credentials/u);
+    assert.match(guide, /## Two lanes, no credential mixing/u);
+    assert.match(guide, /A ChatGPT subscription|ChatGPT\/Codex sign-in/u);
+    assert.match(guide, /img\.shields\.io\/github\/stars\/Demonbane18\/relmio/u);
     assert.match(guide, /## Quick install/u);
     assert.match(guide, /## Common problems/u);
     assert.match(guide, /Docker is not running/u);
@@ -49,10 +53,21 @@ test("README surfaces are concise product entry points linked to canonical docs"
     assert.doesNotMatch(guide, /```mermaid/u);
   }
   assert.match(readme, /## Endpoints/u);
+  assert.match(readme, /docs\/images\/brand\/relmio-banner-animated\.svg/u);
+  assert.match(readme, /docs\/images\/diagrams\/relmio-two-lanes\.png/u);
   assert.match(readme, /## Critical security boundaries/u);
   assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/reference/u);
   assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\/docs\/security/u);
+  assert.match(
+    npmReadme,
+    /cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/diagrams\/relmio-two-lanes\.png/u,
+  );
   assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
+});
+
+test("release changelog retains the Unreleased section above the dated release", async () => {
+  const changelog = await readFile("CHANGELOG.md", "utf8");
+  assert.match(changelog, /## Unreleased[\s\S]*## \[0\.10\.0\] - 2026-08-31/u);
 });
 
 test("published guides document the local n8n Assistant tools wizard contract", async () => {
@@ -179,6 +194,25 @@ test("security guidance distinguishes loopback endpoints from the n8n bridge", a
   assert.match(security, /not encryption at rest or end-to-end encryption/u);
 });
 
+test("local endpoint guides document safe standalone client credential rotation", async () => {
+  const [readme, npmReadme, localGuide] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+    readFile("docs/local-endpoints.md", "utf8"),
+  ]);
+
+  for (const guide of [readme, npmReadme]) {
+    assert.match(guide, /\*\*Rotate client credential\*\*/u);
+    assert.match(guide, /keeps the upstream Platform API key or Codex credential/u);
+    assert.match(guide, /limits any failed rollback\s+to the exact managed service/u);
+  }
+
+  assert.match(localGuide, /previous capability remains active/u);
+  assert.match(localGuide, /authenticated Codex WebSocket handshake/u);
+  assert.match(localGuide, /preserves the upstream Platform API key/u);
+  assert.match(localGuide, /restores the previous verifier and re-attests its\s+health and loopback publication/u);
+});
+
 test("beginner documentation states the critical safety and product limits", async () => {
   const files = await Promise.all(
     [
@@ -223,7 +257,12 @@ test("troubleshooting exposes the tested Homebrew tap while WinGet remains pendi
     readFile("docs/troubleshooting.md", "utf8"),
     readFile("packaging/package-managers.md", "utf8"),
   ]);
-  assert.match(troubleshooting, /brew tap Demonbane18\/relmio && brew install relmio/u);
+  assert.match(
+    troubleshooting,
+    /brew tap Demonbane18\/relmio && brew trust --formula Demonbane18\/relmio\/relmio && brew install relmio/u,
+  );
+  assert.doesNotMatch(troubleshooting, /brew trust Demonbane18\/relmio(?:\s|$)/u);
+  assert.match(troubleshooting, /scopes that decision to/u);
   assert.doesNotMatch(troubleshooting, /\bwinget install\b/iu);
   assert.match(troubleshooting, /Homebrew is available/iu);
   assert.match(troubleshooting, /WinGet\s+command.*hidden/iu);

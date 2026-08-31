@@ -242,6 +242,18 @@
                 </span>
               </span>
             </label>
+
+            <label class="target-card warning-card">
+              <input type="radio" name="target" value="local-n8n-stack" />
+              <span class="target-card-copy">
+                <strong>New local n8n + ngrok</strong>
+                <span class="target-meta">Relmio-owned add-on · mandatory Basic Auth</span>
+                <span>
+                  Creates a brand-new Relmio-owned n8n stack and a public ngrok URL
+                  protected by Basic Auth. It never changes any existing n8n deployment.
+                </span>
+              </span>
+            </label>
           </fieldset>
 
           <div id="endpoint-fields" class="field-grid local-fields">
@@ -397,6 +409,52 @@
             </div>
           </section>
 
+          <section id="n8n-stack-fields" class="n8n-stack-fields" hidden aria-labelledby="n8n-stack-fields-title">
+            <div class="section-heading">
+              <h3 id="n8n-stack-fields-title">Create a new owned n8n stack</h3>
+              <p>Reviewing this form only attests local Docker. It creates no files, starts no containers, and does not expose ngrok.</p>
+            </div>
+            <aside class="policy-note">
+              <strong>Prepare ngrok in three steps</strong>
+              <ol>
+                <li>Create or choose a static ngrok domain in the <a href="https://dashboard.ngrok.com/domains" target="_blank" rel="noopener noreferrer">ngrok dashboard</a>.</li>
+                <li>Copy an authtoken allowed to bind that domain from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">Your Authtoken</a>.</li>
+                <li>Choose a separate Basic Auth username and strong password for visitors to this n8n URL.</li>
+              </ol>
+              <p>After installation, open the public URL in an anonymous browser: it must be blocked until you enter those Basic Auth credentials.</p>
+            </aside>
+            <div class="field-grid local-fields">
+              <label class="field">
+                <span>Reserved ngrok hostname</span>
+                <input id="ngrok-hostname" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="workflow.example.ngrok.app" required />
+                <small>Hostname only — no scheme, path, or port.</small>
+              </label>
+              <label class="field compact">
+                <span>Loopback n8n port</span>
+                <input id="n8n-stack-port" type="number" min="1024" max="65535" value="5679" required />
+                <small>Bound only to <code>127.0.0.1</code>; avoids n8n’s usual 5678.</small>
+              </label>
+              <label class="field compact">
+                <span>Loopback inspector port</span>
+                <input id="ngrok-inspector-port" type="number" min="1024" max="65535" value="4041" required />
+                <small>ngrok inspector, loopback only.</small>
+              </label>
+              <label class="field">
+                <span>Canonical timezone</span>
+                <input id="n8n-stack-timezone" type="text" autocomplete="off" value="Asia/Manila" required />
+              </label>
+              <label class="field">
+                <span>Assistant mode</span>
+                <select id="n8n-stack-assistant-mode">
+                  <option value="disabled">Disabled</option>
+                  <option value="sandbox">Code Sandbox</option>
+                  <option value="sandbox-with-searxng">Code Sandbox + SearXNG</option>
+                </select>
+                <small>Code Sandbox uses a privileged local runner. The existing private OAuth bridge can be added afterward as a separate wizard choice.</small>
+              </label>
+            </div>
+          </section>
+
           <aside id="target-guidance" class="policy-note" aria-live="polite">
             <strong id="target-guidance-title">Uses an OpenAI Platform API key</strong>
             <p id="target-guidance-detail">
@@ -453,6 +511,14 @@
           <div id="review-publication-row" hidden>
             <dt>Host publication</dt>
             <dd id="review-publication"></dd>
+          </div>
+          <div id="review-public-url-row" hidden>
+            <dt>Public ngrok URL</dt>
+            <dd><code id="review-public-url"></code></dd>
+          </div>
+          <div id="review-assistant-mode-row" hidden>
+            <dt>Assistant selection</dt>
+            <dd id="review-assistant-mode"></dd>
           </div>
           <div>
             <dt>Managed files</dt>
@@ -562,6 +628,17 @@
           </p>
         </aside>
 
+        <aside id="n8n-stack-install-note" class="high-trust-warning" hidden>
+          <strong>Public endpoint, mandatory Basic Auth</strong>
+          <p>Paste the ngrok authtoken and the separate Basic Auth credentials prepared in the previous step. Relmio will create only this brand-new owned stack, clear these values from the browser immediately, and never show them in results or errors. Existing n8n stays untouched.</p>
+        </aside>
+
+        <div id="n8n-stack-secrets" class="field-grid local-fields" hidden>
+          <label class="field"><span>ngrok authtoken</span><input id="ngrok-authtoken" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required /></label>
+          <label class="field"><span>Basic Auth username</span><input id="ngrok-basic-auth-username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required /></label>
+          <label class="field"><span>Basic Auth password</span><input id="ngrok-basic-auth-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required /></label>
+        </div>
+
         <div class="actions">
           <button class="button ghost back-button" type="button" data-back="2">
             Back
@@ -649,6 +726,14 @@
             <dt>Deployment mode</dt>
             <dd id="result-deployment"></dd>
           </div>
+          <div id="result-public-url-row" hidden>
+            <dt>Public ngrok URL</dt>
+            <dd class="result-value"><code id="result-public-url"></code><button class="button secondary copy-value" type="button" data-copy-target="result-public-url" data-copy-label="public ngrok URL" aria-label="Copy public ngrok URL">Copy</button></dd>
+          </div>
+          <div id="result-assistant-mode-row" hidden>
+            <dt>Assistant selection</dt>
+            <dd id="result-assistant-mode"></dd>
+          </div>
           <div id="result-sandbox-key-row" hidden>
             <dt>Sandbox API key</dt>
             <dd class="result-value">
@@ -666,7 +751,19 @@
           </div>
           <div id="result-searxng-row" hidden>
             <dt>SearXNG URL</dt>
-            <dd><code id="result-searxng"></code></dd>
+            <dd class="result-value">
+              <code id="result-searxng"></code>
+              <button
+                id="copy-searxng-button"
+                class="button secondary copy-value"
+                type="button"
+                data-copy-target="result-searxng"
+                data-copy-label="SearXNG URL"
+                aria-label="Copy SearXNG URL"
+              >
+                Copy
+              </button>
+            </dd>
           </div>
           <div id="result-n8n-settings-row" hidden>
             <dt>Required n8n environment values</dt>
@@ -744,6 +841,14 @@
               Waiting for sign-in…
             </p>
           </div>
+        </section>
+
+        <section id="n8n-stack-removal" class="n8n-sidecar-removal" aria-labelledby="n8n-stack-removal-title" hidden>
+          <h3 id="n8n-stack-removal-title">Remove new local n8n + ngrok</h3>
+          <p>Removes only this Relmio-owned new stack, its containers, networks, volumes, and managed files. It never removes or changes an existing n8n deployment.</p>
+          <p><strong>This permanently deletes the owned n8n data volume, including its workflows and credentials. Export anything you need first.</strong></p>
+          <label class="check-row"><input id="remove-n8n-stack-confirm" type="checkbox" /><span>I understand this permanent data loss and authorize Relmio to remove only this owned n8n + ngrok stack. Keep all existing n8n deployments untouched.</span></label>
+          <div class="sidecar-removal-actions"><button id="remove-n8n-stack-button" class="button secondary" type="button" disabled>Remove owned stack</button><p id="remove-n8n-stack-status" role="status" aria-live="polite">The owned stack remains installed until this separate confirmation is checked.</p></div>
         </section>
 
         <section
@@ -918,6 +1023,7 @@
         </section>
 
         <div class="actions">
+          <a id="setup-another-local" class="button primary">Set up another local option</a>
           <a id="return-to-vps" class="button secondary">Set up the VPS version</a>
         </div>
       </section>

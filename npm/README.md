@@ -1,11 +1,21 @@
 <p align="center">
-  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-logo-rounded.svg" alt="Relmio gateway android logo" width="180" height="180">
+  <img src="https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/brand/relmio-banner-animated.svg" alt="Relmio — one wizard with separate supported API and private experimental routes" width="1200">
 </p>
 
-# Relmio
+<h1 align="center">Relmio</h1>
 
-This package starts Relmio's local setup wizard for private n8n companions or
-a loopback-only local endpoint. It supports Node.js 22 or newer.
+<p align="center"><strong>One wizard. Clear boundaries. Connect AI tools without mixing credentials.</strong></p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/relmio"><img alt="npm version" src="https://img.shields.io/npm/v/relmio?logo=npm&amp;color=0f8f83"></a>
+  <a href="https://www.npmjs.com/package/relmio"><img alt="npm monthly downloads" src="https://img.shields.io/npm/dm/relmio?color=0f8f83"></a>
+  <a href="https://github.com/Demonbane18/relmio/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/Demonbane18/relmio?style=flat&amp;logo=github&amp;color=0f8f83"></a>
+  <a href="https://github.com/Demonbane18/relmio/actions/workflows/ci.yml"><img alt="CI status" src="https://img.shields.io/github/actions/workflow/status/Demonbane18/relmio/ci.yml?branch=main&amp;label=CI"></a>
+  <a href="https://github.com/Demonbane18/relmio/blob/main/LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-0f8f83"></a>
+</p>
+
+This package starts Relmio's safety-first local setup wizard for private n8n
+companions and loopback-only AI endpoints. It supports Node.js 22 or newer.
 
 ## Quick install
 
@@ -16,6 +26,15 @@ npx --yes --ignore-scripts relmio@latest
 The wizard opens a private `127.0.0.1` page, verifies Docker, and requires a
 final confirmation before it writes files or deploys a self-hosted sidecar.
 
+## Two lanes, no credential mixing
+
+![Relmio separates the supported Platform API route from the private experimental ChatGPT and Codex route](https://cdn.jsdelivr.net/npm/relmio@latest/docs/images/diagrams/relmio-two-lanes.png)
+
+The supported API lane powers compatible n8n agents, HTTP requests, and LLM
+chains with your own OpenAI Platform API key. ChatGPT/Codex sign-in stays in a
+separate private experimental lane for trusted local tools—it never becomes a
+general-purpose API key.
+
 ## What it can install
 
 | Option | Contract | Credential boundary |
@@ -25,10 +44,21 @@ final confirmation before it writes files or deploys a self-hosted sidecar.
 | Codex Chat Adapter | Experimental `POST /chat` (JSON or opt-in SSE) | ChatGPT sign-in and a bearer for trusted local backends |
 | n8n sidecar | Private Docker-network `/v1` bridge | A local ChatGPT sign-in file, never a host port |
 | n8n AI Assistant companion | Private sandbox; opt-in SearXNG web search | OpenAI Platform API key entered directly in n8n |
+| New local n8n + ngrok | New owned n8n stack, loopback access, and a Basic-Auth-protected public route | ngrok token plus n8n credentials stored only in the owned installation |
 
 ChatGPT sign-in does not become an OpenAI Platform API key. Codex transports
 are not generic `/v1` services and should never be exposed on a LAN or public
 network.
+
+## New local n8n + ngrok
+
+Choose **New local n8n + ngrok** when you do not already have a local n8n
+deployment. Relmio creates only a new randomly identified disposable Compose
+project, pins every image by digest, keeps local n8n and the ngrok inspector on
+`127.0.0.1`, and protects the public n8n route with mandatory Traffic Policy
+Basic Auth. Code Sandbox and SearXNG remain optional private services and
+publish no host ports. Read the full guide at
+https://relmio.vercel.app/docs/local-n8n-stack.
 
 ## n8n AI Assistant companion
 
@@ -96,6 +126,11 @@ publish a fixed 10-day lifetime; do not plan around one. This provider
 credential is separate from Relmio's local capability, which remains valid
 until you rotate it.
 
+To replace only that local capability, use **Rotate client credential** on the
+Ready screen. Relmio keeps the upstream Platform API key or Codex credential
+and workspace volumes, verifies the replacement, and limits any failed rollback
+to the exact managed service.
+
 ## Common problems
 
 1. **Docker is not running:** start Docker Desktop or Docker Engine with
@@ -112,6 +147,7 @@ Full guides use absolute HTTPS links:
 
 - https://relmio.vercel.app/docs/getting-started
 - https://relmio.vercel.app/docs/local-endpoints
+- https://relmio.vercel.app/docs/local-n8n-stack
 - https://relmio.vercel.app/docs/vps-and-n8n
 - https://relmio.vercel.app/docs/ai-assistant
 - https://relmio.vercel.app/docs/troubleshooting#local-image-build-failed

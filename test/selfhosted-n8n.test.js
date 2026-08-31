@@ -230,7 +230,11 @@ test("self-hosted n8n fixture pins private Assistant dependencies and exposes on
   assert.match(compose, /n8n-data:\/home\/node\/\.n8n/u);
   assert.match(
     compose,
-    /\/home\/node\/\.cache:rw,noexec,nosuid,nodev,size=64m/u,
+    /\/home\/node\/\.cache:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0700/u,
+  );
+  assert.doesNotMatch(
+    compose,
+    /\/home\/node\/\.cache:[^\n]*size=64m/u,
   );
   assert.match(
     compose,

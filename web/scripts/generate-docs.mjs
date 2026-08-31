@@ -18,6 +18,11 @@ const pages = [
     sourcePath: "docs/local-endpoints.md",
   },
   {
+    slug: "local-n8n-stack",
+    title: "New local n8n + ngrok",
+    sourcePath: "docs/local-n8n-stack.md",
+  },
+  {
     slug: "vps-and-n8n",
     title: "VPS and n8n",
     sourcePath: "docs/vps-and-n8n.md",

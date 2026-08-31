@@ -480,6 +480,48 @@ test("local Assistant installation keeps SearXNG absent when web search is not s
   );
 });
 
+test("local Assistant accepts Docker Compose unpublished-port metadata", async (t) => {
+  const homeDirectory = await createTestHome(t);
+  const unpublishedPort = (targetPort) => ({
+    URL: "",
+    TargetPort: targetPort,
+    PublishedPort: 0,
+    Protocol: "tcp",
+  });
+  const runner = createRunner({
+    publicationRecords: [
+      {
+        Service: "relmio-sandbox-api",
+        Publishers: [unpublishedPort(8080)],
+      },
+      {
+        Service: "relmio-sandbox-runner-1",
+        Publishers: [unpublishedPort(8080), unpublishedPort(9091)],
+      },
+      {
+        Service: "relmio-searxng",
+        Publishers: [unpublishedPort(8080)],
+      },
+    ],
+  });
+  let byte = 0x34;
+
+  const result = await installLocalN8nAssistant(
+    { plan: createPlan({ includeSearxng: true }), confirmed: true },
+    {
+      homeDirectory,
+      env: {},
+      platform: "darwin",
+      runProcess: runner,
+      randomBytes: (size) => Buffer.alloc(size, (byte += 1)),
+    },
+  );
+
+  assert.equal(result.hostPublication, "none");
+  assert.equal(result.includeSearxng, true);
+  assert.equal(runner.calls.some((call) => call.args.includes("down")), false);
+});
+
 test("local Assistant installation refuses to overwrite an existing managed stack", async (t) => {
   const homeDirectory = await createTestHome(t);
   const runner = createRunner();
@@ -553,6 +595,66 @@ test("local Assistant host-publication proof requires the exact well-formed serv
         {
           Service: "relmio-sandbox-api",
           Publishers: [{ PublishedPort: "18080" }],
+        },
+        { Service: "relmio-sandbox-runner-1", Publishers: [] },
+      ],
+    },
+    {
+      label: "missing publisher URL",
+      records: [
+        {
+          Service: "relmio-sandbox-api",
+          Publishers: [{ PublishedPort: 0 }],
+        },
+        { Service: "relmio-sandbox-runner-1", Publishers: [] },
+      ],
+    },
+    {
+      label: "non-empty publisher URL",
+      records: [
+        {
+          Service: "relmio-sandbox-api",
+          Publishers: [{ PublishedPort: 0, URL: "0.0.0.0" }],
+        },
+        { Service: "relmio-sandbox-runner-1", Publishers: [] },
+      ],
+    },
+    {
+      label: "whitespace publisher URL",
+      records: [
+        {
+          Service: "relmio-sandbox-api",
+          Publishers: [{ PublishedPort: 0, URL: " " }],
+        },
+        { Service: "relmio-sandbox-runner-1", Publishers: [] },
+      ],
+    },
+    {
+      label: "negative published port",
+      records: [
+        {
+          Service: "relmio-sandbox-api",
+          Publishers: [{ PublishedPort: -1, URL: "" }],
+        },
+        { Service: "relmio-sandbox-runner-1", Publishers: [] },
+      ],
+    },
+    {
+      label: "fractional published port",
+      records: [
+        {
+          Service: "relmio-sandbox-api",
+          Publishers: [{ PublishedPort: 0.5, URL: "" }],
+        },
+        { Service: "relmio-sandbox-runner-1", Publishers: [] },
+      ],
+    },
+    {
+      label: "null publisher",
+      records: [
+        {
+          Service: "relmio-sandbox-api",
+          Publishers: [null],
         },
         { Service: "relmio-sandbox-runner-1", Publishers: [] },
       ],
