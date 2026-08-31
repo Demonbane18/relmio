@@ -7,6 +7,28 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.11.0] - 2026-09-01
+
+### Added
+
+- Add a hosted changelog generated from the repository release history.
+- Add a wordless animated sketch banner that keeps Relmio's original
+  two-eyed green mascot and cream doorway.
+
+### Changed
+
+- Rewrite the GitHub and npm guides, hosted site, and browser wizard in
+  shorter, plainer language while keeping credential and safety boundaries
+  explicit.
+- Add clearer step-by-step guidance for local ngrok and n8n companion setup.
+- Use icon-only copy controls with accessible labels, larger touch targets,
+  and responsive layouts across the hosted site and browser wizard.
+
+### Fixed
+
+- Keep a completed local wizard from reopening a consumed setup plan; starting
+  another option now prepares a fresh plan.
+
 ## [0.10.0] - 2026-08-31
 
 ### Added
@@ -707,6 +729,7 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
+[0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 [0.1.7]: https://github.com/Demonbane18/relmio/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Demonbane18/relmio/compare/v0.1.5...v0.1.6
