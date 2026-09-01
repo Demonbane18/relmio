@@ -28,12 +28,21 @@ import {
   createSearxngSettings,
 } from "../src/domain/assistant-templates.js";
 import {
-  editLocalN8nAssistantSearxng,
-  installLocalN8nAssistant,
+  editLocalN8nAssistantSearxng as editLocalN8nAssistantSearxngService,
+  installLocalN8nAssistant as installLocalN8nAssistantService,
   prepareLocalN8nAssistantSearxngUpdate,
-  removeLocalN8nAssistant,
+  removeLocalN8nAssistant as removeLocalN8nAssistantService,
   resolveLocalN8nAssistantInstallRoot,
 } from "../src/services/local-n8n-assistant-installer.js";
+import { lockDownLocalPath } from "../src/infrastructure/local-process.js";
+import { withTestLocalSecurity } from "./helpers/local-security.js";
+
+const editLocalN8nAssistantSearxng = (request, dependencies) =>
+  editLocalN8nAssistantSearxngService(request, withTestLocalSecurity(dependencies));
+const installLocalN8nAssistant = (request, dependencies) =>
+  installLocalN8nAssistantService(request, withTestLocalSecurity(dependencies));
+const removeLocalN8nAssistant = (request, dependencies) =>
+  removeLocalN8nAssistantService(request, withTestLocalSecurity(dependencies));
 
 const DOCKER_HOST = "unix:///var/run/docker.sock";
 const WINDOWS_DOCKER_HOST = "npipe:////./pipe/dockerDesktopLinuxEngine";
@@ -929,6 +938,7 @@ test(
       platform: "win32",
       runProcess: runner,
       randomBytes: (size) => Buffer.alloc(size, (byte += 1)),
+      lockDownPath: lockDownLocalPath,
     };
     await installLocalN8nAssistant(
       { plan: createPlan({ dockerHost: WINDOWS_DOCKER_HOST }), confirmed: true },

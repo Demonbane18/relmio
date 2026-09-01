@@ -155,12 +155,12 @@ function assertPrivateDirectory(metadata, label) {
   }
 }
 
-async function ensureDirectory(fileSystem, path, platform) {
+async function ensureDirectory(fileSystem, path, platform, lockDownPath) {
   const metadata = await lstatIfExists(fileSystem, path);
   if (metadata) assertPrivateDirectory(metadata, "local n8n managed directory");
   else await fileSystem.mkdir(path, { mode: 0o700 });
   await fileSystem.chmod(path, 0o700);
-  await lockDownLocalPath(path, { platform });
+  await lockDownPath(path, { platform });
 }
 
 async function writePrivateFile(fileSystem, path, contents, mode) {
@@ -857,7 +857,7 @@ export async function getLocalN8nStackStatus({
   }
 }
 
-async function ensureManagedLocalRoot({ fileSystem, installRoot, platform }) {
+async function ensureManagedLocalRoot({ fileSystem, installRoot, platform, lockDownPath }) {
   const { relmioRoot, localRoot, rootMarkerPath } = managedLocalRootPaths(installRoot);
   let rootCreated = false;
   let localCreated = false;
@@ -869,11 +869,11 @@ async function ensureManagedLocalRoot({ fileSystem, installRoot, platform }) {
       await fileSystem.mkdir(relmioRoot, { mode: 0o700 });
       rootCreated = true;
       await fileSystem.chmod(relmioRoot, 0o700);
-      await lockDownLocalPath(relmioRoot, { platform });
+      await lockDownPath(relmioRoot, { platform });
       await writePrivateFile(fileSystem, rootMarkerPath, `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`, 0o600);
     }
     await fileSystem.chmod(relmioRoot, 0o700);
-    await lockDownLocalPath(relmioRoot, { platform });
+    await lockDownPath(relmioRoot, { platform });
     const localMetadata = await lstatIfExists(fileSystem, localRoot);
     if (localMetadata) assertPrivateDirectory(localMetadata, "local n8n managed directory");
     else {
@@ -881,7 +881,7 @@ async function ensureManagedLocalRoot({ fileSystem, installRoot, platform }) {
       localCreated = true;
     }
     await fileSystem.chmod(localRoot, 0o700);
-    await lockDownLocalPath(localRoot, { platform });
+    await lockDownPath(localRoot, { platform });
     return localRoot;
   } catch (error) {
     if (localCreated) {
@@ -895,17 +895,25 @@ async function ensureManagedLocalRoot({ fileSystem, installRoot, platform }) {
   }
 }
 
-async function createManagedFiles({ fileSystem, installRoot, installation, secrets, randomBytes, platform }) {
+async function createManagedFiles({
+  fileSystem,
+  installRoot,
+  installation,
+  secrets,
+  randomBytes,
+  platform,
+  lockDownPath,
+}) {
   const existingInstall = await lstatIfExists(fileSystem, installRoot);
   if (existingInstall) throw new Error("A local n8n stack directory already exists. Nothing was overwritten.");
-  await ensureManagedLocalRoot({ fileSystem, installRoot, platform });
+  await ensureManagedLocalRoot({ fileSystem, installRoot, platform, lockDownPath });
   let installDirectoryCreated = false;
   try {
     await fileSystem.mkdir(installRoot, { mode: 0o700 });
     installDirectoryCreated = true;
     await fileSystem.chmod(installRoot, 0o700);
-    await lockDownLocalPath(installRoot, { platform });
-    await ensureDirectory(fileSystem, join(installRoot, RUNTIME_DIRECTORY), platform);
+    await lockDownPath(installRoot, { platform });
+    await ensureDirectory(fileSystem, join(installRoot, RUNTIME_DIRECTORY), platform, lockDownPath);
     const n8nKey = randomBytes(32);
     if (!Buffer.isBuffer(n8nKey) || n8nKey.length !== 32) throw new TypeError("A cryptographic local n8n secret generator is required.");
     const assistantSecrets = installation.assistantMode === "disabled"
@@ -1018,14 +1026,14 @@ function validateLifecycleLockIdentity(identity) {
   );
 }
 
-async function inspectLifecycleLockClaim({ fileSystem, lockPath, platform }) {
+async function inspectLifecycleLockClaim({ fileSystem, lockPath, platform, lockDownPath }) {
   let lockMetadata = await lstatIfExists(fileSystem, lockPath);
   assertPrivateLifecycleLockDirectory(lockMetadata, {
     platform,
     label: "local n8n operation lock",
   });
   if (platform === "win32") {
-    await lockDownLocalPath(lockPath, { platform, verifyOnly: true });
+    await lockDownPath(lockPath, { platform, verifyOnly: true });
     lockMetadata = await lstatIfExists(fileSystem, lockPath);
     assertPrivateLifecycleLockDirectory(lockMetadata, {
       platform,
@@ -1046,7 +1054,7 @@ async function inspectLifecycleLockClaim({ fileSystem, lockPath, platform }) {
   }
   assertPrivateLifecycleLockOwner(ownerMetadata, { platform });
   if (platform === "win32") {
-    await lockDownLocalPath(ownerPath, { platform, kind: "file", verifyOnly: true });
+    await lockDownPath(ownerPath, { platform, kind: "file", verifyOnly: true });
     ownerMetadata = await lstatIfExists(fileSystem, ownerPath);
     assertPrivateLifecycleLockOwner(ownerMetadata, { platform });
   }
@@ -1133,7 +1141,13 @@ function staleClaimStillMatches(before, after, afterState) {
   return afterState === "stale";
 }
 
-async function removeDetachedLifecycleLock({ fileSystem, claim, quarantinePath, platform }) {
+async function removeDetachedLifecycleLock({
+  fileSystem,
+  claim,
+  quarantinePath,
+  platform,
+  lockDownPath,
+}) {
   let entries;
   try { entries = (await fileSystem.readdir(quarantinePath)).sort(); } catch {
     throw new Error("Relmio could not inspect the detached local n8n operation lock.");
@@ -1161,7 +1175,7 @@ async function removeDetachedLifecycleLock({ fileSystem, claim, quarantinePath, 
           mode: 0o600,
         });
         await fileSystem.chmod(ownerPath, 0o600);
-        await lockDownLocalPath(ownerPath, { platform, kind: "file" });
+        await lockDownPath(ownerPath, { platform, kind: "file" });
       } catch {
         // The detached directory is intentionally preserved; callers never
         // claim successful release or reclamation when owner restoration
@@ -1274,17 +1288,20 @@ async function createLifecycleLockDirectory({
   lockPath,
   ownerPublication,
   platform,
+  lockDownPath,
 }) {
   await fileSystem.mkdir(lockPath, { mode: 0o700 });
   let directoryFingerprint;
   try {
     directoryFingerprint = lockDirectoryFingerprint(await fileSystem.lstat(lockPath));
     await fileSystem.chmod(lockPath, 0o700);
-    await lockDownLocalPath(lockPath, { platform });
+    await lockDownPath(lockPath, { platform });
     const ownerPath = join(lockPath, LOCK_OWNER_FILE);
     await writePrivateFile(fileSystem, ownerPath, `${JSON.stringify(ownerPublication)}\n`, 0o600);
-    await lockDownLocalPath(ownerPath, { platform, kind: "file" });
-    const published = await inspectLifecycleLockClaim({ fileSystem, lockPath, platform });
+    await lockDownPath(ownerPath, { platform, kind: "file" });
+    const published = await inspectLifecycleLockClaim({
+      fileSystem, lockPath, platform, lockDownPath,
+    });
     if (
       published.kind !== "published" ||
       !sameLifecycleLockPublication(published.publication, ownerPublication) ||
@@ -1311,8 +1328,11 @@ async function reclaimStaleArbitrationLock({
   lockPath,
   now,
   platform,
+  lockDownPath,
 }) {
-  const initial = await inspectLifecycleLockClaim({ fileSystem, lockPath, platform });
+  const initial = await inspectLifecycleLockClaim({
+    fileSystem, lockPath, platform, lockDownPath,
+  });
   const initialState = await lifecycleLockClaimState(initial, {
     getProcessIdentity, now, platform, graceMs,
   });
@@ -1324,6 +1344,7 @@ async function reclaimStaleArbitrationLock({
       fileSystem,
       lockPath: quarantinePath,
       platform,
+      lockDownPath,
     });
     const detachedState = await lifecycleLockClaimState(detached, {
       getProcessIdentity, now, platform, graceMs,
@@ -1332,7 +1353,9 @@ async function reclaimStaleArbitrationLock({
       await restoreDetachedLifecycleLock({ fileSystem, lockPath, quarantinePath });
       return "changed";
     }
-    await removeDetachedLifecycleLock({ fileSystem, claim: detached, quarantinePath, platform });
+    await removeDetachedLifecycleLock({
+      fileSystem, claim: detached, quarantinePath, platform, lockDownPath,
+    });
     return "reclaimed";
   } catch {
     await restoreDetachedLifecycleLock({ fileSystem, lockPath, quarantinePath });
@@ -1348,6 +1371,7 @@ async function acquireLifecycleReclaimLock({
   now,
   platform,
   selfIdentity,
+  lockDownPath,
 }) {
   const reclaimPath = join(lockPath, LOCK_RECLAIM_DIRECTORY);
   const ownerPublication = Object.freeze({
@@ -1360,7 +1384,7 @@ async function acquireLifecycleReclaimLock({
   for (let attempt = 0; attempt < MAX_LIFECYCLE_LOCK_RECLAIM_ATTEMPTS; attempt += 1) {
     try {
       await createLifecycleLockDirectory({
-        fileSystem, lockPath: reclaimPath, ownerPublication, platform,
+        fileSystem, lockPath: reclaimPath, ownerPublication, platform, lockDownPath,
       });
       return Object.freeze({ state: "owned", ownerPublication, reclaimPath });
     } catch (error) {
@@ -1375,6 +1399,7 @@ async function acquireLifecycleReclaimLock({
       lockPath: reclaimPath,
       now,
       platform,
+      lockDownPath,
     });
     if (state === "reclaimed" || state === "changed") continue;
     return Object.freeze({ state });
@@ -1390,8 +1415,11 @@ async function reclaimStaleLifecycleLock({
   now,
   platform,
   selfIdentity,
+  lockDownPath,
 }) {
-  const initial = await inspectLifecycleLockClaim({ fileSystem, lockPath, platform });
+  const initial = await inspectLifecycleLockClaim({
+    fileSystem, lockPath, platform, lockDownPath,
+  });
   const initialState = await lifecycleLockClaimState(initial, { getProcessIdentity, now, platform, graceMs });
   if (initialState !== "stale") return initialState;
   const reclaim = await acquireLifecycleReclaimLock({
@@ -1402,11 +1430,14 @@ async function reclaimStaleLifecycleLock({
     now,
     platform,
     selfIdentity,
+    lockDownPath,
   });
   if (reclaim.state !== "owned") return reclaim.state;
   let quarantinePath = null;
   try {
-    const current = await inspectLifecycleLockClaim({ fileSystem, lockPath, platform });
+    const current = await inspectLifecycleLockClaim({
+      fileSystem, lockPath, platform, lockDownPath,
+    });
     const currentState = await lifecycleLockClaimState(current, {
       getProcessIdentity, now, platform, graceMs,
     });
@@ -1417,6 +1448,7 @@ async function reclaimStaleLifecycleLock({
       fileSystem,
       lockPath: reclaim.reclaimPath,
       platform,
+      lockDownPath,
     });
     if (
       reclaimClaim.kind !== "published" ||
@@ -1424,7 +1456,9 @@ async function reclaimStaleLifecycleLock({
     ) throw new Error("Relmio refuses to reclaim without its exact arbitration claim.");
     quarantinePath = await detachLifecycleLock({ fileSystem, lockPath });
     if (!quarantinePath) return "changed";
-    const detached = await inspectLifecycleLockClaim({ fileSystem, lockPath: quarantinePath, platform });
+    const detached = await inspectLifecycleLockClaim({
+      fileSystem, lockPath: quarantinePath, platform, lockDownPath,
+    });
     const detachedState = await lifecycleLockClaimState(detached, {
       getProcessIdentity, now, platform, graceMs,
     });
@@ -1436,8 +1470,11 @@ async function reclaimStaleLifecycleLock({
       lockPath: join(quarantinePath, LOCK_RECLAIM_DIRECTORY),
       ownerPublication: reclaim.ownerPublication,
       platform,
+      lockDownPath,
     });
-    await removeDetachedLifecycleLock({ fileSystem, claim: detached, quarantinePath, platform });
+    await removeDetachedLifecycleLock({
+      fileSystem, claim: detached, quarantinePath, platform, lockDownPath,
+    });
     return "reclaimed";
   } catch (error) {
     if (quarantinePath) {
@@ -1449,6 +1486,7 @@ async function reclaimStaleLifecycleLock({
           lockPath: reclaim.reclaimPath,
           ownerPublication: reclaim.ownerPublication,
           platform,
+          lockDownPath,
         });
       } catch { /* A changed arbitration claim must be preserved. */ }
     }
@@ -1457,8 +1495,16 @@ async function reclaimStaleLifecycleLock({
   }
 }
 
-async function releaseLifecycleLock({ fileSystem, lockPath, ownerPublication, platform }) {
-  const initial = await inspectLifecycleLockClaim({ fileSystem, lockPath, platform });
+async function releaseLifecycleLock({
+  fileSystem,
+  lockPath,
+  ownerPublication,
+  platform,
+  lockDownPath,
+}) {
+  const initial = await inspectLifecycleLockClaim({
+    fileSystem, lockPath, platform, lockDownPath,
+  });
   if (initial.kind !== "published" || !sameLifecycleLockPublication(initial.publication, ownerPublication)) {
     throw new Error("Relmio refuses to release a replaced local n8n operation lock.");
   }
@@ -1468,7 +1514,9 @@ async function releaseLifecycleLock({ fileSystem, lockPath, ownerPublication, pl
   const quarantinePath = await detachLifecycleLock({ fileSystem, lockPath });
   if (!quarantinePath) throw new Error("Relmio refuses to release a replaced local n8n operation lock.");
   try {
-    const detached = await inspectLifecycleLockClaim({ fileSystem, lockPath: quarantinePath, platform });
+    const detached = await inspectLifecycleLockClaim({
+      fileSystem, lockPath: quarantinePath, platform, lockDownPath,
+    });
     if (
       detached.kind !== "published" ||
       !sameLifecycleLockPublication(detached.publication, ownerPublication) ||
@@ -1477,7 +1525,9 @@ async function releaseLifecycleLock({ fileSystem, lockPath, ownerPublication, pl
     ) {
       throw new Error("Relmio refuses to release a replaced local n8n operation lock.");
     }
-    await removeDetachedLifecycleLock({ fileSystem, claim: detached, quarantinePath, platform });
+    await removeDetachedLifecycleLock({
+      fileSystem, claim: detached, quarantinePath, platform, lockDownPath,
+    });
   } catch (error) {
     await restoreDetachedLifecycleLock({ fileSystem, lockPath, quarantinePath });
     if (error.message.startsWith("Relmio refuses")) throw error;
@@ -1491,11 +1541,14 @@ async function acquireLifecycleLock({
   installRoot,
   now = Date.now,
   platform,
+  lockDownPath = lockDownLocalPath,
 }) {
   if (typeof getProcessIdentity !== "function" || typeof now !== "function") {
     throw new TypeError("The local n8n lifecycle lock adapter is invalid.");
   }
-  const localRoot = await ensureManagedLocalRoot({ fileSystem, installRoot, platform });
+  const localRoot = await ensureManagedLocalRoot({
+    fileSystem, installRoot, platform, lockDownPath,
+  });
   const lockPath = join(localRoot, LOCK_DIRECTORY);
   let selfIdentity;
   try { selfIdentity = await getProcessIdentity(process.pid, { platform }); } catch { selfIdentity = null; }
@@ -1516,8 +1569,11 @@ async function acquireLifecycleLock({
         lockPath,
         ownerPublication,
         platform,
+        lockDownPath,
       });
-      return async () => releaseLifecycleLock({ fileSystem, lockPath, ownerPublication, platform });
+      return async () => releaseLifecycleLock({
+        fileSystem, lockPath, ownerPublication, platform, lockDownPath,
+      });
     } catch (error) {
       if (error?.code !== "EEXIST") {
         throw new Error("Relmio could not acquire the local n8n stack operation lock.");
@@ -1533,6 +1589,7 @@ async function acquireLifecycleLock({
         now,
         platform,
         selfIdentity,
+        lockDownPath,
       });
     } catch (error) {
       if (error.message.startsWith("Relmio refuses")) throw error;
@@ -1608,6 +1665,7 @@ export async function installLocalN8nStack({
   randomBytes = cryptoRandomBytes,
   processIdentity = getLocalProcessIdentity,
   now = Date.now,
+  lockDownPath = lockDownLocalPath,
 } = {}) {
   const safePlan = normalizeLocalN8nStackPlan(plan);
   if (publicExposureConfirmation !== LOCAL_N8N_STACK_PUBLIC_CONFIRMATION) {
@@ -1623,6 +1681,7 @@ export async function installLocalN8nStack({
     installRoot,
     now,
     platform,
+    lockDownPath,
   });
   let installation;
   let filesCreated = false;
@@ -1633,7 +1692,15 @@ export async function installLocalN8nStack({
     operation: async () => {
       try {
         installation = createLocalN8nStackInstallation({ plan: safePlan, randomBytes });
-        await createManagedFiles({ fileSystem, installRoot, installation, secrets: safeSecrets, randomBytes, platform });
+        await createManagedFiles({
+          fileSystem,
+          installRoot,
+          installation,
+          secrets: safeSecrets,
+          randomBytes,
+          platform,
+          lockDownPath,
+        });
         filesCreated = true;
         await runOrThrow(runProcess, { file: "docker", args: composeArgs(installation.marker, ["config", "--quiet"]), cwd: installRoot, dockerHost }, "Local n8n Compose validation");
         creationAttempted = true;
@@ -1701,6 +1768,7 @@ export async function resumeLocalN8nStack({
   platform = hostPlatform(),
   processIdentity = getLocalProcessIdentity,
   now = Date.now,
+  lockDownPath = lockDownLocalPath,
 } = {}) {
   if (confirmed !== true) {
     throw new Error("Confirm resuming the managed local n8n stack.");
@@ -1712,6 +1780,7 @@ export async function resumeLocalN8nStack({
     installRoot,
     now,
     platform,
+    lockDownPath,
   });
   return settleLifecycleOperation({
     completionLabel: "Local n8n stack resume",
@@ -1767,6 +1836,7 @@ export async function removeLocalN8nStack({
   platform = hostPlatform(),
   processIdentity = getLocalProcessIdentity,
   now = Date.now,
+  lockDownPath = lockDownLocalPath,
 } = {}) {
   if (confirmation !== LOCAL_N8N_STACK_REMOVE_CONFIRMATION) {
     throw new Error("Exact removal confirmation is required.");
@@ -1778,6 +1848,7 @@ export async function removeLocalN8nStack({
     installRoot,
     now,
     platform,
+    lockDownPath,
   });
   return settleLifecycleOperation({
     completionLabel: "Local n8n stack removal",

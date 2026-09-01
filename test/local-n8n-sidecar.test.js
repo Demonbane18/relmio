@@ -14,12 +14,20 @@ import {
 } from "../src/domain/local-n8n-sidecar.js";
 import {
   discoverLocalN8nSidecarTargets,
-  installLocalN8nSidecar,
-  refreshLocalN8nSidecarCredential,
-  removeLocalN8nSidecar,
+  installLocalN8nSidecar as installLocalN8nSidecarService,
+  refreshLocalN8nSidecarCredential as refreshLocalN8nSidecarCredentialService,
+  removeLocalN8nSidecar as removeLocalN8nSidecarService,
   resolveLocalN8nSidecarInstallRoot,
 } from "../src/services/local-n8n-sidecar-installer.js";
 import { runLocalProcess } from "../src/infrastructure/local-process.js";
+import { withTestLocalSecurity } from "./helpers/local-security.js";
+
+const installLocalN8nSidecar = (request, dependencies) =>
+  installLocalN8nSidecarService(request, withTestLocalSecurity(dependencies));
+const refreshLocalN8nSidecarCredential = (request, dependencies) =>
+  refreshLocalN8nSidecarCredentialService(request, withTestLocalSecurity(dependencies));
+const removeLocalN8nSidecar = (request, dependencies) =>
+  removeLocalN8nSidecarService(request, withTestLocalSecurity(dependencies));
 
 const UNIX_DOCKER_HOST = "unix:///var/run/docker.sock";
 const DOCKER_HOST = process.platform === "win32"
@@ -824,7 +832,10 @@ test("installation seeds auth over stdin, starts only the sidecar, and returns s
   const managedAclCalls = authAclCalls.filter(({ path }) =>
     !path.includes(".relmio-local-n8n-openai-oauth.lock"),
   );
-  assert.ok(lifecycleLockCalls.some(({ options }) => options.verifyOnly === true));
+  assert.equal(
+    lifecycleLockCalls.some(({ options }) => options.verifyOnly === true),
+    process.platform === "win32",
+  );
   assert.ok(lifecycleLockCalls.some(({ options }) => options.kind === "file"));
   if (process.platform !== "win32") {
     assert.equal((await stat(authPath)).mode & 0o777, 0o600);

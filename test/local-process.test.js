@@ -318,9 +318,12 @@ test("Windows managed paths are ACL-locked to the current account before use", a
   assert.doesNotMatch(calls[0].file, /^powershell(?:\.exe)?$/iu);
   assert.deepEqual(calls[0].args.slice(0, 4), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]);
   assert.equal(calls[0].options.input, "C:\\Users\\test\\.relmio");
+  assert.match(calls[0].args[4], /\$identity=\[System\.Security\.Principal\.WindowsIdentity\]::GetCurrent\(\)/u);
   assert.match(calls[0].args[4], /\$beforeOwner=\$before\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)/u);
-  assert.match(calls[0].args[4], /\$beforeOwner\.Value -ne \$sid\.Value/u);
-  assert.doesNotMatch(calls[0].args[4], /\.SetOwner\(/u);
+  assert.match(calls[0].args[4], /BuiltinAdministratorsSid/u);
+  assert.match(calls[0].args[4], /WindowsBuiltInRole\]::Administrator/u);
+  assert.match(calls[0].args[4], /\$beforeOwner\.Value -ne \$sid\.Value -and \(-not \(\$beforeOwner\.Value -eq \$administratorsSid\.Value/u);
+  assert.match(calls[0].args[4], /if\(\$normalizeOwner\)\{\$acl\.SetOwner\(\$sid\)\}/u);
   assert.match(calls[0].args[4], /SetAccessRuleProtection\(\$true,\$false\)/u);
   assert.match(calls[0].args[4], /ContainerInherit[^;]*ObjectInherit/u);
   assert.match(calls[0].args[4], /\$rules\.Count -ne 1/u);
@@ -342,7 +345,7 @@ test("Windows managed paths can verify an exact ACL without rewriting it", async
     },
   });
   assert.match(script, /\$actual=\$before/u);
-  assert.doesNotMatch(script, /SetAccessControl|SetAccessRuleProtection|New-Object/u);
+  assert.doesNotMatch(script, /SetAccessControl|SetAccessRuleProtection|SetOwner|New-Object/u);
   assert.match(script, /\$rules\.Count -ne 1/u);
   assert.match(script, /AreAccessRulesProtected/u);
   await assert.rejects(

@@ -20,16 +20,26 @@ import test from "node:test";
 
 import { createLocalDeploymentPlan } from "../src/domain/local-endpoints.js";
 import {
-  acquireLocalEndpointChangeLock,
-  activateLocalClientCredentialRotation,
+  acquireLocalEndpointChangeLock as acquireLocalEndpointChangeLockService,
+  activateLocalClientCredentialRotation as activateLocalClientCredentialRotationService,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
-  installLocalEndpoint,
-  restartLocalCodex,
+  installLocalEndpoint as installLocalEndpointService,
+  restartLocalCodex as restartLocalCodexService,
   prepareLocalClientCredentialRotation,
   resolveLocalInstallRoot,
   verifyCodexWebSocketCapability,
 } from "../src/services/local-installer.js";
+import { withTestLocalSecurity } from "./helpers/local-security.js";
+
+const acquireLocalEndpointChangeLock = (request, dependencies) =>
+  acquireLocalEndpointChangeLockService(request, withTestLocalSecurity(dependencies));
+const activateLocalClientCredentialRotation = (request, dependencies) =>
+  activateLocalClientCredentialRotationService(request, withTestLocalSecurity(dependencies));
+const installLocalEndpoint = (request, dependencies) =>
+  installLocalEndpointService(request, withTestLocalSecurity(dependencies));
+const restartLocalCodex = (request, dependencies) =>
+  restartLocalCodexService(request, withTestLocalSecurity(dependencies));
 
 const platformKey = `sk-${"p".repeat(48)}`;
 const rotatedPlatformKey = `sk-${"q".repeat(48)}`;
@@ -1793,6 +1803,10 @@ test("fresh endpoint root initialization rolls back after Windows ACL setup fail
   const request = { apiKey: platformKey, confirmed: true };
   const dependencies = {
     env,
+    getProcessIdentity: async () => ({
+      state: "active",
+      startIdentity: "test-windows-acl-owner",
+    }),
     platform: "win32",
     runProcess: runner,
     lockDownPath,

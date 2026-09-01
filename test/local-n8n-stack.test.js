@@ -26,15 +26,25 @@ import {
   LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
   LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
   getLocalN8nStackStatus,
-  installLocalN8nStack,
-  removeLocalN8nStack,
-  resumeLocalN8nStack,
+  installLocalN8nStack as installLocalN8nStackService,
+  removeLocalN8nStack as removeLocalN8nStackService,
+  resolveLocalN8nStackInstallRoot,
+  resumeLocalN8nStack as resumeLocalN8nStackService,
 } from "../src/services/local-n8n-stack-installer.js";
+import { withTestLocalSecurity } from "./helpers/local-security.js";
+
+const installLocalN8nStack = (dependencies) =>
+  installLocalN8nStackService(withTestLocalSecurity(dependencies));
+const removeLocalN8nStack = (dependencies) =>
+  removeLocalN8nStackService(withTestLocalSecurity(dependencies));
+const resumeLocalN8nStack = (dependencies) =>
+  resumeLocalN8nStackService(withTestLocalSecurity(dependencies));
 
 const DOCKER_HOST = process.platform === "win32"
   ? "npipe:////./pipe/dockerDesktopLinuxEngine"
   : "unix:///var/run/docker.sock";
 const DOCKER_CONTEXT = process.platform === "win32" ? "desktop-linux" : "default";
+const WINDOWS_DOCKER_HOST = "npipe:////./pipe/dockerDesktopLinuxEngine";
 const OWNERSHIP_LABEL_KEYS = [
   "com.docker.compose.project",
   "io.relmio.managed",
@@ -1389,6 +1399,50 @@ test("Assistant services accept only empty or Compose placeholder unpublished pu
     }));
     assert.equal(calls.some((entry) => entry.args.join(" ").includes("down --volumes --remove-orphans")), true);
   }
+});
+
+test("stack unit operations use the injected Windows ACL adapter", async (t) => {
+  const homeDirectory = await testHome(t);
+  const installRoot = await resolveLocalN8nStackInstallRoot({
+    homeDirectory,
+    platform: "win32",
+  });
+  const { runner } = createStackRunner({
+    contextHost: WINDOWS_DOCKER_HOST,
+    contextName: "desktop-linux",
+  });
+  const lockCalls = [];
+
+  await installLocalN8nStack({
+    plan: plan({ dockerHost: WINDOWS_DOCKER_HOST }),
+    secrets: {
+      ngrokAuthtoken: "ngrok-private-token",
+      basicAuthUsername: "operator",
+      basicAuthPassword: "long-private-password",
+    },
+    publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+    homeDirectory,
+    platform: "win32",
+    runProcess: runner,
+    async lockDownPath(path, options) {
+      lockCalls.push({ path, options });
+    },
+  });
+
+  for (const path of [
+    join(homeDirectory, ".relmio"),
+    join(homeDirectory, ".relmio", "local"),
+    installRoot,
+    join(installRoot, ".runtime"),
+  ]) {
+    assert.ok(lockCalls.some((call) => call.path === path && call.options.verifyOnly !== true));
+  }
+  const lifecyclePath = join(homeDirectory, ".relmio", "local", "n8n-stack.lock");
+  const ownerPath = join(lifecyclePath, ".owner.json");
+  assert.ok(lockCalls.some((call) => call.path === lifecyclePath && call.options.verifyOnly === true));
+  assert.ok(lockCalls.some((call) =>
+    call.path === ownerPath && call.options.kind === "file" && call.options.verifyOnly === true,
+  ));
 });
 
 test("managed SearXNG status stays structural and never issues a functional search probe", async (t) => {

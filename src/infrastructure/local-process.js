@@ -181,7 +181,6 @@ export function runWindowsAclCommand(
     const timeout = setTimeout(() => {
       terminate(new Error("Windows ACL verification timed out."));
     }, timeoutMs);
-    timeout.unref?.();
 
     function settle(error, result) {
       if (settled) return;
@@ -197,7 +196,6 @@ export function runWindowsAclCommand(
       failure = error;
       try { child.kill("SIGKILL"); } catch { /* Forced settlement remains bounded. */ }
       terminationTimer = setTimeout(() => settle(failure), terminationGraceMs);
-      terminationTimer.unref?.();
     }
 
     function consume(chunk, { capture = false } = {}) {
@@ -231,10 +229,11 @@ export function runWindowsAclCommand(
 }
 
 /**
- * Requires the current account to already own the path, then creates and reads back
- * a protected DACL containing only that account. Changing an NTFS owner requires an
- * extra Windows privilege even when the caller is the current owner, so we fail
- * closed instead of weakening the check or making an unnecessary privileged write.
+ * Requires the current account to own the path before read-only verification. During
+ * setup, an Administrator may also normalize a path initially owned by the trusted
+ * Builtin Administrators principal to the current account, then creates and reads
+ * back a protected DACL containing only that account. Any other initial owner fails
+ * closed. Verification mode never changes ownership or access rules.
  * A directory rule is inheritable, so managed children receive the same protection.
  * Call this before writing secrets into a newly created managed directory or file.
  */
@@ -262,16 +261,22 @@ export async function lockDownLocalPath(
   }
   const script = [
     "$path=[Console]::In.ReadToEnd()",
-    "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
+    "$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()",
+    "$sid=$identity.User",
     `$item=[System.IO.${kind === "directory" ? "DirectoryInfo" : "FileInfo"}]::new($path)`,
     "if($item.PSObject.Methods.Name -contains 'GetAccessControl'){$before=$item.GetAccessControl()}else{$before=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
     "$beforeOwner=$before.GetOwner([System.Security.Principal.SecurityIdentifier])",
-    "if($beforeOwner.Value -ne $sid.Value){exit 1}",
     `$expectedInheritance=[System.Security.AccessControl.InheritanceFlags]::${kind === "directory" ? "ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit" : "None"}`,
     ...(verifyOnly ? [
+      "if($beforeOwner.Value -ne $sid.Value){exit 1}",
       "$actual=$before",
     ] : [
+      "$administratorsSid=[System.Security.Principal.SecurityIdentifier]::new([System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid,$null)",
+      "$principal=[System.Security.Principal.WindowsPrincipal]::new($identity)",
+      "if($beforeOwner.Value -ne $sid.Value -and (-not ($beforeOwner.Value -eq $administratorsSid.Value -and $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)))){exit 1}",
+      "$normalizeOwner=$beforeOwner.Value -ne $sid.Value",
       `$acl=New-Object System.Security.AccessControl.${kind === "directory" ? "Directory" : "File"}Security`,
+      "if($normalizeOwner){$acl.SetOwner($sid)}",
       "$acl.SetAccessRuleProtection($true,$false)",
       "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,$expectedInheritance,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow)",
       "$acl.SetAccessRule($rule)",
