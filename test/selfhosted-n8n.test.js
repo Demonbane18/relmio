@@ -171,7 +171,7 @@ test("self-hosted n8n fixture pins private Assistant dependencies and exposes on
     readFile(new URL("compose.yml", fixtureRoot), "utf8"),
     readFile(new URL("ngrok.yml", fixtureRoot), "utf8"),
   ]);
-  const servicesBlock = compose.split("\nvolumes:\n", 1)[0];
+  const servicesBlock = compose.split(/\r?\nvolumes:\r?\n/u, 1)[0];
   const serviceNames = [...servicesBlock.matchAll(/^  ([a-z][a-z0-9-]*):$/gmu)]
     .map((match) => match[1]);
 

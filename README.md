@@ -26,7 +26,8 @@ separate.
 
 ## Quick install
 
-On macOS, Linux, WSL, or Git Bash:
+With Node.js 22 or newer on macOS, Linux, WSL, Git Bash, Windows PowerShell,
+or Command Prompt:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest
@@ -34,6 +35,10 @@ npx --yes --ignore-scripts relmio@latest
 
 The command opens a private browser wizard on `127.0.0.1`. Pick an option,
 review exactly what it will create, then confirm the install.
+
+No Node.js yet? The hosted guide has native curl, Homebrew, PowerShell, and
+Command Prompt bootstrap options; every launcher opens the same wizard and
+uses the same platform security checks.
 
 [Open the hosted install guide](https://relmio.vercel.app/install)
 

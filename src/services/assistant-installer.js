@@ -21,6 +21,7 @@ import {
 } from "../domain/assistant.js";
 import { SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
 import {
+  ASSISTANT_COMPANION_IMAGES,
   createAssistantComposeFile,
   createAssistantEnv,
   createAssistantSecrets,
@@ -28,6 +29,23 @@ import {
 } from "../domain/assistant-templates.js";
 
 const CONTAINER_ID_PATTERN = /^[a-f0-9]{12,64}$/iu;
+
+function createN8nSettings({ installation, secrets }) {
+  const settings = {
+    N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+    N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+    N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_COMPANION_IMAGES.sandbox,
+    N8N_SANDBOX_SERVICE_URL: `http://${installation.sandboxAlias}:8080`,
+    ...(secrets
+      ? { N8N_SANDBOX_SERVICE_API_KEY: secrets.sandboxApiKey }
+      : {}),
+  };
+  if (installation.includeSearxng) {
+    settings.N8N_INSTANCE_AI_SEARXNG_URL =
+      `http://${installation.searxngAlias}:8080`;
+  }
+  return settings;
+}
 
 function getExpectedRunningServices(installation) {
   return new Set(
@@ -499,14 +517,16 @@ export async function installAssistant({
     }
   }
 
+  const n8nSettings = createN8nSettings({ installation, secrets });
   return {
-    sandboxUrl: "http://" + installation.sandboxAlias + ":8080",
+    sandboxUrl: n8nSettings.N8N_SANDBOX_SERVICE_URL,
     sandboxApiKey: secrets?.sandboxApiKey ?? null,
     includeSearxng: installation.includeSearxng,
     webSearch: installation.includeSearxng ? "enabled" : "disabled",
     ...(installation.includeSearxng
-      ? { searxngUrl: "http://" + installation.searxngAlias + ":8080" }
+      ? { searxngUrl: n8nSettings.N8N_INSTANCE_AI_SEARXNG_URL }
       : {}),
+    n8nSettings,
     modelProvider: "OpenAI",
     modelRecommendation: "preserve-current-supported-selection",
     deploymentMode,

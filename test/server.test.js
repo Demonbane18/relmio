@@ -1,11 +1,44 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "test-session-token-that-is-long-enough-123456";
 const exampleHost = "vps.example.test";
 const fixturePassword = "x".repeat(32);
+
+function createAssistantInstallResult({
+  includeSearxng = true,
+  sandboxApiKey = "s".repeat(43),
+  deploymentMode = "installed",
+} = {}) {
+  const sandboxUrl = `http://relmio-ai-sandbox-${"c".repeat(32)}:8080`;
+  const searxngUrl = `http://relmio-ai-searxng-${"d".repeat(32)}:8080`;
+  return {
+    sandboxUrl,
+    sandboxApiKey,
+    includeSearxng,
+    ...(includeSearxng ? { searxngUrl } : {}),
+    n8nSettings: {
+      N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+      N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+      N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_COMPANION_IMAGES.sandbox,
+      N8N_SANDBOX_SERVICE_URL: sandboxUrl,
+      ...(sandboxApiKey === null
+        ? {}
+        : { N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey }),
+      ...(includeSearxng
+        ? { N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl }
+        : {}),
+    },
+    webSearch: includeSearxng ? "enabled" : "disabled",
+    modelProvider: "OpenAI",
+    modelRecommendation: "preserve-current-supported-selection",
+    deploymentMode,
+    privateRunnerToken: "must-not-leak",
+  };
+}
 
 function createServices() {
   const remote = {
@@ -1076,14 +1109,7 @@ test("VPS install plans are single-use and one shared lock excludes assistant an
         models: ["gpt-5.6-sol"],
         deploymentMode: "installed",
       };
-      const assistantResult = {
-        sandboxUrl: "http://sandbox:8080",
-        sandboxApiKey: "shown-once",
-        searxngUrl: "http://search:8080",
-        modelProvider: "OpenAI",
-        modelRecommendation: "preserve-current-supported-selection",
-        deploymentMode: "installed",
-      };
+      const assistantResult = createAssistantInstallResult();
       services.installAssistant = async () => {
         assistantCalls += 1;
         if (scenario.first === "assistant" && assistantCalls === 1) {
@@ -1155,14 +1181,7 @@ test("VPS install failures consume the plan, release the shared lock, and preser
         },
       );
     }
-    return {
-      sandboxUrl: "http://sandbox:8080",
-      sandboxApiKey: "shown-once",
-      searxngUrl: "http://search:8080",
-      modelProvider: "OpenAI",
-      modelRecommendation: "preserve-current-supported-selection",
-      deploymentMode: "installed",
-    };
+    return createAssistantInstallResult();
   };
   const wizard = await startWizardServer({
     sessionToken,
@@ -1209,15 +1228,7 @@ test("assistant web-search selection is an explicit boolean bound to its reviewe
   const installs = [];
   services.installAssistant = async (input) => {
     installs.push(input);
-    return {
-      sandboxUrl: "http://sandbox:8080",
-      sandboxApiKey: "shown-once",
-      includeSearxng: false,
-      webSearch: "disabled",
-      modelProvider: "OpenAI",
-      modelRecommendation: "preserve-current-supported-selection",
-      deploymentMode: "installed",
-    };
+    return createAssistantInstallResult({ includeSearxng: false });
   };
   const wizard = await startWizardServer({
     sessionToken,
@@ -1279,6 +1290,126 @@ test("assistant web-search selection is an explicit boolean bound to its reviewe
   assert.equal(installs[0].includeSearxng, false);
 });
 
+test("assistant install responses expose only exact companion settings", async (t) => {
+  const cases = [
+    {
+      name: "valid install strips internal fields",
+      build() {
+        return createAssistantInstallResult();
+      },
+      expectedStatus: 200,
+    },
+    {
+      name: "managed update omits an intentionally unavailable key",
+      build() {
+        return createAssistantInstallResult({
+          sandboxApiKey: null,
+          deploymentMode: "updated",
+        });
+      },
+      expectedStatus: 200,
+    },
+    {
+      name: "missing settings object",
+      build() {
+        const result = createAssistantInstallResult();
+        delete result.n8nSettings;
+        return result;
+      },
+      expectedStatus: 502,
+    },
+    {
+      name: "malicious extra prerequisite setting",
+      build() {
+        const result = createAssistantInstallResult();
+        result.n8nSettings.N8N_ENABLED_MODULES = "instance-ai";
+        return result;
+      },
+      expectedStatus: 502,
+    },
+    {
+      name: "mismatched sandbox URL",
+      build() {
+        const result = createAssistantInstallResult();
+        result.n8nSettings.N8N_SANDBOX_SERVICE_URL =
+          `http://relmio-ai-sandbox-${"e".repeat(32)}:8080`;
+        return result;
+      },
+      expectedStatus: 502,
+    },
+    {
+      name: "mismatched sandbox API key",
+      build() {
+        const result = createAssistantInstallResult();
+        result.n8nSettings.N8N_SANDBOX_SERVICE_API_KEY = "x".repeat(43);
+        return result;
+      },
+      expectedStatus: 502,
+    },
+    {
+      name: "mismatched sandbox image",
+      build() {
+        const result = createAssistantInstallResult();
+        result.n8nSettings.N8N_INSTANCE_AI_SANDBOX_IMAGE = "malicious:latest";
+        return result;
+      },
+      expectedStatus: 502,
+    },
+  ];
+
+  for (const scenario of cases) {
+    await t.test(scenario.name, async (subtest) => {
+      const { services } = createServices();
+      services.installAssistant = async () => scenario.build();
+      const wizard = await startWizardServer({
+        sessionToken,
+        services,
+        uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+      });
+      subtest.after(() => wizard.close());
+      const { originHeader, planBody } = await prepareVpsNetwork(wizard.origin, {
+        assistantPlan: true,
+      });
+      const response = await api(wizard.origin, "/api/assistant/install", {
+        method: "POST",
+        headers: originHeader,
+        body: JSON.stringify({ ...JSON.parse(planBody), confirmed: true }),
+      });
+      assert.equal(response.status, scenario.expectedStatus);
+      const responseText = await response.text();
+      assert.doesNotMatch(responseText, /must-not-leak|privateRunnerToken/u);
+      if (scenario.expectedStatus !== 200) return;
+
+      const result = JSON.parse(responseText);
+      assert.deepEqual(Object.keys(result).sort(), [
+        "deploymentMode",
+        "includeSearxng",
+        "n8nSettings",
+        "sandboxApiKey",
+        "sandboxUrl",
+        "searxngUrl",
+      ]);
+      assert.equal("N8N_ENABLED_MODULES" in result.n8nSettings, false);
+      assert.equal(
+        "N8N_SANDBOX_SERVICE_API_KEY" in result.n8nSettings,
+        result.sandboxApiKey !== null,
+      );
+      assert.equal(
+        result.n8nSettings.N8N_SANDBOX_SERVICE_URL,
+        result.sandboxUrl,
+      );
+      assert.equal(
+        result.n8nSettings.N8N_INSTANCE_AI_SEARXNG_URL,
+        result.searxngUrl,
+      );
+      assert.equal(
+        result.n8nSettings.N8N_INSTANCE_AI_SANDBOX_IMAGE,
+        ASSISTANT_COMPANION_IMAGES.sandbox,
+      );
+    });
+  }
+});
+
 test("assistant plan requires a fresh enabled instance-ai prerequisite", async (t) => {
   const { services } = createServices();
   let prerequisiteStatus = "enabled";
@@ -1290,7 +1421,7 @@ test("assistant plan requires a fresh enabled instance-ai prerequisite", async (
   const installs = [];
   services.installAssistant = async (input) => {
     installs.push(input);
-    return { sandboxUrl: "http://sandbox:8080", includeSearxng: false };
+    return createAssistantInstallResult({ includeSearxng: false });
   };
   const wizard = await startWizardServer({
     sessionToken,
@@ -1480,14 +1611,7 @@ test("pending VPS discovery cannot overwrite state while an assistant mutation o
   const installStarted = deferred();
   const installReady = deferred();
   let discoverCalls = 0;
-  const assistantResult = {
-    sandboxUrl: "http://sandbox:8080",
-    sandboxApiKey: "shown-once",
-    searxngUrl: "http://search:8080",
-    modelProvider: "OpenAI",
-    modelRecommendation: "preserve-current-supported-selection",
-    deploymentMode: "installed",
-  };
+  const assistantResult = createAssistantInstallResult();
   services.discoverN8n = async (connection) => {
     discoverCalls += 1;
     if (discoverCalls === 1) return await originalDiscover(connection);

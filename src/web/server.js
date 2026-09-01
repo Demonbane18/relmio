@@ -58,15 +58,23 @@ import {
   discoverLocalN8nSidecarTargets,
   installLocalN8nSidecar,
   removeLocalN8nSidecar,
+  refreshLocalN8nSidecarCredential,
 } from "../services/local-n8n-sidecar-installer.js";
 import {
+  editLocalN8nAssistantSearxng,
   installLocalN8nAssistant,
+  prepareLocalN8nAssistantSearxngUpdate,
   removeLocalN8nAssistant,
 } from "../services/local-n8n-assistant-installer.js";
 import {
+  LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
+  LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
+  getLocalN8nStackStatus,
   installLocalN8nStack,
   removeLocalN8nStack,
+  resumeLocalN8nStack,
 } from "../services/local-n8n-stack-installer.js";
+import { validateLocalN8nStackSecrets } from "../templates/local-n8n-stack/index.js";
 import { startCodexDeviceLogin } from "../services/codex-login.js";
 import { createLocalChatTestService } from "../services/local-chat-test.js";
 
@@ -115,18 +123,23 @@ const defaultServices = {
   installAssistant,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
+  getLocalN8nStackStatus,
   discoverLocalN8nSidecarTargets,
   getProjectMeta,
   installLocalEndpoint,
   installLocalN8nSidecar,
   installLocalN8nAssistant,
+  editLocalN8nAssistantSearxng,
   installLocalN8nStack,
+  prepareLocalN8nAssistantSearxngUpdate,
   prepareLocalN8nAssistantPlan: createLocalN8nAssistantPlan,
   prepareLocalN8nSidecarPlan: createLocalN8nSidecarPlan,
   prepareLocalN8nStackPlan: createLocalN8nStackPlan,
   removeLocalN8nAssistant,
   removeLocalN8nSidecar,
   removeLocalN8nStack,
+  refreshLocalN8nSidecarCredential,
+  resumeLocalN8nStack,
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
   prepareLocalClientCredentialRotation,
@@ -652,7 +665,18 @@ function getPendingLocalCredentialRotation(state) {
   return state.localCredentialRotationPending;
 }
 
-function createSafeDockerStatus(status, previewMode) {
+const SAFE_LOCAL_N8N_STACK_STATES = new Set([
+  "healthy",
+  "stopped",
+  "partial",
+  "unavailable",
+]);
+
+function createSafeDockerStatus(
+  status,
+  previewMode,
+  localN8nStackState = null,
+) {
   if (previewMode || status?.dockerAvailable !== true) {
     return {
       dockerAvailable: false,
@@ -666,6 +690,9 @@ function createSafeDockerStatus(status, previewMode) {
     dockerAvailable: true,
     dockerVersion: status.dockerVersion,
     composeVersion: status.composeVersion,
+    ...(SAFE_LOCAL_N8N_STACK_STATES.has(localN8nStackState)
+      ? { localN8nStackState }
+      : {}),
   };
 }
 
@@ -915,7 +942,14 @@ function createSafeLocalN8nStackRemovalResult(result) {
   };
 }
 
-function requireSafeAssistantUrl(value, prefix) {
+function invalidAssistantInstallResult(label) {
+  return Object.assign(
+    new Error(`The ${label} returned an invalid result.`),
+    { statusCode: 502 },
+  );
+}
+
+function requireSafeAssistantUrl(value, prefix, label) {
   if (
     typeof value !== "string" ||
     !new RegExp(
@@ -923,56 +957,169 @@ function requireSafeAssistantUrl(value, prefix) {
       "u",
     ).test(value)
   ) {
-    throw Object.assign(
-      new Error("The local n8n Assistant returned an invalid private URL."),
-      { statusCode: 502 },
-    );
+    throw invalidAssistantInstallResult(label);
   }
   return value;
 }
 
-function createSafeLocalN8nAssistantInstallResult(result) {
-  const sandboxUrl = requireSafeAssistantUrl(
-    result?.sandboxUrl ?? result?.endpoint,
-    "relmio-ai-sandbox",
-  );
-  const includeSearxng = result?.includeSearxng === true;
-  const searxngUrl = includeSearxng
-    ? requireSafeAssistantUrl(result?.searxngUrl, "relmio-ai-searxng")
-    : undefined;
-  const sandboxApiKey = result?.sandboxApiKey;
-  const settings = result?.n8nSettings;
+function requireExactAssistantSettings({
+  settings,
+  sandboxUrl,
+  sandboxApiKey,
+  includeSearxng,
+  searxngUrl,
+  label,
+}) {
   const expectedSettings = {
-    N8N_ENABLED_MODULES: "instance-ai",
     N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
     N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
     N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_COMPANION_IMAGES.sandbox,
     N8N_SANDBOX_SERVICE_URL: sandboxUrl,
-    N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey,
+    ...(sandboxApiKey === null
+      ? {}
+      : { N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey }),
     ...(includeSearxng
       ? { N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl }
       : {}),
   };
+  const expectedNames = Object.keys(expectedSettings);
   if (
-    result?.target !== LOCAL_N8N_ASSISTANT_TARGET ||
-    result.protocol !== "n8n-instance-ai-companion" ||
-    typeof sandboxApiKey !== "string" ||
-    !/^[A-Za-z0-9_-]{43}$/u.test(sandboxApiKey) ||
     !settings ||
     typeof settings !== "object" ||
     Array.isArray(settings) ||
-    JSON.stringify(settings) !== JSON.stringify(expectedSettings) ||
+    Object.keys(settings).length !== expectedNames.length ||
+    expectedNames.some(
+      (name) =>
+        !Object.hasOwn(settings, name) ||
+        settings[name] !== expectedSettings[name],
+    )
+  ) {
+    throw invalidAssistantInstallResult(label);
+  }
+  return expectedSettings;
+}
+
+function createSafeAssistantInstallResult(result, reviewedPlan) {
+  const label = "VPS AI Assistant";
+  const sandboxUrl = requireSafeAssistantUrl(
+    result?.sandboxUrl,
+    "relmio-ai-sandbox",
+    label,
+  );
+  const includeSearxng = result?.includeSearxng;
+  const deploymentMode = result?.deploymentMode;
+  const sandboxApiKey = result?.sandboxApiKey;
+  if (
+    typeof includeSearxng !== "boolean" ||
+    includeSearxng !== reviewedPlan?.includeSearxng ||
+    !["installed", "updated"].includes(deploymentMode) ||
+    (sandboxApiKey !== null &&
+      (typeof sandboxApiKey !== "string" ||
+        !/^[A-Za-z0-9_-]{43}$/u.test(sandboxApiKey))) ||
+    (deploymentMode === "installed" && sandboxApiKey === null)
+  ) {
+    throw invalidAssistantInstallResult(label);
+  }
+  const searxngUrl = includeSearxng
+    ? requireSafeAssistantUrl(
+        result?.searxngUrl,
+        "relmio-ai-searxng",
+        label,
+      )
+    : undefined;
+  if (!includeSearxng && Object.hasOwn(result, "searxngUrl")) {
+    throw invalidAssistantInstallResult(label);
+  }
+  const n8nSettings = requireExactAssistantSettings({
+    settings: result?.n8nSettings,
+    sandboxUrl,
+    sandboxApiKey,
+    includeSearxng,
+    searxngUrl,
+    label,
+  });
+  return {
+    sandboxUrl,
+    sandboxApiKey,
+    includeSearxng,
+    ...(includeSearxng ? { searxngUrl } : {}),
+    n8nSettings,
+    deploymentMode,
+  };
+}
+
+function createSafeLocalN8nStackResumeResult(result) {
+  if (
+    result?.target !== LOCAL_N8N_STACK_TARGET ||
+    result.resumed !== true ||
+    result.deploymentMode !== "resumed-owned-disposable-stack"
+  ) {
+    throw Object.assign(new Error("The local n8n stack resume result is invalid."), {
+      statusCode: 502,
+    });
+  }
+  return {
+    target: LOCAL_N8N_STACK_TARGET,
+    resumed: true,
+    deploymentMode: result.deploymentMode,
+  };
+}
+
+function createSafeLocalN8nAssistantInstallResult(result, reviewedPlan) {
+  const label = "local n8n Assistant";
+  const sandboxUrl = requireSafeAssistantUrl(
+    result?.sandboxUrl,
+    "relmio-ai-sandbox",
+    label,
+  );
+  const includeSearxng = result?.includeSearxng;
+  const searxngUrl = includeSearxng
+    ? requireSafeAssistantUrl(
+        result?.searxngUrl,
+        "relmio-ai-searxng",
+        label,
+      )
+    : undefined;
+  const sandboxApiKey = result?.sandboxApiKey;
+  if (
+    result?.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    result.protocol !== "n8n-instance-ai-companion" ||
+    result.endpoint !== sandboxUrl ||
+    typeof includeSearxng !== "boolean" ||
+    includeSearxng !== reviewedPlan?.includeSearxng ||
+    (!includeSearxng && Object.hasOwn(result, "searxngUrl")) ||
+    typeof sandboxApiKey !== "string" ||
+    !/^[A-Za-z0-9_-]{43}$/u.test(sandboxApiKey) ||
     result.deploymentMode !== "installed" ||
     result.hostPublication !== "none" ||
     result.privilegedRunner !== true ||
     result.n8nConfigurationRequired !== true ||
     result.credentialShownOnce !== true
   ) {
-    throw Object.assign(
-      new Error("The local n8n Assistant returned an invalid result."),
-      { statusCode: 502 },
-    );
+    throw invalidAssistantInstallResult(label);
   }
+  const networkName = requireSafeDockerName(
+    result.networkName,
+    "Assistant network name",
+  );
+  const n8nContainerName = requireSafeDockerName(
+    result.n8nContainerName,
+    "n8n container name",
+  );
+  if (
+    networkName !== reviewedPlan?.networkName ||
+    n8nContainerName !== reviewedPlan?.n8nContainerName
+  ) {
+    throw invalidAssistantInstallResult(label);
+  }
+  const n8nSettings = requireExactAssistantSettings({
+    settings: result.n8nSettings,
+    sandboxUrl,
+    sandboxApiKey,
+    includeSearxng,
+    searxngUrl,
+    label,
+  });
   return {
     target: result.target,
     endpoint: sandboxUrl,
@@ -981,18 +1128,12 @@ function createSafeLocalN8nAssistantInstallResult(result) {
     ...(includeSearxng ? { searxngUrl } : {}),
     protocol: result.protocol,
     includeSearxng,
-    networkName: requireSafeDockerName(
-      result.networkName,
-      "Assistant network name",
-    ),
-    n8nContainerName: requireSafeDockerName(
-      result.n8nContainerName,
-      "n8n container name",
-    ),
+    networkName,
+    n8nContainerName,
     hostPublication: "none",
     privilegedRunner: true,
     n8nConfigurationRequired: true,
-    n8nSettings: expectedSettings,
+    n8nSettings,
     deploymentMode: "installed",
     credentialShownOnce: true,
   };
@@ -1009,6 +1150,153 @@ function createSafeLocalN8nAssistantRemovalResult(result) {
     );
   }
   return { target: LOCAL_N8N_ASSISTANT_TARGET, removed: true };
+}
+
+function createSafeLocalN8nSidecarRefreshResult(result) {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    result.target !== LOCAL_N8N_SIDECAR_TARGET ||
+    result.credentialRefreshed !== true ||
+    result.hostPublication !== "none" ||
+    !Array.isArray(result.models) ||
+    result.models.some(
+      (model) =>
+        typeof model !== "string" ||
+        model.length === 0 ||
+        model.length > 128 ||
+        !/^[A-Za-z0-9_.:-]+$/u.test(model),
+    )
+  ) {
+    throw Object.assign(
+      new Error("The local n8n bridge refresh returned an invalid result."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: LOCAL_N8N_SIDECAR_TARGET,
+    credentialRefreshed: true,
+    models: [...result.models],
+    hostPublication: "none",
+  };
+}
+
+function createSafeLocalN8nAssistantSearxngReview(review, reviewId) {
+  const plan = review?.plan;
+  const installation = review?.installation;
+  const sandboxUrl = `http://${installation?.sandboxAlias}:8080`;
+  const searxngUrl = `http://${installation?.searxngAlias}:8080`;
+  if (
+    !review ||
+    typeof review !== "object" ||
+    Array.isArray(review) ||
+    review.schemaVersion !== 1 ||
+    review.kind !== "relmio-local-n8n-assistant-searxng-update" ||
+    review.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    review.includeSearxng !== true ||
+    review.sandboxApiKeyRotated !== false ||
+    !plan ||
+    typeof plan !== "object" ||
+    Array.isArray(plan) ||
+    plan.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    plan.includeSearxng !== false ||
+    plan.hostPublication !== "none" ||
+    plan.n8nConfigurationRequired !== true ||
+    !installation ||
+    typeof installation !== "object" ||
+    Array.isArray(installation) ||
+    installation.includeSearxng !== false
+  ) {
+    throw Object.assign(
+      new Error("The local n8n Assistant edit review is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    reviewId: requireSafeDisplayValue(reviewId, "Assistant edit review ID", 128),
+    target: LOCAL_N8N_ASSISTANT_TARGET,
+    includeSearxng: true,
+    sandboxApiKeyRotated: false,
+    sandboxUrl: requireSafeAssistantUrl(
+      sandboxUrl,
+      "relmio-ai-sandbox",
+      "local n8n Assistant edit",
+    ),
+    searxngUrl: requireSafeAssistantUrl(
+      searxngUrl,
+      "relmio-ai-searxng",
+      "local n8n Assistant edit",
+    ),
+    n8nContainerName: requireSafeDockerName(
+      plan.n8nContainerName,
+      "n8n container name",
+    ),
+    networkName: requireSafeDockerName(plan.networkName, "Docker network name"),
+    hostPublication: "none",
+    n8nConfigurationRequired: true,
+  };
+}
+
+function createSafeLocalN8nAssistantSearxngEditResult(result) {
+  const label = "local n8n Assistant SearXNG edit";
+  const sandboxUrl = requireSafeAssistantUrl(
+    result?.sandboxUrl,
+    "relmio-ai-sandbox",
+    label,
+  );
+  const searxngUrl = requireSafeAssistantUrl(
+    result?.searxngUrl,
+    "relmio-ai-searxng",
+    label,
+  );
+  const expectedSettings = {
+    N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl,
+  };
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    result.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    result.endpoint !== sandboxUrl ||
+    result.protocol !== "n8n-instance-ai-companion" ||
+    result.includeSearxng !== true ||
+    result.hostPublication !== "none" ||
+    result.privilegedRunner !== true ||
+    result.n8nConfigurationRequired !== true ||
+    result.deploymentMode !== "searxng-enabled" ||
+    result.sandboxApiKeyRotated !== false ||
+    Object.hasOwn(result, "sandboxApiKey") ||
+    !result.n8nSettings ||
+    typeof result.n8nSettings !== "object" ||
+    Array.isArray(result.n8nSettings) ||
+    Object.keys(result.n8nSettings).length !== 1 ||
+    result.n8nSettings.N8N_INSTANCE_AI_SEARXNG_URL !== searxngUrl
+  ) {
+    throw Object.assign(
+      new Error("The local n8n Assistant SearXNG edit returned an invalid result."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: LOCAL_N8N_ASSISTANT_TARGET,
+    endpoint: sandboxUrl,
+    sandboxUrl,
+    searxngUrl,
+    protocol: "n8n-instance-ai-companion",
+    includeSearxng: true,
+    networkName: requireSafeDockerName(result.networkName, "Assistant network name"),
+    n8nContainerName: requireSafeDockerName(
+      result.n8nContainerName,
+      "n8n container name",
+    ),
+    hostPublication: "none",
+    privilegedRunner: true,
+    n8nConfigurationRequired: true,
+    n8nSettings: expectedSettings,
+    deploymentMode: "searxng-enabled",
+    sandboxApiKeyRotated: false,
+  };
 }
 
 function createSafeLocalN8nInstallResult(result) {
@@ -1130,10 +1418,33 @@ async function handleApi(request, response, path, state) {
     const status = state.previewMode
       ? null
       : await state.services.getLocalDockerStatus();
+    let localN8nStackState = null;
+    if (!state.previewMode && status?.dockerAvailable === true) {
+      try {
+        const managedStatus = await state.services.getLocalN8nStackStatus();
+        if (
+          managedStatus?.managed === true &&
+          ["healthy", "stopped", "partial"].includes(managedStatus.state)
+        ) {
+          localN8nStackState = managedStatus.state;
+        } else if (
+          managedStatus?.managed === false &&
+          managedStatus.state === "unavailable"
+        ) {
+          localN8nStackState = "unavailable";
+        }
+      } catch {
+        // Docker readiness remains useful when managed-stack detection fails closed.
+      }
+    }
     sendJson(
       response,
       200,
-      createSafeDockerStatus(status, state.previewMode),
+      createSafeDockerStatus(
+        status,
+        state.previewMode,
+        localN8nStackState,
+      ),
     );
     return;
   }
@@ -1532,9 +1843,29 @@ async function handleApi(request, response, path, state) {
         );
       }
 
+      let localN8nStackSecrets;
+      if (pending.plan.kind === "local-n8n-stack") {
+        if (body.confirmed !== true) {
+          throw Object.assign(
+            new Error("Confirm the reviewed local n8n + ngrok plan before installing."),
+            { retryablePlan: true },
+          );
+        }
+        try {
+          localN8nStackSecrets = validateLocalN8nStackSecrets({
+            ngrokAuthtoken: body.ngrokAuthtoken,
+            basicAuthUsername: body.basicAuthUsername,
+            basicAuthPassword: body.basicAuthPassword,
+          });
+        } catch (error) {
+          throw Object.assign(error, { retryablePlan: true });
+        }
+      }
+
       state.localInstallInFlight = true;
       acquiredInstallLock = true;
       state.localPlan = null;
+      state.localAssistantSearxngReview = null;
       state.localInstalledTarget = null;
       let result;
       if (pending.plan.kind === "n8n-sidecar") {
@@ -1559,18 +1890,23 @@ async function handleApi(request, response, path, state) {
           confirmed: body.confirmed,
         });
       } else if (pending.plan.kind === "local-n8n-stack") {
-        if (body.confirmed !== true) {
-          throw new Error("Confirm the reviewed local n8n + ngrok plan before installing.");
+        try {
+          result = await state.services.installLocalN8nStack({
+            plan: pending.plan,
+            secrets: localN8nStackSecrets,
+            publicExposureConfirmation: LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
+          });
+        } catch (error) {
+          if (error?.code === LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE) {
+            // The service only emits this code after ownership-attested
+            // cleanup proves that no owned Docker resources remain. Restore
+            // the server-side, non-secret reviewed plan so the user can
+            // correct a rejected ngrok token/domain without redoing the form.
+            state.localPlan = pending;
+            throw Object.assign(error, { retryablePlan: true });
+          }
+          throw error;
         }
-        result = await state.services.installLocalN8nStack({
-          plan: pending.plan,
-          secrets: {
-            ngrokAuthtoken: body.ngrokAuthtoken,
-            basicAuthUsername: body.basicAuthUsername,
-            basicAuthPassword: body.basicAuthPassword,
-          },
-          publicExposureConfirmation: LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
-        });
       } else {
         result = await state.services.installLocalEndpoint({
           plan: pending.plan,
@@ -1588,7 +1924,7 @@ async function handleApi(request, response, path, state) {
           : pending.plan.kind === "n8n-sidecar"
           ? createSafeLocalN8nInstallResult(result)
           : pending.plan.kind === "n8n-assistant"
-            ? createSafeLocalN8nAssistantInstallResult(result)
+            ? createSafeLocalN8nAssistantInstallResult(result, pending.plan)
             : createSafeLocalInstallResult(result),
       );
     } finally {
@@ -1599,6 +1935,138 @@ async function handleApi(request, response, path, state) {
       body.ngrokAuthtoken = undefined;
       body.basicAuthUsername = undefined;
       body.basicAuthPassword = undefined;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/sidecar/refresh") {
+    requireLiveLocalAction(state, "Local n8n bridge credential refresh");
+    enforceRateLimit(state, path);
+    if (body?.confirmed !== true) {
+      throw new Error(
+        "Confirm applying the new ChatGPT sign-in to the managed local n8n bridge.",
+      );
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+
+    // Claim the shared in-process mutation slot before the asynchronous sign-in
+    // lookup so a credential change cannot race a sidecar re-attestation.
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    try {
+      const authStatus = await state.services.getAuthStatus();
+      if (authStatus?.exists !== true || typeof authStatus.path !== "string") {
+        throw new Error(
+          "Complete ChatGPT sign-in before applying it to the managed local n8n bridge.",
+        );
+      }
+      const result = await state.services.refreshLocalN8nSidecarCredential({
+        authPath: authStatus.path,
+        confirmed: true,
+      });
+      sendJson(response, 200, createSafeLocalN8nSidecarRefreshResult(result));
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/assistant/searxng/review") {
+    requireLiveLocalAction(state, "Local n8n Assistant SearXNG review");
+    enforceRateLimit(state, path);
+    if (body?.includeSearxng !== true) {
+      throw new Error("This edit can only enable optional SearXNG web search.");
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    // Preparing the review performs asynchronous Docker/file attestation. Hold the
+    // shared slot for that whole snapshot so another local change cannot make the
+    // review stale while it is being assembled.
+    state.localInstallInFlight = true;
+    state.localAssistantSearxngReview = null;
+    try {
+      const review = await state.services.prepareLocalN8nAssistantSearxngUpdate({
+        includeSearxng: true,
+      });
+      const reviewId = randomUUID();
+      const safeReview = createSafeLocalN8nAssistantSearxngReview(review, reviewId);
+      state.localAssistantSearxngReview = { reviewId, review };
+      sendJson(response, 200, safeReview);
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/assistant/searxng/enable") {
+    requireLiveLocalAction(state, "Local n8n Assistant SearXNG enablement");
+    enforceRateLimit(state, path);
+    if (body?.confirmed !== true) {
+      throw new Error(
+        "Confirm enabling SearXNG web search for the reviewed managed local n8n Assistant tools.",
+      );
+    }
+    const pending = state.localAssistantSearxngReview;
+    if (!pending || !tokenMatches(body.reviewId, pending.reviewId)) {
+      throw new Error(
+        "Review the managed local n8n Assistant SearXNG change before enabling it.",
+      );
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+
+    // Claim the same mutation slot used by local install/removal/resume before
+    // the first awaited service call. The review is consumed on any attempt.
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    try {
+      const result = await state.services.editLocalN8nAssistantSearxng({
+        review: pending.review,
+        confirmed: true,
+      });
+      sendJson(
+        response,
+        200,
+        createSafeLocalN8nAssistantSearxngEditResult(result),
+      );
+    } finally {
+      state.localInstallInFlight = false;
     }
     return;
   }
@@ -1624,12 +2092,46 @@ async function handleApi(request, response, path, state) {
     }
     state.localInstallInFlight = true;
     state.localPlan = null;
+    state.localAssistantSearxngReview = null;
     state.localInstalledTarget = null;
     try {
       const result = await state.services.removeLocalN8nSidecar({
         confirmed: true,
       });
       sendJson(response, 200, createSafeLocalN8nRemovalResult(result));
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/stack/resume") {
+    requireLiveLocalAction(state, "Local n8n + ngrok resume");
+    enforceRateLimit(state, path);
+    if (body?.confirmed !== true) {
+      throw new Error("Confirm resuming the managed local n8n + ngrok stack.");
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(new Error("A local endpoint change is already in progress."), {
+        statusCode: 409,
+      });
+    }
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    state.localInstalledTarget = null;
+    try {
+      const result = await state.services.resumeLocalN8nStack({
+        confirmed: true,
+      });
+      sendJson(response, 200, createSafeLocalN8nStackResumeResult(result));
     } finally {
       state.localInstallInFlight = false;
     }
@@ -1656,6 +2158,7 @@ async function handleApi(request, response, path, state) {
     }
     state.localInstallInFlight = true;
     state.localPlan = null;
+    state.localAssistantSearxngReview = null;
     state.localInstalledTarget = null;
     try {
       const result = await state.services.removeLocalN8nStack({
@@ -1689,6 +2192,7 @@ async function handleApi(request, response, path, state) {
     }
     state.localInstallInFlight = true;
     state.localPlan = null;
+    state.localAssistantSearxngReview = null;
     state.localInstalledTarget = null;
     try {
       const result = await state.services.removeLocalN8nAssistant({
@@ -2086,7 +2590,11 @@ async function handleApi(request, response, path, state) {
         confirmed: body.confirmed,
         includeSearxng,
       });
-      sendJson(response, 200, result);
+      sendJson(
+        response,
+        200,
+        createSafeAssistantInstallResult(result, reviewedPlan),
+      );
     } finally {
       try {
         connection.close();
@@ -2195,9 +2703,18 @@ function createRequestHandler(state) {
       response.end(contents);
     } catch (error) {
       if (!response.headersSent) {
+        const managedPartialStack =
+          error?.code === LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE;
+        const retryableNgrokSetup =
+          error?.code === LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE;
         sendJson(response, error.statusCode ?? 400, {
-          error: safeErrorMessage(error),
+          error: managedPartialStack
+            ? "Relmio confirmed that its owned partial local n8n + ngrok stack remains. Use the explicit removal control to retry cleanup safely."
+            : safeErrorMessage(error),
           ...(error.retryBlocked === true ? { retryBlocked: true } : {}),
+          ...(error.retryablePlan === true ? { retryablePlan: true } : {}),
+          ...(retryableNgrokSetup ? { retryableNgrokSetup: true } : {}),
+          ...(managedPartialStack ? { managedPartialStack: true } : {}),
         });
       } else {
         response.end();
@@ -2242,6 +2759,7 @@ export async function startWizardServer({
     oauthLoginStartInFlight: false,
     oauthLoginStartPromise: null,
     localPlan: null,
+    localAssistantSearxngReview: null,
     localInstalledTarget: null,
     localInstallInFlight: false,
     localCredentialRotationInFlight: false,

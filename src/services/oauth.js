@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { lockDownLocalPath } from "../infrastructure/local-process.js";
 
 const MAX_AUTH_FILE_BYTES = 128 * 1024;
 const MAX_LOGIN_OUTPUT_BYTES = 32 * 1024;
@@ -215,6 +216,7 @@ export async function startOAuthLogin({
   terminationForceWaitMs = PROCESS_TERMINATION_FORCE_WAIT_MS,
   createTimer = setTimeout,
   clearTimer = clearTimeout,
+  lockDownPath = lockDownLocalPath,
 } = {}) {
   const npxInvocation = createNpxInvocation({ platform, env, execPath });
   const authPath = resolveAuthPath({ env, homeDirectory });
@@ -239,6 +241,7 @@ export async function startOAuthLogin({
 
   await fileSystem.mkdir(authDirectory, { recursive: true, mode: 0o700 });
   await fileSystem.chmod(authDirectory, 0o700);
+  await lockDownPath(authDirectory, { platform, kind: "directory" });
 
   let child;
   try {
@@ -398,6 +401,8 @@ export async function startOAuthLogin({
       promotionPhase = "staging";
       try {
         assertPromotionActive();
+        await lockDownPath(pendingAuthPath, { platform, kind: "file" });
+        assertPromotionActive();
         await readAuthContents({
           authPath: pendingAuthPath,
           fileSystem,
@@ -408,11 +413,11 @@ export async function startOAuthLogin({
         await fileSystem.copyFile(pendingAuthPath, promotionAuthPath);
         assertPromotionActive();
         await fileSystem.chmod(promotionAuthPath, 0o600);
+        await lockDownPath(promotionAuthPath, { platform, kind: "file" });
         assertPromotionActive();
         promotionPhase = "committing";
         await fileSystem.rename(promotionAuthPath, authPath);
         promotionPhase = "committed";
-        await fileSystem.chmod(authPath, 0o600);
       } catch (error) {
         if (cancellationRequested && promotionPhase !== "committed") {
           promotionPhase = "cancelled";

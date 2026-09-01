@@ -237,14 +237,18 @@ test("troubleshooting retains the Windows probe, browser relaunch, and blank OAu
   assert.match(troubleshooting, /white `about:blank` tab/u);
 });
 
-test("troubleshooting retains the PowerShell-free Windows bootstrap guide", async () => {
+test("troubleshooting distinguishes the CMD bootstrap from the shared Windows ACL check", async () => {
   const troubleshooting = await readFile("docs/troubleshooting.md", "utf8");
   assert.match(troubleshooting, /for \/f "delims=" %F/u);
   assert.match(troubleshooting, /relmio-install-%RANDOM%-%RANDOM%-%RANDOM%\.cmd/u);
   assert.match(troubleshooting, /--remove-on-error/u);
   assert.match(troubleshooting, /RELMIO_SELF_DELETE=%~F/u);
   assert.doesNotMatch(troubleshooting, /-o install\.cmd/u);
-  assert.match(troubleshooting, /PowerShell-free/u);
+  assert.match(troubleshooting, /Command Prompt bootstrap itself does not call PowerShell/u);
+  assert.match(
+    troubleshooting,
+    /Every native Windows launcher shares this[\s\S]*setup stops\s+before saving secrets/u,
+  );
   assert.match(troubleshooting, /Please wait/u);
   assert.match(troubleshooting, /VS Code embedded browser/u);
   assert.match(troubleshooting, /validated manual link/u);

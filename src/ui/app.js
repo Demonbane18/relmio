@@ -14,6 +14,8 @@ const state = {
   oauthRetryBlocked: false,
   oauthLoginGeneration: 0,
   oauthLoginWindow: null,
+  integrationKind: "sidecar",
+  managingDetectedIntegration: false,
 };
 
 const element = (id) => document.getElementById(id);
@@ -466,6 +468,201 @@ function fillSelect(select, items, selectedValue) {
   }
 }
 
+function replaceReviewItems(id, items) {
+  element(id).replaceChildren(
+    ...items.map((item) => {
+      const listItem = document.createElement("li");
+      listItem.textContent = item;
+      return listItem;
+    }),
+  );
+}
+
+function isAssistantIntegration() {
+  return state.integrationKind === "assistant";
+}
+
+function renderIntegrationManagement() {
+  const assistant = isAssistantIntegration();
+  element("manage-vps-searxng-row").hidden = !assistant;
+  const manageButton = element("manage-vps-integration");
+  manageButton.textContent = assistant
+    ? "Manage Assistant companion"
+    : "Manage OpenAI-OAuth/Codex bridge";
+  const reviewButton = element("review-button");
+  reviewButton.textContent = assistant
+    ? "Review Assistant plan"
+    : state.managingDetectedIntegration
+      ? "Review bridge update"
+      : "Review the exact plan";
+  reviewButton.dataset.label = reviewButton.textContent;
+}
+
+function renderIntegrationReview(plan) {
+  const assistant = isAssistantIntegration();
+  element("review-intro").textContent = assistant
+    ? "Only the separate Assistant companion can be changed. Your n8n container remains operator-managed."
+    : "No existing n8n files or containers will be changed.";
+  element("review-network").textContent = plan.networkName;
+  element("review-endpoint-label").textContent = assistant
+    ? "Assistant selection"
+    : "Private hostname";
+  element("review-endpoint").textContent = assistant
+    ? plan.includeSearxng
+      ? "Code Sandbox + private SearXNG"
+      : "Code Sandbox"
+    : plan.endpointHostname;
+  replaceReviewItems(
+    "review-will-list",
+    assistant
+      ? [
+          "Build and start only Relmio-managed Code Sandbox companion services.",
+          plan.includeSearxng
+            ? "Add the optional private SearXNG JSON search companion."
+            : "Keep SearXNG disabled; no web-search companion will be started.",
+          `Attach the companion only to ${plan.networkName}.`,
+          "Verify companion health without changing the existing n8n container.",
+        ]
+      : [
+          "Create or update only /docker/n8n-openai-oauth.",
+          "Build and start only the openai-oauth sidecar.",
+          `Attach the sidecar to ${plan.networkName}.`,
+          "Upload the refreshed ChatGPT OAuth file with owner-only permissions.",
+        ],
+  );
+  replaceReviewItems(
+    "review-wont-list",
+    assistant
+      ? [
+          "Edit, exec into, rebuild, stop, restart, or recreate n8n.",
+          "Publish a sandbox, runner, or SearXNG port.",
+          "Configure model-provider credentials or apply n8n settings for you.",
+          "Restart n8n after you apply any returned configuration.",
+        ]
+      : [
+          "Edit or rebuild the n8n image.",
+          "Stop, restart, or recreate n8n.",
+          "Publish port 10531.",
+          "Create a Traefik route.",
+        ],
+  );
+  element("install-confirm-copy").textContent = assistant
+    ? "I approve this private Assistant companion installation and understand that n8n configuration and any restart remain my separate action."
+    : "I approve this sidecar-only installation and understand openai-oauth is an unofficial project.";
+  const installButton = element("install-button");
+  installButton.textContent = assistant
+    ? "Install Assistant companion"
+    : state.managingDetectedIntegration
+      ? "Update the bridge"
+      : "Install the sidecar";
+  installButton.dataset.label = installButton.textContent;
+}
+
+const ASSISTANT_SANDBOX_IMAGE =
+  "ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8";
+const ASSISTANT_N8N_SETTINGS_NOTE =
+  "Apply only the returned companion settings. Preserve the existing N8N_ENABLED_MODULES value and ensure it continues to include instance-ai.";
+
+function validateAssistantUrl(value, label, prefix) {
+  if (
+    typeof value !== "string" ||
+    !new RegExp(`^http://${prefix}-[a-f0-9]{32}:8080$`, "u").test(value)
+  ) {
+    throw new Error(`The wizard returned an invalid ${label}.`);
+  }
+  return value;
+}
+
+function validateAssistantSettings(value, expectedSettings) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("The wizard returned invalid n8n settings.");
+  }
+  const expectedNames = Object.keys(expectedSettings);
+  if (
+    Object.keys(value).length !== expectedNames.length ||
+    expectedNames.some(
+      (name) =>
+        !Object.hasOwn(value, name) ||
+        value[name] !== expectedSettings[name],
+    )
+  ) {
+    throw new Error("The wizard returned invalid n8n settings.");
+  }
+  return expectedSettings;
+}
+
+function validateAssistantInstallResult(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("The wizard returned an invalid Assistant result.");
+  }
+  const sandboxUrl = validateAssistantUrl(
+    result.sandboxUrl,
+    "Code Sandbox URL",
+    "relmio-ai-sandbox",
+  );
+  const includeSearxng = result.includeSearxng;
+  const sandboxApiKey = result.sandboxApiKey;
+  if (
+    typeof includeSearxng !== "boolean" ||
+    !["installed", "updated"].includes(result.deploymentMode) ||
+    (sandboxApiKey !== null &&
+      (typeof sandboxApiKey !== "string" ||
+        !/^[A-Za-z0-9_-]{43}$/u.test(sandboxApiKey))) ||
+    (result.deploymentMode === "installed" && sandboxApiKey === null)
+  ) {
+    throw new Error("The wizard returned an invalid Assistant result.");
+  }
+  const searxngUrl = includeSearxng
+    ? validateAssistantUrl(
+        result.searxngUrl,
+        "SearXNG URL",
+        "relmio-ai-searxng",
+      )
+    : null;
+  if (!includeSearxng && Object.hasOwn(result, "searxngUrl")) {
+    throw new Error("The wizard returned an invalid Assistant result.");
+  }
+  const expectedSettings = {
+    N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+    N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+    N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_SANDBOX_IMAGE,
+    N8N_SANDBOX_SERVICE_URL: sandboxUrl,
+    ...(typeof sandboxApiKey === "string"
+      ? { N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey }
+      : {}),
+    ...(searxngUrl ? { N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl } : {}),
+  };
+  const n8nSettings = validateAssistantSettings(
+    result.n8nSettings,
+    expectedSettings,
+  );
+  return {
+    includeSearxng,
+    n8nSettings,
+    sandboxApiKey: typeof sandboxApiKey === "string" ? sandboxApiKey : null,
+    sandboxUrl,
+    searxngUrl,
+  };
+}
+
+function renderAssistantResult(result) {
+  const assistant = validateAssistantInstallResult(result);
+  element("assistant-result-sandbox-url").textContent = assistant.sandboxUrl;
+  element("assistant-result-sandbox-key").textContent = assistant.sandboxApiKey ?? "";
+  element("assistant-result-key-row").hidden = assistant.sandboxApiKey === null;
+  element("assistant-result-searxng-row").hidden = !assistant.searxngUrl;
+  element("assistant-result-searxng-url").textContent = assistant.searxngUrl ?? "";
+  element("assistant-result-settings").textContent = Object.entries(assistant.n8nSettings)
+    .map(([name, value]) => `${name}=${value}`)
+    .join("\n");
+  const keyNote = element("assistant-result-key-note");
+  keyNote.hidden = false;
+  keyNote.textContent = assistant.sandboxApiKey === null
+    ? `This update intentionally does not return the existing sandbox API key. Keep the original key in your operator-controlled n8n configuration. ${ASSISTANT_N8N_SETTINGS_NOTE}`
+    : `Save the shown-once API key before leaving this page. ${ASSISTANT_N8N_SETTINGS_NOTE}`;
+  return assistant;
+}
+
 async function loadNetworks() {
   clearError();
   const containerName = element("container-select").value;
@@ -503,8 +700,10 @@ async function discover() {
     result.containers[0].name,
   );
   await loadNetworks();
+  element("detected-vps-integration-management").hidden = false;
+  renderIntegrationManagement();
   showStep(3);
-  setMessage("n8n was found. Choose the network it shares with the sidecar.");
+  setMessage("n8n was found. Choose its network, then install or manage a Relmio-owned companion.");
 }
 
 element("login-button").addEventListener("click", async (event) => {
@@ -717,15 +916,18 @@ element("review-button").addEventListener("click", async (event) => {
   setBusy(button, true, "Preparing plan…");
   try {
     const networkName = element("network-select").value;
-    const plan = await api("/api/plan", {
+    const assistant = isAssistantIntegration();
+    const plan = await api(assistant ? "/api/assistant/plan" : "/api/plan", {
       method: "POST",
       body: {
         containerName: element("container-select").value,
         networkName,
+        ...(assistant
+          ? { includeSearxng: element("manage-vps-searxng").checked }
+          : {}),
       },
     });
-    element("review-network").textContent = networkName;
-    element("review-endpoint").textContent = plan.endpointHostname;
+    renderIntegrationReview(plan);
     element("install-confirm").checked = false;
     element("install-button").disabled = true;
     showStep(4);
@@ -744,29 +946,57 @@ element("install-confirm").addEventListener("change", (event) => {
 element("install-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
-  setBusy(button, true, "Building the sidecar…");
-  setMessage("Installing only the separate OAuth sidecar. This can take a minute.");
+  const assistant = isAssistantIntegration();
+  setBusy(button, true, assistant ? "Building companion…" : "Building the sidecar…");
+  setMessage(
+    assistant
+      ? "Installing only the separate Assistant companion. This can take a minute."
+      : "Installing only the separate OAuth sidecar. This can take a minute.",
+  );
   state.installAttempted = true;
   try {
-    const result = await api("/api/install", {
+    const result = await api(assistant ? "/api/assistant/install" : "/api/install", {
       method: "POST",
       body: {
         containerName: element("container-select").value,
         networkName: element("network-select").value,
         confirmed: element("install-confirm").checked,
+        ...(assistant
+          ? { includeSearxng: element("manage-vps-searxng").checked }
+          : {}),
       },
     });
-    element("result-url").textContent = result.baseUrl;
-    element("result-key").textContent = result.apiKeyPlaceholder;
-    const firstModel = result.models[0] ?? "Not detected";
-    element("result-model").textContent = firstModel;
-    element("result-models").textContent = result.models.join(", ");
-    element("result-http-url").textContent =
-      `${result.baseUrl.replace(/\/$/u, "")}/chat/completions`;
-    renderHttpRequestBody(firstModel);
+    if (!assistant) {
+      element("result-url").textContent = result.baseUrl;
+      element("result-key").textContent = result.apiKeyPlaceholder;
+      const firstModel = result.models[0] ?? "Not detected";
+      element("result-model").textContent = firstModel;
+      element("result-models").textContent = result.models.join(", ");
+      element("result-http-url").textContent =
+        `${result.baseUrl.replace(/\/$/u, "")}/chat/completions`;
+      renderHttpRequestBody(firstModel);
+    }
+    const assistantResult = assistant ? renderAssistantResult(result) : null;
+    element("done-title").textContent = assistant
+      ? "The private Assistant companion is ready"
+      : "The private bridge is ready";
+    element("done-detail").textContent = assistant
+      ? assistantResult.includeSearxng
+        ? `Code Sandbox and private SearXNG were verified. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
+        : `Code Sandbox was verified without SearXNG. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
+      : "Use these values in n8n on the same private Docker network.";
+    element("assistant-result").hidden = !assistant;
+    element("sidecar-ready-content").hidden = assistant;
+    element("assistant-result-detail").textContent = assistant
+      ? assistantResult.includeSearxng
+        ? `Code Sandbox and the optional private SearXNG companion were verified. ${ASSISTANT_N8N_SETTINGS_NOTE}`
+        : `Code Sandbox was verified without SearXNG. ${ASSISTANT_N8N_SETTINGS_NOTE}`
+      : "";
     showStep(5);
     setMessage(
-      result.deploymentMode === "updated"
+      assistant
+        ? "Assistant companion verified. Your existing n8n was not restarted."
+        : result.deploymentMode === "updated"
         ? "OAuth refreshed on the existing wizard-managed sidecar. n8n was not restarted."
         : "Installation verified. Your existing n8n was not restarted.",
     );
@@ -775,6 +1005,34 @@ element("install-button").addEventListener("click", async (event) => {
   } finally {
     setBusy(button, false);
   }
+});
+
+for (const input of document.querySelectorAll('input[name="vps-integration"]')) {
+  input.addEventListener("change", (event) => {
+    state.integrationKind = event.currentTarget.value;
+    state.managingDetectedIntegration = true;
+    renderIntegrationManagement();
+  });
+}
+
+element("manage-vps-integration").addEventListener("click", () => {
+  clearError();
+  state.managingDetectedIntegration = true;
+  renderIntegrationManagement();
+  setMessage(
+    isAssistantIntegration()
+      ? "Review a private Assistant companion plan. SearXNG remains opt-in and n8n stays untouched."
+      : "Review a private bridge update. Refresh ChatGPT sign-in first if its session needs replacement.",
+  );
+});
+
+element("refresh-vps-chatgpt").addEventListener("click", () => {
+  clearError();
+  state.integrationKind = "sidecar";
+  state.managingDetectedIntegration = true;
+  element("manage-vps-sidecar").checked = true;
+  renderIntegrationManagement();
+  element("login-button").click();
 });
 
 for (const button of document.querySelectorAll(

@@ -7,6 +7,44 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Support local Docker endpoint, n8n bridge, Assistant companion, and owned
+  n8n stack workflows on native Windows with Docker Desktop's attested
+  `desktop-linux` engine.
+- Add manage/edit actions for detected local and VPS n8n integrations,
+  including a fresh ChatGPT sign-in path and Assistant/SearXNG configuration.
+
+### Changed
+
+- Guide beginners through ngrok agent-token and user-created Basic Auth fields
+  with inline validation, missing-field warnings, locked install controls, and
+  visible progress while setup is running.
+- Keep the same reviewed browser wizard behavior across PowerShell, Command
+  Prompt, npm/npx, curl, and Homebrew launch paths instead of relying on
+  shell-specific setup logic.
+
+### Fixed
+
+- Recover interrupted owned n8n-stack operations without moving a newer live
+  lock, including crashed processes, PID reuse, incomplete lock publication,
+  and a preserved partial-stack recovery result when lock cleanup also fails.
+- Wait for generated n8n, ngrok, and sandbox health checks consistently, accept
+  the sandbox API's private 8080/9090 metadata, and continue rejecting UDP or
+  host-published Assistant ports.
+- Preserve existing n8n enabled modules when adding AI Assistant settings and
+  leave existing n8n containers, Compose files, images, and restarts untouched.
+
+### Security
+
+- Protect every Windows managed credential directory and file with a
+  read-back-verified NTFS DACL limited to the current account before writing
+  secrets or invoking a Docker mutation. Remote Docker selectors, Unix sockets,
+  and unrecognized named pipes remain rejected on Windows.
+- Bind lifecycle ownership to the process creation identity, fail closed when
+  liveness is ambiguous, and arbitrate stale recovery before changing the
+  canonical local n8n operation lock.
+
 ## [0.11.0] - 2026-09-01
 
 ### Added

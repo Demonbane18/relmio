@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -8,6 +9,17 @@ import test from "node:test";
 
 const execFileAsync = promisify(execFile);
 const installScript = "web/public/install.ps1";
+
+function nativeWindowsPowerShell() {
+  if (process.platform !== "win32" || !process.env.SystemRoot) return null;
+  return join(
+    process.env.SystemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+}
 
 async function findPowerShell() {
   for (const command of ["pwsh", "powershell"]) {
@@ -167,5 +179,123 @@ test(
       "relmio@latest",
     ]);
     await assert.rejects(readFile(downloadLog, "utf8"), { code: "ENOENT" });
+  },
+);
+
+test(
+  "Windows PowerShell 5 executes the verified portable runtime fallback",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const powershell = nativeWindowsPowerShell();
+    assert.ok(powershell);
+    const nodeArchitecture = process.arch === "arm64" ? "arm64" : "x64";
+
+    for (const validChecksum of [true, false]) {
+      await t.test(validChecksum ? "verified archive" : "checksum rejection", async (subtest) => {
+        const root = await mkdtemp(join(tmpdir(), "relmio-windows-powershell-fallback-"));
+        subtest.after(() => rm(root, { recursive: true, force: true }));
+        const archive = join(root, "node.zip");
+        const manifest = join(root, "SHASUMS256.txt");
+        const invocationLog = join(root, "npx-invocation.json");
+        const temporaryPathLog = join(root, "temporary-path.txt");
+        const wrapper = join(root, "invoke-portable-installer.ps1");
+        const filename = `node-v22.99.0-win-${nodeArchitecture}.zip`;
+        const archiveContents = Buffer.from("relmio verified portable fixture\n");
+        await writeFile(archive, archiveContents);
+        const digest = createHash("sha256").update(archiveContents).digest("hex");
+        await writeFile(
+          manifest,
+          `${validChecksum ? digest : "0".repeat(64)}  ${filename}\n`,
+          "utf8",
+        );
+        const npxFixture = [
+          'const fs = require("node:fs");',
+          "fs.writeFileSync(process.env.RELMIO_TEST_LOG, JSON.stringify({ args: process.argv.slice(2), execPath: process.execPath }));",
+          "",
+        ].join("\n");
+        await writeFile(
+          wrapper,
+          [
+            'function Get-Command {',
+            '  param([string]$Name,[object]$CommandType,[object]$ErrorAction)',
+            '  if ($Name -in @("node", "npx", "npx.cmd")) { return $null }',
+            '  Microsoft.PowerShell.Core\\Get-Command @PSBoundParameters',
+            '}',
+            'function Get-FileHash {',
+            '  param([string]$LiteralPath,[string]$Algorithm)',
+            '  $stream = [IO.File]::OpenRead($LiteralPath)',
+            '  $sha256 = [Security.Cryptography.SHA256]::Create()',
+            '  try { $bytes = $sha256.ComputeHash($stream) } finally { $sha256.Dispose(); $stream.Dispose() }',
+            '  [PSCustomObject]@{ Hash = (($bytes | ForEach-Object { $_.ToString("x2") }) -join "") }',
+            '}',
+            'function Invoke-WebRequest {',
+            '  param([string]$Uri,[string]$OutFile,[switch]$UseBasicParsing,[int]$MaximumRedirection,[int]$TimeoutSec,[object]$ErrorAction)',
+            '  if ($Uri.EndsWith("/SHASUMS256.txt")) {',
+            '    Copy-Item -LiteralPath $env:RELMIO_MANIFEST -Destination $OutFile',
+            '    Set-Content -LiteralPath $env:RELMIO_TEMP_PATH_LOG -Value $OutFile',
+            '    return',
+            '  }',
+            '  if ($Uri.EndsWith(".zip")) { Copy-Item -LiteralPath $env:RELMIO_ARCHIVE -Destination $OutFile; return }',
+            '  throw "Unexpected download URL"',
+            '}',
+            'function Expand-Archive {',
+            '  param([string]$LiteralPath,[string]$DestinationPath,[switch]$Force)',
+            '  $runtimeRoot = Join-Path $DestinationPath $env:RELMIO_ARCHIVE_ROOT',
+            '  $npxDirectory = Join-Path $runtimeRoot "node_modules\\npm\\bin"',
+            '  New-Item -ItemType Directory -Path $npxDirectory -Force | Out-Null',
+            '  Copy-Item -LiteralPath $env:RELMIO_NODE_EXE -Destination (Join-Path $runtimeRoot "node.exe")',
+            '  Set-Content -LiteralPath (Join-Path $npxDirectory "npx-cli.js") -Value $env:RELMIO_NPX_FIXTURE -Encoding UTF8',
+            '}',
+            '& $env:RELMIO_INSTALL_SCRIPT',
+            "",
+          ].join("\r\n"),
+          "utf8",
+        );
+
+        const options = {
+          env: {
+            ...process.env,
+            RELMIO_ARCHIVE: archive,
+            RELMIO_ARCHIVE_ROOT: filename.slice(0, -4),
+            RELMIO_INSTALL_SCRIPT: resolve(installScript),
+            RELMIO_MANIFEST: manifest,
+            RELMIO_NODE_EXE: process.execPath,
+            RELMIO_NPX_FIXTURE: npxFixture,
+            RELMIO_TEMP_PATH_LOG: temporaryPathLog,
+            RELMIO_TEST_LOG: invocationLog,
+          },
+        };
+
+        if (validChecksum) {
+          const { stdout } = await execFileAsync(
+            powershell,
+            ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
+            options,
+          );
+          assert.match(stdout, /Verified Node\.js download/u);
+          assert.match(stdout, /Starting the newest Relmio wizard/u);
+          const invocation = JSON.parse(await readFile(invocationLog, "utf8"));
+          assert.deepEqual(invocation.args, ["--yes", "--ignore-scripts", "relmio@latest"]);
+          assert.match(invocation.execPath, /relmio-[a-f0-9]+[\\/]node-v22\.99\.0-win-(?:x64|arm64)[\\/]node\.exe$/iu);
+        } else {
+          await assert.rejects(
+            execFileAsync(
+              powershell,
+              ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
+              options,
+            ),
+            (error) => {
+              const output = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
+              assert.match(output, /checksum did not match/u);
+              return true;
+            },
+          );
+          await assert.rejects(() => readFile(invocationLog, "utf8"), { code: "ENOENT" });
+        }
+
+        const manifestDestination = (await readFile(temporaryPathLog, "utf8")).trim();
+        await assert.rejects(() => lstat(resolve(manifestDestination, "..")), { code: "ENOENT" });
+      });
+    }
   },
 );

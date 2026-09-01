@@ -93,11 +93,21 @@
         <nav class="steps" aria-label="Local setup progress">
           <ol>
             <li data-step-marker="1" aria-current="step">
-              <span>1</span><em>Choose</em>
+              <span>1</span>
+              <div class="step-copy"><em>Choose</em><small>Select a connection</small></div>
             </li>
-            <li data-step-marker="2"><span>2</span><em>Review</em></li>
-            <li data-step-marker="3"><span>3</span><em>Install</em></li>
-            <li data-step-marker="4"><span>4</span><em>Ready</em></li>
+            <li data-step-marker="2">
+              <span>2</span>
+              <div class="step-copy"><em>Review</em><small>Confirm the boundary</small></div>
+            </li>
+            <li data-step-marker="3">
+              <span>3</span>
+              <div class="step-copy"><em>Install</em><small>Add credentials</small></div>
+            </li>
+            <li data-step-marker="4">
+              <span>4</span>
+              <div class="step-copy"><em>Ready</em><small>Copy connection details</small></div>
+            </li>
           </ol>
         </nav>
 
@@ -147,6 +157,7 @@
 
       <section class="panel" data-step="1" aria-labelledby="choose-title">
         <div class="panel-heading">
+          <p class="panel-kicker">Step 1 of 4 · Choose</p>
           <h2 id="choose-title" tabindex="-1">Choose what to set up</h2>
           <p>
             Docker stays on this computer. Relmio checks it without changing
@@ -163,10 +174,11 @@
         </div>
 
         <aside class="policy-note">
-          <strong>macOS, Linux, or WSL2 required</strong>
+          <strong>Windows, macOS, Linux, or WSL2</strong>
           <p>
-            Native Windows is not supported because this feature requires POSIX
-            owner-only file permissions for local credentials.
+            Native Windows uses Docker Desktop's <code>desktop-linux</code>
+            engine and a verified owner-only NTFS ACL for Relmio-managed
+            credentials. macOS, Linux, and WSL2 use POSIX owner-only modes.
           </p>
         </aside>
 
@@ -336,6 +348,34 @@
               </button>
             </div>
 
+            <section
+              id="detected-local-integration-management"
+              class="detected-integration-management"
+              aria-labelledby="detected-local-integration-management-title"
+              hidden
+            >
+              <div>
+                <h3 id="detected-local-integration-management-title">A running n8n was detected</h3>
+                <p>
+                  Detection alone does not prove that Relmio created a bridge or
+                  Assistant companion. Use these options to set one up or to
+                  review a separately ownership-verified Relmio companion. n8n
+                  itself remains operator-managed and is never edited or restarted here.
+                </p>
+              </div>
+              <div class="detected-integration-actions">
+                <button id="manage-local-sidecar" class="button secondary" type="button">
+                  Set up or check owned bridge
+                </button>
+                <button id="manage-local-assistant" class="button secondary" type="button">
+                  Set up or check owned Assistant tools
+                </button>
+                <button id="refresh-local-n8n-chatgpt" class="button ghost" type="button">
+                  Refresh ChatGPT sign-in
+                </button>
+              </div>
+            </section>
+
             <div id="n8n-sidecar-oauth" class="sidecar-oauth" aria-labelledby="n8n-oauth-title">
               <div>
                 <h3 id="n8n-oauth-title">Local ChatGPT OAuth credential</h3>
@@ -359,6 +399,38 @@
                 >Open fresh ChatGPT sign-in</a>
               </div>
             </div>
+
+            <section
+              id="n8n-sidecar-refresh"
+              class="managed-companion-edit"
+              aria-labelledby="n8n-sidecar-refresh-title"
+            >
+              <div>
+                <h3 id="n8n-sidecar-refresh-title">Apply a new sign-in to an existing bridge</h3>
+                <p>
+                  Use this only if Relmio previously created the private
+                  <code>openai-oauth</code> bridge. It re-attests that exact
+                  owned sidecar before changing its private credential volume;
+                  it never changes n8n. Completing ChatGPT sign-in above does
+                  not apply it automatically.
+                </p>
+              </div>
+              <label class="check-row">
+                <input id="refresh-bridge-confirm" type="checkbox" />
+                <span>
+                  I want Relmio to apply my current ChatGPT sign-in only to an
+                  ownership-verified Relmio bridge. Keep n8n and its network untouched.
+                </span>
+              </label>
+              <div class="managed-companion-edit-actions">
+                <button id="refresh-bridge-button" class="button secondary" type="button" disabled>
+                  Apply sign-in to owned bridge
+                </button>
+                <p id="refresh-bridge-status" role="status" aria-live="polite">
+                  No sign-in is copied until you complete ChatGPT sign-in and confirm this separate action.
+                </p>
+              </div>
+            </section>
 
             <aside id="n8n-sidecar-scope" class="policy-note sidecar-scope-note">
               <strong>Private model bridge only</strong>
@@ -402,6 +474,51 @@
                   deployment; any n8n restart remains your action.
                 </p>
               </aside>
+
+              <section
+                id="n8n-assistant-searxng-edit"
+                class="managed-companion-edit"
+                aria-labelledby="n8n-assistant-searxng-edit-title"
+              >
+                <div>
+                  <h3 id="n8n-assistant-searxng-edit-title">Enable search on existing Assistant tools</h3>
+                  <p>
+                    If Relmio previously installed Code Sandbox without SearXNG,
+                    review this additive change first. It starts only the owned
+                    SearXNG companion; it does not rotate or reveal the sandbox
+                    API key and it never changes n8n.
+                  </p>
+                </div>
+                <div class="managed-companion-edit-actions">
+                  <button id="review-assistant-searxng-edit" class="button secondary" type="button">
+                    Review SearXNG enablement
+                  </button>
+                  <p id="assistant-searxng-edit-status" role="status" aria-live="polite">
+                    This is available only for a Relmio-owned Assistant installation without SearXNG.
+                  </p>
+                </div>
+                <div id="assistant-searxng-edit-review" class="managed-companion-edit-review" hidden>
+                  <dl>
+                    <div><dt>Sandbox URL</dt><dd id="assistant-searxng-edit-sandbox"></dd></div>
+                    <div><dt>SearXNG URL</dt><dd id="assistant-searxng-edit-search"></dd></div>
+                    <div><dt>Host publication</dt><dd>None</dd></div>
+                  </dl>
+                  <label class="check-row">
+                    <input id="enable-assistant-searxng-confirm" type="checkbox" />
+                    <span>
+                      I reviewed this SearXNG-only update. Relmio may change only
+                      its owned Assistant companion and will not change n8n or rotate the sandbox API key.
+                    </span>
+                  </label>
+                  <div class="managed-companion-edit-actions">
+                    <button id="enable-assistant-searxng-button" class="button primary" type="button" disabled>
+                      Enable SearXNG on owned Assistant tools
+                    </button>
+                    <p id="assistant-searxng-edit-result" role="status" aria-live="polite"></p>
+                  </div>
+                  <p id="assistant-searxng-edit-settings" class="managed-companion-setting" hidden></p>
+                </div>
+              </section>
             </div>
           </section>
 
@@ -471,6 +588,7 @@
 
       <section class="panel" data-step="2" aria-labelledby="review-title" hidden>
         <div class="panel-heading">
+          <p class="panel-kicker">Step 2 of 4 · Review</p>
           <h2 id="review-title" tabindex="-1">Review the exact local plan</h2>
           <p>No file or container has been changed yet.</p>
         </div>
@@ -565,8 +683,16 @@
         </div>
       </section>
 
-      <section class="panel" data-step="3" aria-labelledby="install-title" hidden>
+      <section
+        id="install-panel"
+        class="panel"
+        data-step="3"
+        aria-labelledby="install-title"
+        aria-busy="false"
+        hidden
+      >
         <div class="panel-heading">
+          <p class="panel-kicker">Step 3 of 4 · Install</p>
           <h2 id="install-title" tabindex="-1">Install the local container</h2>
           <p id="install-intro">
             Enter the OpenAI Platform API key that this endpoint will use
@@ -626,14 +752,62 @@
 
         <aside id="n8n-stack-install-note" class="high-trust-warning" hidden>
           <strong>Public endpoint, mandatory Basic Auth</strong>
-          <p>Paste the ngrok authtoken and the separate Basic Auth credentials prepared in the previous step. Relmio will create only this brand-new owned stack, clear these values from the browser immediately, and never show them in results or errors. Existing n8n stays untouched.</p>
+          <p>Paste only the agent token value from ngrok’s “Your Authtoken” or “Authtokens” page—not the <code>ngrok config add-authtoken ...</code> command and not an ngrok API key. Create the Basic Auth username and password yourself here; they do not come from ngrok, n8n, Relmio, Windows, or your ChatGPT sign-in. Save them in your password manager because people opening the public n8n link will need them. Relmio clears all three values from the browser after submission and never shows them in results or errors.</p>
         </aside>
 
         <div id="n8n-stack-secrets" class="field-grid local-fields" hidden>
-          <label class="field"><span>ngrok authtoken</span><input id="ngrok-authtoken" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required /></label>
-          <label class="field"><span>Basic Auth username</span><input id="ngrok-basic-auth-username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required /></label>
-          <label class="field"><span>Basic Auth password</span><input id="ngrok-basic-auth-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required /></label>
+          <label class="field"><span>ngrok agent authtoken</span><input id="ngrok-authtoken" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="8" maxlength="512" aria-describedby="ngrok-authtoken-help" /><small id="ngrok-authtoken-help">Paste only the agent token value from “Your Authtoken” or “Authtokens.” Use 8–512 characters with no whitespace. Do not paste the <code>ngrok config add-authtoken ...</code> command or an ngrok API key.</small></label>
+          <label class="field"><span>Basic Auth username</span><input id="ngrok-basic-auth-username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="1" maxlength="64" pattern="[A-Za-z0-9_\-]+" aria-describedby="ngrok-basic-auth-username-help" /><small id="ngrok-basic-auth-username-help">Create this username yourself using 1–64 letters, numbers, hyphens, or underscores.</small></label>
+          <div class="field">
+            <label for="ngrok-basic-auth-password">Basic Auth password</label>
+            <input id="ngrok-basic-auth-password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="12" maxlength="512" aria-describedby="ngrok-basic-auth-password-help" />
+            <small id="ngrok-basic-auth-password-help">Create and save this password yourself. Use 12–512 characters with no colon or line breaks.</small>
+            <div class="credential-field-actions">
+              <button id="generate-ngrok-basic-auth-password" class="button secondary" type="button">Generate strong password</button>
+              <button id="toggle-ngrok-basic-auth-password" class="button secondary" type="button" aria-pressed="false">Show password</button>
+            </div>
+          </div>
         </div>
+
+        <section
+          id="install-progress"
+          class="install-progress"
+          aria-labelledby="install-progress-title"
+          tabindex="-1"
+          hidden
+        >
+          <div class="install-progress-heading">
+            <div>
+              <h3 id="install-progress-title">Installing on this computer</h3>
+              <p
+                id="install-progress-phase"
+                class="install-progress-phase"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >Starting the confirmed local installation…</p>
+            </div>
+            <p class="install-progress-elapsed">
+              <span>Elapsed</span>
+              <time id="install-elapsed" datetime="PT0S">00:00</time>
+            </p>
+          </div>
+          <div
+            id="install-progress-bar"
+            class="install-progress-track"
+            role="progressbar"
+            aria-labelledby="install-progress-title"
+            aria-describedby="install-progress-phase install-progress-duration-note"
+            aria-valuetext="Starting the confirmed local installation…"
+          >
+            <span class="install-progress-indicator" aria-hidden="true"></span>
+          </div>
+          <p id="install-progress-duration-note" class="install-progress-note">
+            First-time Docker image downloads can take several minutes. Keep
+            this page open; Relmio will unlock these controls when installation
+            finishes or stops.
+          </p>
+        </section>
 
         <div class="actions">
           <button class="button ghost back-button" type="button" data-back="2">
@@ -649,6 +823,7 @@
         <div class="success-heading">
           <div class="success-mark" aria-hidden="true">✓</div>
           <div class="panel-heading">
+            <p class="panel-kicker">Step 4 of 4 · Ready</p>
             <h2 id="done-title" tabindex="-1">Local endpoint is ready</h2>
             <p id="done-detail">Copy the client settings into your local app.</p>
           </div>
@@ -852,6 +1027,13 @@
           <p><strong>This permanently deletes the owned n8n data volume, including its workflows and credentials. Export anything you need first.</strong></p>
           <label class="check-row"><input id="remove-n8n-stack-confirm" type="checkbox" /><span>I understand this permanent data loss and authorize Relmio to remove only this owned n8n + ngrok stack. Keep all existing n8n deployments untouched.</span></label>
           <div class="sidecar-removal-actions"><button id="remove-n8n-stack-button" class="button secondary" type="button" disabled>Remove owned stack</button><p id="remove-n8n-stack-status" role="status" aria-live="polite">The owned stack remains installed until this separate confirmation is checked.</p></div>
+        </section>
+
+        <section id="n8n-stack-resume" class="n8n-sidecar-removal" aria-labelledby="n8n-stack-resume-title" hidden>
+          <h3 id="n8n-stack-resume-title">Resume stopped local n8n + ngrok</h3>
+          <p>Relmio re-attested every owned container, network, and volume. Resume starts only the existing stopped n8n, ngrok, and selected Assistant containers.</p>
+          <p>It does not create, recreate, rebuild, remove, or reconfigure anything. Your n8n data volume and generated configuration stay in place.</p>
+          <div class="sidecar-removal-actions"><button id="resume-n8n-stack-button" class="button primary" type="button">Resume owned stack</button><p id="resume-n8n-stack-status" role="status" aria-live="polite">The owned stack is stopped and can be resumed safely.</p></div>
         </section>
 
         <section

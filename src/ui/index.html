@@ -330,6 +330,52 @@
           </label>
         </div>
 
+        <section
+          id="detected-vps-integration-management"
+          class="detected-integration-management"
+          aria-labelledby="detected-vps-integration-management-title"
+          hidden
+        >
+          <div>
+            <h3 id="detected-vps-integration-management-title">Manage detected self-hosted n8n</h3>
+            <p>
+              Choose a Relmio-managed companion to review. This never edits,
+              rebuilds, stops, recreates, or restarts your existing n8n container.
+            </p>
+          </div>
+          <div class="field-grid single integration-management-options">
+            <label class="check-row">
+              <input id="manage-vps-sidecar" name="vps-integration" type="radio" value="sidecar" checked />
+              <span>
+                <strong>OpenAI-OAuth/Codex bridge</strong>
+                <small>Refresh the local ChatGPT sign-in, then review the private sidecar update.</small>
+              </span>
+            </label>
+            <label class="check-row">
+              <input id="manage-vps-assistant" name="vps-integration" type="radio" value="assistant" />
+              <span>
+                <strong>Assistant companion</strong>
+                <small>Manage Code Sandbox and the optional private SearXNG companion only.</small>
+              </span>
+            </label>
+            <label id="manage-vps-searxng-row" class="check-row" hidden>
+              <input id="manage-vps-searxng" type="checkbox" />
+              <span>
+                <strong>Include SearXNG JSON web search</strong>
+                <small>Off by default. The companion remains private to the selected Docker network.</small>
+              </span>
+            </label>
+          </div>
+          <div class="detected-integration-actions">
+            <button id="manage-vps-integration" class="button secondary" type="button">
+              Manage selected integration
+            </button>
+            <button id="refresh-vps-chatgpt" class="button ghost" type="button">
+              Refresh ChatGPT sign-in
+            </button>
+          </div>
+        </section>
+
         <div class="actions">
           <button class="button ghost back-button" data-back="2" type="button">
             Back
@@ -343,26 +389,34 @@
       <section class="panel" data-step="4" aria-labelledby="review-title" hidden>
         <div class="panel-heading">
           <h2 id="review-title" tabindex="-1">Review before installing</h2>
-          <p>No existing n8n files or containers will be changed.</p>
+          <p id="review-intro">No existing n8n files or containers will be changed.</p>
         </div>
+
+        <dl class="result-list review-details">
+          <div>
+            <dt>Docker network</dt>
+            <dd id="review-network">Not selected</dd>
+          </div>
+          <div>
+            <dt id="review-endpoint-label">Private hostname</dt>
+            <dd><code id="review-endpoint">n8n-openai-oauth</code></dd>
+          </div>
+        </dl>
 
         <div class="review-grid">
           <section aria-labelledby="will-title">
             <h3 id="will-title">The wizard will</h3>
-            <ul class="check-list">
+            <ul id="review-will-list" class="check-list">
               <li>Create or update <code>/docker/n8n-openai-oauth</code></li>
               <li>Build and start only the <code>openai-oauth</code> sidecar</li>
-              <li>Attach the sidecar to <strong id="review-network">Not selected</strong></li>
-              <li>
-                Use the private hostname
-                <code id="review-endpoint">n8n-openai-oauth</code>
-              </li>
+              <li>Attach the sidecar only to the reviewed Docker network</li>
+              <li>Use the reviewed private sidecar hostname</li>
               <li>Upload the OAuth file with owner-only permissions</li>
             </ul>
           </section>
           <section aria-labelledby="wont-title">
             <h3 id="wont-title">The wizard will not</h3>
-            <ul class="no-list">
+            <ul id="review-wont-list" class="no-list">
               <li>Edit or rebuild the n8n image</li>
               <li>Stop, restart, or recreate n8n</li>
               <li>Publish port <code>10531</code></li>
@@ -373,10 +427,8 @@
 
         <label class="check-row approval">
           <input id="install-confirm" type="checkbox" />
-          <span>
-            I approve this sidecar-only installation and understand
-            <code>openai-oauth</code> is an unofficial project.
-          </span>
+          <span id="install-confirm-copy">I approve this sidecar-only installation and understand
+          <code>openai-oauth</code> is an unofficial project.</span>
         </label>
 
         <div class="actions">
@@ -394,10 +446,51 @@
           <div class="success-mark" aria-hidden="true">✓</div>
           <div class="panel-heading">
             <h2 id="done-title" tabindex="-1">The private bridge is ready</h2>
-            <p>Use these values in n8n on the same private Docker network.</p>
+            <p id="done-detail">Use these values in n8n on the same private Docker network.</p>
           </div>
         </div>
 
+        <section id="assistant-result" class="assistant-result" hidden aria-labelledby="assistant-result-title">
+          <h3 id="assistant-result-title">Assistant companion status</h3>
+          <p id="assistant-result-detail">
+            The private companion was verified. Keep its connection details in your operator-controlled n8n configuration.
+          </p>
+          <dl class="result-list assistant-result-list">
+            <div>
+              <dt>Code Sandbox URL</dt>
+              <dd class="result-value">
+                <code id="assistant-result-sandbox-url"></code>
+                <button class="button secondary copy-value" type="button" data-copy-target="assistant-result-sandbox-url" data-copy-label="Code Sandbox URL" aria-label="Copy Code Sandbox URL" title="Copy Code Sandbox URL">⧉</button>
+              </dd>
+            </div>
+            <div id="assistant-result-key-row">
+              <dt>Code Sandbox API key <small>(shown once)</small></dt>
+              <dd class="result-value">
+                <code id="assistant-result-sandbox-key"></code>
+                <button class="button secondary copy-value" type="button" data-copy-target="assistant-result-sandbox-key" data-copy-label="one-time Code Sandbox API key" aria-label="Copy one-time Code Sandbox API key" title="Copy one-time Code Sandbox API key">⧉</button>
+              </dd>
+            </div>
+            <div id="assistant-result-searxng-row" hidden>
+              <dt>SearXNG URL</dt>
+              <dd class="result-value">
+                <code id="assistant-result-searxng-url"></code>
+                <button class="button secondary copy-value" type="button" data-copy-target="assistant-result-searxng-url" data-copy-label="SearXNG URL" aria-label="Copy SearXNG URL" title="Copy SearXNG URL">⧉</button>
+              </dd>
+            </div>
+            <div>
+              <dt>n8n environment settings</dt>
+              <dd>
+                <pre class="sample-json"><code id="assistant-result-settings"></code></pre>
+                <p id="assistant-result-key-note" class="assistant-result-key-note" hidden></p>
+              </dd>
+            </div>
+          </dl>
+          <p class="assistant-result-warning">
+            Apply these values to your own n8n deployment. Relmio never edits its Compose file or restarts its container.
+          </p>
+        </section>
+
+        <div id="sidecar-ready-content">
         <h3>1. OpenAI credential</h3>
         <dl class="result-list">
           <div>
@@ -590,6 +683,7 @@
           return to Terminal and press Control+C to close this local wizard;
           the VPS sidecar will keep running.
         </p>
+        </div>
 
         <div class="actions">
           <a id="setup-another-vps" class="button secondary">Set up another option</a>

@@ -343,7 +343,30 @@ test("local wizard offers a new owned n8n plus Basic-Auth-protected ngrok stack 
   assert.match(html, /private OAuth bridge can be added afterward as a separate wizard choice/u);
   assert.match(html, /id="review-public-url-row"[\s\S]*Public ngrok URL/u);
   assert.match(html, /id="ngrok-authtoken"[^>]*type="password"[^>]*autocomplete="off"/u);
+  assert.match(
+    html,
+    /id="ngrok-authtoken"[^>]*minlength="8"[^>]*maxlength="512"[^>]*aria-describedby="ngrok-authtoken-help"/u,
+  );
+  assert.match(
+    html,
+    /id="ngrok-authtoken-help"[\s\S]*Your Authtoken[\s\S]*Authtokens[\s\S]*ngrok config add-authtoken[\s\S]*API key/u,
+  );
+  assert.match(
+    html,
+    /id="ngrok-basic-auth-username"[^>]*minlength="1"[^>]*maxlength="64"[^>]*pattern="\[A-Za-z0-9_\\-\]\+"[^>]*aria-describedby="ngrok-basic-auth-username-help"/u,
+  );
   assert.match(html, /id="ngrok-basic-auth-password"[^>]*type="password"[^>]*autocomplete="off"/u);
+  assert.match(
+    html,
+    /id="ngrok-basic-auth-password"[^>]*minlength="12"[^>]*maxlength="512"[^>]*aria-describedby="ngrok-basic-auth-password-help"/u,
+  );
+  assert.match(html, /id="ngrok-authtoken-help"[^>]*>[\s\S]*8–512 characters[^<]*no whitespace/iu);
+  assert.match(html, /id="ngrok-basic-auth-username-help"[^>]*>[^<]*letters, numbers, hyphens, or underscores/iu);
+  assert.match(html, /id="ngrok-basic-auth-password-help"[^>]*>[^<]*12–512 characters[^<]*no colon or line breaks/iu);
+  assert.match(
+    html,
+    /id="generate-ngrok-basic-auth-password"[^>]*class="button secondary"[^>]*type="button"[^>]*>\s*Generate strong password\s*<\/button>/u,
+  );
   assert.match(html, /id="n8n-stack-removal"[^>]*hidden/u);
   assert.match(html, /id="remove-n8n-stack-confirm" type="checkbox"/u);
   assert.match(html, /permanently deletes[^<]*n8n data volume[^<]*workflows and credentials/iu);
@@ -355,9 +378,29 @@ test("local wizard offers a new owned n8n plus Basic-Auth-protected ngrok stack 
   assert.match(script, /return target === "local-n8n-stack"/u);
   assert.match(script, /ngrokHostname:[\s\S]*ngrokInspectorPort:[\s\S]*assistantMode:/u);
   assert.match(script, /ngrokAuthtoken:[\s\S]*basicAuthUsername:[\s\S]*basicAuthPassword:/u);
+  assert.match(script, /function validateLocalN8nStackCredentials/u);
+  assert.match(script, /!\/\\s\/u\.test\(ngrokAuthtoken\.value\)/u);
+  assert.match(script, /!\/\^ngrok\(\?:\\\.exe\)\?\\s\+config\\s\+add-authtoken\\b\/iu\.test/u);
+  assert.match(
+    script,
+    /message: "Paste only the agent token value[^"]*Your Authtoken[^"]*Authtokens[^"]*ngrok config add-authtoken[^"]*ngrok API key\."/u,
+  );
+  assert.match(script, /message: "Use 1–64 letters, numbers, hyphens, or underscores\."/u);
+  assert.match(script, /message: "Use 12–512 characters without a colon or line break\."/u);
+  assert.match(script, /setCustomValidity\(validation\.valid \? "" : validation\.message\)/u);
+  assert.match(script, /globalThis\.crypto\.getRandomValues/u);
+  assert.doesNotMatch(script, /Math\.random/u);
+  assert.match(
+    script,
+    /if \(stack && !validateLocalN8nStackCredentials\(\)\) \{[\s\S]*return;[\s\S]*const requestBody/u,
+  );
   assert.match(script, /requestBody\.ngrokAuthtoken = undefined/u);
   assert.match(script, /requestBody\.basicAuthPassword = undefined/u);
-  assert.match(script, /for \(const input of stackSecretInputs\) \{[\s\S]*input\.value = "";[\s\S]*input\.disabled = true;/u);
+  assert.match(script, /for \(const input of stackSecretInputs\) \{[\s\S]*input\.value = "";[\s\S]*input\.disabled = !retryStackCredentials;/u);
+  assert.match(
+    script,
+    /error\.retryablePlan === true[\s\S]*Credentials were cleared for safety\. Re-enter all three credentials and retry this reviewed plan/u,
+  );
   assert.match(script, /element\("n8n-stack-secrets"\)\.hidden = true/u);
   assert.match(script, /element\(id\)\.disabled = !stack/u);
   assert.match(script, /const n8nTarget = sidecar \|\| assistant \|\| stack;/u);
@@ -368,8 +411,88 @@ test("local wizard offers a new owned n8n plus Basic-Auth-protected ngrok stack 
   assert.match(script, /api\("\/api\/local\/n8n\/stack\/remove"/u);
   assert.match(script, /body: \{ confirmed: true \}/u);
   assert.match(script, /public ngrok URL protected by mandatory Basic Auth/u);
+  assert.match(script, /Authenticated public test stack/u);
+  assert.match(script, /Only the ngrok URL is public/u);
   assert.match(css, /\.n8n-stack-fields\s*\{/u);
   assert.doesNotMatch(script, /localStorage[\s\S]{0,200}(?:ngrokAuthtoken|basicAuthPassword)/iu);
+});
+
+test("local installation exposes honest shared progress and locks the complete Install panel", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /id="install-panel"[^>]*data-step="3"[^>]*aria-busy="false"/u,
+  );
+  assert.match(
+    html,
+    /id="install-progress"[^>]*tabindex="-1"[^>]*hidden[\s\S]*id="install-progress-title"[\s\S]*id="install-progress-phase"[^>]*role="status"[^>]*aria-live="polite"/u,
+  );
+  assert.match(
+    html,
+    /id="install-progress-bar"[^>]*role="progressbar"[^>]*aria-labelledby="install-progress-title"[^>]*aria-describedby="install-progress-phase install-progress-duration-note"/u,
+  );
+  const progressbar = html.match(/<[^>]+id="install-progress-bar"[^>]*>/u)?.[0] ?? "";
+  assert.doesNotMatch(progressbar, /aria-valuenow|aria-valuemax|aria-valuemin/u);
+  assert.match(html, /id="install-elapsed"[^>]*datetime="PT0S">00:00</u);
+  assert.match(
+    html,
+    /First-time Docker image downloads can take several minutes/u,
+  );
+  const installPanelMarkup = html.slice(
+    html.indexOf('id="install-panel"'),
+    html.indexOf('data-step="4"'),
+  );
+  assert.match(installPanelMarkup, /id="generate-ngrok-basic-auth-password"/u);
+  assert.match(installPanelMarkup, /id="toggle-ngrok-basic-auth-password"/u);
+  assert.match(installPanelMarkup, /class="button ghost back-button"[^>]*data-back="2"/u);
+
+  assert.match(script, /installing: false/u);
+  assert.match(script, /if \(state\.installing\) return;/u);
+  assert.match(
+    script,
+    /function startInstallProgress\(button\)[\s\S]*state\.installing = true;[\s\S]*querySelectorAll\("button, input, select, textarea"\)[\s\S]*control\.disabled = true;[\s\S]*setInterval/u,
+  );
+  assert.match(script, /progress\.focus\(\{ preventScroll: true \}\)/u);
+  assert.match(
+    script,
+    /function stopInstallProgress\(button\)[\s\S]*clearInterval[\s\S]*state\.installing = false;[\s\S]*control\.disabled = disabled;[\s\S]*aria-busy", "false"/u,
+  );
+  assert.match(
+    script,
+    /const INSTALL_PROGRESS_PHASES = \[[\s\S]*Starting the confirmed local installation[\s\S]*Preparing Docker resources[\s\S]*Docker may be downloading images[\s\S]*First-time Docker downloads can take several minutes/u,
+  );
+  assert.match(script, /function formatInstallElapsed\(elapsedSeconds\)[\s\S]*padStart\(2, "0"\)/u);
+
+  const installStart = script.indexOf(
+    'element("install-button").addEventListener("click"',
+  );
+  const validStackCheck = script.indexOf(
+    "if (stack && !validateLocalN8nStackCredentials())",
+    installStart,
+  );
+  const progressStart = script.indexOf("startInstallProgress(button);", installStart);
+  const installRequest = script.indexOf('api("/api/local/install"', installStart);
+  const retryBranch = script.indexOf("error.retryablePlan === true", installStart);
+  const progressStop = script.indexOf("stopInstallProgress(button);", retryBranch);
+  assert.ok(validStackCheck < progressStart && progressStart < installRequest);
+  assert.ok(retryBranch < progressStop);
+  assert.match(
+    script.slice(retryBranch, progressStop),
+    /retryStackCredentials = true;[\s\S]*Credentials were cleared for safety\. Re-enter all three credentials and retry this reviewed plan/u,
+  );
+
+  assert.match(css, /\.install-progress\s*\{/u);
+  assert.match(css, /@keyframes install-progress-indeterminate/u);
+  assert.match(
+    css,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.install-progress-indicator[\s\S]*animation:\s*none !important/u,
+  );
+  assert.doesNotMatch(`${html}\n${script}`, /(?:\bETA\b|estimated time|\d+% complete)/iu);
 });
 
 test("local wizard makes copying compact, explains ngrok, and keeps Ready reversible", async () => {
@@ -451,6 +574,63 @@ test("n8n bridge discovery recommends the private Assistant network and warns on
   assert.doesNotMatch(script, /containers\[0\]/u);
 });
 
+test("detected local n8n makes ownership limits explicit and exposes confirmed companion edits", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /id="detected-local-integration-management"[^>]*hidden[\s\S]*A running n8n was detected/u,
+  );
+  assert.match(html, /Detection alone does not prove that Relmio created a bridge or[\s\S]*Assistant companion/u);
+  assert.match(html, /id="manage-local-sidecar"[\s\S]*Set up or check owned bridge/u);
+  assert.match(html, /id="manage-local-assistant"[\s\S]*Set up or check owned Assistant tools/u);
+  assert.match(html, /id="refresh-local-n8n-chatgpt"[^>]*>\s*Refresh ChatGPT sign-in\s*<\/button>/u);
+  assert.match(html, /id="n8n-sidecar-refresh"[\s\S]*Apply a new sign-in to an existing bridge/u);
+  assert.match(html, /Completing ChatGPT sign-in above does[\s\S]*not apply it automatically/u);
+  assert.match(html, /id="refresh-bridge-confirm" type="checkbox"/u);
+  assert.match(html, /id="refresh-bridge-button"[^>]*disabled/u);
+  assert.match(html, /id="n8n-assistant-searxng-edit"[\s\S]*Enable search on existing Assistant tools/u);
+  assert.match(html, /does not rotate or reveal the sandbox[\s\S]*key and it never changes n8n/u);
+  assert.match(html, /id="review-assistant-searxng-edit"/u);
+  assert.match(html, /id="enable-assistant-searxng-confirm" type="checkbox"/u);
+  assert.match(html, /id="enable-assistant-searxng-button"[^>]*disabled/u);
+  assert.match(script, /function selectN8nManagementTarget\(target\)/u);
+  assert.match(script, /selectN8nManagementTarget\("n8n-openai-oauth"\)/u);
+  assert.match(script, /selectN8nManagementTarget\("n8n-ai-assistant"\)/u);
+  assert.match(script, /element\("n8n-oauth-sign-in"\)\.click\(\)/u);
+  assert.match(script, /api\("\/api\/local\/n8n\/sidecar\/refresh"/u);
+  assert.match(script, /body: \{ confirmed: true \}/u);
+  assert.match(script, /api\("\/api\/local\/n8n\/assistant\/searxng\/review"/u);
+  assert.match(script, /api\("\/api\/local\/n8n\/assistant\/searxng\/enable"/u);
+  assert.match(script, /sandboxApiKeyRotated !== false/u);
+  assert.match(script, /updateManagedBridgeRefreshControls\(\{ newSignIn \}\)/u);
+  assert.match(script, /hasExactKeys\(value, expectedNames\)/u);
+  assert.doesNotMatch(
+    script,
+    /api\("\/api\/local\/n8n\/sidecar\/refresh"[\s\S]{0,300}(?:authPath|authContents|sandboxApiKey)/iu,
+  );
+  assert.match(css, /\.detected-integration-management\s*\{/u);
+  assert.match(css, /\.managed-companion-edit\s*\{/u);
+  assert.doesNotMatch(script, /\.innerHTML\b/);
+});
+
+test("local Assistant results require the exact companion-only settings block", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+
+  assert.match(script, /N8N_INSTANCE_AI_SANDBOX_IMAGE/u);
+  assert.match(script, /N8N_SANDBOX_SERVICE_API_KEY/u);
+  assert.match(script, /Object\.keys\(value\)\.length === expectedNames\.length/u);
+  assert.match(script, /Object\.hasOwn\(value, name\)/u);
+  assert.match(script, /value\[name\] === expectedSettings\[name\]/u);
+  assert.match(script, /hasExactAssistantSettings\(assistantSettings, expectedAssistantSettings\)/u);
+  assert.match(script, /preserve[^\n]*N8N_ENABLED_MODULES[^\n]*instance-ai/iu);
+  assert.doesNotMatch(script, /N8N_ENABLED_MODULES:\s*"instance-ai"/u);
+});
+
 test("Codex Chat ready state provides an in-wizard, ephemeral encrypted chat tester", async () => {
   const [html, script, css] = await Promise.all([
     readFile("src/ui/local.html", "utf8"),
@@ -514,7 +694,7 @@ test("local image build failures reveal only safe guidance and the hosted troubl
   assert.doesNotMatch(script, /Docker stderr|docker stderr/u);
 });
 
-test("local wizard clearly excludes native Windows", async () => {
+test("local wizard explains native Windows Docker Desktop and ACL requirements", async () => {
   const [html, script] = await Promise.all([
     readFile("src/ui/local.html", "utf8"),
     readFile("src/ui/local.js", "utf8"),
@@ -522,11 +702,11 @@ test("local wizard clearly excludes native Windows", async () => {
 
   assert.match(
     html,
-    /Native Windows is not supported[\s\S]*owner-only file permissions/u,
+    /Native Windows uses Docker Desktop's[\s\S]*owner-only NTFS ACL/u,
   );
   assert.match(script, /result\.unsupportedPlatform === true/u);
-  assert.match(script, /Native Windows is not supported/u);
-  assert.match(script, /POSIX owner-only file permissions/u);
+  assert.match(script, /Windows security check failed/u);
+  assert.match(script, /owner-only NTFS ACL/u);
 });
 
 test("local browser code does not persist or inject credentials", async () => {
@@ -646,14 +826,73 @@ test("main wizard offers token-preserving local endpoint navigation", async () =
 });
 
 test("local CSS preserves responsive, visible security controls", async () => {
-  const css = await readFile("src/ui/local.css", "utf8");
+  const [html, css, sharedStyles] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+    readFile("src/ui/styles.css", "utf8"),
+  ]);
 
+  assert.equal((html.match(/class="panel-kicker"/gu) ?? []).length, 4);
+  assert.equal((html.match(/class="step-copy"/gu) ?? []).length, 4);
   assert.match(css, /\.target-picker\s*\{[\s\S]*display:\s*grid/u);
   assert.match(css, /\.target-card:has\(input:focus-visible\)/u);
   assert.match(css, /\.high-trust-warning\s*\{/u);
   assert.match(css, /\.one-time-note\s*\{/u);
+  assert.match(css, /\.local-wizard\s*\{[^}]*font-size:\s*1rem;/su);
+  assert.match(css, /\.local-wizard \.field small\s*\{[^}]*font-size:\s*0\.875rem;/su);
+  assert.match(css, /\.local-wizard \.field input,[\s\S]*min-height:\s*3rem;/u);
+  assert.match(css, /:root\[data-theme="dark"\] \.local-wizard\s*\{/u);
+  const lightSurface = css.match(/--surface:\s*(#[\da-f]{6});/iu)?.[1];
+  const lightControlBorder = css.match(
+    /--border-strong:\s*(#[\da-f]{6});/iu,
+  )?.[1];
+  assert.ok(lightSurface, "expected a light-theme surface color");
+  assert.ok(lightControlBorder, "expected a light-theme control border color");
+  assert.ok(
+    contrastRatio(lightSurface, lightControlBorder) >= 3,
+    "light-theme form boundaries must meet WCAG non-text contrast",
+  );
+  const explicitDarkTheme = css.match(
+    /:root\[data-theme="dark"\] \.local-wizard\s*\{([\s\S]*?)\n\}/u,
+  )?.[1];
+  assert.ok(explicitDarkTheme, "expected explicit dark-theme variables");
+  const darkAccent = explicitDarkTheme.match(/--accent:\s*(#[\da-f]{6});/iu)?.[1];
+  const darkAccentDeep = explicitDarkTheme.match(
+    /--accent-deep:\s*(#[\da-f]{6});/iu,
+  )?.[1];
+  const darkAccentForeground = explicitDarkTheme.match(
+    /--accent-foreground:\s*(#[\da-f]{6});/iu,
+  )?.[1];
+  const darkSuccess = explicitDarkTheme.match(/--success:\s*(#[\da-f]{6});/iu)?.[1];
+  const darkSuccessForeground = explicitDarkTheme.match(
+    /--success-foreground:\s*(#[\da-f]{6});/iu,
+  )?.[1];
+  for (const [label, foreground, background] of [
+    ["dark primary button", darkAccentForeground, darkAccent],
+    ["dark primary hover", darkAccentForeground, darkAccentDeep],
+    ["dark success glyph", darkSuccessForeground, darkSuccess],
+  ]) {
+    assert.ok(foreground && background, `expected colors for ${label}`);
+    assert.ok(
+      contrastRatio(foreground, background) >= 4.5,
+      `${label} text must meet WCAG normal-text contrast`,
+    );
+  }
+  assert.match(css, /color:\s*var\(--accent-foreground\)/u);
+  assert.match(css, /color:\s*var\(--success-foreground\)/u);
+  assert.match(
+    css,
+    /\.local-wizard :where\(button, input, select, textarea, a, \[tabindex\]\):focus-visible\s*\{[^}]*outline:\s*3px solid var\(--focus\);[^}]*outline-offset:\s*3px;/su,
+  );
+  const focusedFieldBlock = css.match(
+    /\.local-wizard \.field input:focus,[\s\S]*?\.local-wizard \.field textarea:focus\s*\{([^}]*)\}/u,
+  )?.[1];
+  assert.ok(focusedFieldBlock, "expected focused field styles");
+  assert.doesNotMatch(focusedFieldBlock, /outline:\s*(?:0|none)/u);
   assert.match(css, /grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/u);
+  assert.match(css, /@media \(max-width: 72rem\)/u);
   assert.match(css, /@media \(max-width: 48rem\)/u);
+  assert.match(css, /@media \(max-width: 36rem\)/u);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/u);
   assert.doesNotMatch(css, /position:\s*fixed/u);
   assert.match(css, /\.local-wizard \.toast-stack\s*\{[\s\S]*overflow:\s*visible/u);
@@ -663,4 +902,5 @@ test("local CSS preserves responsive, visible security controls", async () => {
   );
   assert.match(css, /\.local-wizard \.safety-note > span\s*\{[\s\S]*display:\s*block/u);
   assert.doesNotMatch(css, /text-overflow:\s*ellipsis/u);
+  assert.doesNotMatch(sharedStyles, /\bInter,/u);
 });

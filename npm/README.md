@@ -23,12 +23,20 @@ OAuth bridge and the supported Platform API path separate.
 
 ## Quick install
 
+With Node.js 22 or newer on macOS, Linux, WSL, Git Bash, Windows PowerShell,
+or Command Prompt:
+
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
 
 The command opens a private `127.0.0.1` browser wizard. It checks Docker, shows
 the plan, and asks before it writes files or starts containers.
+
+No Node.js yet? The [hosted install guide](https://relmio.vercel.app/install)
+has native curl, Homebrew, PowerShell, and Command Prompt bootstrap options;
+every launcher opens the same wizard and uses the same platform security
+checks.
 
 ## Pick a path
 

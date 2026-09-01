@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
+import {
+  LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
+  LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
+} from "../src/services/local-n8n-stack-installer.js";
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "local-server-test-session-token-1234567890";
@@ -16,6 +20,9 @@ async function startLocalWizard(t, services, { previewMode = false } = {}) {
     services: {
       async acquireLocalEndpointChangeLock() {
         return async () => {};
+      },
+      async getLocalN8nStackStatus() {
+        return { managed: false, state: "absent" };
       },
       ...services,
     },
@@ -347,6 +354,23 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
   assert.equal(planned.plan.localUrl, stackPlan.localUrl);
   assert.equal(planned.plan.ngrokPublicUrl, stackPlan.ngrokPublicUrl);
 
+  const invalidPassword = "too-short";
+  const invalid = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+    ngrokAuthtoken,
+    basicAuthUsername: "relmio user",
+    basicAuthPassword: invalidPassword,
+  });
+  assert.equal(invalid.status, 400);
+  const invalidText = await invalid.text();
+  assert.match(invalidText, /Basic Auth username must use 1–64 letters, numbers, hyphens, or underscores\./u);
+  assert.equal(invalidText.includes(invalidPassword), false);
+  const invalidResult = JSON.parse(invalidText);
+  assert.equal(invalidResult.retryablePlan, true);
+  assert.equal("managedPartialStack" in invalidResult, false);
+  assert.equal(installInput, undefined);
+
   const installed = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
@@ -376,6 +400,309 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
     removed: true,
     deploymentMode: "removed-owned-disposable-stack",
   });
+});
+
+test("rejected ngrok startup restores only the reviewed non-secret plan for one safe retry", async (t) => {
+  const dockerHost = "unix:///var/run/docker.sock";
+  const stackPlan = {
+    kind: "local-n8n-stack",
+    target: "local-n8n-stack",
+    label: "Disposable self-hosted n8n + ngrok",
+    dockerHost,
+    ngrokHostname: "workflow.example.ngrok.app",
+    n8nPort: 5679,
+    ngrokInspectorPort: 4041,
+    timezone: "Asia/Manila",
+    assistantMode: "disabled",
+    localUrl: "http://127.0.0.1:5679",
+    ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    hostPublication: "loopback-only",
+    deploymentMode: "new-disposable-stack",
+    managedPath: "~/.relmio/local/n8n-stack",
+  };
+  const authtoken = "ngrok-never-return-this";
+  const password = "never-return-this-password";
+  const calls = [];
+  const wizard = await startLocalWizard(t, {
+    async getLocalDockerStatus() {
+      return { dockerAvailable: true, dockerHost };
+    },
+    prepareLocalN8nStackPlan() {
+      return stackPlan;
+    },
+    async installLocalN8nStack(input) {
+      calls.push(input);
+      throw Object.assign(new Error(
+        "The new n8n + ngrok stack did not start. Check the reserved ngrok hostname and agent token, then retry.",
+      ), { code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE });
+    },
+  });
+  const planned = await createPlan(wizard, {
+    target: "local-n8n-stack",
+    ngrokHostname: stackPlan.ngrokHostname,
+    n8nPort: String(stackPlan.n8nPort),
+    ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
+    timezone: stackPlan.timezone,
+    assistantMode: stackPlan.assistantMode,
+  });
+  const attempt = () => postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+    ngrokAuthtoken: authtoken,
+    basicAuthUsername: "relmio",
+    basicAuthPassword: password,
+  });
+  const first = await attempt();
+  assert.equal(first.status, 400);
+  const firstText = await first.text();
+  assert.equal(firstText.includes(authtoken), false);
+  assert.equal(firstText.includes(password), false);
+  assert.equal(firstText.includes(dockerHost), false);
+  assert.deepEqual(JSON.parse(firstText), {
+    error: "The new n8n + ngrok stack did not start. Check the reserved ngrok hostname and agent token, then retry.",
+    retryablePlan: true,
+    retryableNgrokSetup: true,
+  });
+  const second = await attempt();
+  assert.equal(second.status, 400);
+  assert.equal(calls.length, 2);
+  assert.equal(calls.every((input) => input.plan === stackPlan), true);
+});
+
+test("stopped stack resume requires an explicit user action and returns no Docker details", async (t) => {
+  let resumeInput;
+  const wizard = await startLocalWizard(t, {
+    async resumeLocalN8nStack(input) {
+      resumeInput = input;
+      return {
+        target: "local-n8n-stack",
+        resumed: true,
+        deploymentMode: "resumed-owned-disposable-stack",
+        projectName: `relmio-local-n8n-${"f".repeat(32)}`,
+      };
+    },
+  });
+  const unconfirmed = await postJson(wizard, "/api/local/n8n/stack/resume", {});
+  assert.equal(unconfirmed.status, 400);
+  assert.equal(resumeInput, undefined);
+  const resumed = await postJson(wizard, "/api/local/n8n/stack/resume", { confirmed: true });
+  assert.equal(resumed.status, 200);
+  assert.deepEqual(resumeInput, { confirmed: true });
+  assert.deepEqual(await resumed.json(), {
+    target: "local-n8n-stack",
+    resumed: true,
+    deploymentMode: "resumed-owned-disposable-stack",
+  });
+});
+
+test("local Docker status exposes only an exact safe managed-stack state", async (t) => {
+  const leakedPath = "C:\\Users\\fixture\\.relmio\\local\\n8n-stack";
+  const leakedProject = `relmio-local-n8n-${"a".repeat(32)}`;
+  const leakedUrl = "https://private-fixture.ngrok.app";
+  const wizard = await startLocalWizard(t, {
+    async getLocalDockerStatus() {
+      return {
+        dockerAvailable: true,
+        dockerVersion: "28.3.2",
+        composeVersion: "2.38.2",
+        dockerOutput: "must-not-leak",
+      };
+    },
+    async getLocalN8nStackStatus() {
+      return {
+        managed: true,
+        state: "stopped",
+        installRoot: leakedPath,
+        projectName: leakedProject,
+        ngrokPublicUrl: leakedUrl,
+        ownedResourceCount: 3,
+        marker: { secret: "must-not-leak" },
+        rawError: "must-not-leak",
+      };
+    },
+  });
+
+  const response = await api(wizard, "/api/local/docker/status");
+  assert.equal(response.status, 200);
+  const responseText = await response.text();
+  assert.deepEqual(JSON.parse(responseText), {
+    dockerAvailable: true,
+    dockerVersion: "28.3.2",
+    composeVersion: "2.38.2",
+    localN8nStackState: "stopped",
+  });
+  for (const privateValue of [
+    leakedPath,
+    leakedProject,
+    leakedUrl,
+    "must-not-leak",
+  ]) {
+    assert.equal(responseText.includes(privateValue), false);
+  }
+});
+
+test("local Docker status omits unrecognized managed-stack state and keeps unavailable explicit", async (t) => {
+  for (const scenario of [
+    {
+      name: "safe negative",
+      getLocalN8nStackStatus: async () => ({ managed: false, state: "absent", path: "must-not-leak" }),
+    },
+    {
+      name: "truthy non-boolean",
+      getLocalN8nStackStatus: async () => ({ managed: "true", state: "partial", path: "must-not-leak" }),
+    },
+    {
+      name: "unconfirmed error",
+      getLocalN8nStackStatus: async () => {
+        throw new Error("raw Docker output and marker details must-not-leak");
+      },
+    },
+  ]) {
+    await t.test(scenario.name, async (subtest) => {
+      const wizard = await startLocalWizard(subtest, {
+        async getLocalDockerStatus() {
+          return {
+            dockerAvailable: true,
+            dockerVersion: "28.3.2",
+            composeVersion: "2.38.2",
+          };
+        },
+        getLocalN8nStackStatus: scenario.getLocalN8nStackStatus,
+      });
+
+      const response = await api(wizard, "/api/local/docker/status");
+      assert.equal(response.status, 200);
+      const responseText = await response.text();
+      assert.deepEqual(JSON.parse(responseText), {
+        dockerAvailable: true,
+        dockerVersion: "28.3.2",
+        composeVersion: "2.38.2",
+      });
+      assert.equal(responseText.includes("localN8nStackState"), false);
+      assert.equal(responseText.includes("must-not-leak"), false);
+    });
+  }
+});
+
+test("local Docker status exposes only the literal unavailable state when stack attestation fails", async (t) => {
+  const wizard = await startLocalWizard(t, {
+    async getLocalDockerStatus() {
+      return { dockerAvailable: true, dockerVersion: "28.3.2", composeVersion: "2.38.2" };
+    },
+    async getLocalN8nStackStatus() {
+      return {
+        managed: false,
+        state: "unavailable",
+        rawDockerMetadata: "must-not-leak",
+      };
+    },
+  });
+  const response = await api(wizard, "/api/local/docker/status");
+  const text = await response.text();
+  assert.deepEqual(JSON.parse(text), {
+    dockerAvailable: true,
+    dockerVersion: "28.3.2",
+    composeVersion: "2.38.2",
+    localN8nStackState: "unavailable",
+  });
+  assert.equal(text.includes("must-not-leak"), false);
+});
+
+test("local n8n startup errors expose recovery only for the exact attested partial-stack code", async (t) => {
+  const dockerHost = "unix:///var/run/docker.sock";
+  const stackPlan = {
+    kind: "local-n8n-stack",
+    target: "local-n8n-stack",
+    label: "Disposable self-hosted n8n + ngrok",
+    dockerHost,
+    ngrokHostname: "workflow.example.ngrok.app",
+    n8nPort: 5679,
+    ngrokInspectorPort: 4041,
+    timezone: "Asia/Manila",
+    assistantMode: "disabled",
+    localUrl: "http://127.0.0.1:5679",
+    ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    hostPublication: "loopback-only",
+    deploymentMode: "new-disposable-stack",
+    managedPath: "~/.relmio/local/n8n-stack",
+  };
+  const installBody = {
+    confirmed: true,
+    ngrokAuthtoken: "ngrok-secret-token",
+    basicAuthUsername: "relmio",
+    basicAuthPassword: "basic-auth-secret",
+  };
+  const cases = [
+    {
+      name: "confirmed Relmio-owned resources remain",
+      error: Object.assign(
+        new Error(
+          "docker stderr: https://unexpected.invalid/?token=plain-private-value",
+        ),
+        { code: LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE },
+      ),
+      expectedManagedPartialStack: true,
+    },
+    {
+      name: "matching human guidance without attestation code",
+      error: new Error(
+        "Local n8n stack startup failed and a Relmio-managed partial stack remains.",
+      ),
+      expectedManagedPartialStack: false,
+    },
+    {
+      name: "confirmed cleanup leaves no resources",
+      error: new Error(
+        "Local n8n stack startup failed, but its owned partial resources were removed.",
+      ),
+      expectedManagedPartialStack: false,
+    },
+  ];
+
+  for (const scenario of cases) {
+    await t.test(scenario.name, async (subtest) => {
+      const wizard = await startLocalWizard(subtest, {
+        async getLocalDockerStatus() {
+          return { dockerAvailable: true, dockerHost };
+        },
+        prepareLocalN8nStackPlan() {
+          return stackPlan;
+        },
+        async installLocalN8nStack() {
+          throw scenario.error;
+        },
+      });
+      const planned = await createPlan(wizard, {
+        target: "local-n8n-stack",
+        ngrokHostname: stackPlan.ngrokHostname,
+        n8nPort: String(stackPlan.n8nPort),
+        ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
+        timezone: stackPlan.timezone,
+        assistantMode: stackPlan.assistantMode,
+      });
+      const response = await postJson(wizard, "/api/local/install", {
+        ...installBody,
+        planId: planned.planId,
+      });
+      assert.equal(response.status, 400);
+      const responseText = await response.text();
+      const result = JSON.parse(responseText);
+      assert.equal(
+        result.managedPartialStack === true,
+        scenario.expectedManagedPartialStack,
+      );
+      if (!scenario.expectedManagedPartialStack) {
+        assert.equal("managedPartialStack" in result, false);
+      }
+      assert.equal("code" in result, false);
+      assert.equal(responseText.includes(installBody.ngrokAuthtoken), false);
+      assert.equal(responseText.includes(installBody.basicAuthPassword), false);
+      assert.equal(responseText.includes(dockerHost), false);
+      assert.equal(responseText.includes("docker stderr"), false);
+      assert.equal(responseText.includes("https://unexpected.invalid"), false);
+      assert.equal(responseText.includes("plain-private-value"), false);
+    });
+  }
 });
 
 test("local Docker status, planning, and installation expose only safe fields", async (t) => {
@@ -717,6 +1044,7 @@ test("local n8n Assistant planning, install, and removal expose only the reviewe
   const prepared = [];
   const installed = [];
   let removed = 0;
+  let transformAssistantResult = (result) => result;
   const sandboxApiKey = "s".repeat(43);
   const sandboxImage = ASSISTANT_COMPANION_IMAGES.sandbox;
   const wizard = await startLocalWizard(t, {
@@ -761,7 +1089,7 @@ test("local n8n Assistant planning, install, and removal expose only the reviewe
       installed.push(input);
       const sandboxUrl = "http://relmio-ai-sandbox-" + "c".repeat(32) + ":8080";
       const searxngUrl = "http://relmio-ai-searxng-" + "d".repeat(32) + ":8080";
-      return {
+      return transformAssistantResult({
         target: "n8n-ai-assistant",
         endpoint: sandboxUrl,
         sandboxUrl,
@@ -775,7 +1103,6 @@ test("local n8n Assistant planning, install, and removal expose only the reviewe
         privilegedRunner: true,
         n8nConfigurationRequired: true,
         n8nSettings: {
-          N8N_ENABLED_MODULES: "instance-ai",
           N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
           N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
           N8N_INSTANCE_AI_SANDBOX_IMAGE: sandboxImage,
@@ -786,7 +1113,7 @@ test("local n8n Assistant planning, install, and removal expose only the reviewe
         deploymentMode: "installed",
         credentialShownOnce: true,
         privateRunnerToken: "must-not-leak",
-      };
+      });
     },
     async removeLocalN8nAssistant({ confirmed }) {
       assert.equal(confirmed, true);
@@ -872,7 +1199,6 @@ test("local n8n Assistant planning, install, and removal expose only the reviewe
   assert.equal(result.sandboxApiKey, sandboxApiKey);
   assert.equal(result.searxngUrl.endsWith(":8080"), true);
   assert.deepEqual(result.n8nSettings, {
-    N8N_ENABLED_MODULES: "instance-ai",
     N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
     N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
     N8N_INSTANCE_AI_SANDBOX_IMAGE: sandboxImage,
@@ -880,6 +1206,24 @@ test("local n8n Assistant planning, install, and removal expose only the reviewe
     N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey,
     N8N_INSTANCE_AI_SEARXNG_URL: result.searxngUrl,
   });
+  assert.equal("N8N_ENABLED_MODULES" in result.n8nSettings, false);
+
+  transformAssistantResult = (installResult) => {
+    installResult.n8nSettings.N8N_ENABLED_MODULES = "instance-ai";
+    return installResult;
+  };
+  const rejectedPlan = await createPlan(wizard, {
+    target: "n8n-ai-assistant",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+    includeSearxng: true,
+  });
+  const rejectedResponse = await postJson(wizard, "/api/local/install", {
+    planId: rejectedPlan.planId,
+    confirmed: true,
+  });
+  assert.equal(rejectedResponse.status, 502);
+  assert.doesNotMatch(await rejectedResponse.text(), /N8N_ENABLED_MODULES|instance-ai/u);
 
   const removal = await postJson(
     wizard,
@@ -2088,5 +2432,301 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
     status: "idle",
     previewMode: true,
   });
+  assert.deepEqual(calls, []);
+});
+
+function createAssistantSearxngEditReview() {
+  return {
+    schemaVersion: 1,
+    kind: "relmio-local-n8n-assistant-searxng-update",
+    target: "n8n-ai-assistant",
+    includeSearxng: true,
+    sandboxApiKeyRotated: false,
+    plan: {
+      kind: "n8n-assistant",
+      target: "n8n-ai-assistant",
+      label: "n8n AI Assistant tools",
+      protocol: "n8n-instance-ai-companion",
+      dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+      n8nContainerId: "a".repeat(64),
+      n8nContainerName: "relmio-test-n8n",
+      dockerNetworkId: "b".repeat(64),
+      networkName: "relmio-test_assistant-shared",
+      includeSearxng: false,
+      codeSandbox: true,
+      privilegedRunner: true,
+      hostPublication: "none",
+      managedPath: "~/.relmio/local/n8n-ai-assistant",
+      n8nConfigurationRequired: true,
+    },
+    installation: {
+      version: 2,
+      installId: "c".repeat(32),
+      projectName: `relmio-ai-${"d".repeat(32)}`,
+      sandboxAlias: `relmio-ai-sandbox-${"e".repeat(32)}`,
+      searxngAlias: `relmio-ai-searxng-${"f".repeat(32)}`,
+      includeSearxng: false,
+    },
+  };
+}
+
+test("managed local companion edits require review and confirmations, use the shared mutation guard, and sanitize every result", async (t) => {
+  const authPath = "/Users/fixture/.n8n-openai-oauth/auth.json";
+  const review = createAssistantSearxngEditReview();
+  const refreshInputs = [];
+  const editInputs = [];
+  let editReturnsUnexpectedSecret = true;
+  let resolveRefresh;
+  let refreshStarted;
+  const refreshGate = new Promise((resolve) => {
+    resolveRefresh = resolve;
+  });
+  const refreshStart = new Promise((resolve) => {
+    refreshStarted = resolve;
+  });
+  t.after(() => resolveRefresh());
+  const wizard = await startLocalWizard(t, {
+    async getAuthStatus() {
+      return {
+        exists: true,
+        path: authPath,
+        updatedAt: "2026-08-31T01:02:03.000Z",
+      };
+    },
+    async refreshLocalN8nSidecarCredential(input) {
+      refreshInputs.push(input);
+      refreshStarted();
+      await refreshGate;
+      return {
+        target: "n8n-openai-oauth",
+        credentialRefreshed: true,
+        models: ["gpt-5.6-sol"],
+        hostPublication: "none",
+        authPath,
+        authContents: "must-not-leak",
+      };
+    },
+    async prepareLocalN8nAssistantSearxngUpdate({ includeSearxng }) {
+      assert.equal(includeSearxng, true);
+      return review;
+    },
+    async editLocalN8nAssistantSearxng(input) {
+      editInputs.push(input);
+      return {
+        target: "n8n-ai-assistant",
+        endpoint: `http://${review.installation.sandboxAlias}:8080`,
+        sandboxUrl: `http://${review.installation.sandboxAlias}:8080`,
+        searxngUrl: `http://${review.installation.searxngAlias}:8080`,
+        protocol: "n8n-instance-ai-companion",
+        includeSearxng: true,
+        networkName: review.plan.networkName,
+        n8nContainerName: review.plan.n8nContainerName,
+        hostPublication: "none",
+        privilegedRunner: true,
+        n8nConfigurationRequired: true,
+        n8nSettings: {
+          N8N_INSTANCE_AI_SEARXNG_URL: `http://${review.installation.searxngAlias}:8080`,
+        },
+        deploymentMode: "searxng-enabled",
+        sandboxApiKeyRotated: false,
+        ...(editReturnsUnexpectedSecret ? { sandboxApiKey: "must-not-leak" } : {}),
+      };
+    },
+    async startOAuthLogin() {
+      throw new Error("must not start while a local edit is in flight");
+    },
+  });
+
+  const unconfirmedRefresh = await postJson(
+    wizard,
+    "/api/local/n8n/sidecar/refresh",
+    {},
+  );
+  assert.equal(unconfirmedRefresh.status, 400);
+  assert.equal(refreshInputs.length, 0);
+
+  const refreshing = postJson(wizard, "/api/local/n8n/sidecar/refresh", {
+    confirmed: true,
+  });
+  await refreshStart;
+  const concurrentReview = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/review",
+    { includeSearxng: true },
+  );
+  assert.equal(concurrentReview.status, 409);
+  const concurrentSignIn = await postJson(wizard, "/api/oauth/login", {});
+  assert.equal(concurrentSignIn.status, 409);
+  resolveRefresh();
+  const refreshed = await refreshing;
+  assert.equal(refreshed.status, 200);
+  assert.deepEqual(refreshInputs, [{ authPath, confirmed: true }]);
+  const refreshedText = await refreshed.text();
+  assert.doesNotMatch(refreshedText, /Users|authContents|must-not-leak/iu);
+  assert.deepEqual(JSON.parse(refreshedText), {
+    target: "n8n-openai-oauth",
+    credentialRefreshed: true,
+    models: ["gpt-5.6-sol"],
+    hostPublication: "none",
+  });
+
+  const reviewed = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/review",
+    { includeSearxng: true },
+  );
+  assert.equal(reviewed.status, 200);
+  const reviewedText = await reviewed.text();
+  assert.doesNotMatch(
+    reviewedText,
+    /dockerHost|dockerNetworkId|containerId|installId|projectName|Users/iu,
+  );
+  const safeReview = JSON.parse(reviewedText);
+  assert.deepEqual(Object.keys(safeReview).sort(), [
+    "hostPublication",
+    "includeSearxng",
+    "n8nConfigurationRequired",
+    "n8nContainerName",
+    "networkName",
+    "reviewId",
+    "sandboxApiKeyRotated",
+    "sandboxUrl",
+    "searxngUrl",
+    "target",
+  ]);
+
+  const unconfirmedEnable = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/enable",
+    { reviewId: safeReview.reviewId },
+  );
+  assert.equal(unconfirmedEnable.status, 400);
+  assert.equal(editInputs.length, 0);
+  const enabled = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/enable",
+    { reviewId: safeReview.reviewId, confirmed: true },
+  );
+  assert.equal(enabled.status, 502, "unexpected secret-bearing result must fail closed");
+  assert.equal(editInputs.length, 1);
+  assert.deepEqual(editInputs[0], { review, confirmed: true });
+  assert.doesNotMatch(await enabled.text(), /sandboxApiKey|must-not-leak/iu);
+
+  editReturnsUnexpectedSecret = false;
+  const reviewedAgain = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/review",
+    { includeSearxng: true },
+  );
+  assert.equal(reviewedAgain.status, 200);
+  const safeReviewAgain = await reviewedAgain.json();
+  const enabledSafely = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/enable",
+    { reviewId: safeReviewAgain.reviewId, confirmed: true },
+  );
+  assert.equal(enabledSafely.status, 200);
+  const safeEnabledText = await enabledSafely.text();
+  assert.doesNotMatch(safeEnabledText, /must-not-leak|dockerHost/iu);
+  assert.deepEqual(JSON.parse(safeEnabledText), {
+    target: "n8n-ai-assistant",
+    endpoint: `http://${review.installation.sandboxAlias}:8080`,
+    sandboxUrl: `http://${review.installation.sandboxAlias}:8080`,
+    searxngUrl: `http://${review.installation.searxngAlias}:8080`,
+    protocol: "n8n-instance-ai-companion",
+    includeSearxng: true,
+    networkName: review.plan.networkName,
+    n8nContainerName: review.plan.n8nContainerName,
+    hostPublication: "none",
+    privilegedRunner: true,
+    n8nConfigurationRequired: true,
+    n8nSettings: {
+      N8N_INSTANCE_AI_SEARXNG_URL: `http://${review.installation.searxngAlias}:8080`,
+    },
+    deploymentMode: "searxng-enabled",
+    sandboxApiKeyRotated: false,
+  });
+});
+
+test("Assistant SearXNG review holds the shared local-change guard while attesting Docker state", async (t) => {
+  const review = createAssistantSearxngEditReview();
+  let releaseReview;
+  let signalReviewStarted;
+  let refreshCalls = 0;
+  let oauthCalls = 0;
+  const reviewGate = new Promise((resolve) => {
+    releaseReview = resolve;
+  });
+  const reviewStarted = new Promise((resolve) => {
+    signalReviewStarted = resolve;
+  });
+  t.after(() => releaseReview());
+
+  const wizard = await startLocalWizard(t, {
+    async prepareLocalN8nAssistantSearxngUpdate() {
+      signalReviewStarted();
+      await reviewGate;
+      return review;
+    },
+    async refreshLocalN8nSidecarCredential() {
+      refreshCalls += 1;
+      throw new Error("must not refresh while a review snapshot is in flight");
+    },
+    async startOAuthLogin() {
+      oauthCalls += 1;
+      throw new Error("must not sign in while a review snapshot is in flight");
+    },
+  });
+
+  const reviewing = postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/review",
+    { includeSearxng: true },
+  );
+  await reviewStarted;
+
+  const concurrentRefresh = await postJson(
+    wizard,
+    "/api/local/n8n/sidecar/refresh",
+    { confirmed: true },
+  );
+  const concurrentSignIn = await postJson(wizard, "/api/oauth/login", {});
+  assert.equal(concurrentRefresh.status, 409);
+  assert.equal(concurrentSignIn.status, 409);
+  assert.equal(refreshCalls, 0);
+  assert.equal(oauthCalls, 0);
+
+  releaseReview();
+  assert.equal((await reviewing).status, 200);
+});
+
+test("local companion edit routes reject preview mode without calling services", async (t) => {
+  const calls = [];
+  const wizard = await startLocalWizard(
+    t,
+    {
+      async getAuthStatus() {
+        calls.push("auth");
+      },
+      async refreshLocalN8nSidecarCredential() {
+        calls.push("refresh");
+      },
+      async prepareLocalN8nAssistantSearxngUpdate() {
+        calls.push("review");
+      },
+      async editLocalN8nAssistantSearxng() {
+        calls.push("enable");
+      },
+    },
+    { previewMode: true },
+  );
+  for (const [path, body] of [
+    ["/api/local/n8n/sidecar/refresh", { confirmed: true }],
+    ["/api/local/n8n/assistant/searxng/review", { includeSearxng: true }],
+    ["/api/local/n8n/assistant/searxng/enable", { reviewId: "x", confirmed: true }],
+  ]) {
+    const response = await postJson(wizard, path, body);
+    assert.equal(response.status, 403);
+  }
   assert.deepEqual(calls, []);
 });

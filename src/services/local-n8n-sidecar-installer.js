@@ -16,9 +16,14 @@ import {
 import { validateDockerName } from "../domain/validation.js";
 import {
   runLocalProcess,
+  lockDownLocalPath,
   validateLocalDockerHost,
 } from "../infrastructure/local-process.js";
 import { readAuthContents, resolveAuthPath } from "./oauth.js";
+import {
+  acquireLocalIntegrationLifecycleLock,
+  settleLocalIntegrationLifecycleOperation,
+} from "./local-integration-lifecycle-lock.js";
 
 const COMPOSE_FILENAME = "docker-compose.yml";
 const MANAGED_MARKER = ".managed-by-relmio.json";
@@ -46,16 +51,75 @@ const VERIFIER_SCRIPT = [
   'process.stdout.write(JSON.stringify(await models.json()));})',
   '.catch(()=>process.exit(1));',
 ].join("");
+const CREDENTIAL_REFRESH_PREFLIGHT_SCRIPT = [
+  "set -eu",
+  "rm -f /run/relmio-auth/.auth.json.previous.next /run/relmio-auth/.auth.json.quiesce.next",
+  "if test -e /run/relmio-auth/.auth.json.previous; then test ! -e /run/relmio-auth/.auth.json.quiesce; test -f /run/relmio-auth/.auth.json.previous; node -e 'JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"))' /run/relmio-auth/.auth.json.previous; rm -f /run/relmio-auth/.auth.json.next; printf rollback-pending; elif test -e /run/relmio-auth/.auth.json.quiesce; then test -f /run/relmio-auth/.auth.json.quiesce; node -e 'JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"))' /run/relmio-auth/.auth.json.quiesce; test ! -e /run/relmio-auth/.auth.json.next; printf quiesce-pending; else test ! -e /run/relmio-auth/.auth.json.next; printf clean; fi",
+].join("; ");
+const CREDENTIAL_REFRESH_QUIESCE_BACKUP_SCRIPT = [
+  "set -eu",
+  "umask 077",
+  "trap 'rm -f /run/relmio-auth/.auth.json.quiesce.next' EXIT HUP INT TERM",
+  "test -f /run/relmio-auth/auth.json",
+  "test ! -e /run/relmio-auth/.auth.json.previous",
+  "test ! -e /run/relmio-auth/.auth.json.quiesce",
+  "cp /run/relmio-auth/auth.json /run/relmio-auth/.auth.json.quiesce.next",
+  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.quiesce.next',
+  "chmod 0600 /run/relmio-auth/.auth.json.quiesce.next",
+  "mv -f /run/relmio-auth/.auth.json.quiesce.next /run/relmio-auth/.auth.json.quiesce",
+  "trap - EXIT HUP INT TERM",
+].join("; ");
+const CREDENTIAL_REFRESH_QUIESCE_REFRESH_SCRIPT = [
+  "set -eu",
+  "umask 077",
+  "trap 'rm -f /run/relmio-auth/.auth.json.quiesce.next' EXIT HUP INT TERM",
+  "test ! -e /run/relmio-auth/.auth.json.previous",
+  "test -f /run/relmio-auth/.auth.json.quiesce",
+  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.quiesce',
+  "if test -f /run/relmio-auth/auth.json && node -e 'JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"))' /run/relmio-auth/auth.json; then cp /run/relmio-auth/auth.json /run/relmio-auth/.auth.json.quiesce.next; node -e 'JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"))' /run/relmio-auth/.auth.json.quiesce.next; chmod 0600 /run/relmio-auth/.auth.json.quiesce.next; mv -f /run/relmio-auth/.auth.json.quiesce.next /run/relmio-auth/.auth.json.quiesce; printf refreshed; else printf retained-invalid-current; fi",
+  "trap - EXIT HUP INT TERM",
+].join("; ");
+const CREDENTIAL_REFRESH_PROMOTE_SCRIPT = [
+  "set -eu",
+  "test ! -e /run/relmio-auth/.auth.json.previous",
+  "test -f /run/relmio-auth/.auth.json.quiesce",
+  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.quiesce',
+  "mv /run/relmio-auth/.auth.json.quiesce /run/relmio-auth/.auth.json.previous",
+  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.previous',
+].join("; ");
+const CREDENTIAL_REFRESH_SEED_SCRIPT = [
+  "set -eu",
+  "umask 077",
+  "trap 'rm -f /run/relmio-auth/.auth.json.next' EXIT HUP INT TERM",
+  "test -f /run/relmio-auth/.auth.json.previous",
+  "cat > /run/relmio-auth/.auth.json.next",
+  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.next',
+  "chmod 0600 /run/relmio-auth/.auth.json.next",
+  "mv -f /run/relmio-auth/.auth.json.next /run/relmio-auth/auth.json",
+  "trap - EXIT HUP INT TERM",
+].join("; ");
+const CREDENTIAL_REFRESH_ROLLBACK_SCRIPT = [
+  "set -eu",
+  "test -f /run/relmio-auth/.auth.json.previous",
+  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.previous',
+  "rm -f /run/relmio-auth/.auth.json.next",
+  "cp /run/relmio-auth/.auth.json.previous /run/relmio-auth/.auth.json.next",
+  "chmod 0600 /run/relmio-auth/.auth.json.next",
+  "mv -f /run/relmio-auth/.auth.json.next /run/relmio-auth/auth.json",
+].join("; ");
+const CREDENTIAL_REFRESH_COMMIT_SCRIPT = [
+  "set -eu",
+  "test -f /run/relmio-auth/auth.json",
+  "rm -f /run/relmio-auth/.auth.json.previous /run/relmio-auth/.auth.json.quiesce /run/relmio-auth/.auth.json.next /run/relmio-auth/.auth.json.quiesce.next",
+].join("; ");
 
 function isMissing(error) {
   return error?.code === "ENOENT";
 }
 
 function assertSupportedPlatform(platform) {
-  if (platform === "win32") {
-    throw new Error(
-      "Local Docker sidecars are not supported on native Windows in this release.",
-    );
+  if (typeof platform !== "string" || platform.length === 0) {
+    throw new TypeError("The local platform is invalid.");
   }
 }
 
@@ -157,11 +221,19 @@ async function resolveLocalDockerHost({ runProcess, cwd, env, platform }) {
   } catch {
     throw new Error("The selected Docker context is not a local Docker daemon.");
   }
+  let dockerHost;
   try {
-    return validateLocalDockerHost(candidate, { platform });
+    dockerHost = validateLocalDockerHost(candidate, { platform });
   } catch {
     throw new Error("The selected Docker context is not a local Docker daemon.");
   }
+  if (platform === "win32" && dockerHost.startsWith("npipe:")) {
+    const selectedContext = await runProcess({ file: "docker", args: ["context", "show"], cwd });
+    if (selectedContext.code !== 0 || selectedContext.stdout.trim() !== "desktop-linux") {
+      throw new Error("Docker Desktop's local Linux engine must be selected.");
+    }
+  }
+  return dockerHost;
 }
 
 async function runOrThrow(runProcess, spec, label) {
@@ -274,11 +346,17 @@ function validateSelectedNetwork(inspected, { n8nContainerId, expectedName }) {
     networkName !== expectedName ||
     inspected?.Driver !== "bridge" ||
     inspected?.Scope !== "local" ||
+    inspected?.Internal !== false ||
     !inspected?.Containers ||
     typeof inspected.Containers !== "object" ||
     Array.isArray(inspected.Containers) ||
     !Object.prototype.hasOwnProperty.call(inspected.Containers, n8nContainerId)
   ) {
+    if (inspected?.Internal === true) {
+      throw new Error(
+        "The selected n8n Docker network has no outbound Internet access. Choose a non-internal Docker network and review a fresh plan.",
+      );
+    }
     throw new Error("The selected n8n Docker network is invalid.");
   }
   const labels = inspected.Labels;
@@ -428,7 +506,7 @@ async function writeManagedFile(fileSystem, path, contents, mode) {
   }
 }
 
-async function ensurePrivateDirectory(fileSystem, path) {
+async function ensurePrivateDirectory(fileSystem, path, platform, lockDownPath) {
   const metadata = await lstatIfExists(fileSystem, path);
   if (metadata) {
     assertDirectory(metadata);
@@ -436,6 +514,7 @@ async function ensurePrivateDirectory(fileSystem, path) {
     await fileSystem.mkdir(path, { mode: 0o700 });
   }
   await fileSystem.chmod(path, 0o700);
+  if (platform === "win32") await lockDownPath(path, { platform });
 }
 
 async function inspectManagedInstall({ fileSystem, installRoot }) {
@@ -534,56 +613,101 @@ async function initializeManagedDirectories({
   fileSystem,
   installRoot,
   baseExists,
+  platform,
+  lockDownPath,
 }) {
   const relmioHome = resolve(installRoot, "..", "..");
   if (!baseExists) {
-    await fileSystem.mkdir(relmioHome, { mode: 0o700 });
-    await writeManagedFile(
-      fileSystem,
-      join(relmioHome, ROOT_MARKER),
-      `${JSON.stringify({
-        schemaVersion: ROOT_MARKER_SCHEMA_VERSION,
-        kind: "relmio-local-root",
-      })}\n`,
-      0o600,
-    );
+    let createdIdentity = null;
+    try {
+      await fileSystem.mkdir(relmioHome, { mode: 0o700 });
+      createdIdentity = await captureFreshDirectoryIdentity(fileSystem, relmioHome);
+      await fileSystem.chmod(relmioHome, 0o700);
+      if (platform === "win32") await lockDownPath(relmioHome, { platform });
+      await writeManagedFile(
+        fileSystem,
+        join(relmioHome, ROOT_MARKER),
+        `${JSON.stringify({
+          schemaVersion: ROOT_MARKER_SCHEMA_VERSION,
+          kind: "relmio-local-root",
+        })}\n`,
+        0o600,
+      );
+    } catch (error) {
+      await removeFreshEmptyManagedRoot({
+        fileSystem,
+        relmioHome,
+        createdIdentity,
+      });
+      throw error;
+    }
   }
   await fileSystem.chmod(relmioHome, 0o700);
-  await ensurePrivateDirectory(fileSystem, join(relmioHome, "local"));
-  await ensurePrivateDirectory(fileSystem, installRoot);
+  if (platform === "win32") await lockDownPath(relmioHome, { platform });
+  await ensurePrivateDirectory(fileSystem, join(relmioHome, "local"), platform, lockDownPath);
+  await ensurePrivateDirectory(fileSystem, installRoot, platform, lockDownPath);
 }
 
-async function acquireSidecarLock({ fileSystem, installRoot }) {
+function isDirectoryIdentity(metadata, identity) {
+  return (
+    metadata !== null &&
+    !metadata.isSymbolicLink() &&
+    metadata.isDirectory() &&
+    identity !== null &&
+    metadata.dev === identity.dev &&
+    metadata.ino === identity.ino
+  );
+}
+
+async function captureFreshDirectoryIdentity(fileSystem, path) {
+  const metadata = await lstatIfExists(fileSystem, path);
+  if (!metadata || metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error("Relmio could not verify its newly created local storage directory.");
+  }
+  return { dev: metadata.dev, ino: metadata.ino };
+}
+
+async function removeFreshEmptyManagedRoot({
+  fileSystem,
+  relmioHome,
+  createdIdentity,
+}) {
+  if (!createdIdentity) return;
+  try {
+    let metadata = await lstatIfExists(fileSystem, relmioHome);
+    if (!isDirectoryIdentity(metadata, createdIdentity)) return;
+    if ((await fileSystem.readdir(relmioHome)).length !== 0) return;
+    metadata = await lstatIfExists(fileSystem, relmioHome);
+    if (!isDirectoryIdentity(metadata, createdIdentity)) return;
+    await fileSystem.rmdir(relmioHome);
+  } catch {
+    // Only an exact, still-empty root may be removed during recovery.
+  }
+}
+
+async function acquireSidecarLock({
+  fileSystem,
+  getProcessIdentity,
+  installRoot,
+  lockDownPath,
+  now,
+  platform,
+}) {
   const safeInstallRoot = validateInstallRoot(installRoot);
   const lockPath = join(
     dirname(resolve(safeInstallRoot, "..", "..")),
     ".relmio-local-n8n-openai-oauth.lock",
   );
-  const ownerPath = join(lockPath, "owner.json");
-  const ownerToken = randomUUID();
-  try {
-    await fileSystem.mkdir(lockPath, { mode: 0o700 });
-    await fileSystem.writeFile(
-      ownerPath,
-      `${JSON.stringify({ processId: process.pid, ownerToken })}\n`,
-      { flag: "wx", mode: 0o600 },
-    );
-  } catch (error) {
-    if (error?.code === "EEXIST") {
-      throw new Error("Another Relmio process is changing this local sidecar.");
-    }
-    throw new Error("Relmio could not create its local sidecar lock.");
-  }
-  return async () => {
-    try {
-      const owner = JSON.parse(await fileSystem.readFile(ownerPath, "utf8"));
-      if (owner?.ownerToken === ownerToken) {
-        await fileSystem.rm(lockPath, { recursive: true, force: true });
-      }
-    } catch {
-      // Lock cleanup must not hide the completed operation.
-    }
-  };
+  return acquireLocalIntegrationLifecycleLock({
+    fileSystem,
+    getProcessIdentity,
+    lockDownPath,
+    lockPath,
+    now,
+    // Lock ownership is local-process state, not the caller's Docker fixture.
+    platform: process.platform,
+    label: "local n8n OAuth sidecar operation lock",
+  });
 }
 
 function requireOwnershipLabels(labels, { installId, projectName, service }) {
@@ -932,6 +1056,7 @@ async function verifyRunningSidecar({
   plan,
   installId,
   projectName,
+  verifyModels = true,
 }) {
   const running = await runOrThrow(
     runProcess,
@@ -1011,6 +1136,9 @@ async function verifyRunningSidecar({
   ) {
     throw new Error("The local sidecar published-port safety check failed.");
   }
+  if (!verifyModels) {
+    return [];
+  }
   const verifier = await runOrThrow(
     runProcess,
     {
@@ -1032,6 +1160,279 @@ async function verifyRunningSidecar({
     "Local sidecar private-network verification",
   );
   return parseModels(verifier.stdout);
+}
+
+async function runCredentialVolumeScript({
+  runProcess,
+  installRoot,
+  marker,
+  script,
+  label,
+  input,
+  user,
+}) {
+  if (user !== "1000:1000") {
+    throw new TypeError("The local credential helper identity is invalid.");
+  }
+  return runOrThrow(
+    runProcess,
+    {
+      file: "docker",
+      args: createComposeArgs(marker.projectName, [
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        "--user",
+        user,
+        "--entrypoint",
+        "/bin/sh",
+        "credential-seed",
+        "-c",
+        script,
+      ]),
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+      ...(input === undefined ? {} : { input }),
+    },
+    label,
+  );
+}
+
+function parseCredentialRefreshJournalState(output) {
+  const state = output.trim();
+  if (
+    state !== "clean" &&
+    state !== "quiesce-pending" &&
+    state !== "rollback-pending"
+  ) {
+    throw new Error("The local OAuth credential refresh journal is invalid.");
+  }
+  return state;
+}
+
+function parseCredentialQuiesceRefreshOutcome(output) {
+  const outcome = output.trim();
+  if (outcome !== "refreshed" && outcome !== "retained-invalid-current") {
+    throw new Error("The local OAuth credential quiesce snapshot result is invalid.");
+  }
+  return outcome;
+}
+
+async function inspectCredentialRefreshJournal({
+  runProcess,
+  installRoot,
+  marker,
+  label,
+}) {
+  const result = await runCredentialVolumeScript({
+    runProcess,
+    installRoot,
+    marker,
+    script: CREDENTIAL_REFRESH_PREFLIGHT_SCRIPT,
+    label,
+    user: "1000:1000",
+  });
+  return parseCredentialRefreshJournalState(result.stdout);
+}
+
+async function promoteCredentialRefreshSnapshot({
+  runProcess,
+  installRoot,
+  marker,
+  label,
+}) {
+  await runCredentialVolumeScript({
+    runProcess,
+    installRoot,
+    marker,
+    script: CREDENTIAL_REFRESH_PROMOTE_SCRIPT,
+    label,
+    user: "1000:1000",
+  });
+}
+
+async function recreateOwnedSidecar({
+  runProcess,
+  installRoot,
+  marker,
+  label,
+}) {
+  await runOrThrow(
+    runProcess,
+    {
+      file: "docker",
+      args: createComposeArgs(marker.projectName, [
+        "up",
+        "-d",
+        "--wait",
+        "--wait-timeout",
+        "90",
+        "--no-deps",
+        "--force-recreate",
+        SERVICE_NAME,
+      ]),
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+    },
+    label,
+  );
+}
+
+async function inspectOwnedSidecarRuntime({
+  runProcess,
+  installRoot,
+  marker,
+}) {
+  const containerIdResult = await runOrThrow(
+    runProcess,
+    {
+      file: "docker",
+      args: createComposeArgs(marker.projectName, [
+        "ps",
+        "--all",
+        "-q",
+        SERVICE_NAME,
+      ]),
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+    },
+    "Local sidecar refresh identity check",
+  );
+  if (containerIdResult.stdout.trim() === "") {
+    return null;
+  }
+  const containerId = validateDockerObjectId(
+    containerIdResult.stdout.trim(),
+    "local sidecar container",
+  );
+  const sidecar = await inspectContainer({
+    runProcess,
+    cwd: installRoot,
+    dockerHost: marker.dockerHost,
+    containerId,
+  });
+  const sidecarNetwork = sidecar.NetworkSettings?.Networks?.[marker.networkName];
+  const ports = sidecar.NetworkSettings?.Ports;
+  if (
+    sidecar?.Id !== containerId ||
+    typeof sidecar?.State?.Running !== "boolean" ||
+    typeof sidecar?.State?.Paused !== "boolean" ||
+    !labelsMatchOwnedSidecar(sidecar.Config?.Labels, {
+      installId: marker.installId,
+      projectName: marker.projectName,
+    }) ||
+    sidecarNetwork?.NetworkID !== marker.dockerNetworkId ||
+    !Array.isArray(sidecarNetwork?.Aliases) ||
+    !sidecarNetwork.Aliases.includes(LOCAL_N8N_SIDECAR_HOSTNAME) ||
+    !ports ||
+    typeof ports !== "object" ||
+    Array.isArray(ports) ||
+    Object.values(ports).some((bindings) => bindings !== null)
+  ) {
+    throw new Error("The local sidecar refresh identity could not be verified.");
+  }
+  return Object.freeze({
+    containerId,
+    paused: sidecar.State.Paused,
+    running: sidecar.State.Running,
+  });
+}
+
+async function setOwnedSidecarPaused({
+  runProcess,
+  installRoot,
+  marker,
+  expectedContainerId,
+  paused,
+}) {
+  let commandError;
+  try {
+    await runOrThrow(
+      runProcess,
+      {
+        file: "docker",
+        args: ["container", paused ? "pause" : "unpause", expectedContainerId],
+        cwd: installRoot,
+        dockerHost: marker.dockerHost,
+      },
+      paused
+        ? "Local sidecar credential writer freeze"
+        : "Local sidecar credential writer resume",
+    );
+  } catch (error) {
+    commandError = error;
+  }
+  const inspected = await inspectOwnedSidecarRuntime({
+    runProcess,
+    installRoot,
+    marker,
+  });
+  if (
+    !inspected ||
+    inspected.containerId !== expectedContainerId ||
+    !inspected.running ||
+    inspected.paused !== paused
+  ) {
+    throw new Error(
+      paused
+        ? "The local sidecar credential writer did not freeze safely."
+        : "The local sidecar credential writer did not resume safely.",
+      { cause: commandError },
+    );
+  }
+}
+
+async function killFrozenOwnedSidecar({
+  runProcess,
+  installRoot,
+  marker,
+  expectedContainerId,
+}) {
+  const frozen = await inspectOwnedSidecarRuntime({
+    runProcess,
+    installRoot,
+    marker,
+  });
+  if (
+    !frozen ||
+    frozen.containerId !== expectedContainerId ||
+    !frozen.running ||
+    !frozen.paused
+  ) {
+    throw new Error("The frozen local sidecar identity could not be verified.");
+  }
+  let commandError;
+  try {
+    await runOrThrow(
+      runProcess,
+      {
+        file: "docker",
+        args: ["container", "kill", "--signal", "KILL", expectedContainerId],
+        cwd: installRoot,
+        dockerHost: marker.dockerHost,
+      },
+      "Frozen local sidecar credential writer termination",
+    );
+  } catch (error) {
+    commandError = error;
+  }
+  const stopped = await inspectOwnedSidecarRuntime({
+    runProcess,
+    installRoot,
+    marker,
+  });
+  if (
+    !stopped ||
+    stopped.containerId !== expectedContainerId ||
+    stopped.running ||
+    stopped.paused
+  ) {
+    throw new Error(
+      "The local sidecar credential writer was not terminated safely.",
+      { cause: commandError },
+    );
+  }
 }
 
 async function cleanupSidecarProject({
@@ -1067,6 +1468,34 @@ async function cleanupSidecarProject({
   if (remaining.stdout.trim() !== "") {
     throw new Error("Relmio could not confirm local sidecar cleanup.");
   }
+  const projectFilter = `label=com.docker.compose.project=${projectName}`;
+  for (const [resource, args, label] of [
+    [
+      "container",
+      ["container", "ls", "--all", "--filter", projectFilter, "--format", "{{json .}}"],
+      "containers",
+    ],
+    [
+      "volume",
+      ["volume", "ls", "--filter", projectFilter, "--format", "{{json .}}"],
+      "credential volumes",
+    ],
+  ]) {
+    const result = await runOrThrow(
+      runProcess,
+      { file: "docker", args, cwd: installRoot, dockerHost },
+      `Local sidecar ${resource} cleanup verification`,
+    );
+    const records = parseJsonLines(
+      result.stdout,
+      `Local sidecar ${resource} cleanup verification`,
+    );
+    if (records.length !== 0) {
+      throw new Error(
+        `Relmio could not confirm removal of its local sidecar ${label}. The managed directory was kept.`,
+      );
+    }
+  }
 }
 
 async function readCurrentAuth({
@@ -1075,6 +1504,9 @@ async function readCurrentAuth({
   fileSystem,
   env,
   homeDirectory,
+  platform,
+  lockDownPath,
+  requireStableGeneration = true,
 }) {
   const expectedPath = resolveAuthPath({ env, homeDirectory });
   if (authPath !== expectedPath) {
@@ -1089,18 +1521,35 @@ async function readCurrentAuth({
   if (
     metadata.isSymbolicLink() ||
     !metadata.isFile() ||
-    (metadata.mode & 0o077) !== 0
+    (platform !== "win32" && (metadata.mode & 0o077) !== 0)
   ) {
     throw new Error(
-      metadata.isFile() && (metadata.mode & 0o077) !== 0
+      platform !== "win32" && metadata.isFile() && (metadata.mode & 0o077) !== 0
         ? "The local OAuth credential permissions are too broad."
         : "The local OAuth credential is missing or invalid.",
     );
   }
-  if (metadata.mtime.toISOString() !== plan.authGeneration) {
+  if (requireStableGeneration && metadata.mtime.toISOString() !== plan.authGeneration) {
     throw new Error(
       "The local OAuth credential changed. Create and confirm a fresh plan.",
     );
+  }
+  if (platform === "win32") {
+    await lockDownPath(expectedPath, { platform, kind: "file" });
+    try {
+      metadata = await fileSystem.lstat(expectedPath);
+    } catch {
+      throw new Error("The local OAuth credential is missing or invalid.");
+    }
+    if (
+      metadata.isSymbolicLink() ||
+      !metadata.isFile() ||
+      (requireStableGeneration && metadata.mtime.toISOString() !== plan.authGeneration)
+    ) {
+      throw new Error(
+        "The local OAuth credential changed. Create and confirm a fresh plan.",
+      );
+    }
   }
   return readAuthContents({ authPath: expectedPath, fileSystem });
 }
@@ -1114,6 +1563,9 @@ export async function installLocalN8nSidecar(
     runProcess = runLocalProcess,
     randomBytes = createRandomBytes,
     platform = process.platform,
+    lockDownPath = lockDownLocalPath,
+    getProcessIdentity,
+    lifecycleLockNow = Date.now,
   } = {},
 ) {
   if (confirmed !== true) {
@@ -1128,6 +1580,8 @@ export async function installLocalN8nSidecar(
     fileSystem,
     env,
     homeDirectory,
+    platform,
+    lockDownPath,
   });
   const installRoot = await resolveLocalN8nSidecarInstallRoot({
     env,
@@ -1135,9 +1589,19 @@ export async function installLocalN8nSidecar(
     fileSystem,
     platform,
   });
-  const releaseLock = await acquireSidecarLock({ fileSystem, installRoot });
-  try {
-    const managed = await inspectManagedInstall({ fileSystem, installRoot });
+  const releaseLock = await acquireSidecarLock({
+    fileSystem,
+    getProcessIdentity,
+    installRoot,
+    lockDownPath,
+    now: lifecycleLockNow,
+    platform,
+  });
+  return settleLocalIntegrationLifecycleOperation({
+    completionLabel: "Local n8n OAuth sidecar installation",
+    releaseLock,
+    operation: async () => {
+      const managed = await inspectManagedInstall({ fileSystem, installRoot });
     if (managed.marker) {
       throw new Error(
         "The managed local n8n bridge is already installed. Use the separately confirmed Remove bridge action before installing it again.",
@@ -1169,6 +1633,8 @@ export async function installLocalN8nSidecar(
       fileSystem,
       installRoot,
       baseExists: managed.baseExists,
+      platform,
+      lockDownPath,
     });
     await writeManagedFile(
       fileSystem,
@@ -1238,6 +1704,8 @@ export async function installLocalN8nSidecar(
       fileSystem,
       env,
       homeDirectory,
+      platform,
+      lockDownPath,
     });
     if (!authContents.equals(reattestedAuthContents)) {
       throw new Error(
@@ -1338,9 +1806,369 @@ export async function installLocalN8nSidecar(
       }
       throw error;
     }
-  } finally {
-    await releaseLock();
+    },
+  });
+}
+
+/**
+ * Replace the credential in the already-owned sidecar volume and recreate only
+ * the owned service. This never inspects, recreates, or restarts n8n itself.
+ */
+export async function refreshLocalN8nSidecarCredential(
+  { authPath, confirmed },
+  {
+    fileSystem = defaultFileSystem,
+    env = process.env,
+    homeDirectory = homedir(),
+    runProcess = runLocalProcess,
+    platform = process.platform,
+    lockDownPath = lockDownLocalPath,
+    getProcessIdentity,
+    lifecycleLockNow = Date.now,
+  } = {},
+) {
+  if (confirmed !== true) {
+    throw new Error("Confirm refreshing the owned local n8n bridge credential.");
   }
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({
+    env,
+    homeDirectory,
+    fileSystem,
+    platform,
+  });
+  const releaseLock = await acquireSidecarLock({
+    fileSystem,
+    getProcessIdentity,
+    installRoot,
+    lockDownPath,
+    now: lifecycleLockNow,
+    platform,
+  });
+  return settleLocalIntegrationLifecycleOperation({
+    completionLabel: "Local n8n OAuth sidecar credential refresh",
+    releaseLock,
+    operation: async () => {
+      const managed = await inspectManagedInstall({ fileSystem, installRoot });
+      if (!managed.marker) {
+        throw new Error("The managed local n8n bridge is not installed.");
+      }
+      const marker = validateMarker(managed.marker);
+      const firstAuth = await readCurrentAuth({
+        authPath,
+        plan: marker,
+        fileSystem,
+        env,
+        homeDirectory,
+        platform,
+        lockDownPath,
+        requireStableGeneration: false,
+      });
+      await attestProjectOwnership({
+        runProcess,
+        cwd: installRoot,
+        dockerHost: marker.dockerHost,
+        installId: marker.installId,
+        projectName: marker.projectName,
+      });
+      await attestPlanAndAlias({
+        plan: marker,
+        runProcess,
+        cwd: installRoot,
+        installId: marker.installId,
+        projectName: marker.projectName,
+      });
+      const reattestedAuth = await readCurrentAuth({
+        authPath,
+        plan: marker,
+        fileSystem,
+        env,
+        homeDirectory,
+        platform,
+        lockDownPath,
+        requireStableGeneration: false,
+      });
+      if (!firstAuth.equals(reattestedAuth)) {
+        throw new Error("The local OAuth credential changed. Confirm the refresh again.");
+      }
+      const journalState = await inspectCredentialRefreshJournal({
+        runProcess,
+        installRoot,
+        marker,
+        label: "Local OAuth credential refresh preflight",
+      });
+      let sidecarQuiesced = false;
+      let rollbackJournalReady = journalState === "rollback-pending";
+      let quiesceSnapshotReady = journalState === "quiesce-pending";
+      let ambiguousQuiesceRefresh = false;
+      let snapshotFailureResumed = false;
+      let credentialSeedAttempted = false;
+      try {
+        const sidecarRuntime = await inspectOwnedSidecarRuntime({
+          runProcess,
+          installRoot,
+          marker,
+        });
+        sidecarQuiesced = sidecarRuntime === null || !sidecarRuntime.running;
+        if (sidecarRuntime?.running) {
+          if (!sidecarRuntime.paused) {
+            await setOwnedSidecarPaused({
+              runProcess,
+              installRoot,
+              marker,
+              expectedContainerId: sidecarRuntime.containerId,
+              paused: true,
+            });
+          }
+          if (!rollbackJournalReady) {
+            if (quiesceSnapshotReady) {
+              ambiguousQuiesceRefresh = true;
+              const snapshotRefresh = await runCredentialVolumeScript({
+                runProcess,
+                installRoot,
+                marker,
+                script: CREDENTIAL_REFRESH_QUIESCE_REFRESH_SCRIPT,
+                label: "Frozen local OAuth credential quiesce snapshot refresh",
+                user: "1000:1000",
+              });
+              parseCredentialQuiesceRefreshOutcome(snapshotRefresh.stdout);
+              ambiguousQuiesceRefresh = false;
+            } else {
+              try {
+                await runCredentialVolumeScript({
+                  runProcess,
+                  installRoot,
+                  marker,
+                  script: CREDENTIAL_REFRESH_QUIESCE_BACKUP_SCRIPT,
+                  label: "Frozen local OAuth credential quiesce snapshot",
+                  user: "1000:1000",
+                });
+                quiesceSnapshotReady = true;
+              } catch (backupError) {
+                const backupJournalState = await inspectCredentialRefreshJournal({
+                  runProcess,
+                  installRoot,
+                  marker,
+                  label: "Frozen local OAuth credential quiesce snapshot check",
+                });
+                quiesceSnapshotReady = backupJournalState === "quiesce-pending";
+                if (!quiesceSnapshotReady) {
+                  if (backupJournalState !== "clean") {
+                    throw new Error(
+                      "The local OAuth credential refresh journal changed unexpectedly.",
+                    );
+                  }
+                  await setOwnedSidecarPaused({
+                    runProcess,
+                    installRoot,
+                    marker,
+                    expectedContainerId: sidecarRuntime.containerId,
+                    paused: false,
+                  });
+                  snapshotFailureResumed = true;
+                  throw backupError;
+                }
+              }
+            }
+          }
+          await killFrozenOwnedSidecar({
+            runProcess,
+            installRoot,
+            marker,
+            expectedContainerId: sidecarRuntime.containerId,
+          });
+          sidecarQuiesced = true;
+        } else if (!rollbackJournalReady) {
+          if (quiesceSnapshotReady) {
+            ambiguousQuiesceRefresh = true;
+            const snapshotRefresh = await runCredentialVolumeScript({
+              runProcess,
+              installRoot,
+              marker,
+              script: CREDENTIAL_REFRESH_QUIESCE_REFRESH_SCRIPT,
+              label: "Stopped local OAuth credential quiesce snapshot refresh",
+              user: "1000:1000",
+            });
+            parseCredentialQuiesceRefreshOutcome(snapshotRefresh.stdout);
+            ambiguousQuiesceRefresh = false;
+          } else {
+            await runCredentialVolumeScript({
+              runProcess,
+              installRoot,
+              marker,
+              script: CREDENTIAL_REFRESH_QUIESCE_BACKUP_SCRIPT,
+              label: "Stopped local OAuth credential quiesce snapshot",
+              user: "1000:1000",
+            });
+            quiesceSnapshotReady = true;
+          }
+        }
+        if (!rollbackJournalReady) {
+          if (!quiesceSnapshotReady) {
+            throw new Error("The local OAuth credential quiesce snapshot is missing.");
+          }
+          await promoteCredentialRefreshSnapshot({
+            runProcess,
+            installRoot,
+            marker,
+            label: "Local OAuth credential rollback snapshot promotion",
+          });
+          quiesceSnapshotReady = false;
+          rollbackJournalReady = true;
+        }
+        await runCredentialVolumeScript({
+          runProcess,
+          installRoot,
+          marker,
+          script: CREDENTIAL_REFRESH_ROLLBACK_SCRIPT,
+          label: journalState === "rollback-pending"
+            ? "Interrupted local OAuth credential refresh rollback"
+            : "Local OAuth credential pre-seed restoration",
+          user: "1000:1000",
+        });
+        const finalAuth = await readCurrentAuth({
+          authPath,
+          plan: marker,
+          fileSystem,
+          env,
+          homeDirectory,
+          platform,
+          lockDownPath,
+          requireStableGeneration: false,
+        });
+        if (!reattestedAuth.equals(finalAuth)) {
+          throw new Error("The local OAuth credential changed. Confirm the refresh again.");
+        }
+        credentialSeedAttempted = true;
+        await runCredentialVolumeScript({
+          runProcess,
+          installRoot,
+          marker,
+          script: CREDENTIAL_REFRESH_SEED_SCRIPT,
+          label: "Local OAuth credential refresh seed",
+          input: finalAuth,
+          user: "1000:1000",
+        });
+        await recreateOwnedSidecar({
+          runProcess,
+          installRoot,
+          marker,
+          label: "Local sidecar credential refresh",
+        });
+        const models = await verifyRunningSidecar({
+          runProcess,
+          installRoot,
+          plan: marker,
+          installId: marker.installId,
+          projectName: marker.projectName,
+        });
+        await runCredentialVolumeScript({
+          runProcess,
+          installRoot,
+          marker,
+          script: CREDENTIAL_REFRESH_COMMIT_SCRIPT,
+          label: "Local OAuth credential refresh commit",
+          user: "1000:1000",
+        });
+        return Object.freeze({
+          target: LOCAL_N8N_SIDECAR_TARGET,
+          credentialRefreshed: true,
+          models,
+          hostPublication: "none",
+        });
+      } catch (error) {
+        if (ambiguousQuiesceRefresh) {
+          throw new Error(
+            "Relmio could not prove that the existing quiesce snapshot was refreshed. The snapshot and exact sidecar state were preserved, no credential was replaced, and n8n was not touched. Retry only after inspecting the owned sidecar.",
+            { cause: error },
+          );
+        }
+        if (snapshotFailureResumed) {
+          throw new Error(
+            "Relmio could not capture a stable snapshot of the owned sidecar credential. The exact sidecar was resumed unchanged and n8n was not touched. Wait a moment, then confirm the refresh again.",
+            { cause: error },
+          );
+        }
+        if (!sidecarQuiesced) {
+          throw new Error(
+            "Relmio could not confirm that the frozen owned sidecar credential writer was terminated. Any quiesce or rollback journal was preserved and n8n was not touched; retry only after inspecting the owned sidecar.",
+            { cause: error },
+          );
+        }
+        try {
+          if (!rollbackJournalReady) {
+            const recoveryJournalState = await inspectCredentialRefreshJournal({
+              runProcess,
+              installRoot,
+              marker,
+              label: "Local OAuth credential refresh recovery preflight",
+            });
+            if (recoveryJournalState === "quiesce-pending") {
+              await promoteCredentialRefreshSnapshot({
+                runProcess,
+                installRoot,
+                marker,
+                label: "Local OAuth credential recovery snapshot promotion",
+              });
+              rollbackJournalReady = true;
+            } else {
+              rollbackJournalReady = recoveryJournalState === "rollback-pending";
+            }
+          }
+          if (rollbackJournalReady) {
+            await runCredentialVolumeScript({
+              runProcess,
+              installRoot,
+              marker,
+              script: CREDENTIAL_REFRESH_ROLLBACK_SCRIPT,
+              label: "Local OAuth credential refresh rollback",
+              user: "1000:1000",
+            });
+          }
+          await recreateOwnedSidecar({
+            runProcess,
+            installRoot,
+            marker,
+            label: "Local sidecar credential rollback",
+          });
+          await verifyRunningSidecar({
+            runProcess,
+            installRoot,
+            plan: marker,
+            installId: marker.installId,
+            projectName: marker.projectName,
+            verifyModels: false,
+          });
+          if (rollbackJournalReady) {
+            await runCredentialVolumeScript({
+              runProcess,
+              installRoot,
+              marker,
+              script: CREDENTIAL_REFRESH_COMMIT_SCRIPT,
+              label: "Local OAuth credential rollback commit",
+              user: "1000:1000",
+            });
+          }
+        } catch (rollbackError) {
+          throw new Error(
+            "The owned local sidecar credential refresh failed and Relmio could not verify rollback. Relmio preserved the attested sidecar evidence and did not touch n8n. Do not retry until the owned sidecar is inspected.",
+            { cause: rollbackError },
+          );
+        }
+        if (!credentialSeedAttempted) {
+          throw new Error(
+            "The local sidecar credential refresh stopped before replacement. Relmio restored and restarted the owned sidecar without touching n8n. Confirm the refresh again.",
+            { cause: error },
+          );
+        }
+        throw new Error(
+          "The new local sidecar credential could not be verified, so Relmio restored the previous credential and did not touch n8n. Confirm a fresh ChatGPT sign-in before retrying.",
+          { cause: error },
+        );
+      }
+    },
+  });
 }
 
 export async function removeLocalN8nSidecar(
@@ -1351,6 +2179,9 @@ export async function removeLocalN8nSidecar(
     homeDirectory = homedir(),
     runProcess = runLocalProcess,
     platform = process.platform,
+    lockDownPath = lockDownLocalPath,
+    getProcessIdentity,
+    lifecycleLockNow = Date.now,
   } = {},
 ) {
   if (confirmed !== true) {
@@ -1364,9 +2195,19 @@ export async function removeLocalN8nSidecar(
     fileSystem,
     platform,
   });
-  const releaseLock = await acquireSidecarLock({ fileSystem, installRoot });
-  try {
-    const managed = await inspectManagedInstall({ fileSystem, installRoot });
+  const releaseLock = await acquireSidecarLock({
+    fileSystem,
+    getProcessIdentity,
+    installRoot,
+    lockDownPath,
+    now: lifecycleLockNow,
+    platform,
+  });
+  return settleLocalIntegrationLifecycleOperation({
+    completionLabel: "Local n8n OAuth sidecar removal",
+    releaseLock,
+    operation: async () => {
+      const managed = await inspectManagedInstall({ fileSystem, installRoot });
     if (!managed.marker) {
       throw new Error("The managed local n8n bridge is not installed.");
     }
@@ -1406,8 +2247,7 @@ export async function removeLocalN8nSidecar(
       );
     }
     await fileSystem.rm(installRoot, { recursive: true, force: false });
-    return { removed: true, target: LOCAL_N8N_SIDECAR_TARGET };
-  } finally {
-    await releaseLock();
-  }
+      return { removed: true, target: LOCAL_N8N_SIDECAR_TARGET };
+    },
+  });
 }

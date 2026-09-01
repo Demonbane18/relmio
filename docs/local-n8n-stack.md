@@ -16,13 +16,20 @@ volume, and its own managed directory:
 
 You need:
 
-- macOS, Linux, or Linux under WSL2;
+- native Windows with Docker Desktop's `desktop-linux` engine, macOS, Linux,
+  or Linux under WSL2;
 - Docker Engine or Docker Desktop with Docker Compose v2;
 - an ngrok account, a static hostname created or selected in the
   [ngrok Domains dashboard](https://dashboard.ngrok.com/domains), and the
   matching value from [Your Authtoken](https://dashboard.ngrok.com/get-started/your-authtoken);
 - a strong Basic Auth username and password for the public route; and
 - two unused loopback ports for local n8n and the ngrok inspector.
+
+**Your Authtoken** and **Settings → Authtokens** in ngrok refer to the same
+agent-credential type; paste only one active token value, not its label or the
+`ngrok config add-authtoken` command. The Basic Auth pair does not come from
+ngrok or n8n: create a username and a unique password of at least 12 characters
+for people who may open this public URL.
 
 The ngrok endpoint is public. Anyone can reach its sign-in prompt, so use a
 unique password and keep the URL and credentials private. Relmio uses ngrok's
@@ -76,6 +83,38 @@ the exact owned containers, networks, and volumes, and rejects real or
 malformed host publications. Docker Compose's unpublished placeholder
 (`PublishedPort: 0` with an empty URL) is accepted only for the private
 Assistant services.
+
+Install and removal operations use a private lifecycle lock tied to the
+process creation identity, not only its reusable PID. Interrupted operations
+can recover after a bounded publication grace, while active or ambiguous
+owners fail closed. A nested reclaim claim prevents an older paused process
+from moving a newer active lock.
+
+## Reopening a managed stack
+
+On reopening the wizard, Relmio reads the managed-root marker, stack marker,
+current local Docker context, exact ownership labels, and expected resource
+names before it offers any stack action. It reports one of these safe states:
+
+| State | Wizard behavior |
+|---|---|
+| **Healthy** | Normal local endpoint management and add-on choices remain available. Relmio does not restart the stack. |
+| **Stopped, complete** | The wizard offers **Resume owned stack**. It uses `docker compose start` only for the already-attested long-running containers; it does not create, recreate, rebuild, remove, or reconfigure services or volumes. |
+| **Partial** | The wizard offers only the separately confirmed removal recovery. This includes a missing subset or an unhealthy/mixed runtime state. |
+| **Unavailable** | Relmio could not safely classify the prior state. It offers neither automatic resume nor removal and never guesses from Docker text. |
+
+Before declaring an Assistant-enabled stack ready, Relmio also verifies that
+the exact owned `assistant-shared` and `assistant-internal` Docker networks
+report `Internal: false`. This keeps their intended network egress behavior
+explicit after removing Compose's incompatible `internal: true` flags; it does
+not publish any Assistant host ports.
+
+If ngrok rejects an otherwise well-formed token or reserved hostname during
+first startup, Relmio rechecks ownership and removes the failed owned resources
+once. Only when that recheck proves no owned resources remain does the wizard
+keep the reviewed non-secret plan open, clear every credential field, and ask
+you to check the hostname and active agent authtoken before retrying. Any
+uncertain cleanup or remaining owned resource instead stays in partial recovery.
 
 ## Data and removal
 

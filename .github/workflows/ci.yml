@@ -108,6 +108,20 @@ jobs:
           node-version: "22"
           package-manager-cache: false
 
+      - name: Install and verify npm 10.9.8
+        shell: pwsh
+        run: |
+          npm install --global --ignore-scripts npm@10.9.8
+          if ((npm --version) -ne "10.9.8") {
+            throw "Expected npm 10.9.8."
+          }
+
+      - name: Install pinned dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run the complete release checks on native Windows
+        run: npm run check
+
       - name: Parse the installer with Windows PowerShell 5.1
         shell: powershell
         run: |

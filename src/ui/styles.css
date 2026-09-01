@@ -94,7 +94,7 @@
 
 html {
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
   color: var(--text);
   background: var(--background);
@@ -725,6 +725,73 @@ h3 {
   font-weight: 450;
 }
 
+.detected-integration-management {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+.detected-integration-management h3,
+.detected-integration-management p {
+  margin: 0;
+}
+
+.detected-integration-management p,
+.integration-management-options small {
+  color: var(--text-muted);
+}
+
+.detected-integration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+.assistant-result {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+.assistant-result h3,
+.assistant-result p {
+  margin: 0;
+}
+
+.assistant-result p {
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+}
+
+.assistant-result-list {
+  margin-bottom: 0;
+}
+
+.assistant-result-list small {
+  color: var(--warning);
+  font-weight: 700;
+}
+
+.assistant-result-key-note,
+.assistant-result-warning {
+  color: var(--warning) !important;
+}
+
+.assistant-result-key-note {
+  margin: 0.5rem 0 0;
+}
+
+.assistant-result-warning {
+  margin-bottom: 0 !important;
+  font-weight: 650;
+}
+
 code {
   padding: 0.1rem 0.3rem;
   border-radius: 0.25rem;
@@ -895,6 +962,10 @@ code {
 }
 
 /* ---------- Review ---------- */
+
+.review-details {
+  margin-bottom: 0.875rem;
+}
 
 .review-grid {
   display: grid;

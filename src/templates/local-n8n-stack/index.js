@@ -12,18 +12,53 @@ export const LOCAL_N8N_STACK_IMAGES = Object.freeze({
   searxng: "ghcr.io/searxng/searxng:2026.8.28-a30b2d474@sha256:addd2cf36efb4b9815a2820a522aef7cce4da0d1c0e4527f6675f5663332fc9b",
 });
 
+// The installer verifies these exact services as healthy after Compose reports running.
+export const LOCAL_N8N_STACK_HEALTHY_SERVICES = Object.freeze([
+  "n8n",
+  "ngrok",
+  "relmio-sandbox-api",
+]);
+
 function yamlScalar(value) {
   return JSON.stringify(value);
 }
 
+function composeDotenvLiteral(value) {
+  const escaped = String(value).replaceAll(
+    /[\\"$]/gu,
+    (character) => `\\${character}`,
+  );
+  return `"${escaped}"`;
+}
+
 export function validateLocalN8nStackSecrets({ ngrokAuthtoken, basicAuthUsername, basicAuthPassword }) {
   if (
-    typeof ngrokAuthtoken !== "string" || ngrokAuthtoken.length < 8 || ngrokAuthtoken.length > 512 ||
-    typeof basicAuthUsername !== "string" || !/^[A-Za-z0-9_-]{1,64}$/u.test(basicAuthUsername) ||
-    typeof basicAuthPassword !== "string" || basicAuthPassword.length < 12 || basicAuthPassword.length > 512 ||
-    /[\0\r\n]/u.test(ngrokAuthtoken) || /[\0\r\n:]/u.test(basicAuthPassword)
+    typeof ngrokAuthtoken !== "string" ||
+    ngrokAuthtoken.length < 8 ||
+    ngrokAuthtoken.length > 512 ||
+    /[\0\s]/u.test(ngrokAuthtoken)
   ) {
-    throw new TypeError("ngrok and Basic Auth credentials are invalid.");
+    throw new TypeError(
+      "ngrok authtoken must be 8–512 characters with no whitespace. Paste only the token value, not an ngrok command.",
+    );
+  }
+  if (
+    typeof basicAuthUsername !== "string" ||
+    !/^[A-Za-z0-9_-]{1,64}$/u.test(basicAuthUsername)
+  ) {
+    throw new TypeError(
+      "Basic Auth username must use 1–64 letters, numbers, hyphens, or underscores.",
+    );
+  }
+  if (
+    typeof basicAuthPassword !== "string" ||
+    basicAuthPassword.length < 12 ||
+    basicAuthPassword.length > 512 ||
+    /[\0\r\n:]/u.test(basicAuthPassword)
+  ) {
+    throw new TypeError(
+      "Basic Auth password must be 12–512 characters with no colon or line breaks.",
+    );
   }
   return { ngrokAuthtoken, basicAuthUsername, basicAuthPassword };
 }
@@ -54,12 +89,12 @@ export function createLocalN8nStackEnv({ installation, secrets, runtimeSecrets }
     throw new TypeError("Generated local n8n secrets are invalid.");
   }
   const lines = [
-    `NGROK_AUTHTOKEN=${safeSecrets.ngrokAuthtoken}`,
-    `N8N_ENCRYPTION_KEY=${runtimeSecrets.n8nEncryptionKey}`,
-    `NGROK_DOMAIN=${marker.ngrokHostname}`,
-    `N8N_LOCAL_PORT=${marker.n8nPort}`,
-    `NGROK_INSPECTOR_PORT=${marker.ngrokInspectorPort}`,
-    `GENERIC_TIMEZONE=${marker.timezone}`,
+    `NGROK_AUTHTOKEN=${composeDotenvLiteral(safeSecrets.ngrokAuthtoken)}`,
+    `N8N_ENCRYPTION_KEY=${composeDotenvLiteral(runtimeSecrets.n8nEncryptionKey)}`,
+    `NGROK_DOMAIN=${composeDotenvLiteral(marker.ngrokHostname)}`,
+    `N8N_LOCAL_PORT=${composeDotenvLiteral(marker.n8nPort)}`,
+    `NGROK_INSPECTOR_PORT=${composeDotenvLiteral(marker.ngrokInspectorPort)}`,
+    `GENERIC_TIMEZONE=${composeDotenvLiteral(marker.timezone)}`,
   ];
   if (marker.assistantMode !== "disabled") {
     for (const key of ["sandboxApiKey", "runnerRegistrationToken", "runnerApiKey", "searxngSecret"]) {
@@ -68,10 +103,10 @@ export function createLocalN8nStackEnv({ installation, secrets, runtimeSecrets }
       }
     }
     lines.push(
-      `SANDBOX_API_KEYS=${runtimeSecrets.sandboxApiKey}`,
-      `SANDBOX_API_RUNNER_REGISTRATION_TOKEN=${runtimeSecrets.runnerRegistrationToken}`,
-      `SANDBOX_API_RUNNER_API_KEY=${runtimeSecrets.runnerApiKey}`,
-      `SEARXNG_SECRET=${runtimeSecrets.searxngSecret}`,
+      `SANDBOX_API_KEYS=${composeDotenvLiteral(runtimeSecrets.sandboxApiKey)}`,
+      `SANDBOX_API_RUNNER_REGISTRATION_TOKEN=${composeDotenvLiteral(runtimeSecrets.runnerRegistrationToken)}`,
+      `SANDBOX_API_RUNNER_API_KEY=${composeDotenvLiteral(runtimeSecrets.runnerApiKey)}`,
+      `SEARXNG_SECRET=${composeDotenvLiteral(runtimeSecrets.searxngSecret)}`,
     );
   }
   return `${lines.join("\n")}\n`;
@@ -150,6 +185,12 @@ ${labelLines}
       - edge
     depends_on:
       n8n: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4040/api/tunnels"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     init: true
     read_only: true
     tmpfs:
@@ -246,11 +287,9 @@ networks:
     labels:
 ${labelLines}
 ${assistant ? `  assistant-shared:
-    internal: true
     labels:
 ${labelLines}
   assistant-internal:
-    internal: true
     labels:
 ${labelLines}
 ` : ""}secrets:
