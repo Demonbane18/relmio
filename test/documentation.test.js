@@ -51,6 +51,11 @@ test("README surfaces are concise product entry points linked to canonical docs"
     assert.match(guide, /Authentication fails/u);
     assert.match(guide, /Local image build failed/u);
     assert.match(guide, /npx --yes --ignore-scripts relmio@latest/u);
+    assert.match(
+      guide,
+      /## Support[\s\S]*href="https:\/\/ko-fi\.com\/paldogies"[\s\S]*src="https:\/\/storage\.ko-fi\.com\/cdn\/kofi6\.png\?v=6"/u,
+    );
+    assert.doesNotMatch(guide, /<script\b/iu);
     assert.doesNotMatch(guide, /```mermaid/u);
   }
   assert.match(readme, /docs\/images\/brand\/relmio-banner-animated\.svg/u);

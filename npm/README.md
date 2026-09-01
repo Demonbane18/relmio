@@ -100,6 +100,12 @@ until you rotate it.
 - https://relmio.vercel.app/docs/security
 - https://relmio.vercel.app/changelog
 
+## Support
+
+Relmio is free to use. If it helped you, you can buy me a coffee.
+
+<a href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer"><img height="36" src="https://storage.ko-fi.com/cdn/kofi6.png?v=6" alt="Support Relmio on Ko-fi"></a>
+
 Source and issues: https://github.com/Demonbane18/relmio
 
 License: Apache-2.0
