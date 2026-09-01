@@ -42,7 +42,40 @@
       </fieldset>
     </header>
 
-    <main id="main-content" class="shell" tabindex="-1">
+    <section
+      id="operation-progress"
+      class="operation-progress"
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+      tabindex="-1"
+      hidden
+    >
+      <div class="operation-progress__content">
+        <p id="operation-progress-label" class="operation-progress__label">
+          No operation is running.
+        </p>
+        <p class="operation-progress__elapsed" aria-live="off">
+          Elapsed
+          <time id="operation-progress-elapsed" datetime="PT0S">00:00</time>
+        </p>
+        <div
+          id="operation-progress-bar"
+          class="operation-progress__track"
+          role="progressbar"
+          aria-label="Current setup operation"
+          aria-valuetext="No operation is running."
+        >
+          <span class="operation-progress__bar" aria-hidden="true"></span>
+        </div>
+        <p id="operation-progress-note" class="operation-progress__note">
+          Timing varies with your remote server and network. Keep this page open. Relmio
+          will unlock this setup when the current operation finishes or stops.
+        </p>
+      </div>
+    </section>
+
+    <main id="main-content" class="shell" tabindex="-1" aria-busy="false">
       <aside class="rail" aria-label="AI Assistant setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
           <h1 id="page-title">Add private AI Assistant tools</h1>

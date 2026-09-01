@@ -867,7 +867,8 @@ test("assistant route requires a fresh discovered network plan before installati
   assert.equal(stale.status, 400);
   const plan = await request("/api/assistant/plan", { containerName: "n8n", networkName: "proxy", includeSearxng: true });
   assert.equal(plan.status, 200);
-  const installed = await request("/api/assistant/install", { containerName: "n8n", networkName: "proxy", includeSearxng: true, confirmed: true });
+  const { planId } = await plan.json();
+  const installed = await request("/api/assistant/install", { containerName: "n8n", networkName: "proxy", includeSearxng: true, confirmed: true, planId });
   assert.equal(installed.status, 200);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].networkName, "proxy");

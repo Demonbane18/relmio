@@ -165,13 +165,39 @@ async function prepareVpsNetwork(
     networkName: "proxy",
     includeSearxng: assistantIncludeSearxng,
   });
+  let sidecarPlanId;
+  let assistantPlanId;
   if (sidecarPlan) {
-    await api(origin, "/api/plan", { method: "POST", headers: originHeader, body: planBody });
+    const response = await api(origin, "/api/plan", {
+      method: "POST",
+      headers: originHeader,
+      body: planBody,
+    });
+    sidecarPlanId = (await response.json()).planId;
   }
   if (assistantPlan) {
-    await api(origin, "/api/assistant/plan", { method: "POST", headers: originHeader, body: planBody });
+    const response = await api(origin, "/api/assistant/plan", {
+      method: "POST",
+      headers: originHeader,
+      body: planBody,
+    });
+    assistantPlanId = (await response.json()).planId;
   }
-  return { originHeader, planBody };
+  return { originHeader, planBody, sidecarPlanId, assistantPlanId };
+}
+
+function createVpsInstallBody(
+  setup,
+  { assistant = false, includeSearxng = true, ...overrides } = {},
+) {
+  return JSON.stringify({
+    containerName: "n8n-n8n-1",
+    networkName: "proxy",
+    ...(assistant ? { includeSearxng } : {}),
+    confirmed: true,
+    planId: assistant ? setup.assistantPlanId : setup.sidecarPlanId,
+    ...overrides,
+  });
 }
 
 test("wizard server binds to loopback and protects API responses", async (t) => {
@@ -896,10 +922,11 @@ test("wizard persists a retry-blocked completion failure and refuses another hel
     uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
   });
   t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
 
   const loginResponse = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
-    headers: { Origin: wizard.origin },
+    headers: setup.originHeader,
     body: "{}",
   });
   const { attemptId } = await loginResponse.json();
@@ -931,6 +958,18 @@ test("wizard persists a retry-blocked completion failure and refuses another hel
     retryBlocked: true,
   });
   assert.equal(starts, 1);
+
+  const blockedPlan = await api(wizard.origin, "/api/plan", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: setup.planBody,
+  });
+  assert.equal(blockedPlan.status, 409);
+  assert.deepEqual(await blockedPlan.json(), {
+    error:
+      "ChatGPT sign-in could not be confirmed safely. Restart Relmio before changing the VPS.",
+    retryBlocked: true,
+  });
 });
 
 test("wizard close waits for cancellation of a pending OAuth attempt", async () => {
@@ -966,6 +1005,33 @@ test("wizard close waits for cancellation of a pending OAuth attempt", async () 
   releaseCancel();
   await close;
   assert.equal(closed, true);
+});
+
+test("OAuth completion queued before shutdown cannot commit server state after closing starts", async () => {
+  const { services } = createServices();
+  const completion = deferred();
+  let cancelCalls = 0;
+  services.startOAuthLogin = async () => ({
+    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    completion: completion.promise,
+    async cancel() {
+      cancelCalls += 1;
+    },
+  });
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: { Origin: wizard.origin },
+    body: "{}",
+  });
+
+  completion.resolve({ success: true });
+  await wizard.close();
+  assert.equal(cancelCalls, 1);
 });
 
 test("preview mode identifies itself and refuses to start live OAuth", async (t) => {
@@ -1067,10 +1133,8 @@ test("wizard flow validates discovered selections and never echoes a password", 
       networkName: "proxy",
     }),
   });
-  assert.equal(
-    (await plan.json()).endpointHostname,
-    "n8n-openai-oauth",
-  );
+  const reviewedPlan = await plan.json();
+  assert.equal(reviewedPlan.endpointHostname, "n8n-openai-oauth");
 
   const install = await api(wizard.origin, "/api/install", {
     method: "POST",
@@ -1079,6 +1143,7 @@ test("wizard flow validates discovered selections and never echoes a password", 
       containerName: "n8n-n8n-1",
       networkName: "proxy",
       confirmed: true,
+      planId: reviewedPlan.planId,
     }),
   });
   assert.equal(install.status, 200);
@@ -1132,7 +1197,7 @@ test("VPS install plans are single-use and one shared lock excludes assistant an
         uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
       });
       subtest.after(() => wizard.close());
-      const { originHeader, planBody } = await prepareVpsNetwork(wizard.origin, {
+      const setup = await prepareVpsNetwork(wizard.origin, {
         assistantPlan: true,
         sidecarPlan: true,
       });
@@ -1140,15 +1205,19 @@ test("VPS install plans are single-use and one shared lock excludes assistant an
       const secondPath = scenario.second === "assistant" ? "/api/assistant/install" : "/api/install";
       const firstRequest = api(wizard.origin, firstPath, {
         method: "POST",
-        headers: originHeader,
-        body: JSON.stringify({ containerName: "n8n-n8n-1", networkName: "proxy", includeSearxng: true, confirmed: true }),
+        headers: setup.originHeader,
+        body: createVpsInstallBody(setup, {
+          assistant: scenario.first === "assistant",
+        }),
       });
       try {
         await firstStarted.promise;
         const concurrent = await api(wizard.origin, secondPath, {
           method: "POST",
-          headers: originHeader,
-          body: JSON.stringify({ containerName: "n8n-n8n-1", networkName: "proxy", includeSearxng: true, confirmed: true }),
+          headers: setup.originHeader,
+          body: createVpsInstallBody(setup, {
+            assistant: scenario.second === "assistant",
+          }),
         });
         assert.equal(concurrent.status, 409);
         assert.equal(remote.closed, false);
@@ -1159,13 +1228,451 @@ test("VPS install plans are single-use and one shared lock excludes assistant an
           scenario.second === "assistant" ? assistantCalls : sidecarCalls,
           scenario.first === scenario.second ? 1 : 0,
         );
-        assert.ok(planBody.length > 0);
+        assert.ok(setup.planBody.length > 0);
       } finally {
         firstInstall.resolve(scenario.first === "assistant" ? assistantResult : sidecarResult);
         await firstRequest;
       }
     });
   }
+});
+
+test("opaque VPS plan ids isolate identical tabs and preserve only the current reviewed plan", async (t) => {
+  for (const assistant of [false, true]) {
+    await t.test(assistant ? "assistant" : "sidecar", async (subtest) => {
+      const { services } = createServices();
+      let installs = 0;
+      services.installAssistant = async () => {
+        installs += 1;
+        return createAssistantInstallResult();
+      };
+      services.installSidecar = async () => {
+        installs += 1;
+        return {
+          baseUrl: "http://n8n-openai-oauth:10531/v1",
+          apiKeyPlaceholder: "local-only",
+          useResponsesApi: true,
+          models: ["gpt-5.6-sol"],
+          deploymentMode: "installed",
+        };
+      };
+      const wizard = await startWizardServer({
+        sessionToken,
+        services,
+        uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+      });
+      subtest.after(() => wizard.close());
+      const setup = await prepareVpsNetwork(wizard.origin);
+      const planPath = assistant ? "/api/assistant/plan" : "/api/plan";
+      const firstPlanResponse = await api(wizard.origin, planPath, {
+        method: "POST",
+        headers: setup.originHeader,
+        body: setup.planBody,
+      });
+      const firstPlan = await firstPlanResponse.json();
+      const currentPlanResponse = await api(wizard.origin, planPath, {
+        method: "POST",
+        headers: setup.originHeader,
+        body: setup.planBody,
+      });
+      const currentPlan = await currentPlanResponse.json();
+      assert.match(firstPlan.planId, /^[0-9a-f-]+$/u);
+      assert.match(currentPlan.planId, /^[0-9a-f-]+$/u);
+      assert.notEqual(firstPlan.planId, currentPlan.planId);
+      assert.doesNotMatch(
+        JSON.stringify(currentPlan),
+        /private|auth\.json|2026-07-28T01:11/iu,
+      );
+
+      const staleSetup = {
+        ...setup,
+        ...(assistant
+          ? { assistantPlanId: firstPlan.planId }
+          : { sidecarPlanId: firstPlan.planId }),
+      };
+      const stale = await api(
+        wizard.origin,
+        assistant ? "/api/assistant/install" : "/api/install",
+        {
+          method: "POST",
+          headers: setup.originHeader,
+          body: createVpsInstallBody(staleSetup, { assistant }),
+        },
+      );
+      assert.equal(stale.status, 400);
+      assert.match((await stale.json()).error, /fresh.*plan/i);
+      assert.equal(installs, 0);
+
+      const currentSetup = {
+        ...setup,
+        ...(assistant
+          ? { assistantPlanId: currentPlan.planId }
+          : { sidecarPlanId: currentPlan.planId }),
+      };
+      const installed = await api(
+        wizard.origin,
+        assistant ? "/api/assistant/install" : "/api/install",
+        {
+          method: "POST",
+          headers: setup.originHeader,
+          body: createVpsInstallBody(currentSetup, { assistant }),
+        },
+      );
+      assert.equal(installed.status, 200);
+      assert.equal(installs, 1);
+
+      const consumed = await api(
+        wizard.origin,
+        assistant ? "/api/assistant/install" : "/api/install",
+        {
+          method: "POST",
+          headers: setup.originHeader,
+          body: createVpsInstallBody(currentSetup, { assistant }),
+        },
+      );
+      assert.equal(consumed.status, 400);
+      assert.match((await consumed.json()).error, /fresh.*plan/i);
+      assert.equal(installs, 1);
+    });
+  }
+});
+
+test("pending and committing OAuth work excludes multi-tab VPS plans and mutations", async (t) => {
+  const { services } = createServices();
+  const oauthCompletion = deferred();
+  let authUpdatedAt = "2026-07-28T01:11:01.000Z";
+  let assistantCalls = 0;
+  let sidecarCalls = 0;
+  services.getAuthStatus = async () => ({
+    exists: true,
+    path: "/private/path/auth.json",
+    updatedAt: authUpdatedAt,
+  });
+  services.startOAuthLogin = async () => ({
+    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    completion: oauthCompletion.promise,
+    async cancel() {},
+  });
+  services.installAssistant = async () => {
+    assistantCalls += 1;
+    return createAssistantInstallResult();
+  };
+  services.installSidecar = async () => {
+    sidecarCalls += 1;
+    return {
+      baseUrl: "http://n8n-openai-oauth:10531/v1",
+      apiKeyPlaceholder: "local-only",
+      useResponsesApi: true,
+      models: ["gpt-5.6-sol"],
+      deploymentMode: "installed",
+    };
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, {
+    assistantPlan: true,
+    sidecarPlan: true,
+  });
+
+  const login = await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: "{}",
+  });
+  assert.equal(login.status, 200);
+
+  // Model the credential as already promoted while the OAuth completion still
+  // owns its commit-settlement window.
+  authUpdatedAt = "2026-07-28T01:11:02.000Z";
+  const conflicts = await Promise.all([
+    api(wizard.origin, "/api/plan", {
+      method: "POST",
+      headers: setup.originHeader,
+      body: setup.planBody,
+    }),
+    api(wizard.origin, "/api/assistant/plan", {
+      method: "POST",
+      headers: setup.originHeader,
+      body: setup.planBody,
+    }),
+    api(wizard.origin, "/api/install", {
+      method: "POST",
+      headers: setup.originHeader,
+      body: createVpsInstallBody(setup),
+    }),
+    api(wizard.origin, "/api/assistant/install", {
+      method: "POST",
+      headers: setup.originHeader,
+      body: createVpsInstallBody(setup, { assistant: true }),
+    }),
+  ]);
+
+  for (const conflict of conflicts) {
+    assert.equal(conflict.status, 409);
+    const payload = await conflict.json();
+    assert.match(payload.error, /ChatGPT sign-in.*progress/i);
+    assert.doesNotMatch(
+      JSON.stringify(payload),
+      /private|auth\.json|refresh[_-]?token|2026-07-28T01:11/iu,
+    );
+  }
+  assert.equal(assistantCalls, 0);
+  assert.equal(sidecarCalls, 0);
+
+  oauthCompletion.resolve({ success: true });
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+test("an active VPS mutation excludes OAuth start and releases ownership after failure", async (t) => {
+  const { services } = createServices();
+  const installStarted = deferred();
+  let rejectInstall;
+  const installCompletion = new Promise((_, reject) => {
+    rejectInstall = reject;
+  });
+  let oauthStarts = 0;
+  services.installSidecar = async () => {
+    installStarted.resolve();
+    return await installCompletion;
+  };
+  services.startOAuthLogin = async () => {
+    oauthStarts += 1;
+    return {
+      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      completion: Promise.resolve({ success: true }),
+      async cancel() {},
+    };
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  const installRequest = api(wizard.origin, "/api/install", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: JSON.stringify({
+      containerName: "n8n-n8n-1",
+      networkName: "proxy",
+      confirmed: true,
+      planId: setup.sidecarPlanId,
+    }),
+  });
+
+  await installStarted.promise;
+  const conflict = await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: "{}",
+  });
+  assert.equal(conflict.status, 409);
+  const conflictPayload = await conflict.json();
+  assert.match(conflictPayload.error, /VPS.*progress/i);
+  assert.doesNotMatch(JSON.stringify(conflictPayload), /private|auth\.json|token/iu);
+  assert.equal(oauthStarts, 0);
+
+  rejectInstall(
+    new Error(
+      "fixture install failed with refresh_token=must-not-leak at /private/path/auth.json",
+    ),
+  );
+  const failedInstall = await installRequest;
+  assert.equal(failedInstall.status, 400);
+  assert.doesNotMatch(
+    JSON.stringify(await failedInstall.json()),
+    /must-not-leak|private|auth\.json/iu,
+  );
+
+  const login = await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: "{}",
+  });
+  assert.equal(login.status, 200);
+  assert.equal(oauthStarts, 1);
+});
+
+test("OAuth refresh invalidates a previously reviewed VPS credential plan", async (t) => {
+  const { services } = createServices();
+  const oauthCompletion = deferred();
+  let authUpdatedAt = "2026-07-28T01:11:01.000Z";
+  let credentialReads = 0;
+  let installs = 0;
+  services.getAuthStatus = async () => ({
+    exists: true,
+    path: "/private/path/auth.json",
+    updatedAt: authUpdatedAt,
+  });
+  services.startOAuthLogin = async () => ({
+    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    completion: oauthCompletion.promise,
+    async cancel() {},
+  });
+  services.readAuthContents = async () => {
+    credentialReads += 1;
+    return Buffer.from('{"fixture":true}');
+  };
+  services.installSidecar = async () => {
+    installs += 1;
+    throw new Error("A stale credential plan must not reach installation.");
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+
+  await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: "{}",
+  });
+  authUpdatedAt = "2026-07-28T01:11:02.000Z";
+  oauthCompletion.resolve({ success: true });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const stale = await api(wizard.origin, "/api/install", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: JSON.stringify({
+      containerName: "n8n-n8n-1",
+      networkName: "proxy",
+      confirmed: true,
+      planId: setup.sidecarPlanId,
+    }),
+  });
+  assert.equal(stale.status, 400);
+  const payload = await stale.json();
+  assert.match(payload.error, /fresh.*sidecar plan/i);
+  assert.doesNotMatch(
+    JSON.stringify(payload),
+    /private|auth\.json|2026-07-28T01:11/iu,
+  );
+  assert.equal(credentialReads, 0);
+  assert.equal(installs, 0);
+});
+
+test("VPS install consumes its plan when the credential generation changes during the final read", async (t) => {
+  const { services } = createServices();
+  const readStarted = deferred();
+  const finishRead = deferred();
+  let authUpdatedAt = "2026-07-28T01:11:01.000Z";
+  let credentialReads = 0;
+  let installs = 0;
+  services.getAuthStatus = async () => ({
+    exists: true,
+    path: "/private/path/auth.json",
+    updatedAt: authUpdatedAt,
+  });
+  services.readAuthContents = async () => {
+    credentialReads += 1;
+    readStarted.resolve();
+    await finishRead.promise;
+    return Buffer.from('{"fixture":true}');
+  };
+  services.installSidecar = async () => {
+    installs += 1;
+    throw new Error("A changed credential must not reach remote mutation.");
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  const installRequest = api(wizard.origin, "/api/install", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: JSON.stringify({
+      containerName: "n8n-n8n-1",
+      networkName: "proxy",
+      confirmed: true,
+      planId: setup.sidecarPlanId,
+    }),
+  });
+
+  await readStarted.promise;
+  authUpdatedAt = "2026-07-28T01:11:02.000Z";
+  finishRead.resolve();
+  const changed = await installRequest;
+  assert.equal(changed.status, 400);
+  const payload = await changed.json();
+  assert.match(payload.error, /sign-in changed.*fresh.*plan/i);
+  assert.doesNotMatch(
+    JSON.stringify(payload),
+    /private|auth\.json|2026-07-28T01:11/iu,
+  );
+  assert.equal(credentialReads, 1);
+  assert.equal(installs, 0);
+
+  const consumed = await api(wizard.origin, "/api/install", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: JSON.stringify({
+      containerName: "n8n-n8n-1",
+      networkName: "proxy",
+      confirmed: true,
+      planId: setup.sidecarPlanId,
+    }),
+  });
+  assert.equal(consumed.status, 400);
+  assert.match((await consumed.json()).error, /fresh.*sidecar plan/i);
+});
+
+test("safe OAuth cancellation releases the VPS credential gate", async (t) => {
+  const { services } = createServices();
+  let cancellations = 0;
+  services.startOAuthLogin = async () => ({
+    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    completion: new Promise(() => {}),
+    async cancel() {
+      cancellations += 1;
+    },
+  });
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+  const login = await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: "{}",
+  });
+  const { attemptId } = await login.json();
+
+  const blockedPlan = await api(wizard.origin, "/api/plan", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: setup.planBody,
+  });
+  assert.equal(blockedPlan.status, 409);
+
+  const cancelled = await api(wizard.origin, "/api/oauth/cancel", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: JSON.stringify({ attemptId }),
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancellations, 1);
+
+  const plan = await api(wizard.origin, "/api/plan", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: setup.planBody,
+  });
+  assert.equal(plan.status, 200);
 });
 
 test("VPS install failures consume the plan, release the shared lock, and preserve cleanup uncertainty safely", async (t) => {
@@ -1193,7 +1700,7 @@ test("VPS install failures consume the plan, release the shared lock, and preser
   const failed = await api(wizard.origin, "/api/assistant/install", {
     method: "POST",
     headers: setup.originHeader,
-    body: JSON.stringify({ containerName: "n8n-n8n-1", networkName: "proxy", includeSearxng: true, confirmed: true }),
+    body: createVpsInstallBody(setup, { assistant: true }),
   });
   assert.equal(failed.status, 400);
   const failure = await failed.json();
@@ -1204,23 +1711,89 @@ test("VPS install failures consume the plan, release the shared lock, and preser
   const stalePlan = await api(wizard.origin, "/api/assistant/install", {
     method: "POST",
     headers: setup.originHeader,
-    body: JSON.stringify({ containerName: "n8n-n8n-1", networkName: "proxy", includeSearxng: true, confirmed: true }),
+    body: createVpsInstallBody(setup, { assistant: true }),
   });
   assert.equal(stalePlan.status, 400);
   assert.match((await stalePlan.json()).error, /fresh.*plan/i);
 
-  await api(wizard.origin, "/api/assistant/plan", {
+  const retriedPlan = await api(wizard.origin, "/api/assistant/plan", {
     method: "POST",
     headers: setup.originHeader,
     body: setup.planBody,
   });
+  setup.assistantPlanId = (await retriedPlan.json()).planId;
   const retried = await api(wizard.origin, "/api/assistant/install", {
     method: "POST",
     headers: setup.originHeader,
-    body: JSON.stringify({ containerName: "n8n-n8n-1", networkName: "proxy", includeSearxng: true, confirmed: true }),
+    body: createVpsInstallBody(setup, { assistant: true }),
   });
   assert.equal(retried.status, 200);
   assert.equal(installAttempts, 2);
+});
+
+test("a throwing SSH close cannot mask an install failure or preserve either reviewed plan", async (t) => {
+  const { remote, services } = createServices();
+  let closeCalls = 0;
+  let installCalls = 0;
+  remote.close = () => {
+    closeCalls += 1;
+    throw new Error("close failed with refresh_token=must-not-leak");
+  };
+  services.installSidecar = async () => {
+    installCalls += 1;
+    throw Object.assign(
+      new Error("remote install failed at /private/path with token"),
+      { safeMessage: "The sidecar installation could not be completed safely." },
+    );
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const reviewed = await prepareVpsNetwork(wizard.origin, {
+    assistantPlan: true,
+    sidecarPlan: true,
+  });
+
+  const failed = await api(wizard.origin, "/api/install", {
+    method: "POST",
+    headers: reviewed.originHeader,
+    body: createVpsInstallBody(reviewed),
+  });
+  assert.equal(failed.status, 400);
+  const failure = await failed.json();
+  assert.equal(
+    failure.error,
+    "The sidecar installation could not be completed safely.",
+  );
+  assert.doesNotMatch(
+    JSON.stringify(failure),
+    /must-not-leak|refresh_token|private|token/iu,
+  );
+  assert.equal(installCalls, 1);
+  assert.equal(closeCalls, 1);
+
+  const reconnected = await prepareVpsNetwork(wizard.origin);
+  for (const assistant of [false, true]) {
+    const staleSetup = {
+      ...reconnected,
+      assistantPlanId: reviewed.assistantPlanId,
+      sidecarPlanId: reviewed.sidecarPlanId,
+    };
+    const stale = await api(
+      wizard.origin,
+      assistant ? "/api/assistant/install" : "/api/install",
+      {
+        method: "POST",
+        headers: reconnected.originHeader,
+        body: createVpsInstallBody(staleSetup, { assistant }),
+      },
+    );
+    assert.equal(stale.status, 400);
+    assert.match((await stale.json()).error, /fresh.*plan/i);
+  }
 });
 
 test("assistant web-search selection is an explicit boolean bound to its reviewed plan", async (t) => {
@@ -1252,7 +1825,8 @@ test("assistant web-search selection is an explicit boolean bound to its reviewe
     body: JSON.stringify({ ...base, includeSearxng: false }),
   });
   assert.equal(reviewed.status, 200);
-  assert.equal((await reviewed.json()).includeSearxng, false);
+  const reviewedPayload = await reviewed.json();
+  assert.equal(reviewedPayload.includeSearxng, false);
   for (const includeSearxng of [undefined, "false", 0, null]) {
     const response = await api(wizard.origin, "/api/assistant/install", {
       method: "POST",
@@ -1261,6 +1835,7 @@ test("assistant web-search selection is an explicit boolean bound to its reviewe
         ...base,
         ...(includeSearxng === undefined ? {} : { includeSearxng }),
         confirmed: true,
+        planId: reviewedPayload.planId,
       }),
     });
     assert.equal(response.status, 400);
@@ -1269,7 +1844,12 @@ test("assistant web-search selection is an explicit boolean bound to its reviewe
   const mismatched = await api(wizard.origin, "/api/assistant/install", {
     method: "POST",
     headers: originHeader,
-    body: JSON.stringify({ ...base, includeSearxng: true, confirmed: true }),
+    body: JSON.stringify({
+      ...base,
+      includeSearxng: true,
+      confirmed: true,
+      planId: reviewedPayload.planId,
+    }),
   });
   assert.equal(mismatched.status, 400);
   assert.equal(installs.length, 0);
@@ -1280,10 +1860,16 @@ test("assistant web-search selection is an explicit boolean bound to its reviewe
     body: JSON.stringify({ ...base, includeSearxng: false }),
   });
   assert.equal(refreshed.status, 200);
+  const refreshedPayload = await refreshed.json();
   const installed = await api(wizard.origin, "/api/assistant/install", {
     method: "POST",
     headers: originHeader,
-    body: JSON.stringify({ ...base, includeSearxng: false, confirmed: true }),
+    body: JSON.stringify({
+      ...base,
+      includeSearxng: false,
+      confirmed: true,
+      planId: refreshedPayload.planId,
+    }),
   });
   assert.equal(installed.status, 200);
   assert.equal(installs.length, 1);
@@ -1367,13 +1953,13 @@ test("assistant install responses expose only exact companion settings", async (
         uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
       });
       subtest.after(() => wizard.close());
-      const { originHeader, planBody } = await prepareVpsNetwork(wizard.origin, {
+      const setup = await prepareVpsNetwork(wizard.origin, {
         assistantPlan: true,
       });
       const response = await api(wizard.origin, "/api/assistant/install", {
         method: "POST",
-        headers: originHeader,
-        body: JSON.stringify({ ...JSON.parse(planBody), confirmed: true }),
+        headers: setup.originHeader,
+        body: createVpsInstallBody(setup, { assistant: true }),
       });
       assert.equal(response.status, scenario.expectedStatus);
       const responseText = await response.text();
@@ -1442,6 +2028,7 @@ test("assistant plan requires a fresh enabled instance-ai prerequisite", async (
     body: JSON.stringify(body),
   });
   assert.equal(enabledPlan.status, 200);
+  const enabledPlanId = (await enabledPlan.json()).planId;
   prerequisiteStatus = "configured";
   await api(wizard.origin, "/api/networks", {
     method: "POST",
@@ -1451,7 +2038,7 @@ test("assistant plan requires a fresh enabled instance-ai prerequisite", async (
   const staleInstall = await api(wizard.origin, "/api/assistant/install", {
     method: "POST",
     headers: originHeader,
-    body: JSON.stringify({ ...body, confirmed: true }),
+    body: JSON.stringify({ ...body, confirmed: true, planId: enabledPlanId }),
   });
   assert.equal(staleInstall.status, 400);
   assert.equal(installs.length, 0);
@@ -1486,11 +2073,16 @@ test("assistant plan requires a fresh enabled instance-ai prerequisite", async (
     body: JSON.stringify(body),
   });
   assert.equal(plan.status, 200);
-  assert.deepEqual((await plan.json()).instanceAi, { status: "enabled" });
+  const planPayload = await plan.json();
+  assert.deepEqual(planPayload.instanceAi, { status: "enabled" });
   const install = await api(wizard.origin, "/api/assistant/install", {
     method: "POST",
     headers: originHeader,
-    body: JSON.stringify({ ...body, confirmed: true }),
+    body: JSON.stringify({
+      ...body,
+      confirmed: true,
+      planId: planPayload.planId,
+    }),
   });
   assert.equal(install.status, 200);
   assert.equal(installs.length, 1);
@@ -1532,13 +2124,13 @@ test("assistant installation rechecks live network and prerequisite state after 
       });
       subtest.after(() => wizard.close());
 
-      const { originHeader, planBody } = await prepareVpsNetwork(wizard.origin, {
+      const setup = await prepareVpsNetwork(wizard.origin, {
         assistantPlan: true,
       });
       const response = await api(wizard.origin, "/api/assistant/install", {
         method: "POST",
-        headers: originHeader,
-        body: JSON.stringify({ ...JSON.parse(planBody), confirmed: true }),
+        headers: setup.originHeader,
+        body: createVpsInstallBody(setup, { assistant: true }),
       });
 
       assert.equal(response.status, 400);
@@ -1629,17 +2221,19 @@ test("pending VPS discovery cannot overwrite state while an assistant mutation o
   });
   let pendingInstall;
   try {
-    const { originHeader } = await prepareVpsNetwork(wizard.origin, { assistantPlan: true });
+    const setup = await prepareVpsNetwork(wizard.origin, {
+      assistantPlan: true,
+    });
     const pendingDiscovery = api(wizard.origin, "/api/discover", {
       method: "POST",
-      headers: originHeader,
+      headers: setup.originHeader,
       body: "{}",
     });
     await discoveryStarted.promise;
     pendingInstall = api(wizard.origin, "/api/assistant/install", {
       method: "POST",
-      headers: originHeader,
-      body: JSON.stringify({ containerName: "n8n-n8n-1", networkName: "proxy", includeSearxng: true, confirmed: true }),
+      headers: setup.originHeader,
+      body: createVpsInstallBody(setup, { assistant: true }),
     });
     await installStarted.promise;
     discoveryReady.resolve({ containers: [] });
@@ -1654,6 +2248,389 @@ test("pending VPS discovery cannot overwrite state while an assistant mutation o
     discoveryReady.resolve({ containers: [] });
     installReady.resolve(assistantResult);
     await pendingInstall?.catch(() => {});
+    await wizard.close();
+  }
+});
+
+test("a completed intervening VPS mutation invalidates pending discovery state", async (t) => {
+  for (const kind of ["containers", "networks"]) {
+    await t.test(kind, async (subtest) => {
+      const { services } = createServices();
+      const requestStarted = deferred();
+      const staleResultReady = deferred();
+      const originalDiscoverN8n = services.discoverN8n;
+      const originalDiscoverNetworks = services.discoverNetworks;
+      let discoverN8nCalls = 0;
+      let discoverNetworkCalls = 0;
+      services.discoverN8n = async (connection) => {
+        discoverN8nCalls += 1;
+        if (kind === "containers" && discoverN8nCalls === 2) {
+          requestStarted.resolve();
+          return await staleResultReady.promise;
+        }
+        return await originalDiscoverN8n(connection);
+      };
+      services.discoverNetworks = async (connection, containerName) => {
+        discoverNetworkCalls += 1;
+        if (kind === "networks" && discoverNetworkCalls === 2) {
+          requestStarted.resolve();
+          return await staleResultReady.promise;
+        }
+        return await originalDiscoverNetworks(connection, containerName);
+      };
+      services.installAssistant = async () => createAssistantInstallResult();
+      const wizard = await startWizardServer({
+        sessionToken,
+        services,
+        uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+      });
+      subtest.after(() => wizard.close());
+      const setup = await prepareVpsNetwork(wizard.origin, {
+        assistantPlan: true,
+      });
+      const pendingDiscovery = api(
+        wizard.origin,
+        kind === "containers" ? "/api/discover" : "/api/networks",
+        {
+          method: "POST",
+          headers: setup.originHeader,
+          body:
+            kind === "containers"
+              ? "{}"
+              : JSON.stringify({ containerName: "n8n-n8n-1" }),
+        },
+      );
+      await requestStarted.promise;
+
+      const install = await api(wizard.origin, "/api/assistant/install", {
+        method: "POST",
+        headers: setup.originHeader,
+        body: createVpsInstallBody(setup, { assistant: true }),
+      });
+      assert.equal(install.status, 200);
+
+      staleResultReady.resolve(
+        kind === "containers"
+          ? { containers: [] }
+          : {
+              networks: ["stale-network"],
+              recommended: "stale-network",
+              instanceAi: { status: "missing" },
+            },
+      );
+      const staleDiscovery = await pendingDiscovery;
+      assert.equal(staleDiscovery.status, 409);
+      const payload = await staleDiscovery.json();
+      assert.match(payload.error, /VPS session changed/i);
+      assert.doesNotMatch(JSON.stringify(payload), /password|private|token/iu);
+    });
+  }
+});
+
+test("disconnect and reconnect invalidate discovery work from the previous VPS session", async (t) => {
+  for (const action of ["disconnect", "reconnect"]) {
+    await t.test(action, async (subtest) => {
+      const { services } = createServices();
+      const originalDiscover = services.discoverN8n;
+      const staleDiscoveryStarted = deferred();
+      const staleDiscoveryReady = deferred();
+      let discoverCalls = 0;
+      let connectionCalls = 0;
+      const connections = [
+        { close() {} },
+        { close() {} },
+      ];
+      services.connectVerified = async () => {
+        const connection = connections[connectionCalls];
+        connectionCalls += 1;
+        return connection;
+      };
+      services.discoverN8n = async (connection) => {
+        discoverCalls += 1;
+        if (discoverCalls === 2) {
+          staleDiscoveryStarted.resolve();
+          return await staleDiscoveryReady.promise;
+        }
+        return await originalDiscover(connection);
+      };
+      const wizard = await startWizardServer({
+        sessionToken,
+        services,
+        uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+      });
+      subtest.after(() => wizard.close());
+      const setup = await prepareVpsNetwork(wizard.origin);
+      const pendingDiscovery = api(wizard.origin, "/api/discover", {
+        method: "POST",
+        headers: setup.originHeader,
+        body: "{}",
+      });
+      await staleDiscoveryStarted.promise;
+
+      if (action === "disconnect") {
+        const disconnected = await api(wizard.origin, "/api/disconnect", {
+          method: "POST",
+          headers: setup.originHeader,
+          body: "{}",
+        });
+        assert.equal(disconnected.status, 200);
+      } else {
+        const fingerprintResponse = await api(
+          wizard.origin,
+          "/api/ssh/fingerprint",
+          {
+            method: "POST",
+            headers: setup.originHeader,
+            body: JSON.stringify({ host: exampleHost, port: 22 }),
+          },
+        );
+        const { fingerprint } = await fingerprintResponse.json();
+        const reconnected = await api(wizard.origin, "/api/ssh/connect", {
+          method: "POST",
+          headers: setup.originHeader,
+          body: JSON.stringify({
+            host: exampleHost,
+            port: 22,
+            username: "root",
+            password: fixturePassword,
+            expectedFingerprint: fingerprint,
+          }),
+        });
+        assert.equal(reconnected.status, 200);
+      }
+
+      staleDiscoveryReady.resolve({ containers: [] });
+      const stale = await pendingDiscovery;
+      assert.equal(stale.status, 409);
+      assert.match((await stale.json()).error, /VPS session changed/i);
+    });
+  }
+});
+
+test("disconnect detaches state before a throwing SSH close and rejects late discovery", async (t) => {
+  const { remote, services } = createServices();
+  const originalDiscover = services.discoverN8n;
+  const staleDiscoveryStarted = deferred();
+  const staleDiscoveryReady = deferred();
+  let closeCalls = 0;
+  let discoverCalls = 0;
+  remote.close = () => {
+    closeCalls += 1;
+    throw new Error("close failed at /private/path with token");
+  };
+  services.discoverN8n = async (connection) => {
+    discoverCalls += 1;
+    if (discoverCalls === 2) {
+      staleDiscoveryStarted.resolve();
+      return await staleDiscoveryReady.promise;
+    }
+    return await originalDiscover(connection);
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const reviewed = await prepareVpsNetwork(wizard.origin, {
+    assistantPlan: true,
+    sidecarPlan: true,
+  });
+  const pendingDiscovery = api(wizard.origin, "/api/discover", {
+    method: "POST",
+    headers: reviewed.originHeader,
+    body: "{}",
+  });
+  await staleDiscoveryStarted.promise;
+
+  const disconnected = await api(wizard.origin, "/api/disconnect", {
+    method: "POST",
+    headers: reviewed.originHeader,
+    body: "{}",
+  });
+  assert.equal(disconnected.status, 200);
+  assert.deepEqual(await disconnected.json(), { disconnected: true });
+  assert.equal(closeCalls, 1);
+
+  staleDiscoveryReady.resolve({ containers: [] });
+  const staleDiscovery = await pendingDiscovery;
+  assert.equal(staleDiscovery.status, 409);
+  const stalePayload = await staleDiscovery.json();
+  assert.match(stalePayload.error, /VPS session changed/i);
+  assert.doesNotMatch(
+    JSON.stringify(stalePayload),
+    /private|token|close failed/iu,
+  );
+
+  const reconnected = await prepareVpsNetwork(wizard.origin);
+  for (const assistant of [false, true]) {
+    const staleSetup = {
+      ...reconnected,
+      assistantPlanId: reviewed.assistantPlanId,
+      sidecarPlanId: reviewed.sidecarPlanId,
+    };
+    const stale = await api(
+      wizard.origin,
+      assistant ? "/api/assistant/install" : "/api/install",
+      {
+        method: "POST",
+        headers: reconnected.originHeader,
+        body: createVpsInstallBody(staleSetup, { assistant }),
+      },
+    );
+    assert.equal(stale.status, 400);
+    assert.match((await stale.json()).error, /fresh.*plan/i);
+  }
+});
+
+test("concurrent SSH connects fail fast without replacing or leaking the winning connection", async () => {
+  const { services } = createServices();
+  const firstConnectStarted = deferred();
+  const firstCandidateReady = deferred();
+  let connectCalls = 0;
+  const firstCandidate = {
+    closeCalls: 0,
+    close() {
+      this.closeCalls += 1;
+    },
+  };
+  const losingCandidate = {
+    closeCalls: 0,
+    close() {
+      this.closeCalls += 1;
+    },
+  };
+  services.connectVerified = async () => {
+    connectCalls += 1;
+    if (connectCalls === 1) {
+      firstConnectStarted.resolve();
+      await firstCandidateReady.promise;
+      return firstCandidate;
+    }
+    return losingCandidate;
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  let firstConnect;
+  try {
+    const originHeader = { Origin: wizard.origin };
+    const fingerprintResponse = await api(
+      wizard.origin,
+      "/api/ssh/fingerprint",
+      {
+        method: "POST",
+        headers: originHeader,
+        body: JSON.stringify({ host: exampleHost, port: 22 }),
+      },
+    );
+    const { fingerprint } = await fingerprintResponse.json();
+    const connectBody = JSON.stringify({
+      host: exampleHost,
+      port: 22,
+      username: "root",
+      password: fixturePassword,
+      expectedFingerprint: fingerprint,
+    });
+    firstConnect = api(wizard.origin, "/api/ssh/connect", {
+      method: "POST",
+      headers: originHeader,
+      body: connectBody,
+    });
+    await firstConnectStarted.promise;
+
+    const concurrent = await api(wizard.origin, "/api/ssh/connect", {
+      method: "POST",
+      headers: originHeader,
+      body: connectBody,
+    });
+    assert.equal(concurrent.status, 409);
+    const conflict = await concurrent.json();
+    assert.match(conflict.error, /VPS connection.*progress/i);
+    assert.doesNotMatch(JSON.stringify(conflict), /password|private|token/iu);
+    assert.equal(connectCalls, 1);
+    assert.equal(losingCandidate.closeCalls, 0);
+
+    firstCandidateReady.resolve();
+    assert.equal((await firstConnect).status, 200);
+  } finally {
+    firstCandidateReady.resolve();
+    await firstConnect?.catch(() => {});
+    await wizard.close();
+  }
+  assert.equal(firstCandidate.closeCalls, 1);
+  assert.equal(losingCandidate.closeCalls, 0);
+});
+
+test("the last-started fingerprint scan deterministically owns host identity state", async () => {
+  const { services } = createServices();
+  const firstStarted = deferred();
+  const secondStarted = deferred();
+  const firstReady = deferred();
+  const secondReady = deferred();
+  let scanCalls = 0;
+  const firstFingerprint = `SHA256:${"a".repeat(43)}`;
+  const secondFingerprint = `SHA256:${"b".repeat(43)}`;
+  services.scanHostFingerprint = async () => {
+    scanCalls += 1;
+    if (scanCalls === 1) {
+      firstStarted.resolve();
+      await firstReady.promise;
+      return firstFingerprint;
+    }
+    secondStarted.resolve();
+    await secondReady.promise;
+    return secondFingerprint;
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  try {
+    const originHeader = { Origin: wizard.origin };
+    const firstScan = api(wizard.origin, "/api/ssh/fingerprint", {
+      method: "POST",
+      headers: originHeader,
+      body: JSON.stringify({ host: exampleHost, port: 22 }),
+    });
+    await firstStarted.promise;
+    const secondScan = api(wizard.origin, "/api/ssh/fingerprint", {
+      method: "POST",
+      headers: originHeader,
+      body: JSON.stringify({ host: exampleHost, port: 22 }),
+    });
+    await secondStarted.promise;
+
+    secondReady.resolve();
+    const secondResponse = await secondScan;
+    assert.equal(secondResponse.status, 200);
+    assert.deepEqual(await secondResponse.json(), {
+      fingerprint: secondFingerprint,
+    });
+
+    firstReady.resolve();
+    const staleFirstResponse = await firstScan;
+    assert.equal(staleFirstResponse.status, 409);
+    assert.match((await staleFirstResponse.json()).error, /identity scan changed/i);
+
+    const connected = await api(wizard.origin, "/api/ssh/connect", {
+      method: "POST",
+      headers: originHeader,
+      body: JSON.stringify({
+        host: exampleHost,
+        port: 22,
+        username: "root",
+        password: fixturePassword,
+        expectedFingerprint: secondFingerprint,
+      }),
+    });
+    assert.equal(connected.status, 200);
+  } finally {
+    firstReady.resolve();
+    secondReady.resolve();
     await wizard.close();
   }
 });

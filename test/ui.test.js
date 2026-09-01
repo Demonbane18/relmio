@@ -35,7 +35,10 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     html,
     /<nav class="steps" aria-label="Setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="5"/u,
   );
-  assert.match(html, /<main id="main-content" class="shell" tabindex="-1">/u);
+  assert.match(
+    html,
+    /<main id="main-content" class="shell" tabindex="-1" aria-busy="false">/u,
+  );
   assert.match(
     html,
     /<aside class="rail" aria-label="Setup progress and safety">/u,
