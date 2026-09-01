@@ -23,6 +23,7 @@ import { lockDownLocalPath } from "../src/infrastructure/local-process.js";
 import {
   LOCAL_N8N_LIFECYCLE_LOCK_RELEASE_ERROR_CODE,
   LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
+  LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
   LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
   getLocalN8nStackStatus,
   installLocalN8nStack,
@@ -523,6 +524,7 @@ function createStackRunner({
   malformedPublisher = false,
   assistantMode = "disabled",
   assistantPublishers = [],
+  assistantPublishersByService = {},
   contextHost = DOCKER_HOST,
   contextName = DOCKER_CONTEXT,
   ngrokExitedDuringStartup = false,
@@ -540,7 +542,14 @@ function createStackRunner({
   resourceInspectionFailureAfterDown = false,
   initialServiceStates = {},
   assistantEgressNetworkInternal = false,
+  serviceHealth = {},
+  searxngSearchResult = {
+    code: 0,
+    stdout: JSON.stringify({ results: [] }),
+    stderr: "",
+  },
   startFailure = false,
+  startupFailureOutput = null,
 } = {}) {
   const calls = [];
   let up = false;
@@ -578,7 +587,7 @@ function createStackRunner({
       up = true;
       resourcesExist = true;
       return partialUpFailure || ngrokExitedDuringStartup
-        ? {
+        ? startupFailureOutput ?? {
             code: 1,
             stdout: "n8n Healthy\nngrok Exited (1)\n",
             stderr: "dependency failed to start: ngrok exited (1)",
@@ -610,6 +619,12 @@ function createStackRunner({
         stderr: "",
       };
     }
+    if (
+      joined.includes("exec -T relmio-sandbox-api wget -qO-") &&
+      joined.includes("http://relmio-searxng:8080/search?q=relmio&format=json")
+    ) {
+      return searxngSearchResult;
+    }
     if (joined.includes("ps --all --format json") || joined.includes("ps --format json")) {
       const service = spec.args.at(-1);
       const expected = service === "n8n" ? 5678 : 4040;
@@ -621,9 +636,11 @@ function createStackRunner({
         stdout: JSON.stringify({
           Service: service,
           State: state,
-          Health: state === "running" ? "healthy" : "",
+          Health: Object.hasOwn(serviceHealth, service)
+            ? serviceHealth[service]
+            : state === "running" ? "healthy" : "",
           Publishers: isAssistant
-            ? assistantPublishers
+            ? assistantPublishersByService[service] ?? assistantPublishers
             : [{
               URL: malformedPublisher && service === "ngrok" ? "0.0.0.0" : "127.0.0.1",
               PublishedPort: expected,
@@ -1130,17 +1147,31 @@ test("ready verification rejects internal Assistant egress networks without chan
     assistantMode: "sandbox",
     assistantEgressNetworkInternal: true,
   });
-  await assert.rejects(() => installLocalN8nStack({
-    plan: plan({ assistantMode: "sandbox" }),
-    secrets: {
-      ngrokAuthtoken: "ngrok-private-token",
-      basicAuthUsername: "operator",
-      basicAuthPassword: "long-private-password",
-    },
-    publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
-    homeDirectory,
-    runProcess: runner,
-  }), /stack did not start|installation can be retried/u);
+  let captured;
+  await assert.rejects(async () => {
+    try {
+      await installLocalN8nStack({
+        plan: plan({ assistantMode: "sandbox" }),
+        secrets: {
+          ngrokAuthtoken: "ngrok-private-token",
+          basicAuthUsername: "operator",
+          basicAuthPassword: "long-private-password",
+        },
+        publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+        homeDirectory,
+        runProcess: runner,
+      });
+    } catch (error) {
+      captured = error;
+      throw error;
+    }
+  }, /Assistant services did not pass runtime or network isolation verification/u);
+  assert.equal(captured.code, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+  assert.equal(
+    captured.failureKind,
+    "assistant-verification",
+  );
+  assert.doesNotMatch(captured.message, /authtoken|reserved ngrok hostname/u);
   const inspections = calls.filter((call) =>
     call.args[0] === "network" && call.args[1] === "inspect",
   );
@@ -1148,6 +1179,54 @@ test("ready verification rejects internal Assistant egress networks without chan
   assert.ok(inspections.every((call) => call.args.includes("{{json .Internal}}")));
   assert.match(inspections[0].args.at(-1), /_assistant-shared$/u);
   assert.equal(calls.some((call) => call.args.includes("docker.sock")), false);
+});
+
+test("a safely cleaned n8n health failure remains an n8n failure and releases the lifecycle lock", async (t) => {
+  const homeDirectory = await testHome(t);
+  const failed = createStackRunner({ serviceHealth: { n8n: "unhealthy" } });
+  let captured;
+  await assert.rejects(async () => {
+    try {
+      await installLocalN8nStack({
+        plan: plan(),
+        secrets: {
+          ngrokAuthtoken: "ngrok-private-token",
+          basicAuthUsername: "operator",
+          basicAuthPassword: "long-private-password",
+        },
+        publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+        homeDirectory,
+        runProcess: failed.runner,
+      });
+    } catch (error) {
+      captured = error;
+      throw error;
+    }
+  }, /n8n service did not pass health verification/u);
+  assert.equal(captured.code, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+  assert.equal(
+    captured.failureKind,
+    "n8n-verification",
+  );
+  assert.doesNotMatch(captured.message, /authtoken|reserved ngrok hostname/u);
+  assert.equal(
+    failed.calls.filter((entry) => entry.args.join(" ").includes("down --volumes --remove-orphans")).length,
+    1,
+  );
+
+  const retry = createStackRunner();
+  const result = await installLocalN8nStack({
+    plan: plan(),
+    secrets: {
+      ngrokAuthtoken: "replacement-token",
+      basicAuthUsername: "operator",
+      basicAuthPassword: "replacement-password",
+    },
+    publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+    homeDirectory,
+    runProcess: retry.runner,
+  });
+  assert.equal(result.target, LOCAL_N8N_STACK_TARGET);
 });
 
 test("install and cleanup attestation accept realistic Compose labels with empty values", async (t) => {
@@ -1249,7 +1328,7 @@ test("Assistant services accept only empty or Compose placeholder unpublished pu
     ],
   ]) {
     const homeDirectory = await testHome(t);
-    const { runner } = createStackRunner({
+    const { calls, runner } = createStackRunner({
       assistantMode: "sandbox-with-searxng",
       assistantPublishers: publishers,
     });
@@ -1265,6 +1344,20 @@ test("Assistant services accept only empty or Compose placeholder unpublished pu
       runProcess: runner,
     });
     assert.equal(result.assistantMode, "sandbox-with-searxng");
+    const searchProbes = calls.filter((entry) =>
+      entry.args.join(" ").includes(
+        "exec -T relmio-sandbox-api wget -qO- http://relmio-searxng:8080/search?q=relmio&format=json",
+      ),
+    );
+    assert.equal(searchProbes.length, 1);
+    assert.equal(
+      searchProbes[0].args.some((value) => /(?:localhost|127\.0\.0\.1):\d+\/search/u.test(value)),
+      false,
+    );
+    assert.equal(
+      calls.some((entry) => entry.args.includes("relmio-searxng") && entry.args.includes("ports")),
+      false,
+    );
     if (process.platform !== "win32") {
       assert.equal(
         (await stat(join(homeDirectory, ".relmio", "local", "n8n-stack", ".runtime", "searxng-settings.yml"))).mode & 0o777,
@@ -1296,6 +1389,156 @@ test("Assistant services accept only empty or Compose placeholder unpublished pu
     }));
     assert.equal(calls.some((entry) => entry.args.join(" ").includes("down --volumes --remove-orphans")), true);
   }
+});
+
+test("managed SearXNG status stays structural and never issues a functional search probe", async (t) => {
+  const homeDirectory = await testHome(t);
+  await writeManagedStackMarker(homeDirectory, {
+    assistantMode: "sandbox-with-searxng",
+  });
+  const { calls, runner } = createStackRunner({
+    assistantMode: "sandbox-with-searxng",
+    initialResources: true,
+    initialServiceStates: {
+      n8n: "running",
+      ngrok: "running",
+      "relmio-sandbox-certs": "exited",
+      "relmio-sandbox-api": "running",
+      "relmio-sandbox-runner-1": "running",
+      "relmio-searxng": "running",
+    },
+    searxngSearchResult: {
+      code: 1,
+      stdout: "",
+      stderr: "transient search failure",
+    },
+  });
+  const { fileSystem, mutations } = createStatusFileSystem();
+
+  assert.deepEqual(await getLocalN8nStackStatus({
+    homeDirectory,
+    runProcess: runner,
+    fileSystem,
+  }), { managed: true, state: "healthy" });
+  assertStatusProcessCallsAreReadOnly(calls);
+  assert.equal(calls.some((entry) => entry.args.includes("exec")), false);
+  assert.equal(
+    calls.some((entry) => entry.args.join(" ").includes("format=json")),
+    false,
+  );
+  assert.deepEqual(mutations, []);
+});
+
+test("SearXNG success requires a JSON search results array and failures clean up without ngrok guidance", async (t) => {
+  const cases = [
+    {
+      name: "probe command failure",
+      result: {
+        code: 1,
+        stdout: "",
+        stderr: "wget failed in C:\\private\\stack with ngrok-private-token",
+      },
+    },
+    {
+      name: "non-JSON response",
+      result: { code: 0, stdout: "<html>not json</html>", stderr: "" },
+    },
+    {
+      name: "missing results array",
+      result: { code: 0, stdout: JSON.stringify({ answers: [] }), stderr: "" },
+    },
+  ];
+
+  for (const scenario of cases) {
+    await t.test(scenario.name, async (subtest) => {
+      const homeDirectory = await testHome(subtest);
+      const { calls, runner } = createStackRunner({
+        assistantMode: "sandbox-with-searxng",
+        searxngSearchResult: scenario.result,
+      });
+      let captured;
+      await assert.rejects(async () => {
+        try {
+          await installLocalN8nStack({
+            plan: plan({ assistantMode: "sandbox-with-searxng" }),
+            secrets: {
+              ngrokAuthtoken: "ngrok-private-token",
+              basicAuthUsername: "operator",
+              basicAuthPassword: "long-private-password",
+            },
+            publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+            homeDirectory,
+            runProcess: runner,
+          });
+        } catch (error) {
+          captured = error;
+          throw error;
+        }
+      }, /SearXNG service did not return a valid JSON search result/u);
+      assert.equal(captured.code, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+      assert.equal(
+        captured.failureKind,
+        "searxng-search-verification",
+      );
+      assert.doesNotMatch(
+        captured.message,
+        /ngrok-private-token|C:\\private|<html>|authtoken|reserved ngrok hostname/u,
+      );
+      assert.equal(
+        calls.filter((entry) => entry.args.join(" ").includes("down --volumes --remove-orphans")).length,
+        1,
+      );
+      await assert.rejects(() =>
+        stat(join(homeDirectory, ".relmio", "local", "n8n-stack")),
+      );
+    });
+  }
+});
+
+test("SearXNG host publication fails before the functional search probe", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { calls, runner } = createStackRunner({
+    assistantMode: "sandbox-with-searxng",
+    assistantPublishersByService: {
+      "relmio-searxng": [{
+        URL: "127.0.0.1",
+        PublishedPort: 18080,
+        TargetPort: 8080,
+        Protocol: "tcp",
+      }],
+    },
+  });
+  let captured;
+  await assert.rejects(async () => {
+    try {
+      await installLocalN8nStack({
+        plan: plan({ assistantMode: "sandbox-with-searxng" }),
+        secrets: {
+          ngrokAuthtoken: "ngrok-private-token",
+          basicAuthUsername: "operator",
+          basicAuthPassword: "long-private-password",
+        },
+        publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+        homeDirectory,
+        runProcess: runner,
+      });
+    } catch (error) {
+      captured = error;
+      throw error;
+    }
+  }, /Assistant services did not pass runtime or network isolation verification/u);
+  assert.equal(captured.code, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+  assert.equal(captured.failureKind, "assistant-verification");
+  assert.equal(
+    calls.some((entry) => entry.args.join(" ").includes("format=json")),
+    false,
+  );
+  assert.equal(
+    calls.filter((entry) =>
+      entry.args.join(" ").includes("down --volumes --remove-orphans")
+    ).length,
+    1,
+  );
 });
 
 test("project-wide ownership attestation exposes foreign project resources and refuses cleanup", async (t) => {
@@ -1334,15 +1577,21 @@ test("project-wide ownership attestation exposes foreign project resources and r
   assert.equal(errorCode, undefined);
 });
 
-test("a nonzero partial Compose up with realistic metadata is safely rolled back", async (t) => {
+test("a non-ngrok Compose failure is safely rolled back without credential-rejection guidance", async (t) => {
   const homeDirectory = await testHome(t);
   const { calls, runner } = createStackRunner({
     partialUpFailure: true,
     partialResources: true,
     emptyComposeDependsOnLabel: true,
+    startupFailureOutput: {
+      code: 1,
+      stdout: "pull access denied for private.registry.invalid/n8n",
+      stderr: "image pull failed in C:\\private\\stack with ngrok-private-token",
+    },
   });
   let errorMessage = "";
   let errorCode;
+  let failureKind;
   await assert.rejects(async () => {
     try {
       await installLocalN8nStack({
@@ -1359,10 +1608,24 @@ test("a nonzero partial Compose up with realistic metadata is safely rolled back
     } catch (error) {
       errorMessage = error.message;
       errorCode = error.code;
+      failureKind = error.failureKind;
       throw error;
     }
-  }, /ngrok stack did not start/u);
+  }, /Docker could not create the new n8n stack/u);
   assert.equal(errorCode, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+  assert.equal(
+    failureKind,
+    "stack-creation",
+  );
+  assert.equal(errorMessage.length <= 240, true);
+  assert.equal(
+    errorMessage.includes("reserved ngrok hostname"),
+    false,
+  );
+  assert.doesNotMatch(
+    errorMessage,
+    /private\.registry\.invalid|C:\\private|ngrok-private-token|pull access denied/u,
+  );
   assert.equal(
     calls.filter((entry) => entry.args.join(" ").includes("down --volumes --remove-orphans")).length,
     1,
@@ -1372,14 +1635,63 @@ test("a nonzero partial Compose up with realistic metadata is safely rolled back
   assertOwnershipFormatsUseExplicitLabels(calls);
 });
 
-test("an n8n-healthy ngrok-exited startup is cleaned once when Compose down is nonzero but resources are gone", async (t) => {
+test("a non-allowlisted ngrok runtime code stays a generic cleaned startup failure", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { calls, runner } = createStackRunner({
+    partialUpFailure: true,
+    startupFailureOutput: {
+      code: 1,
+      stdout: "",
+      stderr: "ngrok session limit reached: ERR_NGROK_108",
+    },
+  });
+  let captured;
+  await assert.rejects(async () => {
+    try {
+      await installLocalN8nStack({
+        plan: plan(),
+        secrets: {
+          ngrokAuthtoken: "ngrok-private-token",
+          basicAuthUsername: "operator",
+          basicAuthPassword: "long-private-password",
+        },
+        publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+        homeDirectory,
+        runProcess: runner,
+      });
+    } catch (error) {
+      captured = error;
+      throw error;
+    }
+  }, /Docker could not create the new n8n stack/u);
+  assert.equal(captured.code, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+  assert.equal(captured.failureKind, "stack-creation");
+  assert.doesNotMatch(
+    captured.message,
+    /account, endpoint, or credential setup|reserved hostname|authtoken|ERR_NGROK_108/u,
+  );
+  assert.equal(
+    calls.filter((entry) =>
+      entry.args.join(" ").includes("down --volumes --remove-orphans")
+    ).length,
+    1,
+  );
+});
+
+test("an explicit ngrok account rejection is cleaned once and retains ngrok retry guidance", async (t) => {
   const homeDirectory = await testHome(t);
   const { calls, runner } = createStackRunner({
     ngrokExitedDuringStartup: true,
     downFailure: true,
+    startupFailureOutput: {
+      code: 1,
+      stdout: "n8n Healthy\nngrok Exited (1)\n",
+      stderr: "ngrok rejected the token: ERR_NGROK_107 ngrok-private-token",
+    },
   });
   let errorMessage = "";
   let errorCode;
+  let failureKind;
   await assert.rejects(
     async () => {
       try {
@@ -1397,6 +1709,7 @@ test("an n8n-healthy ngrok-exited startup is cleaned once when Compose down is n
       } catch (error) {
         errorMessage = error.message;
         errorCode = error.code;
+        failureKind = error.failureKind;
         throw error;
       }
     },
@@ -1407,7 +1720,14 @@ test("an n8n-healthy ngrok-exited startup is cleaned once when Compose down is n
   assert.equal(cleanupCalls.length, 1);
   assert.equal(ownershipCalls.length, 2);
   assert.equal(errorCode, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
-  assert.doesNotMatch(errorMessage, /could not be confirmed|endpoint|ngrok-private-token/u);
+  assert.equal(
+    failureKind,
+    LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
+  );
+  assert.equal(errorMessage.length <= 240, true);
+  assert.match(errorMessage, /account, endpoint, or credential setup/u);
+  assert.match(errorMessage, /reserved hostname, active agent authtoken, and Basic Auth/u);
+  assert.doesNotMatch(errorMessage, /could not be confirmed|ngrok-private-token/u);
   await assert.rejects(() => stat(join(homeDirectory, ".relmio", "local", "n8n-stack")));
 });
 
@@ -1418,6 +1738,11 @@ test("a failed startup preserves one still-owned partial stack with safe recover
     downFailure: true,
     resourcesRemainAfterDownAttempts: 1,
     emptyComposeDependsOnLabel: true,
+    startupFailureOutput: {
+      code: 1,
+      stdout: "",
+      stderr: "ngrok rejected the token: ERR_NGROK_107 ngrok-private-token",
+    },
   });
   let errorMessage = "";
   let errorCode;
@@ -2003,6 +2328,42 @@ test("a lock-release failure preserves the authoritative partial-stack recovery 
     }
   }, /Relmio-managed partial stack remains/u);
   assert.equal(captured.code, LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE);
+  assert.match(captured.cause?.message ?? "", /operation lock/u);
+});
+
+test("a lock-release failure preserves a safely cleaned non-ngrok startup classification", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { runner } = createStackRunner({
+    partialUpFailure: true,
+    startupFailureOutput: {
+      code: 1,
+      stdout: "",
+      stderr: "image pull failed with no ngrok rejection code",
+    },
+  });
+  let captured;
+  await assert.rejects(async () => {
+    try {
+      await installLocalN8nStack({
+        plan: plan(),
+        secrets: {
+          ngrokAuthtoken: "ngrok-private-token",
+          basicAuthUsername: "operator",
+          basicAuthPassword: "long-private-password",
+        },
+        publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+        homeDirectory,
+        runProcess: runner,
+        fileSystem: releaseFailingFileSystem(),
+        processIdentity: testProcessIdentity(),
+      });
+    } catch (error) {
+      captured = error;
+      throw error;
+    }
+  }, /Docker could not create the new n8n stack/u);
+  assert.equal(captured.code, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+  assert.equal(captured.failureKind, "stack-creation");
   assert.match(captured.cause?.message ?? "", /operation lock/u);
 });
 

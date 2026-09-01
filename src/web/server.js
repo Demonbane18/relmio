@@ -68,6 +68,7 @@ import {
 } from "../services/local-n8n-assistant-installer.js";
 import {
   LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
+  LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
   LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
   getLocalN8nStackStatus,
   installLocalN8nStack,
@@ -1901,7 +1902,7 @@ async function handleApi(request, response, path, state) {
             // The service only emits this code after ownership-attested
             // cleanup proves that no owned Docker resources remain. Restore
             // the server-side, non-secret reviewed plan so the user can
-            // correct a rejected ngrok token/domain without redoing the form.
+            // retry the classified startup failure without redoing the form.
             state.localPlan = pending;
             throw Object.assign(error, { retryablePlan: true });
           }
@@ -2705,8 +2706,12 @@ function createRequestHandler(state) {
       if (!response.headersSent) {
         const managedPartialStack =
           error?.code === LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE;
-        const retryableNgrokSetup =
+        const retryableStackStartup =
           error?.code === LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE;
+        const retryableNgrokSetup =
+          retryableStackStartup &&
+          error?.failureKind ===
+            LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND;
         sendJson(response, error.statusCode ?? 400, {
           error: managedPartialStack
             ? "Relmio confirmed that its owned partial local n8n + ngrok stack remains. Use the explicit removal control to retry cleanup safely."

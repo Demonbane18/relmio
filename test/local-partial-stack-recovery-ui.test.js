@@ -403,7 +403,7 @@ test("the install lifecycle suppresses duplicate submission and restores the rev
   assert.equal(harness.state.planId, null);
 });
 
-test("a safe stack credential rejection preserves the reviewed plan while clearing and reopening every secret field", async () => {
+test("a retry-safe non-ngrok failure preserves the reviewed plan without ngrok guidance", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
   const harness = createInstallHarness(script);
   const before = disabledStates(harness.installControls);
@@ -418,7 +418,7 @@ test("a safe stack credential rejection preserves the reviewed plan while cleari
     harness.installControls.map(() => true),
   );
   harness.request.reject(
-    Object.assign(new Error("The supplied credentials were rejected."), {
+    Object.assign(new Error("SearXNG search verification failed."), {
       retryablePlan: true,
     }),
   );
@@ -440,11 +440,37 @@ test("a safe stack credential rejection preserves the reviewed plan while cleari
   assert.equal(harness.elements.get("n8n-stack-secrets").hidden, false);
   assert.match(
     harness.messages.at(-1),
-    /Credentials were cleared for safety\. Re-enter all three credentials/u,
+    /Credentials were cleared for safety\. Address the reported Docker or service verification failure, then re-enter all three credentials/u,
   );
+  assert.doesNotMatch(harness.messages.at(-1), /reserved ngrok hostname|agent token/u);
   assert.equal(harness.apiCalls[0].options.body.ngrokAuthtoken, undefined);
   assert.equal(harness.apiCalls[0].options.body.basicAuthUsername, undefined);
   assert.equal(harness.apiCalls[0].options.body.basicAuthPassword, undefined);
+});
+
+test("the reviewed retry path requires an exact boolean attestation", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const harness = createInstallHarness(script);
+  const attempt = harness.installHandler({ currentTarget: harness.installButton });
+  harness.request.reject(
+    Object.assign(new Error("Untrusted retry classification."), {
+      retryablePlan: "true",
+      retryableNgrokSetup: true,
+    }),
+  );
+  await attempt;
+
+  assert.equal(harness.state.planId, null);
+  assert.equal(harness.state.plan, null);
+  assert.deepEqual(harness.shownSteps, [1]);
+  assert.equal(harness.ngrokAuthtoken.value, "");
+  assert.equal(harness.basicAuthUsername.value, "");
+  assert.equal(harness.basicAuthPassword.value, "");
+  assert.equal(harness.ngrokAuthtoken.disabled, true);
+  assert.equal(harness.basicAuthUsername.disabled, true);
+  assert.equal(harness.basicAuthPassword.disabled, true);
+  assert.equal(harness.elements.get("n8n-stack-secrets").hidden, true);
+  assert.doesNotMatch(harness.messages.at(-1), /reserved ngrok hostname|agent token/u);
 });
 
 test("a retry-safe rejected ngrok startup gives beginner guidance without retaining any credential", async () => {
@@ -463,7 +489,10 @@ test("a retry-safe rejected ngrok startup gives beginner guidance without retain
   assert.equal(harness.basicAuthUsername.value, "");
   assert.equal(harness.basicAuthPassword.value, "");
   assert.equal(harness.elements.get("n8n-stack-secrets").hidden, false);
-  assert.match(harness.messages.at(-1), /reserved ngrok hostname and active agent token/u);
+  assert.match(
+    harness.messages.at(-1),
+    /ngrok account and endpoint setup, reserved hostname, active agent token, and Basic Auth/u,
+  );
 });
 
 test("a partial-stack removal requires the exact boolean attestation", async () => {

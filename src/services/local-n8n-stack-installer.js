@@ -46,6 +46,17 @@ const MAX_DOCKER_METADATA_BYTES = 1024 * 1024;
 export const LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE = "LOCAL_N8N_MANAGED_PARTIAL_STACK";
 export const LOCAL_N8N_LIFECYCLE_LOCK_RELEASE_ERROR_CODE = "LOCAL_N8N_LIFECYCLE_LOCK_RELEASE";
 export const LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE = "LOCAL_N8N_STACK_RETRYABLE_STARTUP";
+export const LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND = "ngrok-setup-rejected";
+const STACK_STARTUP_FAILURE_KINDS = Object.freeze({
+  STACK_CREATION: "stack-creation",
+  OWNERSHIP_VERIFICATION: "ownership-verification",
+  STACK_RUNTIME_VERIFICATION: "stack-runtime-verification",
+  N8N_VERIFICATION: "n8n-verification",
+  NGROK_RUNTIME_VERIFICATION: "ngrok-runtime-verification",
+  NGROK_SETUP_REJECTED: LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
+  ASSISTANT_VERIFICATION: "assistant-verification",
+  SEARXNG_SEARCH_VERIFICATION: "searxng-search-verification",
+});
 export const LOCAL_N8N_STACK_STATUS_STATES = Object.freeze([
   "absent",
   "healthy",
@@ -73,6 +84,36 @@ const NAMED_RESOURCE_OWNERSHIP_FORMAT = `{"Name":{{json .Name}},"Labels":{${OWNE
 const DOCKER_SELECTION_VARIABLES = new Set([
   "BUILDKIT_HOST", "DOCKER_CERT_PATH", "DOCKER_CONFIG", "DOCKER_CONTEXT",
   "DOCKER_HOST", "DOCKER_TLS_VERIFY",
+]);
+const STARTUP_FAILURE_KIND = Symbol("local-n8n-stack-startup-failure-kind");
+const NGROK_SETUP_REJECTION_CODES = new Set([
+  "ERR_NGROK_105",
+  "ERR_NGROK_106",
+  "ERR_NGROK_107",
+  "ERR_NGROK_109",
+  "ERR_NGROK_110",
+  "ERR_NGROK_300",
+  "ERR_NGROK_307",
+  "ERR_NGROK_308",
+  "ERR_NGROK_309",
+  "ERR_NGROK_316",
+  "ERR_NGROK_318",
+  "ERR_NGROK_319",
+  "ERR_NGROK_320",
+  "ERR_NGROK_321",
+  "ERR_NGROK_322",
+  "ERR_NGROK_343",
+  "ERR_NGROK_354",
+  "ERR_NGROK_360",
+  "ERR_NGROK_2257",
+  "ERR_NGROK_4018",
+  "ERR_NGROK_6022",
+  "ERR_NGROK_15002",
+  "ERR_NGROK_15008",
+  "ERR_NGROK_15009",
+  "ERR_NGROK_15011",
+  "ERR_NGROK_15012",
+  "ERR_NGROK_15013",
 ]);
 
 function assertSupportedPlatform(platform) {
@@ -355,11 +396,77 @@ function createManagedPartialStackError(message) {
   });
 }
 
-function createRetryableStackStartupError() {
-  return Object.assign(new Error(
-    "The new n8n + ngrok stack did not start. Confirm that the reserved ngrok hostname belongs to this account and paste one active ngrok agent authtoken, then re-enter the Basic Auth pair and retry. Relmio removed the failed owned resources.",
-  ), {
+function createTypedStartupFailure(failureKind, message) {
+  const error = new Error(message);
+  Object.defineProperty(error, STARTUP_FAILURE_KIND, {
+    value: failureKind,
+  });
+  return error;
+}
+
+function startupFailureKind(error) {
+  return Object.values(STACK_STARTUP_FAILURE_KINDS).includes(
+    error?.[STARTUP_FAILURE_KIND],
+  )
+    ? error[STARTUP_FAILURE_KIND]
+    : STACK_STARTUP_FAILURE_KINDS.STACK_RUNTIME_VERIFICATION;
+}
+
+function hasNgrokSetupRejectionEvidence(result) {
+  const output = [result?.stdout, result?.stderr]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+  const codes = output.match(/\bERR_NGROK_[0-9]{2,5}\b/gu) ?? [];
+  return codes.some((code) => NGROK_SETUP_REJECTION_CODES.has(code));
+}
+
+async function createStackWithCompose({ runProcess, spec }) {
+  let result;
+  try {
+    result = await runProcess(spec);
+  } catch {
+    throw createTypedStartupFailure(
+      STACK_STARTUP_FAILURE_KINDS.STACK_CREATION,
+      "Docker could not create the new n8n stack.",
+    );
+  }
+  if (result?.code === 0) return result;
+  const failureKind = hasNgrokSetupRejectionEvidence(result)
+    ? STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED
+    : STACK_STARTUP_FAILURE_KINDS.STACK_CREATION;
+  throw createTypedStartupFailure(
+    failureKind,
+    failureKind === STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED
+      ? "ngrok rejected the reviewed setup."
+      : "Docker could not create the new n8n stack.",
+  );
+}
+
+function retryableStartupMessage(failureKind) {
+  switch (failureKind) {
+    case STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED:
+      return "The n8n + ngrok stack did not start because ngrok rejected its account, endpoint, or credential setup. Check the reserved hostname, active agent authtoken, and Basic Auth. Relmio removed the failed owned resources; retry is safe.";
+    case STACK_STARTUP_FAILURE_KINDS.STACK_CREATION:
+      return "Docker could not create the new n8n stack. Relmio removed the failed owned resources. Check Docker image availability and local service startup, then retry.";
+    case STACK_STARTUP_FAILURE_KINDS.OWNERSHIP_VERIFICATION:
+      return "Relmio could not verify the new stack's complete ownership metadata. Relmio removed the failed owned resources; retry is safe.";
+    case STACK_STARTUP_FAILURE_KINDS.N8N_VERIFICATION:
+      return "The new n8n service did not pass health verification. Relmio removed the failed owned resources. Check Docker resources, then retry.";
+    case STACK_STARTUP_FAILURE_KINDS.NGROK_RUNTIME_VERIFICATION:
+      return "The new ngrok service did not pass runtime verification. Relmio removed the failed owned resources. Check Docker resources, then retry.";
+    case STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION:
+      return "The selected Assistant services did not pass runtime or network isolation verification. Relmio removed the failed owned resources; retry is safe.";
+    case STACK_STARTUP_FAILURE_KINDS.SEARXNG_SEARCH_VERIFICATION:
+      return "The selected SearXNG service did not return a valid JSON search result. Relmio removed the failed owned resources; retry is safe.";
+    default:
+      return "The new n8n stack did not pass runtime verification. Relmio removed the failed owned resources; retry is safe.";
+  }
+}
+
+function createRetryableStackStartupError(failureKind) {
+  return Object.assign(new Error(retryableStartupMessage(failureKind)), {
     code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
+    failureKind,
   });
 }
 
@@ -376,32 +483,82 @@ function validatePublication(value, { hostPort, targetPort, requirePublication }
   ) throw new Error("Local n8n host publication verification failed closed.");
 }
 
+function serviceFailureKind(service) {
+  if (service === "n8n") {
+    return STACK_STARTUP_FAILURE_KINDS.N8N_VERIFICATION;
+  }
+  if (service === "ngrok") {
+    return STACK_STARTUP_FAILURE_KINDS.NGROK_RUNTIME_VERIFICATION;
+  }
+  return STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION;
+}
+
+function serviceFailureMessage(service) {
+  if (service === "n8n") return "The new n8n service did not pass health verification.";
+  if (service === "ngrok") return "The new ngrok service did not pass runtime verification.";
+  return "The selected Assistant services did not pass runtime verification.";
+}
+
+async function runTypedStartupCheck({ runProcess, spec, label, failureKind, message }) {
+  try {
+    return await runOrThrow(runProcess, spec, label);
+  } catch {
+    throw createTypedStartupFailure(failureKind, message);
+  }
+}
+
 async function verifyRunningStack({ runProcess, cwd, marker }) {
   const services = getLocalN8nStackServiceNames(marker).filter(
     (service) => service !== "relmio-sandbox-certs",
   );
-  const running = await runOrThrow(runProcess, {
-    file: "docker", args: composeArgs(marker, ["ps", "--status", "running", "--services"]), cwd, dockerHost: marker.dockerHost,
-  }, "Local n8n readiness check");
+  const running = await runTypedStartupCheck({
+    runProcess,
+    spec: {
+      file: "docker", args: composeArgs(marker, ["ps", "--status", "running", "--services"]), cwd, dockerHost: marker.dockerHost,
+    },
+    label: "Local n8n readiness check",
+    failureKind: STACK_STARTUP_FAILURE_KINDS.STACK_RUNTIME_VERIFICATION,
+    message: "The new n8n stack did not reach the required running service set.",
+  });
   const actual = new Set(running.stdout.split(/\s+/u).filter(Boolean));
   if (actual.size !== services.length || services.some((service) => !actual.has(service))) {
-    throw new Error("The owned local n8n stack did not reach the running state.");
+    throw createTypedStartupFailure(
+      STACK_STARTUP_FAILURE_KINDS.STACK_RUNTIME_VERIFICATION,
+      "The new n8n stack did not reach the required running service set.",
+    );
   }
   for (const service of services) {
-    const result = await runOrThrow(runProcess, {
-      file: "docker", args: composeArgs(marker, ["ps", "--format", "json", service]), cwd, dockerHost: marker.dockerHost,
-    }, "Local n8n service verification");
-    const rows = parseJsonLines(result.stdout, "Local n8n service verification");
+    const failureKind = serviceFailureKind(service);
+    const message = serviceFailureMessage(service);
+    const result = await runTypedStartupCheck({
+      runProcess,
+      spec: {
+        file: "docker", args: composeArgs(marker, ["ps", "--format", "json", service]), cwd, dockerHost: marker.dockerHost,
+      },
+      label: "Local n8n service verification",
+      failureKind,
+      message,
+    });
+    let rows;
+    try {
+      rows = parseJsonLines(result.stdout, "Local n8n service verification");
+    } catch {
+      throw createTypedStartupFailure(failureKind, message);
+    }
     if (rows.length !== 1 || rows[0]?.Service !== service || rows[0]?.State !== "running") {
-      throw new Error("The owned local n8n service state could not be verified.");
+      throw createTypedStartupFailure(failureKind, message);
     }
     if (LOCAL_N8N_STACK_HEALTHY_SERVICES.includes(service) && rows[0]?.Health !== "healthy") {
-      throw new Error("The owned local n8n service health could not be verified.");
+      throw createTypedStartupFailure(failureKind, message);
     }
-    if (service === "n8n") validatePublication(rows[0], { hostPort: marker.n8nPort, targetPort: 5678, requirePublication: true });
-    else if (service === "ngrok") validatePublication(rows[0], { hostPort: marker.ngrokInspectorPort, targetPort: 4040, requirePublication: true });
-    else if (!isUnpublishedAssistantService(rows[0]?.Publishers)) {
-      throw new Error("An Assistant service published an unexpected host port.");
+    try {
+      if (service === "n8n") validatePublication(rows[0], { hostPort: marker.n8nPort, targetPort: 5678, requirePublication: true });
+      else if (service === "ngrok") validatePublication(rows[0], { hostPort: marker.ngrokInspectorPort, targetPort: 4040, requirePublication: true });
+      else if (!isUnpublishedAssistantService(rows[0]?.Publishers)) {
+        throw new Error("An Assistant service published an unexpected host port.");
+      }
+    } catch {
+      throw createTypedStartupFailure(failureKind, message);
     }
   }
   await verifyAssistantEgressNetworks({ runProcess, cwd, marker });
@@ -415,19 +572,67 @@ function assistantEgressNetworkNames(marker) {
 
 async function verifyAssistantEgressNetworks({ runProcess, cwd, marker }) {
   for (const network of assistantEgressNetworkNames(marker)) {
-    const result = await runOrThrow(runProcess, {
-      file: "docker",
-      args: ["network", "inspect", "--format", "{{json .Internal}}", network],
-      cwd,
-      dockerHost: marker.dockerHost,
-    }, "Local n8n Assistant network verification");
+    const result = await runTypedStartupCheck({
+      runProcess,
+      spec: {
+        file: "docker",
+        args: ["network", "inspect", "--format", "{{json .Internal}}", network],
+        cwd,
+        dockerHost: marker.dockerHost,
+      },
+      label: "Local n8n Assistant network verification",
+      failureKind: STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION,
+      message: "The selected Assistant network isolation verification failed.",
+    });
     let internal;
     try { internal = JSON.parse(result.stdout.trim()); } catch {
-      throw new Error("Local n8n Assistant network verification failed closed.");
+      throw createTypedStartupFailure(
+        STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION,
+        "The selected Assistant network isolation verification failed.",
+      );
     }
     if (internal !== false) {
-      throw new Error("Local n8n Assistant network verification failed closed.");
+      throw createTypedStartupFailure(
+        STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION,
+        "The selected Assistant network isolation verification failed.",
+      );
     }
+  }
+}
+
+async function verifySearxngSearch({ runProcess, cwd, marker }) {
+  if (marker.assistantMode !== "sandbox-with-searxng") return;
+  const failureKind =
+    STACK_STARTUP_FAILURE_KINDS.SEARXNG_SEARCH_VERIFICATION;
+  const message =
+    "The selected SearXNG service did not return a valid JSON search result.";
+  const search = await runTypedStartupCheck({
+    runProcess,
+    spec: {
+      file: "docker",
+      args: composeArgs(marker, [
+        "exec",
+        "-T",
+        "relmio-sandbox-api",
+        "wget",
+        "-qO-",
+        "http://relmio-searxng:8080/search?q=relmio&format=json",
+      ]),
+      cwd,
+      dockerHost: marker.dockerHost,
+    },
+    label: "Local n8n SearXNG JSON verification",
+    failureKind,
+    message,
+  });
+  let payload;
+  try {
+    payload = JSON.parse(search.stdout);
+  } catch {
+    throw createTypedStartupFailure(failureKind, message);
+  }
+  if (!Array.isArray(payload?.results)) {
+    throw createTypedStartupFailure(failureKind, message);
   }
 }
 
@@ -1432,11 +1637,31 @@ export async function installLocalN8nStack({
         filesCreated = true;
         await runOrThrow(runProcess, { file: "docker", args: composeArgs(installation.marker, ["config", "--quiet"]), cwd: installRoot, dockerHost }, "Local n8n Compose validation");
         creationAttempted = true;
-        await runOrThrow(runProcess, { file: "docker", args: composeArgs(installation.marker, ["up", "-d", "--wait", "--wait-timeout", "90"]), cwd: installRoot, dockerHost }, "Local n8n stack creation");
-        await attestOwnedResources({ runProcess, cwd: installRoot, marker: installation.marker });
+        await createStackWithCompose({
+          runProcess,
+          spec: {
+            file: "docker",
+            args: composeArgs(installation.marker, ["up", "-d", "--wait", "--wait-timeout", "90"]),
+            cwd: installRoot,
+            dockerHost,
+          },
+        });
+        try {
+          await attestOwnedResources({ runProcess, cwd: installRoot, marker: installation.marker });
+        } catch {
+          throw createTypedStartupFailure(
+            STACK_STARTUP_FAILURE_KINDS.OWNERSHIP_VERIFICATION,
+            "Relmio could not verify the new stack's complete ownership metadata.",
+          );
+        }
         await verifyRunningStack({ runProcess, cwd: installRoot, marker: installation.marker });
+        await verifySearxngSearch({
+          runProcess,
+          cwd: installRoot,
+          marker: installation.marker,
+        });
         return toSanitizedResult(installation.marker);
-      } catch {
+      } catch (error) {
         if (creationAttempted) {
           const cleanupState = await attemptOwnershipAttestedCleanup({
             runProcess,
@@ -1457,7 +1682,7 @@ export async function installLocalN8nStack({
           } catch {
             throw new Error("Local n8n stack startup failed and its owned Docker resources were removed, but Relmio could not remove the managed files. Inspect the managed installation directory before retrying; existing n8n deployments were not changed.");
           }
-          throw createRetryableStackStartupError();
+          throw createRetryableStackStartupError(startupFailureKind(error));
         }
         if (filesCreated && !creationAttempted) await removeManagedFiles({ fileSystem, installRoot });
         throw new Error("Local n8n stack installation failed. Existing n8n deployments were not inspected or changed.");

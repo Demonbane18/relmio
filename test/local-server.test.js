@@ -5,6 +5,7 @@ import test from "node:test";
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
 import {
   LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
+  LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
   LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
 } from "../src/services/local-n8n-stack-installer.js";
 import { startWizardServer } from "../src/web/server.js";
@@ -422,6 +423,9 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
   };
   const authtoken = "ngrok-never-return-this";
   const password = "never-return-this-password";
+  const ngrokSetupErrorMessage =
+    "The n8n + ngrok stack did not start because ngrok rejected its account, endpoint, or credential setup. Check the reserved hostname, active agent authtoken, and Basic Auth. Relmio removed the failed owned resources; retry is safe.";
+  assert.equal(ngrokSetupErrorMessage.length <= 240, true);
   const calls = [];
   const wizard = await startLocalWizard(t, {
     async getLocalDockerStatus() {
@@ -432,9 +436,10 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
     },
     async installLocalN8nStack(input) {
       calls.push(input);
-      throw Object.assign(new Error(
-        "The new n8n + ngrok stack did not start. Check the reserved ngrok hostname and agent token, then retry.",
-      ), { code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE });
+      throw Object.assign(new Error(ngrokSetupErrorMessage), {
+        code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
+        failureKind: LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
+      });
     },
   });
   const planned = await createPlan(wizard, {
@@ -459,7 +464,7 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
   assert.equal(firstText.includes(password), false);
   assert.equal(firstText.includes(dockerHost), false);
   assert.deepEqual(JSON.parse(firstText), {
-    error: "The new n8n + ngrok stack did not start. Check the reserved ngrok hostname and agent token, then retry.",
+    error: ngrokSetupErrorMessage,
     retryablePlan: true,
     retryableNgrokSetup: true,
   });
@@ -467,6 +472,82 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
   assert.equal(second.status, 400);
   assert.equal(calls.length, 2);
   assert.equal(calls.every((input) => input.plan === stackPlan), true);
+});
+
+test("safely cleaned non-ngrok startup failures preserve the reviewed plan without ngrok guidance", async (t) => {
+  const dockerHost = "unix:///var/run/docker.sock";
+  const stackPlan = {
+    kind: "local-n8n-stack",
+    target: "local-n8n-stack",
+    label: "Disposable self-hosted n8n + ngrok",
+    dockerHost,
+    ngrokHostname: "workflow.example.ngrok.app",
+    n8nPort: 5679,
+    ngrokInspectorPort: 4041,
+    timezone: "Asia/Manila",
+    assistantMode: "sandbox-with-searxng",
+    localUrl: "http://127.0.0.1:5679",
+    ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    hostPublication: "loopback-only",
+    deploymentMode: "new-disposable-stack",
+    managedPath: "~/.relmio/local/n8n-stack",
+  };
+  const authtoken = "ngrok-never-return-this";
+  const password = "never-return-this-password";
+  let installCalls = 0;
+  const wizard = await startLocalWizard(t, {
+    async getLocalDockerStatus() {
+      return { dockerAvailable: true, dockerHost };
+    },
+    prepareLocalN8nStackPlan() {
+      return stackPlan;
+    },
+    async installLocalN8nStack() {
+      installCalls += 1;
+      throw Object.assign(
+        new Error(
+          `docker stderr in C:\\private\\stack with ${authtoken} and ${password}`,
+        ),
+        {
+          code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
+          failureKind: "searxng-search-verification",
+          safeMessage:
+            "The selected SearXNG service did not return a valid JSON search result. Relmio removed the failed owned resources.",
+        },
+      );
+    },
+  });
+  const planned = await createPlan(wizard, {
+    target: "local-n8n-stack",
+    ngrokHostname: stackPlan.ngrokHostname,
+    n8nPort: String(stackPlan.n8nPort),
+    ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
+    timezone: stackPlan.timezone,
+    assistantMode: stackPlan.assistantMode,
+  });
+  const body = {
+    planId: planned.planId,
+    confirmed: true,
+    ngrokAuthtoken: authtoken,
+    basicAuthUsername: "relmio",
+    basicAuthPassword: password,
+  };
+  const first = await postJson(wizard, "/api/local/install", body);
+  assert.equal(first.status, 400);
+  const text = await first.text();
+  assert.deepEqual(JSON.parse(text), {
+    error:
+      "The selected SearXNG service did not return a valid JSON search result. Relmio removed the failed owned resources.",
+    retryablePlan: true,
+  });
+  assert.equal(text.includes(authtoken), false);
+  assert.equal(text.includes(password), false);
+  assert.equal(text.includes("C:\\private\\stack"), false);
+  assert.equal(text.includes(dockerHost), false);
+
+  const retry = await postJson(wizard, "/api/local/install", body);
+  assert.equal(retry.status, 400);
+  assert.equal(installCalls, 2);
 });
 
 test("stopped stack resume requires an explicit user action and returns no Docker details", async (t) => {

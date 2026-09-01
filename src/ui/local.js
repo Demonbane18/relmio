@@ -2458,8 +2458,8 @@ element("install-button").addEventListener("click", async (event) => {
       showStep(3);
       setMessage(
         error.retryableNgrokSetup === true
-          ? "Credentials were cleared for safety. Check the reserved ngrok hostname and active agent token, then re-enter all three credentials and retry this reviewed plan."
-          : "Credentials were cleared for safety. Re-enter all three credentials and retry this reviewed plan.",
+          ? "Credentials were cleared for safety. Check the ngrok account and endpoint setup, reserved hostname, active agent token, and Basic Auth, then re-enter all three credentials and retry this reviewed plan."
+          : "Credentials were cleared for safety. Address the reported Docker or service verification failure, then re-enter all three credentials and retry this reviewed plan.",
       );
       showError(error);
       return;

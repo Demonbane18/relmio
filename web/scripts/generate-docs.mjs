@@ -70,6 +70,10 @@ function rewriteRepositoryLinks(markdown) {
   );
 }
 
+function normalizeLineEndings(markdown) {
+  return markdown.replace(/\r\n?/gu, "\n");
+}
+
 function renderGeneratedModule(entries, changelogContent) {
   return `/*
  * @generated from repository Markdown by web/scripts/generate-docs.mjs.
@@ -94,11 +98,15 @@ async function generate() {
       pages.map(async (page) => ({
         ...page,
         content: rewriteRepositoryLinks(
-          await readFile(resolve(repositoryRoot, page.sourcePath), "utf8"),
+          normalizeLineEndings(
+            await readFile(resolve(repositoryRoot, page.sourcePath), "utf8"),
+          ),
         ),
       })),
     ),
-    readFile(resolve(repositoryRoot, "CHANGELOG.md"), "utf8"),
+    readFile(resolve(repositoryRoot, "CHANGELOG.md"), "utf8").then(
+      normalizeLineEndings,
+    ),
   ]);
   return renderGeneratedModule(entries, changelogContent);
 }

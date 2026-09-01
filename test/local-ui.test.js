@@ -402,7 +402,7 @@ test("local wizard offers a new owned n8n plus Basic-Auth-protected ngrok stack 
   assert.match(script, /for \(const input of stackSecretInputs\) \{[\s\S]*input\.value = "";[\s\S]*input\.disabled = !retryStackCredentials;/u);
   assert.match(
     script,
-    /error\.retryablePlan === true[\s\S]*Credentials were cleared for safety\. Re-enter all three credentials and retry this reviewed plan/u,
+    /error\.retryablePlan === true[\s\S]*error\.retryableNgrokSetup === true[\s\S]*Check the ngrok account and endpoint setup, reserved hostname, active agent token, and Basic Auth[\s\S]*Address the reported Docker or service verification failure/u,
   );
   assert.match(script, /element\("n8n-stack-secrets"\)\.hidden = true/u);
   assert.match(script, /element\(id\)\.disabled = !stack/u);
@@ -490,7 +490,7 @@ test("local installation exposes honest shared progress and locks the complete I
   assert.ok(retryBranch < progressStop);
   assert.match(
     script.slice(retryBranch, progressStop),
-    /retryStackCredentials = true;[\s\S]*Credentials were cleared for safety\. Re-enter all three credentials and retry this reviewed plan/u,
+    /retryStackCredentials = true;[\s\S]*error\.retryableNgrokSetup === true[\s\S]*Check the ngrok account and endpoint setup, reserved hostname, active agent token, and Basic Auth[\s\S]*Address the reported Docker or service verification failure/u,
   );
 
   assert.match(css, /\.install-progress\s*\{/u);
