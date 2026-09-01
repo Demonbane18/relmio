@@ -1334,12 +1334,14 @@ test("project-wide ownership attestation exposes foreign project resources and r
   assert.equal(errorCode, undefined);
 });
 
-test("a nonzero partial Compose up with an owned resource subset is rolled back and removes managed files", async (t) => {
+test("a nonzero partial Compose up with realistic metadata is safely rolled back", async (t) => {
   const homeDirectory = await testHome(t);
   const { calls, runner } = createStackRunner({
     partialUpFailure: true,
     partialResources: true,
+    emptyComposeDependsOnLabel: true,
   });
+  let errorMessage = "";
   let errorCode;
   await assert.rejects(async () => {
     try {
@@ -1355,6 +1357,7 @@ test("a nonzero partial Compose up with an owned resource subset is rolled back 
         runProcess: runner,
       });
     } catch (error) {
+      errorMessage = error.message;
       errorCode = error.code;
       throw error;
     }
@@ -1365,6 +1368,8 @@ test("a nonzero partial Compose up with an owned resource subset is rolled back 
     1,
   );
   await assert.rejects(() => stat(join(homeDirectory, ".relmio", "local", "n8n-stack")));
+  assert.doesNotMatch(errorMessage, /ownership could not be safely confirmed|rollback could not be confirmed/u);
+  assertOwnershipFormatsUseExplicitLabels(calls);
 });
 
 test("an n8n-healthy ngrok-exited startup is cleaned once when Compose down is nonzero but resources are gone", async (t) => {
@@ -1412,6 +1417,7 @@ test("a failed startup preserves one still-owned partial stack with safe recover
     ngrokExitedDuringStartup: true,
     downFailure: true,
     resourcesRemainAfterDownAttempts: 1,
+    emptyComposeDependsOnLabel: true,
   });
   let errorMessage = "";
   let errorCode;
@@ -1441,6 +1447,8 @@ test("a failed startup preserves one still-owned partial stack with safe recover
   assert.equal(cleanupCalls.length, 1);
   assert.equal(errorCode, LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE);
   assert.doesNotMatch(errorMessage, /https?:\/\/|ngrok-private-token/u);
+  assert.doesNotMatch(errorMessage, /ownership could not be safely confirmed|rollback could not be confirmed/u);
+  assertOwnershipFormatsUseExplicitLabels(calls);
   await stat(join(homeDirectory, ".relmio", "local", "n8n-stack", ".managed-by-relmio.json"));
   const removed = await removeLocalN8nStack({
     homeDirectory,

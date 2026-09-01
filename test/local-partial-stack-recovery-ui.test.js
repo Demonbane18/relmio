@@ -129,11 +129,14 @@ function createInstallHarness(script, { target = "local-n8n-stack" } = {}) {
 
   const reviewedPlan = { target };
   const state = {
-    installControlStates: [],
-    installProgressStartedAt: 0,
-    installProgressTimer: null,
     installedTarget: null,
-    installing: false,
+    operationBusy: false,
+    operationButton: null,
+    operationControlObserver: null,
+    operationControlStates: [],
+    operationLabel: "",
+    operationProgressStartedAt: 0,
+    operationProgressTimer: null,
     plan: reviewedPlan,
     planId: "reviewed-plan",
   };
@@ -146,9 +149,6 @@ function createInstallHarness(script, { target = "local-n8n-stack" } = {}) {
   const intervals = [];
   const clearedIntervals = [];
   const sandbox = {
-    INSTALL_PROGRESS_PHASES: [
-      { afterSeconds: 0, message: "Starting the confirmed local installation…" },
-    ],
     api: async (path, options) => {
       apiCalls.push({ options, path });
       return request.promise;
@@ -379,7 +379,7 @@ test("the install lifecycle suppresses duplicate submission and restores the rev
   });
 
   assert.equal(harness.apiCalls.length, 1);
-  assert.equal(harness.state.installing, true);
+  assert.equal(harness.state.operationBusy, true);
   assert.deepEqual(
     disabledStates(harness.installControls),
     harness.installControls.map(() => true),
@@ -393,7 +393,7 @@ test("the install lifecycle suppresses duplicate submission and restores the rev
   await firstAttempt;
 
   assert.equal(harness.apiCalls.length, 1);
-  assert.equal(harness.state.installing, false);
+  assert.equal(harness.state.operationBusy, false);
   assert.deepEqual(disabledStates(harness.installControls), before);
   assert.equal(harness.elements.get("install-panel").attributes.get("aria-busy"), "false");
   assert.equal(harness.elements.get("install-progress").hidden, true);

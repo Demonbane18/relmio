@@ -11,7 +11,11 @@
     <script src="/theme.js" type="module"></script>
     <script src="/local.js" type="module"></script>
   </head>
-  <body class="local-wizard" data-current-step="1">
+  <body
+    class="local-wizard"
+    data-current-step="1"
+    data-operation-busy="false"
+  >
     <a class="skip-link" href="#main-content">Skip to local setup</a>
 
     <header class="site-header">
@@ -79,7 +83,55 @@
       </div>
     </header>
 
-    <main id="main-content" class="shell" tabindex="-1">
+    <div
+      id="operation-progress"
+      class="operation-progress"
+      role="status"
+      aria-live="polite"
+      aria-atomic="false"
+      hidden
+    >
+      <section
+        id="install-progress"
+        class="install-progress"
+        aria-labelledby="install-progress-title"
+        tabindex="-1"
+        hidden
+      >
+        <div class="install-progress-heading">
+          <div>
+            <h3 id="install-progress-title">Operation in progress</h3>
+            <p
+              id="install-progress-phase"
+              class="install-progress-phase operation-progress__label"
+            >No operation is running.</p>
+          </div>
+          <p class="install-progress-elapsed" aria-hidden="true">
+            <span>Elapsed</span>
+            <time id="install-elapsed" class="operation-progress__elapsed" datetime="PT0S">00:00</time>
+          </p>
+        </div>
+        <div
+          id="install-progress-bar"
+          class="install-progress-track operation-progress__track"
+          role="progressbar"
+          aria-labelledby="install-progress-title"
+          aria-describedby="install-progress-phase install-progress-duration-note"
+          aria-valuetext="No operation is running."
+        >
+          <span
+            class="install-progress-indicator operation-progress__bar"
+            aria-hidden="true"
+          ></span>
+        </div>
+        <p id="install-progress-duration-note" class="install-progress-note">
+          Duration varies by operation. First-time Docker image downloads can take several minutes.
+          Keep this page open; Relmio will unlock every control when the current operation finishes or stops.
+        </p>
+      </section>
+    </div>
+
+    <main id="main-content" class="shell" tabindex="-1" aria-busy="false">
       <aside class="rail" aria-label="Local setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
           <p class="local-eyebrow">Local setup</p>
@@ -393,6 +445,7 @@
                 <a
                   id="n8n-oauth-link"
                   class="button secondary"
+                  data-operation-allow="auth"
                   target="_blank"
                   rel="noopener noreferrer"
                   hidden
@@ -531,7 +584,7 @@
               <strong>Set up ngrok in three steps</strong>
               <ol>
                 <li>Create or choose a static ngrok domain in the <a href="https://dashboard.ngrok.com/domains" target="_blank" rel="noopener noreferrer">ngrok dashboard</a>.</li>
-                <li>Get an authtoken allowed to use that domain from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">Your Authtoken</a>.</li>
+                <li>Copy an active agent token from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">Your Authtoken</a>. “Your Authtoken” is the quick-copy page; “Authtokens” is the page that lists and manages tokens. They are the same credential type, and the token must be allowed to use your reserved domain.</li>
                 <li>Choose a separate Basic Auth username and strong password for people opening this n8n link.</li>
               </ol>
               <p>After installation, open the public link in a private browser window. It must stay blocked until you enter that Basic Auth pair.</p>
@@ -752,11 +805,11 @@
 
         <aside id="n8n-stack-install-note" class="high-trust-warning" hidden>
           <strong>Public endpoint, mandatory Basic Auth</strong>
-          <p>Paste only the agent token value from ngrok’s “Your Authtoken” or “Authtokens” page—not the <code>ngrok config add-authtoken ...</code> command and not an ngrok API key. Create the Basic Auth username and password yourself here; they do not come from ngrok, n8n, Relmio, Windows, or your ChatGPT sign-in. Save them in your password manager because people opening the public n8n link will need them. Relmio clears all three values from the browser after submission and never shows them in results or errors.</p>
+          <p>“Your Authtoken” is ngrok’s quick-copy page and “Authtokens” is its token-management page; both provide the same type of agent credential. Paste only one active agent token value—not the <code>ngrok config add-authtoken ...</code> command and not an ngrok API key. Create the Basic Auth username and password yourself here; they do not come from ngrok, n8n, Relmio, Windows, or your ChatGPT sign-in. Save them in your password manager because people opening the public n8n link will need them. Relmio clears all three values from the browser after submission and never shows them in results or errors.</p>
         </aside>
 
         <div id="n8n-stack-secrets" class="field-grid local-fields" hidden>
-          <label class="field"><span>ngrok agent authtoken</span><input id="ngrok-authtoken" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="8" maxlength="512" aria-describedby="ngrok-authtoken-help" /><small id="ngrok-authtoken-help">Paste only the agent token value from “Your Authtoken” or “Authtokens.” Use 8–512 characters with no whitespace. Do not paste the <code>ngrok config add-authtoken ...</code> command or an ngrok API key.</small></label>
+          <label class="field"><span>ngrok agent authtoken</span><input id="ngrok-authtoken" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="8" maxlength="512" aria-describedby="ngrok-authtoken-help" /><small id="ngrok-authtoken-help">“Your Authtoken” is quick-copy; “Authtokens” lists and manages the same credential type. Paste one active agent token value using 8–512 characters with no whitespace. Do not paste the <code>ngrok config add-authtoken ...</code> command or an ngrok API key.</small></label>
           <label class="field"><span>Basic Auth username</span><input id="ngrok-basic-auth-username" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" required minlength="1" maxlength="64" pattern="[A-Za-z0-9_\-]+" aria-describedby="ngrok-basic-auth-username-help" /><small id="ngrok-basic-auth-username-help">Create this username yourself using 1–64 letters, numbers, hyphens, or underscores.</small></label>
           <div class="field">
             <label for="ngrok-basic-auth-password">Basic Auth password</label>
@@ -768,46 +821,6 @@
             </div>
           </div>
         </div>
-
-        <section
-          id="install-progress"
-          class="install-progress"
-          aria-labelledby="install-progress-title"
-          tabindex="-1"
-          hidden
-        >
-          <div class="install-progress-heading">
-            <div>
-              <h3 id="install-progress-title">Installing on this computer</h3>
-              <p
-                id="install-progress-phase"
-                class="install-progress-phase"
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-              >Starting the confirmed local installation…</p>
-            </div>
-            <p class="install-progress-elapsed">
-              <span>Elapsed</span>
-              <time id="install-elapsed" datetime="PT0S">00:00</time>
-            </p>
-          </div>
-          <div
-            id="install-progress-bar"
-            class="install-progress-track"
-            role="progressbar"
-            aria-labelledby="install-progress-title"
-            aria-describedby="install-progress-phase install-progress-duration-note"
-            aria-valuetext="Starting the confirmed local installation…"
-          >
-            <span class="install-progress-indicator" aria-hidden="true"></span>
-          </div>
-          <p id="install-progress-duration-note" class="install-progress-note">
-            First-time Docker image downloads can take several minutes. Keep
-            this page open; Relmio will unlock these controls when installation
-            finishes or stops.
-          </p>
-        </section>
 
         <div class="actions">
           <button class="button ghost back-button" type="button" data-back="2">
@@ -1001,6 +1014,7 @@
                 type="button"
                 data-copy-target="device-code"
                 data-copy-label="device code"
+                data-operation-allow="copy"
                 aria-label="Copy device code"
                 title="Copy device code"
               >
@@ -1010,6 +1024,7 @@
             <a
               id="device-code-link"
               class="button secondary"
+              data-operation-allow="auth"
               target="_blank"
               rel="noopener noreferrer"
             >
