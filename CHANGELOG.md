@@ -7,6 +7,16 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- Give the first local n8n + ngrok start enough time to pull images and pass
+  health checks, and explain image-download versus startup-wait failures
+  without exposing Docker output or credentials.
+- Explain Windows Docker Desktop WSL `0x800705aa` engine-start failures in the
+  local n8n wizard instead of a generic Compose error.
+
+## [0.12.0] - 2026-09-02
+
 ### Added
 
 - Support local Docker endpoint, n8n bridge, Assistant companion, and owned
@@ -14,6 +24,7 @@ checks the registry separately after publication.
   `desktop-linux` engine.
 - Add manage/edit actions for detected local and VPS n8n integrations,
   including a fresh ChatGPT sign-in path and Assistant/SearXNG configuration.
+- Add a Ko-fi support link to the GitHub and npm README guides.
 
 ### Changed
 
@@ -34,8 +45,6 @@ checks the registry separately after publication.
   host-published Assistant ports.
 - Preserve existing n8n enabled modules when adding AI Assistant settings and
   leave existing n8n containers, Compose files, images, and restarts untouched.
-- Explain Windows Docker Desktop WSL `0x800705aa` engine-start failures in the
-  local n8n wizard instead of a generic Compose error.
 
 ### Security
 
@@ -769,6 +778,7 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
+[0.12.0]: https://github.com/Demonbane18/relmio/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 [0.1.7]: https://github.com/Demonbane18/relmio/compare/v0.1.6...v0.1.7

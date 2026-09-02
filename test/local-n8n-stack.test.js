@@ -26,6 +26,9 @@ import {
   LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
   LOCAL_N8N_STACK_DOCKER_ENGINE_RESOURCES_FAILURE_KIND,
   LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
+  LOCAL_N8N_STACK_COMPOSE_PULL_TIMEOUT_MS,
+  LOCAL_N8N_STACK_COMPOSE_UP_TIMEOUT_MS,
+  LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS,
   getLocalN8nStackStatus,
   installLocalN8nStack as installLocalN8nStackService,
   removeLocalN8nStack as removeLocalN8nStackService,
@@ -1285,6 +1288,15 @@ test("installer creates only the new owned project and returns a redacted result
   assert.equal(JSON.stringify(result).includes("private"), false);
   assert.equal(calls.some((entry) => entry.args.join(" ").includes("container inspect")), false);
   assert.equal(calls.some((entry) => /\b(restart|recreate|exec)\b/u.test(entry.args.join(" "))), false);
+  const pullCall = calls.find((entry) => entry.args.includes("pull") && entry.args.includes("compose"));
+  const upCall = calls.find((entry) => entry.args.includes("up") && entry.args.includes("--wait"));
+  assert.equal(pullCall?.timeoutMs, LOCAL_N8N_STACK_COMPOSE_PULL_TIMEOUT_MS);
+  assert.equal(upCall?.timeoutMs, LOCAL_N8N_STACK_COMPOSE_UP_TIMEOUT_MS);
+  assert.deepEqual(
+    upCall?.args.slice(upCall.args.indexOf("up")),
+    ["up", "-d", "--wait", "--wait-timeout", String(LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS)],
+  );
+  assert.equal(LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS >= 180, true);
   const installRoot = join(homeDirectory, ".relmio", "local", "n8n-stack");
   if (process.platform !== "win32") {
     assert.equal((await stat(installRoot)).mode & 0o777, 0o700);
@@ -1666,11 +1678,11 @@ test("a non-ngrok Compose failure is safely rolled back without credential-rejec
       failureKind = error.failureKind;
       throw error;
     }
-  }, /Docker could not create the new n8n stack/u);
+  }, /could not download a required n8n, ngrok, Code Sandbox, or SearXNG image/u);
   assert.equal(errorCode, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
   assert.equal(
     failureKind,
-    "stack-creation",
+    "stack-image-pull",
   );
   assert.equal(errorMessage.length <= 240, true);
   assert.equal(
@@ -1681,6 +1693,7 @@ test("a non-ngrok Compose failure is safely rolled back without credential-rejec
     errorMessage,
     /private\.registry\.invalid|C:\\private|ngrok-private-token|pull access denied/u,
   );
+  assert.match(errorMessage, /could not download a required n8n, ngrok, Code Sandbox, or SearXNG image/u);
   assert.equal(
     calls.filter((entry) => entry.args.join(" ").includes("down --volumes --remove-orphans")).length,
     1,
@@ -1688,6 +1701,44 @@ test("a non-ngrok Compose failure is safely rolled back without credential-rejec
   await assert.rejects(() => stat(join(homeDirectory, ".relmio", "local", "n8n-stack")));
   assert.doesNotMatch(errorMessage, /ownership could not be safely confirmed|rollback could not be confirmed/u);
   assertOwnershipFormatsUseExplicitLabels(calls);
+});
+
+test("a Compose wait-timeout is cleaned as a retryable first-start delay", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { calls, runner } = createStackRunner({
+    partialUpFailure: true,
+    startupFailureOutput: {
+      code: 1,
+      stdout: "n8n Starting\nngrok Waiting",
+      stderr: "service n8n didn't become healthy: wait-timeout reached",
+    },
+  });
+  let captured;
+  await assert.rejects(async () => {
+    try {
+      await installLocalN8nStack({
+        plan: plan(),
+        secrets: {
+          ngrokAuthtoken: "ngrok-private-token",
+          basicAuthUsername: "operator",
+          basicAuthPassword: "long-private-password",
+        },
+        publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+        homeDirectory,
+        runProcess: runner,
+      });
+    } catch (error) {
+      captured = error;
+      throw error;
+    }
+  }, /did not become ready in time/u);
+  assert.equal(captured.code, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+  assert.equal(captured.failureKind, "stack-startup-wait");
+  assert.doesNotMatch(captured.message, /ngrok-private-token|wait-timeout reached/u);
+  assert.equal(
+    calls.filter((entry) => entry.args.join(" ").includes("down --volumes --remove-orphans")).length,
+    1,
+  );
 });
 
 test("a non-allowlisted ngrok runtime code stays a generic cleaned startup failure", async (t) => {

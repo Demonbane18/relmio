@@ -112,7 +112,6 @@ export function runIdentityCommand(
       });
     });
     timeout = setTimeout(fail, timeoutMs);
-    timeout.unref?.();
     try { child.stdin.end(input); } catch { fail(); }
   });
 }
