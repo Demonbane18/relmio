@@ -10,6 +10,8 @@ import {
   startOAuthLogin,
 } from "../src/services/oauth.js";
 
+const noOpLockDownPath = async () => {};
+
 function createMemoryFileSystem(files) {
   return {
     async access(path) {
@@ -243,6 +245,7 @@ test("startOAuthLogin reads the supported CLI login line across ANSI, CRLF, and 
     execPath: "C:\\portable\\node.exe",
     spawnProcess,
     createPendingId: () => "windows-output",
+    lockDownPath: noOpLockDownPath,
   });
 
   assert.match(
@@ -283,6 +286,7 @@ test("startOAuthLogin reads the supported Windows login line from stderr", async
     execPath: "C:\\portable\\node.exe",
     spawnProcess,
     createPendingId: () => "windows-stderr",
+    lockDownPath: noOpLockDownPath,
   });
 
   assert.equal(login.authorizationUrl, authorizationUrl.toString());
@@ -327,6 +331,7 @@ test("startOAuthLogin waits for every byte boundary of the supported CRLF login 
       execPath: "C:\\portable\\node.exe",
       spawnProcess,
       createPendingId: () => `split-${splitAt}`,
+      lockDownPath: noOpLockDownPath,
     });
     let earlyOutcome;
     loginPromise.then(
@@ -389,6 +394,7 @@ test("startOAuthLogin accepts a complete supported login line without a final ne
     execPath: "C:\\portable\\node.exe",
     spawnProcess,
     createPendingId: () => "unterminated",
+    lockDownPath: noOpLockDownPath,
   });
   let earlyOutcome;
   loginPromise.then(
@@ -445,6 +451,7 @@ test("startOAuthLogin waits for close after exit before finalizing stdout", asyn
     execPath: "C:\\portable\\node.exe",
     spawnProcess,
     createPendingId: () => "drained-output",
+    lockDownPath: noOpLockDownPath,
   });
 
   assert.equal(login.authorizationUrl, authorizationUrl.toString());
@@ -489,6 +496,7 @@ test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", 
         createPendingId: () => "port-conflict",
         terminationGraceMs: 0,
         terminationForceWaitMs: 0,
+        lockDownPath: noOpLockDownPath,
       }),
     (error) => {
       assert.equal(
@@ -506,18 +514,33 @@ test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", 
   ]);
 });
 
-test("startOAuthLogin uses the current Node runtime for Windows npm launchers", async () => {
+test("startOAuthLogin uses the current Node runtime and commits only a pre-secured Windows credential", async () => {
   const calls = [];
   const files = {};
-  const fileSystem = createMemoryFileSystem(files);
   const execPath =
     process.platform === "win32"
       ? "C:\\portable\\node.exe"
       : "/portable/node.exe";
   const homeDirectory = resolve("oauth-fixture-home");
   const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
+  const memoryFileSystem = createMemoryFileSystem(files);
+  let credentialCommitted = false;
+  const fileSystem = {
+    ...memoryFileSystem,
+    async chmod(path, mode) {
+      if (credentialCommitted) {
+        throw new Error("injected post-commit permission failure");
+      }
+      await memoryFileSystem.chmod(path, mode);
+    },
+    async rename(source, destination) {
+      await memoryFileSystem.rename(source, destination);
+      if (destination === authPath) credentialCommitted = true;
+    },
+  };
   const npmExecPath = "/custom/npm-cli.js";
   const expectedNpxCliPath = resolve(dirname(npmExecPath), "npx-cli.js");
+  const aclCalls = [];
   const spawnProcess = (command, args, options) => {
     calls.push({ command, args, options });
     const child = new EventEmitter();
@@ -558,6 +581,12 @@ test("startOAuthLogin uses the current Node runtime for Windows npm launchers", 
     execPath,
     spawnProcess,
     createPendingId: () => "windows-fixture",
+    async lockDownPath(path, options) {
+      if (credentialCommitted) {
+        throw new Error("injected post-commit ACL failure");
+      }
+      aclCalls.push({ path, options });
+    },
   });
 
   assert.equal(calls[0].command, execPath);
@@ -586,6 +615,13 @@ test("startOAuthLogin uses the current Node runtime for Windows npm launchers", 
     files[authPath],
     '{"windows":true}',
   );
+  assert.equal(credentialCommitted, true);
+  const pendingAuthPath = `${authPath}.pending-windows-fixture`;
+  assert.deepEqual(aclCalls, [
+    { path: dirname(authPath), options: { platform: "win32", kind: "directory" } },
+    { path: pendingAuthPath, options: { platform: "win32", kind: "file" } },
+    { path: `${pendingAuthPath}.ready`, options: { platform: "win32", kind: "file" } },
+  ]);
 });
 
 test("startOAuthLogin hides synchronous process-launch errors", async () => {
@@ -607,6 +643,7 @@ test("startOAuthLogin hides synchronous process-launch errors", async () => {
         execPath: "/portable/node.exe",
         spawnProcess,
         createPendingId: () => "sync-error",
+        lockDownPath: noOpLockDownPath,
       }),
     (error) => {
       assert.equal(
@@ -759,6 +796,7 @@ test("startOAuthLogin only accepts exact supported authorization and callback UR
       execPath: "C:\\portable\\node.exe",
       spawnProcess,
       createPendingId: () => "exact-url-shape",
+      lockDownPath: noOpLockDownPath,
     });
   };
 
@@ -951,6 +989,7 @@ test("startOAuthLogin rejects cancellation when the detached process group survi
     },
     terminationGraceMs: 0,
     terminationForceWaitMs: 0,
+    lockDownPath: noOpLockDownPath,
   });
 
   await assert.rejects(
@@ -1001,6 +1040,7 @@ test("startOAuthLogin rejects cancellation when Windows taskkill cannot confirm 
     createPendingId: () => "taskkill-nonzero",
     terminationGraceMs: 0,
     terminationForceWaitMs: 0,
+    lockDownPath: noOpLockDownPath,
   });
 
   await assert.rejects(
@@ -1046,6 +1086,7 @@ test("startOAuthLogin bounds a hung Windows taskkill and reports unconfirmed ter
     createPendingId: () => "taskkill-hung",
     terminationGraceMs: 0,
     terminationForceWaitMs: 0,
+    lockDownPath: noOpLockDownPath,
   });
 
   await assert.rejects(

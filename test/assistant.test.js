@@ -19,6 +19,7 @@ import {
   serializeAssistantMarker,
 } from "../src/domain/assistant.js";
 import {
+  ASSISTANT_COMPANION_IMAGES,
   createAssistantComposeFile,
   createAssistantEnv,
   createAssistantSecrets,
@@ -432,11 +433,21 @@ test("AI Assistant uses four independent local secrets and returns only the sand
     "includeSearxng",
     "modelProvider",
     "modelRecommendation",
+    "n8nSettings",
     "sandboxApiKey",
     "sandboxUrl",
     "searxngUrl",
     "webSearch",
   ]);
+  assert.deepEqual(result.n8nSettings, {
+    N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+    N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+    N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_COMPANION_IMAGES.sandbox,
+    N8N_SANDBOX_SERVICE_URL: result.sandboxUrl,
+    N8N_SANDBOX_SERVICE_API_KEY: result.sandboxApiKey,
+    N8N_INSTANCE_AI_SEARXNG_URL: result.searxngUrl,
+  });
+  assert.equal("N8N_ENABLED_MODULES" in result.n8nSettings, false);
   assert.doesNotMatch(JSON.stringify(result), /RUNNER|SEARXNG_SECRET/i);
 });
 
@@ -524,6 +535,16 @@ test("AI Assistant enables SearXNG only from a reviewed disabled marker and neve
   });
   assert.equal(enabledResult.includeSearxng, true);
   assert.ok(enabledResult.searxngUrl);
+  assert.equal(enabledResult.sandboxApiKey, null);
+  assert.deepEqual(enabledResult.n8nSettings, {
+    N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+    N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+    N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_COMPANION_IMAGES.sandbox,
+    N8N_SANDBOX_SERVICE_URL: enabledResult.sandboxUrl,
+    N8N_INSTANCE_AI_SEARXNG_URL: enabledResult.searxngUrl,
+  });
+  assert.equal("N8N_SANDBOX_SERVICE_API_KEY" in enabledResult.n8nSettings, false);
+  assert.equal("N8N_ENABLED_MODULES" in enabledResult.n8nSettings, false);
   const enabledVerification = createAssistantVerificationCommands({
     installation: { ...disabledInstallation, includeSearxng: true },
   });
@@ -809,7 +830,27 @@ test("assistant route requires a fresh discovered network plan before installati
       async discoverNetworks() {
         return { networks: ["proxy"], recommended: "proxy", instanceAi: { status: "enabled" } };
       },
-      async installAssistant(input) { calls.push(input); return { sandboxUrl: "http://sandbox:8080", sandboxApiKey: "shown-once", includeSearxng: true, searxngUrl: "http://search:8080", webSearch: "enabled", modelProvider: "OpenAI", modelRecommendation: "preserve-current-supported-selection", deploymentMode: "installed" }; },
+      async installAssistant(input) {
+        calls.push(input);
+        const sandboxUrl = `http://relmio-ai-sandbox-${"c".repeat(32)}:8080`;
+        const searxngUrl = `http://relmio-ai-searxng-${"d".repeat(32)}:8080`;
+        const sandboxApiKey = "s".repeat(43);
+        return {
+          sandboxUrl,
+          sandboxApiKey,
+          includeSearxng: true,
+          searxngUrl,
+          n8nSettings: {
+            N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+            N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+            N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_COMPANION_IMAGES.sandbox,
+            N8N_SANDBOX_SERVICE_URL: sandboxUrl,
+            N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey,
+            N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl,
+          },
+          deploymentMode: "installed",
+        };
+      },
     },
   });
   t.after(() => wizard.close());
@@ -826,7 +867,8 @@ test("assistant route requires a fresh discovered network plan before installati
   assert.equal(stale.status, 400);
   const plan = await request("/api/assistant/plan", { containerName: "n8n", networkName: "proxy", includeSearxng: true });
   assert.equal(plan.status, 200);
-  const installed = await request("/api/assistant/install", { containerName: "n8n", networkName: "proxy", includeSearxng: true, confirmed: true });
+  const { planId } = await plan.json();
+  const installed = await request("/api/assistant/install", { containerName: "n8n", networkName: "proxy", includeSearxng: true, confirmed: true, planId });
   assert.equal(installed.status, 200);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].networkName, "proxy");

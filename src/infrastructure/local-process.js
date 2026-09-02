@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { isAbsolute, win32 as windowsPath } from "node:path";
 
 const DEFAULT_TIMEOUT_MS = 180_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
@@ -7,6 +7,14 @@ const DEFAULT_TERMINATION_GRACE_MS = 2_000;
 const MAX_ARGUMENT_BYTES = 16 * 1024;
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_DOCKER_HOST_BYTES = 4 * 1024;
+const WINDOWS_ACL_TIMEOUT_MS = 15_000;
+const WINDOWS_ACL_MAX_OUTPUT_BYTES = 4 * 1024;
+const WINDOWS_SECURITY_TOOL_ERROR =
+  "Windows could not locate the built-in security tool required to protect local Relmio files.";
+const WINDOWS_PATH_PROTECTION_ERROR =
+  "Windows could not apply and verify owner-only protection for local Relmio files.";
+const WINDOWS_DOCKER_DESKTOP_LINUX_ENGINE =
+  "npipe:////./pipe/dockerDesktopLinuxEngine";
 const DOCKER_SELECTION_ENVIRONMENT_VARIABLES = new Set([
   "BUILDKIT_HOST",
   "DOCKER_CERT_PATH",
@@ -15,18 +23,41 @@ const DOCKER_SELECTION_ENVIRONMENT_VARIABLES = new Set([
   "DOCKER_HOST",
   "DOCKER_TLS_VERIFY",
 ]);
+const LOCAL_N8N_STACK_ENVIRONMENT_VARIABLES = new Set([
+  "NGROK_AUTHTOKEN",
+  "N8N_ENCRYPTION_KEY",
+  "NGROK_DOMAIN",
+  "N8N_LOCAL_PORT",
+  "NGROK_INSPECTOR_PORT",
+  "GENERIC_TIMEZONE",
+  "SANDBOX_API_KEYS",
+  "SANDBOX_API_RUNNER_REGISTRATION_TOKEN",
+  "SANDBOX_API_RUNNER_API_KEY",
+  "SEARXNG_SECRET",
+]);
 
 export function validateLocalDockerHost(
   value,
-  { platform = process.platform } = {},
+  { platform = null } = {},
 ) {
+  if (platform !== null && typeof platform !== "string") {
+    throw new TypeError("The local Docker platform is invalid.");
+  }
   if (platform === "win32") {
-    throw new TypeError(
-      "Native Windows Docker hosts are unsupported for local endpoints.",
-    );
+    if (value !== WINDOWS_DOCKER_DESKTOP_LINUX_ENGINE) {
+      throw new TypeError(
+        "Windows local Docker must use Docker Desktop's Linux engine pipe.",
+      );
+    }
+    return value;
   }
   if (
-    typeof platform !== "string" ||
+    value === WINDOWS_DOCKER_DESKTOP_LINUX_ENGINE &&
+    platform === null
+  ) {
+    return value;
+  }
+  if (
     typeof value !== "string" ||
     value.length === 0 ||
     Buffer.byteLength(value) > MAX_DOCKER_HOST_BYTES ||
@@ -69,11 +100,203 @@ export function createLocalDockerEnvironment(environment = process.env) {
 
   const sanitized = {};
   for (const [name, value] of Object.entries(environment)) {
-    if (!DOCKER_SELECTION_ENVIRONMENT_VARIABLES.has(name.toUpperCase())) {
+    const normalizedName = name.toUpperCase();
+    if (
+      !DOCKER_SELECTION_ENVIRONMENT_VARIABLES.has(normalizedName) &&
+      !LOCAL_N8N_STACK_ENVIRONMENT_VARIABLES.has(normalizedName) &&
+      !normalizedName.startsWith("COMPOSE_")
+    ) {
       sanitized[name] = value;
     }
   }
   return sanitized;
+}
+
+function validateWindowsPath(value) {
+  if (typeof value !== "string" || !windowsPath.isAbsolute(value) || value.includes("\0")) {
+    throw new TypeError("The local managed path is invalid.");
+  }
+}
+
+function resolveWindowsPowerShell(systemRoot) {
+  if (
+    typeof systemRoot !== "string" ||
+    !windowsPath.isAbsolute(systemRoot) ||
+    /[\0\r\n]/u.test(systemRoot) ||
+    systemRoot
+      .split(/[\\/]/u)
+      .some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error(WINDOWS_SECURITY_TOOL_ERROR);
+  }
+
+  const normalizedSystemRoot = windowsPath.normalize(systemRoot);
+  const volumeRoot = windowsPath.parse(normalizedSystemRoot).root;
+  if (
+    !/^[A-Za-z]:\\$/u.test(volumeRoot) ||
+    windowsPath.dirname(normalizedSystemRoot).toLowerCase() !==
+      volumeRoot.toLowerCase() ||
+    windowsPath.basename(normalizedSystemRoot).toLowerCase() !== "windows"
+  ) {
+    throw new Error(WINDOWS_SECURITY_TOOL_ERROR);
+  }
+
+  return windowsPath.join(
+    normalizedSystemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+}
+
+export function runWindowsAclCommand(
+  file,
+  args,
+  {
+    input = "",
+    spawnProcess = spawn,
+    timeoutMs = WINDOWS_ACL_TIMEOUT_MS,
+    maxOutputBytes = WINDOWS_ACL_MAX_OUTPUT_BYTES,
+    terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
+  } = {},
+) {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawnProcess(file, args, {
+        shell: false,
+        windowsHide: true,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    } catch {
+      reject(new Error("Windows ACL verification could not start."));
+      return;
+    }
+    let stdout = "";
+    let outputBytes = 0;
+    let settled = false;
+    let terminationTimer;
+    let failure;
+    const timeout = setTimeout(() => {
+      terminate(new Error("Windows ACL verification timed out."));
+    }, timeoutMs);
+
+    function settle(error, result) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearTimeout(terminationTimer);
+      if (error) reject(error);
+      else resolve(result);
+    }
+
+    function terminate(error) {
+      if (failure || settled) return;
+      failure = error;
+      try { child.kill("SIGKILL"); } catch { /* Forced settlement remains bounded. */ }
+      terminationTimer = setTimeout(() => settle(failure), terminationGraceMs);
+    }
+
+    function consume(chunk, { capture = false } = {}) {
+      if (settled) return;
+      const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      outputBytes += value.length;
+      if (outputBytes > maxOutputBytes) {
+        terminate(new Error("Windows ACL verification returned too much output."));
+        return;
+      }
+      if (capture) stdout += value.toString("utf8");
+    }
+
+    child.stdout.on("data", (chunk) => consume(chunk, { capture: true }));
+    child.stderr.on("data", (chunk) => consume(chunk));
+    child.stdin.once("error", () => {
+      terminate(new Error("Windows ACL verification could not receive its path."));
+    });
+    try { child.stdin.end(input); } catch {
+      terminate(new Error("Windows ACL verification could not receive its path."));
+    }
+    child.once("error", () => {
+      settle(new Error("Windows ACL verification could not start."));
+    });
+    child.once("close", (code) => {
+      if (failure) settle(failure);
+      else if (code === 0) settle(null, { stdout });
+      else settle(new Error("Windows ACL lockdown could not be verified."));
+    });
+  });
+}
+
+/**
+ * Requires the current account to own the path before read-only verification. During
+ * setup, an Administrator may also normalize a path initially owned by the trusted
+ * Builtin Administrators principal to the current account, then creates and reads
+ * back a protected DACL containing only that account. Any other initial owner fails
+ * closed. Verification mode never changes ownership or access rules.
+ * A directory rule is inheritable, so managed children receive the same protection.
+ * Call this before writing secrets into a newly created managed directory or file.
+ */
+export async function lockDownLocalPath(
+  path,
+  {
+    platform = process.platform,
+    kind = "directory",
+    runAclCommand = runWindowsAclCommand,
+    systemRoot = process.env.SystemRoot,
+    verifyOnly = false,
+  } = {},
+) {
+  if (platform !== "win32") return;
+  validateWindowsPath(path);
+  const windowsPowerShell = resolveWindowsPowerShell(systemRoot);
+  if (kind !== "directory" && kind !== "file") {
+    throw new TypeError("Windows ACL path kind is invalid.");
+  }
+  if (typeof runAclCommand !== "function") {
+    throw new TypeError("Windows ACL runner is invalid.");
+  }
+  if (typeof verifyOnly !== "boolean") {
+    throw new TypeError("Windows ACL verification mode is invalid.");
+  }
+  const script = [
+    "$path=[Console]::In.ReadToEnd()",
+    "$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()",
+    "$sid=$identity.User",
+    `$item=[System.IO.${kind === "directory" ? "DirectoryInfo" : "FileInfo"}]::new($path)`,
+    "if($item.PSObject.Methods.Name -contains 'GetAccessControl'){$before=$item.GetAccessControl()}else{$before=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
+    "$beforeOwner=$before.GetOwner([System.Security.Principal.SecurityIdentifier])",
+    `$expectedInheritance=[System.Security.AccessControl.InheritanceFlags]::${kind === "directory" ? "ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit" : "None"}`,
+    ...(verifyOnly ? [
+      "if($beforeOwner.Value -ne $sid.Value){exit 1}",
+      "$actual=$before",
+    ] : [
+      "$administratorsSid=[System.Security.Principal.SecurityIdentifier]::new([System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid,$null)",
+      "$principal=[System.Security.Principal.WindowsPrincipal]::new($identity)",
+      "if($beforeOwner.Value -ne $sid.Value -and (-not ($beforeOwner.Value -eq $administratorsSid.Value -and $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)))){exit 1}",
+      "$normalizeOwner=$beforeOwner.Value -ne $sid.Value",
+      `$acl=New-Object System.Security.AccessControl.${kind === "directory" ? "Directory" : "File"}Security`,
+      "if($normalizeOwner){$acl.SetOwner($sid)}",
+      "$acl.SetAccessRuleProtection($true,$false)",
+      "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,$expectedInheritance,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow)",
+      "$acl.SetAccessRule($rule)",
+      "if($item.PSObject.Methods.Name -contains 'SetAccessControl'){$item.SetAccessControl($acl);$actual=$item.GetAccessControl()}else{[System.IO.FileSystemAclExtensions]::SetAccessControl($item,$acl);$actual=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
+    ]),
+    "if(-not $actual.AreAccessRulesProtected){exit 1}",
+    "$owner=$actual.GetOwner([System.Security.Principal.SecurityIdentifier])",
+    "if($owner.Value -ne $sid.Value){exit 1}",
+    "$rules=@($actual.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))",
+    "if($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or $rules[0].InheritanceFlags -ne $expectedInheritance -or $rules[0].PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None -or $rules[0].IsInherited){exit 1}",
+  ].join(";");
+  try {
+    await runAclCommand(
+      windowsPowerShell,
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+      { input: path },
+    );
+  } catch {
+    throw new Error(WINDOWS_PATH_PROTECTION_ERROR);
+  }
 }
 
 function validateProcessSpec({
@@ -140,7 +363,9 @@ function validateProcessSpec({
     args: [...args],
     cwd,
     dockerHost:
-      dockerHost === undefined ? null : validateLocalDockerHost(dockerHost),
+        dockerHost === undefined
+          ? null
+          : validateLocalDockerHost(dockerHost, { platform: process.platform }),
     input: inputBuffer,
     timeoutMs,
     maxOutputBytes,

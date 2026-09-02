@@ -7,13 +7,24 @@ const state = {
   step: 1,
   target: "openai-api",
   dockerAvailable: false,
+  localN8nStackState: null,
   planId: null,
   plan: null,
   installedTarget: null,
+  operationBusy: false,
+  operationButton: null,
+  operationControlObserver: null,
+  operationControlStates: [],
+  operationLabel: "",
+  operationProgressStartedAt: 0,
+  operationProgressTimer: null,
+  suppressTargetRefresh: false,
   n8nContainers: [],
   n8nDiscoveryLoaded: false,
   n8nOAuthExists: false,
   n8nOAuthGeneration: 0,
+  assistantSearxngReviewId: null,
+  assistantSearxngReview: null,
   chatTester: {
     conversationId: null,
     encryptedCredential: null,
@@ -58,18 +69,350 @@ function showError(error) {
   errorBox.focus();
 }
 
-function setBusy(button, busy, busyText) {
-  if (!button.dataset.label) {
-    button.dataset.label = button.textContent.trim();
+function validateLocalN8nStackCredentials() {
+  const ngrokAuthtoken = element("ngrok-authtoken");
+  const basicAuthUsername = element("ngrok-basic-auth-username");
+  const basicAuthPassword = element("ngrok-basic-auth-password");
+  const validations = [
+    {
+      input: ngrokAuthtoken,
+      valid:
+        ngrokAuthtoken.value.length >= 8 &&
+        ngrokAuthtoken.value.length <= 512 &&
+        !/\s/u.test(ngrokAuthtoken.value) &&
+        !/^ngrok(?:\.exe)?\s+config\s+add-authtoken\b/iu.test(
+          ngrokAuthtoken.value,
+        ),
+      message: "Paste only the agent token value from ngrok’s “Your Authtoken” or “Authtokens” page (8–512 characters, no whitespace), not the ngrok config add-authtoken command or an ngrok API key.",
+    },
+    {
+      input: basicAuthUsername,
+      valid: /^[A-Za-z0-9_-]{1,64}$/u.test(basicAuthUsername.value),
+      message: "Use 1–64 letters, numbers, hyphens, or underscores.",
+    },
+    {
+      input: basicAuthPassword,
+      valid:
+        basicAuthPassword.value.length >= 12 &&
+        basicAuthPassword.value.length <= 512 &&
+        !/[\0\r\n:]/u.test(basicAuthPassword.value),
+      message: "Use 12–512 characters without a colon or line break.",
+    },
+  ];
+  let firstInvalidInput = null;
+  for (const validation of validations) {
+    validation.input.setCustomValidity(validation.valid ? "" : validation.message);
+    if (!validation.valid && !firstInvalidInput) {
+      firstInvalidInput = validation.input;
+    }
   }
-  button.disabled = busy;
-  button.setAttribute("aria-busy", String(busy));
-  button.textContent = busy ? busyText : button.dataset.label;
+  if (firstInvalidInput) {
+    firstInvalidInput.reportValidity();
+    return false;
+  }
+  return true;
+}
+
+function resetBasicAuthPasswordVisibility() {
+  const input = element("ngrok-basic-auth-password");
+  const button = element("toggle-ngrok-basic-auth-password");
+  input.type = "password";
+  button.textContent = "Show password";
+  button.setAttribute("aria-pressed", "false");
+}
+
+const OPERATION_INTERACTIVE_SELECTOR =
+  'button, input, select, textarea, a[href], [contenteditable]';
+const OPERATION_ALLOWED_SELECTOR =
+  '[data-operation-allow="auth"], [data-operation-allow="copy"]';
+const OPERATION_BLOCKED_EVENTS = [
+  "click",
+  "pointerdown",
+  "keydown",
+  "beforeinput",
+  "input",
+  "change",
+  "submit",
+];
+
+function readOperationAttribute(control, name) {
+  if (typeof control.getAttribute === "function") {
+    return control.getAttribute(name);
+  }
+  return control.attributes?.get?.(name) ?? null;
+}
+
+function restoreOperationAttribute(control, name, value) {
+  if (value === null) {
+    if (typeof control.removeAttribute === "function") {
+      control.removeAttribute(name);
+    } else {
+      control.attributes?.delete?.(name);
+    }
+    return;
+  }
+  control.setAttribute?.(name, value);
+}
+
+function operationControlCandidates() {
+  const scope = typeof document === "undefined"
+    ? element("install-panel")
+    : document;
+  return Array.from(
+    scope.querySelectorAll?.(OPERATION_INTERACTIVE_SELECTOR) ?? [],
+  );
+}
+
+function isOperationAllowedControl(control) {
+  return Boolean(control?.closest?.(OPERATION_ALLOWED_SELECTOR));
+}
+
+function lockOperationControl(control) {
+  if (!control || isOperationAllowedControl(control)) return;
+  const existingSnapshot = state.operationControlStates.find(
+    (snapshot) => snapshot.control === control,
+  );
+  if (existingSnapshot) {
+    if (existingSnapshot.disabled !== null && control.disabled !== true) {
+      control.disabled = true;
+    }
+    if (existingSnapshot.readOnly !== null && control.readOnly !== true) {
+      control.readOnly = true;
+    }
+    if (readOperationAttribute(control, "aria-disabled") !== "true") {
+      control.setAttribute?.("aria-disabled", "true");
+    }
+    if (
+      existingSnapshot.disabled === null &&
+      readOperationAttribute(control, "tabindex") !== "-1"
+    ) {
+      control.setAttribute?.("tabindex", "-1");
+    }
+    if (
+      existingSnapshot.contentEditable !== null &&
+      readOperationAttribute(control, "contenteditable") !== "false"
+    ) {
+      control.setAttribute?.("contenteditable", "false");
+    }
+    return;
+  }
+  const snapshot = {
+    control,
+    disabled: typeof control.disabled === "boolean" ? control.disabled : null,
+    readOnly: typeof control.readOnly === "boolean" ? control.readOnly : null,
+    ariaDisabled: readOperationAttribute(control, "aria-disabled"),
+    tabIndex: readOperationAttribute(control, "tabindex"),
+    contentEditable: readOperationAttribute(control, "contenteditable"),
+  };
+  state.operationControlStates.push(snapshot);
+  if (snapshot.disabled !== null) control.disabled = true;
+  if (snapshot.readOnly !== null) control.readOnly = true;
+  control.setAttribute?.("aria-disabled", "true");
+  if (snapshot.disabled === null) control.setAttribute?.("tabindex", "-1");
+  if (snapshot.contentEditable !== null) {
+    control.setAttribute?.("contenteditable", "false");
+  }
+}
+
+function lockAddedOperationControls(node) {
+  if (!node || node.nodeType !== 1) return;
+  if (node.matches?.(OPERATION_INTERACTIVE_SELECTOR)) {
+    lockOperationControl(node);
+  }
+  for (const control of node.querySelectorAll?.(OPERATION_INTERACTIVE_SELECTOR) ?? []) {
+    lockOperationControl(control);
+  }
+}
+
+function formatInstallElapsed(elapsedSeconds) {
+  const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, "0");
+  const seconds = String(elapsedSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function updateOperationProgress() {
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((Date.now() - state.operationProgressStartedAt) / 1_000),
+  );
+  const label = state.operationLabel || "Working…";
+  const labelElement = element("install-progress-phase");
+  labelElement.textContent = label;
+  element("install-progress-bar").setAttribute("aria-valuetext", label);
+  const elapsedElement = element("install-elapsed");
+  elapsedElement.textContent = formatInstallElapsed(elapsedSeconds);
+  elapsedElement.dateTime = `PT${elapsedSeconds}S`;
+}
+
+function startOperation(button, label, {
+  progressNote = "Duration varies by operation. Keep this page open; Relmio will unlock every control when the current operation finishes or stops.",
+} = {}) {
+  if (state.operationBusy) return false;
+  state.operationBusy = true;
+  state.operationButton = button ?? null;
+  state.operationControlStates = [];
+  state.operationLabel = label || "Working…";
+  state.operationProgressStartedAt = Date.now();
+
+  if (button) {
+    if (!button.dataset.label) {
+      button.dataset.label = button.textContent.trim();
+    }
+    button.setAttribute("aria-busy", "true");
+    button.textContent = state.operationLabel;
+  }
+  for (const control of operationControlCandidates()) {
+    lockOperationControl(control);
+  }
+  if (typeof document !== "undefined") {
+    document.body.dataset.operationBusy = "true";
+    element("main-content").setAttribute("aria-busy", "true");
+  }
+
+  const progress = element("operation-progress");
+  const compatibilityProgress = element("install-progress");
+  element("install-progress-duration-note").textContent = progressNote;
+  progress.hidden = false;
+  compatibilityProgress.hidden = false;
+  updateOperationProgress();
+  compatibilityProgress.focus?.({ preventScroll: true });
+
+  if (
+    typeof MutationObserver !== "undefined" &&
+    typeof document !== "undefined" &&
+    document.body
+  ) {
+    state.operationControlObserver = new MutationObserver((records) => {
+      if (!state.operationBusy) return;
+      for (const record of records) {
+        if (record.type === "attributes") {
+          lockAddedOperationControls(record.target);
+        }
+        for (const node of record.addedNodes ?? []) {
+          lockAddedOperationControls(node);
+        }
+      }
+    });
+    state.operationControlObserver.observe(document.body, {
+      attributeFilter: ["disabled", "readonly", "href", "contenteditable"],
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+  }
+  state.operationProgressTimer = window.setInterval(
+    updateOperationProgress,
+    1_000,
+  );
+  return true;
+}
+
+function stopOperation(button) {
+  if (!state.operationBusy) return false;
+  if (state.operationProgressTimer !== null) {
+    window.clearInterval(state.operationProgressTimer);
+  }
+  state.operationProgressTimer = null;
+  state.operationControlObserver?.disconnect?.();
+  state.operationControlObserver = null;
+  state.operationBusy = false;
+
+  for (const snapshot of state.operationControlStates) {
+    if (snapshot.disabled !== null) snapshot.control.disabled = snapshot.disabled;
+    if (snapshot.readOnly !== null) snapshot.control.readOnly = snapshot.readOnly;
+    restoreOperationAttribute(
+      snapshot.control,
+      "aria-disabled",
+      snapshot.ariaDisabled,
+    );
+    restoreOperationAttribute(snapshot.control, "tabindex", snapshot.tabIndex);
+    restoreOperationAttribute(
+      snapshot.control,
+      "contenteditable",
+      snapshot.contentEditable,
+    );
+  }
+  state.operationControlStates = [];
+  if (typeof document !== "undefined") {
+    document.body.dataset.operationBusy = "false";
+    element("main-content").setAttribute("aria-busy", "false");
+  }
+
+  const progress = element("operation-progress");
+  const activeButton = state.operationButton ?? button ?? null;
+  const restoreButtonFocus =
+    typeof document !== "undefined" &&
+    Boolean(document.activeElement) &&
+    (document.activeElement === progress ||
+      progress.contains?.(document.activeElement));
+  progress.hidden = true;
+  element("install-progress").hidden = true;
+  element("install-progress-phase").textContent = "No operation is running.";
+  element("install-progress-bar").setAttribute(
+    "aria-valuetext",
+    "No operation is running.",
+  );
+  const elapsedElement = element("install-elapsed");
+  elapsedElement.textContent = "00:00";
+  elapsedElement.dateTime = "PT0S";
+
+  if (activeButton) {
+    activeButton.setAttribute("aria-busy", "false");
+    activeButton.textContent = activeButton.dataset.label;
+    if (restoreButtonFocus && !activeButton.disabled && !activeButton.hidden) {
+      activeButton.focus?.({ preventScroll: true });
+    }
+  }
+  state.operationButton = null;
+  state.operationLabel = "";
+  state.operationProgressStartedAt = 0;
+  return true;
+}
+
+function setBusy(button, busy, busyText) {
+  return busy
+    ? startOperation(button, busyText)
+    : stopOperation(button);
 }
 
 function setButtonLabel(button, label) {
   button.textContent = label;
   button.dataset.label = label;
+}
+
+function startInstallProgress(button) {
+  const panel = element("install-panel");
+  if (!startOperation(button, "Installing locally…", {
+    progressNote:
+      "Docker may be downloading images, building, or starting services. First-time Docker downloads can take several minutes. Duration varies. Keep this page open; Relmio will unlock every control when installation finishes or stops.",
+  })) {
+    return false;
+  }
+  panel.setAttribute("aria-busy", "true");
+  return true;
+}
+
+function stopInstallProgress(button) {
+  stopOperation(button);
+  element("install-panel").setAttribute("aria-busy", "false");
+}
+
+function blockOperationInteraction(event) {
+  if (
+    !state.operationBusy ||
+    event.target?.closest?.("#operation-progress") ||
+    isOperationAllowedControl(event.target)
+  ) {
+    return;
+  }
+  event.preventDefault?.();
+  event.stopImmediatePropagation?.();
+}
+
+if (typeof document !== "undefined") {
+  for (const eventName of OPERATION_BLOCKED_EVENTS) {
+    document.addEventListener(eventName, blockOperationInteraction, true);
+  }
 }
 
 function showStep(step) {
@@ -131,7 +474,11 @@ async function api(path, { method = "GET", body } = {}) {
     throw new Error("The local wizard returned an unexpected response.");
   }
   if (!response.ok) {
-    throw new Error(result.error ?? "The local request failed.");
+    const error = new Error(result.error ?? "The local request failed.");
+    error.retryablePlan = result.retryablePlan === true;
+    error.retryableNgrokSetup = result.retryableNgrokSetup === true;
+    error.managedPartialStack = result.managedPartialStack === true;
+    throw error;
   }
   return result;
 }
@@ -352,7 +699,7 @@ function updateReviewAvailability() {
   const stack = isN8nStack(state.target);
   const n8nTarget = isN8nDockerTarget(state.target);
   const n8nReady =
-    stack || !n8nTarget ||
+    (stack && state.localN8nStackState === null) || !n8nTarget ||
     ((!sidecar || state.n8nOAuthExists) &&
       element("n8n-container").value !== "" &&
       element("n8n-network").value !== "");
@@ -436,6 +783,8 @@ async function refreshN8nDiscovery() {
   const result = await api("/api/local/n8n/discover");
   state.n8nContainers = validateN8nDiscovery(result);
   state.n8nDiscoveryLoaded = true;
+  element("detected-local-integration-management").hidden =
+    state.n8nContainers.length === 0;
   setSelectOptions(
     element("n8n-container"),
     state.n8nContainers.map((container) => ({
@@ -448,11 +797,168 @@ async function refreshN8nDiscovery() {
   renderSidecarNetworkOptions();
 }
 
+function selectN8nManagementTarget(target) {
+  const targetInput = document.querySelector(
+    `input[name="target"][value="${target}"]`,
+  );
+  if (!targetInput) {
+    throw new Error("The requested n8n management option is unavailable.");
+  }
+  targetInput.checked = true;
+  renderTarget();
+}
+
 function sidecarOAuthExists(result) {
   return result?.authExists === true;
 }
 
-async function refreshN8nOAuthStatus({ announce = false } = {}) {
+function hasExactKeys(value, expectedNames) {
+  return (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === expectedNames.length &&
+    expectedNames.every((name) => Object.hasOwn(value, name))
+  );
+}
+
+function isSafeAssistantUrl(value, prefix) {
+  return typeof value === "string" &&
+    new RegExp(`^http://${prefix}-[a-f0-9]{32}:8080$`, "u").test(value);
+}
+
+function isSafeDockerDisplayName(value) {
+  return typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 128 &&
+    /^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(value);
+}
+
+function updateManagedBridgeRefreshControls({ newSignIn = false } = {}) {
+  const confirmation = element("refresh-bridge-confirm");
+  const button = element("refresh-bridge-button");
+  const status = element("refresh-bridge-status");
+  if (!state.n8nOAuthExists) {
+    confirmation.checked = false;
+    confirmation.disabled = true;
+    button.disabled = true;
+    status.textContent =
+      "Complete ChatGPT sign-in first. Relmio will not apply it to any bridge automatically.";
+    return;
+  }
+  confirmation.disabled = false;
+  button.disabled = !confirmation.checked;
+  if (newSignIn) {
+    confirmation.checked = false;
+    button.disabled = true;
+    status.textContent =
+      "New ChatGPT sign-in is ready, but has not been copied to any bridge. Confirm the separate action only if Relmio created that bridge.";
+  } else if (status.textContent.startsWith("Complete ChatGPT sign-in") ||
+    status.textContent.startsWith("No sign-in")) {
+    status.textContent =
+      "Your local ChatGPT sign-in is ready. Confirm below only to apply it to an ownership-verified Relmio bridge.";
+  }
+}
+
+function validateManagedBridgeRefreshResult(value) {
+  const expectedNames = [
+    "target",
+    "credentialRefreshed",
+    "models",
+    "hostPublication",
+  ];
+  if (
+    !hasExactKeys(value, expectedNames) ||
+    value.target !== "n8n-openai-oauth" ||
+    value.credentialRefreshed !== true ||
+    value.hostPublication !== "none" ||
+    !Array.isArray(value.models) ||
+    value.models.some(
+      (model) =>
+        typeof model !== "string" ||
+        model.length === 0 ||
+        model.length > 128 ||
+        !/^[A-Za-z0-9_.:-]+$/u.test(model),
+    )
+  ) {
+    throw new Error("The local wizard returned an unexpected bridge refresh response.");
+  }
+  return value;
+}
+
+function validateAssistantSearxngReview(value) {
+  const expectedNames = [
+    "reviewId",
+    "target",
+    "includeSearxng",
+    "sandboxApiKeyRotated",
+    "sandboxUrl",
+    "searxngUrl",
+    "n8nContainerName",
+    "networkName",
+    "hostPublication",
+    "n8nConfigurationRequired",
+  ];
+  if (
+    !hasExactKeys(value, expectedNames) ||
+    typeof value.reviewId !== "string" ||
+    !/^[0-9a-f-]{36}$/iu.test(value.reviewId) ||
+    value.target !== "n8n-ai-assistant" ||
+    value.includeSearxng !== true ||
+    value.sandboxApiKeyRotated !== false ||
+    !isSafeAssistantUrl(value.sandboxUrl, "relmio-ai-sandbox") ||
+    !isSafeAssistantUrl(value.searxngUrl, "relmio-ai-searxng") ||
+    !isSafeDockerDisplayName(value.n8nContainerName) ||
+    !isSafeDockerDisplayName(value.networkName) ||
+    value.hostPublication !== "none" ||
+    value.n8nConfigurationRequired !== true
+  ) {
+    throw new Error("The local wizard returned an unexpected Assistant edit review.");
+  }
+  return value;
+}
+
+function validateAssistantSearxngEnablementResult(value) {
+  const expectedNames = [
+    "target",
+    "endpoint",
+    "sandboxUrl",
+    "searxngUrl",
+    "protocol",
+    "includeSearxng",
+    "networkName",
+    "n8nContainerName",
+    "hostPublication",
+    "privilegedRunner",
+    "n8nConfigurationRequired",
+    "n8nSettings",
+    "deploymentMode",
+    "sandboxApiKeyRotated",
+  ];
+  if (
+    !hasExactKeys(value, expectedNames) ||
+    value.target !== "n8n-ai-assistant" ||
+    value.endpoint !== value.sandboxUrl ||
+    !isSafeAssistantUrl(value.sandboxUrl, "relmio-ai-sandbox") ||
+    !isSafeAssistantUrl(value.searxngUrl, "relmio-ai-searxng") ||
+    value.protocol !== "n8n-instance-ai-companion" ||
+    value.includeSearxng !== true ||
+    !isSafeDockerDisplayName(value.networkName) ||
+    !isSafeDockerDisplayName(value.n8nContainerName) ||
+    value.hostPublication !== "none" ||
+    value.privilegedRunner !== true ||
+    value.n8nConfigurationRequired !== true ||
+    value.deploymentMode !== "searxng-enabled" ||
+    value.sandboxApiKeyRotated !== false ||
+    !hasExactKeys(value.n8nSettings, ["N8N_INSTANCE_AI_SEARXNG_URL"]) ||
+    value.n8nSettings.N8N_INSTANCE_AI_SEARXNG_URL !== value.searxngUrl
+  ) {
+    throw new Error("The local wizard returned an unexpected Assistant SearXNG response.");
+  }
+  return value;
+}
+
+async function refreshN8nOAuthStatus({ announce = false, newSignIn = false } = {}) {
   const status = element("n8n-oauth-status");
   status.textContent = "Checking local ChatGPT sign-in…";
   const result = await api("/api/status");
@@ -471,8 +977,50 @@ async function refreshN8nOAuthStatus({ announce = false } = {}) {
       setMessage("A local ChatGPT OAuth credential is required before Relmio can prepare the bridge plan.");
     }
   }
+  updateManagedBridgeRefreshControls({ newSignIn });
   updateReviewAvailability();
   return result;
+}
+
+async function refreshSelectedN8nContext(button = null) {
+  const refreshDiscovery = !state.n8nDiscoveryLoaded;
+  const refreshOAuth = isN8nSidecar(state.target);
+  if (!refreshDiscovery && !refreshOAuth) return;
+  const label = refreshOAuth
+    ? "Checking local n8n and ChatGPT sign-in…"
+    : "Checking local n8n…";
+  if (!startOperation(button, label)) return;
+  try {
+    const checks = [
+      ...(refreshDiscovery
+        ? [{ kind: "discovery", promise: refreshN8nDiscovery() }]
+        : []),
+      ...(refreshOAuth
+        ? [{ kind: "oauth", promise: refreshN8nOAuthStatus() }]
+        : []),
+    ];
+    const results = await Promise.allSettled(
+      checks.map(({ promise }) => promise),
+    );
+    const failures = results.flatMap((result, index) => {
+      if (result.status !== "rejected") return [];
+      if (checks[index].kind === "discovery") {
+        state.n8nDiscoveryLoaded = false;
+      }
+      return [result.reason];
+    });
+    if (failures.length > 0) {
+      showError(failures[0]);
+    }
+  } finally {
+    stopOperation(button);
+    if (state.n8nDiscoveryLoaded) {
+      element("n8n-container").disabled = state.n8nContainers.length === 0;
+      renderSidecarNetworkOptions();
+    }
+    if (refreshOAuth) updateManagedBridgeRefreshControls();
+    updateReviewAvailability();
+  }
 }
 
 function validateOAuthAuthorizationUrl(value) {
@@ -527,6 +1075,61 @@ function invalidatePlan() {
   element("install-settings-button").disabled = true;
 }
 
+function showDetectedManagedLocalN8nStackRecovery() {
+  invalidatePlan();
+  state.localN8nStackState = "partial";
+  state.installedTarget = "local-n8n-stack";
+  element("install-result-list").hidden = true;
+  element("one-time-note").hidden = true;
+  element("credential-rotation-note").hidden = true;
+  element("client-warning").hidden = true;
+  element("codex-production-warning").hidden = true;
+  element("codex-login").hidden = true;
+  element("chat-tester").hidden = true;
+  element("n8n-sidecar-removal").hidden = true;
+  element("n8n-assistant-removal").hidden = true;
+  element("n8n-stack-resume").hidden = true;
+  element("n8n-stack-removal").hidden = false;
+  element("remove-n8n-stack-confirm").checked = false;
+  element("remove-n8n-stack-confirm").disabled = false;
+  element("remove-n8n-stack-button").disabled = true;
+  element("remove-n8n-stack-status").textContent =
+    "The detected Relmio-managed stack remains until this separate removal confirmation is checked.";
+  element("done-title").textContent =
+    "Managed local n8n + ngrok stack needs recovery";
+  element("done-detail").textContent =
+    "Relmio confirmed that this owned stack is partial. Remove it below before creating a fresh local n8n + ngrok stack.";
+  showStep(4);
+  setMessage(
+    "Review and explicitly confirm removal of the detected Relmio-managed stack before starting another setup.",
+  );
+}
+
+function showStoppedManagedLocalN8nStack() {
+  invalidatePlan();
+  state.localN8nStackState = "stopped";
+  state.installedTarget = "local-n8n-stack";
+  element("install-result-list").hidden = true;
+  element("one-time-note").hidden = true;
+  element("credential-rotation-note").hidden = true;
+  element("client-warning").hidden = true;
+  element("codex-production-warning").hidden = true;
+  element("codex-login").hidden = true;
+  element("chat-tester").hidden = true;
+  element("n8n-sidecar-removal").hidden = true;
+  element("n8n-assistant-removal").hidden = true;
+  element("n8n-stack-removal").hidden = true;
+  element("n8n-stack-resume").hidden = false;
+  element("resume-n8n-stack-button").disabled = false;
+  element("resume-n8n-stack-status").textContent =
+    "The complete Relmio-owned stack is stopped. Resume starts its existing containers only.";
+  element("done-title").textContent = "Managed local n8n + ngrok is stopped";
+  element("done-detail").textContent =
+    "Resume the exact owned stack without creating, recreating, or removing Docker resources.";
+  showStep(4);
+  setMessage("A complete owned local n8n + ngrok stack is stopped. Resume it safely or leave it stopped.");
+}
+
 function renderTarget() {
   state.target = selectedTarget();
   invalidatePlan();
@@ -567,8 +1170,10 @@ function renderTarget() {
     element(id).value = "";
   }
   element("n8n-sidecar-oauth").hidden = !sidecar;
+  element("n8n-sidecar-refresh").hidden = !sidecar;
   element("n8n-sidecar-scope").hidden = !sidecar;
   element("n8n-assistant-options").hidden = !assistant;
+  element("n8n-assistant-searxng-edit").hidden = !assistant;
   element("boundary-title").textContent = stack
     ? "Loopback n8n with authenticated public access"
     : n8nTarget
@@ -601,13 +1206,8 @@ function renderTarget() {
     : codexChat
       ? "This exposes Relmio-specific HTTP POST /chat for a trusted local backend or development server. It is not OpenAI /v1, has no CORS, and browser bundles must never connect directly."
       : "This runs Codex App Server as its own experimental protocol. It does not translate the ChatGPT session into a generic OpenAI /v1 API and it does not accept direct browser connections.";
-  if (n8nTarget) {
-    if (!state.n8nDiscoveryLoaded) {
-      refreshN8nDiscovery().catch(showError);
-    }
-  }
-  if (sidecar) {
-    refreshN8nOAuthStatus().catch(showError);
+  if (n8nTarget && !state.suppressTargetRefresh) {
+    refreshSelectedN8nContext().catch(showError);
   }
   updateReviewAvailability();
 }
@@ -783,6 +1383,12 @@ function renderPlan(plan) {
         ? "Relmio will install Code Sandbox and private SearXNG. After verification, copy the one-time sandbox API key and returned URLs into your own n8n environment. Any n8n restart remains your action. Use Daytona instead for production sandboxing."
         : "Relmio will install Code Sandbox without web search. After verification, copy the one-time sandbox API key and returned URL into your own n8n environment. Any n8n restart remains your action. Use Daytona instead for production sandboxing.",
     );
+  } else if (stack) {
+    appendPolicyNotice(
+      element("review-policy"),
+      "Authenticated public test stack",
+      "Only the ngrok URL is public, and mandatory Basic Auth protects it. Local n8n and the ngrok inspector remain bound to loopback; Code Sandbox and SearXNG publish no host ports.",
+    );
   } else if (openAiApi) {
     appendPolicyNotice(
       element("review-policy"),
@@ -822,7 +1428,12 @@ function prepareInstallPanel() {
     element(id).required = stack;
     element(id).disabled = !stack;
     element(id).value = "";
+    element(id).setCustomValidity("");
   }
+  for (const id of ["generate-ngrok-basic-auth-password", "toggle-ngrok-basic-auth-password"]) {
+    element(id).disabled = !stack;
+  }
+  resetBasicAuthPasswordVisibility();
   element("codex-install-warning-title").textContent = codexChat
     ? "Credential for trusted local backends or development servers only"
     : "High-trust capability";
@@ -858,6 +1469,25 @@ function prepareInstallPanel() {
   );
 }
 
+const ASSISTANT_SANDBOX_IMAGE =
+  "ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8";
+const ASSISTANT_N8N_SETTINGS_NOTE =
+  "Apply only the returned companion settings. Preserve the existing N8N_ENABLED_MODULES value and ensure it continues to include instance-ai.";
+
+function hasExactAssistantSettings(value, expectedSettings) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const expectedNames = Object.keys(expectedSettings);
+  return (
+    Object.keys(value).length === expectedNames.length &&
+    expectedNames.every(
+      (name) =>
+        Object.hasOwn(value, name) && value[name] === expectedSettings[name],
+    )
+  );
+}
+
 function renderInstallResult(result) {
   const sidecar = isN8nSidecar(result.target);
   const assistant = isN8nAssistant(result.target);
@@ -868,11 +1498,9 @@ function renderInstallResult(result) {
   const assistantSettings = result?.n8nSettings;
   const expectedAssistantSettings = assistant
     ? {
-        N8N_ENABLED_MODULES: "instance-ai",
         N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
         N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
-        N8N_INSTANCE_AI_SANDBOX_IMAGE:
-          "ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8",
+        N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_SANDBOX_IMAGE,
         N8N_SANDBOX_SERVICE_URL: result.sandboxUrl,
         N8N_SANDBOX_SERVICE_API_KEY: result.sandboxApiKey,
         ...(result.includeSearxng
@@ -893,16 +1521,14 @@ function renderInstallResult(result) {
       /^http:\/\/relmio-ai-searxng-[a-f0-9]{32}:8080$/u.test(
         result.searxngUrl ?? "",
       )) &&
+    (result.includeSearxng || !Object.hasOwn(result, "searxngUrl")) &&
     result.hostPublication === "none" &&
     result.privilegedRunner === true &&
     result.n8nConfigurationRequired === true &&
     result.credentialShownOnce === true &&
     result.deploymentMode === "installed" &&
     typeof result.networkName === "string" &&
-    assistantSettings &&
-    typeof assistantSettings === "object" &&
-    !Array.isArray(assistantSettings) &&
-    JSON.stringify(assistantSettings) === JSON.stringify(expectedAssistantSettings);
+    hasExactAssistantSettings(assistantSettings, expectedAssistantSettings);
   if (
     typeof endpoint !== "string" ||
     (!n8nTarget && typeof result.clientCredential !== "string") ||
@@ -937,6 +1563,7 @@ function renderInstallResult(result) {
   element("n8n-sidecar-removal").hidden = !sidecar;
   element("n8n-assistant-removal").hidden = !assistant;
   element("n8n-stack-removal").hidden = !stack;
+  element("n8n-stack-resume").hidden = true;
   element("remove-bridge-confirm").checked = false;
   element("remove-bridge-confirm").disabled = false;
   element("remove-bridge-button").disabled = true;
@@ -963,7 +1590,7 @@ function renderInstallResult(result) {
     ? "Copy this sandbox key now"
     : "Copy this credential now";
   element("one-time-note-detail").textContent = assistant
-    ? "Relmio shows the sandbox API key only in this install response. Copy the complete environment block before leaving this page."
+    ? `Relmio shows the sandbox API key only in this install response. Copy the returned companion settings before leaving this page. ${ASSISTANT_N8N_SETTINGS_NOTE}`
     : "Relmio shows the generated client credential only in this install response. It cannot recover it after you leave this page.";
   element("credential-rotation-note").hidden = n8nTarget;
   element("result-credential-row").hidden = n8nTarget;
@@ -1058,7 +1685,7 @@ function renderInstallResult(result) {
     : sidecar
     ? "Use the private base URL and local-only API key placeholder in n8n on the selected Docker network."
     : assistant
-      ? "Copy the one-time environment block into your own n8n deployment. Relmio did not change or restart n8n."
+      ? `${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not change or restart n8n.`
     : openAiApi
     ? "Copy the endpoint and generated bearer credential into your local app."
     : codexChat
@@ -1083,8 +1710,8 @@ function renderInstallResult(result) {
       ? "Set the base URL to http://n8n-openai-oauth:10531/v1, use local-only as the API key placeholder, and enable the Responses API. Host publication is None. This bridge is unofficial and installs neither AI Assistant Code Sandbox nor SearXNG."
       : assistant
         ? result.includeSearxng
-          ? "Code Sandbox and SearXNG JSON search were verified with no host publication. Merge instance-ai into any existing N8N_ENABLED_MODULES value, apply the copied settings, and restart n8n yourself. The privileged runner is for local development and testing; use Daytona for production."
-          : "Code Sandbox was verified with no host publication; SearXNG was not installed. Merge instance-ai into any existing N8N_ENABLED_MODULES value, apply the copied settings, and restart n8n yourself. The privileged runner is for local development and testing; use Daytona for production."
+          ? `Code Sandbox and SearXNG JSON search were verified with no host publication. ${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. The privileged runner is for local development and testing; use Daytona for production.`
+          : `Code Sandbox was verified with no host publication; SearXNG was not installed. ${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. The privileged runner is for local development and testing; use Daytona for production.`
       : openAiApi
       ? "Use the generated client credential as the bearer API key. Your upstream Platform key remains private in the managed Docker volume."
       : codexChat
@@ -1311,9 +1938,9 @@ function flashCopied(button) {
 element("target-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = element("review-button");
+  if (setBusy(button, true, "Preparing plan…") === false) return;
   clearError();
   invalidatePlan();
-  setBusy(button, true, "Preparing plan…");
   try {
     const sidecar = isN8nSidecar(state.target);
     const assistant = isN8nAssistant(state.target);
@@ -1407,8 +2034,8 @@ element("n8n-network").addEventListener("change", () => {
 
 element("n8n-discovery-refresh").addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  if (setBusy(button, true, "Refreshing n8n…") === false) return;
   clearError();
-  setBusy(button, true, "Refreshing n8n…");
   try {
     await refreshN8nDiscovery();
     setMessage("Running n8n containers and their existing Docker networks were refreshed read-only.");
@@ -1417,25 +2044,73 @@ element("n8n-discovery-refresh").addEventListener("click", async (event) => {
     showError(error);
   } finally {
     setBusy(button, false);
+    if (state.n8nDiscoveryLoaded) {
+      element("n8n-container").disabled = state.n8nContainers.length === 0;
+      renderSidecarNetworkOptions();
+    }
   }
+});
+
+element("manage-local-sidecar").addEventListener("click", async (event) => {
+  clearError();
+  state.suppressTargetRefresh = true;
+  try {
+    selectN8nManagementTarget("n8n-openai-oauth");
+  } finally {
+    state.suppressTargetRefresh = false;
+  }
+  const refresh = refreshSelectedN8nContext(event.currentTarget);
+  setMessage(
+    "Choose bridge setup or an ownership-attested credential refresh. Detecting n8n alone does not prove a Relmio bridge exists.",
+  );
+  await refresh;
+});
+
+element("manage-local-assistant").addEventListener("click", async (event) => {
+  clearError();
+  state.suppressTargetRefresh = true;
+  try {
+    selectN8nManagementTarget("n8n-ai-assistant");
+  } finally {
+    state.suppressTargetRefresh = false;
+  }
+  const refresh = refreshSelectedN8nContext(event.currentTarget);
+  setMessage(
+    "Choose Assistant setup or review SearXNG for an ownership-attested existing Assistant. n8n configuration and restarts remain your action.",
+  );
+  await refresh;
+});
+
+element("refresh-local-n8n-chatgpt").addEventListener("click", () => {
+  clearError();
+  state.suppressTargetRefresh = true;
+  try {
+    selectN8nManagementTarget("n8n-openai-oauth");
+  } finally {
+    state.suppressTargetRefresh = false;
+  }
+  element("n8n-oauth-sign-in").click();
 });
 
 element("n8n-oauth-refresh").addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  if (setBusy(button, true, "Refreshing sign-in…") === false) return;
   clearError();
-  setBusy(button, true, "Refreshing sign-in…");
   try {
     await refreshN8nOAuthStatus({ announce: true });
   } catch (error) {
     showError(error);
   } finally {
     setBusy(button, false);
+    updateManagedBridgeRefreshControls();
+    updateReviewAvailability();
   }
 });
 
 element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   const link = element("n8n-oauth-link");
+  if (setBusy(button, true, "Waiting for ChatGPT…") === false) return;
   const generation = state.n8nOAuthGeneration + 1;
   state.n8nOAuthGeneration = generation;
   state.n8nOAuthExists = false;
@@ -1446,7 +2121,6 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
   clearError();
   link.hidden = true;
   link.removeAttribute("href");
-  setBusy(button, true, "Waiting for ChatGPT…");
   setMessage("Preparing a fresh local ChatGPT sign-in. Existing credentials change only after sign-in succeeds.");
   try {
     const result = await api("/api/oauth/login", {
@@ -1469,7 +2143,7 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
     if (state.n8nOAuthGeneration !== generation) return;
     link.hidden = true;
     link.removeAttribute("href");
-    await refreshN8nOAuthStatus({ announce: true });
+    await refreshN8nOAuthStatus({ announce: true, newSignIn: true });
   } catch (error) {
     if (loginWindow && !navigated) loginWindow.close();
     if (state.n8nOAuthGeneration === generation) {
@@ -1480,12 +2154,191 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
   } finally {
     if (state.n8nOAuthGeneration === generation) {
       setBusy(button, false);
+      updateManagedBridgeRefreshControls();
+      updateReviewAvailability();
+    }
+  }
+});
+
+element("refresh-bridge-confirm").addEventListener("change", (event) => {
+  element("refresh-bridge-button").disabled =
+    !state.n8nOAuthExists || !event.currentTarget.checked;
+});
+
+element("refresh-bridge-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const confirmation = element("refresh-bridge-confirm");
+  let applied = false;
+  clearError();
+  if (!state.n8nOAuthExists || !confirmation.checked) {
+    showError(
+      new Error("Complete ChatGPT sign-in and confirm the owned bridge refresh first."),
+    );
+    return;
+  }
+  if (setBusy(button, true, "Applying sign-in…") === false) return;
+  setMessage(
+    "Re-attesting the owned bridge before applying the current ChatGPT sign-in. n8n will not be changed.",
+  );
+  try {
+    const result = validateManagedBridgeRefreshResult(
+      await api("/api/local/n8n/sidecar/refresh", {
+        method: "POST",
+        body: { confirmed: true },
+      }),
+    );
+    applied = true;
+    confirmation.checked = false;
+    confirmation.disabled = true;
+    button.disabled = true;
+    element("refresh-bridge-status").textContent =
+      `Current sign-in applied only to the owned bridge. ${result.models.length} model${result.models.length === 1 ? "" : "s"} verified; n8n was not changed.`;
+    setMessage(
+      "The current ChatGPT sign-in was applied to the ownership-verified bridge. n8n and its network were not changed.",
+    );
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+    if (applied) {
+      confirmation.disabled = true;
+      button.disabled = true;
+    }
+  }
+});
+
+element("review-assistant-searxng-edit").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  if (setBusy(button, true, "Reviewing owned Assistant…") === false) return;
+  clearError();
+  setMessage(
+    "Reading the owned Assistant identity for a SearXNG-only review. Nothing is being changed.",
+  );
+  try {
+    const review = validateAssistantSearxngReview(
+      await api("/api/local/n8n/assistant/searxng/review", {
+        method: "POST",
+        body: { includeSearxng: true },
+      }),
+    );
+    state.assistantSearxngReviewId = review.reviewId;
+    state.assistantSearxngReview = review;
+    element("assistant-searxng-edit-sandbox").textContent = review.sandboxUrl;
+    element("assistant-searxng-edit-search").textContent = review.searxngUrl;
+    element("assistant-searxng-edit-review").hidden = false;
+    element("enable-assistant-searxng-confirm").checked = false;
+    element("enable-assistant-searxng-button").disabled = true;
+    element("assistant-searxng-edit-result").textContent =
+      "Review ready. Confirm the SearXNG-only change to continue.";
+    element("assistant-searxng-edit-settings").hidden = true;
+    element("assistant-searxng-edit-settings").textContent = "";
+    element("assistant-searxng-edit-status").textContent =
+      "Relmio verified a SearXNG-free owned Assistant installation. No Docker service or n8n setting has changed.";
+    setMessage(
+      "Review ready. SearXNG has not been enabled; confirm the separate change only if it is what you want.",
+    );
+  } catch (error) {
+    state.assistantSearxngReviewId = null;
+    state.assistantSearxngReview = null;
+    element("assistant-searxng-edit-review").hidden = true;
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+element("enable-assistant-searxng-confirm").addEventListener("change", (event) => {
+  element("enable-assistant-searxng-button").disabled =
+    !state.assistantSearxngReviewId || !event.currentTarget.checked;
+});
+
+element("enable-assistant-searxng-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const confirmation = element("enable-assistant-searxng-confirm");
+  const reviewId = state.assistantSearxngReviewId;
+  let applied = false;
+  clearError();
+  if (!reviewId || !confirmation.checked) {
+    showError(new Error("Review and confirm SearXNG enablement first."));
+    return;
+  }
+  if (setBusy(button, true, "Enabling SearXNG…") === false) return;
+  setMessage(
+    "Enabling only the ownership-verified SearXNG companion. The sandbox key and n8n remain unchanged.",
+  );
+  try {
+    const result = validateAssistantSearxngEnablementResult(
+      await api("/api/local/n8n/assistant/searxng/enable", {
+        method: "POST",
+        body: { reviewId, confirmed: true },
+      }),
+    );
+    applied = true;
+    state.assistantSearxngReviewId = null;
+    state.assistantSearxngReview = null;
+    confirmation.checked = false;
+    confirmation.disabled = true;
+    button.disabled = true;
+    element("assistant-searxng-edit-result").textContent =
+      "SearXNG is enabled on the owned Assistant tools. The sandbox API key was not rotated or shown.";
+    element("assistant-searxng-edit-settings").textContent =
+      `Apply only this operator-managed n8n setting yourself: N8N_INSTANCE_AI_SEARXNG_URL=${result.n8nSettings.N8N_INSTANCE_AI_SEARXNG_URL}`;
+    element("assistant-searxng-edit-settings").hidden = false;
+    element("assistant-searxng-edit-status").textContent =
+      "SearXNG-only enablement completed. n8n configuration and any restart remain your action.";
+    setMessage(
+      "SearXNG was enabled only on the owned Assistant tools. Relmio did not rotate the sandbox key or change n8n.",
+    );
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+    if (applied) {
+      confirmation.disabled = true;
+      button.disabled = true;
     }
   }
 });
 
 element("install-confirm").addEventListener("change", (event) => {
   element("install-settings-button").disabled = !event.currentTarget.checked;
+});
+
+for (const id of ["ngrok-authtoken", "ngrok-basic-auth-username", "ngrok-basic-auth-password"]) {
+  element(id).addEventListener("input", (event) => {
+    event.currentTarget.setCustomValidity("");
+  });
+}
+
+element("generate-ngrok-basic-auth-password").addEventListener("click", () => {
+  clearError();
+  try {
+    const bytes = new Uint8Array(24);
+    globalThis.crypto.getRandomValues(bytes);
+    const password = Array.from(bytes, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("");
+    const input = element("ngrok-basic-auth-password");
+    input.value = password;
+    input.setCustomValidity("");
+    input.focus();
+    setMessage(
+      "A strong Basic Auth password was generated in the password field. Show it and save it in your password manager before installing.",
+    );
+  } catch {
+    showError(
+      new Error("This browser could not securely generate a password. Create one with at least 12 characters and no colon or line break."),
+    );
+  }
+});
+
+element("toggle-ngrok-basic-auth-password").addEventListener("click", (event) => {
+  const input = element("ngrok-basic-auth-password");
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  event.currentTarget.textContent = showing ? "Show password" : "Hide password";
+  event.currentTarget.setAttribute("aria-pressed", String(!showing));
+  input.focus();
 });
 
 element("install-settings-button").addEventListener("click", () => {
@@ -1501,6 +2354,7 @@ element("install-settings-button").addEventListener("click", () => {
 
 element("install-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  if (state.operationBusy) return;
   const apiKeyInput = element("platform-api-key");
   const stack = isN8nStack(state.plan?.target);
   const stackSecretInputs = [
@@ -1508,6 +2362,7 @@ element("install-button").addEventListener("click", async (event) => {
     element("ngrok-basic-auth-username"),
     element("ngrok-basic-auth-password"),
   ];
+  let retryStackCredentials = false;
   clearError();
   if (!state.planId || !state.plan || !element("install-confirm").checked) {
     showStep(1);
@@ -1517,7 +2372,7 @@ element("install-button").addEventListener("click", async (event) => {
   if (state.plan.target === "openai-api" && !apiKeyInput.reportValidity()) {
     return;
   }
-  if (stack && stackSecretInputs.some((input) => !input.reportValidity())) {
+  if (stack && !validateLocalN8nStackCredentials()) {
     return;
   }
   const requestBody = {
@@ -1536,7 +2391,8 @@ element("install-button").addEventListener("click", async (event) => {
   };
   apiKeyInput.value = "";
   for (const input of stackSecretInputs) input.value = "";
-  setBusy(button, true, "Installing locally…");
+  const installProgressStarted = startInstallProgress(button);
+  if (!installProgressStarted) return;
   setMessage(
     stack
       ? "Creating and verifying the new owned n8n stack and authenticated ngrok endpoint…"
@@ -1568,7 +2424,52 @@ element("install-button").addEventListener("click", async (event) => {
           : "Codex App Server verified. Copy its one-time capability and complete ChatGPT sign-in.",
     );
   } catch (error) {
+    if (stack && error.managedPartialStack === true) {
+      invalidatePlan();
+      state.installedTarget = "local-n8n-stack";
+      element("install-result-list").hidden = true;
+      element("one-time-note").hidden = true;
+      element("credential-rotation-note").hidden = true;
+      element("client-warning").hidden = true;
+      element("codex-production-warning").hidden = true;
+      element("codex-login").hidden = true;
+      element("chat-tester").hidden = true;
+      element("n8n-sidecar-removal").hidden = true;
+      element("n8n-assistant-removal").hidden = true;
+      element("n8n-stack-resume").hidden = true;
+      element("n8n-stack-removal").hidden = false;
+      element("remove-n8n-stack-confirm").checked = false;
+      element("remove-n8n-stack-confirm").disabled = false;
+      element("remove-n8n-stack-button").disabled = true;
+      element("remove-n8n-stack-status").textContent =
+        "The confirmed Relmio-owned partial stack remains until this separate removal confirmation is checked.";
+      element("done-title").textContent = "Owned partial n8n + ngrok stack needs removal";
+      element("done-detail").textContent =
+        "Startup did not complete. Relmio confirmed that its attested partial stack remains; remove it below before creating a fresh plan.";
+      showStep(4);
+      setMessage(
+        "Review and explicitly confirm removal of the Relmio-owned partial stack before retrying setup.",
+      );
+      showError(error);
+      return;
+    }
+    if (stack && error.retryablePlan === true) {
+      retryStackCredentials = true;
+      showStep(3);
+      setMessage(
+        error.retryableNgrokSetup === true
+          ? "Credentials were cleared for safety. Check the ngrok account and endpoint setup, reserved hostname, active agent token, and Basic Auth, then re-enter all three credentials and retry this reviewed plan."
+          : "Credentials were cleared for safety. Address the reported Docker or service verification failure, then re-enter all three credentials and retry this reviewed plan.",
+      );
+      showError(error);
+      return;
+    }
     invalidatePlan();
+    if (stack) {
+      state.installedTarget = null;
+      element("n8n-stack-removal").hidden = true;
+      element("n8n-stack-resume").hidden = true;
+    }
     showStep(1);
     setMessage("Installation stopped. Prepare and confirm a fresh plan before retrying.");
     showError(error);
@@ -1578,12 +2479,17 @@ element("install-button").addEventListener("click", async (event) => {
     requestBody.basicAuthUsername = undefined;
     requestBody.basicAuthPassword = undefined;
     apiKeyInput.value = "";
+    stopInstallProgress(button);
     for (const input of stackSecretInputs) {
       input.value = "";
-      input.disabled = true;
+      input.disabled = !retryStackCredentials;
+      input.setCustomValidity("");
     }
-    element("n8n-stack-secrets").hidden = true;
-    setBusy(button, false);
+    for (const id of ["generate-ngrok-basic-auth-password", "toggle-ngrok-basic-auth-password"]) {
+      element(id).disabled = !retryStackCredentials;
+    }
+    resetBasicAuthPasswordVisibility();
+    element("n8n-stack-secrets").hidden = !retryStackCredentials;
   }
 });
 
@@ -1604,7 +2510,7 @@ element("remove-bridge-button").addEventListener("click", async (event) => {
   }
 
   let removed = false;
-  setBusy(button, true, "Removing bridge…");
+  if (setBusy(button, true, "Removing bridge…") === false) return;
   setMessage("Removing only Relmio-owned bridge resources. n8n and its external network remain untouched.");
   try {
     const result = await api("/api/local/n8n/remove", {
@@ -1629,7 +2535,10 @@ element("remove-bridge-button").addEventListener("click", async (event) => {
     showError(error);
   } finally {
     setBusy(button, false);
-    if (removed) button.disabled = true;
+    if (removed) {
+      confirmation.disabled = true;
+      button.disabled = true;
+    }
   }
 });
 
@@ -1650,7 +2559,7 @@ element("remove-assistant-button").addEventListener("click", async (event) => {
   }
 
   let removed = false;
-  setBusy(button, true, "Removing Assistant tools…");
+  if (setBusy(button, true, "Removing Assistant tools…") === false) return;
   setMessage(
     "Removing only Relmio-owned Code Sandbox and optional SearXNG resources. n8n and its external network remain untouched.",
   );
@@ -1681,12 +2590,63 @@ element("remove-assistant-button").addEventListener("click", async (event) => {
     showError(error);
   } finally {
     setBusy(button, false);
-    if (removed) button.disabled = true;
+    if (removed) {
+      confirmation.disabled = true;
+      button.disabled = true;
+    }
   }
 });
 
 element("remove-n8n-stack-confirm").addEventListener("change", (event) => {
   element("remove-n8n-stack-button").disabled = !event.currentTarget.checked;
+});
+
+element("resume-n8n-stack-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  if (
+    state.installedTarget !== "local-n8n-stack" ||
+    state.localN8nStackState !== "stopped"
+  ) {
+    showError(new Error("Relmio can resume only the detected stopped owned n8n + ngrok stack."));
+    return;
+  }
+  let resumed = false;
+  if (setBusy(button, true, "Resuming owned stack…") === false) return;
+  setMessage("Starting only the existing ownership-attested n8n, ngrok, and selected Assistant containers…");
+  try {
+    const result = await api("/api/local/n8n/stack/resume", {
+      method: "POST",
+      body: { confirmed: true },
+    });
+    if (
+      result.target !== "local-n8n-stack" ||
+      result.resumed !== true ||
+      result.deploymentMode !== "resumed-owned-disposable-stack"
+    ) {
+      throw new Error("The local wizard returned an unexpected stack-resume response.");
+    }
+    resumed = true;
+    state.installedTarget = null;
+    state.localN8nStackState = "healthy";
+    element("n8n-stack-resume").hidden = true;
+    element("done-title").textContent = "Managed local n8n + ngrok resumed";
+    element("done-detail").textContent =
+      "Relmio started only the existing owned containers. No services were recreated, no volumes were removed, and no configuration was changed.";
+    element("resume-n8n-stack-status").textContent =
+      "Owned stack resumed. Local endpoint management and add-on choices are available again.";
+    showStep(1);
+    updateReviewAvailability();
+    setMessage("The owned n8n + ngrok stack is healthy again. You can continue with normal local endpoint management.");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+    if (resumed) {
+      button.disabled = true;
+      updateReviewAvailability();
+    }
+  }
 });
 
 element("remove-n8n-stack-button").addEventListener("click", async (event) => {
@@ -1698,7 +2658,7 @@ element("remove-n8n-stack-button").addEventListener("click", async (event) => {
     return;
   }
   let removed = false;
-  setBusy(button, true, "Removing owned stack…");
+  if (setBusy(button, true, "Removing owned stack…") === false) return;
   setMessage("Removing only Relmio-owned n8n + ngrok resources. Existing n8n deployments remain untouched.");
   try {
     const result = await api("/api/local/n8n/stack/remove", {
@@ -1710,10 +2670,12 @@ element("remove-n8n-stack-button").addEventListener("click", async (event) => {
     }
     removed = true;
     state.installedTarget = null;
+    state.localN8nStackState = null;
     confirmation.disabled = true;
     element("install-result-list").hidden = true;
     element("client-warning").hidden = true;
-    element("done-title").textContent = "New local n8n + ngrok was removed";
+    element("done-title").textContent =
+      "Relmio-managed local n8n + ngrok was removed";
     element("done-detail").textContent =
       "Relmio removed only its owned stack. Existing n8n deployments were not changed.";
     element("remove-n8n-stack-status").textContent =
@@ -1723,7 +2685,10 @@ element("remove-n8n-stack-button").addEventListener("click", async (event) => {
     showError(error);
   } finally {
     setBusy(button, false);
-    if (removed) button.disabled = true;
+    if (removed) {
+      confirmation.disabled = true;
+      button.disabled = true;
+    }
   }
 });
 
@@ -1735,7 +2700,8 @@ element("rotate-credential-button").addEventListener("click", async (event) => {
     return;
   }
 
-  setBusy(button, true, "Rotating credential…");
+  if (setBusy(button, true, "Rotating credential…") === false) return;
+  let latestRotationResult = null;
   setMessage(
     "Generating a replacement credential before activating it…",
   );
@@ -1747,6 +2713,7 @@ element("rotate-credential-button").addEventListener("click", async (event) => {
       method: "POST",
       body: { target: state.installedTarget },
     });
+    latestRotationResult = staged;
     renderInstallResult(staged);
     setMessage("Replacement credential received. Activating and verifying it now…");
     await new Promise((resolvePromise) => window.requestAnimationFrame(resolvePromise));
@@ -1758,13 +2725,15 @@ element("rotate-credential-button").addEventListener("click", async (event) => {
         clientCredential: staged.clientCredential,
       },
     });
-    renderInstallResult({ ...staged, ...activated });
+    latestRotationResult = { ...staged, ...activated };
+    renderInstallResult(latestRotationResult);
     setMessage("Client credential rotated. Copy the new one now; the previous one no longer works.");
   } catch (error) {
     setMessage("The replacement credential was not confirmed active. Follow the error guidance before retrying.");
     showError(error);
   } finally {
     setBusy(button, false);
+    if (latestRotationResult) renderInstallResult(latestRotationResult);
   }
 });
 
@@ -1779,12 +2748,13 @@ element("chat-tester-secure-form").addEventListener("submit", async (event) => {
     return;
   }
 
+  if (setBusy(button, true, "Securing credential…") === false) return;
   clearChatTesterError();
   let clientCredential = clientCredentialInput.value;
   clientCredentialInput.value = "";
   let issuedKey;
+  let secured = false;
   resetButton.disabled = true;
-  setBusy(button, true, "Securing credential…");
   setChatTesterStatus("Creating a short-lived local encryption key…");
   try {
     issuedKey = assertChatTesterKey(
@@ -1803,7 +2773,7 @@ element("chat-tester-secure-form").addEventListener("submit", async (event) => {
     element("chat-tester-secure-form").hidden = true;
     element("chat-tester-message-form").hidden = false;
     setChatTesterStatus("Temporary test session secured. Send a message before the key expires.");
-    element("chat-tester-input").focus();
+    secured = true;
   } catch (error) {
     clientCredential = undefined;
     if (issuedKey?.keyId) {
@@ -1824,6 +2794,7 @@ element("chat-tester-secure-form").addEventListener("submit", async (event) => {
     clientCredentialInput.value = "";
     resetButton.disabled = false;
     setBusy(button, false);
+    if (secured) element("chat-tester-input").focus();
   }
 });
 
@@ -1847,6 +2818,7 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
     return;
   }
 
+  if (setBusy(button, true, "Streaming response…") === false) return;
   clearChatTesterError();
   const text = input.value;
   const generation = state.chatTester.generation;
@@ -1854,7 +2826,6 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
   appendChatTesterTurn("user", text);
   const assistantContent = appendChatTesterTurn("assistant", "");
   resetButton.disabled = true;
-  setBusy(button, true, "Streaming response…");
   setChatTesterStatus("Connecting to the loopback adapter through the secured local wizard…");
   try {
     const result = await streamChatTesterMessage(
@@ -1907,8 +2878,8 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
 
 element("chat-tester-reset").addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  if (setBusy(button, true, "Forgetting tester…") === false) return;
   clearChatTesterError();
-  setBusy(button, true, "Forgetting tester…");
   try {
     await forgetChatTester();
   } finally {
@@ -1920,9 +2891,9 @@ element("codex-login-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   const resultBox = element("device-code-result");
   const status = element("device-code-status");
+  if (setBusy(button, true, "Waiting for ChatGPT…") === false) return;
   clearError();
   resultBox.hidden = true;
-  setBusy(button, true, "Waiting for ChatGPT…");
   try {
     const result = await api("/api/local/codex/login", {
       method: "POST",
@@ -1972,6 +2943,7 @@ for (const button of document.querySelectorAll("[data-copy-target]")) {
 
 for (const button of document.querySelectorAll(".back-button")) {
   button.addEventListener("click", () => {
+    if (state.operationBusy) return;
     clearError();
     if (isN8nStack(state.plan?.target)) {
       element("n8n-stack-secrets").hidden = true;
@@ -2005,15 +2977,53 @@ async function refreshDockerStatus() {
     state.dockerAvailable = false;
     indicator.classList.remove("ready");
     element("docker-status-title").textContent =
-      "Native Windows is not supported";
+      "Windows security check failed";
     element("docker-status-detail").textContent =
-      "Run Relmio on macOS, Linux, or under WSL2 so credentials retain POSIX owner-only file permissions.";
+      "Relmio could not verify an owner-only NTFS ACL. Check Docker Desktop and Windows permissions, or use WSL2.";
     reviewButton.disabled = true;
-    setMessage("This local Docker feature requires a supported POSIX environment.");
+    setMessage("No local Docker changes were made because the Windows security check failed.");
     return;
   }
   if (state.dockerAvailable) {
     indicator.classList.add("ready");
+    state.localN8nStackState =
+      ["healthy", "stopped", "partial", "unavailable"].includes(result.localN8nStackState)
+        ? result.localN8nStackState
+        : null;
+    if (state.localN8nStackState === "partial") {
+      element("docker-status-title").textContent =
+        "Docker is ready — partial managed stack recovery required";
+      element("docker-status-detail").textContent =
+        "Relmio confirmed an owned partial local n8n + ngrok stack. Only the explicit removal recovery is available.";
+      reviewButton.disabled = true;
+      showDetectedManagedLocalN8nStackRecovery();
+      return;
+    }
+    if (state.localN8nStackState === "stopped") {
+      element("docker-status-title").textContent =
+        "Docker is ready — managed stack is stopped";
+      element("docker-status-detail").textContent =
+        "Relmio verified the complete owned stack. Resume starts its existing containers only.";
+      reviewButton.disabled = true;
+      showStoppedManagedLocalN8nStack();
+      return;
+    }
+    if (state.localN8nStackState === "healthy") {
+      element("docker-status-title").textContent = "Docker is ready — managed stack is healthy";
+      element("docker-status-detail").textContent =
+        "The complete Relmio-owned n8n + ngrok stack is healthy. Normal local endpoint and add-on choices remain available.";
+      updateReviewAvailability();
+      setMessage("Docker and the owned local n8n + ngrok stack are ready. Choose the next local action.");
+      return;
+    }
+    if (state.localN8nStackState === "unavailable") {
+      element("docker-status-title").textContent = "Docker is ready — managed stack status unavailable";
+      element("docker-status-detail").textContent =
+        "Relmio could not safely classify a prior managed stack. No automatic resume or removal control is available.";
+      updateReviewAvailability();
+      setMessage("Docker is ready, but Relmio could not verify a prior managed n8n stack. It will not guess or change it.");
+      return;
+    }
     element("docker-status-title").textContent = "Docker is ready";
     element("docker-status-detail").textContent =
       `Engine ${result.dockerVersion}; Compose ${result.composeVersion}`;
@@ -2046,6 +3056,28 @@ async function refreshProjectMeta() {
   );
 }
 
+async function initializeLocalWizard() {
+  if (!startOperation(null, "Checking local Docker…")) return;
+  try {
+    await Promise.all([
+      refreshDockerStatus(),
+      refreshProjectMeta().catch(() => {}),
+    ]);
+  } catch (error) {
+    showError(error);
+  } finally {
+    stopOperation();
+    if (
+      !state.dockerAvailable ||
+      state.localN8nStackState === "partial" ||
+      state.localN8nStackState === "stopped"
+    ) {
+      element("review-button").disabled = true;
+    } else {
+      updateReviewAvailability();
+    }
+  }
+}
+
 renderTarget();
-refreshDockerStatus().catch(showError);
-refreshProjectMeta().catch(() => {});
+initializeLocalWizard();

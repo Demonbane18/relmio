@@ -62,8 +62,10 @@ shared, or production service.
 - Passwords are request-scoped, never saved, never logged, and cleared from
   the page immediately after the connection attempt.
 - ChatGPT login is written first to a unique pending file, validated, and then
-  stored at `~/.n8n-openai-oauth/auth.json` with owner-only permissions. The
-  Codex app credential at `~/.codex/auth.json` is not reused or overwritten.
+  stored at `~/.n8n-openai-oauth/auth.json` with owner-only permissions. On
+  Windows, Relmio applies and reads back the current-account-only NTFS DACL on
+  the directory plus every pending, staged, and final credential file. The Codex
+  app credential at `~/.codex/auth.json` is not reused or overwritten.
 - OAuth JSON is validated and transferred through SFTP, never interpolated
   into a shell command.
 - Remote paths are restricted to `/docker/n8n-openai-oauth`.
@@ -84,9 +86,16 @@ shared, or production service.
   Relmio attaches only the new sidecar to the selected existing network and
   never edits, executes inside, rebuilds, restarts, stops, recreates, or changes
   network membership on n8n.
-- The local n8n bridge is create/remove-only in this release. Relmio refuses an
-  in-place reinstall before Docker mutation so a failed refresh cannot remove
-  a previously working bridge or its private OAuth volume.
+- The local n8n bridge is create/remove-only for installation and refuses an
+  in-place reinstall. Its separately confirmed credential refresh re-attests
+  the marker, n8n identity, network, owned
+  service, and credential volume. On Docker's reviewed Linux engine it freezes
+  only the exact owned sidecar ID, records a validated quiesce snapshot, proves
+  that writer stopped, promotes a separate rollback snapshot, then reseeds and
+  recreates only that owned sidecar. It never falls back to a graceful stop
+  when the freezer is unavailable. Ambiguous quiesce/rollback state is kept for
+  inspection; a failed verification never touches n8n or reads a credential
+  back from Docker.
 - The separate `n8n-ai-assistant` option always installs Code Sandbox and adds
   SearXNG only after an explicit boolean opt-in. Its privileged
   Docker-in-Docker runner is for local development and testing, not production;
@@ -95,6 +104,10 @@ shared, or production service.
   attach only to the reviewed existing Docker network, and publish no host port
   or reverse-proxy route. Relmio returns the sandbox key and n8n settings once,
   but never changes or restarts n8n and never handles its model-provider key.
+- Existing-n8n sidecar and Assistant plans require Docker's exact
+  `Internal: false` network state before writing. This proves the selected
+  network is not Docker-internal while retaining the independent no-host-port
+  verification.
 - The separate **New local n8n + ngrok** option creates only a new randomly
   identified Relmio-owned Compose project. It never adopts or changes an
   existing n8n. Its explicit public exception is limited to the new n8n route,
@@ -134,15 +147,22 @@ shared, or production service.
   disabled. Its model-visible filesystem policy denies root by default, allows
   only Codex's minimal runtime paths and the empty private workspace, and
   explicitly denies the persisted Codex credential store.
-- Local managed paths use mode `0700`, generated files use owner-only modes,
-  symlinks are rejected, and existing unmanaged directories are not
-  overwritten.
-- The selected Docker context must resolve to a local Unix socket. Every
-  mutating command is pinned to that socket, Docker selector environment
-  overrides are removed, and native Windows is rejected before mutation.
+- Local managed paths use mode `0700` and generated files use owner-only modes
+  on POSIX. Native Windows creates a protected, inheritable NTFS DACL limited
+  to the current account and verifies the exact DACL before writing managed
+  credentials. Symlinks are rejected and existing unmanaged directories are
+  not overwritten.
+- The selected Docker context must resolve to a local Unix socket, or to Docker
+  Desktop's exact Linux-engine named pipe while `desktop-linux` is selected on
+  Windows. Every mutating command is pinned to that local endpoint and Docker
+  selector environment overrides are removed.
 - Each install uses a random Compose project identity. Containers, networks,
   and volumes must carry matching Relmio ownership labels before update,
   restart, recovery, or sign-in actions are allowed.
+- Local n8n stack install/removal locks include the process creation identity
+  so PID reuse cannot impersonate the owner. Stale recovery first publishes an
+  exclusive nested claim and revalidates the unchanged lock before detaching
+  it; ambiguous liveness and changed ownership always fail closed.
 - All three long-running loopback endpoint containers run as a non-root user, drop Linux
   capabilities, set `no-new-privileges`, use a read-only root filesystem, and
   have bounded temporary storage and resource limits.

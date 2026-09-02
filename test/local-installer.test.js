@@ -20,20 +20,34 @@ import test from "node:test";
 
 import { createLocalDeploymentPlan } from "../src/domain/local-endpoints.js";
 import {
-  acquireLocalEndpointChangeLock,
-  activateLocalClientCredentialRotation,
+  acquireLocalEndpointChangeLock as acquireLocalEndpointChangeLockService,
+  activateLocalClientCredentialRotation as activateLocalClientCredentialRotationService,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
-  installLocalEndpoint,
-  restartLocalCodex,
+  installLocalEndpoint as installLocalEndpointService,
+  restartLocalCodex as restartLocalCodexService,
   prepareLocalClientCredentialRotation,
   resolveLocalInstallRoot,
   verifyCodexWebSocketCapability,
 } from "../src/services/local-installer.js";
+import { withTestLocalSecurity } from "./helpers/local-security.js";
+
+const acquireLocalEndpointChangeLock = (request, dependencies) =>
+  acquireLocalEndpointChangeLockService(request, withTestLocalSecurity(dependencies));
+const activateLocalClientCredentialRotation = (request, dependencies) =>
+  activateLocalClientCredentialRotationService(request, withTestLocalSecurity(dependencies));
+const installLocalEndpoint = (request, dependencies) =>
+  installLocalEndpointService(request, withTestLocalSecurity(dependencies));
+const restartLocalCodex = (request, dependencies) =>
+  restartLocalCodexService(request, withTestLocalSecurity(dependencies));
 
 const platformKey = `sk-${"p".repeat(48)}`;
 const rotatedPlatformKey = `sk-${"q".repeat(48)}`;
 const capability = Buffer.alloc(32, 7).toString("base64url");
+const TEST_DOCKER_HOST = process.platform === "win32"
+  ? "npipe:////./pipe/dockerDesktopLinuxEngine"
+  : "unix:///var/run/docker.sock";
+const TEST_DOCKER_CONTEXT = process.platform === "win32" ? "desktop-linux" : "default";
 
 async function createTestHome(t) {
   const root = await import("node:fs/promises").then(({ mkdtemp }) =>
@@ -46,7 +60,8 @@ async function createTestHome(t) {
 function createRunner({
   cleanupCode = 0,
   cleanupStillRunning = false,
-  contextHost = "unix:///var/run/docker.sock",
+  contextHost = TEST_DOCKER_HOST,
+  contextName = TEST_DOCKER_CONTEXT,
   foreignOwnership = false,
   publisherHost = "127.0.0.1",
   publishedPort = 12435,
@@ -63,6 +78,9 @@ function createRunner({
         stderr: "",
         code: 0,
       };
+    }
+    if (args === "context show") {
+      return { stdout: `${contextName}\n`, stderr: "", code: 0 };
     }
     if (args === "version --format {{.Server.Version}}") {
       return { stdout: "27.1.1\n", stderr: "", code: 0 };
@@ -278,7 +296,7 @@ test("local Docker discovery is read-only and sanitizes versions", async () => {
     dockerAvailable: true,
     dockerVersion: "27.1.1",
     composeVersion: "2.29.2",
-    dockerHost: "unix:///var/run/docker.sock",
+    dockerHost: TEST_DOCKER_HOST,
   });
   assert.deepEqual(
     runProcess.calls.map(({ file, args }) => ({ file, args })),
@@ -292,13 +310,16 @@ test("local Docker discovery is read-only and sanitizes versions", async () => {
           "{{json .Endpoints.docker.Host}}",
         ],
       },
+      ...(process.platform === "win32"
+        ? [{ file: "docker", args: ["context", "show"] }]
+        : []),
       { file: "docker", args: ["version", "--format", "{{.Server.Version}}"] },
       { file: "docker", args: ["compose", "version", "--short"] },
     ],
   );
 });
 
-test("local Docker discovery rejects remote contexts, overrides, and native Windows", async () => {
+test("local Docker discovery rejects remote contexts and overrides while accepting the attested Docker Desktop Linux engine", async () => {
   assert.deepEqual(
     await getLocalDockerStatus({
       runProcess: createRunner({ contextHost: "ssh://remote.example" }),
@@ -317,12 +338,20 @@ test("local Docker discovery rejects remote contexts, overrides, and native Wind
   );
   assert.deepEqual(
     await getLocalDockerStatus({
-      runProcess: createRunner(),
+      runProcess: createRunner({
+        contextHost: "npipe:////./pipe/dockerDesktopLinuxEngine",
+        contextName: "desktop-linux",
+      }),
       cwd: "/tmp",
       env: {},
       platform: "win32",
     }),
-    { dockerAvailable: false, unsupportedPlatform: true },
+    {
+      dockerAvailable: true,
+      dockerVersion: "27.1.1",
+      composeVersion: "2.29.2",
+      dockerHost: "npipe:////./pipe/dockerDesktopLinuxEngine",
+    },
   );
 });
 
@@ -358,7 +387,7 @@ test("Codex credential reload attests, restarts, and waits for only the managed 
         `compose --project-name relmio-codex-chatgpt-${"07".repeat(16)} --file docker-compose.yml restart --timeout 10 codex`,
       ) &&
       cwd === installDirectory &&
-      dockerHost === "unix:///var/run/docker.sock",
+      dockerHost === TEST_DOCKER_HOST,
     ),
   );
   assert.ok(
@@ -1107,6 +1136,50 @@ test("only one independent process can reclaim the same stale project lock", asy
   );
 });
 
+test("project locks distinguish an active owner from PID reuse and ambiguous identity", async (t) => {
+  for (const variant of ["reused", "active", "ambiguous"]) {
+    await t.test(variant, async (subtest) => {
+      const home = await createTestHome(subtest);
+      const env = { RELMIO_HOME: join(home, ".relmio") };
+      const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+      await mkdir(lockPath, { mode: 0o700 });
+      await writeFile(
+        join(lockPath, "owner.json"),
+        `${JSON.stringify({
+          processId: 39_998,
+          ownerToken: "published-owner",
+          processStartIdentity: "owner-start",
+        })}\n`,
+        { mode: 0o600 },
+      );
+      const getProcessIdentity = async (processId) => {
+        if (processId === 41_009) {
+          return { state: "active", startIdentity: "self-start" };
+        }
+        if (variant === "ambiguous") return { state: "ambiguous" };
+        return {
+          state: "active",
+          startIdentity: variant === "active" ? "owner-start" : "reused-start",
+        };
+      };
+      const acquisition = acquireLocalEndpointChangeLock(
+        { target: "codex-chatgpt" },
+        { env, processId: 41_009, getProcessIdentity },
+      );
+      if (variant === "reused") {
+        const releaseLock = await acquisition;
+        await releaseLock();
+        await assert.rejects(() => lstat(lockPath), /ENOENT/u);
+      } else {
+        await assert.rejects(
+          acquisition,
+          /Another Relmio process is changing this local endpoint/u,
+        );
+      }
+    });
+  }
+});
+
 test("a crashed stale-lock reclaimer can be recovered by a later process", async (t) => {
   const home = await createTestHome(t);
   const env = { RELMIO_HOME: join(home, ".relmio") };
@@ -1167,7 +1240,7 @@ test("detached stale-lock cleanup failures do not orphan the new canonical lock"
       let injectedFailures = 0;
       const fileSystem = {
         ...nodeFileSystem,
-        async rm(path, options) {
+        async rmdir(path, options) {
           const shouldFail = branch === "primary"
             ? path.startsWith(`${lockPath}.stale-`)
             : path.startsWith(`${reclaimPath}.stale-`);
@@ -1175,7 +1248,7 @@ test("detached stale-lock cleanup failures do not orphan the new canonical lock"
             injectedFailures += 1;
             throw new Error("injected detached stale cleanup failure");
           }
-          return nodeFileSystem.rm(path, options);
+          return nodeFileSystem.rmdir(path, options);
         },
       };
 
@@ -1369,7 +1442,141 @@ test("a paused reclaim creator cannot delete a successor lock after stale recove
   await releaseSuccessor();
 });
 
-test("a post-open primary owner write cannot survive stale lock replacement", async (t) => {
+test("an older stale reclaimer cannot detach a successor during owner publication", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+  const ownerPath = join(lockPath, "owner.json");
+  const reclaimPath = join(lockPath, ".reclaim");
+  await mkdir(lockPath, { mode: 0o700 });
+  const staleTime = new Date(Date.now() - 60_000);
+  await utimes(lockPath, staleTime, staleTime);
+
+  let resumeOlderReclaim;
+  let notifyOlderReclaim;
+  const olderReclaimStarted = new Promise((resolvePromise) => {
+    notifyOlderReclaim = resolvePromise;
+  });
+  const olderReclaimGate = new Promise((resolvePromise) => {
+    resumeOlderReclaim = resolvePromise;
+  });
+  let pauseOlderReclaim = true;
+  const olderFileSystem = {
+    ...nodeFileSystem,
+    async mkdir(path, options) {
+      if (path === reclaimPath && pauseOlderReclaim) {
+        pauseOlderReclaim = false;
+        notifyOlderReclaim();
+        await olderReclaimGate;
+      }
+      return nodeFileSystem.mkdir(path, options);
+    },
+  };
+
+  let resumeSuccessorOwner;
+  let notifySuccessorOwner;
+  const successorOwnerStarted = new Promise((resolvePromise) => {
+    notifySuccessorOwner = resolvePromise;
+  });
+  const successorOwnerGate = new Promise((resolvePromise) => {
+    resumeSuccessorOwner = resolvePromise;
+  });
+  let pauseSuccessorOwner = true;
+  const successorFileSystem = {
+    ...nodeFileSystem,
+    async writeFile(path, ...args) {
+      if (path === ownerPath && pauseSuccessorOwner) {
+        pauseSuccessorOwner = false;
+        notifySuccessorOwner();
+        await successorOwnerGate;
+      }
+      return nodeFileSystem.writeFile(path, ...args);
+    },
+  };
+
+  const olderAcquisition = acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      fileSystem: olderFileSystem,
+      processId: 41_038,
+      isProcessAlive: () => false,
+    },
+  );
+  void olderAcquisition.catch(() => {});
+  await olderReclaimStarted;
+
+  const successorAcquisition = acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      fileSystem: successorFileSystem,
+      processId: 41_039,
+      isProcessAlive: () => false,
+    },
+  );
+  await successorOwnerStarted;
+  resumeOlderReclaim();
+  await assert.rejects(
+    olderAcquisition,
+    /Another Relmio process is changing this local endpoint/u,
+  );
+  resumeSuccessorOwner();
+  const releaseSuccessor = await successorAcquisition;
+  assert.equal(JSON.parse(await readFile(ownerPath, "utf8")).processId, 41_039);
+  await releaseSuccessor();
+});
+
+test("a project-lock release failure restores a reclaimable owner publication", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
+  let failReleasedDirectory = true;
+  const fileSystem = {
+    ...nodeFileSystem,
+    async rmdir(path, options) {
+      if (failReleasedDirectory && path.startsWith(`${lockPath}.released-`)) {
+        failReleasedDirectory = false;
+        throw new Error("injected release failure");
+      }
+      return nodeFileSystem.rmdir(path, options);
+    },
+  };
+  const releaseLock = await acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      fileSystem,
+      processId: 41_060,
+      getProcessIdentity: async () => ({
+        state: "active",
+        startIdentity: "first-owner-start",
+      }),
+    },
+  );
+  await assert.rejects(releaseLock, /could not safely release/u);
+  const restoredOwner = JSON.parse(
+    await readFile(join(lockPath, "owner.json"), "utf8"),
+  );
+  assert.equal(restoredOwner.processId, 41_060);
+  assert.match(restoredOwner.ownerToken, /^[a-f0-9-]{36}$/u);
+  assert.equal(restoredOwner.processStartIdentity, "first-owner-start");
+
+  const releaseRecovered = await acquireLocalEndpointChangeLock(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      processId: 41_061,
+      getProcessIdentity: async (processId) => processId === 41_061
+        ? { state: "active", startIdentity: "second-owner-start" }
+        : { state: "dead" },
+    },
+  );
+  await releaseRecovered();
+  await assert.rejects(() => lstat(lockPath), /ENOENT/u);
+});
+
+test("a post-open primary owner write cannot survive stale lock replacement", { skip: process.platform === "win32" }, async (t) => {
   const home = await createTestHome(t);
   const env = { RELMIO_HOME: join(home, ".relmio") };
   const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
@@ -1423,7 +1630,7 @@ test("a post-open primary owner write cannot survive stale lock replacement", as
   await releaseSuccessor();
 });
 
-test("a post-open reclaim owner write cannot survive stale lock replacement", async (t) => {
+test("a post-open reclaim owner write cannot survive stale lock replacement", { skip: process.platform === "win32" }, async (t) => {
   const home = await createTestHome(t);
   const env = { RELMIO_HOME: join(home, ".relmio") };
   const lockPath = join(home, ".relmio-local-codex-chatgpt.lock");
@@ -1532,6 +1739,100 @@ test("install validates provider credentials before writes", async (t) => {
   assert.deepEqual(runProcess.calls, []);
 });
 
+test("fresh endpoint root initialization removes only an empty failed root and retries immediately", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const relmioHome = env.RELMIO_HOME;
+  const runner = createRunner({
+    contextHost: "unix:///var/run/docker.sock",
+    contextName: "default",
+  });
+  let failRootChmod = true;
+  const fileSystem = {
+    ...nodeFileSystem,
+    async chmod(path, mode) {
+      if (path === relmioHome && failRootChmod) {
+        failRootChmod = false;
+        throw new Error("injected fresh-root chmod failure");
+      }
+      return nodeFileSystem.chmod(path, mode);
+    },
+  };
+  const request = { apiKey: platformKey, confirmed: true };
+  const dependencies = {
+    env,
+    fileSystem,
+    getProcessIdentity: async () => ({
+      state: "active",
+      startIdentity: "test-fresh-root-owner",
+    }),
+    platform: "linux",
+    runProcess: runner,
+    randomBytes: () => Buffer.alloc(32, 7),
+    isPortAvailable: async () => true,
+    readGatewaySource: async () => "export {};",
+    fetchImpl: createFetch(),
+  };
+
+  await assert.rejects(
+    () => installLocalEndpoint({ plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }), ...request }, dependencies),
+    /injected fresh-root chmod failure/iu,
+  );
+  await assert.rejects(() => lstat(relmioHome), /ENOENT/u);
+
+  const result = await installLocalEndpoint(
+    { plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }), ...request },
+    dependencies,
+  );
+  assert.equal(result.deploymentMode, "installed");
+  assert.equal((await lstat(relmioHome)).isDirectory(), true);
+});
+
+test("fresh endpoint root initialization rolls back after Windows ACL setup fails", async (t) => {
+  const home = await createTestHome(t);
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const relmioHome = env.RELMIO_HOME;
+  const runner = createRunner({
+    contextHost: "npipe:////./pipe/dockerDesktopLinuxEngine",
+    contextName: "desktop-linux",
+  });
+  let failRootAcl = true;
+  const lockDownPath = async (path) => {
+    if (path === relmioHome && failRootAcl) {
+      failRootAcl = false;
+      throw new Error("injected fresh-root ACL failure");
+    }
+  };
+  const request = { apiKey: platformKey, confirmed: true };
+  const dependencies = {
+    env,
+    getProcessIdentity: async () => ({
+      state: "active",
+      startIdentity: "test-windows-acl-owner",
+    }),
+    platform: "win32",
+    runProcess: runner,
+    lockDownPath,
+    randomBytes: () => Buffer.alloc(32, 7),
+    isPortAvailable: async () => true,
+    readGatewaySource: async () => "export {};",
+    fetchImpl: createFetch(),
+  };
+
+  await assert.rejects(
+    () => installLocalEndpoint({ plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }), ...request }, dependencies),
+    /injected fresh-root ACL failure/iu,
+  );
+  await assert.rejects(() => lstat(relmioHome), /ENOENT/u);
+
+  const result = await installLocalEndpoint(
+    { plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }), ...request },
+    dependencies,
+  );
+  assert.equal(result.deploymentMode, "installed");
+  assert.equal((await lstat(relmioHome)).isDirectory(), true);
+});
+
 test("OpenAI install keeps the Platform key only in a private seeded Docker volume", async (t) => {
   const home = await createTestHome(t);
   const runProcess = createRunner();
@@ -1577,7 +1878,9 @@ test("OpenAI install keeps the Platform key only in a private seeded Docker volu
     "docker-compose.yml",
     "gateway.mjs",
   ]);
-  assert.equal((await stat(installRoot)).mode & 0o777, 0o700);
+  if (process.platform !== "win32") {
+    assert.equal((await stat(installRoot)).mode & 0o777, 0o700);
+  }
   assert.equal(
     await readFile(join(installRoot, ".dockerignore"), "utf8"),
     "**\n!Dockerfile\n!gateway.mjs\n",
@@ -1595,7 +1898,7 @@ test("OpenAI install keeps the Platform key only in a private seeded Docker volu
       schemaVersion: 2,
       target: "openai-api",
       port: 12435,
-      dockerHost: "unix:///var/run/docker.sock",
+      dockerHost: TEST_DOCKER_HOST,
       installId: "07".repeat(16),
       projectName: `relmio-openai-api-${"07".repeat(16)}`,
     },
@@ -1653,7 +1956,7 @@ test("OpenAI install keeps the Platform key only in a private seeded Docker volu
       .every(
         ({ cwd, dockerHost }) =>
           cwd === installRoot &&
-          dockerHost === "unix:///var/run/docker.sock",
+          dockerHost === TEST_DOCKER_HOST,
       ),
   );
   assert.ok(
@@ -1719,7 +2022,9 @@ test("Codex install has no Platform secret and returns native App Server details
   assert.match(requirements, /default_permissions = "relmio-workspace"/);
   assert.match(requirements, /"relmio-workspace" = true/);
   assert.doesNotMatch(requirements, /allowed_sandbox_modes/);
-  assert.equal((await stat(join(installRoot, "requirements.toml"))).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal((await stat(join(installRoot, "requirements.toml"))).mode & 0o777, 0o600);
+  }
 });
 
 test("Codex Chat install packages the adapter and verifies only its non-billing readiness route", async (t) => {
@@ -1840,7 +2145,9 @@ test("installer refuses unmanaged and symlinked managed roots", async (t) => {
       ),
     /managed-root marker|managed marker/i,
   );
-  assert.equal((await stat(stateRoot)).mode & 0o777, 0o755);
+  if (process.platform !== "win32") {
+    assert.equal((await stat(stateRoot)).mode & 0o777, 0o755);
+  }
 
   await rm(targetRoot, { recursive: true });
   await writeFile(
@@ -1849,7 +2156,7 @@ test("installer refuses unmanaged and symlinked managed roots", async (t) => {
   );
   const outside = join(home, "outside");
   await mkdir(outside);
-  await symlink(outside, targetRoot);
+  await symlink(outside, targetRoot, process.platform === "win32" ? "junction" : undefined);
   await assert.rejects(
     () =>
       installLocalEndpoint(
@@ -1860,7 +2167,7 @@ test("installer refuses unmanaged and symlinked managed roots", async (t) => {
   );
 });
 
-test("managed marker files themselves cannot be symbolic links", async (t) => {
+test("managed marker files themselves cannot be symbolic links", { skip: process.platform === "win32" }, async (t) => {
   const home = await createTestHome(t);
   const stateRoot = join(home, ".relmio");
   const localRoot = join(stateRoot, "local");
@@ -1900,7 +2207,7 @@ test("managed marker files themselves cannot be symbolic links", async (t) => {
       schemaVersion: 2,
       target: "codex-chatgpt",
       port: 14500,
-      dockerHost: "unix:///var/run/docker.sock",
+      dockerHost: TEST_DOCKER_HOST,
       installId,
       projectName: `relmio-codex-chatgpt-${installId}`,
     })}\n`,
@@ -1919,7 +2226,52 @@ test("managed marker files themselves cannot be symbolic links", async (t) => {
   );
 });
 
-test("installer rejects unsafe managed bases, ancestor symlinks, and native Windows", async (t) => {
+test("Windows reparse-point marker metadata is rejected before Docker mutation", async (t) => {
+  const home = await createTestHome(t);
+  const stateRoot = join(home, ".relmio");
+  const rootMarkerPath = join(stateRoot, ".managed-by-relmio-root.json");
+  await mkdir(stateRoot, { recursive: true });
+  await writeFile(
+    rootMarkerPath,
+    `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`,
+  );
+  const runProcess = createRunner();
+  const fileSystem = {
+    ...nodeFileSystem,
+    async lstat(path) {
+      const metadata = await nodeFileSystem.lstat(path);
+      if (path === rootMarkerPath) {
+        return {
+          isDirectory: () => false,
+          isFile: () => true,
+          isSymbolicLink: () => true,
+        };
+      }
+      return metadata;
+    },
+  };
+  await assert.rejects(
+    () => installLocalEndpoint(
+      {
+        plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }),
+        apiKey: platformKey,
+        confirmed: true,
+      },
+      {
+        env: { RELMIO_HOME: stateRoot },
+        fileSystem,
+        runProcess,
+        platform: "win32",
+        processId: 41_050,
+        isProcessAlive: () => true,
+      },
+    ),
+    /managed-root marker/i,
+  );
+  assert.equal(runProcess.calls.length, 0);
+});
+
+test("installer rejects unsafe managed bases and ancestor symlinks", async (t) => {
   const home = await createTestHome(t);
   const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
   const common = {
@@ -1944,18 +2296,6 @@ test("installer rejects unsafe managed bases, ancestor symlinks, and native Wind
         { plan, apiKey: platformKey, confirmed: true },
         {
           ...common,
-          env: { RELMIO_HOME: join(home, ".relmio") },
-          platform: "win32",
-        },
-      ),
-    /not supported.*Windows/i,
-  );
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        {
-          ...common,
           env: {
             RELMIO_HOME: join(home, ".relmio"),
             DOCKER_CONTEXT: "remote",
@@ -1968,7 +2308,7 @@ test("installer rejects unsafe managed bases, ancestor symlinks, and native Wind
   const realParent = join(home, "real-parent");
   const linkedParent = join(home, "linked-parent");
   await mkdir(realParent);
-  await symlink(realParent, linkedParent);
+  await symlink(realParent, linkedParent, process.platform === "win32" ? "junction" : undefined);
   await assert.rejects(
     () =>
       installLocalEndpoint(

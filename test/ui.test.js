@@ -35,7 +35,10 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     html,
     /<nav class="steps" aria-label="Setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="5"/u,
   );
-  assert.match(html, /<main id="main-content" class="shell" tabindex="-1">/u);
+  assert.match(
+    html,
+    /<main id="main-content" class="shell" tabindex="-1" aria-busy="false">/u,
+  );
   assert.match(
     html,
     /<aside class="rail" aria-label="Setup progress and safety">/u,
@@ -149,6 +152,250 @@ test("VPS wizard uses icon-only copy controls and starts fresh from Ready", asyn
   assert.match(css, /\.copy-value\.copied \.copy-icon-copy/u);
   assert.match(css, /\.copy-value\.copied \.copy-icon-check/u);
   assert.match(css, /\.copy-value\s*\{[^}]*min-height:\s*2\.75rem;[^}]*width:\s*2\.75rem;/su);
+});
+
+test("detected VPS n8n exposes managed bridge and Assistant companion paths", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/index.html", "utf8"),
+    readFile("src/ui/app.js", "utf8"),
+  ]);
+
+  assert.match(
+    html,
+    /id="detected-vps-integration-management"[^>]*hidden[\s\S]*Manage detected self-hosted n8n/u,
+  );
+  assert.match(html, /id="manage-vps-sidecar"[\s\S]*OpenAI-OAuth\/Codex bridge/u);
+  assert.match(html, /id="manage-vps-assistant"[\s\S]*Assistant companion/u);
+  assert.match(html, /id="refresh-vps-chatgpt"[^>]*>\s*Refresh ChatGPT sign-in\s*<\/button>/u);
+  assert.match(html, /id="manage-vps-searxng" type="checkbox"/u);
+  assert.match(script, /api\(assistant \? "\/api\/assistant\/plan" : "\/api\/plan"/u);
+  assert.match(script, /api\(assistant \? "\/api\/assistant\/install" : "\/api\/install"/u);
+  assert.match(script, /element\("login-button"\)\.click\(\)/u);
+  assert.match(script, /element\("sidecar-ready-content"\)\.hidden = assistant/u);
+  assert.doesNotMatch(script, /\.innerHTML\b/);
+});
+
+test("VPS integration review can be rendered repeatedly without deleting its summary fields", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/index.html", "utf8"),
+    readFile("src/ui/app.js", "utf8"),
+  ]);
+  const reviewList = html.indexOf('<ul id="review-will-list"');
+  assert.ok(reviewList > 0);
+  assert.ok(html.indexOf('id="review-network"') < reviewList);
+  assert.ok(html.indexOf('id="review-endpoint"') < reviewList);
+
+  const functionStart = script.indexOf("function replaceReviewItems(");
+  const functionEnd = script.indexOf("const ASSISTANT_SANDBOX_IMAGE", functionStart);
+  assert.ok(functionStart >= 0 && functionEnd > functionStart);
+
+  const elements = new Map(
+    [
+      "review-intro",
+      "review-network",
+      "review-endpoint-label",
+      "review-endpoint",
+      "review-will-list",
+      "review-wont-list",
+      "install-confirm-copy",
+      "install-button",
+    ].map((id) => [
+      id,
+      {
+        children: [],
+        dataset: {},
+        textContent: "",
+        replaceChildren(...children) {
+          this.children = children;
+        },
+      },
+    ]),
+  );
+  const context = {
+    document: {
+      createElement() {
+        return { textContent: "" };
+      },
+      getElementById(id) {
+        return elements.get(id) ?? null;
+      },
+    },
+  };
+  const review = vm.runInNewContext(
+    `const state = { integrationKind: "sidecar", managingDetectedIntegration: false };
+     const element = (id) => document.getElementById(id);
+     ${script.slice(functionStart, functionEnd)}
+     ({ state, renderIntegrationReview });`,
+    context,
+  );
+
+  review.renderIntegrationReview({
+    endpointHostname: "n8n-openai-oauth",
+    networkName: "n8n_default",
+  });
+  review.state.integrationKind = "assistant";
+  review.state.managingDetectedIntegration = true;
+  review.renderIntegrationReview({ includeSearxng: true, networkName: "n8n_default" });
+  review.state.integrationKind = "sidecar";
+  review.renderIntegrationReview({
+    endpointHostname: "n8n-openai-oauth",
+    networkName: "n8n_default",
+  });
+
+  assert.equal(elements.get("review-network").textContent, "n8n_default");
+  assert.equal(elements.get("review-endpoint-label").textContent, "Private hostname");
+  assert.equal(elements.get("review-endpoint").textContent, "n8n-openai-oauth");
+  assert.equal(elements.get("review-will-list").children.length, 4);
+  assert.equal(elements.get("review-wont-list").children.length, 4);
+  assert.equal(elements.get("install-button").textContent, "Update the bridge");
+});
+
+test("VPS Assistant results render validated one-time connection settings", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/index.html", "utf8"),
+    readFile("src/ui/app.js", "utf8"),
+  ]);
+
+  assert.match(html, /id="assistant-result-sandbox-url"/u);
+  assert.match(html, /id="assistant-result-sandbox-key"/u);
+  assert.match(html, /Code Sandbox API key\s*<small>\(shown once\)<\/small>/u);
+  assert.match(html, /id="assistant-result-searxng-row"[^>]*hidden/u);
+  assert.match(html, /id="assistant-result-settings"/u);
+  assert.match(html, /Relmio never edits its Compose file or restarts its container/u);
+  assert.match(script, /function validateAssistantInstallResult\(result\)/u);
+  assert.match(script, /function renderAssistantResult\(result\)/u);
+  assert.match(script, /N8N_INSTANCE_AI_SANDBOX_IMAGE/u);
+  assert.match(script, /N8N_SANDBOX_SERVICE_API_KEY/u);
+  assert.match(script, /Object\.keys\(value\)\.length !== expectedNames\.length/u);
+  assert.match(script, /!Object\.hasOwn\(value, name\)/u);
+  assert.match(script, /value\[name\] !== expectedSettings\[name\]/u);
+  assert.match(script, /result\.n8nSettings,\s*expectedSettings/u);
+  assert.match(script, /intentionally does not return the existing sandbox API key/u);
+  assert.match(script, /preserve[^\n]*N8N_ENABLED_MODULES[^\n]*instance-ai/iu);
+  assert.doesNotMatch(script, /N8N_ENABLED_MODULES:\s*"instance-ai"/u);
+  assert.doesNotMatch(script, /returnedSettings\s*\?\?/u);
+  assert.match(script, /assistant-result-settings"\)\.textContent/u);
+  assert.match(script, /assistant-result-key-row"\)\.hidden/u);
+  assert.match(script, /sidecar-ready-content"\)\.hidden = assistant/u);
+  assert.doesNotMatch(script, /\.innerHTML\b/);
+});
+
+test("VPS Assistant result validation executes before any result DOM mutation", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const functionStart = script.indexOf("const ASSISTANT_SANDBOX_IMAGE");
+  const functionEnd = script.indexOf("async function loadNetworks", functionStart);
+  assert.ok(functionStart >= 0 && functionEnd > functionStart);
+
+  const elements = new Map(
+    [
+      "assistant-result-sandbox-url",
+      "assistant-result-sandbox-key",
+      "assistant-result-key-row",
+      "assistant-result-searxng-row",
+      "assistant-result-searxng-url",
+      "assistant-result-settings",
+      "assistant-result-key-note",
+    ].map((id) => [id, { hidden: false, textContent: "unchanged" }]),
+  );
+  const assistantUi = vm.runInNewContext(
+    `const element = (id) => document.getElementById(id);
+     ${script.slice(functionStart, functionEnd)}
+     ({ validateAssistantInstallResult, renderAssistantResult });`,
+    {
+      document: {
+        getElementById(id) {
+          return elements.get(id) ?? null;
+        },
+      },
+    },
+  );
+  const sandboxUrl = `http://relmio-ai-sandbox-${"a".repeat(32)}:8080`;
+  const searxngUrl = `http://relmio-ai-searxng-${"b".repeat(32)}:8080`;
+  const sandboxImage =
+    "ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8";
+  const sandboxApiKey = "A".repeat(43);
+  const settingsFor = ({ key, searchUrl } = {}) => ({
+    N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
+    N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
+    N8N_INSTANCE_AI_SANDBOX_IMAGE: sandboxImage,
+    N8N_SANDBOX_SERVICE_URL: sandboxUrl,
+    ...(key ? { N8N_SANDBOX_SERVICE_API_KEY: key } : {}),
+    ...(searchUrl ? { N8N_INSTANCE_AI_SEARXNG_URL: searchUrl } : {}),
+  });
+
+  const installed = assistantUi.renderAssistantResult({
+    deploymentMode: "installed",
+    includeSearxng: true,
+    n8nSettings: settingsFor({ key: sandboxApiKey, searchUrl: searxngUrl }),
+    sandboxApiKey,
+    sandboxUrl,
+    searxngUrl,
+  });
+  assert.equal(installed.includeSearxng, true);
+  assert.equal(elements.get("assistant-result-key-row").hidden, false);
+  assert.equal(elements.get("assistant-result-searxng-row").hidden, false);
+  assert.equal(elements.get("assistant-result-sandbox-key").textContent, sandboxApiKey);
+  assert.match(elements.get("assistant-result-key-note").textContent, /shown-once API key/u);
+
+  assistantUi.renderAssistantResult({
+    deploymentMode: "updated",
+    includeSearxng: false,
+    n8nSettings: settingsFor(),
+    sandboxApiKey: null,
+    sandboxUrl,
+  });
+  assert.equal(elements.get("assistant-result-key-row").hidden, true);
+  assert.equal(elements.get("assistant-result-searxng-row").hidden, true);
+  assert.equal(elements.get("assistant-result-sandbox-key").textContent, "");
+  assert.match(
+    elements.get("assistant-result-key-note").textContent,
+    /does not return the existing sandbox API key[\s\S]*Preserve the existing N8N_ENABLED_MODULES/u,
+  );
+
+  const beforeInvalid = [...elements].map(([id, value]) => [
+    id,
+    { hidden: value.hidden, textContent: value.textContent },
+  ]);
+  assert.throws(
+    () =>
+      assistantUi.renderAssistantResult({
+        deploymentMode: "updated",
+        includeSearxng: false,
+        n8nSettings: { ...settingsFor(), UNREVIEWED_SETTING: "unsafe" },
+        sandboxApiKey: null,
+        sandboxUrl,
+      }),
+    /invalid n8n settings/u,
+  );
+  assert.deepEqual(
+    [...elements].map(([id, value]) => [
+      id,
+      { hidden: value.hidden, textContent: value.textContent },
+    ]),
+    beforeInvalid,
+  );
+  assert.throws(
+    () =>
+      assistantUi.validateAssistantInstallResult({
+        deploymentMode: "installed",
+        includeSearxng: false,
+        n8nSettings: settingsFor({ key: "short" }),
+        sandboxApiKey: "short",
+        sandboxUrl,
+      }),
+    /invalid Assistant result/u,
+  );
+  assert.throws(
+    () =>
+      assistantUi.validateAssistantInstallResult({
+        deploymentMode: "updated",
+        includeSearxng: false,
+        n8nSettings: settingsFor(),
+        sandboxApiKey: null,
+        sandboxUrl: "https://example.test/sandbox",
+      }),
+    /invalid Code Sandbox URL/u,
+  );
 });
 
 test("workspace CSS keeps the document still and notices in flow", async () => {

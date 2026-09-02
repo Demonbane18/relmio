@@ -23,8 +23,10 @@ import {
 } from "../domain/local-endpoints.js";
 import {
   runLocalProcess,
+  lockDownLocalPath,
   validateLocalDockerHost,
 } from "../infrastructure/local-process.js";
+import { getLocalProcessIdentity } from "../infrastructure/process-identity.js";
 
 const MANAGED_MARKER = ".managed-by-relmio.json";
 const ROOT_MARKER = ".managed-by-relmio-root.json";
@@ -63,10 +65,8 @@ function isMissing(error) {
 }
 
 function assertSupportedPlatform(platform) {
-  if (platform === "win32") {
-    throw new Error(
-      "Local Docker endpoints are not supported on native Windows in this release.",
-    );
+  if (typeof platform !== "string" || platform.length === 0) {
+    throw new TypeError("The local platform is invalid.");
   }
 }
 
@@ -266,25 +266,81 @@ async function inspectManagedRoot({ fileSystem, relmioHome, installRoot, target 
   }
 }
 
-async function initializeManagedBase({ fileSystem, relmioHome, baseExists }) {
+async function initializeManagedBase({
+  fileSystem,
+  relmioHome,
+  baseExists,
+  platform,
+  lockDownPath,
+}) {
   if (baseExists) {
     await fileSystem.chmod(relmioHome, 0o700);
+    if (platform === "win32") await lockDownPath(relmioHome, { platform });
     return;
   }
-  await fileSystem.mkdir(relmioHome, { mode: 0o700 });
-  await fileSystem.chmod(relmioHome, 0o700);
-  await writeManagedFile(
-    fileSystem,
-    join(relmioHome, ROOT_MARKER),
-    `${JSON.stringify({
-      schemaVersion: ROOT_MARKER_SCHEMA_VERSION,
-      kind: "relmio-local-root",
-    })}\n`,
-    0o600,
+  let createdIdentity = null;
+  try {
+    await fileSystem.mkdir(relmioHome, { mode: 0o700 });
+    createdIdentity = await captureFreshDirectoryIdentity(fileSystem, relmioHome);
+    await fileSystem.chmod(relmioHome, 0o700);
+    if (platform === "win32") await lockDownPath(relmioHome, { platform });
+    await writeManagedFile(
+      fileSystem,
+      join(relmioHome, ROOT_MARKER),
+      `${JSON.stringify({
+        schemaVersion: ROOT_MARKER_SCHEMA_VERSION,
+        kind: "relmio-local-root",
+      })}\n`,
+      0o600,
+    );
+  } catch (error) {
+    await removeFreshEmptyManagedRoot({
+      fileSystem,
+      relmioHome,
+      createdIdentity,
+    });
+    throw error;
+  }
+}
+
+function isDirectoryIdentity(metadata, identity) {
+  return (
+    metadata !== null &&
+    !metadata.isSymbolicLink() &&
+    metadata.isDirectory() &&
+    identity !== null &&
+    metadata.dev === identity.dev &&
+    metadata.ino === identity.ino
   );
 }
 
-async function ensurePrivateDirectory(fileSystem, path) {
+async function captureFreshDirectoryIdentity(fileSystem, path) {
+  const metadata = await lstatIfExists(fileSystem, path);
+  if (!metadata || metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error("Relmio could not verify its newly created local storage directory.");
+  }
+  return { dev: metadata.dev, ino: metadata.ino };
+}
+
+async function removeFreshEmptyManagedRoot({
+  fileSystem,
+  relmioHome,
+  createdIdentity,
+}) {
+  if (!createdIdentity) return;
+  try {
+    let metadata = await lstatIfExists(fileSystem, relmioHome);
+    if (!isDirectoryIdentity(metadata, createdIdentity)) return;
+    if ((await fileSystem.readdir(relmioHome)).length !== 0) return;
+    metadata = await lstatIfExists(fileSystem, relmioHome);
+    if (!isDirectoryIdentity(metadata, createdIdentity)) return;
+    await fileSystem.rmdir(relmioHome);
+  } catch {
+    // Only an exact, still-empty root may be removed during recovery.
+  }
+}
+
+async function ensurePrivateDirectory(fileSystem, path, platform, lockDownPath) {
   const existing = await lstatIfExists(fileSystem, path);
   if (existing) {
     assertDirectoryMetadata(existing);
@@ -292,6 +348,7 @@ async function ensurePrivateDirectory(fileSystem, path) {
     await fileSystem.mkdir(path, { mode: 0o700 });
   }
   await fileSystem.chmod(path, 0o700);
+  if (platform === "win32") await lockDownPath(path, { platform });
 }
 
 async function writeManagedFile(fileSystem, path, contents, mode) {
@@ -356,7 +413,13 @@ function parseLockOwner(value) {
       owner.processId > 0 &&
       typeof owner?.ownerToken === "string" &&
       owner.ownerToken.length > 0 &&
-      owner.ownerToken.length <= 128
+      owner.ownerToken.length <= 128 &&
+      (owner.processStartIdentity === undefined || (
+        typeof owner.processStartIdentity === "string" &&
+        owner.processStartIdentity.length > 0 &&
+        Buffer.byteLength(owner.processStartIdentity) <= 512 &&
+        !/[\0\r\n]/u.test(owner.processStartIdentity)
+      ))
     ) {
       return owner;
     }
@@ -367,22 +430,64 @@ function parseLockOwner(value) {
 }
 
 async function readLockOwnerState(fileSystem, ownerPath, directoryPath) {
+  const directoryMetadata = await fileSystem.lstat(directoryPath);
+  const directoryFingerprint = Object.freeze({
+    dev: directoryMetadata.dev,
+    ino: directoryMetadata.ino,
+    birthtimeMs: directoryMetadata.birthtimeMs,
+  });
   let serialized;
+  let ownerMetadata;
   try {
+    ownerMetadata = await fileSystem.lstat(ownerPath);
     serialized = await fileSystem.readFile(ownerPath, "utf8");
   } catch (error) {
     if (!isMissing(error)) {
       throw error;
     }
   }
-  const metadata = await fileSystem.lstat(
-    serialized === undefined ? directoryPath : ownerPath,
-  );
+  let ownerFingerprint = null;
+  if (serialized !== undefined) {
+    const ownerAfterRead = await fileSystem.lstat(ownerPath);
+    ownerFingerprint = Object.freeze({
+      raw: serialized,
+      size: ownerMetadata.size,
+      dev: ownerMetadata.dev,
+      ino: ownerMetadata.ino,
+      mtimeMs: ownerMetadata.mtimeMs,
+      ctimeMs: ownerMetadata.ctimeMs,
+    });
+    const afterFingerprint = {
+      raw: serialized,
+      size: ownerAfterRead.size,
+      dev: ownerAfterRead.dev,
+      ino: ownerAfterRead.ino,
+      mtimeMs: ownerAfterRead.mtimeMs,
+      ctimeMs: ownerAfterRead.ctimeMs,
+    };
+    if (!lockOwnerFingerprintMatches(ownerFingerprint, afterFingerprint)) {
+      throw new Error("The local project lock changed during inspection.");
+    }
+  }
   return {
     owner: serialized === undefined ? null : parseLockOwner(serialized),
     serialized,
-    modifiedAtMs: metadata.mtimeMs,
+    modifiedAtMs: serialized === undefined ? directoryMetadata.mtimeMs : ownerMetadata.mtimeMs,
+    directoryFingerprint,
+    ownerFingerprint,
   };
+}
+
+function lockDirectoryFingerprintMatches(left, right) {
+  return left?.dev === right?.dev && left?.ino === right?.ino &&
+    left?.birthtimeMs === right?.birthtimeMs;
+}
+
+function lockOwnerFingerprintMatches(left, right) {
+  if (left === null || right === null) return left === right;
+  return left?.raw === right?.raw && left?.size === right?.size &&
+    left?.dev === right?.dev && left?.ino === right?.ino &&
+    left?.mtimeMs === right?.mtimeMs && left?.ctimeMs === right?.ctimeMs;
 }
 
 function isIncompleteLockStale(state) {
@@ -394,10 +499,18 @@ function isIncompleteLockStale(state) {
 }
 
 function lockOwnerStateMatches(left, right) {
+  if (!lockDirectoryFingerprintMatches(
+    left.directoryFingerprint,
+    right.directoryFingerprint,
+  )) return false;
+  if (!lockOwnerFingerprintMatches(left.ownerFingerprint, right.ownerFingerprint)) {
+    return false;
+  }
   if (left.owner && right.owner) {
     return (
       left.owner.processId === right.owner.processId &&
-      left.owner.ownerToken === right.owner.ownerToken
+      left.owner.ownerToken === right.owner.ownerToken &&
+      left.owner.processStartIdentity === right.owner.processStartIdentity
     );
   }
   return left.owner === null && right.owner === null && left.serialized === right.serialized;
@@ -407,20 +520,67 @@ async function assertPublishedLockOwner(
   fileSystem,
   ownerPath,
   directoryPath,
-  { processId, ownerToken },
+  { processId, ownerToken, processStartIdentity },
 ) {
   const state = await readLockOwnerState(fileSystem, ownerPath, directoryPath);
   if (
     state.owner?.processId !== processId ||
-    state.owner?.ownerToken !== ownerToken
+    state.owner?.ownerToken !== ownerToken ||
+    state.owner?.processStartIdentity !== processStartIdentity
   ) {
     throw new Error("The local lock owner changed during publication.");
   }
+  return state;
 }
 
-async function removeDetachedStaleLock(fileSystem, path) {
+async function exactLockEntriesMatch(fileSystem, path, state, nestedState = null) {
+  const entries = (await fileSystem.readdir(path)).sort();
+  const expected = [
+    ...(nestedState ? [".reclaim"] : []),
+    ...(state.serialized === undefined ? [] : ["owner.json"]),
+  ].sort();
+  if (
+    entries.length !== expected.length ||
+    entries.some((entry, index) => entry !== expected[index])
+  ) return false;
+  const current = await readLockOwnerState(
+    fileSystem,
+    join(path, "owner.json"),
+    path,
+  );
+  if (!lockOwnerStateMatches(current, state)) return false;
+  if (nestedState) {
+    const nestedPath = join(path, ".reclaim");
+    const nested = await readLockOwnerState(
+      fileSystem,
+      join(nestedPath, "owner.json"),
+      nestedPath,
+    );
+    if (!lockOwnerStateMatches(nested, nestedState)) return false;
+  }
+  return true;
+}
+
+async function removeExactDetachedLock(fileSystem, path, state, nestedState = null) {
+  if (!await exactLockEntriesMatch(fileSystem, path, state, nestedState)) {
+    throw new Error("The detached local project lock changed.");
+  }
+  if (nestedState) {
+    const nestedPath = join(path, ".reclaim");
+    if (nestedState.serialized !== undefined) {
+      await fileSystem.unlink(join(nestedPath, "owner.json"));
+    }
+    await fileSystem.rmdir(nestedPath);
+  }
+  if (state.serialized !== undefined) {
+    await fileSystem.unlink(join(path, "owner.json"));
+  }
+  await fileSystem.rmdir(path);
+}
+
+async function removeDetachedStaleLock(fileSystem, path, state, nestedState = null) {
   try {
-    await fileSystem.rm(path, { recursive: true, force: true });
+    await removeExactDetachedLock(fileSystem, path, state, nestedState);
   } catch {
     // A uniquely renamed stale artifact is outside the canonical lock path and
     // must not strand the newly published owner when best-effort cleanup fails.
@@ -433,6 +593,8 @@ async function acquireLocalProjectLock(
     fileSystem = defaultFileSystem,
     processId = process.pid,
     isProcessAlive = defaultIsProcessAlive,
+    getProcessIdentity,
+    platform = process.platform,
   } = {},
 ) {
   const safeTarget = validateLocalTarget(target);
@@ -443,19 +605,66 @@ async function acquireLocalProjectLock(
   );
   const ownerPath = join(lockPath, "owner.json");
   const ownerToken = randomUUID();
+  const useProcessIdentity = typeof getProcessIdentity === "function" || (
+    getProcessIdentity === undefined &&
+    processId === process.pid &&
+    isProcessAlive === defaultIsProcessAlive
+  );
+  const identityReader = typeof getProcessIdentity === "function"
+    ? getProcessIdentity
+    : getLocalProcessIdentity;
+  let processStartIdentity;
+  if (useProcessIdentity) {
+    let identity;
+    try { identity = await identityReader(processId, { platform }); } catch {
+      throw new Error("Relmio could not verify its local project lock identity.");
+    }
+    if (
+      identity?.state !== "active" ||
+      typeof identity.startIdentity !== "string" ||
+      identity.startIdentity.length === 0
+    ) {
+      throw new Error("Relmio could not verify its local project lock identity.");
+    }
+    processStartIdentity = identity.startIdentity;
+  }
+  const ownerPublication = Object.freeze({
+    processId,
+    ownerToken,
+    ...(processStartIdentity === undefined ? {} : { processStartIdentity }),
+  });
+  let ownedLockState;
+
+  async function lockOwnerIsActive(owner) {
+    if (owner.ownerToken === ownerToken || owner.processId === processId) return true;
+    if (owner.processStartIdentity !== undefined && useProcessIdentity) {
+      let identity;
+      try { identity = await identityReader(owner.processId, { platform }); } catch {
+        return true;
+      }
+      if (identity?.state === "dead") return false;
+      if (identity?.state !== "active" || typeof identity.startIdentity !== "string") {
+        return true;
+      }
+      return identity.startIdentity === owner.processStartIdentity;
+    }
+    return isProcessAlive(owner.processId);
+  }
 
   async function createLock() {
     await fileSystem.mkdir(lockPath, { mode: 0o700 });
     try {
       await fileSystem.writeFile(
         ownerPath,
-        `${JSON.stringify({ processId, ownerToken })}\n`,
+        `${JSON.stringify(ownerPublication)}\n`,
         { flag: "wx", mode: 0o600 },
       );
-      await assertPublishedLockOwner(fileSystem, ownerPath, lockPath, {
-        processId,
-        ownerToken,
-      });
+      return await assertPublishedLockOwner(
+        fileSystem,
+        ownerPath,
+        lockPath,
+        ownerPublication,
+      );
     } catch {
       // Leave an incomplete directory for stale recovery. Removing the shared
       // path here could delete a successor lock after this creator was paused.
@@ -464,7 +673,7 @@ async function acquireLocalProjectLock(
   }
 
   try {
-    await createLock();
+    ownedLockState = await createLock();
   } catch (error) {
     if (error?.code !== "EEXIST") {
       throw error;
@@ -479,10 +688,7 @@ async function acquireLocalProjectLock(
     const owner = ownerState.owner;
     if (
       (owner === null && !isIncompleteLockStale(ownerState)) ||
-      (owner !== null &&
-        (owner.ownerToken === ownerToken ||
-          owner.processId === processId ||
-          isProcessAlive(owner.processId)))
+      (owner !== null && await lockOwnerIsActive(owner))
     ) {
       throw new Error("Another Relmio process is changing this local endpoint.");
     }
@@ -490,19 +696,20 @@ async function acquireLocalProjectLock(
     const reclaimPath = join(lockPath, ".reclaim");
     const reclaimOwnerPath = join(reclaimPath, "owner.json");
     let reclaimClaimed = false;
+    let ownedReclaimState;
     async function createReclaimClaim() {
       await fileSystem.mkdir(reclaimPath, { mode: 0o700 });
       try {
         await fileSystem.writeFile(
           reclaimOwnerPath,
-          `${JSON.stringify({ processId, ownerToken })}\n`,
+          `${JSON.stringify(ownerPublication)}\n`,
           { flag: "wx", mode: 0o600 },
         );
-        await assertPublishedLockOwner(
+        return await assertPublishedLockOwner(
           fileSystem,
           reclaimOwnerPath,
           reclaimPath,
-          { processId, ownerToken },
+          ownerPublication,
         );
       } catch {
         // The same identity rule applies to reclaim publication: never remove
@@ -512,7 +719,7 @@ async function acquireLocalProjectLock(
     }
     try {
       try {
-        await createReclaimClaim();
+        ownedReclaimState = await createReclaimClaim();
       } catch (error) {
         if (error?.code !== "EEXIST") {
           throw error;
@@ -525,16 +732,29 @@ async function acquireLocalProjectLock(
         const reclaimOwner = reclaimState.owner;
         if (
           (reclaimOwner === null && !isIncompleteLockStale(reclaimState)) ||
-          (reclaimOwner !== null &&
-            (reclaimOwner.processId === processId ||
-              isProcessAlive(reclaimOwner.processId)))
+          (reclaimOwner !== null && await lockOwnerIsActive(reclaimOwner))
         ) {
           throw new Error("Another process owns the reclaim lock.");
         }
         const staleReclaimPath = `${reclaimPath}.stale-${randomUUID()}`;
         await fileSystem.rename(reclaimPath, staleReclaimPath);
-        await createReclaimClaim();
-        await removeDetachedStaleLock(fileSystem, staleReclaimPath);
+        const detachedReclaimState = await readLockOwnerState(
+          fileSystem,
+          join(staleReclaimPath, "owner.json"),
+          staleReclaimPath,
+        );
+        if (!lockOwnerStateMatches(detachedReclaimState, reclaimState)) {
+          try { await fileSystem.rename(staleReclaimPath, reclaimPath); } catch {
+            // Preserve both paths when the exact stale claim cannot be restored.
+          }
+          throw new Error("The reclaim lock owner changed.");
+        }
+        ownedReclaimState = await createReclaimClaim();
+        await removeDetachedStaleLock(
+          fileSystem,
+          staleReclaimPath,
+          detachedReclaimState,
+        );
       }
       reclaimClaimed = true;
       const reclaimOwner = JSON.parse(
@@ -553,9 +773,33 @@ async function acquireLocalProjectLock(
       }
       const stalePath = `${lockPath}.stale-${randomUUID()}`;
       await fileSystem.rename(lockPath, stalePath);
+      const detachedOwnerState = await readLockOwnerState(
+        fileSystem,
+        join(stalePath, "owner.json"),
+        stalePath,
+      );
+      const detachedReclaimState = await readLockOwnerState(
+        fileSystem,
+        join(stalePath, ".reclaim", "owner.json"),
+        join(stalePath, ".reclaim"),
+      );
+      if (
+        !lockOwnerStateMatches(detachedOwnerState, ownerState) ||
+        !lockOwnerStateMatches(detachedReclaimState, ownedReclaimState)
+      ) {
+        try { await fileSystem.rename(stalePath, lockPath); } catch {
+          // A changed or replaced path must be preserved for manual inspection.
+        }
+        throw new Error("The local project lock owner changed.");
+      }
       reclaimClaimed = false;
-      await createLock();
-      await removeDetachedStaleLock(fileSystem, stalePath);
+      ownedLockState = await createLock();
+      await removeDetachedStaleLock(
+        fileSystem,
+        stalePath,
+        detachedOwnerState,
+        detachedReclaimState,
+      );
     } catch {
       if (reclaimClaimed) {
         try {
@@ -565,10 +809,14 @@ async function acquireLocalProjectLock(
             reclaimPath,
           );
           if (
-            reclaimState.owner?.processId === processId &&
-            reclaimState.owner?.ownerToken === ownerToken
+            ownedReclaimState &&
+            lockOwnerStateMatches(reclaimState, ownedReclaimState)
           ) {
-            await fileSystem.rm(reclaimPath, { recursive: true, force: true });
+            await removeExactDetachedLock(
+              fileSystem,
+              reclaimPath,
+              reclaimState,
+            );
           }
         } catch {
           // A changed or contended lock remains owned by the other process.
@@ -579,15 +827,89 @@ async function acquireLocalProjectLock(
   }
 
   return async () => {
+    let detachedPath;
     try {
-      const owner = JSON.parse(await fileSystem.readFile(ownerPath, "utf8"));
-      if (owner?.ownerToken === ownerToken) {
-        await fileSystem.rm(lockPath, { recursive: true, force: true });
+      const current = await readLockOwnerState(fileSystem, ownerPath, lockPath);
+      if (!ownedLockState || !lockOwnerStateMatches(current, ownedLockState)) {
+        throw new Error("The local project lock owner changed.");
       }
-    } catch {
-      // Never hide a completed endpoint operation because lock cleanup failed.
+      if ((await fileSystem.readdir(lockPath)).includes(".reclaim")) {
+        throw new Error("The local project lock is contended.");
+      }
+      detachedPath = `${lockPath}.released-${randomUUID()}`;
+      await fileSystem.rename(lockPath, detachedPath);
+      const detached = await readLockOwnerState(
+        fileSystem,
+        join(detachedPath, "owner.json"),
+        detachedPath,
+      );
+      if (!lockOwnerStateMatches(detached, ownedLockState)) {
+        throw new Error("The local project lock changed during release.");
+      }
+      await removeExactDetachedLock(fileSystem, detachedPath, detached);
+      detachedPath = undefined;
+    } catch (error) {
+      if (detachedPath) {
+        try {
+          await fileSystem.lstat(join(detachedPath, "owner.json"));
+        } catch (ownerError) {
+          if (isMissing(ownerError) && ownedLockState?.serialized !== undefined) {
+            try {
+              await fileSystem.writeFile(
+                join(detachedPath, "owner.json"),
+                ownedLockState.serialized,
+                { flag: "wx", mode: 0o600 },
+              );
+              await fileSystem.chmod(join(detachedPath, "owner.json"), 0o600);
+            } catch {
+              // Preserve the detached directory if its exact owner cannot be restored.
+            }
+          }
+        }
+        try {
+          await fileSystem.lstat(lockPath);
+        } catch (error) {
+          if (isMissing(error)) {
+            try { await fileSystem.rename(detachedPath, lockPath); } catch {
+              // Preserve a changed detached lock instead of deleting it.
+            }
+          }
+        }
+      }
+      throw new Error("Relmio could not safely release its local project lock.", {
+        cause: error,
+      });
     }
   };
+}
+
+async function settleLocalProjectOperation({ completionLabel, operation, releaseLock }) {
+  let result;
+  let operationError;
+  try { result = await operation(); } catch (error) { operationError = error; }
+
+  let releaseError;
+  try { await releaseLock(); } catch (error) { releaseError = error; }
+
+  if (operationError) {
+    if (releaseError && operationError.cause === undefined) {
+      try {
+        Object.defineProperty(operationError, "cause", {
+          configurable: true,
+          value: releaseError,
+        });
+      } catch { /* Preserve the authoritative operation error unchanged. */ }
+    }
+    throw operationError;
+  }
+  if (releaseError) {
+    throw new Error(
+      `${completionLabel} completed, but Relmio could not release its operation lock. ` +
+      "Restart Relmio before another action, then verify the managed endpoint.",
+      { cause: releaseError },
+    );
+  }
+  return result;
 }
 
 export async function acquireLocalEndpointChangeLock(
@@ -599,6 +921,7 @@ export async function acquireLocalEndpointChangeLock(
     platform = process.platform,
     processId = process.pid,
     isProcessAlive = defaultIsProcessAlive,
+    getProcessIdentity,
   } = {},
 ) {
   assertSupportedPlatform(platform);
@@ -613,7 +936,7 @@ export async function acquireLocalEndpointChangeLock(
   });
   return acquireLocalProjectLock(
     { installRoot, target: safeTarget },
-    { fileSystem, processId, isProcessAlive },
+    { fileSystem, processId, isProcessAlive, getProcessIdentity, platform },
   );
 }
 
@@ -700,11 +1023,19 @@ async function resolveLocalDockerHost({
   } catch {
     throw new Error("The selected Docker context is not a local Docker daemon.");
   }
+  let dockerHost;
   try {
-    return validateLocalDockerHost(candidate, { platform });
+    dockerHost = validateLocalDockerHost(candidate, { platform });
   } catch {
     throw new Error("The selected Docker context is not a local Docker daemon.");
   }
+  if (platform === "win32" && dockerHost.startsWith("npipe:")) {
+    const selectedContext = await runProcess({ file: "docker", args: ["context", "show"], cwd });
+    if (selectedContext.code !== 0 || selectedContext.stdout.trim() !== "desktop-linux") {
+      throw new Error("Docker Desktop's local Linux engine must be selected.");
+    }
+  }
+  return dockerHost;
 }
 
 export async function getLocalDockerStatus({
@@ -747,7 +1078,6 @@ export async function getLocalDockerStatus({
   } catch {
     return {
       dockerAvailable: false,
-      ...(platform === "win32" ? { unsupportedPlatform: true } : {}),
     };
   }
 }
@@ -767,7 +1097,10 @@ export async function restartLocalCodex(
         { installRoot: installDirectory, target: safeTarget },
         dependencies,
       );
-  try {
+  return settleLocalProjectOperation({
+    completionLabel: "Local Codex restart",
+    releaseLock,
+    operation: async () => {
   const attested = await attestLocalCodexInstallation(
     { installDirectory, target: safeTarget },
     dependencies,
@@ -801,9 +1134,8 @@ export async function restartLocalCodex(
     dockerHost: attested.dockerHost,
   });
   return { restarted: true };
-  } finally {
-    await releaseLock();
-  }
+    },
+  });
 }
 
 function createServiceRecreateSpec({
@@ -1458,8 +1790,10 @@ export async function activateLocalClientCredentialRotation(
     fetchImpl = fetch,
     verifyCodexCapability = verifyCodexWebSocketCapability,
     platform = process.platform,
+    lockDownPath = lockDownLocalPath,
     processId = process.pid,
     isProcessAlive = defaultIsProcessAlive,
+    getProcessIdentity,
   } = {},
 ) {
   assertSupportedPlatform(platform);
@@ -1481,9 +1815,12 @@ export async function activateLocalClientCredentialRotation(
   });
   const releaseLock = await acquireLocalProjectLock(
     { installRoot: installDirectory, target: safeTarget },
-    { fileSystem, processId, isProcessAlive },
+    { fileSystem, processId, isProcessAlive, getProcessIdentity, platform },
   );
-  try {
+  return settleLocalProjectOperation({
+    completionLabel: "Local credential rotation",
+    releaseLock,
+    operation: async () => {
   const attested = await attestManagedLocalEndpoint(
     {
       target: safeTarget,
@@ -1642,9 +1979,8 @@ export async function activateLocalClientCredentialRotation(
       "Local credential rotation failed safely. The previous verifier was restored and the managed endpoint was re-attested.",
     );
   }
-  } finally {
-    await releaseLock();
-  }
+    },
+  });
 }
 
 export async function installLocalEndpoint(
@@ -1661,8 +1997,10 @@ export async function installLocalEndpoint(
     fetchImpl = fetch,
     verifyCodexCapability = verifyCodexWebSocketCapability,
     platform = process.platform,
+    lockDownPath = lockDownLocalPath,
     processId = process.pid,
     isProcessAlive = defaultIsProcessAlive,
+    getProcessIdentity,
   } = {},
 ) {
   if (confirmed !== true) {
@@ -1689,9 +2027,12 @@ export async function installLocalEndpoint(
   });
   const releaseLock = await acquireLocalProjectLock(
     { installRoot, target: normalizedPlan.target },
-    { fileSystem, processId, isProcessAlive },
+    { fileSystem, processId, isProcessAlive, getProcessIdentity, platform },
   );
-  try {
+  return settleLocalProjectOperation({
+    completionLabel: "Local endpoint installation",
+    releaseLock,
+    operation: async () => {
   const relmioHome = resolve(installRoot, "..", "..");
   const managed = await inspectManagedRoot({
     fileSystem,
@@ -1746,9 +2087,11 @@ export async function installLocalEndpoint(
     fileSystem,
     relmioHome,
     baseExists: managed.baseExists,
+    platform,
+    lockDownPath,
   });
-  await ensurePrivateDirectory(fileSystem, join(relmioHome, "local"));
-  await ensurePrivateDirectory(fileSystem, installRoot);
+  await ensurePrivateDirectory(fileSystem, join(relmioHome, "local"), platform, lockDownPath);
+  await ensurePrivateDirectory(fileSystem, installRoot, platform, lockDownPath);
 
   let dockerfile;
   let composeFile;
@@ -1953,7 +2296,6 @@ export async function installLocalEndpoint(
     experimental: normalizedPlan.experimental,
     browserClients: normalizedPlan.browserClients,
   };
-  } finally {
-    await releaseLock();
-  }
+    },
+  });
 }

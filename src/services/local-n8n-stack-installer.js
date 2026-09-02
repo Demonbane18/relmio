@@ -20,9 +20,11 @@ import {
   createNgrokConfig,
   createNgrokTrafficPolicy,
   createSearxngSettings,
+  LOCAL_N8N_STACK_HEALTHY_SERVICES,
   validateLocalN8nStackSecrets,
 } from "../templates/local-n8n-stack/index.js";
-import { runLocalProcess, validateLocalDockerHost } from "../infrastructure/local-process.js";
+import { lockDownLocalPath, runLocalProcess, validateLocalDockerHost } from "../infrastructure/local-process.js";
+import { getLocalProcessIdentity } from "../infrastructure/process-identity.js";
 
 const MANAGED_ROOT = ".relmio";
 const LOCAL_DIRECTORY = "local";
@@ -35,15 +37,88 @@ const RUNTIME_DIRECTORY = ".runtime";
 const TRAFFIC_POLICY = "traffic-policy.yml";
 const LOCK_DIRECTORY = `${INSTALL_DIRECTORY}.lock`;
 const LOCK_OWNER_FILE = ".owner.json";
+const LOCK_RECLAIM_DIRECTORY = ".reclaim";
+const LIFECYCLE_LOCK_SCHEMA_VERSION = 2;
+const LIFECYCLE_LOCK_PUBLICATION_GRACE_MS = 30_000;
+const MAX_LIFECYCLE_LOCK_RECLAIM_ATTEMPTS = 4;
+const MAX_LIFECYCLE_LOCK_OWNER_BYTES = 4 * 1024;
 const MAX_DOCKER_METADATA_BYTES = 1024 * 1024;
+export const LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE = "LOCAL_N8N_MANAGED_PARTIAL_STACK";
+export const LOCAL_N8N_LIFECYCLE_LOCK_RELEASE_ERROR_CODE = "LOCAL_N8N_LIFECYCLE_LOCK_RELEASE";
+export const LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE = "LOCAL_N8N_STACK_RETRYABLE_STARTUP";
+export const LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND = "ngrok-setup-rejected";
+const STACK_STARTUP_FAILURE_KINDS = Object.freeze({
+  STACK_CREATION: "stack-creation",
+  OWNERSHIP_VERIFICATION: "ownership-verification",
+  STACK_RUNTIME_VERIFICATION: "stack-runtime-verification",
+  N8N_VERIFICATION: "n8n-verification",
+  NGROK_RUNTIME_VERIFICATION: "ngrok-runtime-verification",
+  NGROK_SETUP_REJECTED: LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
+  ASSISTANT_VERIFICATION: "assistant-verification",
+  SEARXNG_SEARCH_VERIFICATION: "searxng-search-verification",
+});
+export const LOCAL_N8N_STACK_STATUS_STATES = Object.freeze([
+  "absent",
+  "healthy",
+  "stopped",
+  "partial",
+  "unavailable",
+]);
+const LOCAL_N8N_STACK_NOT_MANAGED = Object.freeze({ managed: false, state: "absent" });
+const LOCAL_N8N_STACK_UNAVAILABLE = Object.freeze({ managed: false, state: "unavailable" });
+const LOCAL_N8N_STACK_HEALTHY = Object.freeze({ managed: true, state: "healthy" });
+const LOCAL_N8N_STACK_STOPPED = Object.freeze({ managed: true, state: "stopped" });
+const LOCAL_N8N_STACK_PARTIAL = Object.freeze({ managed: true, state: "partial" });
+const OWNERSHIP_LABEL_KEYS = Object.freeze([
+  "com.docker.compose.project",
+  "io.relmio.managed",
+  "io.relmio.target",
+  "io.relmio.install",
+  "io.relmio.project",
+]);
+const OWNERSHIP_LABEL_FORMAT = OWNERSHIP_LABEL_KEYS
+  .map((key) => `"${key}":{{json (.Label "${key}")}}`)
+  .join(",");
+const CONTAINER_OWNERSHIP_FORMAT = `{"Name":{{json .Names}},"Labels":{${OWNERSHIP_LABEL_FORMAT}}}`;
+const NAMED_RESOURCE_OWNERSHIP_FORMAT = `{"Name":{{json .Name}},"Labels":{${OWNERSHIP_LABEL_FORMAT}}}`;
 const DOCKER_SELECTION_VARIABLES = new Set([
   "BUILDKIT_HOST", "DOCKER_CERT_PATH", "DOCKER_CONFIG", "DOCKER_CONTEXT",
   "DOCKER_HOST", "DOCKER_TLS_VERIFY",
 ]);
+const STARTUP_FAILURE_KIND = Symbol("local-n8n-stack-startup-failure-kind");
+const NGROK_SETUP_REJECTION_CODES = new Set([
+  "ERR_NGROK_105",
+  "ERR_NGROK_106",
+  "ERR_NGROK_107",
+  "ERR_NGROK_109",
+  "ERR_NGROK_110",
+  "ERR_NGROK_300",
+  "ERR_NGROK_307",
+  "ERR_NGROK_308",
+  "ERR_NGROK_309",
+  "ERR_NGROK_316",
+  "ERR_NGROK_318",
+  "ERR_NGROK_319",
+  "ERR_NGROK_320",
+  "ERR_NGROK_321",
+  "ERR_NGROK_322",
+  "ERR_NGROK_343",
+  "ERR_NGROK_354",
+  "ERR_NGROK_360",
+  "ERR_NGROK_2257",
+  "ERR_NGROK_4018",
+  "ERR_NGROK_6022",
+  "ERR_NGROK_15002",
+  "ERR_NGROK_15008",
+  "ERR_NGROK_15009",
+  "ERR_NGROK_15011",
+  "ERR_NGROK_15012",
+  "ERR_NGROK_15013",
+]);
 
 function assertSupportedPlatform(platform) {
-  if (platform === "win32") {
-    throw new Error("Local n8n + ngrok is supported only on macOS, Linux, or WSL2.");
+  if (typeof platform !== "string" || platform.length === 0) {
+    throw new TypeError("The local platform is invalid.");
   }
 }
 
@@ -80,11 +155,12 @@ function assertPrivateDirectory(metadata, label) {
   }
 }
 
-async function ensureDirectory(fileSystem, path) {
+async function ensureDirectory(fileSystem, path, platform, lockDownPath) {
   const metadata = await lstatIfExists(fileSystem, path);
   if (metadata) assertPrivateDirectory(metadata, "local n8n managed directory");
   else await fileSystem.mkdir(path, { mode: 0o700 });
   await fileSystem.chmod(path, 0o700);
+  await lockDownPath(path, { platform });
 }
 
 async function writePrivateFile(fileSystem, path, contents, mode) {
@@ -137,10 +213,41 @@ async function resolveAttestedDockerHost({ runProcess, cwd, env, platform }) {
     cwd,
   });
   if (result.code !== 0) throw new Error("The selected Docker context could not be inspected.");
+  let dockerHost;
   try {
-    return validateLocalDockerHost(JSON.parse(result.stdout.trim()), { platform });
+    dockerHost = validateLocalDockerHost(JSON.parse(result.stdout.trim()), { platform });
   } catch {
-    throw new Error("The selected Docker context is not a local Docker Unix socket.");
+    throw new Error("The selected Docker context is not the local Docker engine.");
+  }
+  if (platform === "win32" && dockerHost.startsWith("npipe:")) {
+    const selectedContext = await runProcess({ file: "docker", args: ["context", "show"], cwd });
+    if (selectedContext.code !== 0 || selectedContext.stdout.trim() !== "desktop-linux") {
+      throw new Error("Docker Desktop's local Linux engine must be selected.");
+    }
+  }
+  return dockerHost;
+}
+
+function assertPrivateLifecycleLockDirectory(metadata, { platform, label }) {
+  assertPrivateDirectory(metadata, label);
+  if (
+    platform !== "win32" &&
+    (!Number.isInteger(metadata.mode) || (metadata.mode & 0o077) !== 0)
+  ) {
+    throw new Error(`Relmio refuses an unsafe ${label}.`);
+  }
+}
+
+function assertPrivateLifecycleLockOwner(metadata, { platform }) {
+  if (
+    !metadata?.isFile?.() || metadata.isSymbolicLink() ||
+    !Number.isInteger(metadata.size) || metadata.size < 0 ||
+    metadata.size > MAX_LIFECYCLE_LOCK_OWNER_BYTES ||
+    (platform !== "win32" && (
+      !Number.isInteger(metadata.mode) || (metadata.mode & 0o077) !== 0
+    ))
+  ) {
+    throw new Error("Relmio refuses an unsafe local n8n operation lock owner.");
   }
 }
 
@@ -165,20 +272,18 @@ function parseJsonLines(value, label) {
   }
 }
 
-function parseLabelString(value) {
-  if (typeof value !== "string" || value.length > 16 * 1024) return null;
-  const parsed = {};
-  for (const part of value.split(",")) {
-    const index = part.indexOf("=");
-    if (index < 1 || !part.slice(0, index) || !part.slice(index + 1)) return null;
-    parsed[part.slice(0, index)] = part.slice(index + 1);
-  }
-  return parsed;
-}
-
 function labelsAreOwned(labels, marker) {
-  const expected = getLocalN8nStackLabels(marker);
-  return labels && Object.entries(expected).every(([key, value]) => labels[key] === value);
+  const expected = {
+    "com.docker.compose.project": marker.projectName,
+    ...getLocalN8nStackLabels(marker),
+  };
+  return (
+    labels &&
+    typeof labels === "object" &&
+    !Array.isArray(labels) &&
+    Object.keys(labels).length === OWNERSHIP_LABEL_KEYS.length &&
+    OWNERSHIP_LABEL_KEYS.every((key) => Object.hasOwn(labels, key) && labels[key] === expected[key])
+  );
 }
 
 function expectedResourceNames(marker) {
@@ -210,9 +315,16 @@ function assertExactOrOwnedSubset({ rows, expectedNames, marker, kind, resourceP
   }
   const seen = new Set();
   for (const row of rows) {
-    const labels = parseLabelString(row?.Labels);
-    const name = typeof row?.Names === "string" ? row.Names : row?.Name;
-    if (!labelsAreOwned(labels, marker) || !expectedNames.has(name) || seen.has(name)) {
+    const validRow = (
+      row &&
+      typeof row === "object" &&
+      !Array.isArray(row) &&
+      Object.keys(row).length === 2 &&
+      Object.hasOwn(row, "Name") &&
+      Object.hasOwn(row, "Labels")
+    );
+    const name = row?.Name;
+    if (!validRow || !labelsAreOwned(row.Labels, marker) || !expectedNames.has(name) || seen.has(name)) {
       throw new Error(`Local n8n ${kind} ownership check failed closed.`);
     }
     seen.add(name);
@@ -226,9 +338,10 @@ async function attestOwnedResources({ runProcess, cwd, marker, resourcePolicy = 
   const projectFilter = `label=com.docker.compose.project=${marker.projectName}`;
   const expected = expectedResourceNames(marker);
   const containers = await runOrThrow(runProcess, {
-    file: "docker", args: ["ps", "--all", "--no-trunc", "--filter", projectFilter, "--format", "{{json .}}"], cwd, dockerHost: marker.dockerHost,
+    file: "docker", args: ["ps", "--all", "--no-trunc", "--filter", projectFilter, "--format", CONTAINER_OWNERSHIP_FORMAT], cwd, dockerHost: marker.dockerHost,
   }, "Local n8n container ownership check");
   const containerRows = parseJsonLines(containers.stdout, "Local n8n container ownership check");
+  let ownedResourceCount = containerRows.length;
   assertExactOrOwnedSubset({
     rows: containerRows,
     expectedNames: new Set(expected.containers),
@@ -238,9 +351,10 @@ async function attestOwnedResources({ runProcess, cwd, marker, resourcePolicy = 
   });
   for (const [commandKind, kind] of [["network", "network"], ["volume", "volume"]]) {
     const result = await runOrThrow(runProcess, {
-      file: "docker", args: [commandKind, "ls", "--filter", projectFilter, "--format", "{{json .}}"], cwd, dockerHost: marker.dockerHost,
+      file: "docker", args: [commandKind, "ls", "--filter", projectFilter, "--format", NAMED_RESOURCE_OWNERSHIP_FORMAT], cwd, dockerHost: marker.dockerHost,
     }, `Local n8n ${kind} ownership check`);
     const rows = parseJsonLines(result.stdout, `Local n8n ${kind} ownership check`);
+    ownedResourceCount += rows.length;
     assertExactOrOwnedSubset({
       rows,
       expectedNames: new Set(expected[`${kind}s`]),
@@ -249,22 +363,111 @@ async function attestOwnedResources({ runProcess, cwd, marker, resourcePolicy = 
       resourcePolicy,
     });
   }
+  return Object.freeze({ hasOwnedResources: ownedResourceCount > 0 });
 }
 
-async function assertOwnedProjectAbsent({ runProcess, cwd, marker }) {
-  const projectFilter = `label=com.docker.compose.project=${marker.projectName}`;
-  for (const [command, label] of [
-    [["ps", "--all", "--no-trunc", "--filter", projectFilter, "--format", "{{json .}}"], "container"],
-    [["network", "ls", "--filter", projectFilter, "--format", "{{json .}}"], "network"],
-    [["volume", "ls", "--filter", projectFilter, "--format", "{{json .}}"], "volume"],
-  ]) {
-    const result = await runOrThrow(runProcess, {
-      file: "docker", args: command, cwd, dockerHost: marker.dockerHost,
-    }, `Local n8n ${label} absence check`);
-    if (parseJsonLines(result.stdout, `Local n8n ${label} absence check`).length !== 0) {
-      throw new Error("Relmio could not confirm that the owned local n8n stack was removed.");
-    }
+async function attemptOwnershipAttestedCleanup({ runProcess, cwd, marker }) {
+  try {
+    await attestOwnedResources({ runProcess, cwd, marker, resourcePolicy: "subset" });
+  } catch {
+    return "ownership-unconfirmed";
   }
+
+  try {
+    await runProcess({
+      file: "docker",
+      args: composeArgs(marker, ["down", "--volumes", "--remove-orphans"]),
+      cwd,
+      dockerHost: marker.dockerHost,
+    });
+  } catch { /* post-cleanup attestation is authoritative */ }
+
+  try {
+    const state = await attestOwnedResources({ runProcess, cwd, marker, resourcePolicy: "subset" });
+    return state.hasOwnedResources ? "resources-remain" : "removed";
+  } catch {
+    return "cleanup-unconfirmed";
+  }
+}
+
+function createManagedPartialStackError(message) {
+  return Object.assign(new Error(message), {
+    code: LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
+  });
+}
+
+function createTypedStartupFailure(failureKind, message) {
+  const error = new Error(message);
+  Object.defineProperty(error, STARTUP_FAILURE_KIND, {
+    value: failureKind,
+  });
+  return error;
+}
+
+function startupFailureKind(error) {
+  return Object.values(STACK_STARTUP_FAILURE_KINDS).includes(
+    error?.[STARTUP_FAILURE_KIND],
+  )
+    ? error[STARTUP_FAILURE_KIND]
+    : STACK_STARTUP_FAILURE_KINDS.STACK_RUNTIME_VERIFICATION;
+}
+
+function hasNgrokSetupRejectionEvidence(result) {
+  const output = [result?.stdout, result?.stderr]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+  const codes = output.match(/\bERR_NGROK_[0-9]{2,5}\b/gu) ?? [];
+  return codes.some((code) => NGROK_SETUP_REJECTION_CODES.has(code));
+}
+
+async function createStackWithCompose({ runProcess, spec }) {
+  let result;
+  try {
+    result = await runProcess(spec);
+  } catch {
+    throw createTypedStartupFailure(
+      STACK_STARTUP_FAILURE_KINDS.STACK_CREATION,
+      "Docker could not create the new n8n stack.",
+    );
+  }
+  if (result?.code === 0) return result;
+  const failureKind = hasNgrokSetupRejectionEvidence(result)
+    ? STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED
+    : STACK_STARTUP_FAILURE_KINDS.STACK_CREATION;
+  throw createTypedStartupFailure(
+    failureKind,
+    failureKind === STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED
+      ? "ngrok rejected the reviewed setup."
+      : "Docker could not create the new n8n stack.",
+  );
+}
+
+function retryableStartupMessage(failureKind) {
+  switch (failureKind) {
+    case STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED:
+      return "The n8n + ngrok stack did not start because ngrok rejected its account, endpoint, or credential setup. Check the reserved hostname, active agent authtoken, and Basic Auth. Relmio removed the failed owned resources; retry is safe.";
+    case STACK_STARTUP_FAILURE_KINDS.STACK_CREATION:
+      return "Docker could not create the new n8n stack. Relmio removed the failed owned resources. Check Docker image availability and local service startup, then retry.";
+    case STACK_STARTUP_FAILURE_KINDS.OWNERSHIP_VERIFICATION:
+      return "Relmio could not verify the new stack's complete ownership metadata. Relmio removed the failed owned resources; retry is safe.";
+    case STACK_STARTUP_FAILURE_KINDS.N8N_VERIFICATION:
+      return "The new n8n service did not pass health verification. Relmio removed the failed owned resources. Check Docker resources, then retry.";
+    case STACK_STARTUP_FAILURE_KINDS.NGROK_RUNTIME_VERIFICATION:
+      return "The new ngrok service did not pass runtime verification. Relmio removed the failed owned resources. Check Docker resources, then retry.";
+    case STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION:
+      return "The selected Assistant services did not pass runtime or network isolation verification. Relmio removed the failed owned resources; retry is safe.";
+    case STACK_STARTUP_FAILURE_KINDS.SEARXNG_SEARCH_VERIFICATION:
+      return "The selected SearXNG service did not return a valid JSON search result. Relmio removed the failed owned resources; retry is safe.";
+    default:
+      return "The new n8n stack did not pass runtime verification. Relmio removed the failed owned resources; retry is safe.";
+  }
+}
+
+function createRetryableStackStartupError(failureKind) {
+  return Object.assign(new Error(retryableStartupMessage(failureKind)), {
+    code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
+    failureKind,
+  });
 }
 
 function validatePublication(value, { hostPort, targetPort, requirePublication }) {
@@ -280,50 +483,283 @@ function validatePublication(value, { hostPort, targetPort, requirePublication }
   ) throw new Error("Local n8n host publication verification failed closed.");
 }
 
+function serviceFailureKind(service) {
+  if (service === "n8n") {
+    return STACK_STARTUP_FAILURE_KINDS.N8N_VERIFICATION;
+  }
+  if (service === "ngrok") {
+    return STACK_STARTUP_FAILURE_KINDS.NGROK_RUNTIME_VERIFICATION;
+  }
+  return STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION;
+}
+
+function serviceFailureMessage(service) {
+  if (service === "n8n") return "The new n8n service did not pass health verification.";
+  if (service === "ngrok") return "The new ngrok service did not pass runtime verification.";
+  return "The selected Assistant services did not pass runtime verification.";
+}
+
+async function runTypedStartupCheck({ runProcess, spec, label, failureKind, message }) {
+  try {
+    return await runOrThrow(runProcess, spec, label);
+  } catch {
+    throw createTypedStartupFailure(failureKind, message);
+  }
+}
+
 async function verifyRunningStack({ runProcess, cwd, marker }) {
   const services = getLocalN8nStackServiceNames(marker).filter(
     (service) => service !== "relmio-sandbox-certs",
   );
-  const running = await runOrThrow(runProcess, {
-    file: "docker", args: composeArgs(marker, ["ps", "--status", "running", "--services"]), cwd, dockerHost: marker.dockerHost,
-  }, "Local n8n readiness check");
+  const running = await runTypedStartupCheck({
+    runProcess,
+    spec: {
+      file: "docker", args: composeArgs(marker, ["ps", "--status", "running", "--services"]), cwd, dockerHost: marker.dockerHost,
+    },
+    label: "Local n8n readiness check",
+    failureKind: STACK_STARTUP_FAILURE_KINDS.STACK_RUNTIME_VERIFICATION,
+    message: "The new n8n stack did not reach the required running service set.",
+  });
   const actual = new Set(running.stdout.split(/\s+/u).filter(Boolean));
   if (actual.size !== services.length || services.some((service) => !actual.has(service))) {
-    throw new Error("The owned local n8n stack did not reach the running state.");
+    throw createTypedStartupFailure(
+      STACK_STARTUP_FAILURE_KINDS.STACK_RUNTIME_VERIFICATION,
+      "The new n8n stack did not reach the required running service set.",
+    );
   }
   for (const service of services) {
-    const result = await runOrThrow(runProcess, {
-      file: "docker", args: composeArgs(marker, ["ps", "--format", "json", service]), cwd, dockerHost: marker.dockerHost,
-    }, "Local n8n service verification");
-    const rows = parseJsonLines(result.stdout, "Local n8n service verification");
+    const failureKind = serviceFailureKind(service);
+    const message = serviceFailureMessage(service);
+    const result = await runTypedStartupCheck({
+      runProcess,
+      spec: {
+        file: "docker", args: composeArgs(marker, ["ps", "--format", "json", service]), cwd, dockerHost: marker.dockerHost,
+      },
+      label: "Local n8n service verification",
+      failureKind,
+      message,
+    });
+    let rows;
+    try {
+      rows = parseJsonLines(result.stdout, "Local n8n service verification");
+    } catch {
+      throw createTypedStartupFailure(failureKind, message);
+    }
     if (rows.length !== 1 || rows[0]?.Service !== service || rows[0]?.State !== "running") {
-      throw new Error("The owned local n8n service state could not be verified.");
+      throw createTypedStartupFailure(failureKind, message);
     }
-    if (
-      (service === "n8n" || service === "ngrok" || service === "relmio-sandbox-api") &&
-      rows[0]?.Health !== "healthy"
-    ) {
-      throw new Error("The owned local n8n service health could not be verified.");
+    if (LOCAL_N8N_STACK_HEALTHY_SERVICES.includes(service) && rows[0]?.Health !== "healthy") {
+      throw createTypedStartupFailure(failureKind, message);
     }
-    if (service === "n8n") validatePublication(rows[0], { hostPort: marker.n8nPort, targetPort: 5678, requirePublication: true });
-    else if (service === "ngrok") validatePublication(rows[0], { hostPort: marker.ngrokInspectorPort, targetPort: 4040, requirePublication: true });
-    else if (!isUnpublishedAssistantService(rows[0]?.Publishers)) {
-      throw new Error("An Assistant service published an unexpected host port.");
+    try {
+      if (service === "n8n") validatePublication(rows[0], { hostPort: marker.n8nPort, targetPort: 5678, requirePublication: true });
+      else if (service === "ngrok") validatePublication(rows[0], { hostPort: marker.ngrokInspectorPort, targetPort: 4040, requirePublication: true });
+      else if (!isUnpublishedAssistantService(rows[0]?.Publishers)) {
+        throw new Error("An Assistant service published an unexpected host port.");
+      }
+    } catch {
+      throw createTypedStartupFailure(failureKind, message);
     }
+  }
+  await verifyAssistantEgressNetworks({ runProcess, cwd, marker });
+}
+
+function assistantEgressNetworkNames(marker) {
+  return marker.assistantMode === "disabled"
+    ? []
+    : [`${marker.projectName}_assistant-shared`, `${marker.projectName}_assistant-internal`];
+}
+
+async function verifyAssistantEgressNetworks({ runProcess, cwd, marker }) {
+  for (const network of assistantEgressNetworkNames(marker)) {
+    const result = await runTypedStartupCheck({
+      runProcess,
+      spec: {
+        file: "docker",
+        args: ["network", "inspect", "--format", "{{json .Internal}}", network],
+        cwd,
+        dockerHost: marker.dockerHost,
+      },
+      label: "Local n8n Assistant network verification",
+      failureKind: STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION,
+      message: "The selected Assistant network isolation verification failed.",
+    });
+    let internal;
+    try { internal = JSON.parse(result.stdout.trim()); } catch {
+      throw createTypedStartupFailure(
+        STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION,
+        "The selected Assistant network isolation verification failed.",
+      );
+    }
+    if (internal !== false) {
+      throw createTypedStartupFailure(
+        STACK_STARTUP_FAILURE_KINDS.ASSISTANT_VERIFICATION,
+        "The selected Assistant network isolation verification failed.",
+      );
+    }
+  }
+}
+
+async function verifySearxngSearch({ runProcess, cwd, marker }) {
+  if (marker.assistantMode !== "sandbox-with-searxng") return;
+  const failureKind =
+    STACK_STARTUP_FAILURE_KINDS.SEARXNG_SEARCH_VERIFICATION;
+  const message =
+    "The selected SearXNG service did not return a valid JSON search result.";
+  const search = await runTypedStartupCheck({
+    runProcess,
+    spec: {
+      file: "docker",
+      args: composeArgs(marker, [
+        "exec",
+        "-T",
+        "relmio-sandbox-api",
+        "wget",
+        "-qO-",
+        "http://relmio-searxng:8080/search?q=relmio&format=json",
+      ]),
+      cwd,
+      dockerHost: marker.dockerHost,
+    },
+    label: "Local n8n SearXNG JSON verification",
+    failureKind,
+    message,
+  });
+  let payload;
+  try {
+    payload = JSON.parse(search.stdout);
+  } catch {
+    throw createTypedStartupFailure(failureKind, message);
+  }
+  if (!Array.isArray(payload?.results)) {
+    throw createTypedStartupFailure(failureKind, message);
   }
 }
 
 function isUnpublishedAssistantService(publishers) {
   if (!Array.isArray(publishers)) return false;
-  return publishers.length === 0 || (
-    publishers.length === 1 &&
-    publishers[0] &&
-    publishers[0].PublishedPort === 0 &&
-    publishers[0].URL === "" &&
-    Number.isInteger(publishers[0].TargetPort) &&
-    publishers[0].TargetPort > 0 &&
-    publishers[0].Protocol === "tcp"
+  const seenTargetPorts = new Set();
+  return publishers.every((publisher) => {
+    const valid = (
+      publisher && publisher.URL === "" && publisher.PublishedPort === 0 &&
+      (publisher.TargetPort === 8080 || publisher.TargetPort === 9090) &&
+      publisher.Protocol === "tcp" && !seenTargetPorts.has(publisher.TargetPort)
+    );
+    if (valid) seenTargetPorts.add(publisher.TargetPort);
+    return valid;
+  });
+}
+
+function runningStackServiceNames(marker) {
+  return getLocalN8nStackServiceNames(marker).filter(
+    (service) => service !== "relmio-sandbox-certs",
   );
+}
+
+function hasExactStoppedState(rows, marker) {
+  const services = getLocalN8nStackServiceNames(marker);
+  if (!Array.isArray(rows) || rows.length !== services.length) return false;
+  const states = new Map();
+  for (const row of rows) {
+    if (
+      !row || typeof row !== "object" || Array.isArray(row) ||
+      typeof row.Service !== "string" || typeof row.State !== "string" ||
+      !services.includes(row.Service) || states.has(row.Service)
+    ) return false;
+    states.set(row.Service, row.State);
+  }
+  return services.every((service) =>
+    states.get(service) === "exited",
+  );
+}
+
+function hasExactRunningState(rows, marker) {
+  const services = getLocalN8nStackServiceNames(marker);
+  if (!Array.isArray(rows) || rows.length !== services.length) return false;
+  const states = new Map();
+  for (const row of rows) {
+    if (
+      !row || typeof row !== "object" || Array.isArray(row) ||
+      typeof row.Service !== "string" || typeof row.State !== "string" ||
+      !services.includes(row.Service) || states.has(row.Service)
+    ) return false;
+    states.set(row.Service, row.State);
+  }
+  return services.every((service) =>
+    service === "relmio-sandbox-certs"
+      ? states.get(service) === "exited"
+      : states.get(service) === "running",
+  );
+}
+
+async function readOwnedStackServiceStates({ runProcess, cwd, marker }) {
+  const rows = [];
+  for (const service of getLocalN8nStackServiceNames(marker)) {
+    const result = await runOrThrow(runProcess, {
+      file: "docker",
+      args: composeArgs(marker, ["ps", "--all", "--format", "json", service]),
+      cwd,
+      dockerHost: marker.dockerHost,
+    }, "Local n8n service state inspection");
+    const serviceRows = parseJsonLines(result.stdout, "Local n8n service state inspection");
+    if (serviceRows.length !== 1) {
+      throw new Error("The owned local n8n service state could not be inspected.");
+    }
+    rows.push(serviceRows[0]);
+  }
+  return rows;
+}
+
+async function classifyOwnedStackRuntime({ runProcess, cwd, marker }) {
+  try {
+    await attestOwnedResources({
+      runProcess,
+      cwd,
+      marker,
+      resourcePolicy: "subset",
+    });
+  } catch {
+    return "unavailable";
+  }
+
+  try {
+    await attestOwnedResources({
+      runProcess,
+      cwd,
+      marker,
+      resourcePolicy: "exact",
+    });
+  } catch {
+    // A valid owned subset is enough to offer the already-confirmed removal
+    // recovery, but never enough to start or recreate anything.
+    // An empty resource set with an exact owned marker is also partial: the
+    // separately confirmed remover can then delete only the stale managed
+    // files after re-attesting the empty Docker set.
+    return "partial";
+  }
+
+  let rows;
+  try {
+    rows = await readOwnedStackServiceStates({ runProcess, cwd, marker });
+  } catch {
+    return "unavailable";
+  }
+  if (hasExactStoppedState(rows, marker)) {
+    try {
+      await verifyAssistantEgressNetworks({ runProcess, cwd, marker });
+      return "stopped";
+    } catch {
+      return "partial";
+    }
+  }
+  if (!hasExactRunningState(rows, marker)) return "partial";
+
+  try {
+    await verifyRunningStack({ runProcess, cwd, marker });
+    return "healthy";
+  } catch {
+    return "partial";
+  }
 }
 
 async function removeManagedFiles({ fileSystem, installRoot }) {
@@ -347,32 +783,97 @@ async function readOwnedMarker({ fileSystem, installRoot }) {
   }
 }
 
-async function ensureManagedLocalRoot({ fileSystem, installRoot }) {
+function managedLocalRootPaths(installRoot) {
   const relmioRoot = resolve(installRoot, "..", "..");
-  const localRoot = join(relmioRoot, LOCAL_DIRECTORY);
-  const rootMarkerPath = join(relmioRoot, ROOT_MARKER);
+  return Object.freeze({
+    relmioRoot,
+    localRoot: join(relmioRoot, LOCAL_DIRECTORY),
+    rootMarkerPath: join(relmioRoot, ROOT_MARKER),
+  });
+}
+
+async function validateManagedLocalRootOwnership({ fileSystem, installRoot }) {
+  const paths = managedLocalRootPaths(installRoot);
+  const rootMetadata = await lstatIfExists(fileSystem, paths.relmioRoot);
+  assertPrivateDirectory(rootMetadata, "Relmio local storage directory");
+  const rootMarker = await lstatIfExists(fileSystem, paths.rootMarkerPath);
+  if (!rootMarker?.isFile?.() || rootMarker.isSymbolicLink()) {
+    throw new Error("The Relmio local storage directory is not an owned managed root. Nothing was changed.");
+  }
+  try {
+    const parsed = JSON.parse(await fileSystem.readFile(paths.rootMarkerPath, "utf8"));
+    if (parsed?.schemaVersion !== 1 || parsed?.kind !== "relmio-local-root") throw new Error("mismatch");
+  } catch {
+    throw new Error("The Relmio local storage directory is not an owned managed root. Nothing was changed.");
+  }
+  return paths;
+}
+
+export async function getLocalN8nStackStatus({
+  runProcess = runLocalProcess,
+  fileSystem = defaultFileSystem,
+  homeDirectory = homedir(),
+  cwd = process.cwd(),
+  env = process.env,
+  platform = hostPlatform(),
+} = {}) {
+  let installRoot;
+  try {
+    installRoot = await resolveLocalN8nStackInstallRoot({
+      env,
+      homeDirectory,
+      fileSystem,
+      platform,
+    });
+    if (!await lstatIfExists(fileSystem, installRoot)) {
+      return LOCAL_N8N_STACK_NOT_MANAGED;
+    }
+    const { localRoot } = await validateManagedLocalRootOwnership({ fileSystem, installRoot });
+    assertPrivateDirectory(
+      await lstatIfExists(fileSystem, localRoot),
+      "local n8n managed directory",
+    );
+    const marker = await readOwnedMarker({ fileSystem, installRoot });
+    const dockerHost = await resolveAttestedDockerHost({
+      runProcess,
+      cwd,
+      env,
+      platform,
+    });
+    if (dockerHost !== marker.dockerHost) {
+      return LOCAL_N8N_STACK_UNAVAILABLE;
+    }
+    const runtimeState = await classifyOwnedStackRuntime({
+      runProcess,
+      cwd: installRoot,
+      marker,
+    });
+    if (runtimeState === "healthy") return LOCAL_N8N_STACK_HEALTHY;
+    if (runtimeState === "stopped") return LOCAL_N8N_STACK_STOPPED;
+    if (runtimeState === "partial") return LOCAL_N8N_STACK_PARTIAL;
+    return LOCAL_N8N_STACK_UNAVAILABLE;
+  } catch {
+    return installRoot ? LOCAL_N8N_STACK_UNAVAILABLE : LOCAL_N8N_STACK_NOT_MANAGED;
+  }
+}
+
+async function ensureManagedLocalRoot({ fileSystem, installRoot, platform, lockDownPath }) {
+  const { relmioRoot, localRoot, rootMarkerPath } = managedLocalRootPaths(installRoot);
   let rootCreated = false;
   let localCreated = false;
   try {
     const rootMetadata = await lstatIfExists(fileSystem, relmioRoot);
     if (rootMetadata) {
-      assertPrivateDirectory(rootMetadata, "Relmio local storage directory");
-      const rootMarker = await lstatIfExists(fileSystem, rootMarkerPath);
-      if (!rootMarker?.isFile?.() || rootMarker.isSymbolicLink()) {
-        throw new Error("The Relmio local storage directory is not an owned managed root. Nothing was changed.");
-      }
-      try {
-        const parsed = JSON.parse(await fileSystem.readFile(rootMarkerPath, "utf8"));
-        if (parsed?.schemaVersion !== 1 || parsed?.kind !== "relmio-local-root") throw new Error("mismatch");
-      } catch {
-        throw new Error("The Relmio local storage directory is not an owned managed root. Nothing was changed.");
-      }
+      await validateManagedLocalRootOwnership({ fileSystem, installRoot });
     } else {
       await fileSystem.mkdir(relmioRoot, { mode: 0o700 });
       rootCreated = true;
       await fileSystem.chmod(relmioRoot, 0o700);
+      await lockDownPath(relmioRoot, { platform });
       await writePrivateFile(fileSystem, rootMarkerPath, `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`, 0o600);
     }
+    await fileSystem.chmod(relmioRoot, 0o700);
+    await lockDownPath(relmioRoot, { platform });
     const localMetadata = await lstatIfExists(fileSystem, localRoot);
     if (localMetadata) assertPrivateDirectory(localMetadata, "local n8n managed directory");
     else {
@@ -380,6 +881,7 @@ async function ensureManagedLocalRoot({ fileSystem, installRoot }) {
       localCreated = true;
     }
     await fileSystem.chmod(localRoot, 0o700);
+    await lockDownPath(localRoot, { platform });
     return localRoot;
   } catch (error) {
     if (localCreated) {
@@ -393,16 +895,25 @@ async function ensureManagedLocalRoot({ fileSystem, installRoot }) {
   }
 }
 
-async function createManagedFiles({ fileSystem, installRoot, installation, secrets, randomBytes }) {
+async function createManagedFiles({
+  fileSystem,
+  installRoot,
+  installation,
+  secrets,
+  randomBytes,
+  platform,
+  lockDownPath,
+}) {
   const existingInstall = await lstatIfExists(fileSystem, installRoot);
   if (existingInstall) throw new Error("A local n8n stack directory already exists. Nothing was overwritten.");
-  await ensureManagedLocalRoot({ fileSystem, installRoot });
+  await ensureManagedLocalRoot({ fileSystem, installRoot, platform, lockDownPath });
   let installDirectoryCreated = false;
   try {
     await fileSystem.mkdir(installRoot, { mode: 0o700 });
     installDirectoryCreated = true;
     await fileSystem.chmod(installRoot, 0o700);
-    await ensureDirectory(fileSystem, join(installRoot, RUNTIME_DIRECTORY));
+    await lockDownPath(installRoot, { platform });
+    await ensureDirectory(fileSystem, join(installRoot, RUNTIME_DIRECTORY), platform, lockDownPath);
     const n8nKey = randomBytes(32);
     if (!Buffer.isBuffer(n8nKey) || n8nKey.length !== 32) throw new TypeError("A cryptographic local n8n secret generator is required.");
     const assistantSecrets = installation.assistantMode === "disabled"
@@ -426,49 +937,700 @@ async function createManagedFiles({ fileSystem, installRoot, installation, secre
   }
 }
 
-async function acquireLifecycleLock({ fileSystem, installRoot }) {
-  const localRoot = await ensureManagedLocalRoot({ fileSystem, installRoot });
-  const lockPath = join(localRoot, LOCK_DIRECTORY);
-  const ownerPath = join(lockPath, LOCK_OWNER_FILE);
-  const ownerToken = randomUUID();
-  let lockCreated = false;
-  try {
-    await fileSystem.mkdir(lockPath, { mode: 0o700 });
-    lockCreated = true;
-    await fileSystem.chmod(lockPath, 0o700);
-    await writePrivateFile(
-      fileSystem,
-      ownerPath,
-      `${JSON.stringify({ schemaVersion: 1, token: ownerToken })}\n`,
-      0o600,
-    );
-  } catch (error) {
-    if (error?.code === "EEXIST") {
-      throw new Error("Another local n8n stack operation is already running.");
-    }
-    if (lockCreated) {
-      try { await fileSystem.unlink(ownerPath); } catch { /* owner may not exist */ }
-      try { await fileSystem.rmdir(lockPath); } catch { /* preserve unexpected state */ }
-    }
-    throw new Error("Relmio could not acquire the local n8n stack operation lock.");
+function validLifecycleLockPublication(value) {
+  return (
+    value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).length === 5 &&
+    value.schemaVersion === LIFECYCLE_LOCK_SCHEMA_VERSION &&
+    Number.isSafeInteger(value.pid) && value.pid > 0 && value.pid <= 2_147_483_647 &&
+    typeof value.processStartIdentity === "string" && value.processStartIdentity.length > 0 &&
+    Buffer.byteLength(value.processStartIdentity) <= 512 && !/[\0\r\n]/u.test(value.processStartIdentity) &&
+    typeof value.token === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(value.token) &&
+    Number.isSafeInteger(value.publishedAtMs) && value.publishedAtMs > 0
+  );
+}
+
+function sameLifecycleLockPublication(left, right) {
+  return validLifecycleLockPublication(left) && validLifecycleLockPublication(right) &&
+    left.schemaVersion === right.schemaVersion &&
+    left.pid === right.pid &&
+    left.processStartIdentity === right.processStartIdentity &&
+    left.token === right.token &&
+    left.publishedAtMs === right.publishedAtMs;
+}
+
+function lockOwnerFingerprint(metadata, raw) {
+  return Object.freeze({
+    raw,
+    size: metadata.size,
+    dev: metadata.dev,
+    ino: metadata.ino,
+    mtimeMs: metadata.mtimeMs,
+    ctimeMs: metadata.ctimeMs,
+  });
+}
+
+function lockDirectoryFingerprint(metadata) {
+  if (
+    !Number.isInteger(metadata?.dev) || !Number.isInteger(metadata?.ino) ||
+    !Number.isFinite(metadata?.birthtimeMs) || metadata.birthtimeMs < 0
+  ) {
+    throw new Error("Relmio could not inspect the local n8n operation lock.");
   }
-  return async () => {
+  return Object.freeze({
+    dev: metadata.dev,
+    ino: metadata.ino,
+    birthtimeMs: metadata.birthtimeMs,
+  });
+}
+
+function sameLockDirectoryFingerprint(left, right) {
+  return left?.dev === right?.dev && left?.ino === right?.ino &&
+    left?.birthtimeMs === right?.birthtimeMs;
+}
+
+function sameLockOwnerFingerprint(left, right) {
+  return left?.raw === right?.raw && left?.size === right?.size &&
+    left?.dev === right?.dev && left?.ino === right?.ino &&
+    left?.mtimeMs === right?.mtimeMs && left?.ctimeMs === right?.ctimeMs;
+}
+
+function lifecycleLockNow(now) {
+  const value = now();
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error("Relmio could not inspect the local n8n operation lock.");
+  }
+  return value;
+}
+
+function lifecycleLockPublicationTime(metadata) {
+  const value = metadata?.mtimeMs;
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : null;
+}
+
+function incompletePublicationIsPastGrace(metadata, { now, graceMs }) {
+  const publishedAt = lifecycleLockPublicationTime(metadata);
+  const currentTime = lifecycleLockNow(now);
+  if (publishedAt === null || publishedAt > currentTime) return false;
+  return currentTime - publishedAt >= graceMs;
+}
+
+function validateLifecycleLockIdentity(identity) {
+  return (
+    identity && typeof identity === "object" && !Array.isArray(identity) &&
+    (identity.state === "dead" || identity.state === "ambiguous" || (
+      identity.state === "active" && typeof identity.startIdentity === "string" &&
+      identity.startIdentity.length > 0 && Buffer.byteLength(identity.startIdentity) <= 512 &&
+      !/[\0\r\n]/u.test(identity.startIdentity)
+    ))
+  );
+}
+
+async function inspectLifecycleLockClaim({ fileSystem, lockPath, platform, lockDownPath }) {
+  let lockMetadata = await lstatIfExists(fileSystem, lockPath);
+  assertPrivateLifecycleLockDirectory(lockMetadata, {
+    platform,
+    label: "local n8n operation lock",
+  });
+  if (platform === "win32") {
+    await lockDownPath(lockPath, { platform, verifyOnly: true });
+    lockMetadata = await lstatIfExists(fileSystem, lockPath);
+    assertPrivateLifecycleLockDirectory(lockMetadata, {
+      platform,
+      label: "local n8n operation lock",
+    });
+  }
+  const directoryFingerprint = lockDirectoryFingerprint(lockMetadata);
+  const ownerPath = join(lockPath, LOCK_OWNER_FILE);
+  let ownerMetadata = await lstatIfExists(fileSystem, ownerPath);
+  if (!ownerMetadata) {
+    return Object.freeze({
+      kind: "incomplete",
+      source: "missing",
+      ownerPath,
+      ageMetadata: lockMetadata,
+      directoryFingerprint,
+    });
+  }
+  assertPrivateLifecycleLockOwner(ownerMetadata, { platform });
+  if (platform === "win32") {
+    await lockDownPath(ownerPath, { platform, kind: "file", verifyOnly: true });
+    ownerMetadata = await lstatIfExists(fileSystem, ownerPath);
+    assertPrivateLifecycleLockOwner(ownerMetadata, { platform });
+  }
+  let raw;
+  try {
+    raw = await fileSystem.readFile(ownerPath, "utf8");
+  } catch {
+    throw new Error("Relmio could not inspect the local n8n operation lock.");
+  }
+  const ownerAfterRead = await lstatIfExists(fileSystem, ownerPath);
+  assertPrivateLifecycleLockOwner(ownerAfterRead, { platform });
+  const fingerprint = lockOwnerFingerprint(ownerMetadata, raw);
+  if (!sameLockOwnerFingerprint(fingerprint, lockOwnerFingerprint(ownerAfterRead, raw))) {
+    throw new Error("Relmio could not inspect the local n8n operation lock.");
+  }
+  try {
+    const publication = JSON.parse(raw);
+    if (validLifecycleLockPublication(publication)) {
+      return Object.freeze({
+        kind: "published",
+        publication: Object.freeze(publication),
+        ownerPath,
+        fingerprint,
+        directoryFingerprint,
+      });
+    }
+  } catch { /* malformed publication receives only the bounded startup grace. */ }
+  return Object.freeze({
+    kind: "incomplete",
+    source: "malformed",
+    ownerPath,
+    fingerprint,
+    ageMetadata: ownerAfterRead,
+    directoryFingerprint,
+  });
+}
+
+async function lifecycleLockClaimState(claim, { getProcessIdentity, now, platform, graceMs }) {
+  if (claim.kind === "incomplete") {
+    return incompletePublicationIsPastGrace(claim.ageMetadata, { now, graceMs }) ? "stale" : "starting";
+  }
+  let identity;
+  try {
+    identity = await getProcessIdentity(claim.publication.pid, { platform });
+  } catch {
+    return "ambiguous";
+  }
+  if (!validateLifecycleLockIdentity(identity) || identity.state === "ambiguous") return "ambiguous";
+  if (identity.state === "dead") return "stale";
+  return identity.startIdentity === claim.publication.processStartIdentity ? "active" : "stale";
+}
+
+async function detachLifecycleLock({ fileSystem, lockPath }) {
+  for (let attempt = 0; attempt < MAX_LIFECYCLE_LOCK_RECLAIM_ATTEMPTS; attempt += 1) {
+    const quarantinePath = `${lockPath}.quarantine-${randomUUID()}`;
+    if (await lstatIfExists(fileSystem, quarantinePath)) continue;
+    try {
+      await fileSystem.rename(lockPath, quarantinePath);
+      return quarantinePath;
+    } catch (error) {
+      if (error?.code === "ENOENT") return null;
+      if (error?.code === "EEXIST" || error?.code === "ENOTEMPTY") continue;
+      throw new Error("Relmio could not safely detach the local n8n operation lock.");
+    }
+  }
+  throw new Error("Relmio could not safely detach the local n8n operation lock.");
+}
+
+function claimsMatch(before, after) {
+  if (!sameLockDirectoryFingerprint(before.directoryFingerprint, after.directoryFingerprint)) return false;
+  if (before.kind !== after.kind || before.source !== after.source) return false;
+  if (before.kind === "published") return sameLifecycleLockPublication(before.publication, after.publication);
+  if (before.source === "missing") return true;
+  return sameLockOwnerFingerprint(before.fingerprint, after.fingerprint);
+}
+
+function staleClaimStillMatches(before, after, afterState) {
+  if (!claimsMatch(before, after)) return false;
+  // Publishing the nested arbitration directory necessarily updates the
+  // parent directory mtime used for a missing-owner grace calculation. The
+  // unchanged directory identity plus unchanged missing-owner state remains
+  // authoritative after the original claim has already aged past the grace.
+  if (before.kind === "incomplete" && before.source === "missing") return true;
+  return afterState === "stale";
+}
+
+async function removeDetachedLifecycleLock({
+  fileSystem,
+  claim,
+  quarantinePath,
+  platform,
+  lockDownPath,
+}) {
+  let entries;
+  try { entries = (await fileSystem.readdir(quarantinePath)).sort(); } catch {
+    throw new Error("Relmio could not inspect the detached local n8n operation lock.");
+  }
+  const expectedEntries = claim.source === "missing" ? [] : [LOCK_OWNER_FILE];
+  if (
+    entries.length !== expectedEntries.length ||
+    entries.some((entry, index) => entry !== expectedEntries[index])
+  ) {
+    throw new Error("Relmio refuses to remove a local n8n operation lock with unexpected contents.");
+  }
+  const ownerPath = join(quarantinePath, LOCK_OWNER_FILE);
+  let removedOwner = false;
+  try {
+    if (claim.source !== "missing") {
+      await fileSystem.unlink(ownerPath);
+      removedOwner = true;
+    }
+    await fileSystem.rmdir(quarantinePath);
+  } catch (error) {
+    if (removedOwner && typeof claim.fingerprint?.raw === "string") {
+      try {
+        await fileSystem.writeFile(ownerPath, claim.fingerprint.raw, {
+          flag: "wx",
+          mode: 0o600,
+        });
+        await fileSystem.chmod(ownerPath, 0o600);
+        await lockDownPath(ownerPath, { platform, kind: "file" });
+      } catch {
+        // The detached directory is intentionally preserved; callers never
+        // claim successful release or reclamation when owner restoration
+        // itself cannot be proven.
+      }
+    }
+    throw error;
+  }
+}
+
+async function restoreDetachedLifecycleLock({ fileSystem, lockPath, quarantinePath }) {
+  try {
+    if (await lstatIfExists(fileSystem, lockPath)) return false;
+    await fileSystem.rename(quarantinePath, lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function createdLifecycleLockStillMatches({
+  expectedDirectoryFingerprint,
+  fileSystem,
+  lockPath,
+  ownerPublication,
+  requireReclaim = false,
+}) {
+  try {
     const metadata = await lstatIfExists(fileSystem, lockPath);
     assertPrivateDirectory(metadata, "local n8n operation lock");
+    if (!sameLockDirectoryFingerprint(
+      expectedDirectoryFingerprint,
+      lockDirectoryFingerprint(metadata),
+    )) return false;
+    const entries = (await fileSystem.readdir(lockPath)).sort();
+    const hasReclaim = entries.includes(LOCK_RECLAIM_DIRECTORY);
+    if (hasReclaim !== requireReclaim) return false;
+    const remainingEntries = entries.filter((entry) => entry !== LOCK_RECLAIM_DIRECTORY);
+    if (remainingEntries.length === 0) return true;
+    if (remainingEntries.length !== 1 || remainingEntries[0] !== LOCK_OWNER_FILE) return false;
+    const ownerPath = join(lockPath, LOCK_OWNER_FILE);
     const ownerMetadata = await lstatIfExists(fileSystem, ownerPath);
-    if (!ownerMetadata?.isFile?.() || ownerMetadata.isSymbolicLink()) {
+    if (
+      !ownerMetadata?.isFile?.() || ownerMetadata.isSymbolicLink() ||
+      !Number.isInteger(ownerMetadata.size) || ownerMetadata.size < 0 ||
+      ownerMetadata.size > MAX_LIFECYCLE_LOCK_OWNER_BYTES
+    ) return false;
+    const raw = await fileSystem.readFile(ownerPath, "utf8");
+    const ownerAfterRead = await lstatIfExists(fileSystem, ownerPath);
+    if (!sameLockOwnerFingerprint(
+      lockOwnerFingerprint(ownerMetadata, raw),
+      lockOwnerFingerprint(ownerAfterRead, raw),
+    )) return false;
+    return sameLifecycleLockPublication(JSON.parse(raw), ownerPublication);
+  } catch {
+    return false;
+  }
+}
+
+async function safelyAbandonCreatedLifecycleLock({
+  expectedDirectoryFingerprint,
+  fileSystem,
+  lockPath,
+  ownerPublication,
+}) {
+  if (!await createdLifecycleLockStillMatches({
+    expectedDirectoryFingerprint,
+    fileSystem,
+    lockPath,
+    ownerPublication,
+  })) return;
+  const reclaimPath = join(lockPath, LOCK_RECLAIM_DIRECTORY);
+  try {
+    await fileSystem.mkdir(reclaimPath, { mode: 0o700 });
+  } catch {
+    return;
+  }
+  if (!await createdLifecycleLockStillMatches({
+    expectedDirectoryFingerprint,
+    fileSystem,
+    lockPath,
+    ownerPublication,
+    requireReclaim: true,
+  })) {
+    try { await fileSystem.rmdir(reclaimPath); } catch { /* Preserve changed contents. */ }
+    return;
+  }
+  let quarantinePath;
+  try { quarantinePath = await detachLifecycleLock({ fileSystem, lockPath }); } catch { return; }
+  if (!quarantinePath) return;
+  try {
+    if (!await createdLifecycleLockStillMatches({
+      expectedDirectoryFingerprint,
+      fileSystem,
+      lockPath: quarantinePath,
+      ownerPublication,
+      requireReclaim: true,
+    })) return;
+    const entries = (await fileSystem.readdir(quarantinePath)).sort();
+    await fileSystem.rmdir(join(quarantinePath, LOCK_RECLAIM_DIRECTORY));
+    if (entries.includes(LOCK_OWNER_FILE)) {
+      await fileSystem.unlink(join(quarantinePath, LOCK_OWNER_FILE));
+    }
+    await fileSystem.rmdir(quarantinePath);
+  } catch { /* Keep unexpected or replaced data in its unique quarantine. */ }
+}
+
+async function createLifecycleLockDirectory({
+  fileSystem,
+  lockPath,
+  ownerPublication,
+  platform,
+  lockDownPath,
+}) {
+  await fileSystem.mkdir(lockPath, { mode: 0o700 });
+  let directoryFingerprint;
+  try {
+    directoryFingerprint = lockDirectoryFingerprint(await fileSystem.lstat(lockPath));
+    await fileSystem.chmod(lockPath, 0o700);
+    await lockDownPath(lockPath, { platform });
+    const ownerPath = join(lockPath, LOCK_OWNER_FILE);
+    await writePrivateFile(fileSystem, ownerPath, `${JSON.stringify(ownerPublication)}\n`, 0o600);
+    await lockDownPath(ownerPath, { platform, kind: "file" });
+    const published = await inspectLifecycleLockClaim({
+      fileSystem, lockPath, platform, lockDownPath,
+    });
+    if (
+      published.kind !== "published" ||
+      !sameLifecycleLockPublication(published.publication, ownerPublication) ||
+      !sameLockDirectoryFingerprint(published.directoryFingerprint, directoryFingerprint)
+    ) throw new Error("The local n8n operation lock publication changed.");
+    return published;
+  } catch (error) {
+    if (directoryFingerprint) {
+      await safelyAbandonCreatedLifecycleLock({
+        expectedDirectoryFingerprint: directoryFingerprint,
+        fileSystem,
+        lockPath,
+        ownerPublication,
+      });
+    }
+    throw error;
+  }
+}
+
+async function reclaimStaleArbitrationLock({
+  fileSystem,
+  getProcessIdentity,
+  graceMs,
+  lockPath,
+  now,
+  platform,
+  lockDownPath,
+}) {
+  const initial = await inspectLifecycleLockClaim({
+    fileSystem, lockPath, platform, lockDownPath,
+  });
+  const initialState = await lifecycleLockClaimState(initial, {
+    getProcessIdentity, now, platform, graceMs,
+  });
+  if (initialState !== "stale") return initialState;
+  const quarantinePath = await detachLifecycleLock({ fileSystem, lockPath });
+  if (!quarantinePath) return "changed";
+  try {
+    const detached = await inspectLifecycleLockClaim({
+      fileSystem,
+      lockPath: quarantinePath,
+      platform,
+      lockDownPath,
+    });
+    const detachedState = await lifecycleLockClaimState(detached, {
+      getProcessIdentity, now, platform, graceMs,
+    });
+    if (!claimsMatch(initial, detached) || detachedState !== "stale") {
+      await restoreDetachedLifecycleLock({ fileSystem, lockPath, quarantinePath });
+      return "changed";
+    }
+    await removeDetachedLifecycleLock({
+      fileSystem, claim: detached, quarantinePath, platform, lockDownPath,
+    });
+    return "reclaimed";
+  } catch {
+    await restoreDetachedLifecycleLock({ fileSystem, lockPath, quarantinePath });
+    throw new Error("Relmio could not safely reclaim the local n8n operation arbitration lock.");
+  }
+}
+
+async function acquireLifecycleReclaimLock({
+  fileSystem,
+  getProcessIdentity,
+  graceMs,
+  lockPath,
+  now,
+  platform,
+  selfIdentity,
+  lockDownPath,
+}) {
+  const reclaimPath = join(lockPath, LOCK_RECLAIM_DIRECTORY);
+  const ownerPublication = Object.freeze({
+    schemaVersion: LIFECYCLE_LOCK_SCHEMA_VERSION,
+    pid: process.pid,
+    processStartIdentity: selfIdentity.startIdentity,
+    token: randomUUID(),
+    publishedAtMs: lifecycleLockNow(now),
+  });
+  for (let attempt = 0; attempt < MAX_LIFECYCLE_LOCK_RECLAIM_ATTEMPTS; attempt += 1) {
+    try {
+      await createLifecycleLockDirectory({
+        fileSystem, lockPath: reclaimPath, ownerPublication, platform, lockDownPath,
+      });
+      return Object.freeze({ state: "owned", ownerPublication, reclaimPath });
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw new Error("Relmio could not publish the local n8n operation reclaim claim.");
+      }
+    }
+    const state = await reclaimStaleArbitrationLock({
+      fileSystem,
+      getProcessIdentity,
+      graceMs,
+      lockPath: reclaimPath,
+      now,
+      platform,
+      lockDownPath,
+    });
+    if (state === "reclaimed" || state === "changed") continue;
+    return Object.freeze({ state });
+  }
+  return Object.freeze({ state: "active" });
+}
+
+async function reclaimStaleLifecycleLock({
+  fileSystem,
+  getProcessIdentity,
+  graceMs,
+  lockPath,
+  now,
+  platform,
+  selfIdentity,
+  lockDownPath,
+}) {
+  const initial = await inspectLifecycleLockClaim({
+    fileSystem, lockPath, platform, lockDownPath,
+  });
+  const initialState = await lifecycleLockClaimState(initial, { getProcessIdentity, now, platform, graceMs });
+  if (initialState !== "stale") return initialState;
+  const reclaim = await acquireLifecycleReclaimLock({
+    fileSystem,
+    getProcessIdentity,
+    graceMs,
+    lockPath,
+    now,
+    platform,
+    selfIdentity,
+    lockDownPath,
+  });
+  if (reclaim.state !== "owned") return reclaim.state;
+  let quarantinePath = null;
+  try {
+    const current = await inspectLifecycleLockClaim({
+      fileSystem, lockPath, platform, lockDownPath,
+    });
+    const currentState = await lifecycleLockClaimState(current, {
+      getProcessIdentity, now, platform, graceMs,
+    });
+    if (!staleClaimStillMatches(initial, current, currentState)) {
+      throw new Error("Relmio refuses to reclaim a replaced local n8n operation lock.");
+    }
+    const reclaimClaim = await inspectLifecycleLockClaim({
+      fileSystem,
+      lockPath: reclaim.reclaimPath,
+      platform,
+      lockDownPath,
+    });
+    if (
+      reclaimClaim.kind !== "published" ||
+      !sameLifecycleLockPublication(reclaimClaim.publication, reclaim.ownerPublication)
+    ) throw new Error("Relmio refuses to reclaim without its exact arbitration claim.");
+    quarantinePath = await detachLifecycleLock({ fileSystem, lockPath });
+    if (!quarantinePath) return "changed";
+    const detached = await inspectLifecycleLockClaim({
+      fileSystem, lockPath: quarantinePath, platform, lockDownPath,
+    });
+    const detachedState = await lifecycleLockClaimState(detached, {
+      getProcessIdentity, now, platform, graceMs,
+    });
+    if (!staleClaimStillMatches(initial, detached, detachedState)) {
+      throw new Error("Relmio refuses to reclaim a replaced local n8n operation lock.");
+    }
+    await releaseLifecycleLock({
+      fileSystem,
+      lockPath: join(quarantinePath, LOCK_RECLAIM_DIRECTORY),
+      ownerPublication: reclaim.ownerPublication,
+      platform,
+      lockDownPath,
+    });
+    await removeDetachedLifecycleLock({
+      fileSystem, claim: detached, quarantinePath, platform, lockDownPath,
+    });
+    return "reclaimed";
+  } catch (error) {
+    if (quarantinePath) {
+      await restoreDetachedLifecycleLock({ fileSystem, lockPath, quarantinePath });
+    } else {
+      try {
+        await releaseLifecycleLock({
+          fileSystem,
+          lockPath: reclaim.reclaimPath,
+          ownerPublication: reclaim.ownerPublication,
+          platform,
+          lockDownPath,
+        });
+      } catch { /* A changed arbitration claim must be preserved. */ }
+    }
+    if (error.message.startsWith("Relmio refuses")) throw error;
+    throw new Error("Relmio could not safely reclaim the local n8n operation lock.");
+  }
+}
+
+async function releaseLifecycleLock({
+  fileSystem,
+  lockPath,
+  ownerPublication,
+  platform,
+  lockDownPath,
+}) {
+  const initial = await inspectLifecycleLockClaim({
+    fileSystem, lockPath, platform, lockDownPath,
+  });
+  if (initial.kind !== "published" || !sameLifecycleLockPublication(initial.publication, ownerPublication)) {
+    throw new Error("Relmio refuses to release a replaced local n8n operation lock.");
+  }
+  if (await lstatIfExists(fileSystem, join(lockPath, LOCK_RECLAIM_DIRECTORY))) {
+    throw new Error("Relmio refuses to release a contended local n8n operation lock.");
+  }
+  const quarantinePath = await detachLifecycleLock({ fileSystem, lockPath });
+  if (!quarantinePath) throw new Error("Relmio refuses to release a replaced local n8n operation lock.");
+  try {
+    const detached = await inspectLifecycleLockClaim({
+      fileSystem, lockPath: quarantinePath, platform, lockDownPath,
+    });
+    if (
+      detached.kind !== "published" ||
+      !sameLifecycleLockPublication(detached.publication, ownerPublication) ||
+      !claimsMatch(initial, detached) ||
+      await lstatIfExists(fileSystem, join(quarantinePath, LOCK_RECLAIM_DIRECTORY))
+    ) {
       throw new Error("Relmio refuses to release a replaced local n8n operation lock.");
     }
-    let owner;
-    try { owner = JSON.parse(await fileSystem.readFile(ownerPath, "utf8")); } catch {
-      throw new Error("Relmio refuses to release a replaced local n8n operation lock.");
+    await removeDetachedLifecycleLock({
+      fileSystem, claim: detached, quarantinePath, platform, lockDownPath,
+    });
+  } catch (error) {
+    await restoreDetachedLifecycleLock({ fileSystem, lockPath, quarantinePath });
+    if (error.message.startsWith("Relmio refuses")) throw error;
+    throw new Error("Relmio could not release the local n8n operation lock safely.");
+  }
+}
+
+async function acquireLifecycleLock({
+  fileSystem,
+  getProcessIdentity = getLocalProcessIdentity,
+  installRoot,
+  now = Date.now,
+  platform,
+  lockDownPath = lockDownLocalPath,
+}) {
+  if (typeof getProcessIdentity !== "function" || typeof now !== "function") {
+    throw new TypeError("The local n8n lifecycle lock adapter is invalid.");
+  }
+  const localRoot = await ensureManagedLocalRoot({
+    fileSystem, installRoot, platform, lockDownPath,
+  });
+  const lockPath = join(localRoot, LOCK_DIRECTORY);
+  let selfIdentity;
+  try { selfIdentity = await getProcessIdentity(process.pid, { platform }); } catch { selfIdentity = null; }
+  if (!validateLifecycleLockIdentity(selfIdentity) || selfIdentity.state !== "active") {
+    throw new Error("Relmio could not verify this local n8n operation identity.");
+  }
+  const ownerPublication = Object.freeze({
+    schemaVersion: LIFECYCLE_LOCK_SCHEMA_VERSION,
+    pid: process.pid,
+    processStartIdentity: selfIdentity.startIdentity,
+    token: randomUUID(),
+    publishedAtMs: lifecycleLockNow(now),
+  });
+  for (let attempt = 0; attempt < MAX_LIFECYCLE_LOCK_RECLAIM_ATTEMPTS; attempt += 1) {
+    try {
+      await createLifecycleLockDirectory({
+        fileSystem,
+        lockPath,
+        ownerPublication,
+        platform,
+        lockDownPath,
+      });
+      return async () => releaseLifecycleLock({
+        fileSystem, lockPath, ownerPublication, platform, lockDownPath,
+      });
+    } catch (error) {
+      if (error?.code !== "EEXIST") {
+        throw new Error("Relmio could not acquire the local n8n stack operation lock.");
+      }
     }
-    if (owner?.schemaVersion !== 1 || owner?.token !== ownerToken) {
-      throw new Error("Relmio refuses to release a replaced local n8n operation lock.");
+    let reclaimState;
+    try {
+      reclaimState = await reclaimStaleLifecycleLock({
+        fileSystem,
+        getProcessIdentity,
+        graceMs: LIFECYCLE_LOCK_PUBLICATION_GRACE_MS,
+        lockPath,
+        now,
+        platform,
+        selfIdentity,
+        lockDownPath,
+      });
+    } catch (error) {
+      if (error.message.startsWith("Relmio refuses")) throw error;
+      throw new Error("Relmio could not safely inspect the local n8n operation lock.");
     }
-    await fileSystem.unlink(ownerPath);
-    await fileSystem.rmdir(lockPath);
-  };
+    if (reclaimState === "reclaimed" || reclaimState === "changed") continue;
+    if (reclaimState === "active" || reclaimState === "starting") {
+      throw new Error("Another local n8n stack operation is already running.");
+    }
+    throw new Error("Relmio could not verify the existing local n8n stack operation lock.");
+  }
+  throw new Error("Another local n8n stack operation is already running.");
+}
+
+async function settleLifecycleOperation({ completionLabel, operation, releaseLock }) {
+  let result;
+  let operationError;
+  try { result = await operation(); } catch (error) { operationError = error; }
+
+  let releaseError;
+  try { await releaseLock(); } catch (error) { releaseError = error; }
+
+  if (operationError) {
+    if (releaseError && operationError.cause === undefined) {
+      try {
+        Object.defineProperty(operationError, "cause", {
+          configurable: true,
+          value: releaseError,
+        });
+      } catch { /* Preserve the authoritative operation error unchanged. */ }
+    }
+    throw operationError;
+  }
+  if (releaseError) {
+    throw Object.assign(new Error(
+      `${completionLabel} completed, but Relmio could not release its operation lock. ` +
+      "Restart Relmio before another local n8n stack action, then use the wizard to verify the owned stack.",
+      { cause: releaseError },
+    ), { code: LOCAL_N8N_LIFECYCLE_LOCK_RELEASE_ERROR_CODE });
+  }
+  return result;
 }
 
 function toSanitizedResult(marker) {
@@ -501,6 +1663,9 @@ export async function installLocalN8nStack({
   env = process.env,
   platform = hostPlatform(),
   randomBytes = cryptoRandomBytes,
+  processIdentity = getLocalProcessIdentity,
+  now = Date.now,
+  lockDownPath = lockDownLocalPath,
 } = {}) {
   const safePlan = normalizeLocalN8nStackPlan(plan);
   if (publicExposureConfirmation !== LOCAL_N8N_STACK_PUBLIC_CONFIRMATION) {
@@ -510,36 +1675,155 @@ export async function installLocalN8nStack({
   const dockerHost = await resolveAttestedDockerHost({ runProcess, cwd, env, platform });
   if (dockerHost !== safePlan.dockerHost) throw new Error("The local Docker context changed. Create and confirm a fresh plan.");
   const installRoot = await resolveLocalN8nStackInstallRoot({ env, homeDirectory, fileSystem, platform });
-  const releaseLock = await acquireLifecycleLock({ fileSystem, installRoot });
+  const releaseLock = await acquireLifecycleLock({
+    fileSystem,
+    getProcessIdentity: processIdentity,
+    installRoot,
+    now,
+    platform,
+    lockDownPath,
+  });
   let installation;
   let filesCreated = false;
   let creationAttempted = false;
-  try {
-    installation = createLocalN8nStackInstallation({ plan: safePlan, randomBytes });
-    await createManagedFiles({ fileSystem, installRoot, installation, secrets: safeSecrets, randomBytes });
-    filesCreated = true;
-    await runOrThrow(runProcess, { file: "docker", args: composeArgs(installation.marker, ["config", "--quiet"]), cwd: installRoot, dockerHost }, "Local n8n Compose validation");
-    creationAttempted = true;
-    await runOrThrow(runProcess, { file: "docker", args: composeArgs(installation.marker, ["up", "-d", "--wait", "--wait-timeout", "90"]), cwd: installRoot, dockerHost }, "Local n8n stack creation");
-    await attestOwnedResources({ runProcess, cwd: installRoot, marker: installation.marker });
-    await verifyRunningStack({ runProcess, cwd: installRoot, marker: installation.marker });
-    return toSanitizedResult(installation.marker);
-  } catch (error) {
-    if (creationAttempted) {
+  return settleLifecycleOperation({
+    completionLabel: "Local n8n stack installation",
+    releaseLock,
+    operation: async () => {
       try {
-        await attestOwnedResources({ runProcess, cwd: installRoot, marker: installation.marker, resourcePolicy: "subset" });
-        await runOrThrow(runProcess, { file: "docker", args: composeArgs(installation.marker, ["down", "--volumes", "--remove-orphans"]), cwd: installRoot, dockerHost }, "Owned local n8n rollback");
-        await assertOwnedProjectAbsent({ runProcess, cwd: installRoot, marker: installation.marker });
-        await removeManagedFiles({ fileSystem, installRoot });
-      } catch {
-        throw new Error("Local n8n stack verification failed and ownership-attested rollback could not be confirmed. Do not use the endpoint until its owned state is inspected.");
+        installation = createLocalN8nStackInstallation({ plan: safePlan, randomBytes });
+        await createManagedFiles({
+          fileSystem,
+          installRoot,
+          installation,
+          secrets: safeSecrets,
+          randomBytes,
+          platform,
+          lockDownPath,
+        });
+        filesCreated = true;
+        await runOrThrow(runProcess, { file: "docker", args: composeArgs(installation.marker, ["config", "--quiet"]), cwd: installRoot, dockerHost }, "Local n8n Compose validation");
+        creationAttempted = true;
+        await createStackWithCompose({
+          runProcess,
+          spec: {
+            file: "docker",
+            args: composeArgs(installation.marker, ["up", "-d", "--wait", "--wait-timeout", "90"]),
+            cwd: installRoot,
+            dockerHost,
+          },
+        });
+        try {
+          await attestOwnedResources({ runProcess, cwd: installRoot, marker: installation.marker });
+        } catch {
+          throw createTypedStartupFailure(
+            STACK_STARTUP_FAILURE_KINDS.OWNERSHIP_VERIFICATION,
+            "Relmio could not verify the new stack's complete ownership metadata.",
+          );
+        }
+        await verifyRunningStack({ runProcess, cwd: installRoot, marker: installation.marker });
+        await verifySearxngSearch({
+          runProcess,
+          cwd: installRoot,
+          marker: installation.marker,
+        });
+        return toSanitizedResult(installation.marker);
+      } catch (error) {
+        if (creationAttempted) {
+          const cleanupState = await attemptOwnershipAttestedCleanup({
+            runProcess,
+            cwd: installRoot,
+            marker: installation.marker,
+          });
+          if (cleanupState === "ownership-unconfirmed") {
+            throw new Error("Local n8n stack startup failed and cleanup was not attempted because ownership could not be safely confirmed. Relmio preserved the managed files for inspection; existing n8n deployments were not changed.");
+          }
+          if (cleanupState === "cleanup-unconfirmed") {
+            throw new Error("Local n8n stack startup failed after one ownership-attested cleanup attempt, but the final resource state could not be confirmed. Relmio preserved the managed files for safe inspection; existing n8n deployments were not changed.");
+          }
+          if (cleanupState === "resources-remain") {
+            throw createManagedPartialStackError("Local n8n stack startup failed and a Relmio-managed partial stack remains. Inspect or remove it through Relmio before retrying; existing n8n deployments were not inspected or changed.");
+          }
+          try {
+            await removeManagedFiles({ fileSystem, installRoot });
+          } catch {
+            throw new Error("Local n8n stack startup failed and its owned Docker resources were removed, but Relmio could not remove the managed files. Inspect the managed installation directory before retrying; existing n8n deployments were not changed.");
+          }
+          throw createRetryableStackStartupError(startupFailureKind(error));
+        }
+        if (filesCreated && !creationAttempted) await removeManagedFiles({ fileSystem, installRoot });
+        throw new Error("Local n8n stack installation failed. Existing n8n deployments were not inspected or changed.");
       }
-    }
-    if (filesCreated && !creationAttempted) await removeManagedFiles({ fileSystem, installRoot });
-    throw new Error("Local n8n stack installation failed. Existing n8n deployments were not inspected or changed.");
-  } finally {
-    await releaseLock();
+    },
+  });
+}
+
+export async function resumeLocalN8nStack({
+  confirmed,
+  runProcess = runLocalProcess,
+  fileSystem = defaultFileSystem,
+  homeDirectory = homedir(),
+  cwd = process.cwd(),
+  env = process.env,
+  platform = hostPlatform(),
+  processIdentity = getLocalProcessIdentity,
+  now = Date.now,
+  lockDownPath = lockDownLocalPath,
+} = {}) {
+  if (confirmed !== true) {
+    throw new Error("Confirm resuming the managed local n8n stack.");
   }
+  const installRoot = await resolveLocalN8nStackInstallRoot({ env, homeDirectory, fileSystem, platform });
+  const releaseLock = await acquireLifecycleLock({
+    fileSystem,
+    getProcessIdentity: processIdentity,
+    installRoot,
+    now,
+    platform,
+    lockDownPath,
+  });
+  return settleLifecycleOperation({
+    completionLabel: "Local n8n stack resume",
+    releaseLock,
+    operation: async () => {
+      const marker = await readOwnedMarker({ fileSystem, installRoot });
+      const dockerHost = await resolveAttestedDockerHost({ runProcess, cwd, env, platform });
+      if (dockerHost !== marker.dockerHost) {
+        throw new Error("The local Docker context changed. The owned stack was not started.");
+      }
+      const runtimeState = await classifyOwnedStackRuntime({
+        runProcess,
+        cwd: installRoot,
+        marker,
+      });
+      if (runtimeState !== "stopped") {
+        throw new Error(
+          "Relmio can resume only an exact, ownership-attested stopped local n8n stack. No containers, volumes, or configuration were changed.",
+        );
+      }
+      await runOrThrow(runProcess, {
+        file: "docker",
+        // Compose start acts on the exact existing container names. It never
+        // creates, recreates, or rebuilds a service, and it leaves volumes and
+        // the generated configuration untouched.
+        args: composeArgs(marker, ["start", ...runningStackServiceNames(marker)]),
+        cwd: installRoot,
+        dockerHost,
+      }, "Local n8n stack resume");
+      await attestOwnedResources({
+        runProcess,
+        cwd: installRoot,
+        marker,
+        resourcePolicy: "exact",
+      });
+      await verifyRunningStack({ runProcess, cwd: installRoot, marker });
+      return Object.freeze({
+        target: LOCAL_N8N_STACK_TARGET,
+        resumed: true,
+        deploymentMode: "resumed-owned-disposable-stack",
+      });
+    },
+  });
 }
 
 export async function removeLocalN8nStack({
@@ -550,22 +1834,41 @@ export async function removeLocalN8nStack({
   cwd = process.cwd(),
   env = process.env,
   platform = hostPlatform(),
+  processIdentity = getLocalProcessIdentity,
+  now = Date.now,
+  lockDownPath = lockDownLocalPath,
 } = {}) {
   if (confirmation !== LOCAL_N8N_STACK_REMOVE_CONFIRMATION) {
     throw new Error("Exact removal confirmation is required.");
   }
   const installRoot = await resolveLocalN8nStackInstallRoot({ env, homeDirectory, fileSystem, platform });
-  const releaseLock = await acquireLifecycleLock({ fileSystem, installRoot });
-  try {
-    const marker = await readOwnedMarker({ fileSystem, installRoot });
-    const dockerHost = await resolveAttestedDockerHost({ runProcess, cwd, env, platform });
-    if (dockerHost !== marker.dockerHost) throw new Error("The local Docker context changed. Nothing was removed.");
-    await attestOwnedResources({ runProcess, cwd: installRoot, marker });
-    await runOrThrow(runProcess, { file: "docker", args: composeArgs(marker, ["down", "--volumes", "--remove-orphans"]), cwd: installRoot, dockerHost }, "Owned local n8n removal");
-    await assertOwnedProjectAbsent({ runProcess, cwd: installRoot, marker });
-    await removeManagedFiles({ fileSystem, installRoot });
-    return Object.freeze({ target: LOCAL_N8N_STACK_TARGET, removed: true, deploymentMode: "removed-owned-disposable-stack" });
-  } finally {
-    await releaseLock();
-  }
+  const releaseLock = await acquireLifecycleLock({
+    fileSystem,
+    getProcessIdentity: processIdentity,
+    installRoot,
+    now,
+    platform,
+    lockDownPath,
+  });
+  return settleLifecycleOperation({
+    completionLabel: "Local n8n stack removal",
+    releaseLock,
+    operation: async () => {
+      const marker = await readOwnedMarker({ fileSystem, installRoot });
+      const dockerHost = await resolveAttestedDockerHost({ runProcess, cwd, env, platform });
+      if (dockerHost !== marker.dockerHost) throw new Error("The local Docker context changed. Nothing was removed.");
+      const cleanupState = await attemptOwnershipAttestedCleanup({ runProcess, cwd: installRoot, marker });
+      if (cleanupState === "ownership-unconfirmed") {
+        throw new Error("Local n8n removal was not attempted because ownership could not be safely confirmed. Managed files were preserved and unrelated n8n deployments were not changed.");
+      }
+      if (cleanupState === "cleanup-unconfirmed") {
+        throw new Error("Local n8n removal was attempted once, but the final owned-resource state could not be confirmed. Managed files were preserved for safe inspection.");
+      }
+      if (cleanupState === "resources-remain") {
+        throw createManagedPartialStackError("Relmio-managed local n8n resources remain after one removal attempt. Managed files were preserved so removal can be retried safely.");
+      }
+      await removeManagedFiles({ fileSystem, installRoot });
+      return Object.freeze({ target: LOCAL_N8N_STACK_TARGET, removed: true, deploymentMode: "removed-owned-disposable-stack" });
+    },
+  });
 }

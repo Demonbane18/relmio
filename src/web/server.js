@@ -58,15 +58,24 @@ import {
   discoverLocalN8nSidecarTargets,
   installLocalN8nSidecar,
   removeLocalN8nSidecar,
+  refreshLocalN8nSidecarCredential,
 } from "../services/local-n8n-sidecar-installer.js";
 import {
+  editLocalN8nAssistantSearxng,
   installLocalN8nAssistant,
+  prepareLocalN8nAssistantSearxngUpdate,
   removeLocalN8nAssistant,
 } from "../services/local-n8n-assistant-installer.js";
 import {
+  LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
+  LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
+  LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
+  getLocalN8nStackStatus,
   installLocalN8nStack,
   removeLocalN8nStack,
+  resumeLocalN8nStack,
 } from "../services/local-n8n-stack-installer.js";
+import { validateLocalN8nStackSecrets } from "../templates/local-n8n-stack/index.js";
 import { startCodexDeviceLogin } from "../services/codex-login.js";
 import { createLocalChatTestService } from "../services/local-chat-test.js";
 
@@ -76,6 +85,10 @@ const RATE_LIMIT_MAX = 10;
 const OAUTH_SHUTDOWN_WAIT_MS = 2_000;
 const LOCAL_ROTATION_STAGE_TTL_MS = 2 * 60 * 1000;
 const PACKAGE_VERSION = packageManifest.version;
+const OAUTH_VPS_CONFLICT_MESSAGE =
+  "ChatGPT sign-in is in progress. Wait for it to finish or cancel it before changing the VPS.";
+const VPS_OAUTH_CONFLICT_MESSAGE =
+  "A VPS change is already in progress. Wait for it to finish before starting ChatGPT sign-in.";
 
 async function getProjectMeta({ fetchImpl = fetch } = {}) {
   let stars = null;
@@ -115,18 +128,23 @@ const defaultServices = {
   installAssistant,
   attestLocalCodexInstallation,
   getLocalDockerStatus,
+  getLocalN8nStackStatus,
   discoverLocalN8nSidecarTargets,
   getProjectMeta,
   installLocalEndpoint,
   installLocalN8nSidecar,
   installLocalN8nAssistant,
+  editLocalN8nAssistantSearxng,
   installLocalN8nStack,
+  prepareLocalN8nAssistantSearxngUpdate,
   prepareLocalN8nAssistantPlan: createLocalN8nAssistantPlan,
   prepareLocalN8nSidecarPlan: createLocalN8nSidecarPlan,
   prepareLocalN8nStackPlan: createLocalN8nStackPlan,
   removeLocalN8nAssistant,
   removeLocalN8nSidecar,
   removeLocalN8nStack,
+  refreshLocalN8nSidecarCredential,
+  resumeLocalN8nStack,
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
   prepareLocalClientCredentialRotation,
@@ -334,26 +352,249 @@ function requireConnection(state) {
   return state.connection;
 }
 
+function oauthCredentialChangeInFlight(state) {
+  return (
+    state.oauthLoginStartInFlight ||
+    state.oauthCredentialOperation !== null ||
+    state.oauthLogin?.status === "pending" ||
+    state.oauthRetryBlocked ||
+    state.oauthLogin?.retryBlocked === true
+  );
+}
+
+function rejectActiveOAuthCredentialChange(state) {
+  if (state.oauthRetryBlocked || state.oauthLogin?.retryBlocked === true) {
+    throw Object.assign(
+      new Error(
+        "ChatGPT sign-in could not be confirmed safely. Restart Relmio before changing the VPS.",
+      ),
+      { retryBlocked: true, statusCode: 409 },
+    );
+  }
+  if (oauthCredentialChangeInFlight(state)) {
+    throw Object.assign(new Error(OAUTH_VPS_CONFLICT_MESSAGE), {
+      statusCode: 409,
+    });
+  }
+}
+
+function rejectActiveVpsOwner(state) {
+  if (state.vpsConnectionOperation !== null) {
+    throw Object.assign(
+      new Error("A VPS connection change is already in progress. Wait for it to finish before trying another VPS action."),
+      { statusCode: 409 },
+    );
+  }
+  if (state.vpsMutationInFlight || state.vpsCredentialOperation !== null) {
+    throw Object.assign(
+      new Error(
+        "A VPS installation is already in progress. Wait for it to finish before trying another installation.",
+      ),
+      { statusCode: 409 },
+    );
+  }
+}
+
 function rejectActiveVpsMutation(state) {
   if (state.closing) {
     throw Object.assign(new Error("The local wizard is closing."), {
       statusCode: 409,
     });
   }
-  if (state.vpsMutationInFlight) {
+  rejectActiveVpsOwner(state);
+  rejectActiveOAuthCredentialChange(state);
+}
+
+function advanceVpsLifecycleGeneration(state) {
+  state.vpsLifecycleGeneration += 1;
+  return state.vpsLifecycleGeneration;
+}
+
+function invalidateVpsPlans(state) {
+  state.sidecarPlan = null;
+  state.assistantPlan = null;
+}
+
+function closeVpsConnectionBestEffort(connection) {
+  try {
+    connection?.close?.();
+  } catch {
+    // Shared state is detached first, so a local close failure cannot make the
+    // stale connection or its reviewed plans reusable.
+  }
+}
+
+function detachVpsConnection(
+  state,
+  connection = state.connection,
+  { clearScannedHost = false } = {},
+) {
+  if (state.connection === connection) {
+    state.connection = null;
+    advanceVpsLifecycleGeneration(state);
+    state.discovery = null;
+    state.networksByContainer.clear();
+    invalidateVpsPlans(state);
+    if (clearScannedHost) {
+      state.scannedHost = null;
+    }
+  }
+  closeVpsConnectionBestEffort(connection);
+}
+
+function requireUnchangedVpsSession(state, snapshot) {
+  rejectActiveVpsMutation(state);
+  if (
+    state.connection !== snapshot.connection ||
+    state.vpsLifecycleGeneration !== snapshot.lifecycleGeneration
+  ) {
     throw Object.assign(
-      new Error("A VPS installation is already in progress. Wait for it to finish before trying another installation."),
+      new Error("The VPS session changed while this request was running. Try the VPS action again."),
       { statusCode: 409 },
     );
   }
 }
 
-function acquireVpsMutationLock(state) {
+function beginVpsFingerprintScan(state) {
   rejectActiveVpsMutation(state);
+  const operation = {
+    lifecycleGeneration: state.vpsLifecycleGeneration,
+    scanGeneration: state.vpsFingerprintGeneration + 1,
+    token: Symbol("vps-fingerprint-scan"),
+  };
+  state.vpsFingerprintGeneration = operation.scanGeneration;
+  state.vpsFingerprintOperation = operation;
+  state.scannedHost = null;
+  return operation;
+}
+
+function requireCurrentVpsFingerprintScan(state, operation) {
+  if (
+    state.closing ||
+    state.vpsFingerprintOperation?.token !== operation.token ||
+    state.vpsFingerprintGeneration !== operation.scanGeneration ||
+    state.vpsLifecycleGeneration !== operation.lifecycleGeneration
+  ) {
+    throw Object.assign(
+      new Error("The VPS identity scan changed while this request was running. Check the latest identity result."),
+      { statusCode: 409 },
+    );
+  }
+  rejectActiveVpsMutation(state);
+}
+
+function releaseVpsFingerprintScan(state, operation) {
+  if (state.vpsFingerprintOperation?.token === operation.token) {
+    state.vpsFingerprintOperation = null;
+  }
+}
+
+function acquireVpsConnectionOperation(state) {
+  rejectActiveVpsMutation(state);
+  if (state.vpsFingerprintOperation !== null) {
+    throw Object.assign(
+      new Error("A VPS identity scan is already in progress. Wait for it to finish before connecting."),
+      { statusCode: 409 },
+    );
+  }
+  const operation = {
+    lifecycleGeneration: state.vpsLifecycleGeneration,
+    token: Symbol("vps-connection-operation"),
+  };
+  state.vpsConnectionOperation = operation;
+  return {
+    operation,
+    release() {
+      if (state.vpsConnectionOperation?.token === operation.token) {
+        state.vpsConnectionOperation = null;
+      }
+    },
+  };
+}
+
+function requireCurrentVpsConnectionOperation(state, operation) {
+  if (state.closing) {
+    throw Object.assign(new Error("The local wizard is closing."), {
+      statusCode: 409,
+    });
+  }
+  if (
+    state.vpsConnectionOperation?.token !== operation.token ||
+    state.vpsLifecycleGeneration !== operation.lifecycleGeneration
+  ) {
+    throw Object.assign(
+      new Error("The VPS connection changed while this request was running. Try connecting again."),
+      { statusCode: 409 },
+    );
+  }
+}
+
+function beginOAuthCredentialOperation(state) {
+  if (state.oauthCredentialOperation !== null) {
+    throw Object.assign(
+      new Error("A ChatGPT sign-in start is already in progress."),
+      { statusCode: 409 },
+    );
+  }
+  const operation = {
+    phase: "starting",
+    token: Symbol("oauth-credential-operation"),
+  };
+  state.oauthCredentialOperation = operation;
+  return operation;
+}
+
+function setOAuthCredentialOperationPhase(state, operation, phase) {
+  if (state.oauthCredentialOperation?.token === operation?.token) {
+    operation.phase = phase;
+  }
+}
+
+function releaseOAuthCredentialOperation(state, operation) {
+  if (state.oauthCredentialOperation?.token === operation?.token) {
+    state.oauthCredentialOperation = null;
+  }
+}
+
+function acquireVpsCredentialOperation(state, phase) {
+  rejectActiveVpsMutation(state);
+  const operation = {
+    phase,
+    token: Symbol("vps-credential-operation"),
+  };
+  state.vpsCredentialOperation = operation;
+  return {
+    operation,
+    release() {
+      if (state.vpsCredentialOperation?.token === operation.token) {
+        state.vpsCredentialOperation = null;
+      }
+    },
+  };
+}
+
+function requireCurrentVpsCredentialOperation(state, operation) {
+  if (
+    state.closing ||
+    state.vpsCredentialOperation?.token !== operation.token
+  ) {
+    throw Object.assign(new Error("The local wizard is closing."), {
+      statusCode: 409,
+    });
+  }
+}
+
+function acquireVpsMutationLock(state) {
+  const credentialOperation = acquireVpsCredentialOperation(
+    state,
+    "remote-mutation",
+  );
   const lock = Symbol("vps-mutation");
   let resolveCompletion;
   state.vpsMutationInFlight = true;
   state.vpsMutationLock = lock;
+  advanceVpsLifecycleGeneration(state);
+  invalidateVpsPlans(state);
   state.vpsMutationCompletion = new Promise((resolve) => {
     resolveCompletion = resolve;
   });
@@ -364,12 +605,45 @@ function acquireVpsMutationLock(state) {
       state.vpsMutationCompletion = null;
       resolveCompletion();
     }
+    credentialOperation.release();
   };
+}
+
+function requireVpsPlanAuthStatus(status, message) {
+  if (
+    status?.exists !== true ||
+    typeof status.path !== "string" ||
+    status.path.length === 0 ||
+    typeof status.updatedAt !== "string" ||
+    Number.isNaN(Date.parse(status.updatedAt))
+  ) {
+    throw new Error(message);
+  }
+  return status;
+}
+
+function requireMatchingVpsAuthGeneration(state, plan, status) {
+  const current = requireVpsPlanAuthStatus(
+    status,
+    "The ChatGPT sign-in changed after plan review. Review a fresh sidecar plan before installing.",
+  );
+  if (
+    plan.authUpdatedAt !== current.updatedAt ||
+    plan.authPath !== current.path ||
+    plan.oauthCredentialGeneration !== state.oauthCredentialGeneration
+  ) {
+    throw new Error(
+      "The ChatGPT sign-in changed after plan review. Review a fresh sidecar plan before installing.",
+    );
+  }
+  return current;
 }
 
 function requireReviewedVpsPlan(plan, body, label) {
   if (
     !plan ||
+    typeof plan.planId !== "string" ||
+    !tokenMatches(body.planId, plan.planId) ||
     plan.containerName !== body.containerName ||
     plan.networkName !== body.networkName
   ) {
@@ -485,6 +759,7 @@ async function cancelOAuthLogin(state, login) {
   if (state.oauthLogin === login && login.status === "pending") {
     login.status = "cancelled";
   }
+  releaseOAuthCredentialOperation(state, login.credentialOperation);
 }
 
 async function loadDefaultUiFiles() {
@@ -652,7 +927,18 @@ function getPendingLocalCredentialRotation(state) {
   return state.localCredentialRotationPending;
 }
 
-function createSafeDockerStatus(status, previewMode) {
+const SAFE_LOCAL_N8N_STACK_STATES = new Set([
+  "healthy",
+  "stopped",
+  "partial",
+  "unavailable",
+]);
+
+function createSafeDockerStatus(
+  status,
+  previewMode,
+  localN8nStackState = null,
+) {
   if (previewMode || status?.dockerAvailable !== true) {
     return {
       dockerAvailable: false,
@@ -666,6 +952,9 @@ function createSafeDockerStatus(status, previewMode) {
     dockerAvailable: true,
     dockerVersion: status.dockerVersion,
     composeVersion: status.composeVersion,
+    ...(SAFE_LOCAL_N8N_STACK_STATES.has(localN8nStackState)
+      ? { localN8nStackState }
+      : {}),
   };
 }
 
@@ -915,7 +1204,14 @@ function createSafeLocalN8nStackRemovalResult(result) {
   };
 }
 
-function requireSafeAssistantUrl(value, prefix) {
+function invalidAssistantInstallResult(label) {
+  return Object.assign(
+    new Error(`The ${label} returned an invalid result.`),
+    { statusCode: 502 },
+  );
+}
+
+function requireSafeAssistantUrl(value, prefix, label) {
   if (
     typeof value !== "string" ||
     !new RegExp(
@@ -923,56 +1219,169 @@ function requireSafeAssistantUrl(value, prefix) {
       "u",
     ).test(value)
   ) {
-    throw Object.assign(
-      new Error("The local n8n Assistant returned an invalid private URL."),
-      { statusCode: 502 },
-    );
+    throw invalidAssistantInstallResult(label);
   }
   return value;
 }
 
-function createSafeLocalN8nAssistantInstallResult(result) {
-  const sandboxUrl = requireSafeAssistantUrl(
-    result?.sandboxUrl ?? result?.endpoint,
-    "relmio-ai-sandbox",
-  );
-  const includeSearxng = result?.includeSearxng === true;
-  const searxngUrl = includeSearxng
-    ? requireSafeAssistantUrl(result?.searxngUrl, "relmio-ai-searxng")
-    : undefined;
-  const sandboxApiKey = result?.sandboxApiKey;
-  const settings = result?.n8nSettings;
+function requireExactAssistantSettings({
+  settings,
+  sandboxUrl,
+  sandboxApiKey,
+  includeSearxng,
+  searxngUrl,
+  label,
+}) {
   const expectedSettings = {
-    N8N_ENABLED_MODULES: "instance-ai",
     N8N_INSTANCE_AI_SANDBOX_ENABLED: "true",
     N8N_INSTANCE_AI_SANDBOX_PROVIDER: "n8n-sandbox",
     N8N_INSTANCE_AI_SANDBOX_IMAGE: ASSISTANT_COMPANION_IMAGES.sandbox,
     N8N_SANDBOX_SERVICE_URL: sandboxUrl,
-    N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey,
+    ...(sandboxApiKey === null
+      ? {}
+      : { N8N_SANDBOX_SERVICE_API_KEY: sandboxApiKey }),
     ...(includeSearxng
       ? { N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl }
       : {}),
   };
+  const expectedNames = Object.keys(expectedSettings);
   if (
-    result?.target !== LOCAL_N8N_ASSISTANT_TARGET ||
-    result.protocol !== "n8n-instance-ai-companion" ||
-    typeof sandboxApiKey !== "string" ||
-    !/^[A-Za-z0-9_-]{43}$/u.test(sandboxApiKey) ||
     !settings ||
     typeof settings !== "object" ||
     Array.isArray(settings) ||
-    JSON.stringify(settings) !== JSON.stringify(expectedSettings) ||
+    Object.keys(settings).length !== expectedNames.length ||
+    expectedNames.some(
+      (name) =>
+        !Object.hasOwn(settings, name) ||
+        settings[name] !== expectedSettings[name],
+    )
+  ) {
+    throw invalidAssistantInstallResult(label);
+  }
+  return expectedSettings;
+}
+
+function createSafeAssistantInstallResult(result, reviewedPlan) {
+  const label = "VPS AI Assistant";
+  const sandboxUrl = requireSafeAssistantUrl(
+    result?.sandboxUrl,
+    "relmio-ai-sandbox",
+    label,
+  );
+  const includeSearxng = result?.includeSearxng;
+  const deploymentMode = result?.deploymentMode;
+  const sandboxApiKey = result?.sandboxApiKey;
+  if (
+    typeof includeSearxng !== "boolean" ||
+    includeSearxng !== reviewedPlan?.includeSearxng ||
+    !["installed", "updated"].includes(deploymentMode) ||
+    (sandboxApiKey !== null &&
+      (typeof sandboxApiKey !== "string" ||
+        !/^[A-Za-z0-9_-]{43}$/u.test(sandboxApiKey))) ||
+    (deploymentMode === "installed" && sandboxApiKey === null)
+  ) {
+    throw invalidAssistantInstallResult(label);
+  }
+  const searxngUrl = includeSearxng
+    ? requireSafeAssistantUrl(
+        result?.searxngUrl,
+        "relmio-ai-searxng",
+        label,
+      )
+    : undefined;
+  if (!includeSearxng && Object.hasOwn(result, "searxngUrl")) {
+    throw invalidAssistantInstallResult(label);
+  }
+  const n8nSettings = requireExactAssistantSettings({
+    settings: result?.n8nSettings,
+    sandboxUrl,
+    sandboxApiKey,
+    includeSearxng,
+    searxngUrl,
+    label,
+  });
+  return {
+    sandboxUrl,
+    sandboxApiKey,
+    includeSearxng,
+    ...(includeSearxng ? { searxngUrl } : {}),
+    n8nSettings,
+    deploymentMode,
+  };
+}
+
+function createSafeLocalN8nStackResumeResult(result) {
+  if (
+    result?.target !== LOCAL_N8N_STACK_TARGET ||
+    result.resumed !== true ||
+    result.deploymentMode !== "resumed-owned-disposable-stack"
+  ) {
+    throw Object.assign(new Error("The local n8n stack resume result is invalid."), {
+      statusCode: 502,
+    });
+  }
+  return {
+    target: LOCAL_N8N_STACK_TARGET,
+    resumed: true,
+    deploymentMode: result.deploymentMode,
+  };
+}
+
+function createSafeLocalN8nAssistantInstallResult(result, reviewedPlan) {
+  const label = "local n8n Assistant";
+  const sandboxUrl = requireSafeAssistantUrl(
+    result?.sandboxUrl,
+    "relmio-ai-sandbox",
+    label,
+  );
+  const includeSearxng = result?.includeSearxng;
+  const searxngUrl = includeSearxng
+    ? requireSafeAssistantUrl(
+        result?.searxngUrl,
+        "relmio-ai-searxng",
+        label,
+      )
+    : undefined;
+  const sandboxApiKey = result?.sandboxApiKey;
+  if (
+    result?.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    result.protocol !== "n8n-instance-ai-companion" ||
+    result.endpoint !== sandboxUrl ||
+    typeof includeSearxng !== "boolean" ||
+    includeSearxng !== reviewedPlan?.includeSearxng ||
+    (!includeSearxng && Object.hasOwn(result, "searxngUrl")) ||
+    typeof sandboxApiKey !== "string" ||
+    !/^[A-Za-z0-9_-]{43}$/u.test(sandboxApiKey) ||
     result.deploymentMode !== "installed" ||
     result.hostPublication !== "none" ||
     result.privilegedRunner !== true ||
     result.n8nConfigurationRequired !== true ||
     result.credentialShownOnce !== true
   ) {
-    throw Object.assign(
-      new Error("The local n8n Assistant returned an invalid result."),
-      { statusCode: 502 },
-    );
+    throw invalidAssistantInstallResult(label);
   }
+  const networkName = requireSafeDockerName(
+    result.networkName,
+    "Assistant network name",
+  );
+  const n8nContainerName = requireSafeDockerName(
+    result.n8nContainerName,
+    "n8n container name",
+  );
+  if (
+    networkName !== reviewedPlan?.networkName ||
+    n8nContainerName !== reviewedPlan?.n8nContainerName
+  ) {
+    throw invalidAssistantInstallResult(label);
+  }
+  const n8nSettings = requireExactAssistantSettings({
+    settings: result.n8nSettings,
+    sandboxUrl,
+    sandboxApiKey,
+    includeSearxng,
+    searxngUrl,
+    label,
+  });
   return {
     target: result.target,
     endpoint: sandboxUrl,
@@ -981,18 +1390,12 @@ function createSafeLocalN8nAssistantInstallResult(result) {
     ...(includeSearxng ? { searxngUrl } : {}),
     protocol: result.protocol,
     includeSearxng,
-    networkName: requireSafeDockerName(
-      result.networkName,
-      "Assistant network name",
-    ),
-    n8nContainerName: requireSafeDockerName(
-      result.n8nContainerName,
-      "n8n container name",
-    ),
+    networkName,
+    n8nContainerName,
     hostPublication: "none",
     privilegedRunner: true,
     n8nConfigurationRequired: true,
-    n8nSettings: expectedSettings,
+    n8nSettings,
     deploymentMode: "installed",
     credentialShownOnce: true,
   };
@@ -1009,6 +1412,153 @@ function createSafeLocalN8nAssistantRemovalResult(result) {
     );
   }
   return { target: LOCAL_N8N_ASSISTANT_TARGET, removed: true };
+}
+
+function createSafeLocalN8nSidecarRefreshResult(result) {
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    result.target !== LOCAL_N8N_SIDECAR_TARGET ||
+    result.credentialRefreshed !== true ||
+    result.hostPublication !== "none" ||
+    !Array.isArray(result.models) ||
+    result.models.some(
+      (model) =>
+        typeof model !== "string" ||
+        model.length === 0 ||
+        model.length > 128 ||
+        !/^[A-Za-z0-9_.:-]+$/u.test(model),
+    )
+  ) {
+    throw Object.assign(
+      new Error("The local n8n bridge refresh returned an invalid result."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: LOCAL_N8N_SIDECAR_TARGET,
+    credentialRefreshed: true,
+    models: [...result.models],
+    hostPublication: "none",
+  };
+}
+
+function createSafeLocalN8nAssistantSearxngReview(review, reviewId) {
+  const plan = review?.plan;
+  const installation = review?.installation;
+  const sandboxUrl = `http://${installation?.sandboxAlias}:8080`;
+  const searxngUrl = `http://${installation?.searxngAlias}:8080`;
+  if (
+    !review ||
+    typeof review !== "object" ||
+    Array.isArray(review) ||
+    review.schemaVersion !== 1 ||
+    review.kind !== "relmio-local-n8n-assistant-searxng-update" ||
+    review.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    review.includeSearxng !== true ||
+    review.sandboxApiKeyRotated !== false ||
+    !plan ||
+    typeof plan !== "object" ||
+    Array.isArray(plan) ||
+    plan.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    plan.includeSearxng !== false ||
+    plan.hostPublication !== "none" ||
+    plan.n8nConfigurationRequired !== true ||
+    !installation ||
+    typeof installation !== "object" ||
+    Array.isArray(installation) ||
+    installation.includeSearxng !== false
+  ) {
+    throw Object.assign(
+      new Error("The local n8n Assistant edit review is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    reviewId: requireSafeDisplayValue(reviewId, "Assistant edit review ID", 128),
+    target: LOCAL_N8N_ASSISTANT_TARGET,
+    includeSearxng: true,
+    sandboxApiKeyRotated: false,
+    sandboxUrl: requireSafeAssistantUrl(
+      sandboxUrl,
+      "relmio-ai-sandbox",
+      "local n8n Assistant edit",
+    ),
+    searxngUrl: requireSafeAssistantUrl(
+      searxngUrl,
+      "relmio-ai-searxng",
+      "local n8n Assistant edit",
+    ),
+    n8nContainerName: requireSafeDockerName(
+      plan.n8nContainerName,
+      "n8n container name",
+    ),
+    networkName: requireSafeDockerName(plan.networkName, "Docker network name"),
+    hostPublication: "none",
+    n8nConfigurationRequired: true,
+  };
+}
+
+function createSafeLocalN8nAssistantSearxngEditResult(result) {
+  const label = "local n8n Assistant SearXNG edit";
+  const sandboxUrl = requireSafeAssistantUrl(
+    result?.sandboxUrl,
+    "relmio-ai-sandbox",
+    label,
+  );
+  const searxngUrl = requireSafeAssistantUrl(
+    result?.searxngUrl,
+    "relmio-ai-searxng",
+    label,
+  );
+  const expectedSettings = {
+    N8N_INSTANCE_AI_SEARXNG_URL: searxngUrl,
+  };
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    result.target !== LOCAL_N8N_ASSISTANT_TARGET ||
+    result.endpoint !== sandboxUrl ||
+    result.protocol !== "n8n-instance-ai-companion" ||
+    result.includeSearxng !== true ||
+    result.hostPublication !== "none" ||
+    result.privilegedRunner !== true ||
+    result.n8nConfigurationRequired !== true ||
+    result.deploymentMode !== "searxng-enabled" ||
+    result.sandboxApiKeyRotated !== false ||
+    Object.hasOwn(result, "sandboxApiKey") ||
+    !result.n8nSettings ||
+    typeof result.n8nSettings !== "object" ||
+    Array.isArray(result.n8nSettings) ||
+    Object.keys(result.n8nSettings).length !== 1 ||
+    result.n8nSettings.N8N_INSTANCE_AI_SEARXNG_URL !== searxngUrl
+  ) {
+    throw Object.assign(
+      new Error("The local n8n Assistant SearXNG edit returned an invalid result."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: LOCAL_N8N_ASSISTANT_TARGET,
+    endpoint: sandboxUrl,
+    sandboxUrl,
+    searxngUrl,
+    protocol: "n8n-instance-ai-companion",
+    includeSearxng: true,
+    networkName: requireSafeDockerName(result.networkName, "Assistant network name"),
+    n8nContainerName: requireSafeDockerName(
+      result.n8nContainerName,
+      "n8n container name",
+    ),
+    hostPublication: "none",
+    privilegedRunner: true,
+    n8nConfigurationRequired: true,
+    n8nSettings: expectedSettings,
+    deploymentMode: "searxng-enabled",
+    sandboxApiKeyRotated: false,
+  };
 }
 
 function createSafeLocalN8nInstallResult(result) {
@@ -1081,9 +1631,7 @@ function requireLiveLocalAction(state, action) {
 }
 
 function localOAuthChangeInFlight(state) {
-  return (
-    state.oauthLoginStartInFlight || state.oauthLogin?.status === "pending"
-  );
+  return oauthCredentialChangeInFlight(state);
 }
 
 function requireReadyLocalChatTester(state) {
@@ -1130,10 +1678,33 @@ async function handleApi(request, response, path, state) {
     const status = state.previewMode
       ? null
       : await state.services.getLocalDockerStatus();
+    let localN8nStackState = null;
+    if (!state.previewMode && status?.dockerAvailable === true) {
+      try {
+        const managedStatus = await state.services.getLocalN8nStackStatus();
+        if (
+          managedStatus?.managed === true &&
+          ["healthy", "stopped", "partial"].includes(managedStatus.state)
+        ) {
+          localN8nStackState = managedStatus.state;
+        } else if (
+          managedStatus?.managed === false &&
+          managedStatus.state === "unavailable"
+        ) {
+          localN8nStackState = "unavailable";
+        }
+      } catch {
+        // Docker readiness remains useful when managed-stack detection fails closed.
+      }
+    }
     sendJson(
       response,
       200,
-      createSafeDockerStatus(status, state.previewMode),
+      createSafeDockerStatus(
+        status,
+        state.previewMode,
+        localN8nStackState,
+      ),
     );
     return;
   }
@@ -1202,6 +1773,15 @@ async function handleApi(request, response, path, state) {
         { statusCode: 409 },
       );
     }
+    if (
+      state.vpsMutationInFlight ||
+      state.vpsCredentialOperation !== null ||
+      state.vpsConnectionOperation !== null
+    ) {
+      throw Object.assign(new Error(VPS_OAUTH_CONFLICT_MESSAGE), {
+        statusCode: 409,
+      });
+    }
     if (state.oauthRetryBlocked || state.oauthLogin?.retryBlocked === true) {
       throw Object.assign(
         new Error(
@@ -1221,9 +1801,16 @@ async function handleApi(request, response, path, state) {
     state.oauthStartupError = null;
     let startAttempted = false;
     let startPromise;
+    let credentialOperation;
+    let operationTransferred = false;
     try {
       const previousLogin = state.oauthLogin;
       if (previousLogin?.status === "pending") {
+        setOAuthCredentialOperationPhase(
+          state,
+          previousLogin.credentialOperation,
+          "cancelling-for-replacement",
+        );
         await cancelOAuthLogin(state, previousLogin);
       }
 
@@ -1239,6 +1826,7 @@ async function handleApi(request, response, path, state) {
       ) {
         state.oauthLogin = null;
       }
+      credentialOperation = beginOAuthCredentialOperation(state);
       startAttempted = true;
       startPromise = Promise.resolve(state.services.startOAuthLogin());
       state.oauthLoginStartPromise = startPromise;
@@ -1249,34 +1837,47 @@ async function handleApi(request, response, path, state) {
         error: null,
         retryBlocked: false,
         status: "pending",
+        credentialOperation,
       };
       state.oauthLogin = login;
-      attempt.completion.then(
-        () => {
-          if (
-            state.oauthLogin === login &&
-            login.status === "pending" &&
-            !state.closing
-          ) {
-            login.status = "success";
-          }
-        },
-        (error) => {
-          if (
-            state.oauthLogin === login &&
-            login.status === "pending" &&
-            !state.closing
-          ) {
-            login.status = "error";
-            login.error = safeErrorMessage(error);
-            if (error?.retryBlocked === true) {
-              login.retryBlocked = true;
-              state.oauthRetryBlocked = true;
-              state.oauthStartupError = login.error;
-            }
-          }
-        },
+      operationTransferred = true;
+      setOAuthCredentialOperationPhase(
+        state,
+        credentialOperation,
+        "pending-or-committing",
       );
+      void Promise.resolve(attempt.completion)
+        .then(
+          () => {
+            if (
+              state.oauthLogin === login &&
+              login.status === "pending" &&
+              !state.closing
+            ) {
+              state.oauthCredentialGeneration += 1;
+              state.sidecarPlan = null;
+              login.status = "success";
+            }
+          },
+          (error) => {
+            if (
+              state.oauthLogin === login &&
+              login.status === "pending" &&
+              !state.closing
+            ) {
+              login.status = "error";
+              login.error = safeErrorMessage(error);
+              if (error?.retryBlocked === true) {
+                login.retryBlocked = true;
+                state.oauthRetryBlocked = true;
+                state.oauthStartupError = login.error;
+              }
+            }
+          },
+        )
+        .finally(() => {
+          releaseOAuthCredentialOperation(state, credentialOperation);
+        });
       if (state.closing) {
         try {
           await cancelOAuthLogin(state, login);
@@ -1300,6 +1901,9 @@ async function handleApi(request, response, path, state) {
       if (error?.retryBlocked === true) {
         state.oauthRetryBlocked = true;
         state.oauthStartupError = message;
+      }
+      if (!operationTransferred) {
+        releaseOAuthCredentialOperation(state, credentialOperation);
       }
       throw error;
     } finally {
@@ -1532,9 +2136,29 @@ async function handleApi(request, response, path, state) {
         );
       }
 
+      let localN8nStackSecrets;
+      if (pending.plan.kind === "local-n8n-stack") {
+        if (body.confirmed !== true) {
+          throw Object.assign(
+            new Error("Confirm the reviewed local n8n + ngrok plan before installing."),
+            { retryablePlan: true },
+          );
+        }
+        try {
+          localN8nStackSecrets = validateLocalN8nStackSecrets({
+            ngrokAuthtoken: body.ngrokAuthtoken,
+            basicAuthUsername: body.basicAuthUsername,
+            basicAuthPassword: body.basicAuthPassword,
+          });
+        } catch (error) {
+          throw Object.assign(error, { retryablePlan: true });
+        }
+      }
+
       state.localInstallInFlight = true;
       acquiredInstallLock = true;
       state.localPlan = null;
+      state.localAssistantSearxngReview = null;
       state.localInstalledTarget = null;
       let result;
       if (pending.plan.kind === "n8n-sidecar") {
@@ -1559,18 +2183,23 @@ async function handleApi(request, response, path, state) {
           confirmed: body.confirmed,
         });
       } else if (pending.plan.kind === "local-n8n-stack") {
-        if (body.confirmed !== true) {
-          throw new Error("Confirm the reviewed local n8n + ngrok plan before installing.");
+        try {
+          result = await state.services.installLocalN8nStack({
+            plan: pending.plan,
+            secrets: localN8nStackSecrets,
+            publicExposureConfirmation: LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
+          });
+        } catch (error) {
+          if (error?.code === LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE) {
+            // The service only emits this code after ownership-attested
+            // cleanup proves that no owned Docker resources remain. Restore
+            // the server-side, non-secret reviewed plan so the user can
+            // retry the classified startup failure without redoing the form.
+            state.localPlan = pending;
+            throw Object.assign(error, { retryablePlan: true });
+          }
+          throw error;
         }
-        result = await state.services.installLocalN8nStack({
-          plan: pending.plan,
-          secrets: {
-            ngrokAuthtoken: body.ngrokAuthtoken,
-            basicAuthUsername: body.basicAuthUsername,
-            basicAuthPassword: body.basicAuthPassword,
-          },
-          publicExposureConfirmation: LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
-        });
       } else {
         result = await state.services.installLocalEndpoint({
           plan: pending.plan,
@@ -1588,7 +2217,7 @@ async function handleApi(request, response, path, state) {
           : pending.plan.kind === "n8n-sidecar"
           ? createSafeLocalN8nInstallResult(result)
           : pending.plan.kind === "n8n-assistant"
-            ? createSafeLocalN8nAssistantInstallResult(result)
+            ? createSafeLocalN8nAssistantInstallResult(result, pending.plan)
             : createSafeLocalInstallResult(result),
       );
     } finally {
@@ -1599,6 +2228,138 @@ async function handleApi(request, response, path, state) {
       body.ngrokAuthtoken = undefined;
       body.basicAuthUsername = undefined;
       body.basicAuthPassword = undefined;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/sidecar/refresh") {
+    requireLiveLocalAction(state, "Local n8n bridge credential refresh");
+    enforceRateLimit(state, path);
+    if (body?.confirmed !== true) {
+      throw new Error(
+        "Confirm applying the new ChatGPT sign-in to the managed local n8n bridge.",
+      );
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+
+    // Claim the shared in-process mutation slot before the asynchronous sign-in
+    // lookup so a credential change cannot race a sidecar re-attestation.
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    try {
+      const authStatus = await state.services.getAuthStatus();
+      if (authStatus?.exists !== true || typeof authStatus.path !== "string") {
+        throw new Error(
+          "Complete ChatGPT sign-in before applying it to the managed local n8n bridge.",
+        );
+      }
+      const result = await state.services.refreshLocalN8nSidecarCredential({
+        authPath: authStatus.path,
+        confirmed: true,
+      });
+      sendJson(response, 200, createSafeLocalN8nSidecarRefreshResult(result));
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/assistant/searxng/review") {
+    requireLiveLocalAction(state, "Local n8n Assistant SearXNG review");
+    enforceRateLimit(state, path);
+    if (body?.includeSearxng !== true) {
+      throw new Error("This edit can only enable optional SearXNG web search.");
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    // Preparing the review performs asynchronous Docker/file attestation. Hold the
+    // shared slot for that whole snapshot so another local change cannot make the
+    // review stale while it is being assembled.
+    state.localInstallInFlight = true;
+    state.localAssistantSearxngReview = null;
+    try {
+      const review = await state.services.prepareLocalN8nAssistantSearxngUpdate({
+        includeSearxng: true,
+      });
+      const reviewId = randomUUID();
+      const safeReview = createSafeLocalN8nAssistantSearxngReview(review, reviewId);
+      state.localAssistantSearxngReview = { reviewId, review };
+      sendJson(response, 200, safeReview);
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/assistant/searxng/enable") {
+    requireLiveLocalAction(state, "Local n8n Assistant SearXNG enablement");
+    enforceRateLimit(state, path);
+    if (body?.confirmed !== true) {
+      throw new Error(
+        "Confirm enabling SearXNG web search for the reviewed managed local n8n Assistant tools.",
+      );
+    }
+    const pending = state.localAssistantSearxngReview;
+    if (!pending || !tokenMatches(body.reviewId, pending.reviewId)) {
+      throw new Error(
+        "Review the managed local n8n Assistant SearXNG change before enabling it.",
+      );
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+
+    // Claim the same mutation slot used by local install/removal/resume before
+    // the first awaited service call. The review is consumed on any attempt.
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    try {
+      const result = await state.services.editLocalN8nAssistantSearxng({
+        review: pending.review,
+        confirmed: true,
+      });
+      sendJson(
+        response,
+        200,
+        createSafeLocalN8nAssistantSearxngEditResult(result),
+      );
+    } finally {
+      state.localInstallInFlight = false;
     }
     return;
   }
@@ -1624,12 +2385,46 @@ async function handleApi(request, response, path, state) {
     }
     state.localInstallInFlight = true;
     state.localPlan = null;
+    state.localAssistantSearxngReview = null;
     state.localInstalledTarget = null;
     try {
       const result = await state.services.removeLocalN8nSidecar({
         confirmed: true,
       });
       sendJson(response, 200, createSafeLocalN8nRemovalResult(result));
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/n8n/stack/resume") {
+    requireLiveLocalAction(state, "Local n8n + ngrok resume");
+    enforceRateLimit(state, path);
+    if (body?.confirmed !== true) {
+      throw new Error("Confirm resuming the managed local n8n + ngrok stack.");
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(new Error("A local endpoint change is already in progress."), {
+        statusCode: 409,
+      });
+    }
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    state.localInstalledTarget = null;
+    try {
+      const result = await state.services.resumeLocalN8nStack({
+        confirmed: true,
+      });
+      sendJson(response, 200, createSafeLocalN8nStackResumeResult(result));
     } finally {
       state.localInstallInFlight = false;
     }
@@ -1656,6 +2451,7 @@ async function handleApi(request, response, path, state) {
     }
     state.localInstallInFlight = true;
     state.localPlan = null;
+    state.localAssistantSearxngReview = null;
     state.localInstalledTarget = null;
     try {
       const result = await state.services.removeLocalN8nStack({
@@ -1689,6 +2485,7 @@ async function handleApi(request, response, path, state) {
     }
     state.localInstallInFlight = true;
     state.localPlan = null;
+    state.localAssistantSearxngReview = null;
     state.localInstalledTarget = null;
     try {
       const result = await state.services.removeLocalN8nAssistant({
@@ -1910,42 +2707,59 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/ssh/fingerprint") {
-    rejectActiveVpsMutation(state);
     enforceRateLimit(state, path);
     const host = validateHostname(body.host);
     const port = validatePort(body.port);
-    const fingerprint = await state.services.scanHostFingerprint({
-      host,
-      port,
-    });
-    rejectActiveVpsMutation(state);
-    state.scannedHost = { host, port, fingerprint };
-    sendJson(response, 200, { fingerprint });
+    const scanOperation = beginVpsFingerprintScan(state);
+    try {
+      const fingerprint = await state.services.scanHostFingerprint({
+        host,
+        port,
+      });
+      requireCurrentVpsFingerprintScan(state, scanOperation);
+      state.scannedHost = {
+        host,
+        port,
+        fingerprint,
+        scanGeneration: scanOperation.scanGeneration,
+      };
+      sendJson(response, 200, { fingerprint });
+    } finally {
+      releaseVpsFingerprintScan(state, scanOperation);
+    }
     return;
   }
 
   if (path === "/api/ssh/connect") {
-    rejectActiveVpsMutation(state);
-    enforceRateLimit(state, path);
-    const host = validateHostname(body.host);
-    const port = validatePort(body.port);
-    const scannedHost = state.scannedHost;
-    if (
-      !scannedHost ||
-      scannedHost.host !== host ||
-      scannedHost.port !== port ||
-      !tokenMatches(body.expectedFingerprint, scannedHost.fingerprint)
-    ) {
-      throw new Error(
-        "The VPS identity confirmation is missing or no longer matches. Check it again.",
-      );
-    }
-
-    state.connection?.close();
-    state.connection = null;
-
+    let connectionOperation;
     let candidateConnection = null;
     try {
+      rejectActiveVpsMutation(state);
+      enforceRateLimit(state, path);
+      const host = validateHostname(body.host);
+      const port = validatePort(body.port);
+      const scannedHost = state.scannedHost;
+      if (
+        !scannedHost ||
+        scannedHost.host !== host ||
+        scannedHost.port !== port ||
+        !tokenMatches(body.expectedFingerprint, scannedHost.fingerprint)
+      ) {
+        throw new Error(
+          "The VPS identity confirmation is missing or no longer matches. Check it again.",
+        );
+      }
+
+      connectionOperation = acquireVpsConnectionOperation(state);
+      const previousConnection = state.connection;
+      state.connection = null;
+      connectionOperation.operation.lifecycleGeneration =
+        advanceVpsLifecycleGeneration(state);
+      state.discovery = null;
+      state.networksByContainer.clear();
+      invalidateVpsPlans(state);
+      closeVpsConnectionBestEffort(previousConnection);
+
       candidateConnection = await state.services.connectVerified({
         host,
         port,
@@ -1954,32 +2768,37 @@ async function handleApi(request, response, path, state) {
         agent: body.useAgent ? process.env.SSH_AUTH_SOCK : undefined,
         expectedFingerprint: scannedHost.fingerprint,
       });
-      rejectActiveVpsMutation(state);
+      requireCurrentVpsConnectionOperation(
+        state,
+        connectionOperation.operation,
+      );
+      if (state.scannedHost !== scannedHost) {
+        throw Object.assign(
+          new Error("The VPS identity scan changed before the connection was ready. Check it again."),
+          { statusCode: 409 },
+        );
+      }
       state.connection = candidateConnection;
       candidateConnection = null;
+      state.scannedHost = null;
+      sendJson(response, 200, { connected: true });
     } finally {
       body.password = undefined;
-      try {
-        candidateConnection?.close();
-      } catch {
-        // A stale connection must never become the shared VPS connection.
-      }
+      closeVpsConnectionBestEffort(candidateConnection);
+      connectionOperation?.release();
     }
-
-    state.scannedHost = null;
-    state.discovery = null;
-    state.networksByContainer.clear();
-    state.sidecarPlan = null;
-    state.assistantPlan = null;
-    sendJson(response, 200, { connected: true });
     return;
   }
 
   if (path === "/api/discover") {
     rejectActiveVpsMutation(state);
     const connection = requireConnection(state);
+    const sessionSnapshot = {
+      connection,
+      lifecycleGeneration: state.vpsLifecycleGeneration,
+    };
     const discovery = await state.services.discoverN8n(connection);
-    rejectActiveVpsMutation(state);
+    requireUnchangedVpsSession(state, sessionSnapshot);
     state.discovery = discovery;
     state.networksByContainer.clear();
     state.sidecarPlan = null;
@@ -1991,12 +2810,16 @@ async function handleApi(request, response, path, state) {
   if (path === "/api/networks") {
     rejectActiveVpsMutation(state);
     const connection = requireConnection(state);
+    const sessionSnapshot = {
+      connection,
+      lifecycleGeneration: state.vpsLifecycleGeneration,
+    };
     requireDiscoveredContainer(state, body.containerName);
     const networks = await state.services.discoverNetworks(
       connection,
       body.containerName,
     );
-    rejectActiveVpsMutation(state);
+    requireUnchangedVpsSession(state, sessionSnapshot);
     state.networksByContainer.set(body.containerName, networks);
     state.sidecarPlan = null;
     state.assistantPlan = null;
@@ -2011,19 +2834,41 @@ async function handleApi(request, response, path, state) {
       body.containerName,
       body.networkName,
     );
-    state.sidecarPlan = {
-      containerName: body.containerName,
-      networkName: body.networkName,
-    };
-    sendJson(response, 200, {
-      installDirectory: "/docker/n8n-openai-oauth",
-      sidecarProject: "n8n-openai-oauth",
-      endpointHostname: SIDECAR_HOSTNAME,
-      networkName: body.networkName,
-      existingN8nChanges: [],
-      existingN8nRestarts: 0,
-      publishedPorts: [],
-    });
+    const credentialOperation = acquireVpsCredentialOperation(
+      state,
+      "plan-snapshot",
+    );
+    state.sidecarPlan = null;
+    try {
+      const authStatus = requireVpsPlanAuthStatus(
+        await state.services.getAuthStatus(),
+        "Sign in with ChatGPT before reviewing this sidecar plan.",
+      );
+      requireCurrentVpsCredentialOperation(
+        state,
+        credentialOperation.operation,
+      );
+      state.sidecarPlan = {
+        planId: randomUUID(),
+        containerName: body.containerName,
+        networkName: body.networkName,
+        authPath: authStatus.path,
+        authUpdatedAt: authStatus.updatedAt,
+        oauthCredentialGeneration: state.oauthCredentialGeneration,
+      };
+      sendJson(response, 200, {
+        planId: state.sidecarPlan.planId,
+        installDirectory: "/docker/n8n-openai-oauth",
+        sidecarProject: "n8n-openai-oauth",
+        endpointHostname: SIDECAR_HOSTNAME,
+        networkName: body.networkName,
+        existingN8nChanges: [],
+        existingN8nRestarts: 0,
+        publishedPorts: [],
+      });
+    } finally {
+      credentialOperation.release();
+    }
     return;
   }
 
@@ -2037,12 +2882,14 @@ async function handleApi(request, response, path, state) {
     );
     const instanceAi = requireEnabledInstanceAi(state, body.containerName);
     state.assistantPlan = {
+      planId: randomUUID(),
       containerName: body.containerName,
       networkName: body.networkName,
       includeSearxng,
       instanceAi,
     };
     sendJson(response, 200, {
+      planId: state.assistantPlan.planId,
       installDirectory: ASSISTANT_ROOT,
       companionProject: "generated ownership-bound project after confirmation",
       sandboxUrl: "generated after verified installation",
@@ -2064,12 +2911,13 @@ async function handleApi(request, response, path, state) {
     rejectActiveVpsMutation(state);
     enforceRateLimit(state, path);
     const includeSearxng = requireAssistantSearxngSelection(body.includeSearxng);
+    const reviewedPlan = state.assistantPlan;
+    requireReviewedVpsPlan(reviewedPlan, body, "AI Assistant");
     requireDiscoveredNetwork(
       state,
       body.containerName,
       body.networkName,
     );
-    const reviewedPlan = state.assistantPlan;
     requireReviewedAssistantPlan(state, reviewedPlan, body);
     const connection = requireConnection(state);
     state.assistantPlan = null;
@@ -2086,16 +2934,14 @@ async function handleApi(request, response, path, state) {
         confirmed: body.confirmed,
         includeSearxng,
       });
-      sendJson(response, 200, result);
+      sendJson(
+        response,
+        200,
+        createSafeAssistantInstallResult(result, reviewedPlan),
+      );
     } finally {
-      try {
-        connection.close();
-        if (state.connection === connection) {
-          state.connection = null;
-        }
-      } finally {
-        releaseVpsMutationLock();
-      }
+      detachVpsConnection(state, connection);
+      releaseVpsMutationLock();
     }
     return;
   }
@@ -2103,24 +2949,32 @@ async function handleApi(request, response, path, state) {
   if (path === "/api/install") {
     rejectActiveVpsMutation(state);
     enforceRateLimit(state, path);
+    const reviewedPlan = state.sidecarPlan;
+    requireReviewedVpsPlan(reviewedPlan, body, "sidecar");
     requireDiscoveredNetwork(
       state,
       body.containerName,
       body.networkName,
     );
-    requireReviewedVpsPlan(state.sidecarPlan, body, "sidecar");
     const connection = requireConnection(state);
     state.sidecarPlan = null;
     const releaseVpsMutationLock = acquireVpsMutationLock(state);
     let result;
+    let authContents;
     try {
-      const authStatus = await state.services.getAuthStatus();
-      if (!authStatus.exists) {
-        throw new Error("Sign in with ChatGPT before installing.");
-      }
-      const authContents = await state.services.readAuthContents({
+      const authStatus = requireMatchingVpsAuthGeneration(
+        state,
+        reviewedPlan,
+        await state.services.getAuthStatus(),
+      );
+      authContents = await state.services.readAuthContents({
         authPath: authStatus.path,
       });
+      requireMatchingVpsAuthGeneration(
+        state,
+        reviewedPlan,
+        await state.services.getAuthStatus(),
+      );
       result = await state.services.installSidecar({
         remote: connection,
         networkName: body.networkName,
@@ -2128,14 +2982,9 @@ async function handleApi(request, response, path, state) {
         confirmed: body.confirmed,
       });
     } finally {
-      try {
-        connection.close();
-        if (state.connection === connection) {
-          state.connection = null;
-        }
-      } finally {
-        releaseVpsMutationLock();
-      }
+      authContents = null;
+      detachVpsConnection(state, connection);
+      releaseVpsMutationLock();
     }
 
     sendJson(response, 200, result);
@@ -2144,10 +2993,7 @@ async function handleApi(request, response, path, state) {
 
   if (path === "/api/disconnect") {
     rejectActiveVpsMutation(state);
-    state.connection?.close();
-    state.connection = null;
-    state.sidecarPlan = null;
-    state.assistantPlan = null;
+    detachVpsConnection(state, state.connection, { clearScannedHost: true });
     sendJson(response, 200, { disconnected: true });
     return;
   }
@@ -2195,9 +3041,22 @@ function createRequestHandler(state) {
       response.end(contents);
     } catch (error) {
       if (!response.headersSent) {
+        const managedPartialStack =
+          error?.code === LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE;
+        const retryableStackStartup =
+          error?.code === LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE;
+        const retryableNgrokSetup =
+          retryableStackStartup &&
+          error?.failureKind ===
+            LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND;
         sendJson(response, error.statusCode ?? 400, {
-          error: safeErrorMessage(error),
+          error: managedPartialStack
+            ? "Relmio confirmed that its owned partial local n8n + ngrok stack remains. Use the explicit removal control to retry cleanup safely."
+            : safeErrorMessage(error),
           ...(error.retryBlocked === true ? { retryBlocked: true } : {}),
+          ...(error.retryablePlan === true ? { retryablePlan: true } : {}),
+          ...(retryableNgrokSetup ? { retryableNgrokSetup: true } : {}),
+          ...(managedPartialStack ? { managedPartialStack: true } : {}),
         });
       } else {
         response.end();
@@ -2229,6 +3088,10 @@ export async function startWizardServer({
     origin: "http://127.0.0.1",
     connection: null,
     scannedHost: null,
+    vpsFingerprintGeneration: 0,
+    vpsFingerprintOperation: null,
+    vpsConnectionOperation: null,
+    vpsLifecycleGeneration: 0,
     discovery: null,
     networksByContainer: new Map(),
     sidecarPlan: null,
@@ -2236,12 +3099,16 @@ export async function startWizardServer({
     vpsMutationInFlight: false,
     vpsMutationLock: null,
     vpsMutationCompletion: null,
+    vpsCredentialOperation: null,
     oauthLogin: null,
     oauthRetryBlocked: false,
     oauthStartupError: null,
     oauthLoginStartInFlight: false,
     oauthLoginStartPromise: null,
+    oauthCredentialOperation: null,
+    oauthCredentialGeneration: 0,
     localPlan: null,
+    localAssistantSearxngReview: null,
     localInstalledTarget: null,
     localInstallInFlight: false,
     localCredentialRotationInFlight: false,
@@ -2300,8 +3167,9 @@ export async function startWizardServer({
         state.oauthShutdownWaitMs,
       );
       if (vpsMutationFinished) {
-        state.connection?.close();
-        state.connection = null;
+        detachVpsConnection(state, state.connection, {
+          clearScannedHost: true,
+        });
       }
       await waitForBoundedResult(serverClose, state.oauthShutdownWaitMs);
     },

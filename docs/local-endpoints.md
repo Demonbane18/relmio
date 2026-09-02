@@ -37,9 +37,9 @@ until you rotate it.
 
 ## Requirements
 
-- macOS, Linux, or Linux under WSL2. Native Windows is not supported because
-  this release depends on POSIX owner-only directory and file permissions for
-  local credentials.
+- Native Windows with Docker Desktop's `desktop-linux` engine, macOS, Linux,
+  or Linux under WSL2. Relmio verifies an owner-only NTFS DACL before writing
+  Windows credentials; POSIX hosts retain owner-only modes.
 - Docker Engine or Docker Desktop with Docker Compose v2 on the local computer
 - For a loopback endpoint, a free local port (`12435` for OpenAI API, `14500`
   for native Codex, or `14501` for the Codex Chat Adapter by default)
@@ -91,8 +91,8 @@ project on the local computer.
    “Shown once” describes the wizard display; the bearer remains valid until
    you update the endpoint to rotate it.
 7. If you selected Codex, complete the device-code sign-in shown by the wizard.
-   If you selected Assistant tools, copy the one-time sandbox key and complete
-   n8n environment block before leaving the result screen.
+   If you selected Assistant tools, copy the one-time sandbox key and returned
+   companion-settings block before leaving the result screen.
 
 Relmio will not overwrite an unmanaged directory or follow a symlink. Its
 local files live under:
@@ -121,7 +121,10 @@ from another checkout or user's resources on the same Docker Engine.
 
 The n8n bridge installs only a new `openai-oauth` sidecar. Before it writes,
 Relmio checks the selected n8n container, Docker network, local Docker socket,
-and current OAuth credential again. It stops if the alias conflicts or those
+and current OAuth credential again. The selected network must report the exact
+Docker boolean `Internal: false`; an internal network cannot reach OpenAI,
+SearXNG, or the sandbox runner, so Relmio asks you to choose a non-internal
+network and review a fresh plan. It stops if the alias conflicts or those
 values changed.
 
 The generated Compose project contains no `ports` mapping, Traefik label, or
@@ -144,10 +147,22 @@ available through `127.0.0.1`, the host LAN, or ngrok. This option does not
 install n8n AI Assistant's Code Sandbox or SearXNG, and it does not configure an
 Assistant model-provider credential. Those remain separate, explicit choices.
 
-The n8n bridge is create/remove-only in this release. Relmio refuses an
-in-place reinstall so a failed refresh cannot tear down a previously working
-bridge or its private OAuth volume. Use the Ready screen's separately confirmed
-**Remove bridge** action, then prepare and approve a fresh plan.
+Relmio refuses an in-place reinstall. A separately confirmed credential refresh
+re-reads the protected host credential, re-attests the exact marker, n8n
+container, network, owned sidecar volume, and sidecar service. It freezes the
+exact owned sidecar while making a validated quiesce snapshot, proves the same
+container ID stopped, then promotes a distinct rollback snapshot before it
+seeds the volume and recreates only `openai-oauth`. It never restarts,
+recreates, or configures n8n. Docker engines without the required Linux
+container freezer fail closed without a stop fallback. If refresh or rollback
+cannot be verified, Relmio preserves the journal evidence rather than guessing
+or attempting to recover a credential from Docker.
+
+Bridge and Assistant actions use a private lifecycle lock tied to the local
+process creation identity, not merely a reusable PID. A stale interrupted lock
+may be reclaimed only after a bounded publication grace and a nested arbitration
+claim; active, ambiguous, malformed, replaced, symbolic-link, or ownership-
+uncertain locks remain blocked for safe inspection.
 
 ## n8n AI Assistant tools
 
@@ -166,11 +181,10 @@ n8n. It verifies the owned resource set, exact running services, sandbox
 health, zero host publication, and optional SearXNG JSON response before it
 reports success.
 
-The result screen returns an environment block shaped like this, using the
-generated private URL and one-time key from that installation:
+The result screen returns an exact companion-settings block shaped like this,
+using the generated private URL and one-time key from that installation:
 
 ```text
-N8N_ENABLED_MODULES=instance-ai
 N8N_INSTANCE_AI_SANDBOX_ENABLED=true
 N8N_INSTANCE_AI_SANDBOX_PROVIDER=n8n-sandbox
 N8N_INSTANCE_AI_SANDBOX_IMAGE=<immutable Relmio-reviewed sandbox image>
@@ -179,10 +193,11 @@ N8N_SANDBOX_SERVICE_API_KEY=<shown once>
 N8N_INSTANCE_AI_SEARXNG_URL=http://relmio-ai-searxng-<generated-id>:8080
 ```
 
-The final SearXNG line is present only when web search was selected. If
-`N8N_ENABLED_MODULES` already contains other modules, preserve them and merge
-`instance-ai` as a comma-delimited entry instead of replacing the existing
-value. Apply these values and restart n8n through your own deployment workflow;
+The final SearXNG line is present only when web search was selected. This apply
+block deliberately excludes `N8N_ENABLED_MODULES`. Preserve its existing value
+and ensure it continues to include `instance-ai`; never replace unknown module
+entries with the companion block. Apply only the returned values and restart
+n8n through your own deployment workflow;
 Relmio does not change or restart n8n. Configure the AI model provider and its
 credential directly in n8n.
 
@@ -598,9 +613,10 @@ directory for the target you verified through your file manager.
   client or keep the Chat Adapter bearer in a local backend.
 - **Codex reports signed out:** repeat the device-code sign-in in the local
   wizard. Never copy a Codex credential file between users.
-- **Native Windows:** this local Docker feature is unsupported. Run Relmio in a
-  POSIX environment such as WSL2, or use macOS/Linux; do not weaken credential
-  permissions to force an install.
+- **Native Windows security check failed:** select Docker Desktop's
+  `desktop-linux` context and retry. Relmio must be able to create and read back
+  a protected current-account-only NTFS DACL; it makes no Docker change when
+  that check fails. WSL2 remains a supported fallback.
 
 ## Official sources and account terms
 

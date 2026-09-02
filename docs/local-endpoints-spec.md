@@ -140,8 +140,8 @@ The local installer starts with five provider cards:
 - Result:
   - Stable generated sandbox URL and one-time sandbox API key
   - Optional stable generated SearXNG URL
-  - Exact n8n environment block for `instance-ai`, sandbox provider/image,
-    sandbox URL/key, and optional SearXNG URL
+  - Exact companion-settings block for the sandbox provider/image, sandbox
+    URL/key, and optional SearXNG URL
   - Host publication: none
 - The review states that the runner is privileged for local testing, Daytona is
   recommended for production, and Relmio will not change or restart n8n.
@@ -149,10 +149,12 @@ The local installer starts with five provider cards:
 All five flows show a review screen and require a final confirmation before any
 filesystem or Docker write.
 
-This release supports macOS, Linux, and Linux under WSL2. Native Windows is
-unsupported because its filesystem permission model does not provide the POSIX
-owner-only protection this installer requires. The UI and documentation must
-say so, and the installer must reject native Windows before any write.
+This release supports native Windows with Docker Desktop's attested
+`desktop-linux` engine, macOS, Linux, and Linux under WSL2. Before a Windows
+secret or managed artifact is written, the installer creates a protected,
+inheritable NTFS DACL for the current account and reads it back exactly. A
+failed ACL check rejects the install before any Docker mutation. POSIX hosts
+continue to require owner-only modes.
 
 ## Wizard API contract
 
@@ -259,7 +261,11 @@ For `n8n-ai-assistant`, no provider credential is accepted. The installer
 re-attests the selected n8n/network, starts only its generated owned companion
 project, verifies exact services, sandbox health, no host publication, and
 optional SearXNG JSON, then returns only the one-time sandbox key and exact n8n
-settings. It never applies those settings or restarts n8n.
+companion settings. That strict allowlist includes the sandbox enabled flag,
+provider, immutable image, URL, matching returned key, and optional matching
+SearXNG URL. It excludes `N8N_ENABLED_MODULES`; the operator must preserve the
+existing value and ensure it continues to include `instance-ai`. The installer
+never applies those settings or restarts n8n.
 
 Only one installation may execute in a wizard process at a time. A concurrent
 attempt receives `409` without consuming its reviewed plan. The in-flight lock
@@ -484,17 +490,24 @@ Controls:
 - No local command targets the n8n container lifecycle. The sidecar flow may
   inspect the reviewed n8n container/network and target only its own managed
   `n8n-openai-oauth` Compose project.
-- The n8n bridge is create/remove-only in this release. A second install
-  refuses the existing managed marker before Docker mutation; the user must
-  separately confirm **Remove bridge** and then approve a fresh plan.
+- The n8n bridge refuses a second install against an existing managed marker.
+  A separately confirmed credential refresh re-attests the marker, exact n8n
+  container/network, owned sidecar service, and credential volume, then seeds
+  only that volume and recreates only `openai-oauth`. It never targets n8n;
+  failed verification preserves owned evidence and fails closed.
 - Assistant tools are also create/remove-only. A second install refuses the
   existing marker; removal requires its own confirmation and exact ownership
   attestation.
 - Local port availability is checked before a new install or a port change.
 - Upstream credentials are cleared from request objects after installation
   completes or fails.
-- Native Windows is rejected before filesystem or Docker writes because the
-  required POSIX owner-only modes cannot be enforced there.
+- Native Windows accepts only Docker Desktop's exact local Linux-engine named
+  pipe and `desktop-linux` context. Managed roots use a protected,
+  current-account-only NTFS DACL verified by readback before secrets or Docker
+  mutations; other platforms retain owner-only POSIX modes.
+- Sidecar and Assistant selected networks must report Docker `Internal: false`
+  before any managed write, while their generated services remain subject to
+  exact zero-host-publication verification.
 
 ## Container hardening
 

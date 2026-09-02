@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import test from "node:test";
+
+const execFileAsync = promisify(execFile);
 
 const expectedRoutes = [
   "getting-started",
@@ -35,6 +47,22 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
   assert.match(generator, /CHANGELOG\.md/u);
   assert.match(generated, /export const changelogContent/u);
   assert.match(renderedDocumentation, /## \[0\.10\.0\] - 2026-08-31/u);
+  assert.match(
+    renderedDocumentation,
+    /Native Windows with Docker Desktop's `desktop-linux` engine/u,
+  );
+  assert.match(
+    renderedDocumentation,
+    /separately confirmed credential refresh[\s\S]*freezer fail closed without a stop fallback/u,
+  );
+  assert.doesNotMatch(
+    renderedDocumentation,
+    /Native Windows is not supported/u,
+  );
+  assert.doesNotMatch(
+    renderedDocumentation,
+    /The n8n bridge is create\/remove-only in this release/u,
+  );
   assert.match(renderedDocumentation, /N8N_ENABLED_MODULES=instance-ai/u);
   assert.match(
     renderedDocumentation,
@@ -46,10 +74,62 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
   );
   assert.match(
     renderedDocumentation,
-    /will not edit the existing n8n Compose file,\s+image, or environment;[\s\S]*restart or recreate n8n; or exec into n8n/u,
+    /will not edit the existing\s+n8n Compose file,\s+image, or environment;[\s\S]*restart or recreate n8n; or\s+exec into n8n/u,
   );
   assert.match(generator, /--check/u);
   assert.doesNotMatch(generator, /readFile\([^)]*README\.md/u);
+});
+
+test("normalizes generated Markdown content to LF across host checkouts", async () => {
+  const fixtureRoot = await mkdtemp(join(tmpdir(), "relmio-docs-generation-"));
+
+  try {
+    const generatorPath = join(fixtureRoot, "web", "scripts", "generate-docs.mjs");
+    const sourceGenerator = await readFile(
+      new URL("../scripts/generate-docs.mjs", import.meta.url),
+      "utf8",
+    );
+    await mkdir(dirname(generatorPath), { recursive: true });
+    await mkdir(join(fixtureRoot, "docs"), { recursive: true });
+    await writeFile(generatorPath, sourceGenerator, "utf8");
+    await Promise.all(
+      [
+        "getting-started.md",
+        "local-endpoints.md",
+        "local-n8n-stack.md",
+        "vps-and-n8n.md",
+        "ai-assistant.md",
+        "troubleshooting.md",
+        "faq.md",
+        "security.md",
+        "reference.md",
+      ].map((documentName) =>
+        writeFile(
+          join(fixtureRoot, "docs", documentName),
+          `# ${documentName}\r\n\r\nSee [Getting started](./getting-started.md).\r\n`,
+          "utf8",
+        ),
+      ),
+    );
+    await writeFile(
+      join(fixtureRoot, "CHANGELOG.md"),
+      "# Changelog\r\n\r\n- Fixture entry\r\n",
+      "utf8",
+    );
+
+    await execFileAsync(process.execPath, [generatorPath]);
+    const generated = await readFile(
+      join(fixtureRoot, "web", "app", "docs", "generated-content.ts"),
+      "utf8",
+    );
+
+    assert.match(generated, /# getting-started\.md\\n\\n/u);
+    assert.match(generated, /# Changelog\\n\\n/u);
+    assert.doesNotMatch(generated, /\\r/u);
+    await execFileAsync(process.execPath, [generatorPath, "--check"]);
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
 });
 
 test("renders a responsive, safe documentation route with project controls", async () => {

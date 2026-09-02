@@ -10,9 +10,10 @@ ChatGPT/Codex sign-in or uses the OAuth sidecar.
 ## What the wizard changes
 
 For n8n on the same computer, start the standard local wizard and choose
-**n8n AI Assistant tools**. Direct local Docker-socket discovery works on
-macOS, Linux, and Linux under WSL2. Relmio records the selected n8n container,
-network, and SearXNG choice, then creates only
+**n8n AI Assistant tools**. Direct local Docker-socket discovery works on native
+Windows with Docker Desktop's `desktop-linux` engine, macOS, Linux, and Linux
+under WSL2. Relmio records the selected n8n container, network, and SearXNG
+choice, then creates only
 `~/.relmio/local/n8n-ai-assistant` after you confirm.
 
 For an SSH-reachable host, run `relmio assistant`. After SSH host-key
@@ -92,11 +93,15 @@ provider-specific UI path. Apply the change to the existing n8n service, then
 redeploy or restart n8n, verify that n8n is healthy, reconnect to Relmio, and
 run discovery again before reviewing a new plan.
 
-The direct local wizard instead returns the complete required environment block
-after it verifies the companion stack. You apply that block through your own
-n8n deployment workflow. Relmio will not edit the existing n8n Compose file,
-image, or environment;
-restart or recreate n8n; or exec into n8n to make this prerequisite change.
+After either wizard verifies the companion stack, it returns an exact
+companion-settings block containing only the sandbox enabled flag, provider,
+immutable sandbox image, private sandbox URL, a sandbox API key when a new key
+was returned, and the optional private SearXNG URL. The apply block deliberately
+excludes `N8N_ENABLED_MODULES`: preserve its existing value and ensure it
+continues to include `instance-ai`. Apply only the returned companion settings
+through your own n8n deployment workflow. Relmio will not edit the existing
+n8n Compose file, image, or environment; restart or recreate n8n; or
+exec into n8n to make this prerequisite change.
 It reports only the allowlisted status, never the raw environment value. Plan
 for at least **4 GB RAM** and **2 vCPU** for the n8n and companion workload;
 capacity needs can be higher for real workflows.
@@ -107,8 +112,11 @@ Relmio generates four separate local 256-bit secrets: the sandbox API key,
 runner registration token, runner API key, and SearXNG secret. It uploads the
 secrets only in the managed mode-0600 `.env` file on the SSH path and writes
 them only to that same owned file on the direct local path. The registration, runner,
-and SearXNG secrets are never returned or logged. The sandbox API key is shown
-once in the local result view. Even with web search disabled, the private
+and SearXNG secrets are never returned or logged. A newly generated sandbox API
+key is shown once in the result view. When a managed SSH update intentionally
+keeps the existing sandbox credentials, the result returns no sandbox key,
+omits `N8N_SANDBOX_SERVICE_API_KEY` from the companion-settings block, and tells
+the operator to retain the original key. Even with web search disabled, the private
 SearXNG secret remains in that `.env`: this lets a later reviewed opt-in start
 only the new SearXNG service without overwriting the running sandbox/runner
 credentials. No SearXNG service, settings file, alias probe, URL, or host port

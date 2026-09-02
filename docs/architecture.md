@@ -100,9 +100,11 @@ ownership-labeled sandbox project, verifies the exact running service set and
 zero host publication, and returns the n8n environment block without applying
 it. n8n lifecycle and configuration remain operator-owned.
 
-The local endpoint installer supports macOS, Linux, and Linux under WSL2.
-Native Windows is rejected before filesystem or Docker mutation because this
-release relies on owner-only POSIX modes for managed credentials.
+The local endpoint installer supports native Windows with Docker Desktop,
+macOS, Linux, and Linux under WSL2. Windows accepts only the attested
+`desktop-linux` named pipe and protects managed credentials with a verified,
+inheritable current-account-only NTFS DACL. POSIX hosts retain owner-only
+modes. Either permission check fails before Docker mutation.
 
 ## Why this integration is possible
 
