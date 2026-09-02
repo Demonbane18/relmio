@@ -1,0 +1,19 @@
+name: Hotfix CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - "hotfix/**"
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    if: ${{ github.event_name == 'push' || startsWith(github.head_ref, 'hotfix/') }}
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read

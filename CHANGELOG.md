@@ -7,6 +7,12 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- Give the first local n8n + ngrok start enough time to pull images and pass
+  health checks, and explain image-download versus startup-wait failures
+  without exposing Docker output or credentials.
+
 ## [0.12.0] - 2026-09-02
 
 ### Added

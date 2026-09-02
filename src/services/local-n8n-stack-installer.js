@@ -49,6 +49,9 @@ export const LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE = "LOCAL_N8N_STACK_RET
 export const LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND = "ngrok-setup-rejected";
 const STACK_STARTUP_FAILURE_KINDS = Object.freeze({
   STACK_CREATION: "stack-creation",
+  STACK_STARTUP_WAIT: "stack-startup-wait",
+  STACK_IMAGE_PULL: "stack-image-pull",
+  STACK_BIND_MOUNT: "stack-bind-mount",
   OWNERSHIP_VERIFICATION: "ownership-verification",
   STACK_RUNTIME_VERIFICATION: "stack-runtime-verification",
   N8N_VERIFICATION: "n8n-verification",
@@ -57,6 +60,9 @@ const STACK_STARTUP_FAILURE_KINDS = Object.freeze({
   ASSISTANT_VERIFICATION: "assistant-verification",
   SEARXNG_SEARCH_VERIFICATION: "searxng-search-verification",
 });
+export const LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS = 180;
+export const LOCAL_N8N_STACK_COMPOSE_PULL_TIMEOUT_MS = 540_000;
+export const LOCAL_N8N_STACK_COMPOSE_UP_TIMEOUT_MS = 360_000;
 export const LOCAL_N8N_STACK_STATUS_STATES = Object.freeze([
   "absent",
   "healthy",
@@ -420,26 +426,68 @@ function hasNgrokSetupRejectionEvidence(result) {
   return codes.some((code) => NGROK_SETUP_REJECTION_CODES.has(code));
 }
 
+function composeFailureOutput(result, error) {
+  return [result?.stdout, result?.stderr, error instanceof Error ? error.message : ""]
+    .filter((value) => typeof value === "string" && value)
+    .join("\n");
+}
+
+function classifyStackCreationFailure(result, error) {
+  if (hasNgrokSetupRejectionEvidence(result)) {
+    return STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED;
+  }
+  const output = composeFailureOutput(result, error);
+  if (
+    /\bwait[- ]timeout\b/iu.test(output) ||
+    /\btimed out waiting\b/iu.test(output) ||
+    /\bcontext deadline exceeded\b/iu.test(output) ||
+    /The local Docker process timed out\./u.test(output)
+  ) {
+    return STACK_STARTUP_FAILURE_KINDS.STACK_STARTUP_WAIT;
+  }
+  if (
+    /\bpull access denied\b/iu.test(output) ||
+    /\bmanifest unknown\b/iu.test(output) ||
+    /\bno matching manifest\b/iu.test(output) ||
+    /\bfailed to resolve reference\b/iu.test(output)
+  ) {
+    return STACK_STARTUP_FAILURE_KINDS.STACK_IMAGE_PULL;
+  }
+  if (
+    /\berror while creating mount source path\b/iu.test(output) ||
+    /\binvalid mount config\b/iu.test(output)
+  ) {
+    return STACK_STARTUP_FAILURE_KINDS.STACK_BIND_MOUNT;
+  }
+  return STACK_STARTUP_FAILURE_KINDS.STACK_CREATION;
+}
+
+function stackCreationFailureMessage(failureKind) {
+  switch (failureKind) {
+    case STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED:
+      return "ngrok rejected the reviewed setup.";
+    case STACK_STARTUP_FAILURE_KINDS.STACK_STARTUP_WAIT:
+      return "The new n8n stack did not become ready in time.";
+    case STACK_STARTUP_FAILURE_KINDS.STACK_IMAGE_PULL:
+      return "Docker could not download a required n8n stack image.";
+    case STACK_STARTUP_FAILURE_KINDS.STACK_BIND_MOUNT:
+      return "Docker could not read Relmio's managed n8n files.";
+    default:
+      return "Docker could not create the new n8n stack.";
+  }
+}
+
 async function createStackWithCompose({ runProcess, spec }) {
   let result;
   try {
     result = await runProcess(spec);
-  } catch {
-    throw createTypedStartupFailure(
-      STACK_STARTUP_FAILURE_KINDS.STACK_CREATION,
-      "Docker could not create the new n8n stack.",
-    );
+  } catch (error) {
+    const failureKind = classifyStackCreationFailure(undefined, error);
+    throw createTypedStartupFailure(failureKind, stackCreationFailureMessage(failureKind));
   }
   if (result?.code === 0) return result;
-  const failureKind = hasNgrokSetupRejectionEvidence(result)
-    ? STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED
-    : STACK_STARTUP_FAILURE_KINDS.STACK_CREATION;
-  throw createTypedStartupFailure(
-    failureKind,
-    failureKind === STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED
-      ? "ngrok rejected the reviewed setup."
-      : "Docker could not create the new n8n stack.",
-  );
+  const failureKind = classifyStackCreationFailure(result);
+  throw createTypedStartupFailure(failureKind, stackCreationFailureMessage(failureKind));
 }
 
 function retryableStartupMessage(failureKind) {
@@ -448,6 +496,12 @@ function retryableStartupMessage(failureKind) {
       return "The n8n + ngrok stack did not start because ngrok rejected its account, endpoint, or credential setup. Check the reserved hostname, active agent authtoken, and Basic Auth. Relmio removed the failed owned resources; retry is safe.";
     case STACK_STARTUP_FAILURE_KINDS.STACK_CREATION:
       return "Docker could not create the new n8n stack. Relmio removed the failed owned resources. Check Docker image availability and local service startup, then retry.";
+    case STACK_STARTUP_FAILURE_KINDS.STACK_STARTUP_WAIT:
+      return "The new n8n stack did not become ready in time. Relmio removed the incomplete owned resources. The first start can take several minutes while Docker images download and n8n initializes; keep Docker Desktop running and retry.";
+    case STACK_STARTUP_FAILURE_KINDS.STACK_IMAGE_PULL:
+      return "Docker could not download a required n8n, ngrok, Code Sandbox, or SearXNG image. Relmio removed the failed owned resources. Check network access to Docker Hub and ghcr.io, then retry.";
+    case STACK_STARTUP_FAILURE_KINDS.STACK_BIND_MOUNT:
+      return "Docker could not read Relmio's managed n8n files. Relmio removed the failed owned resources. Confirm Docker Desktop can access your user profile, then retry.";
     case STACK_STARTUP_FAILURE_KINDS.OWNERSHIP_VERIFICATION:
       return "Relmio could not verify the new stack's complete ownership metadata. Relmio removed the failed owned resources; retry is safe.";
     case STACK_STARTUP_FAILURE_KINDS.N8N_VERIFICATION:
@@ -1708,9 +1762,26 @@ export async function installLocalN8nStack({
           runProcess,
           spec: {
             file: "docker",
-            args: composeArgs(installation.marker, ["up", "-d", "--wait", "--wait-timeout", "90"]),
+            args: composeArgs(installation.marker, ["pull"]),
             cwd: installRoot,
             dockerHost,
+            timeoutMs: LOCAL_N8N_STACK_COMPOSE_PULL_TIMEOUT_MS,
+          },
+        });
+        await createStackWithCompose({
+          runProcess,
+          spec: {
+            file: "docker",
+            args: composeArgs(installation.marker, [
+              "up",
+              "-d",
+              "--wait",
+              "--wait-timeout",
+              String(LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS),
+            ]),
+            cwd: installRoot,
+            dockerHost,
+            timeoutMs: LOCAL_N8N_STACK_COMPOSE_UP_TIMEOUT_MS,
           },
         });
         try {
