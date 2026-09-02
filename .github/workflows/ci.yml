@@ -17,7 +17,6 @@ jobs:
     name: Quality and release metadata
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: ${{ github.event_name == 'workflow_call' || ((github.event_name != 'pull_request' || !startsWith(github.head_ref, 'hotfix/')) && (github.event_name != 'push' || !startsWith(github.ref_name, 'hotfix/'))) }}
 
     steps:
       - name: Check out the repository
@@ -53,7 +52,6 @@ jobs:
     name: Hosted web quality
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: ${{ github.event_name == 'workflow_call' || ((github.event_name != 'pull_request' || !startsWith(github.head_ref, 'hotfix/')) && (github.event_name != 'push' || !startsWith(github.ref_name, 'hotfix/'))) }}
     defaults:
       run:
         working-directory: web
@@ -98,7 +96,6 @@ jobs:
     name: Native Windows bootstrap
     runs-on: windows-latest
     timeout-minutes: 10
-    if: ${{ github.event_name == 'workflow_call' || ((github.event_name != 'pull_request' || !startsWith(github.head_ref, 'hotfix/')) && (github.event_name != 'push' || !startsWith(github.ref_name, 'hotfix/'))) }}
 
     steps:
       - name: Check out the repository
