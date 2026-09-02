@@ -1792,7 +1792,10 @@ test("fresh endpoint root initialization rolls back after Windows ACL setup fail
   const home = await createTestHome(t);
   const env = { RELMIO_HOME: join(home, ".relmio") };
   const relmioHome = env.RELMIO_HOME;
-  const runner = createRunner();
+  const runner = createRunner({
+    contextHost: "npipe:////./pipe/dockerDesktopLinuxEngine",
+    contextName: "desktop-linux",
+  });
   let failRootAcl = true;
   const lockDownPath = async (path) => {
     if (path === relmioHome && failRootAcl) {
