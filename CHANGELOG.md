@@ -12,6 +12,8 @@ checks the registry separately after publication.
 - Give the first local n8n + ngrok start enough time to pull images and pass
   health checks, and explain image-download versus startup-wait failures
   without exposing Docker output or credentials.
+- Explain Windows Docker Desktop WSL `0x800705aa` engine-start failures in the
+  local n8n wizard instead of a generic Compose error.
 
 ## [0.12.0] - 2026-09-02
 

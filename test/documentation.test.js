@@ -237,6 +237,13 @@ test("troubleshooting retains the Windows probe, browser relaunch, and blank OAu
   assert.match(troubleshooting, /white `about:blank` tab/u);
 });
 
+test("troubleshooting explains the Windows WSL Docker Desktop resource failure", async () => {
+  const troubleshooting = await readFile("docs/troubleshooting.md", "utf8");
+  assert.match(troubleshooting, /0x800705aa/u);
+  assert.match(troubleshooting, /wsl --shutdown/u);
+  assert.match(troubleshooting, /docker info/u);
+});
+
 test("troubleshooting distinguishes the CMD bootstrap from the shared Windows ACL check", async () => {
   const troubleshooting = await readFile("docs/troubleshooting.md", "utf8");
   assert.match(troubleshooting, /for \/f "delims=" %F/u);
