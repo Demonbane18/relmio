@@ -24,6 +24,7 @@ import {
   LOCAL_N8N_LIFECYCLE_LOCK_RELEASE_ERROR_CODE,
   LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
   LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
+  LOCAL_N8N_STACK_DOCKER_ENGINE_RESOURCES_FAILURE_KIND,
   LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
   getLocalN8nStackStatus,
   installLocalN8nStack as installLocalN8nStackService,
@@ -1730,6 +1731,56 @@ test("a non-allowlisted ngrok runtime code stays a generic cleaned startup failu
     ).length,
     1,
   );
+});
+
+test("a Windows WSL CreateVm resource failure is classified instead of a generic compose error", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { calls, runner } = createStackRunner({
+    partialUpFailure: true,
+    startupFailureOutput: {
+      code: 1,
+      stdout: "Insufficient system resources exist to complete the requested service. Error code: Wsl/Service/CreateInstance/CreateVm/HCS/0x800705aa",
+      stderr: "running wslexec: C:\\users\\operator\\appdata\\local\\docker\\wsl\\disk\\docker_data.vhdx",
+    },
+  });
+  let captured;
+  await assert.rejects(async () => {
+    try {
+      await installLocalN8nStack({
+        plan: plan(),
+        secrets: {
+          ngrokAuthtoken: "ngrok-private-token",
+          basicAuthUsername: "operator",
+          basicAuthPassword: "long-private-password",
+        },
+        publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+        homeDirectory,
+        runProcess: runner,
+      });
+    } catch (error) {
+      captured = error;
+      throw error;
+    }
+  }, /WSL engine/u);
+  assert.equal(captured.code, LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE);
+  assert.equal(
+    captured.failureKind,
+    LOCAL_N8N_STACK_DOCKER_ENGINE_RESOURCES_FAILURE_KIND,
+  );
+  assert.match(captured.message, /not have enough free memory/u);
+  assert.match(captured.message, /wsl --shutdown/u);
+  assert.equal(captured.message.length <= 240, true);
+  assert.doesNotMatch(
+    captured.message,
+    /operator|appdata|docker_data|0x800705aa|CreateVm/iu,
+  );
+  assert.equal(
+    calls.filter((entry) =>
+      entry.args.join(" ").includes("down --volumes --remove-orphans")
+    ).length,
+    1,
+  );
+  await assert.rejects(() => stat(join(homeDirectory, ".relmio", "local", "n8n-stack")));
 });
 
 test("an explicit ngrok account rejection is cleaned once and retains ngrok retry guidance", async (t) => {

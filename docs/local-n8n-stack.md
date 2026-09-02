@@ -19,6 +19,7 @@ You need:
 - native Windows with Docker Desktop's `desktop-linux` engine, macOS, Linux,
   or Linux under WSL2;
 - Docker Engine or Docker Desktop with Docker Compose v2;
+- on Windows, enough free RAM for Docker Desktop's WSL engine. If Docker Desktop was idle, creating the stack starts that VM; close other apps first. Windows error `0x800705aa` means the VM could not start;
 - an ngrok account, a static hostname created or selected in the
   [ngrok Domains dashboard](https://dashboard.ngrok.com/domains), and the
   matching value from [Your Authtoken](https://dashboard.ngrok.com/get-started/your-authtoken);

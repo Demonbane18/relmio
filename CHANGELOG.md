@@ -34,6 +34,8 @@ checks the registry separately after publication.
   host-published Assistant ports.
 - Preserve existing n8n enabled modules when adding AI Assistant settings and
   leave existing n8n containers, Compose files, images, and restarts untouched.
+- Explain Windows Docker Desktop WSL `0x800705aa` engine-start failures in the
+  local n8n wizard instead of a generic Compose error.
 
 ### Security
 

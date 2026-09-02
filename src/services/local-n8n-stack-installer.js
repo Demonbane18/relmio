@@ -47,6 +47,7 @@ export const LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE = "LOCAL_N8N_MANAGED_PAR
 export const LOCAL_N8N_LIFECYCLE_LOCK_RELEASE_ERROR_CODE = "LOCAL_N8N_LIFECYCLE_LOCK_RELEASE";
 export const LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE = "LOCAL_N8N_STACK_RETRYABLE_STARTUP";
 export const LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND = "ngrok-setup-rejected";
+export const LOCAL_N8N_STACK_DOCKER_ENGINE_RESOURCES_FAILURE_KIND = "docker-engine-resources";
 const STACK_STARTUP_FAILURE_KINDS = Object.freeze({
   STACK_CREATION: "stack-creation",
   OWNERSHIP_VERIFICATION: "ownership-verification",
@@ -54,6 +55,7 @@ const STACK_STARTUP_FAILURE_KINDS = Object.freeze({
   N8N_VERIFICATION: "n8n-verification",
   NGROK_RUNTIME_VERIFICATION: "ngrok-runtime-verification",
   NGROK_SETUP_REJECTED: LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
+  DOCKER_ENGINE_RESOURCES: LOCAL_N8N_STACK_DOCKER_ENGINE_RESOURCES_FAILURE_KIND,
   ASSISTANT_VERIFICATION: "assistant-verification",
   SEARXNG_SEARCH_VERIFICATION: "searxng-search-verification",
 });
@@ -420,25 +422,59 @@ function hasNgrokSetupRejectionEvidence(result) {
   return codes.some((code) => NGROK_SETUP_REJECTION_CODES.has(code));
 }
 
+function processOutputText(result) {
+  return [result?.stdout, result?.stderr, result?.message]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+}
+
+function hasWindowsWslEngineResourceFailure(result) {
+  const output = processOutputText(result);
+  return (
+    /0x800705aa/iu.test(output) ||
+    /Wsl\/Service\/(?:CreateInstance|AttachDisk)\/CreateVm/u.test(output) ||
+    /Insufficient system resources exist to complete the requested service/u.test(
+      output,
+    )
+  );
+}
+
+function classifyStackCreationFailure(result) {
+  if (hasNgrokSetupRejectionEvidence(result)) {
+    return STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED;
+  }
+  if (hasWindowsWslEngineResourceFailure(result)) {
+    return STACK_STARTUP_FAILURE_KINDS.DOCKER_ENGINE_RESOURCES;
+  }
+  return STACK_STARTUP_FAILURE_KINDS.STACK_CREATION;
+}
+
+function stackCreationFailureMessage(failureKind) {
+  if (failureKind === STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED) {
+    return "ngrok rejected the reviewed setup.";
+  }
+  if (failureKind === STACK_STARTUP_FAILURE_KINDS.DOCKER_ENGINE_RESOURCES) {
+    return "Docker Desktop could not start its WSL engine.";
+  }
+  return "Docker could not create the new n8n stack.";
+}
+
 async function createStackWithCompose({ runProcess, spec }) {
   let result;
   try {
     result = await runProcess(spec);
-  } catch {
+  } catch (error) {
+    const failureKind = classifyStackCreationFailure(error);
     throw createTypedStartupFailure(
-      STACK_STARTUP_FAILURE_KINDS.STACK_CREATION,
-      "Docker could not create the new n8n stack.",
+      failureKind,
+      stackCreationFailureMessage(failureKind),
     );
   }
   if (result?.code === 0) return result;
-  const failureKind = hasNgrokSetupRejectionEvidence(result)
-    ? STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED
-    : STACK_STARTUP_FAILURE_KINDS.STACK_CREATION;
+  const failureKind = classifyStackCreationFailure(result);
   throw createTypedStartupFailure(
     failureKind,
-    failureKind === STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED
-      ? "ngrok rejected the reviewed setup."
-      : "Docker could not create the new n8n stack.",
+    stackCreationFailureMessage(failureKind),
   );
 }
 
@@ -446,6 +482,8 @@ function retryableStartupMessage(failureKind) {
   switch (failureKind) {
     case STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED:
       return "The n8n + ngrok stack did not start because ngrok rejected its account, endpoint, or credential setup. Check the reserved hostname, active agent authtoken, and Basic Auth. Relmio removed the failed owned resources; retry is safe.";
+    case STACK_STARTUP_FAILURE_KINDS.DOCKER_ENGINE_RESOURCES:
+      return "Docker Desktop could not start its WSL engine because Windows does not have enough free memory. Close other apps, run wsl --shutdown, start Docker Desktop, wait until it is running, then retry. Relmio removed the failed owned resources.";
     case STACK_STARTUP_FAILURE_KINDS.STACK_CREATION:
       return "Docker could not create the new n8n stack. Relmio removed the failed owned resources. Check Docker image availability and local service startup, then retry.";
     case STACK_STARTUP_FAILURE_KINDS.OWNERSHIP_VERIFICATION:
