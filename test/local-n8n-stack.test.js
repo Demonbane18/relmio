@@ -138,6 +138,52 @@ test("generated compose keeps n8n and ngrok loopback-only and isolates assistant
     assert.match(compose, new RegExp(`${service}:[\\s\\S]*?restart: "no"`));
   }
 });
+test("generated SearXNG compose uses block-style secret interpolation", () => {
+  const installation = createLocalN8nStackInstallation({
+    plan: plan({ assistantMode: "sandbox-with-searxng" }),
+    randomBytes: (length) => Buffer.alloc(length, 9),
+  });
+  const compose = createLocalN8nStackComposeFile({ installation });
+  assert.match(compose, /relmio-searxng:\r?\n(?:.*\r?\n)*?    environment:\r?\n      SEARXNG_SECRET: \$\{SEARXNG_SECRET\}/);
+  assert.doesNotMatch(compose, /environment:\s*\{[^}]*\$\{/u);
+});
+
+test("compose validation failure is reported and managed files are removed", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { runner } = createStackRunner();
+  const failingRunner = async (spec) => {
+    if (spec.args.join(" ").includes("config --quiet")) {
+      return {
+        code: 1,
+        stdout: "",
+        stderr: "failed to parse docker-compose.yml: go-yaml load error in parser",
+      };
+    }
+    return runner(spec);
+  };
+
+  await assert.rejects(
+    () => installLocalN8nStack({
+      plan: plan({ assistantMode: "sandbox-with-searxng" }),
+      secrets: {
+        ngrokAuthtoken: "ngrok-private-token",
+        basicAuthUsername: "operator",
+        basicAuthPassword: "long-private-password",
+      },
+      publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+      homeDirectory,
+      runProcess: failingRunner,
+    }),
+    (error) => {
+      assert.match(error.message, /Local n8n Compose validation failed\./u);
+      assert.equal(error.message.includes("go-yaml"), false);
+      assert.equal(error.message.includes("docker-compose.yml"), false);
+      return true;
+    },
+  );
+  await assert.rejects(() => stat(join(homeDirectory, ".relmio", "local", "n8n-stack")));
+});
+
 
 test("every local n8n production image is pinned by immutable digest", () => {
   for (const image of Object.values(LOCAL_N8N_STACK_IMAGES)) {

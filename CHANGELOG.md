@@ -7,6 +7,12 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- Generate SearXNG Compose environment in block style so Docker Compose v5 can
+  parse the local n8n stack file, and keep the wizard's pre-start error instead
+  of replacing it with a generic install failure.
+
 ## [0.12.1] - 2026-09-02
 
 ### Fixed
