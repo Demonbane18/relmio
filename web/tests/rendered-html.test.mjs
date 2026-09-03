@@ -266,7 +266,7 @@ test("falls back safely when project metadata is malformed", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     stars: null,
-    version: "0.12.1",
+    version: "0.12.2",
   });
 });
 
