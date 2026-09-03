@@ -74,7 +74,7 @@ test("server-renders the Relmio product page", async () => {
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
   assert.match(html, /class="repository-button"/);
-  assert.match(html, /Open Relmio version 0\.12\.0 on GitHub\./);
+  assert.match(html, /Open Relmio version 0\.12\.1 on GitHub\./);
   assert.match(html, /class="support-button"/);
   assert.match(
     html,
@@ -266,7 +266,7 @@ test("falls back safely when project metadata is malformed", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     stars: null,
-    version: "0.12.0",
+    version: "0.12.1",
   });
 });
 
