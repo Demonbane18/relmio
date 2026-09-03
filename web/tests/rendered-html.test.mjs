@@ -74,7 +74,7 @@ test("server-renders the Relmio product page", async () => {
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
   assert.match(html, /class="repository-button"/);
-  assert.match(html, /Open Relmio version 0\.12\.0 on GitHub\./);
+  assert.match(html, /Open Relmio version 0\.12\.1 on GitHub\./);
   assert.match(html, /class="support-button"/);
   assert.match(
     html,
