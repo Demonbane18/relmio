@@ -270,6 +270,20 @@ async function runOrThrow(runProcess, spec, label) {
   return result;
 }
 
+function preserveSafeInstallError(error, fallbackMessage) {
+  const message = error?.message;
+  if (
+    typeof message === "string" &&
+    message.length > 0 &&
+    message.length <= 240 &&
+    !/[\r\n]/u.test(message) &&
+    !/(?:access|refresh)[_-]?token|private[_-]?key|\bsk-[A-Za-z0-9_-]{8,}|\bBearer\s+\S+|\/(?:Users|home|private|tmp|var|opt|docker)\/|[A-Za-z]:\\/iu.test(message)
+  ) {
+    return error instanceof Error ? error : new Error(message);
+  }
+  return new Error(fallbackMessage);
+}
+
 function parseJsonLines(value, label) {
   if (typeof value !== "string" || Buffer.byteLength(value) > MAX_DOCKER_METADATA_BYTES) {
     throw new Error(`${label} returned invalid Docker metadata.`);
@@ -1843,7 +1857,10 @@ export async function installLocalN8nStack({
           throw createRetryableStackStartupError(startupFailureKind(error));
         }
         if (filesCreated && !creationAttempted) await removeManagedFiles({ fileSystem, installRoot });
-        throw new Error("Local n8n stack installation failed. Existing n8n deployments were not inspected or changed.");
+        throw preserveSafeInstallError(
+          error,
+          "Local n8n stack installation failed. Existing n8n deployments were not inspected or changed.",
+        );
       }
     },
   });

@@ -162,7 +162,7 @@ ${assistant ? "      - assistant-shared\n" : ""}    healthcheck:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
       - /home/node/.cache:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000,mode=0700
     cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    security_opt: ["no-new-privileges:true"]
     labels:
 ${labelLines}
 
@@ -197,7 +197,7 @@ ${labelLines}
       - /tmp:rw,noexec,nosuid,nodev,size=16m
       - /var/lib/ngrok:rw,noexec,nosuid,nodev,size=1m
     cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    security_opt: ["no-new-privileges:true"]
     labels:
 ${labelLines}
 
@@ -268,7 +268,8 @@ ${labelLines}
 ${searxng ? `  relmio-searxng:
     image: ${LOCAL_N8N_STACK_IMAGES.searxng}
     restart: "no"
-    environment: { SEARXNG_SECRET: \${SEARXNG_SECRET} }
+    environment:
+      SEARXNG_SECRET: \${SEARXNG_SECRET}
     volumes: ["./.runtime/searxng-settings.yml:/etc/searxng/settings.yml:ro,Z"]
     networks: [assistant-shared]
     labels:
