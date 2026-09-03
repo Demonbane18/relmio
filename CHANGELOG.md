@@ -7,11 +7,13 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.12.2] - 2026-09-03
+
 ### Fixed
 
-- Generate SearXNG Compose environment in block style so Docker Compose v5 can
-  parse the local n8n stack file, and keep the wizard's pre-start error instead
-  of replacing it with a generic install failure.
+- Let Code Sandbox + SearXNG local n8n setup work on current Docker Desktop
+  (Compose v5) instead of failing before images are pulled, and show the
+  actual Compose validation error when that step still fails.
 
 ## [0.12.1] - 2026-09-02
 
@@ -786,6 +788,7 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
+[0.12.2]: https://github.com/Demonbane18/relmio/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/Demonbane18/relmio/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Demonbane18/relmio/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
