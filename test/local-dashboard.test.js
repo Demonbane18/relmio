@@ -75,6 +75,7 @@ async function createManagedRoot(t, target, markerOverrides = {}) {
       ...markerOverrides,
     }),
   );
+  await writeFile(join(installRoot, "docker-compose.yml"), "services: {}\n");
   return canonicalHome;
 }
 
@@ -235,6 +236,7 @@ async function createManagedSidecarRoot(t) {
     networkName: "fixture-shared",
   };
   await writeFile(join(installRoot, ".managed-by-relmio.json"), JSON.stringify(marker));
+  await writeFile(join(installRoot, "docker-compose.yml"), "services: {}\n");
   return { homeDirectory: canonicalHome, marker };
 }
 
@@ -457,6 +459,10 @@ async function createManagedAssistantRoot(t, { includeSearxng = true } = {}) {
     ].join("\n"),
     { mode: 0o600 },
   );
+  await writeFile(join(installRoot, "docker-compose.yml"), "services: {}\n");
+  if (includeSearxng) {
+    await writeFile(join(installRoot, "searxng-settings.yml"), "use_default_settings: true\n");
+  }
   return { homeDirectory: canonicalHome, installation, plan };
 }
 
