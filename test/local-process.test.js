@@ -132,6 +132,9 @@ function createManualTimers() {
     get activeCount() {
       return scheduled.size;
     },
+    get scheduledMilliseconds() {
+      return [...scheduled.values()].map(({ milliseconds }) => milliseconds);
+    },
   };
 }
 
@@ -346,6 +349,8 @@ test("Windows managed paths can verify an exact ACL without rewriting it", async
   });
   assert.match(script, /\$actual=\$before/u);
   assert.doesNotMatch(script, /SetAccessControl|SetAccessRuleProtection|SetOwner|New-Object/u);
+  assert.doesNotMatch(script, /BuiltinAdministratorsSid|WindowsBuiltInRole/u);
+  assert.match(script, /if\(\$owner\.Value -ne \$sid\.Value\)\{exit 1\}/u);
   assert.match(script, /\$rules\.Count -ne 1/u);
   assert.match(script, /AreAccessRulesProtected/u);
   await assert.rejects(
@@ -377,6 +382,13 @@ test("Windows legacy verification accepts only an inherited effective owner-only
   assert.match(script, /\$rules\[0\]\.IdentityReference\.Value -ne \$sid\.Value/u);
   assert.match(script, /AccessControlType -ne 'Allow'/u);
   assert.match(script, /FileSystemRights -ne \[System\.Security\.AccessControl\.FileSystemRights\]::FullControl/u);
+  assert.match(script, /BuiltinAdministratorsSid/u);
+  assert.match(script, /WindowsBuiltInRole\]::Administrator/u);
+  assert.match(
+    script,
+    /\$trustedLegacyAdministratorsOwner=\$legacyInheritedOwnerOnly -and \$owner\.Value -eq \$administratorsSid\.Value -and \$principal\.IsInRole/u,
+  );
+  assert.match(script, /if\(\$owner\.Value -ne \$sid\.Value -and \(-not \$trustedLegacyAdministratorsOwner\)\)\{exit 1\}/u);
   assert.match(script, /\$strictOwnerOnly/u);
   assert.match(script, /\$legacyInheritedOwnerOnly/u);
   assert.match(
@@ -451,6 +463,22 @@ test("Windows ACL lockdown sanitizes PowerShell launch and proof failures", asyn
 });
 
 test("Windows ACL runner bounds stalled and overlong security subprocesses", async (t) => {
+  await t.test("default timeout tolerates contended native process startup", async () => {
+    const timers = createManualTimers();
+    const child = createFakeChild(() => {}, { closeOnKill: false });
+    const command = runWindowsAclCommand("C:\\Windows\\powershell.exe", [], {
+      spawnProcess: () => child,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    await new Promise((resolve) => queueMicrotask(resolve));
+    const scheduledMilliseconds = timers.scheduledMilliseconds;
+    closeChild(child, 0);
+    await command;
+    assert.deepEqual(scheduledMilliseconds, [60_000]);
+    assert.equal(timers.activeCount, 0);
+  });
+
   await t.test("timeout", async () => {
     const child = createFakeChild(() => {}, { closeOnKill: false });
     await assert.rejects(

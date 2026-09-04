@@ -3,10 +3,12 @@ import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 import { runPreview } from "../scripts/preview.js";
+import { createPrivateBrowserHandoff } from "../src/services/browser-handoff.js";
+import { startWizardServer } from "../src/web/server.js";
 
 function hiddenInput(contents, name) {
   const match = new RegExp(`name="${name}" value="([^"]+)"`, "u").exec(contents);
@@ -37,6 +39,13 @@ test("preview opens through a private handoff and authenticates from a clean pag
       launchRootOptions = options;
       return privateRoot;
     },
+    startServer: async (options) => await startWizardServer({
+      ...options,
+      createBrowserHandoff: async (input) => await createPrivateBrowserHandoff({
+        ...input,
+        lockDownPath: async () => {},
+      }),
+    }),
     log,
     open: async (launchUrl) => {
       opened.push(launchUrl);
@@ -142,6 +151,7 @@ test("preview opens through a private handoff and authenticates from a clean pag
 
 test("preview keeps the terminal reopen fallback when automatic opening fails", async () => {
   const sessionToken = Buffer.alloc(32, 31).toString("base64url");
+  const browserLaunchRoot = join(tmpdir(), "relmio-preview-browser-launches");
   const signalTarget = new EventEmitter();
   const logs = [];
   let attached;
@@ -157,7 +167,7 @@ test("preview keeps the terminal reopen fallback when automatic opening fails", 
       return () => {};
     },
     createSessionToken: () => sessionToken,
-    ensureBrowserLaunchRoot: async () => "/private/preview/browser-launches",
+    ensureBrowserLaunchRoot: async () => browserLaunchRoot,
     log: (line) => logs.push(line),
     open: async () => false,
     signalTarget,
@@ -166,7 +176,11 @@ test("preview keeps the terminal reopen fallback when automatic opening fails", 
       async prepareBrowserLaunch(route) {
         assert.equal(route, "/");
         prepared += 1;
-        return `file:///private/tmp/relmio-browser-Ab3dE9/launch-${String(prepared).padStart(24, "0")}.html`;
+        return pathToFileURL(join(
+          browserLaunchRoot,
+          "relmio-browser-Ab3dE9",
+          `launch-${String(prepared).padStart(24, "0")}.html`,
+        )).href;
       },
     }),
   });

@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = `w${"s".repeat(42)}`;
 const controlToken = `A${"c".repeat(42)}`;
-const launchUrl = "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html";
+const launchUrl = pathToFileURL(join(
+  tmpdir(),
+  "relmio-browser-Ab3dE9",
+  "launch-0123456789abcdef01234567.html",
+)).href;
 
 function formBody({ ticketId, secret, route }) {
   return new URLSearchParams({ ticketId, secret, route }).toString();

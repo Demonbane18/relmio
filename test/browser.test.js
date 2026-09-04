@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import {
   attachBrowserReopenOnEnter,
@@ -9,7 +12,10 @@ import {
   openBrowser,
 } from "../src/browser.js";
 
-const launchUrl = "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html";
+const handoffDirectory = "relmio-browser-Ab3dE9";
+const handoffFilename = "launch-0123456789abcdef01234567.html";
+const launchUrl = pathToFileURL(join(tmpdir(), handoffDirectory, handoffFilename)).href;
+const windowsLaunchUrl = `file:///C:/Users/Relmio/AppData/Local/Temp/${handoffDirectory}/${handoffFilename}`;
 const sessionToken = `w${"s".repeat(42)}`;
 const bootstrapSecret = "b".repeat(43);
 
@@ -27,12 +33,12 @@ test("browser launching accepts only a canonical private Relmio handoff file", (
   assert.equal(isPrivateBrowserLaunchUrl(launchUrl), true);
   for (const value of [
     `http://127.0.0.1:4567/local?session=${sessionToken}`,
-    "file:///private/tmp/other/launch-0123456789abcdef01234567.html",
-    "file:///private/tmp/relmio-browser-Ab3dE9/not-launch.html",
-    "file:///private/tmp/relmio-browser-Ab3dE9/launch-secret.html",
-    "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html?session=x",
-    "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html#token",
-    "file://server/private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html",
+    pathToFileURL(join(tmpdir(), "other", handoffFilename)).href,
+    pathToFileURL(join(tmpdir(), handoffDirectory, "not-launch.html")).href,
+    pathToFileURL(join(tmpdir(), handoffDirectory, "launch-secret.html")).href,
+    `${launchUrl}?session=x`,
+    `${launchUrl}#token`,
+    "file://server/C:/Users/Relmio/AppData/Local/Temp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html",
     "relative/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html",
     `${launchUrl}\n--unsafe`,
   ]) {
@@ -69,14 +75,14 @@ test("macOS and Linux launch only the non-authorizing file URL", async () => {
 
 test("Windows uses the absolute system Explorer without a command parser", async () => {
   const calls = [];
-  const command = browserCommand(launchUrl, "win32", {
+  const command = browserCommand(windowsLaunchUrl, "win32", {
     systemRoot: "C:\\Windows",
   });
   assert.deepEqual(command, {
     file: "C:\\Windows\\explorer.exe",
-    args: ["\\private\\tmp\\relmio-browser-Ab3dE9\\launch-0123456789abcdef01234567.html"],
+    args: ["C:\\Users\\Relmio\\AppData\\Local\\Temp\\relmio-browser-Ab3dE9\\launch-0123456789abcdef01234567.html"],
   });
-  assert.equal(await openBrowser(launchUrl, {
+  assert.equal(await openBrowser(windowsLaunchUrl, {
     platform: "win32",
     systemRoot: "C:\\Windows",
     spawnProcess(...args) {
@@ -98,7 +104,7 @@ test("browser launching rejects legacy bearer URLs and unsafe launcher inputs", 
     `http://127.0.0.1:4567/?session=${sessionToken}`,
     `http://127.0.0.1:4567/assistant?session=${sessionToken}`,
     `http://127.0.0.1:4567/local?session=${sessionToken}`,
-    "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html?next=x",
+    `${launchUrl}?next=x`,
   ]) {
     assert.equal(await openBrowser(rejected, {
       spawnProcess(...args) {
@@ -109,7 +115,7 @@ test("browser launching rejects legacy bearer URLs and unsafe launcher inputs", 
   }
   assert.deepEqual(calls, []);
   assert.throws(
-    () => browserCommand(launchUrl, "win32", { systemRoot: "relative\\Windows" }),
+    () => browserCommand(windowsLaunchUrl, "win32", { systemRoot: "relative\\Windows" }),
     /Windows system root/iu,
   );
 });

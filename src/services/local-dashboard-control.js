@@ -149,11 +149,52 @@ async function resolveControlPaths({ env, homeDirectory, fileSystem }) {
 
 async function lstatIfExists(fileSystem, path) {
   try {
-    return await fileSystem.lstat(path);
+    return await fileSystem.lstat(path, { bigint: true });
   } catch (error) {
     if (isMissing(error)) return null;
     throw fail("could not inspect its local dashboard control state");
   }
+}
+
+function isExactFileSystemInteger(value, { minimum = 0, maximum = null } = {}) {
+  if (typeof value === "bigint") {
+    return value >= BigInt(minimum) &&
+      (maximum === null || value <= BigInt(maximum));
+  }
+  return Number.isSafeInteger(value) && value >= minimum &&
+    (maximum === null || value <= maximum);
+}
+
+function exactMode(metadata, mask) {
+  if (typeof metadata?.mode === "bigint") {
+    return Number(metadata.mode & BigInt(mask));
+  }
+  return Number.isInteger(metadata?.mode) ? metadata.mode & mask : null;
+}
+
+function exactAccountIdMatches(value, expected) {
+  if (expected === null) return true;
+  if (typeof value === "bigint") return value === BigInt(expected);
+  return Number.isSafeInteger(value) && value === expected;
+}
+
+function exactFileSystemIntegerEquals(value, expected) {
+  if (typeof value === "bigint") return value === BigInt(expected);
+  return Number.isSafeInteger(value) && value === expected;
+}
+
+function exactFileSystemTimestamp(metadata, name) {
+  const nanoseconds = metadata?.[`${name}Ns`];
+  if (typeof nanoseconds === "bigint") return nanoseconds;
+  if (nanoseconds !== undefined) return null;
+  const milliseconds = metadata?.[`${name}Ms`];
+  if (typeof milliseconds !== "number" || !Number.isFinite(milliseconds)) return null;
+  return milliseconds;
+}
+
+function sameFileSystemTimestamp(left, right) {
+  return left !== null && right !== null &&
+    typeof left === typeof right && left === right;
 }
 
 function assertPrivateMetadata(metadata, { kind, platform, maxBytes, expectedUid }) {
@@ -162,11 +203,11 @@ function assertPrivateMetadata(metadata, { kind, platform, maxBytes, expectedUid
   if (
     !expectedType || metadata.isSymbolicLink?.() ||
     (kind === "file" && (
-      !Number.isSafeInteger(metadata.size) || metadata.size < 0 || metadata.size > maxBytes
+      !isExactFileSystemInteger(metadata.size, { maximum: maxBytes })
     )) ||
     (platform !== "win32" && (
-      !Number.isInteger(metadata.mode) || (metadata.mode & 0o777) !== expectedMode ||
-      (expectedUid !== null && metadata.uid !== expectedUid)
+      exactMode(metadata, 0o777) !== expectedMode ||
+      !exactAccountIdMatches(metadata.uid, expectedUid)
     ))
   ) {
     throw fail("refuses unsafe local dashboard control state");
@@ -174,30 +215,41 @@ function assertPrivateMetadata(metadata, { kind, platform, maxBytes, expectedUid
 }
 
 function fingerprint(metadata, raw) {
+  const identity = pathFingerprint(metadata);
+  const modifiedAt = exactFileSystemTimestamp(metadata, "mtime");
+  const changedAt = exactFileSystemTimestamp(metadata, "ctime");
+  if (
+    !isExactFileSystemInteger(metadata?.size) ||
+    modifiedAt === null || changedAt === null
+  ) {
+    throw fail("could not fingerprint local dashboard control state");
+  }
   return Object.freeze({
     raw,
-    dev: metadata.dev,
-    ino: metadata.ino,
+    ...identity,
     size: metadata.size,
-    mtimeMs: metadata.mtimeMs,
-    ctimeMs: metadata.ctimeMs,
+    modifiedAt,
+    changedAt,
   });
 }
 
 function sameFingerprint(left, right) {
   return left.raw === right.raw && left.dev === right.dev && left.ino === right.ino &&
-    left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs;
+    left.size === right.size &&
+    sameFileSystemTimestamp(left.modifiedAt, right.modifiedAt) &&
+    sameFileSystemTimestamp(left.changedAt, right.changedAt);
 }
 
 function sameMovedFingerprint(left, right) {
   return left.raw === right.raw && left.dev === right.dev && left.ino === right.ino &&
-    left.size === right.size && left.mtimeMs === right.mtimeMs;
+    left.size === right.size &&
+    sameFileSystemTimestamp(left.modifiedAt, right.modifiedAt);
 }
 
 function pathFingerprint(metadata) {
   if (
-    !Number.isSafeInteger(metadata?.dev) || metadata.dev < 0 ||
-    !Number.isSafeInteger(metadata?.ino) || metadata.ino < 1
+    !isExactFileSystemInteger(metadata?.dev) ||
+    !isExactFileSystemInteger(metadata?.ino, { minimum: 1 })
   ) {
     throw fail("could not fingerprint local dashboard control state");
   }
@@ -210,8 +262,15 @@ function samePathFingerprint(left, right) {
 
 function sameOpenFile(metadata, other) {
   return metadata?.dev === other?.dev && metadata?.ino === other?.ino &&
-    metadata?.size === other?.size && metadata?.mtimeMs === other?.mtimeMs &&
-    metadata?.ctimeMs === other?.ctimeMs;
+    metadata?.size === other?.size &&
+    sameFileSystemTimestamp(
+      exactFileSystemTimestamp(metadata, "mtime"),
+      exactFileSystemTimestamp(other, "mtime"),
+    ) &&
+    sameFileSystemTimestamp(
+      exactFileSystemTimestamp(metadata, "ctime"),
+      exactFileSystemTimestamp(other, "ctime"),
+    );
 }
 
 async function inspectPrivatePath({
@@ -254,12 +313,12 @@ async function verifyParentBoundary({
       }
     }
   } else {
-    const mode = metadata.mode & 0o7777;
+    const mode = exactMode(metadata, 0o7777);
+    if (mode === null) throw fail("refuses an unsafe local dashboard storage parent");
     const writableByOthers = (mode & 0o022) !== 0;
     const sticky = (mode & 0o1000) !== 0;
     if (
-      !Number.isInteger(metadata.mode) ||
-      (expectedUid !== null && metadata.uid !== expectedUid) ||
+      !exactAccountIdMatches(metadata.uid, expectedUid) ||
       (writableByOthers && !sticky)
     ) throw fail("refuses an unsafe local dashboard storage parent");
   }
@@ -332,13 +391,13 @@ async function readPrivateFile(options) {
   let raw;
   try {
     handle = await fileSystem.open(path, "r");
-    openedBefore = await handle.stat();
+    openedBefore = await handle.stat({ bigint: true });
     assertPrivateMetadata(openedBefore, {
       kind: "file", platform, maxBytes, expectedUid,
     });
     if (!sameOpenFile(before, openedBefore)) throw new TypeError();
     raw = await handle.readFile("utf8");
-    openedAfter = await handle.stat();
+    openedAfter = await handle.stat({ bigint: true });
     if (!sameOpenFile(openedBefore, openedAfter)) throw new TypeError();
   } catch {
     throw fail("could not safely read its local dashboard control state");
@@ -346,7 +405,7 @@ async function readPrivateFile(options) {
     try { await handle?.close(); } catch { /* A later path check still fails closed. */ }
   }
   const rawBytes = Buffer.byteLength(raw);
-  if (rawBytes > maxBytes || rawBytes !== openedAfter.size) {
+  if (rawBytes > maxBytes || !exactFileSystemIntegerEquals(openedAfter.size, rawBytes)) {
     throw fail("refuses oversized or changed local dashboard control state");
   }
   const after = await inspectPrivatePath({
@@ -496,13 +555,11 @@ const CONTROL_ENTRY_DETAILS = Object.freeze([
 function parseRetirementSlot(name) {
   const match = RETIREMENT_SLOT_PATTERN.exec(name);
   if (!match) throw fail("refuses changed local dashboard retirement state");
-  const dev = Number(match[2]);
-  const ino = Number(match[3]);
-  const size = Number(match[4]);
+  const dev = BigInt(match[2]);
+  const ino = BigInt(match[3]);
+  const size = BigInt(match[4]);
   if (
-    !Number.isSafeInteger(dev) || dev < 0 ||
-    !Number.isSafeInteger(ino) || ino < 1 ||
-    !Number.isSafeInteger(size) || size < 0
+    dev < 0n || ino < 1n || size < 0n
   ) throw fail("refuses changed local dashboard retirement state");
   return Object.freeze({
     name,
@@ -518,9 +575,9 @@ function createRetirementSlotDescriptor(role, record) {
   const { dev, ino, size } = record?.fingerprint ?? {};
   if (
     !["root", "publication", "control", "browser"].includes(role) ||
-    !Number.isSafeInteger(dev) || dev < 0 ||
-    !Number.isSafeInteger(ino) || ino < 1 ||
-    !Number.isSafeInteger(size) || size < 0
+    !isExactFileSystemInteger(dev) ||
+    !isExactFileSystemInteger(ino, { minimum: 1 }) ||
+    !isExactFileSystemInteger(size)
   ) throw fail("could not reserve local dashboard retirement state");
   const digest = digestContent(record.raw);
   return parseRetirementSlot(`.slot-v1-${role}-${dev}-${ino}-${size}-${digest}`);
@@ -1039,7 +1096,7 @@ async function writePrivateFile({
   try {
     handle = await fileSystem.open(path, "wx", 0o600);
     await handle.chmod(0o600);
-    createdMetadata = await handle.stat();
+    createdMetadata = await handle.stat({ bigint: true });
     assertPrivateMetadata(createdMetadata, {
       kind: "file", platform, maxBytes, expectedUid,
     });
@@ -1061,10 +1118,10 @@ async function writePrivateFile({
     });
     await handle.writeFile(raw, "utf8");
     await handle.sync?.();
-    const writtenMetadata = await handle.stat();
+    const writtenMetadata = await handle.stat({ bigint: true });
     if (
       writtenMetadata.dev !== createdMetadata.dev || writtenMetadata.ino !== createdMetadata.ino ||
-      writtenMetadata.size !== Buffer.byteLength(raw)
+      !exactFileSystemIntegerEquals(writtenMetadata.size, Buffer.byteLength(raw))
     ) {
       throw fail("could not verify its private dashboard control write");
     }

@@ -377,6 +377,239 @@ test("Windows default profile parent is a fingerprinted trust anchor, not a POSI
   assert.deepEqual(result, { state: "absent" });
 });
 
+test("Windows control state keeps exact BigInt file identities beyond Number's safe range", async (t) => {
+  const setup = await fixture(t);
+  const identityOffset = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+  let exactIdentityReads = 0;
+  const offsetIdentity = (metadata) => new Proxy(metadata, {
+    get(target, property, receiver) {
+      if (property === "dev" || property === "ino") {
+        return Reflect.get(target, property, receiver) + identityOffset;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const exactIdentityFileSystem = {
+    ...fileSystem,
+    async lstat(path, options) {
+      if (options?.bigint !== true) return fileSystem.lstat(path, options);
+      exactIdentityReads += 1;
+      return offsetIdentity(await fileSystem.lstat(path, options));
+    },
+    async open(...args) {
+      const handle = await fileSystem.open(...args);
+      return new Proxy(handle, {
+        get(target, property, receiver) {
+          if (property === "stat") {
+            return async (options) => {
+              const metadata = await target.stat(options);
+              return options?.bigint === true ? offsetIdentity(metadata) : metadata;
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    },
+  };
+  const controller = await runLocalDashboardDaemon({
+    ...setup,
+    fileSystem: exactIdentityFileSystem,
+    platform: "win32",
+    lockDownPath: async () => {},
+    getProcessIdentity: async () => ({
+      state: "active",
+      startIdentity: "test-current-process-start",
+    }),
+    randomBytes: () => Buffer.alloc(32, 42),
+    randomUUID: () => INSTANCE_ID,
+    now: () => PUBLICATION.publishedAtMs,
+    sendMessage: () => {},
+    startServer: async () => ({ origin: PUBLICATION.origin, close: async () => {} }),
+  });
+
+  assert.equal((await fileSystem.lstat(join(setup.relmioHome, "control"))).isDirectory(), true);
+  assert.ok(exactIdentityReads > 0);
+  await controller.stop();
+});
+
+test("Windows control state rejects a zero file identity without a path or birthtime fallback", async (t) => {
+  const setup = await fixture(t);
+  await writeManagedControl(setup);
+  const zeroFileIdentity = (metadata) => new Proxy(metadata, {
+    get(target, property, receiver) {
+      if (property === "ino" && target.isFile()) return 0n;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const zeroFileIdentityFileSystem = {
+    ...fileSystem,
+    async lstat(path, options) {
+      const metadata = await fileSystem.lstat(path, options);
+      return options?.bigint === true ? zeroFileIdentity(metadata) : metadata;
+    },
+    async open(...args) {
+      const handle = await fileSystem.open(...args);
+      return new Proxy(handle, {
+        get(target, property, receiver) {
+          if (property === "stat") {
+            return async (options) => {
+              const metadata = await target.stat(options);
+              return options?.bigint === true ? zeroFileIdentity(metadata) : metadata;
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    },
+  };
+
+  await assert.rejects(
+    () => inspectLocalDashboardControlPlane({
+      ...setup,
+      fileSystem: zeroFileIdentityFileSystem,
+      platform: "win32",
+      lockDownPath: async () => {},
+      getProcessIdentity: async () => ({ state: "dead" }),
+    }),
+    /fingerprint/iu,
+  );
+});
+
+test("Windows control state detects nanosecond-only file changes", async (t) => {
+  for (const timestampProperty of ["mtimeNs", "ctimeNs"]) {
+    await t.test(timestampProperty, async (subtest) => {
+      const setup = await fixture(subtest);
+      await writeManagedControl(setup);
+      const publicationPath = join(setup.relmioHome, "control", "dashboard.json");
+      let publicationIdentityReads = 0;
+      const nanosecondRaceFileSystem = {
+        ...fileSystem,
+        async lstat(path, options) {
+          const metadata = await fileSystem.lstat(path, options);
+          if (path !== publicationPath || options?.bigint !== true) return metadata;
+          publicationIdentityReads += 1;
+          if (publicationIdentityReads < 3) return metadata;
+          return new Proxy(metadata, {
+            get(target, property, receiver) {
+              if (property === timestampProperty) {
+                return Reflect.get(target, property, receiver) + 1n;
+              }
+              return Reflect.get(target, property, receiver);
+            },
+          });
+        },
+      };
+
+      await assert.rejects(
+        () => inspectLocalDashboardControlPlane({
+          ...setup,
+          fileSystem: nanosecondRaceFileSystem,
+          platform: "win32",
+          lockDownPath: async () => {},
+          getProcessIdentity: async () => ({ state: "dead" }),
+        }),
+        /changed/iu,
+      );
+    });
+  }
+});
+
+test("Windows control state accepts exact epoch timestamp fingerprints", async (t) => {
+  const setup = await fixture(t);
+  await writeManagedControl(setup);
+  const epochTimestamps = (metadata) => new Proxy(metadata, {
+    get(target, property, receiver) {
+      if (property === "mtimeNs" || property === "ctimeNs") return 0n;
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const epochFileSystem = {
+    ...fileSystem,
+    async lstat(path, options) {
+      const metadata = await fileSystem.lstat(path, options);
+      return options?.bigint === true ? epochTimestamps(metadata) : metadata;
+    },
+    async open(...args) {
+      const handle = await fileSystem.open(...args);
+      return new Proxy(handle, {
+        get(target, property, receiver) {
+          if (property === "stat") {
+            return async (options) => {
+              const metadata = await target.stat(options);
+              return options?.bigint === true ? epochTimestamps(metadata) : metadata;
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    },
+  };
+
+  const result = await inspectLocalDashboardControlPlane({
+    ...setup,
+    fileSystem: epochFileSystem,
+    platform: "win32",
+    lockDownPath: async () => {},
+    getProcessIdentity: async () => ({ state: "dead" }),
+  });
+  assert.equal(result.state, "dead");
+});
+
+test("Windows control state distinguishes adjacent BigInt identities beyond Number's safe range", async (t) => {
+  const setup = await fixture(t);
+  await writeManagedControl(setup);
+  const publicationPath = join(setup.relmioHome, "control", "dashboard.json");
+  const identityOffset = BigInt(Number.MAX_SAFE_INTEGER) + 1n;
+  let publicationIdentityReads = 0;
+  const offsetIdentity = (metadata, changed = false) => new Proxy(metadata, {
+    get(target, property, receiver) {
+      if (property === "dev" || property === "ino") {
+        const change = changed && property === "ino" ? 1n : 0n;
+        return Reflect.get(target, property, receiver) + identityOffset + change;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  const adjacentIdentityFileSystem = {
+    ...fileSystem,
+    async lstat(path, options) {
+      const metadata = await fileSystem.lstat(path, options);
+      if (options?.bigint !== true) return metadata;
+      const changed = path === publicationPath && ++publicationIdentityReads >= 3;
+      return offsetIdentity(metadata, changed);
+    },
+    async open(...args) {
+      const handle = await fileSystem.open(...args);
+      return new Proxy(handle, {
+        get(target, property, receiver) {
+          if (property === "stat") {
+            return async (options) => {
+              const metadata = await target.stat(options);
+              return options?.bigint === true ? offsetIdentity(metadata) : metadata;
+            };
+          }
+          const value = Reflect.get(target, property, receiver);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    },
+  };
+
+  await assert.rejects(
+    () => inspectLocalDashboardControlPlane({
+      ...setup,
+      fileSystem: adjacentIdentityFileSystem,
+      platform: "win32",
+      lockDownPath: async () => {},
+      getProcessIdentity: async () => ({ state: "dead" }),
+    }),
+    /changed/iu,
+  );
+});
+
 test("POSIX inspection rejects otherwise-private files owned by another account", {
   skip: process.platform === "win32" || typeof process.getuid !== "function",
 }, async (t) => {

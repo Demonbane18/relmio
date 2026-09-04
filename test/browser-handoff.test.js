@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as nodeFileSystem from "node:fs/promises";
 import { mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -26,13 +26,15 @@ test("private browser handoff stores its one-time secret only in an owner-only f
     ticketId,
     secret,
     privateRoot,
+    lockDownPath: async () => {},
     randomBytes: () => Buffer.from("0123456789ab", "utf8"),
   });
   const path = fileURLToPath(handoff.launchUrl);
   const directory = dirname(path);
   const contents = await readFile(path, "utf8");
 
-  assert.match(path, /relmio-browser-[^/]+\/launch-[a-f0-9]{24}\.html$/u);
+  assert.match(basename(directory), /^relmio-browser-[A-Za-z0-9_-]{6,64}$/u);
+  assert.match(basename(path), /^launch-[a-f0-9]{24}\.html$/u);
   assert.equal(path.includes(ticketId), false);
   assert.equal(path.includes(secret), false);
   assert.match(contents, new RegExp(ticketId, "u"));
@@ -118,6 +120,7 @@ test("exact cleanup preserves a replaced handoff path", async (t) => {
     ticketId,
     secret,
     privateRoot,
+    lockDownPath: async () => {},
     randomBytes: () => Buffer.from("aaaaaaaaaaaa", "utf8"),
   });
   const path = fileURLToPath(handoff.launchUrl);
