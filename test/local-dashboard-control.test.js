@@ -4,8 +4,9 @@ import { EventEmitter } from "node:events";
 import * as fileSystem from "node:fs/promises";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import packageManifest from "../package.json" with { type: "json" };
 
@@ -1408,7 +1409,7 @@ test("successful and failed cleanup unlink only verified payloads inside reserve
     startServer: async () => ({ origin: PUBLICATION.origin, close: async () => {} }),
   });
   await controller.stop();
-  const controlUnlinks = unlinked.filter((path) => path.startsWith(`${controlRoot}/`));
+  const controlUnlinks = unlinked.filter((path) => path.startsWith(`${controlRoot}${sep}`));
   assert.equal(controlUnlinks.length, 3);
   assert.equal(controlUnlinks.every((path) => basename(path) === "payload"), true);
   assert.equal(controlUnlinks.some((path) => canonical.has(path)), false);
@@ -1727,7 +1728,11 @@ test("start refuses ambiguous and active-but-unresponsive publications", async (
 test("browser launch access rereads the owner-only browser key and prepares a secret-free handoff", async (t) => {
   const setup = await fixture(t);
   await writeManagedControl(setup);
-  const launchUrl = "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html";
+  const launchUrl = pathToFileURL(join(
+    tmpdir(),
+    "relmio-browser-Ab3dE9",
+    "launch-0123456789abcdef01234567.html",
+  )).href;
   const calls = [];
   const url = await readLocalDashboardBrowserUrl({
     ...setup,

@@ -5,9 +5,23 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { getLocalDashboardStatus } from "../src/services/local-dashboard.js";
-import { getManagedLocalEndpointStatus } from "../src/services/local-installer.js";
-import { getLocalN8nSidecarStatus } from "../src/services/local-n8n-sidecar-installer.js";
-import { getLocalN8nAssistantStatus } from "../src/services/local-n8n-assistant-installer.js";
+import {
+  getManagedLocalEndpointStatus as getManagedLocalEndpointStatusService,
+} from "../src/services/local-installer.js";
+import {
+  getLocalN8nSidecarStatus as getLocalN8nSidecarStatusService,
+} from "../src/services/local-n8n-sidecar-installer.js";
+import {
+  getLocalN8nAssistantStatus as getLocalN8nAssistantStatusService,
+} from "../src/services/local-n8n-assistant-installer.js";
+import { withTestLocalSecurity } from "./helpers/local-security.js";
+
+const getManagedLocalEndpointStatus = (request, dependencies) =>
+  getManagedLocalEndpointStatusService(request, withTestLocalSecurity(dependencies));
+const getLocalN8nSidecarStatus = (dependencies) =>
+  getLocalN8nSidecarStatusService(withTestLocalSecurity(dependencies));
+const getLocalN8nAssistantStatus = (dependencies) =>
+  getLocalN8nAssistantStatusService(withTestLocalSecurity(dependencies));
 
 const DOCKER_HOST = process.platform === "win32"
   ? "npipe:////./pipe/dockerDesktopLinuxEngine"

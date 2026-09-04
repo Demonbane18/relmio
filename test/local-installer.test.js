@@ -26,7 +26,7 @@ import {
   getLocalDockerStatus,
   installLocalEndpoint as installLocalEndpointService,
   restartLocalCodex as restartLocalCodexService,
-  prepareLocalClientCredentialRotation,
+  prepareLocalClientCredentialRotation as prepareLocalClientCredentialRotationService,
   resolveLocalInstallRoot,
   verifyCodexWebSocketCapability,
 } from "../src/services/local-installer.js";
@@ -38,6 +38,8 @@ const activateLocalClientCredentialRotation = (request, dependencies) =>
   activateLocalClientCredentialRotationService(request, withTestLocalSecurity(dependencies));
 const installLocalEndpoint = (request, dependencies) =>
   installLocalEndpointService(request, withTestLocalSecurity(dependencies));
+const prepareLocalClientCredentialRotation = (request, dependencies) =>
+  prepareLocalClientCredentialRotationService(request, withTestLocalSecurity(dependencies));
 const restartLocalCodex = (request, dependencies) =>
   restartLocalCodexService(request, withTestLocalSecurity(dependencies));
 
@@ -1335,7 +1337,7 @@ test("only one independent process can reclaim the same stale project lock", asy
         fetchImpl: createFetch(),
         verifyCodexCapability: createCodexCapabilityVerifier(),
         processId,
-        isProcessAlive: () => false,
+        isProcessAlive: (candidateProcessId) => candidateProcessId !== 39_999,
       },
     );
 
