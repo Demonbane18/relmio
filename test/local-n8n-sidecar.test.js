@@ -125,6 +125,30 @@ async function createTestHome(t) {
   return realpath(root);
 }
 
+function expectedWindowsSidecarManagedAclCalls(homeDirectory, installRoot) {
+  const relmioHome = join(homeDirectory, ".relmio");
+  return [
+    { path: relmioHome, options: { platform: "win32", verifyOnly: true } },
+    {
+      path: join(relmioHome, "local"),
+      options: { platform: "win32", verifyOnly: true },
+    },
+    { path: installRoot, options: { platform: "win32", verifyOnly: true } },
+    {
+      path: join(relmioHome, ".managed-by-relmio-root.json"),
+      options: { platform: "win32", kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true },
+    },
+    {
+      path: join(installRoot, ".managed-by-relmio.json"),
+      options: { platform: "win32", kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true },
+    },
+    {
+      path: join(installRoot, "docker-compose.yml"),
+      options: { platform: "win32", kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true },
+    },
+  ];
+}
+
 async function createAuthFixture(homeDirectory) {
   const authDirectory = join(homeDirectory, ".n8n-openai-oauth");
   const authPath = join(authDirectory, "auth.json");
@@ -1165,6 +1189,113 @@ test("credential refresh reseeds and recreates only the owned sidecar", async (t
   assert.equal(refreshCalls.some((call) => call.args.includes("build")), false);
   assert.equal(refreshCalls.some((call) => call.args.includes("stop")), false);
   assert.equal(refreshCalls.some((call) => call.args.includes("down")), false);
+});
+
+test("Windows credential refresh injects exact verify-only managed ACL checks", async (t) => {
+  const homeDirectory = await createTestHome(t);
+  const authPath = await createAuthFixture(homeDirectory);
+  const runner = createRunner();
+  await installLocalN8nSidecar(
+    { plan: createPlan(), authPath, confirmed: true },
+    {
+      homeDirectory,
+      env: {},
+      runProcess: runner,
+      randomBytes: () => Buffer.alloc(32, 0xdd),
+    },
+  );
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({
+    homeDirectory,
+    env: {},
+  });
+  const expectedAclCalls = expectedWindowsSidecarManagedAclCalls(
+    homeDirectory,
+    installRoot,
+  );
+  const managedPaths = new Set(expectedAclCalls.map(({ path }) => path));
+  const aclCalls = [];
+
+  const result = await refreshLocalN8nSidecarCredential(
+    { authPath, confirmed: true },
+    {
+      homeDirectory,
+      env: {},
+      platform: "win32",
+      runProcess: runner,
+      async lockDownPath(path, options) {
+        aclCalls.push({ path, options });
+      },
+    },
+  );
+
+  assert.equal(result.credentialRefreshed, true);
+  assert.deepEqual(
+    aclCalls.filter(({ path }) => managedPaths.has(path)),
+    expectedAclCalls,
+  );
+});
+
+test("Windows sidecar ACL drift blocks refresh and removal before Compose mutation", async (t) => {
+  for (const action of ["refresh", "remove"]) {
+    await t.test(action, async (subtest) => {
+      const homeDirectory = await createTestHome(subtest);
+      const authPath = await createAuthFixture(homeDirectory);
+      const runner = createRunner();
+      await installLocalN8nSidecar(
+        { plan: createPlan(), authPath, confirmed: true },
+        {
+          homeDirectory,
+          env: {},
+          runProcess: runner,
+          randomBytes: () => Buffer.alloc(32, 0xdd),
+        },
+      );
+      const installRoot = await resolveLocalN8nSidecarInstallRoot({
+        homeDirectory,
+        env: {},
+      });
+      const expectedAclCalls = expectedWindowsSidecarManagedAclCalls(
+        homeDirectory,
+        installRoot,
+      );
+      const managedPaths = new Set(expectedAclCalls.map(({ path }) => path));
+      const composePath = join(installRoot, "docker-compose.yml");
+      const aclCalls = [];
+      const before = runner.calls.length;
+      const dependencies = {
+        homeDirectory,
+        env: {},
+        platform: "win32",
+        runProcess: runner,
+        async lockDownPath(path, options) {
+          aclCalls.push({ path, options });
+          if (path === composePath) {
+            throw new Error("fixture sidecar ACL drift");
+          }
+        },
+      };
+
+      await assert.rejects(
+        action === "refresh"
+          ? () => refreshLocalN8nSidecarCredential(
+              { authPath, confirmed: true },
+              dependencies,
+            )
+          : () => removeLocalN8nSidecar(
+              { confirmed: true },
+              dependencies,
+            ),
+        /fixture sidecar ACL drift/u,
+      );
+
+      assert.deepEqual(
+        aclCalls.filter(({ path }) => managedPaths.has(path)),
+        expectedAclCalls,
+      );
+      assert.deepEqual(runner.calls.slice(before), []);
+      await stat(installRoot);
+    });
+  }
 });
 
 test("credential refresh resumes unchanged when a frozen credential cannot be snapshotted", async (t) => {

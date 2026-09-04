@@ -13,6 +13,11 @@ const pages = [
     sourcePath: "docs/getting-started.md",
   },
   {
+    slug: "local-dashboard",
+    title: "Local dashboard",
+    sourcePath: "docs/local-dashboard.md",
+  },
+  {
     slug: "local-endpoints",
     title: "Local endpoints",
     sourcePath: "docs/local-endpoints.md",

@@ -74,7 +74,7 @@ test("server-renders the Relmio product page", async () => {
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
   assert.match(html, /class="repository-button"/);
-  assert.match(html, /Open Relmio version 0\.12\.2 on GitHub\./);
+  assert.match(html, /Open Relmio version 0\.13\.0 on GitHub\./);
   assert.match(html, /class="support-button"/);
   assert.match(
     html,
@@ -192,7 +192,11 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*CMD/);
   assert.match(html, /role="tab"[^>]*aria-selected="false"[^>]*>[^<]*NPX/);
   assert.match(html, /macOS, Linux, WSL, or Git Bash/);
-  assert.match(html, /No Git Bash or preinstalled Node\.js required/);
+  assert.match(html, /foreground one-shot wizard/);
+  assert.match(
+    html,
+    /Runs a foreground one-shot wizard; no Git Bash or preinstalled Node\.js required/,
+  );
   assert.match(html, /For Command Prompt, not PowerShell/);
   assert.match(html, /non-admin bootstrap verifies a temporary runtime/);
   assert.match(html, /already has Node\.js 22 or newer/);
@@ -203,6 +207,12 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.doesNotMatch(html, /<span role="status"[^>]*>Copy<\/span>/);
   assert.match(html, /Choose an installation method/);
   assert.match(html, /Run Relmio on your own computer/);
+  assert.match(html, /foreground[^<]*one-shot wizard/);
+  assert.match(html, /relmio start/);
+  assert.match(html, /relmio status/);
+  assert.match(html, /relmio open/);
+  assert.match(html, /relmio stop/);
+  assert.match(html, /never stops[^<]*n8n or a managed companion/);
   assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
   assert.match(installScript, /^#!\/bin\/sh/m);
   assert.match(installScript, /Node\.js download checksum did not match/);
@@ -266,7 +276,7 @@ test("falls back safely when project metadata is malformed", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     stars: null,
-    version: "0.12.2",
+    version: "0.13.0",
   });
 });
 

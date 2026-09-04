@@ -1,6 +1,11 @@
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 
+import { attachBrowserReopenOnEnter, openBrowser } from "../src/browser.js";
+import { ensureLocalDashboardBrowserLaunchRoot } from "../src/services/local-dashboard-control.js";
 import { startWizardServer } from "../src/web/server.js";
+
+const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 
 const remote = {
   close() {},
@@ -52,18 +57,81 @@ const services = {
   },
 };
 
-const sessionToken = randomBytes(32).toString("base64url");
-const wizard = await startWizardServer({
-  sessionToken,
-  services,
-  previewMode: true,
-});
+export async function runPreview({
+  env = process.env,
+  log = console.log,
+  open = openBrowser,
+  attachReopen = attachBrowserReopenOnEnter,
+  startServer = startWizardServer,
+  ensureBrowserLaunchRoot = ensureLocalDashboardBrowserLaunchRoot,
+  createSessionToken = () => randomBytes(32).toString("base64url"),
+  signalTarget = process,
+} = {}) {
+  if (
+    typeof log !== "function" || typeof open !== "function" ||
+    typeof attachReopen !== "function" || typeof startServer !== "function" ||
+    typeof ensureBrowserLaunchRoot !== "function" ||
+    typeof createSessionToken !== "function" ||
+    !signalTarget || typeof signalTarget.once !== "function" ||
+    typeof signalTarget.removeListener !== "function"
+  ) {
+    throw new TypeError("The Relmio preview launcher adapter is invalid.");
+  }
 
-console.log(`${wizard.origin}/?session=${sessionToken}`);
-console.log(
-  "Sanitized preview data only; live ChatGPT sign-in is disabled. Press Control+C to stop.",
-);
+  const sessionToken = createSessionToken();
+  if (!SESSION_TOKEN_PATTERN.test(sessionToken)) {
+    throw new Error("Relmio could not create a strong preview session.");
+  }
+  const browserHandoffRoot = await ensureBrowserLaunchRoot({ env });
+  let wizard;
+  let detachReopen = () => {};
+  let closePromise;
 
-process.once("SIGINT", async () => {
-  await wizard.close();
-});
+  function onSignal() {
+    void close().catch(() => {});
+  }
+
+  function close() {
+    if (closePromise) return closePromise;
+    closePromise = (async () => {
+      signalTarget.removeListener("SIGINT", onSignal);
+      signalTarget.removeListener("SIGTERM", onSignal);
+      detachReopen();
+      await wizard?.close();
+    })();
+    return closePromise;
+  }
+
+  try {
+    wizard = await startServer({
+      sessionToken,
+      services,
+      previewMode: true,
+      browserHandoffRoot,
+    });
+    const prepareLaunch = async () => await wizard.prepareBrowserLaunch("/");
+    await open(await prepareLaunch());
+    detachReopen = attachReopen({ prepareLaunch, open, write: log });
+    if (typeof detachReopen !== "function") {
+      throw new TypeError("The Relmio preview reopen adapter is invalid.");
+    }
+    signalTarget.once("SIGINT", onSignal);
+    signalTarget.once("SIGTERM", onSignal);
+    log(
+      "Sanitized preview opened through a private browser handoff. Live ChatGPT sign-in is disabled. Press Control+C to stop.",
+    );
+    return Object.freeze({ close });
+  } catch (error) {
+    await close();
+    throw error;
+  }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    await runPreview();
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
+}

@@ -64,6 +64,19 @@ test("PowerShell installer validates the official Windows runtime before executi
   assert.match(script, /Installing a temporary Node\.js 22 runtime\. Please wait/u);
   assert.match(script, /Verifying the Node\.js SHA-256 checksum\. Please wait/u);
   assert.match(script, /Extracting the verified temporary Node\.js 22 runtime\. Please wait/u);
+  assert.equal(
+    script.match(/SetEnvironmentVariable\("RELMIO_FOREGROUND_WIZARD", "1", "Process"\)/gu)?.length,
+    2,
+  );
+  assert.match(script, /Test-Path Env:RELMIO_FOREGROUND_WIZARD/u);
+  assert.match(
+    script,
+    /SetEnvironmentVariable\("RELMIO_FOREGROUND_WIZARD", \$previousForegroundWizardEnvironment, "Process"\)/u,
+  );
+  assert.match(
+    script,
+    /Remove-Item Env:RELMIO_FOREGROUND_WIZARD -ErrorAction SilentlyContinue/u,
+  );
   assert.doesNotMatch(script, /\bexit\b/iu);
 });
 
@@ -93,7 +106,6 @@ test(
     const root = await mkdtemp(join(tmpdir(), "relmio-powershell-test-"));
     const fakeBin = join(root, "bin");
     const downloadLog = join(root, "unexpected-download.log");
-    const log = join(root, "invocation.log");
     const wrapper = join(root, "invoke-installer.ps1");
     t.after(() => rm(root, { recursive: true, force: true }));
 
@@ -120,6 +132,7 @@ test(
           '> "%RELMIO_TEST_LOG%" echo %~1',
           '>> "%RELMIO_TEST_LOG%" echo %~2',
           '>> "%RELMIO_TEST_LOG%" echo %~3',
+          '>> "%RELMIO_TEST_LOG%" echo foreground=%RELMIO_FOREGROUND_WIZARD%',
           "",
         ].join("\r\n"),
         "utf8",
@@ -140,7 +153,10 @@ test(
       );
       await writeExecutable(
         join(fakeBin, "npx"),
-        '#!/bin/sh\nprintf "%s\\n" "$@" > "$RELMIO_TEST_LOG"\n',
+        `#!/bin/sh
+printf "%s\\n" "$@" > "$RELMIO_TEST_LOG"
+printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_LOG"
+`,
       );
     }
 
@@ -149,35 +165,61 @@ test(
       [
         '$ErrorActionPreference = "Continue"',
         '$ProgressPreference = "Continue"',
+        '$foregroundExistedBefore = Test-Path Env:RELMIO_FOREGROUND_WIZARD',
+        '$foregroundValueBefore = if ($foregroundExistedBefore) { $env:RELMIO_FOREGROUND_WIZARD } else { "<missing>" }',
         'function Invoke-WebRequest { Add-Content -LiteralPath $env:RELMIO_DOWNLOAD_LOG -Value "called"; throw "The test refused an unexpected download." }',
         'Invoke-Expression (Get-Content -LiteralPath $env:RELMIO_INSTALL_SCRIPT -Raw)',
         'Write-Output "PREFERENCES:$ErrorActionPreference/$ProgressPreference"',
+        '$foregroundExistedAfter = Test-Path Env:RELMIO_FOREGROUND_WIZARD',
+        '$foregroundValueAfter = if ($foregroundExistedAfter) { $env:RELMIO_FOREGROUND_WIZARD } else { "<missing>" }',
+        'Write-Output "FOREGROUND:$foregroundExistedBefore/$foregroundExistedAfter/$foregroundValueBefore/$foregroundValueAfter"',
         "",
       ].join("\n"),
       "utf8",
     );
 
-    const { stdout } = await execFileAsync(
-      powershell,
-      ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
+    for (const scenario of [
       {
-        env: {
+        name: "pre-existing value",
+        value: "caller-value",
+        expectedRestoration: "True/True/caller-value/caller-value",
+      },
+      {
+        name: "missing value",
+        value: null,
+        expectedRestoration: "False/False/<missing>/<missing>",
+      },
+    ]) {
+      await t.test(scenario.name, async () => {
+        const scenarioLog = join(root, `${scenario.name.replaceAll(" ", "-")}.log`);
+        const env = {
           ...process.env,
           PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
           RELMIO_INSTALL_SCRIPT: resolve(installScript),
           RELMIO_DOWNLOAD_LOG: downloadLog,
-          RELMIO_TEST_LOG: log,
-        },
-      },
-    );
+          RELMIO_TEST_LOG: scenarioLog,
+        };
+        if (scenario.value === null) {
+          delete env.RELMIO_FOREGROUND_WIZARD;
+        } else {
+          env.RELMIO_FOREGROUND_WIZARD = scenario.value;
+        }
 
-    assert.match(stdout, /Using installed Node\.js 22 runtime/u);
-    assert.match(stdout, /PREFERENCES:Continue\/Continue/u);
-    assert.deepEqual((await readFile(log, "utf8")).trim().split(/\r?\n/u), [
-      "--yes",
-      "--ignore-scripts",
-      "relmio@latest",
-    ]);
+        const { stdout } = await execFileAsync(
+          powershell,
+          ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
+          { env },
+        );
+
+        assert.match(stdout, /Using installed Node\.js 22 runtime/u);
+        assert.match(stdout, /PREFERENCES:Continue\/Continue/u);
+        assert.match(stdout, new RegExp(`FOREGROUND:${scenario.expectedRestoration}`, "u"));
+        assert.deepEqual(
+          (await readFile(scenarioLog, "utf8")).trim().split(/\r?\n/u),
+          ["--yes", "--ignore-scripts", "relmio@latest", "foreground=1"],
+        );
+      });
+    }
     await assert.rejects(readFile(downloadLog, "utf8"), { code: "ENOENT" });
   },
 );
@@ -197,6 +239,7 @@ test(
         const archive = join(root, "node.zip");
         const manifest = join(root, "SHASUMS256.txt");
         const invocationLog = join(root, "npx-invocation.json");
+        const restorationLog = join(root, "environment-restoration.txt");
         const temporaryPathLog = join(root, "temporary-path.txt");
         const wrapper = join(root, "invoke-portable-installer.ps1");
         const filename = `node-v22.99.0-win-${nodeArchitecture}.zip`;
@@ -210,7 +253,7 @@ test(
         );
         const npxFixture = [
           'const fs = require("node:fs");',
-          "fs.writeFileSync(process.env.RELMIO_TEST_LOG, JSON.stringify({ args: process.argv.slice(2), execPath: process.execPath }));",
+          "fs.writeFileSync(process.env.RELMIO_TEST_LOG, JSON.stringify({ args: process.argv.slice(2), execPath: process.execPath, foregroundWizard: process.env.RELMIO_FOREGROUND_WIZARD }));",
           "",
         ].join("\n");
         await writeFile(
@@ -247,6 +290,7 @@ test(
             '  Set-Content -LiteralPath (Join-Path $npxDirectory "npx-cli.js") -Value $env:RELMIO_NPX_FIXTURE -Encoding UTF8',
             '}',
             '& $env:RELMIO_INSTALL_SCRIPT',
+            'Set-Content -LiteralPath $env:RELMIO_RESTORATION_LOG -Value ((Test-Path Env:RELMIO_FOREGROUND_WIZARD).ToString() + ":" + $env:RELMIO_FOREGROUND_WIZARD)',
             "",
           ].join("\r\n"),
           "utf8",
@@ -261,8 +305,10 @@ test(
             RELMIO_MANIFEST: manifest,
             RELMIO_NODE_EXE: process.execPath,
             RELMIO_NPX_FIXTURE: npxFixture,
+            RELMIO_RESTORATION_LOG: restorationLog,
             RELMIO_TEMP_PATH_LOG: temporaryPathLog,
             RELMIO_TEST_LOG: invocationLog,
+            RELMIO_FOREGROUND_WIZARD: "caller-portable",
           },
         };
 
@@ -276,7 +322,9 @@ test(
           assert.match(stdout, /Starting the newest Relmio wizard/u);
           const invocation = JSON.parse(await readFile(invocationLog, "utf8"));
           assert.deepEqual(invocation.args, ["--yes", "--ignore-scripts", "relmio@latest"]);
+          assert.equal(invocation.foregroundWizard, "1");
           assert.match(invocation.execPath, /relmio-[a-f0-9]+[\\/]node-v22\.99\.0-win-(?:x64|arm64)[\\/]node\.exe$/iu);
+          assert.equal((await readFile(restorationLog, "utf8")).trim(), "True:caller-portable");
         } else {
           await assert.rejects(
             execFileAsync(

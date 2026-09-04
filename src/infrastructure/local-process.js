@@ -7,7 +7,7 @@ const DEFAULT_TERMINATION_GRACE_MS = 2_000;
 const MAX_ARGUMENT_BYTES = 16 * 1024;
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_DOCKER_HOST_BYTES = 4 * 1024;
-const WINDOWS_ACL_TIMEOUT_MS = 15_000;
+const WINDOWS_ACL_TIMEOUT_MS = 60_000;
 const WINDOWS_ACL_MAX_OUTPUT_BYTES = 4 * 1024;
 const WINDOWS_SECURITY_TOOL_ERROR =
   "Windows could not locate the built-in security tool required to protect local Relmio files.";
@@ -159,6 +159,8 @@ export function runWindowsAclCommand(
     timeoutMs = WINDOWS_ACL_TIMEOUT_MS,
     maxOutputBytes = WINDOWS_ACL_MAX_OUTPUT_BYTES,
     terminationGraceMs = DEFAULT_TERMINATION_GRACE_MS,
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
   } = {},
 ) {
   return new Promise((resolve, reject) => {
@@ -178,15 +180,15 @@ export function runWindowsAclCommand(
     let settled = false;
     let terminationTimer;
     let failure;
-    const timeout = setTimeout(() => {
+    const timeout = setTimer(() => {
       terminate(new Error("Windows ACL verification timed out."));
     }, timeoutMs);
 
     function settle(error, result) {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
-      clearTimeout(terminationTimer);
+      clearTimer(timeout);
+      clearTimer(terminationTimer);
       if (error) reject(error);
       else resolve(result);
     }
@@ -195,7 +197,7 @@ export function runWindowsAclCommand(
       if (failure || settled) return;
       failure = error;
       try { child.kill("SIGKILL"); } catch { /* Forced settlement remains bounded. */ }
-      terminationTimer = setTimeout(() => settle(failure), terminationGraceMs);
+      terminationTimer = setTimer(() => settle(failure), terminationGraceMs);
     }
 
     function consume(chunk, { capture = false } = {}) {
@@ -234,6 +236,13 @@ export function runWindowsAclCommand(
  * Builtin Administrators principal to the current account, then creates and reads
  * back a protected DACL containing only that account. Any other initial owner fails
  * closed. Verification mode never changes ownership or access rules.
+ * Effective owner-only verification additionally accepts the exact legacy shape of
+ * one inherited current-user FullControl rule on a file. On Administrator accounts,
+ * Windows may assign a new inherited child to the trusted Builtin Administrators
+ * principal even though only the current account receives access. That owner is
+ * accepted only for the inherited legacy shape and only while the current account
+ * is an Administrator. Callers must first verify that file's containing managed
+ * directory with the strict protected ACL contract.
  * A directory rule is inheritable, so managed children receive the same protection.
  * Call this before writing secrets into a newly created managed directory or file.
  */
@@ -245,6 +254,7 @@ export async function lockDownLocalPath(
     runAclCommand = runWindowsAclCommand,
     systemRoot = process.env.SystemRoot,
     verifyOnly = false,
+    verifyEffectiveOwnerOnly = false,
   } = {},
 ) {
   if (platform !== "win32") return;
@@ -259,6 +269,12 @@ export async function lockDownLocalPath(
   if (typeof verifyOnly !== "boolean") {
     throw new TypeError("Windows ACL verification mode is invalid.");
   }
+  if (
+    typeof verifyEffectiveOwnerOnly !== "boolean" ||
+    (verifyEffectiveOwnerOnly && (!verifyOnly || kind !== "file"))
+  ) {
+    throw new TypeError("Windows ACL effective owner-only verification mode is invalid.");
+  }
   const script = [
     "$path=[Console]::In.ReadToEnd()",
     "$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()",
@@ -267,12 +283,13 @@ export async function lockDownLocalPath(
     "if($item.PSObject.Methods.Name -contains 'GetAccessControl'){$before=$item.GetAccessControl()}else{$before=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
     "$beforeOwner=$before.GetOwner([System.Security.Principal.SecurityIdentifier])",
     `$expectedInheritance=[System.Security.AccessControl.InheritanceFlags]::${kind === "directory" ? "ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit" : "None"}`,
-    ...(verifyOnly ? [
-      "if($beforeOwner.Value -ne $sid.Value){exit 1}",
-      "$actual=$before",
-    ] : [
+    ...(!verifyOnly || verifyEffectiveOwnerOnly ? [
       "$administratorsSid=[System.Security.Principal.SecurityIdentifier]::new([System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid,$null)",
       "$principal=[System.Security.Principal.WindowsPrincipal]::new($identity)",
+    ] : []),
+    ...(verifyOnly ? [
+      "$actual=$before",
+    ] : [
       "if($beforeOwner.Value -ne $sid.Value -and (-not ($beforeOwner.Value -eq $administratorsSid.Value -and $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)))){exit 1}",
       "$normalizeOwner=$beforeOwner.Value -ne $sid.Value",
       `$acl=New-Object System.Security.AccessControl.${kind === "directory" ? "Directory" : "File"}Security`,
@@ -282,11 +299,25 @@ export async function lockDownLocalPath(
       "$acl.SetAccessRule($rule)",
       "if($item.PSObject.Methods.Name -contains 'SetAccessControl'){$item.SetAccessControl($acl);$actual=$item.GetAccessControl()}else{[System.IO.FileSystemAclExtensions]::SetAccessControl($item,$acl);$actual=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
     ]),
-    "if(-not $actual.AreAccessRulesProtected){exit 1}",
+    ...(!verifyEffectiveOwnerOnly
+      ? ["if(-not $actual.AreAccessRulesProtected){exit 1}"]
+      : []),
     "$owner=$actual.GetOwner([System.Security.Principal.SecurityIdentifier])",
-    "if($owner.Value -ne $sid.Value){exit 1}",
+    ...(!verifyEffectiveOwnerOnly ? [
+      "if($owner.Value -ne $sid.Value){exit 1}",
+    ] : []),
     "$rules=@($actual.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))",
-    "if($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or $rules[0].InheritanceFlags -ne $expectedInheritance -or $rules[0].PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None -or $rules[0].IsInherited){exit 1}",
+    "if($rules.Count -ne 1){exit 1}",
+    "if($rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or $rules[0].InheritanceFlags -ne $expectedInheritance -or $rules[0].PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None){exit 1}",
+    ...(verifyEffectiveOwnerOnly ? [
+      "$strictOwnerOnly=$actual.AreAccessRulesProtected -and (-not $rules[0].IsInherited)",
+      "$legacyInheritedOwnerOnly=(-not $actual.AreAccessRulesProtected) -and $rules[0].IsInherited",
+      "if(-not ($strictOwnerOnly -or $legacyInheritedOwnerOnly)){exit 1}",
+      "$trustedLegacyAdministratorsOwner=$legacyInheritedOwnerOnly -and $owner.Value -eq $administratorsSid.Value -and $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)",
+      "if($owner.Value -ne $sid.Value -and (-not $trustedLegacyAdministratorsOwner)){exit 1}",
+    ] : [
+      "if($rules[0].IsInherited){exit 1}",
+    ]),
   ].join(";");
   try {
     await runAclCommand(

@@ -205,13 +205,17 @@ async function createPortableNodeFixture(
     captureStdin
       ? `#!/bin/sh
 printf "%s\\n" "$@" > "$RELMIO_TEST_LOG"
+printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_LOG"
 if [ -t 0 ]; then
   printf "stdin-is-a-tty\\n" >> "$RELMIO_TEST_LOG"
 else
   printf "stdin-is-not-a-tty\\n" >> "$RELMIO_TEST_LOG"
 fi
 `
-      : '#!/bin/sh\nprintf "%s\\n" "$@" > "$RELMIO_TEST_LOG"\n',
+      : `#!/bin/sh
+printf "%s\\n" "$@" > "$RELMIO_TEST_LOG"
+printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_LOG"
+`,
   );
   await writeFile(join(npmCli, "npx-cli.js"), "// fixture\n", "utf8");
   await execFileAsync("tar", ["-czf", archive, "-C", fixtureRoot, basename]);
@@ -251,6 +255,7 @@ if (realpathSync(firstPathEntry) !== realpathSync(runtimeDirectory)) {
 }
 
 appendFileSync(log, "child-node-ok\\n");
+appendFileSync(log, "foreground=" + (process.env.RELMIO_FOREGROUND_WIZARD ?? "unset") + "\\n");
 appendFileSync(log, process.stdin.isTTY ? "stdin-is-a-tty\\n" : "stdin-is-not-a-tty\\n");
 process.exit(0);
 `,
@@ -387,6 +392,7 @@ cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
       RELMIO_TEST_PIPE_LOG: pipeLog,
       RELMIO_TEST_INSTALLER: toGitBashPath(resolve(installScript)),
       RELMIO_TEST_WINDOWS_ROOT: fixture.fixtureRoot,
+      RELMIO_FOREGROUND_WIZARD: "caller-value",
     },
   };
 }
@@ -462,9 +468,24 @@ esac
       RELMIO_TEST_ARCHIVE: fixture.archive,
       RELMIO_TEST_LOG: log,
       RELMIO_TEST_MANIFEST: fixture.manifest,
+      RELMIO_FOREGROUND_WIZARD: "caller-value",
     },
   };
 }
+
+test("curl installer scopes foreground wizard mode to both Relmio child paths", async () => {
+  const script = await readFile(installScript, "utf8");
+
+  assert.match(
+    script,
+    /RELMIO_FOREGROUND_WIZARD=1\s+\\?\s*npx --yes --ignore-scripts relmio@latest/u,
+  );
+  assert.match(
+    script,
+    /RELMIO_FOREGROUND_WIZARD=1\s+\\?\s*PATH=[^\n]+\\\s+"\$node_binary" "\$npx_cli" --yes --ignore-scripts relmio@latest/u,
+  );
+  assert.doesNotMatch(script, /^export RELMIO_FOREGROUND_WIZARD=/mu);
+});
 
 test(
   "curl installer reuses an installed Node 22 runtime",
@@ -483,7 +504,10 @@ test(
     );
     await writeExecutable(
       join(fakeBin, "npx"),
-      '#!/bin/sh\nprintf "%s\\n" "$@" > "$RELMIO_TEST_LOG"\n',
+      `#!/bin/sh
+printf "%s\\n" "$@" > "$RELMIO_TEST_LOG"
+printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_LOG"
+`,
     );
     await writeExecutable(
       join(fakeBin, "curl"),
@@ -495,6 +519,7 @@ test(
       PATH: `${fakeBin}:${process.env.PATH}`,
       RELMIO_TEST_DOWNLOAD_LOG: downloadLog,
       RELMIO_TEST_LOG: log,
+      RELMIO_FOREGROUND_WIZARD: "caller-value",
     });
 
     assert.match(stdout, /Using installed Node\.js 22/u);
@@ -502,6 +527,7 @@ test(
       "--yes",
       "--ignore-scripts",
       "relmio@latest",
+      "foreground=1",
     ]);
     await assert.rejects(readFile(downloadLog, "utf8"), { code: "ENOENT" });
   },
@@ -592,6 +618,7 @@ test(
 
     const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
     assert.equal(invocation.at(-1), "stdin-is-a-tty");
+    assert.ok(invocation.includes("foreground=1"));
     assert.deepEqual(await readdir(setup.bootstrapTemp), []);
   },
 );
@@ -618,6 +645,7 @@ test(
       "--yes",
       "--ignore-scripts",
       "relmio@latest",
+      "foreground=1",
     ]);
     assert.deepEqual(await readdir(setup.bootstrapTemp), []);
   },
@@ -646,8 +674,9 @@ test(
       invocation[0].replaceAll("\\", "/"),
       new RegExp(`${setup.fixture.basename}/node_modules/npm/bin/npx-cli\\.js$`, "u"),
     );
-    assert.equal(invocation.at(-2), "child-node-ok");
+    assert.equal(invocation.at(-3), "child-node-ok");
     assert.equal(invocation.at(-1), "stdin-is-a-tty");
+    assert.ok(invocation.includes("foreground=1"));
     assert.deepEqual(await readdir(setup.bootstrapTemp), []);
   },
 );

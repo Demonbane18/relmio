@@ -29,6 +29,7 @@ import {
 } from "../src/domain/assistant-templates.js";
 import {
   editLocalN8nAssistantSearxng as editLocalN8nAssistantSearxngService,
+  getLocalN8nAssistantStatus as getLocalN8nAssistantStatusService,
   installLocalN8nAssistant as installLocalN8nAssistantService,
   prepareLocalN8nAssistantSearxngUpdate,
   removeLocalN8nAssistant as removeLocalN8nAssistantService,
@@ -39,6 +40,8 @@ import { withTestLocalSecurity } from "./helpers/local-security.js";
 
 const editLocalN8nAssistantSearxng = (request, dependencies) =>
   editLocalN8nAssistantSearxngService(request, withTestLocalSecurity(dependencies));
+const getLocalN8nAssistantStatus = (dependencies) =>
+  getLocalN8nAssistantStatusService(withTestLocalSecurity(dependencies));
 const installLocalN8nAssistant = (request, dependencies) =>
   installLocalN8nAssistantService(request, withTestLocalSecurity(dependencies));
 const removeLocalN8nAssistant = (request, dependencies) =>
@@ -543,6 +546,61 @@ test("local Assistant installation provisions sandbox and optional SearXNG witho
   )));
 });
 
+test("Windows Assistant status verifies the optional SearXNG file exactly when the marker includes it", async (t) => {
+  for (const includeSearxng of [false, true]) {
+    await t.test(includeSearxng ? "with SearXNG" : "without SearXNG", async (subtest) => {
+      const homeDirectory = await createTestHome(subtest);
+      const runner = createRunner();
+      let byte = includeSearxng ? 0x30 : 0x20;
+      await installLocalN8nAssistant(
+        { plan: createPlan({ includeSearxng }), confirmed: true },
+        {
+          homeDirectory,
+          env: {},
+          platform: "linux",
+          runProcess: runner,
+          randomBytes: (size) => Buffer.alloc(size, (byte += 1)),
+        },
+      );
+      const installRoot = await resolveLocalN8nAssistantInstallRoot({
+        homeDirectory,
+        env: {},
+      });
+      const lockCalls = [];
+
+      await getLocalN8nAssistantStatus({
+        homeDirectory,
+        env: {},
+        platform: "win32",
+        runProcess: runner,
+        async lockDownPath(path, options) {
+          lockCalls.push({ path, options });
+        },
+      });
+
+      const expectedPaths = [
+        join(homeDirectory, ".relmio"),
+        join(homeDirectory, ".relmio", "local"),
+        installRoot,
+        join(homeDirectory, ".relmio", ".managed-by-relmio-root.json"),
+        join(installRoot, ".managed-by-relmio.json"),
+        join(installRoot, "docker-compose.yml"),
+        join(installRoot, ".env"),
+        ...(includeSearxng ? [join(installRoot, "searxng-settings.yml")] : []),
+      ];
+      assert.deepEqual(lockCalls.map((call) => call.path), expectedPaths);
+      assert.ok(lockCalls.every((call) => call.options.verifyOnly === true));
+      assert.ok(lockCalls.slice(3).every(
+        (call) => call.options.verifyEffectiveOwnerOnly === true,
+      ));
+      assert.equal(
+        lockCalls.some((call) => call.path.endsWith("searxng-settings.yml")),
+        includeSearxng,
+      );
+    });
+  }
+});
+
 test("fresh Assistant root initialization removes only an empty failed root and retries immediately", async (t) => {
   const homeDirectory = await createTestHome(t);
   const relmioHome = join(homeDirectory, ".relmio");
@@ -925,6 +983,123 @@ test("local Assistant can separately enable SearXNG without rotating or returnin
   assert.equal(JSON.stringify(updateCalls).includes(oldEnv.match(/SANDBOX_API_KEYS=([^\n]+)/u)?.[1]), false);
 });
 
+test("Windows Assistant SearXNG enablement rejects whole-tree ACL drift before file or Compose mutation", async (t) => {
+  const homeDirectory = await createTestHome(t);
+  const baseRunner = createRunner({ contextHost: WINDOWS_DOCKER_HOST });
+  const runner = async (spec) => {
+    const result = await baseRunner(spec);
+    return spec.args.join(" ") === "context show"
+      ? dockerResult("desktop-linux\n")
+      : result;
+  };
+  runner.calls = baseRunner.calls;
+  let byte = 0x99;
+  const installDependencies = {
+    homeDirectory,
+    env: {},
+    platform: "win32",
+    runProcess: runner,
+    randomBytes: (size) => Buffer.alloc(size, (byte += 1)),
+  };
+  await installLocalN8nAssistant(
+    {
+      plan: createPlan({
+        dockerHost: WINDOWS_DOCKER_HOST,
+        includeSearxng: false,
+      }),
+      confirmed: true,
+    },
+    installDependencies,
+  );
+  const installRoot = await resolveLocalN8nAssistantInstallRoot({
+    homeDirectory,
+    env: {},
+  });
+  const relmioHome = join(homeDirectory, ".relmio");
+  const managedFiles = [
+    join(relmioHome, ".managed-by-relmio-root.json"),
+    join(installRoot, ".managed-by-relmio.json"),
+    join(installRoot, "docker-compose.yml"),
+    join(installRoot, ".env"),
+    join(installRoot, "searxng-settings.yml"),
+  ];
+  const expectedVerificationPaths = [
+    relmioHome,
+    join(relmioHome, "local"),
+    installRoot,
+  ];
+  const assistantTreePaths = new Set([
+    ...expectedVerificationPaths,
+    ...managedFiles,
+  ]);
+  const isManagedWritePath = (path) => typeof path === "string" && managedFiles.some(
+    (managedPath) => path === managedPath || path.startsWith(`${managedPath}.tmp-`),
+  );
+  const managedWriteCalls = [];
+  const managedRenameCalls = [];
+  const fileSystem = {
+    ...nodeFileSystem,
+    async writeFile(path, ...args) {
+      if (isManagedWritePath(path)) managedWriteCalls.push(path);
+      return nodeFileSystem.writeFile(path, ...args);
+    },
+    async rename(source, destination) {
+      if (isManagedWritePath(source) || isManagedWritePath(destination)) {
+        managedRenameCalls.push({ source, destination });
+      }
+      return nodeFileSystem.rename(source, destination);
+    },
+  };
+  const review = await prepareLocalN8nAssistantSearxngUpdate(
+    { includeSearxng: true },
+    installDependencies,
+  );
+  const composeBefore = await readFile(join(installRoot, "docker-compose.yml"), "utf8");
+  const markerBefore = await readFile(join(installRoot, ".managed-by-relmio.json"), "utf8");
+  const callCount = runner.calls.length;
+  const verificationCalls = [];
+
+  await assert.rejects(
+    () => editLocalN8nAssistantSearxng(
+      { review, confirmed: true },
+      {
+        ...installDependencies,
+        fileSystem,
+        platform: "win32",
+        async lockDownPath(path, options) {
+          if (
+            options.platform !== "win32" ||
+            options.verifyOnly !== true ||
+            !assistantTreePaths.has(path)
+          ) return;
+          verificationCalls.push({ path, options });
+          if (path === installRoot) {
+            throw new Error("synthetic whole-tree ACL verification failure");
+          }
+        },
+      },
+    ),
+    /whole-tree ACL verification failure/u,
+  );
+
+  assert.deepEqual(
+    verificationCalls.map((call) => call.path),
+    expectedVerificationPaths,
+  );
+  assert.ok(verificationCalls.every((call) => call.options.verifyOnly === true));
+  assert.equal(
+    verificationCalls.some((call) => call.path.endsWith("searxng-settings.yml")),
+    false,
+  );
+  assert.deepEqual(managedWriteCalls, []);
+  assert.deepEqual(managedRenameCalls, []);
+  assert.equal(await readFile(join(installRoot, "docker-compose.yml"), "utf8"), composeBefore);
+  assert.equal(await readFile(join(installRoot, ".managed-by-relmio.json"), "utf8"), markerBefore);
+  await assert.rejects(() => stat(join(installRoot, "searxng-settings.yml")), /ENOENT/u);
+  const updateCalls = runner.calls.slice(callCount);
+  assert.deepEqual(updateCalls, []);
+});
+
 test(
   "native Windows Assistant files keep owner-only ACLs through SearXNG enablement",
   { skip: process.platform !== "win32" },
@@ -1106,6 +1281,80 @@ test("local Assistant removal deletes only the owned companion project", async (
   await assert.rejects(() => stat(installRoot), /ENOENT/u);
   assert.ok(runner.calls.some((call) => call.args.includes("down")));
   assert.ok(runner.calls.every((call) => !call.args.includes("local-n8n")));
+});
+
+test("Windows Assistant removal re-verifies exact managed paths before Docker mutation", async (t) => {
+  for (const includeSearxng of [false, true]) {
+    await t.test(includeSearxng ? "with SearXNG" : "without SearXNG", async (subtest) => {
+      const homeDirectory = await createTestHome(subtest);
+      const runner = createRunner();
+      let byte = includeSearxng ? 0x80 : 0x70;
+      await installLocalN8nAssistant(
+        { plan: createPlan({ includeSearxng }), confirmed: true },
+        {
+          homeDirectory,
+          env: {},
+          platform: "linux",
+          runProcess: runner,
+          randomBytes: (size) => Buffer.alloc(size, (byte += 1)),
+        },
+      );
+      const installRoot = await resolveLocalN8nAssistantInstallRoot({
+        homeDirectory,
+        env: {},
+      });
+      const expectedPaths = [
+        join(homeDirectory, ".relmio"),
+        join(homeDirectory, ".relmio", "local"),
+        installRoot,
+        join(homeDirectory, ".relmio", ".managed-by-relmio-root.json"),
+        join(installRoot, ".managed-by-relmio.json"),
+        join(installRoot, "docker-compose.yml"),
+        join(installRoot, ".env"),
+        ...(includeSearxng ? [join(installRoot, "searxng-settings.yml")] : []),
+      ];
+      const failurePath = includeSearxng
+        ? join(installRoot, "searxng-settings.yml")
+        : join(installRoot, ".env");
+      const callCount = runner.calls.length;
+      const verificationCalls = [];
+
+      await assert.rejects(() => removeLocalN8nAssistant(
+        { confirmed: true },
+        {
+          homeDirectory,
+          env: {},
+          platform: "win32",
+          runProcess: runner,
+          async lockDownPath(path, options) {
+            verificationCalls.push({ path, options });
+            if (path === failurePath && options.verifyOnly === true) {
+              throw new Error("synthetic owner-only ACL verification failure");
+            }
+          },
+        },
+      ), /owner-only ACL verification failure/u);
+
+      const removalCalls = runner.calls.slice(callCount);
+      assert.equal(removalCalls.some((call) =>
+        call.args.some((arg) => ["up", "down", "start", "stop", "restart", "rm"].includes(arg)),
+      ), false);
+      const managedVerificationCalls = verificationCalls.filter((call) =>
+        expectedPaths.includes(call.path),
+      );
+      assert.deepEqual(
+        managedVerificationCalls.map((call) => call.path),
+        expectedPaths,
+      );
+      assert.ok(
+        managedVerificationCalls.every((call) => call.options.verifyOnly === true),
+      );
+      assert.equal((await stat(installRoot)).isDirectory(), true);
+      for (const path of expectedPaths.slice(3)) {
+        assert.equal((await stat(path)).isFile(), true);
+      }
+    });
+  }
 });
 
 test("local Assistant removal preserves foreign or incomplete Docker resources", async (t) => {

@@ -65,6 +65,191 @@ test("README surfaces are concise product entry points linked to canonical docs"
   assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
 });
 
+test("persistent dashboard guides keep launch, inventory, action, and secret boundaries aligned", async () => {
+  const [readme, npmReadme, gettingStarted, localEndpoints, dashboard, troubleshooting] =
+    await Promise.all([
+      readFile("README.md", "utf8"),
+      readFile("npm/README.md", "utf8"),
+      readFile("docs/getting-started.md", "utf8"),
+      readFile("docs/local-endpoints.md", "utf8"),
+      readFile("docs/local-dashboard.md", "utf8"),
+      readFile("docs/troubleshooting.md", "utf8"),
+  ]);
+
+  for (const entryPoint of [readme, npmReadme]) {
+    assert.match(
+      entryPoint,
+      /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
+    );
+    assert.doesNotMatch(entryPoint, /Press Enter to reopen the same\s+dashboard/u);
+    assert.match(entryPoint, /six supported local services/u);
+    assert.match(entryPoint, /never stored\s+secrets/u);
+    assert.match(entryPoint, /existing four-step setup flow/u);
+    assert.match(entryPoint, /relmio vps/u);
+    assert.match(
+      entryPoint,
+      /Homebrew\s+installs the persistent `relmio` command;\s+it\s+does not launch the browser/u,
+    );
+    assert.doesNotMatch(entryPoint, /every launcher opens the same wizard/iu);
+    for (const command of ["status", "open", "stop"]) {
+      assert.ok(
+        entryPoint.includes(`npx --yes --ignore-scripts relmio@latest ${command}`),
+      );
+    }
+  }
+
+  assert.match(readme, /\]\(docs\/local-dashboard\.md\)/u);
+  assert.match(
+    npmReadme,
+    /https:\/\/github\.com\/Demonbane18\/relmio\/blob\/main\/docs\/local-dashboard\.md/u,
+  );
+  assert.match(gettingStarted, /\[Local dashboard\]\(\.\/local-dashboard\.md\)/u);
+  assert.match(localEndpoints, /\[Use the local dashboard\]\(\.\/local-dashboard\.md\)/u);
+
+  for (const command of [
+    "npx --yes --ignore-scripts relmio@latest",
+    "npx --yes --ignore-scripts relmio@latest status",
+    "npx --yes --ignore-scripts relmio@latest open",
+    "npx --yes --ignore-scripts relmio@latest stop",
+    "relmio",
+    "npm start",
+    "relmio vps",
+  ]) {
+    assert.ok(dashboard.includes(command));
+  }
+  assert.match(dashboard, /another Relmio version/iu);
+  assert.match(dashboard, /owner-only, short-lived handoff file/iu);
+  assert.match(dashboard, /clean GET/iu);
+  assert.match(dashboard, /expires after 10\s+seconds/iu);
+  assert.doesNotMatch(dashboard, /[?]session=/u);
+  assert.doesNotMatch(troubleshooting, /complete printed|printed `http:\/\/127\.0\.0\.1/iu);
+  assert.match(
+    dashboard,
+    /relmio stop[\s\S]*relmio start[\s\S]*relmio open/iu,
+  );
+  assert.match(
+    troubleshooting,
+    /Homebrew and direct npm or NPX runs use the persistent dashboard/iu,
+  );
+  assert.match(
+    troubleshooting,
+    /hosted curl, PowerShell, and Command Prompt launchers run in the\s+foreground/iu,
+  );
+  for (const service of [
+    "OpenAI API",
+    "Codex (ChatGPT login)",
+    "Codex Chat adapter",
+    "n8n + ngrok",
+    "OpenAI OAuth bridge",
+    "AI Assistant tools",
+  ]) {
+    assert.ok(dashboard.includes(`**${service}**`));
+  }
+  for (const state of [
+    "Checking",
+    "Healthy",
+    "Stopped",
+    "Needs recovery",
+    "Unavailable",
+    "Stale",
+    "Not configured",
+  ]) {
+    assert.ok(dashboard.includes(`**${state}**`));
+  }
+  for (const action of [
+    "Refresh status",
+    "Set up",
+    "Resume",
+    "Review removal",
+    "Sign in",
+    "Rotate credential",
+    "Refresh credential",
+  ]) {
+    assert.ok(dashboard.includes(`**${action}**`));
+  }
+
+  assert.match(dashboard, /browser-launch command[\s\S]*visible[\s\S]*URL contains that capability/u);
+  assert.match(
+    dashboard,
+    /same-tab reload[\s\S]*current\s+tab's clean GET history entry/u,
+  );
+  assert.match(dashboard, /new tab[\s\S]*use `relmio open`/u);
+  assert.doesNotMatch(dashboard, /refreshed page without its session value cannot reconnect/iu);
+  assert.match(
+    dashboard,
+    /\*\*Refresh status\*\* first forgets abandoned setup drafts[\s\S]*does not change an installed service/u,
+  );
+  assert.match(dashboard, /never returns a[\s\S]*Platform API key[\s\S]*OAuth token/u);
+  assert.match(dashboard, /ChatGPT device sign-in authorizes Codex/u);
+  assert.match(dashboard, /Chat Adapter bearer authorizes your client/u);
+  assert.match(dashboard, /does not start a browser sign-in by itself/u);
+  assert.match(dashboard, /selected n8n container and\s+Docker network remain operator-owned/u);
+  assert.match(dashboard, /does not edit n8n configuration[\s\S]*restart[\s\S]*n8n/u);
+  assert.match(dashboard, /Select \*\*Add connection\*\*[\s\S]*four-step setup flow/u);
+  assert.match(dashboard, /Returning to the dashboard clears pending plans/u);
+  assertOnlyDocumentationAddresses(dashboard);
+});
+
+test("public guides document persistent dashboard lifecycle and fail-closed provider support", async () => {
+  const [readme, npmReadme, gettingStarted, localEndpoints, dashboard, security] =
+    await Promise.all([
+      readFile("README.md", "utf8"),
+      readFile("npm/README.md", "utf8"),
+      readFile("docs/getting-started.md", "utf8"),
+      readFile("docs/local-endpoints.md", "utf8"),
+      readFile("docs/local-dashboard.md", "utf8"),
+      readFile("docs/security.md", "utf8"),
+    ]);
+
+  for (const guide of [readme, npmReadme, gettingStarted, dashboard]) {
+    assert.match(
+      guide,
+      /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
+    );
+    assert.match(guide, /stops only (?:that|the Relmio dashboard) process/iu);
+    assert.match(guide, /foreground[\s,-]+one-shot/iu);
+  }
+
+  for (const guide of [localEndpoints, dashboard, security]) {
+    assert.match(guide, /official Codex App Server/u);
+    assert.match(guide, /Codex owns the ChatGPT OAuth flow/u);
+    assert.match(guide, /one active ChatGPT account/u);
+    assert.match(guide, /xAI\/Grok authentication is API-key only/u);
+    assert.match(guide, /does not implement third-party Grok OAuth/u);
+    assert.match(guide, /401, 403, (?:or )?429/u);
+    assert.match(guide, /never (?:changes|rotates) accounts or keys automatically/iu);
+    assert.match(guide, /denied by default/u);
+    assert.match(guide, /never returns or re-shows a stored secret/u);
+  }
+});
+
+test("VPS guides explain explicit disconnect and bounded SSH inactivity", async () => {
+  const [dashboard, vpsGuide, security] = await Promise.all([
+    readFile("docs/local-dashboard.md", "utf8"),
+    readFile("docs/vps-and-n8n.md", "utf8"),
+    readFile("docs/security.md", "utf8"),
+  ]);
+
+  for (const guide of [dashboard, vpsGuide, security]) {
+    assert.match(guide, /Disconnect from VPS/u);
+    assert.match(guide, /15 minutes\s+of\s+inactivity/u);
+    assert.match(guide, /active\s+(?:VPS|remote)\s+operation/u);
+  }
+});
+
+test("provider roadmap requires official authentication support before implementation", async () => {
+  const roadmap = await readFile("docs/roadmap.md", "utf8");
+
+  assert.match(roadmap, /xAI\/Grok API-key support/u);
+  assert.match(roadmap, /does not document a third-party Grok OAuth flow/u);
+  assert.match(roadmap, /denied by default/u);
+  assert.match(roadmap, /401, 403, or 429/u);
+  assert.match(roadmap, /never automatically switches accounts or keys/u);
+  assert.match(roadmap, /provider-owned OAuth client registration/u);
+  assert.doesNotMatch(roadmap, /technically plausible/iu);
+  assert.doesNotMatch(roadmap, /Hermes Agent/iu);
+});
+
 test("release changelog retains the Unreleased section above the dated release", async () => {
   const changelog = await readFile("CHANGELOG.md", "utf8");
   assert.match(changelog, /## Unreleased[\s\S]*## \[0\.10\.0\] - 2026-08-31/u);

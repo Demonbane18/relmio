@@ -1,6 +1,6 @@
 {
   "name": "relmio",
-  "version": "0.12.2",
+  "version": "0.13.0",
   "description": "Use ChatGPT/Codex sign-in with self-hosted n8n through a private Docker bridge, or set up a separate Platform API route.",
   "keywords": [
     "relmio",
@@ -31,8 +31,8 @@
   "packageManager": "npm@10.9.8",
   "bin": {
     "relmio": "src/cli.js",
-    "planrelay": "src/cli.js",
-    "n8n-openai-oauth-setup": "src/cli.js"
+    "planrelay": "src/legacy-vps-cli.js",
+    "n8n-openai-oauth-setup": "src/legacy-vps-cli.js"
   },
   "files": [
     "src",

@@ -16,6 +16,11 @@ not an OpenAI Platform API key.
 3. Select a running n8n container and one existing Docker network.
 4. Review the plan and confirm it before Relmio writes anything remotely.
 5. In n8n, use the sidecar service name, not `127.0.0.1`.
+6. Select **Disconnect from VPS** when you finish the remote setup.
+
+Relmio also closes the authenticated SSH session after 15 minutes of
+inactivity. An active VPS operation holds a bounded lease so discovery or an
+approved install can finish before the idle timer resumes.
 
 Use `local-only` only in n8n's required API-key field. It is a placeholder,
 not an OpenAI Platform API key.

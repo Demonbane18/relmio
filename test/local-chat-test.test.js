@@ -232,6 +232,21 @@ test("does not exceed the session bound when keys are issued concurrently", asyn
   );
 });
 
+test("resetAll rejects a key issuance that finishes after the reset", async () => {
+  const service = createLocalChatTestService({ maxSessions: 1 });
+
+  const staleIssuance = service.issueKey();
+  service.resetAll();
+
+  await assert.rejects(
+    staleIssuance,
+    (error) => error?.statusCode === 409 && /expired|forgotten/iu.test(error.message),
+  );
+  const fresh = await service.issueKey();
+  await assert.rejects(service.issueKey(), (error) => error?.statusCode === 429);
+  await service.reset({ keyId: fresh.keyId });
+});
+
 test("redacts malformed, redirected, timed-out, and oversized adapter responses", async () => {
   const cases = [
     {

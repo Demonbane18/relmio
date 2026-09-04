@@ -30,13 +30,54 @@ or Command Prompt:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The command opens a private `127.0.0.1` browser wizard. It checks Docker, shows
-the plan, and asks before it writes files or starts containers.
+The command opens a private dashboard on `127.0.0.1` and rediscovers services
+Relmio already manages. Select **Add connection** to open the four-step wizard,
+review exactly what it will create, then confirm the install.
 
 No Node.js yet? The [hosted install guide](https://relmio.vercel.app/install)
-has native curl, Homebrew, PowerShell, and Command Prompt bootstrap options;
-every launcher opens the same wizard and uses the same platform security
-checks.
+has native curl, Homebrew, PowerShell, and Command Prompt options. Homebrew
+installs the persistent `relmio` command; it does not launch the browser. The
+curl, PowerShell, and Command Prompt launchers open the foreground wizard with
+the same platform security checks.
+
+## Dashboard commands
+
+Install a persistent command, then manage only Relmio's owner-scoped loopback
+dashboard process:
+
+```bash
+npm install --global --ignore-scripts relmio@latest
+relmio start
+relmio status
+relmio open
+relmio stop
+```
+
+Without a global install, repeat the full NPX command for each lifecycle
+action:
+
+```bash
+npx --yes --ignore-scripts relmio@latest start
+npx --yes --ignore-scripts relmio@latest status
+npx --yes --ignore-scripts relmio@latest open
+npx --yes --ignore-scripts relmio@latest stop
+```
+
+`relmio stop` stops only that process. These commands do not stop or restart
+n8n, ngrok, model endpoints, bridges, Assistant companions, or unrelated
+containers. Hosted launchers remain a foreground, one-shot process when they
+use a verified temporary runtime.
+
+After an upgrade, a dashboard from another Relmio version is never reused.
+Run `relmio stop`, then `relmio start` or `relmio open` to replace it
+explicitly.
+
+**Refresh status** rediscovers the same six supported local services without
+changing them. It shows only verified connection URLs and state, never stored
+secrets. Select **Add connection** to use the existing four-step setup flow.
+Use `relmio vps` when you want to open the separate VPS setup directly.
+
+[Learn how to use the local dashboard](https://github.com/Demonbane18/relmio/blob/main/docs/local-dashboard.md)
 
 ## Pick a path
 
@@ -81,6 +122,16 @@ The experimental Codex options use the official device-code sign-in. The
 ChatGPT credential stays inside the isolated Codex container. Use these routes
 only with trusted local apps or development backends.
 
+## Provider account policy
+
+Relmio uses the official Codex App Server, and Codex owns the ChatGPT OAuth
+flow, storage, and refresh. Each Codex target has one active ChatGPT account;
+switching requires explicit sign-out and sign-in. Relmio does not ship an xAI
+target in this release. xAI/Grok authentication is API-key only, and Relmio does not implement third-party Grok OAuth. It never
+rotates accounts or keys automatically after a 401, 403, or 429, rate-limit,
+or quota response. Future provider authentication is denied by default. The
+dashboard never returns or re-shows a stored secret.
+
 ## Sign-in lifetime
 
 ChatGPT/Codex sign-in tokens expire. The official Codex client refreshes them
@@ -93,8 +144,8 @@ until you rotate it.
 ## Common problems
 
 - **Docker is not running.** Start Docker, then open a fresh wizard session.
-- **Authentication fails.** Close old sign-in tabs and use the newest local URL
-  printed by the active Relmio terminal.
+- **Authentication fails.** Close old sign-in tabs and run `relmio open` to
+  open the active private dashboard page.
 - **Local image build failed.** Check Docker, disk space, and registry access.
 
 ## Guides

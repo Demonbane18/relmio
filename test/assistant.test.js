@@ -980,7 +980,11 @@ test("Assistant VPS wizard uses plain language and keeps every later step revers
   assert.match(html, /data-step="3"[\s\S]*data-back="2"/u);
   assert.match(html, /data-step="4"[\s\S]*id="setup-another-assistant"/u);
   assert.doesNotMatch(html, /data-step="4"[\s\S]*data-back="3"/u);
-  assert.match(browser, /element\("setup-another-assistant"\)\.href = token/u);
+  assert.match(
+    browser,
+    /bindWizardNavigation\(element\("setup-another-assistant"\), "\/assistant", token\);/u,
+  );
+  assert.doesNotMatch(browser, /[?]session=/u);
   assert.match(browser, /querySelectorAll\("\.back-button"\)/u);
   assert.match(css, /\.assistant-wizard \.back-button[\s\S]*margin-right:\s*auto/u);
   assert.doesNotMatch(`${html}\n${browser}`, /—/u);

@@ -16,6 +16,7 @@ const execFileAsync = promisify(execFile);
 
 const expectedRoutes = [
   "getting-started",
+  "local-dashboard",
   "local-endpoints",
   "local-n8n-stack",
   "vps-and-n8n",
@@ -76,6 +77,15 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
     renderedDocumentation,
     /will not edit the existing\s+n8n Compose file,\s+image, or environment;[\s\S]*restart or recreate n8n; or\s+exec into n8n/u,
   );
+  assert.match(
+    renderedDocumentation,
+    /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
+  );
+  assert.match(renderedDocumentation, /foreground, one-shot/u);
+  assert.match(renderedDocumentation, /official Codex App Server/u);
+  assert.match(renderedDocumentation, /xAI\/Grok authentication is API-key only/u);
+  assert.match(renderedDocumentation, /does not implement third-party Grok OAuth/u);
+  assert.match(renderedDocumentation, /never changes accounts or keys automatically/u);
   assert.match(generator, /--check/u);
   assert.doesNotMatch(generator, /readFile\([^)]*README\.md/u);
 });
@@ -95,6 +105,7 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
     await Promise.all(
       [
         "getting-started.md",
+        "local-dashboard.md",
         "local-endpoints.md",
         "local-n8n-stack.md",
         "vps-and-n8n.md",

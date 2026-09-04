@@ -26,7 +26,7 @@ import {
   getLocalDockerStatus,
   installLocalEndpoint as installLocalEndpointService,
   restartLocalCodex as restartLocalCodexService,
-  prepareLocalClientCredentialRotation,
+  prepareLocalClientCredentialRotation as prepareLocalClientCredentialRotationService,
   resolveLocalInstallRoot,
   verifyCodexWebSocketCapability,
 } from "../src/services/local-installer.js";
@@ -38,6 +38,8 @@ const activateLocalClientCredentialRotation = (request, dependencies) =>
   activateLocalClientCredentialRotationService(request, withTestLocalSecurity(dependencies));
 const installLocalEndpoint = (request, dependencies) =>
   installLocalEndpointService(request, withTestLocalSecurity(dependencies));
+const prepareLocalClientCredentialRotation = (request, dependencies) =>
+  prepareLocalClientCredentialRotationService(request, withTestLocalSecurity(dependencies));
 const restartLocalCodex = (request, dependencies) =>
   restartLocalCodexService(request, withTestLocalSecurity(dependencies));
 
@@ -55,6 +57,37 @@ async function createTestHome(t) {
   );
   t.after(async () => rm(root, { recursive: true, force: true }));
   return realpath(root);
+}
+
+function expectedWindowsManagedEndpointAclCalls(relmioHome, installRoot) {
+  return [
+    { path: relmioHome, options: { platform: "win32", verifyOnly: true } },
+    {
+      path: join(relmioHome, "local"),
+      options: { platform: "win32", verifyOnly: true },
+    },
+    { path: installRoot, options: { platform: "win32", verifyOnly: true } },
+    {
+      path: join(relmioHome, ".managed-by-relmio-root.json"),
+      options: { platform: "win32", kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true },
+    },
+    {
+      path: join(installRoot, ".managed-by-relmio.json"),
+      options: { platform: "win32", kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true },
+    },
+    {
+      path: join(installRoot, "docker-compose.yml"),
+      options: { platform: "win32", kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true },
+    },
+  ];
+}
+
+function isManagedEndpointComposeMutation({ args }) {
+  return args[0] === "compose" && (
+    args.includes("restart") ||
+    args.includes("up") ||
+    args.includes("--force-recreate")
+  );
 }
 
 function createRunner({
@@ -401,6 +434,190 @@ test("Codex credential reload attests, restarts, and waits for only the managed 
     () => restartLocalCodex({ installDirectory: "/tmp/not-managed" }, { runProcess }),
     /invalid/i,
   );
+});
+
+test("Windows Codex mutation attestations inject exact verify-only managed ACL checks", async (t) => {
+  const home = await createTestHome(t);
+  const relmioHome = join(home, ".relmio");
+  const env = { RELMIO_HOME: relmioHome };
+  const runProcess = createRunner({ publishedPort: 14500 });
+  const fetchImpl = createFetch();
+  const verifyCodexCapability = createCodexCapabilityVerifier();
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes: () => Buffer.alloc(32, 7),
+      isPortAvailable: async () => true,
+      fetchImpl,
+      verifyCodexCapability,
+    },
+  );
+  const installDirectory = await resolveLocalInstallRoot({
+    target: "codex-chatgpt",
+    env,
+  });
+  const expectedAclCalls = expectedWindowsManagedEndpointAclCalls(
+    relmioHome,
+    installDirectory,
+  );
+
+  function operationBoundaries() {
+    const aclCalls = [];
+    const events = [];
+    return {
+      aclCalls,
+      events,
+      async lockDownPath(path, options) {
+        aclCalls.push({ path, options });
+        events.push({ kind: "acl", path, options });
+      },
+      async operationRunner(spec) {
+        events.push({ kind: "docker", spec });
+        return runProcess(spec);
+      },
+    };
+  }
+
+  const preparedBoundaries = operationBoundaries();
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      platform: "win32",
+      runProcess: preparedBoundaries.operationRunner,
+      randomBytes: () => Buffer.alloc(32, 9),
+      lockDownPath: preparedBoundaries.lockDownPath,
+    },
+  );
+  assert.deepEqual(preparedBoundaries.aclCalls, expectedAclCalls);
+  assert.deepEqual(
+    preparedBoundaries.events.slice(0, expectedAclCalls.length),
+    expectedAclCalls.map((call) => ({ kind: "acl", ...call })),
+  );
+
+  const activationBoundaries = operationBoundaries();
+  const activated = await activateLocalClientCredentialRotation(staged, {
+    env,
+    platform: "win32",
+    runProcess: activationBoundaries.operationRunner,
+    fetchImpl,
+    verifyCodexCapability,
+    lockDownPath: activationBoundaries.lockDownPath,
+  });
+  assert.equal(activated.deploymentMode, "updated");
+  assert.deepEqual(
+    activationBoundaries.aclCalls,
+    [...expectedAclCalls, ...expectedAclCalls],
+  );
+  const activationMutationIndex = activationBoundaries.events.findIndex(
+    (event) => event.kind === "docker" && isManagedEndpointComposeMutation(event.spec),
+  );
+  assert.ok(activationMutationIndex >= expectedAclCalls.length);
+  assert.deepEqual(
+    activationBoundaries.events.slice(0, expectedAclCalls.length),
+    expectedAclCalls.map((call) => ({ kind: "acl", ...call })),
+  );
+
+  const restartBoundaries = operationBoundaries();
+  await restartLocalCodex(
+    { installDirectory },
+    {
+      changeLockHeld: true,
+      platform: "win32",
+      runProcess: restartBoundaries.operationRunner,
+      lockDownPath: restartBoundaries.lockDownPath,
+    },
+  );
+  assert.deepEqual(restartBoundaries.aclCalls, expectedAclCalls);
+  const restartMutationIndex = restartBoundaries.events.findIndex(
+    (event) => event.kind === "docker" && isManagedEndpointComposeMutation(event.spec),
+  );
+  assert.ok(restartMutationIndex >= expectedAclCalls.length);
+  assert.deepEqual(
+    restartBoundaries.events.slice(0, expectedAclCalls.length),
+    expectedAclCalls.map((call) => ({ kind: "acl", ...call })),
+  );
+});
+
+test("Windows managed ACL drift blocks Codex restart and rotation before Docker mutation", async (t) => {
+  const home = await createTestHome(t);
+  const relmioHome = join(home, ".relmio");
+  const env = { RELMIO_HOME: relmioHome };
+  const runProcess = createRunner({ publishedPort: 14500 });
+  const fetchImpl = createFetch();
+  const verifyCodexCapability = createCodexCapabilityVerifier();
+  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
+  await installLocalEndpoint(
+    { plan, confirmed: true },
+    {
+      env,
+      runProcess,
+      randomBytes: () => Buffer.alloc(32, 7),
+      isPortAvailable: async () => true,
+      fetchImpl,
+      verifyCodexCapability,
+    },
+  );
+  const installDirectory = await resolveLocalInstallRoot({
+    target: "codex-chatgpt",
+    env,
+  });
+  const expectedAclCalls = expectedWindowsManagedEndpointAclCalls(
+    relmioHome,
+    installDirectory,
+  );
+  const composePath = join(installDirectory, "docker-compose.yml");
+  const originalCompose = await readFile(composePath, "utf8");
+  const staged = await prepareLocalClientCredentialRotation(
+    { target: "codex-chatgpt" },
+    {
+      env,
+      runProcess,
+      randomBytes: () => Buffer.alloc(32, 9),
+    },
+  );
+
+  async function rejectsAclDrift(operation) {
+    const aclCalls = [];
+    runProcess.calls.length = 0;
+    await assert.rejects(
+      operation(async (path, options) => {
+        aclCalls.push({ path, options });
+        if (path === composePath) {
+          throw new Error("fixture managed ACL drift");
+        }
+      }),
+      /fixture managed ACL drift/u,
+    );
+    assert.deepEqual(aclCalls, expectedAclCalls);
+    assert.equal(runProcess.calls.some(isManagedEndpointComposeMutation), false);
+  }
+
+  await rejectsAclDrift((lockDownPath) =>
+    restartLocalCodex(
+      { installDirectory },
+      {
+        changeLockHeld: true,
+        platform: "win32",
+        runProcess,
+        lockDownPath,
+      },
+    ),
+  );
+  await rejectsAclDrift((lockDownPath) =>
+    activateLocalClientCredentialRotation(staged, {
+      env,
+      platform: "win32",
+      runProcess,
+      fetchImpl,
+      verifyCodexCapability,
+      lockDownPath,
+    }),
+  );
+  assert.equal(await readFile(composePath, "utf8"), originalCompose);
 });
 
 test("credential rotation recreates and verifies the managed Codex service before returning a fresh capability", async (t) => {
@@ -1120,7 +1337,7 @@ test("only one independent process can reclaim the same stale project lock", asy
         fetchImpl: createFetch(),
         verifyCodexCapability: createCodexCapabilityVerifier(),
         processId,
-        isProcessAlive: () => false,
+        isProcessAlive: (candidateProcessId) => candidateProcessId !== 39_999,
       },
     );
 

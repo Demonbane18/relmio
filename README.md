@@ -33,14 +33,61 @@ or Command Prompt:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The command opens a private browser wizard on `127.0.0.1`. Pick an option,
+The command opens a private dashboard on `127.0.0.1` and rediscovers services
+Relmio already manages. Select **Add connection** to open the four-step wizard,
 review exactly what it will create, then confirm the install.
 
 No Node.js yet? The hosted guide has native curl, Homebrew, PowerShell, and
-Command Prompt bootstrap options; every launcher opens the same wizard and
-uses the same platform security checks.
+Command Prompt options. Homebrew installs the persistent `relmio` command; it
+does not launch the browser. The curl, PowerShell, and Command Prompt
+launchers open the foreground wizard with the same platform security checks.
 
 [Open the hosted install guide](https://relmio.vercel.app/install)
+
+## Keep the local dashboard available
+
+For a persistent command, install Relmio with Node.js 22 or newer, then manage
+its owner-scoped loopback dashboard explicitly:
+
+```bash
+npm install --global --ignore-scripts relmio@latest
+relmio start
+relmio status
+relmio open
+relmio stop
+```
+
+Without a global install, repeat the full NPX command for each lifecycle
+action:
+
+```bash
+npx --yes --ignore-scripts relmio@latest start
+npx --yes --ignore-scripts relmio@latest status
+npx --yes --ignore-scripts relmio@latest open
+npx --yes --ignore-scripts relmio@latest stop
+```
+
+`relmio start` runs the dashboard in the background without opening a browser.
+`relmio open` starts it when needed and opens its private local page.
+`relmio status` checks only the verified dashboard process without printing a
+session value. `relmio stop` stops only that process; it does not stop or
+restart n8n, ngrok, model endpoints, bridges, Assistant companions, or
+unrelated containers.
+
+After an upgrade, a dashboard from another Relmio version is never reused.
+Run `relmio stop`, then `relmio start` or `relmio open` to replace it
+explicitly.
+
+The hosted curl, PowerShell, and Command Prompt launchers can use a verified
+temporary Node.js runtime. In that mode Relmio remains a foreground, one-shot
+process for that terminal and leaves no persistent command behind.
+
+**Refresh status** rediscovers the same six supported local services without
+changing them. It shows only verified connection URLs and state, never stored
+secrets. Select **Add connection** to use the existing four-step setup flow.
+Use `relmio vps` when you want to open the separate VPS setup directly.
+
+[Learn how to use the local dashboard](docs/local-dashboard.md)
 
 ## Pick a path
 
@@ -97,6 +144,19 @@ Codex device-code sign-in. The ChatGPT credential stays inside the isolated
 Codex container. These experimental routes are for trusted local apps and
 development backends, not browsers or public servers.
 
+## Provider account policy
+
+Relmio's Codex targets use the official Codex App Server. Codex owns the
+ChatGPT OAuth flow, credential storage, and refresh. Each target has one active
+ChatGPT account; changing it requires an explicit sign-out and new sign-in.
+
+xAI/Grok authentication is API-key only. Relmio does not ship an xAI target in
+this release or implement third-party Grok OAuth, pool accounts, or automatically rotate accounts or keys after a
+401, 403, or 429, rate-limit, or quota response. Future provider authentication
+is denied by default until the provider documents a supported method and
+Relmio adds a reviewed implementation. The dashboard may report that a
+credential is configured, but it never returns or re-shows a stored secret.
+
 ## Sign-in lifetime
 
 ChatGPT/Codex sign-in tokens expire. The official Codex client refreshes them
@@ -110,8 +170,8 @@ until you rotate it.
 
 - **Docker is not running.** Start Docker Desktop or Docker Engine, then open a
   fresh wizard session.
-- **Authentication fails.** Close old sign-in tabs and use the newest local URL
-  printed by the active Relmio terminal.
+- **Authentication fails.** Close old sign-in tabs, run `relmio open`, and use
+  the private page opened by the active dashboard process.
 - **Local image build failed.** Check Docker, disk space, and registry access.
 
 [Open troubleshooting](https://relmio.vercel.app/docs/troubleshooting)

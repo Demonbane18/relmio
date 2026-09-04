@@ -29,7 +29,7 @@ import {
   LOCAL_N8N_STACK_COMPOSE_PULL_TIMEOUT_MS,
   LOCAL_N8N_STACK_COMPOSE_UP_TIMEOUT_MS,
   LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS,
-  getLocalN8nStackStatus,
+  getLocalN8nStackStatus as getLocalN8nStackStatusService,
   installLocalN8nStack as installLocalN8nStackService,
   removeLocalN8nStack as removeLocalN8nStackService,
   resolveLocalN8nStackInstallRoot,
@@ -39,6 +39,8 @@ import { withTestLocalSecurity } from "./helpers/local-security.js";
 
 const installLocalN8nStack = (dependencies) =>
   installLocalN8nStackService(withTestLocalSecurity(dependencies));
+const getLocalN8nStackStatus = (dependencies) =>
+  getLocalN8nStackStatusService(withTestLocalSecurity(dependencies));
 const removeLocalN8nStack = (dependencies) =>
   removeLocalN8nStackService(withTestLocalSecurity(dependencies));
 const resumeLocalN8nStack = (dependencies) =>
@@ -182,6 +184,84 @@ test("compose validation failure is reported and managed files are removed", asy
     },
   );
   await assert.rejects(() => stat(join(homeDirectory, ".relmio", "local", "n8n-stack")));
+});
+
+test("compose validation retains only a bounded safe single-line detail", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { runner } = createStackRunner();
+  const safeDetail = "services.relmio-searxng.environment must be a mapping";
+  const failingRunner = async (spec) =>
+    spec.args.join(" ").includes("config --quiet")
+      ? { code: 1, stdout: "", stderr: safeDetail }
+      : runner(spec);
+
+  await assert.rejects(
+    () => installLocalN8nStack({
+      plan: plan({ assistantMode: "sandbox-with-searxng" }),
+      secrets: {
+        ngrokAuthtoken: "ngrok-private-token",
+        basicAuthUsername: "operator",
+        basicAuthPassword: "long-private-password",
+      },
+      publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+      homeDirectory,
+      runProcess: failingRunner,
+    }),
+    (error) => {
+      assert.equal(
+        error.message,
+        `Local n8n Compose validation failed: ${safeDetail}`,
+      );
+      return true;
+    },
+  );
+});
+
+test("compose validation fails closed for multiline, path, token, secret-like, and malformed detail", async (t) => {
+  const unsafeDetails = [
+    "services.n8n.environment must be a mapping\nsecond diagnostic",
+    "failed to read /Users/operator/.relmio/local/n8n-stack/.env",
+    String.raw`failed to read C:\Users\operator\.relmio\.env`,
+    "failed to read ./managed/config.yml",
+    "authentication failed with Bearer private-token",
+    "SEARXNG_SECRET=private-value is invalid",
+    "validation rejected arbitrary-private-value",
+    "invalid\u0000diagnostic",
+    "x".repeat(241),
+  ];
+
+  for (const detail of unsafeDetails) {
+    await t.test(JSON.stringify(detail.slice(0, 40)), async (subtest) => {
+      const homeDirectory = await testHome(subtest);
+      const { runner } = createStackRunner();
+      const failingRunner = async (spec) =>
+        spec.args.join(" ").includes("config --quiet")
+          ? { code: 1, stdout: "", stderr: detail }
+          : runner(spec);
+      let captured;
+
+      await assert.rejects(async () => {
+        try {
+          await installLocalN8nStack({
+            plan: plan({ assistantMode: "sandbox-with-searxng" }),
+            secrets: {
+              ngrokAuthtoken: "ngrok-private-token",
+              basicAuthUsername: "operator",
+              basicAuthPassword: "long-private-password",
+            },
+            publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+            homeDirectory,
+            runProcess: failingRunner,
+          });
+        } catch (error) {
+          captured = error;
+          throw error;
+        }
+      });
+      assert.equal(captured.message, "Local n8n Compose validation failed.");
+      assert.equal(captured.message.includes(detail), false);
+    });
+  }
 });
 
 
@@ -525,6 +605,18 @@ async function writeManagedStackMarker(homeDirectory, overrides = {}) {
     `${JSON.stringify(installation.marker)}\n`,
     { mode: 0o600 },
   );
+  await mkdir(join(installRoot, ".runtime"), { mode: 0o700 });
+  await nodeFileSystem.writeFile(join(installRoot, ".env"), "N8N_ENCRYPTION_KEY=test-fixture\n", { mode: 0o600 });
+  await nodeFileSystem.writeFile(join(installRoot, "docker-compose.yml"), "services: {}\n", { mode: 0o600 });
+  await nodeFileSystem.writeFile(join(installRoot, "ngrok.yml"), "version: 3\n", { mode: 0o644 });
+  await nodeFileSystem.writeFile(join(installRoot, ".runtime", "traffic-policy.yml"), "on_http_request: []\n", { mode: 0o600 });
+  if (installation.marker.assistantMode === "sandbox-with-searxng") {
+    await nodeFileSystem.writeFile(
+      join(installRoot, ".runtime", "searxng-settings.yml"),
+      "use_default_settings: true\n",
+      { mode: 0o600 },
+    );
+  }
   return { installRoot, marker: installation.marker };
 }
 
@@ -609,6 +701,7 @@ function createStackRunner({
     stderr: "",
   },
   startFailure = false,
+  pullFailureOutput = null,
   startupFailureOutput = null,
 } = {}) {
   const calls = [];
@@ -643,6 +736,7 @@ function createStackRunner({
       return { code: 0, stdout: `${contextName}\n`, stderr: "" };
     }
     if (joined.includes("config --quiet")) return { code: 0, stdout: "", stderr: "" };
+    if (joined.endsWith(" pull") && pullFailureOutput) return pullFailureOutput;
     if (joined.includes("up -d --wait")) {
       up = true;
       resourcesExist = true;
@@ -799,6 +893,20 @@ test("managed local n8n status is safely negative when the install root is absen
     runProcess: runner,
     fileSystem,
   }), { managed: false, state: "absent" });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(mutations, []);
+});
+
+test("managed local n8n status fails closed when the configured root is invalid", async () => {
+  const { calls, runner } = createStackRunner();
+  const { fileSystem, mutations } = createStatusFileSystem();
+
+  assert.deepEqual(await getLocalN8nStackStatus({
+    env: { RELMIO_HOME: "relative/.relmio" },
+    homeDirectory: "/Users/fixture",
+    runProcess: runner,
+    fileSystem,
+  }), { managed: false, state: "unavailable" });
   assert.deepEqual(calls, []);
   assert.deepEqual(mutations, []);
 });
@@ -1124,6 +1232,57 @@ test("managed local n8n status distinguishes exact healthy, exact stopped, parti
   }
 });
 
+test("exact owned status exposes a sanitized dashboard snapshot without changing coarse enumeration", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { marker } = await writeManagedStackMarker(homeDirectory, {
+    assistantMode: "sandbox-with-searxng",
+  });
+  const { runner } = createStackRunner({
+    assistantMode: "sandbox-with-searxng",
+    initialResources: true,
+  });
+
+  const result = await getLocalN8nStackStatus({ homeDirectory, runProcess: runner });
+  assert.deepEqual(
+    { managed: result.managed, state: result.state },
+    { managed: true, state: "stopped" },
+  );
+  assert.deepEqual(Object.keys(result), ["managed", "state"]);
+  assert.deepEqual(result.snapshot, {
+    target: "local-n8n-stack",
+    assistantMode: "sandbox-with-searxng",
+    endpoints: {
+      n8nLocal: "http://127.0.0.1:5678",
+      ngrokPublic: "https://relmio-demo.ngrok.app",
+      ngrokInspector: "http://127.0.0.1:4040",
+    },
+    components: {
+      n8n: true,
+      ngrok: true,
+      codeSandbox: true,
+      searxng: true,
+    },
+    canResume: true,
+    canRemove: true,
+  });
+  const serialized = JSON.stringify(result.snapshot);
+  assert.doesNotMatch(serialized, new RegExp(marker.installId, "u"));
+  assert.doesNotMatch(serialized, /projectName|dockerHost|managedPath|\.relmio|secret|token|error/iu);
+});
+
+test("status omits dashboard snapshots until exact ownership attestation succeeds", async (t) => {
+  const homeDirectory = await testHome(t);
+  await writeManagedStackMarker(homeDirectory);
+  const { runner } = createStackRunner({
+    initialResources: true,
+    partialResources: true,
+  });
+
+  const result = await getLocalN8nStackStatus({ homeDirectory, runProcess: runner });
+  assert.deepEqual(result, { managed: true, state: "partial" });
+  assert.equal(result.snapshot, undefined);
+});
+
 test("resume starts only an exact owner-attested stopped stack", async (t) => {
   const homeDirectory = await testHome(t);
   await writeManagedStackMarker(homeDirectory, { assistantMode: "sandbox" });
@@ -1159,6 +1318,133 @@ test("resume starts only an exact owner-attested stopped stack", async (t) => {
     call.args[0] === "network" && call.args[1] === "inspect" &&
     call.args.includes("{{json .Internal}}")
   ).length, 4);
+});
+
+test("Windows resume fails closed on managed-path ACL drift before Compose start", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { installRoot } = await writeManagedStackMarker(homeDirectory, {
+    assistantMode: "sandbox-with-searxng",
+    dockerHost: WINDOWS_DOCKER_HOST,
+  });
+  const { calls, runner } = createStackRunner({
+    assistantMode: "sandbox-with-searxng",
+    contextHost: WINDOWS_DOCKER_HOST,
+    contextName: "desktop-linux",
+    initialResources: true,
+  });
+  const lockCallsAfterAttestation = [];
+  let stoppedStackAttested = false;
+  const attestingRunner = async (spec) => {
+    const result = await runner(spec);
+    if (
+      spec.args[0] === "compose" &&
+      spec.args.includes("--all") &&
+      spec.args.at(-1) === "ngrok"
+    ) {
+      stoppedStackAttested = true;
+    }
+    return result;
+  };
+  const searxngSettingsPath = join(
+    installRoot,
+    ".runtime",
+    "searxng-settings.yml",
+  );
+
+  await assert.rejects(() => resumeLocalN8nStack({
+    confirmed: true,
+    homeDirectory,
+    platform: "win32",
+    runProcess: attestingRunner,
+    async lockDownPath(path, options) {
+      if (!stoppedStackAttested) return;
+      lockCallsAfterAttestation.push({ path, options });
+      if (path === searxngSettingsPath) {
+        throw new Error(
+          "Windows could not apply and verify owner-only protection for local Relmio files.",
+        );
+      }
+    },
+  }), /owner-only protection/u);
+
+  assertStatusProcessCallsAreReadOnly(calls);
+  assert.ok(lockCallsAfterAttestation.length > 0);
+  assert.ok(lockCallsAfterAttestation.every(
+    (call) => call.options.verifyOnly === true,
+  ));
+  for (const path of [
+    join(homeDirectory, ".relmio"),
+    join(homeDirectory, ".relmio", "local"),
+    installRoot,
+    join(installRoot, ".runtime"),
+    join(homeDirectory, ".relmio", ".managed-by-relmio-root.json"),
+    join(installRoot, ".managed-by-relmio.json"),
+    join(installRoot, ".env"),
+    join(installRoot, "docker-compose.yml"),
+    join(installRoot, "ngrok.yml"),
+    join(installRoot, ".runtime", "traffic-policy.yml"),
+    searxngSettingsPath,
+  ]) {
+    assert.ok(lockCallsAfterAttestation.some((call) => call.path === path));
+  }
+});
+
+test("Windows removal re-verifies every managed stack path before Compose mutation", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { installRoot } = await writeManagedStackMarker(homeDirectory, {
+    assistantMode: "sandbox-with-searxng",
+    dockerHost: WINDOWS_DOCKER_HOST,
+  });
+  const { calls, runner } = createStackRunner({
+    assistantMode: "sandbox-with-searxng",
+    contextHost: WINDOWS_DOCKER_HOST,
+    contextName: "desktop-linux",
+    initialResources: true,
+  });
+  const expectedPaths = [
+    join(homeDirectory, ".relmio"),
+    join(homeDirectory, ".relmio", "local"),
+    installRoot,
+    join(installRoot, ".runtime"),
+    join(homeDirectory, ".relmio", ".managed-by-relmio-root.json"),
+    join(installRoot, ".managed-by-relmio.json"),
+    join(installRoot, ".env"),
+    join(installRoot, "docker-compose.yml"),
+    join(installRoot, "ngrok.yml"),
+    join(installRoot, ".runtime", "traffic-policy.yml"),
+    join(installRoot, ".runtime", "searxng-settings.yml"),
+  ];
+  const verificationCalls = [];
+
+  await assert.rejects(() => removeLocalN8nStack({
+    confirmation: "REMOVE_LOCAL_N8N_STACK",
+    homeDirectory,
+    platform: "win32",
+    runProcess: runner,
+    async lockDownPath(path, options) {
+      if (expectedPaths.includes(path)) verificationCalls.push({ path, options });
+      if (
+        path === join(installRoot, ".runtime", "searxng-settings.yml") &&
+        options.verifyOnly === true
+      ) {
+        throw new Error("synthetic owner-only ACL verification failure");
+      }
+    },
+  }), /owner-only ACL verification failure/u);
+
+  assertStatusProcessCallsAreReadOnly(calls);
+  assert.equal(calls.some((call) => call.args.includes("down")), false);
+  assert.deepEqual(
+    verificationCalls.slice(-expectedPaths.length).map((call) => call.path),
+    expectedPaths,
+  );
+  assert.ok(
+    verificationCalls.slice(-expectedPaths.length)
+      .every((call) => call.options.verifyOnly === true),
+  );
+  for (const path of expectedPaths.slice(4)) {
+    assert.equal((await stat(path)).isFile(), true);
+  }
 });
 
 test("resume refuses partial or unavailable stacks without starting containers", async (t) => {
@@ -1467,13 +1753,17 @@ test("stack unit operations use the injected Windows ACL adapter", async (t) => 
     platform: "win32",
   });
   const { runner } = createStackRunner({
+    assistantMode: "sandbox-with-searxng",
     contextHost: WINDOWS_DOCKER_HOST,
     contextName: "desktop-linux",
   });
   const lockCalls = [];
 
   await installLocalN8nStack({
-    plan: plan({ dockerHost: WINDOWS_DOCKER_HOST }),
+    plan: plan({
+      assistantMode: "sandbox-with-searxng",
+      dockerHost: WINDOWS_DOCKER_HOST,
+    }),
     secrets: {
       ngrokAuthtoken: "ngrok-private-token",
       basicAuthUsername: "operator",
@@ -1502,6 +1792,135 @@ test("stack unit operations use the injected Windows ACL adapter", async (t) => 
   assert.ok(lockCalls.some((call) =>
     call.path === ownerPath && call.options.kind === "file" && call.options.verifyOnly === true,
   ));
+  assert.ok(lockCalls.some((call) =>
+    call.path.startsWith(`${ownerPath}.tmp-`) &&
+    call.options.kind === "file" &&
+    call.options.verifyOnly !== true,
+  ));
+  for (const path of [
+    join(homeDirectory, ".relmio", ".managed-by-relmio-root.json"),
+    join(installRoot, ".managed-by-relmio.json"),
+    join(installRoot, ".env"),
+    join(installRoot, "docker-compose.yml"),
+    join(installRoot, "ngrok.yml"),
+    join(installRoot, ".runtime", "traffic-policy.yml"),
+    join(installRoot, ".runtime", "searxng-settings.yml"),
+  ]) {
+    assert.ok(lockCalls.some((call) =>
+      call.path === path &&
+      call.options.platform === "win32" &&
+      call.options.kind === "file" &&
+      call.options.verifyOnly === true,
+    ));
+    assert.ok(lockCalls.some((call) =>
+      call.path.startsWith(`${path}.tmp-`) &&
+      call.options.platform === "win32" &&
+      call.options.kind === "file" &&
+      call.options.verifyOnly !== true,
+    ));
+  }
+});
+
+test("Windows managed-file ACL verification fails before Compose validation or creation", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { calls, runner } = createStackRunner({
+    contextHost: WINDOWS_DOCKER_HOST,
+    contextName: "desktop-linux",
+  });
+
+  await assert.rejects(() => installLocalN8nStack({
+    plan: plan({ dockerHost: WINDOWS_DOCKER_HOST }),
+    secrets: {
+      ngrokAuthtoken: "ngrok-private-token",
+      basicAuthUsername: "operator",
+      basicAuthPassword: "long-private-password",
+    },
+    publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+    homeDirectory,
+    platform: "win32",
+    runProcess: runner,
+    async lockDownPath(path, options) {
+      if (path.endsWith(".env") && options.verifyOnly === true) {
+        throw new Error("synthetic owner-only ACL verification failure");
+      }
+    },
+  }), /owner-only ACL verification failure/u);
+
+  assert.equal(calls.some((call) => call.args[0] === "compose"), false);
+  await assert.rejects(() => stat(join(homeDirectory, ".relmio", "local", "n8n-stack")));
+});
+
+test("Windows status verifies ACLs without ever normalizing them", async (t) => {
+  const homeDirectory = await testHome(t);
+  await writeManagedStackMarker(homeDirectory, {
+    assistantMode: "sandbox-with-searxng",
+    dockerHost: WINDOWS_DOCKER_HOST,
+  });
+  const { runner } = createStackRunner({
+    assistantMode: "sandbox-with-searxng",
+    contextHost: WINDOWS_DOCKER_HOST,
+    contextName: "desktop-linux",
+    initialResources: true,
+  });
+  const lockCalls = [];
+
+  const status = await getLocalN8nStackStatus({
+    homeDirectory,
+    platform: "win32",
+    runProcess: runner,
+    async lockDownPath(path, options) {
+      lockCalls.push({ path, options });
+    },
+  });
+
+  assert.equal(status.managed, true);
+  assert.ok(lockCalls.length > 0);
+  assert.ok(lockCalls.every((call) => call.options.verifyOnly === true));
+  assert.ok(lockCalls.filter((call) => call.options.kind === "file").every(
+    (call) => call.options.verifyEffectiveOwnerOnly === true,
+  ));
+  assert.ok(lockCalls.some((call) =>
+    call.path.endsWith(".managed-by-relmio.json") && call.options.kind === "file",
+  ));
+  for (const suffix of [
+    ".env",
+    "docker-compose.yml",
+    "ngrok.yml",
+    join(".runtime", "traffic-policy.yml"),
+    join(".runtime", "searxng-settings.yml"),
+  ]) {
+    assert.ok(lockCalls.some((call) =>
+      call.path.endsWith(suffix) && call.options.kind === "file",
+    ));
+  }
+});
+
+test("Windows stack status omits the optional SearXNG ACL check when the marker disables it", async (t) => {
+  const homeDirectory = await testHome(t);
+  await writeManagedStackMarker(homeDirectory, { dockerHost: WINDOWS_DOCKER_HOST });
+  const { runner } = createStackRunner({
+    contextHost: WINDOWS_DOCKER_HOST,
+    contextName: "desktop-linux",
+    initialResources: true,
+  });
+  const lockCalls = [];
+
+  await getLocalN8nStackStatus({
+    homeDirectory,
+    platform: "win32",
+    runProcess: runner,
+    async lockDownPath(path, options) {
+      lockCalls.push({ path, options });
+    },
+  });
+
+  assert.ok(lockCalls.some((call) =>
+    call.path.endsWith("ngrok.yml") && call.options.kind === "file",
+  ));
+  assert.equal(
+    lockCalls.some((call) => call.path.endsWith("searxng-settings.yml")),
+    false,
+  );
 });
 
 test("managed SearXNG status stays structural and never issues a functional search probe", async (t) => {
@@ -1785,6 +2204,121 @@ test("a Compose wait-timeout is cleaned as a retryable first-start delay", async
     calls.filter((entry) => entry.args.join(" ").includes("down --volumes --remove-orphans")).length,
     1,
   );
+});
+
+test("pull-phase transport and registry failures retain image-pull recovery guidance", async (t) => {
+  const cases = [
+    "net/http: TLS handshake timeout",
+    "toomanyrequests: rate limit exceeded",
+    "unexpected EOF",
+  ];
+
+  for (const output of cases) {
+    await t.test(output, async (subtest) => {
+      const homeDirectory = await testHome(subtest);
+      const { calls, runner } = createStackRunner({
+        pullFailureOutput: { code: 1, stdout: "", stderr: output },
+      });
+      let captured;
+      await assert.rejects(async () => {
+        try {
+          await installLocalN8nStack({
+            plan: plan(),
+            secrets: {
+              ngrokAuthtoken: "ngrok-private-token",
+              basicAuthUsername: "operator",
+              basicAuthPassword: "long-private-password",
+            },
+            publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+            homeDirectory,
+            runProcess: runner,
+          });
+        } catch (error) {
+          captured = error;
+          throw error;
+        }
+      });
+      assert.equal(captured.failureKind, "stack-image-pull");
+      assert.match(captured.message, /could not download a required/u);
+      assert.doesNotMatch(captured.message, /TLS|rate limit|unexpected EOF/iu);
+      assert.equal(calls.some((call) => call.args.includes("up")), false);
+    });
+  }
+});
+
+test("start-phase unhealthy containers retain startup-wait recovery guidance", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { runner } = createStackRunner({
+    partialUpFailure: true,
+    startupFailureOutput: {
+      code: 1,
+      stdout: "",
+      stderr: "dependency failed to start: container relmio-local-n8n-n8n-1 is unhealthy",
+    },
+  });
+  let captured;
+  await assert.rejects(async () => {
+    try {
+      await installLocalN8nStack({
+        plan: plan(),
+        secrets: {
+          ngrokAuthtoken: "ngrok-private-token",
+          basicAuthUsername: "operator",
+          basicAuthPassword: "long-private-password",
+        },
+        publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+        homeDirectory,
+        runProcess: runner,
+      });
+    } catch (error) {
+      captured = error;
+      throw error;
+    }
+  });
+  assert.equal(captured.failureKind, "stack-startup-wait");
+  assert.match(captured.message, /did not become ready in time/u);
+  assert.doesNotMatch(captured.message, /unhealthy|relmio-local-n8n/u);
+});
+
+test("phase-specific signatures do not weaken generic Compose failure classification", async (t) => {
+  for (const scenario of [
+    {
+      name: "generic pull failure",
+      options: { pullFailureOutput: { code: 1, stdout: "", stderr: "daemon rejected request" } },
+    },
+    {
+      name: "generic start failure",
+      options: {
+        partialUpFailure: true,
+        startupFailureOutput: { code: 1, stdout: "", stderr: "daemon rejected request" },
+      },
+    },
+  ]) {
+    await t.test(scenario.name, async (subtest) => {
+      const homeDirectory = await testHome(subtest);
+      const { runner } = createStackRunner(scenario.options);
+      let captured;
+      await assert.rejects(async () => {
+        try {
+          await installLocalN8nStack({
+            plan: plan(),
+            secrets: {
+              ngrokAuthtoken: "ngrok-private-token",
+              basicAuthUsername: "operator",
+              basicAuthPassword: "long-private-password",
+            },
+            publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK",
+            homeDirectory,
+            runProcess: runner,
+          });
+        } catch (error) {
+          captured = error;
+          throw error;
+        }
+      });
+      assert.equal(captured.failureKind, "stack-creation");
+    });
+  }
 });
 
 test("a non-allowlisted ngrok runtime code stays a generic cleaned startup failure", async (t) => {

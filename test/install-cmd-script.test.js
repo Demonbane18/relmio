@@ -28,6 +28,9 @@ test("CMD installer keeps a native checksum-verified portable Windows runtime pa
   assert.match(script, /Node\.js download checksum did not match; nothing was executed/u);
   assert.match(script, /rmdir \/s \/q "%RELMIO_TEMPORARY_DIRECTORY%"/u);
   assert.match(script, /--yes --ignore-scripts relmio@latest/u);
+  assert.equal(script.match(/set "RELMIO_FOREGROUND_WIZARD=1"/gu)?.length, 2);
+  assert.equal(script.match(/set "RELMIO_FOREGROUND_WIZARD="/gu)?.length, 2);
+  assert.match(script, /^setlocal EnableExtensions DisableDelayedExpansion$/mu);
   assert.match(script, /Installing a temporary Node\.js 22 runtime\. Please wait/u);
   assert.match(script, /Extracting the verified temporary Node\.js 22 runtime\. Please wait/u);
 });
@@ -159,6 +162,7 @@ async function createInstalledNodeEnvironment({ npxExitCode = 0 } = {}) {
       '> "%RELMIO_TEST_LOG%" echo %~1',
       '>> "%RELMIO_TEST_LOG%" echo %~2',
       '>> "%RELMIO_TEST_LOG%" echo %~3',
+      '>> "%RELMIO_TEST_LOG%" echo foreground=%RELMIO_FOREGROUND_WIZARD%',
       `exit /b ${npxExitCode}`,
       "",
     ].join("\r\n"),
@@ -175,6 +179,7 @@ async function createInstalledNodeEnvironment({ npxExitCode = 0 } = {}) {
       PATH: `${fakeBin};${process.env.PATH}`,
       RELMIO_TEST_LOG: log,
       RELMIO_TEST_NODE_VERSION: "v22.16.0",
+      RELMIO_FOREGROUND_WIZARD: "caller-value",
       TEMP: temporaryDirectory,
       TMP: temporaryDirectory,
     },
@@ -207,6 +212,7 @@ writeFileSync(log, [process.argv[1], ...process.argv.slice(2)].join("\\n") + "\\
 const child = spawnSync("node", ["--version"], { encoding: "utf8" });
 if (child.status !== 0) process.exit(child.status || 1);
 appendFileSync(log, "child-node-ok\\n");
+appendFileSync(log, "foreground=" + (process.env.RELMIO_FOREGROUND_WIZARD || "unset") + "\\n");
 `,
     "utf8",
   );
@@ -304,6 +310,7 @@ async function createPortableEnvironment(
       RELMIO_TEST_PORTABLE_OLD_NODE: oldNode,
       RELMIO_TEST_PORTABLE_NPX: "",
       RELMIO_TEST_RUNTIME_DIRECTORY: fixture.runtimeParent,
+      RELMIO_FOREGROUND_WIZARD: "caller-value",
       TEMP: temporaryDirectory,
       TMP: temporaryDirectory,
     },
@@ -365,6 +372,7 @@ test(
       "--yes",
       "--ignore-scripts",
       "relmio@latest",
+      "foreground=1",
     ]);
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
   },
@@ -382,8 +390,36 @@ test(
       "--yes",
       "--ignore-scripts",
       "relmio@latest",
+      "foreground=1",
     ]);
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
+  },
+);
+
+test(
+  "CMD installer restores the caller foreground wizard environment",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const setup = await createInstalledNodeEnvironment();
+    const wrapper = join(setup.root, "invoke-installer.cmd");
+    const restorationLog = join(setup.root, "environment-restoration.txt");
+    t.after(() => rm(setup.root, { recursive: true, force: true }));
+
+    await writeFile(
+      wrapper,
+      [
+        "@echo off",
+        `call "${installScript}"`,
+        'set "RELMIO_CALL_STATUS=%errorlevel%"',
+        `> "${restorationLog}" echo %RELMIO_FOREGROUND_WIZARD%`,
+        "exit /b %RELMIO_CALL_STATUS%",
+        "",
+      ].join("\r\n"),
+      "utf8",
+    );
+
+    await runCmdInstaller(setup.env, wrapper);
+    assert.equal((await readFile(restorationLog, "utf8")).trim(), "caller-value");
   },
 );
 
@@ -447,7 +483,13 @@ test(
     assert.match(stdout, /Verified Node\.js download/u);
     assert.match(stdout, /Extracting the verified temporary Node\.js 22 runtime\. Please wait/u);
     assert.match(invocation[0].replaceAll("\\", "/"), /node-v22\.23\.2-win-x64\/node_modules\/npm\/bin\/npx-cli\.js$/u);
-    assert.deepEqual(invocation.slice(1), ["--yes", "--ignore-scripts", "relmio@latest", "child-node-ok"]);
+    assert.deepEqual(invocation.slice(1), [
+      "--yes",
+      "--ignore-scripts",
+      "relmio@latest",
+      "child-node-ok",
+      "foreground=1",
+    ]);
     assert.deepEqual(tools.slice(0, 2), ["curl", "certutil"]);
     assert.equal(tools.length, 3);
     assert.match(tools[2], /^tar -xf .*node-v22\.23\.2-win-x64\.zip -C /u);

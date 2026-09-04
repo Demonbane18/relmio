@@ -27,8 +27,11 @@ set "RELMIO_TEMPORARY_DIRECTORY="
 call :findnode
 if errorlevel 1 goto :portable_runtime
 call :message "Using installed Node.js %RELMIO_INSTALLED_NODE_MAJOR% runtime; starting Relmio without a download."
+set "RELMIO_FOREGROUND_WIZARD=1"
 call "%RELMIO_INSTALLED_NPX%" --yes --ignore-scripts relmio@latest
-exit /b %errorlevel%
+set "RELMIO_CHILD_EXIT_CODE=%errorlevel%"
+set "RELMIO_FOREGROUND_WIZARD="
+exit /b %RELMIO_CHILD_EXIT_CODE%
 
 :portable_runtime
 call :needtool "%RELMIO_CURL%" "curl.exe is required to download the temporary Node.js runtime."
@@ -129,8 +132,11 @@ if not exist "%RELMIO_NPX_CLI%" (
 
 call :message "Starting the newest Relmio wizard."
 set "PATH=%RELMIO_RUNTIME_DIRECTORY%;%PATH%"
+set "RELMIO_FOREGROUND_WIZARD=1"
 "%RELMIO_NODE_BINARY%" "%RELMIO_NPX_CLI%" --yes --ignore-scripts relmio@latest
-exit /b %errorlevel%
+set "RELMIO_CHILD_EXIT_CODE=%errorlevel%"
+set "RELMIO_FOREGROUND_WIZARD="
+exit /b %RELMIO_CHILD_EXIT_CODE%
 
 :findnode
 set "RELMIO_INSTALLED_NODE="

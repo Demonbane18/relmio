@@ -1,5 +1,27 @@
 # Reference
 
+## Installed dashboard commands
+
+These commands manage the current operating-system account's Relmio dashboard
+on `127.0.0.1`. They do not manage n8n, ngrok, Relmio companions, or installed
+endpoints.
+
+| Command | Behavior |
+| --- | --- |
+| `relmio start` | Start the owner-scoped dashboard without opening a browser. |
+| `relmio status` | Inspect the owner-scoped dashboard and print its current state. |
+| `relmio open` | Start the dashboard if needed, then open its private local page. |
+| `relmio stop` | Ask the verified owner-scoped dashboard to stop. |
+
+`relmio stop` stops only the Relmio dashboard process. It never stops or
+changes n8n, ngrok, a Relmio companion, or an installed endpoint. The commands
+do not print the dashboard's control or browser credential. The dashboard
+never returns or re-shows a stored secret.
+
+The hosted install-page launchers still run a foreground one-shot wizard from
+their temporary runtime. Use the installed package when you want the persistent
+dashboard lifecycle above.
+
 ## Chat Adapter test commands
 
 The experimental Chat Adapter is a loopback-only, Relmio-specific `POST /chat`

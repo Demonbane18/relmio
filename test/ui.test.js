@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
+import {
+  bindWizardNavigation,
+  readWizardSession,
+} from "../src/ui/session.js";
 import { formatAuthUpdatedAt } from "../src/ui/time.js";
 
 test("credential timestamps are formatted in the user's local date and time", () => {
@@ -20,6 +24,10 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   const html = await readFile("src/ui/index.html", "utf8");
 
   assert.match(html, /<html lang="en">/);
+  assert.ok(
+    html.indexOf('src="/session-bootstrap.js"') <
+      html.indexOf('src="/app.js"'),
+  );
   assert.match(html, /<body data-current-step="1">/u);
   assert.match(html, /<title>Relmio \| n8n Setup<\/title>/u);
   assert.match(html, /class="brand-mark"[\s\S]*<span>Relmio<\/span>/u);
@@ -129,6 +137,23 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   assert.doesNotMatch(html, /\sonclick=/i);
 });
 
+test("every wizard route clears the browser transfer before loading its application module", async () => {
+  for (const [path, applicationScript] of [
+    ["src/ui/index.html", "/app.js"],
+    ["src/ui/local.html", "/local.js"],
+    ["src/ui/assistant.html", "/assistant.js"],
+  ]) {
+    const html = await readFile(path, "utf8");
+    const bootstrapIndex = html.indexOf('src="/session-bootstrap.js"');
+    assert.ok(bootstrapIndex >= 0, path);
+    assert.ok(bootstrapIndex < html.indexOf(`src="${applicationScript}"`), path);
+  }
+
+  const session = await readFile("src/ui/session.js", "utf8");
+  assert.match(session, /await pendingBrowserTransfer/u);
+  assert.doesNotMatch(session, /location\.search[\s\S]*session/u);
+});
+
 test("VPS wizard uses icon-only copy controls and starts fresh from Ready", async () => {
   const [html, script, css] = await Promise.all([
     readFile("src/ui/index.html", "utf8"),
@@ -147,7 +172,10 @@ test("VPS wizard uses icon-only copy controls and starts fresh from Ready", asyn
   );
   assert.match(html, /data-step="5"[\s\S]*id="setup-another-vps"/u);
   assert.doesNotMatch(html, /data-step="5"[\s\S]*data-back="4"/u);
-  assert.match(script, /element\("setup-another-vps"\)\.href = token/u);
+  assert.match(
+    script,
+    /bindWizardNavigation\(element\("setup-another-vps"\), "\/", token\);/u,
+  );
   assert.match(script, /button\.classList\.add\("copied"\)/u);
   assert.match(css, /\.copy-value\.copied \.copy-icon-copy/u);
   assert.match(css, /\.copy-value\.copied \.copy-icon-check/u);
@@ -167,12 +195,86 @@ test("detected VPS n8n exposes managed bridge and Assistant companion paths", as
   assert.match(html, /id="manage-vps-sidecar"[\s\S]*OpenAI-OAuth\/Codex bridge/u);
   assert.match(html, /id="manage-vps-assistant"[\s\S]*Assistant companion/u);
   assert.match(html, /id="refresh-vps-chatgpt"[^>]*>\s*Refresh ChatGPT sign-in\s*<\/button>/u);
+  assert.match(
+    html,
+    /id="disconnect-vps-button"[^>]*>\s*Disconnect from VPS\s*<\/button>/u,
+  );
   assert.match(html, /id="manage-vps-searxng" type="checkbox"/u);
   assert.match(script, /api\(assistant \? "\/api\/assistant\/plan" : "\/api\/plan"/u);
   assert.match(script, /api\(assistant \? "\/api\/assistant\/install" : "\/api\/install"/u);
   assert.match(script, /element\("login-button"\)\.click\(\)/u);
   assert.match(script, /element\("sidecar-ready-content"\)\.hidden = assistant/u);
   assert.doesNotMatch(script, /\.innerHTML\b/);
+});
+
+test("VPS disconnect clears only browser connection state after an exact server acknowledgement", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("async function disconnectVpsSession()");
+  const end = script.indexOf(
+    '\nelement("disconnect-vps-button")',
+    start,
+  );
+  assert.ok(start >= 0 && end > start, "missing VPS disconnect boundary");
+  const source = script.slice(start, end);
+  const calls = [];
+  const state = {
+    discovery: { containers: [{}] },
+    networks: { networks: ["n8n_default"] },
+  };
+  const elements = new Map([
+    ["container-select", { replaceChildren: () => calls.push(["clear", "container-select"]) }],
+    ["network-select", { replaceChildren: () => calls.push(["clear", "network-select"]) }],
+    ["detected-vps-integration-management", { hidden: false }],
+  ]);
+  let response = { disconnected: true };
+  const disconnectVpsSession = vm.runInNewContext(
+    `${source}; disconnectVpsSession;`,
+    {
+      async api(path, options) {
+        calls.push(["api", path, options]);
+        return response;
+      },
+      element(id) {
+        return elements.get(id);
+      },
+      invalidateReviewedPlan() {
+        calls.push(["invalidate-plan"]);
+      },
+      resetFingerprint() {
+        calls.push(["reset-fingerprint"]);
+      },
+      state,
+    },
+    { filename: "vps-disconnect.vm.js", timeout: 1_000 },
+  );
+
+  await disconnectVpsSession();
+  assert.equal(calls[0][0], "api");
+  assert.equal(calls[0][1], "/api/disconnect");
+  assert.equal(
+    JSON.stringify(calls[0][2]),
+    JSON.stringify({ method: "POST", body: {} }),
+  );
+  assert.equal(state.discovery, null);
+  assert.equal(state.networks, null);
+  assert.equal(elements.get("detected-vps-integration-management").hidden, true);
+  assert.ok(calls.some(([name]) => name === "invalidate-plan"));
+  assert.ok(calls.some(([name]) => name === "reset-fingerprint"));
+
+  calls.length = 0;
+  state.discovery = { containers: [{}] };
+  state.networks = { networks: ["n8n_default"] };
+  response = { disconnected: true, unexpected: "field" };
+  await assert.rejects(disconnectVpsSession(), /unexpected disconnect response/u);
+  assert.equal(state.discovery.containers.length, 1);
+  assert.equal(state.networks.networks.length, 1);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "api");
+  assert.equal(calls[0][1], "/api/disconnect");
+  assert.equal(
+    JSON.stringify(calls[0][2]),
+    JSON.stringify({ method: "POST", body: {} }),
+  );
 });
 
 test("VPS integration review can be rendered repeatedly without deleting its summary fields", async () => {
@@ -453,7 +555,13 @@ test("browser code never uses innerHTML or web storage for credentials", async (
   assert.match(app, /authUpdatedAt/);
   assert.match(app, /Fresh sign-in saved/);
   assert.match(app, /unexpected response/);
-  assert.match(app, /full URL printed by the active setup terminal/);
+  assert.match(app, /For a persistent install, run relmio open/);
+  assert.match(app, /npx --yes --ignore-scripts relmio@latest open/);
+  assert.match(
+    app,
+    /For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff/,
+  );
+  assert.doesNotMatch(app, /URL printed by its active terminal/u);
   assert.match(app, /installAttempted/);
   assert.match(app, /status\.previewMode/);
   assert.match(app, /Preview sign-in disabled/);
@@ -488,6 +596,426 @@ test("browser code never uses innerHTML or web storage for credentials", async (
   assert.match(app, /window\.setTimeout\([\s\S]*dismissToast\(messageToast\)/u);
   assert.match(app, /data-dismiss-toast/u);
   assert.doesNotMatch(app, /"Use Responses API: on"/u);
+});
+
+test("wizard session rejects query capabilities and reads only clean-entry history state", () => {
+  const sessionToken = "A".repeat(43);
+  const replacements = [];
+  const browserWindow = {
+    history: {
+      state: { relmioWizardSession: "B".repeat(43), unrelated: true },
+      replaceState(nextState, title, pathname) {
+        this.state = nextState;
+        replacements.push({ nextState, title, pathname });
+      },
+    },
+    location: {
+      hash: "#dashboard-overview",
+      pathname: "/local",
+      search: `?session=${sessionToken}`,
+    },
+  };
+
+  assert.equal(readWizardSession(browserWindow), "B".repeat(43));
+  assert.deepEqual(browserWindow.history.state, {
+    relmioWizardSession: "B".repeat(43),
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(replacements.at(-1))), {
+    nextState: { relmioWizardSession: "B".repeat(43) },
+    title: "",
+    pathname: "/local#dashboard-overview",
+  });
+});
+
+test("wizard session rejects malformed query capabilities and sanitizes history state", () => {
+  const sessionToken = "C".repeat(43);
+
+  for (const search of [
+    `?session=${sessionToken}&extra=1`,
+    `?extra=1&session=${sessionToken}`,
+    `?session=${sessionToken.slice(0, 42)}`,
+    `?session=${sessionToken}%20`,
+    `?session=${"!".repeat(43)}`,
+  ]) {
+    const browserWindow = {
+      history: {
+        state: null,
+        replaceState(nextState, title, pathname) {
+          this.state = nextState;
+          assert.equal(title, "");
+          assert.equal(pathname, "/assistant");
+        },
+      },
+      location: { hash: "", pathname: "/assistant", search },
+    };
+
+    assert.equal(readWizardSession(browserWindow), null, search);
+    assert.equal(browserWindow.history.state, null, search);
+  }
+
+  const browserWindow = {
+    history: {
+      state: { relmioWizardSession: sessionToken, unrelated: true },
+      replaceState(nextState) {
+        this.state = nextState;
+      },
+    },
+    location: { hash: "", pathname: "/", search: "" },
+  };
+  assert.equal(readWizardSession(browserWindow), sessionToken);
+  assert.deepEqual(browserWindow.history.state, {
+    relmioWizardSession: sessionToken,
+  });
+
+  browserWindow.history.state = { relmioWizardSession: 42 };
+  assert.equal(readWizardSession(browserWindow), null);
+  assert.equal(browserWindow.history.state, null);
+});
+
+test("fragment navigation preserves the session across reload and back-forward entries", () => {
+  const sessionToken = "H".repeat(43);
+  const listeners = new Map();
+  const browserWindow = {
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    history: {
+      state: { relmioWizardSession: sessionToken },
+      replaceState(nextState, title, path) {
+        this.state = nextState;
+        this.lastReplacement = { nextState, title, path };
+      },
+    },
+    location: { hash: "", pathname: "/local", search: "" },
+  };
+
+  assert.equal(readWizardSession(browserWindow), sessionToken);
+  assert.equal(typeof listeners.get("hashchange"), "function");
+
+  browserWindow.location.hash = "#dashboard-activity";
+  browserWindow.history.state = null;
+  listeners.get("hashchange")();
+  assert.deepEqual(browserWindow.history.state, {
+    relmioWizardSession: sessionToken,
+  });
+  assert.equal(
+    readWizardSession({
+      history: browserWindow.history,
+      location: browserWindow.location,
+    }),
+    sessionToken,
+  );
+
+  browserWindow.location.hash = "";
+  browserWindow.history.state = null;
+  listeners.get("hashchange")();
+  assert.deepEqual(browserWindow.history.lastReplacement, {
+    nextState: { relmioWizardSession: sessionToken },
+    title: "",
+    path: "/local",
+  });
+});
+
+test("browser transfer bootstrap clears window.name before exchange and stores only the returned session", async () => {
+  const script = await readFile("src/ui/session-bootstrap.js", "utf8");
+  const transferId = "T".repeat(43);
+  const secret = "S".repeat(43);
+  const sessionToken = "W".repeat(43);
+  const calls = [];
+  const replacements = [];
+  let resolveTransfer;
+  const browserWindow = {
+    name: `relmio-v1.${transferId}.${secret}`,
+    location: { hash: "", pathname: "/local", search: "" },
+    history: {
+      replaceState(nextState, title, path) {
+        replacements.push({ nextState, title, path });
+      },
+    },
+  };
+  browserWindow.window = browserWindow;
+  const context = vm.createContext({
+    window: browserWindow,
+    fetch: (...args) => {
+      assert.equal(browserWindow.name, "");
+      calls.push(args);
+      return new Promise((resolve) => { resolveTransfer = resolve; });
+    },
+    JSON,
+    Promise,
+  });
+
+  vm.runInContext(script, context);
+  assert.equal(browserWindow.name, "");
+  assert.equal(calls.length, 1);
+  browserWindow.location.hash = "#dashboard";
+  browserWindow.history.state = null;
+  resolveTransfer({
+    ok: true,
+    async json() { return { sessionToken }; },
+  });
+  await browserWindow.__relmioWizardSessionReady;
+  assert.equal(calls[0][0], "/__relmio/browser/transfer");
+  assert.deepEqual(JSON.parse(calls[0][1].body), {
+    route: "/local",
+    transferId,
+    secret,
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(replacements.at(-1))), {
+    nextState: { relmioWizardSession: sessionToken },
+    title: "",
+    path: "/local#dashboard",
+  });
+});
+
+test("browser transfer bootstrap clears malformed window.name without making a request", async () => {
+  const script = await readFile("src/ui/session-bootstrap.js", "utf8");
+  for (const name of ["", "other", `relmio-v1.${"A".repeat(43)}.short`]) {
+    let requests = 0;
+    const browserWindow = {
+      name,
+      location: { hash: "", pathname: "/local", search: "" },
+      history: { replaceState() {} },
+    };
+    browserWindow.window = browserWindow;
+    vm.runInContext(script, vm.createContext({
+      window: browserWindow,
+      fetch: async () => { requests += 1; },
+      JSON,
+      Promise,
+    }));
+    assert.equal(browserWindow.name, "");
+    await browserWindow.__relmioWizardSessionReady;
+    assert.equal(requests, 0);
+  }
+});
+
+test("wizard navigation keeps the capability in same-tab history and all link URLs token-free", () => {
+  const sessionToken = "D".repeat(43);
+  const listeners = new Map();
+  const attributes = new Map();
+  const link = {
+    target: "",
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    getAttribute(name) {
+      return attributes.get(name) ?? null;
+    },
+    setAttribute(name, value) {
+      attributes.set(name, value);
+    },
+  };
+  const pushed = [];
+  let reloads = 0;
+  const browserWindow = {
+    history: {
+      pushState(nextState, title, pathname) {
+        pushed.push({ nextState, title, pathname });
+      },
+    },
+    location: {
+      reload() {
+        reloads += 1;
+      },
+    },
+  };
+
+  bindWizardNavigation(link, "/local", sessionToken, browserWindow);
+  assert.equal(link.getAttribute("href"), "/local");
+  assert.doesNotMatch(link.getAttribute("href"), /session|[?]/u);
+
+  let prevented = false;
+  listeners.get("click")({
+    altKey: false,
+    button: 0,
+    ctrlKey: false,
+    defaultPrevented: false,
+    metaKey: false,
+    preventDefault() {
+      prevented = true;
+    },
+    shiftKey: false,
+  });
+  assert.equal(prevented, true);
+  assert.deepEqual(pushed, [{
+    nextState: { relmioWizardSession: sessionToken },
+    title: "",
+    pathname: "/local",
+  }]);
+  assert.equal(reloads, 1);
+
+  for (const override of [
+    { ctrlKey: true },
+    { metaKey: true },
+    { shiftKey: true },
+    { altKey: true },
+    { button: 1 },
+  ]) {
+    prevented = false;
+    listeners.get("click")({
+      altKey: false,
+      button: 0,
+      ctrlKey: false,
+      defaultPrevented: false,
+      metaKey: false,
+      preventDefault() {
+        prevented = true;
+      },
+      shiftKey: false,
+      ...override,
+    });
+    assert.equal(prevented, false);
+  }
+  link.target = "_blank";
+  listeners.get("click")({
+    altKey: false,
+    button: 0,
+    ctrlKey: false,
+    defaultPrevented: false,
+    metaKey: false,
+    preventDefault() {
+      prevented = true;
+    },
+    shiftKey: false,
+  });
+  assert.equal(pushed.length, 1);
+  assert.equal(reloads, 1);
+});
+
+test("persistent VPS and Assistant routes use the shared token-free session helpers", async () => {
+  const routes = [
+    { path: "/", scriptPath: "src/ui/app.js" },
+    { path: "/assistant", scriptPath: "src/ui/assistant.js" },
+  ];
+
+  for (const route of routes) {
+    const script = await readFile(route.scriptPath, "utf8");
+    assert.match(
+      script,
+      /import \{ bindWizardNavigation, readWizardSession \} from "\.\/session\.js";/u,
+    );
+    assert.match(script, /const token = readWizardSession\(\);/u);
+    assert.doesNotMatch(script, /[?]session=/u);
+    assert.doesNotMatch(
+      script,
+      /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|document\.cookie/u,
+    );
+  }
+
+  const sessionHelper = await readFile("src/ui/session.js", "utf8");
+  assert.doesNotMatch(
+    sessionHelper,
+    /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|document\.cookie/u,
+  );
+});
+
+test("VPS reload rehydrates and completes the server-owned pending OAuth attempt", async () => {
+  const app = await readFile("src/ui/app.js", "utf8");
+  const start = app.indexOf("async function recoverPendingOAuthAttempt()");
+  const end = app.indexOf("\nasync function initializeVpsWizard()", start);
+  assert.ok(start >= 0 && end > start, "missing OAuth reload recovery boundary");
+  assert.match(
+    app,
+    /async function initializeVpsWizard\(\) \{[\s\S]*recoverPendingOAuthAttempt\(\)[\s\S]*if \(!recoveredOAuth\) \{[\s\S]*refreshAuthStatus\(\);[\s\S]*initializeVpsWizard\(\)\.catch\(showError\);/u,
+  );
+  const source = app.slice(start, end);
+  const calls = [];
+  const state = {
+    oauthAttemptId: null,
+    oauthCancellationMessage: "",
+    oauthLoginGeneration: 4,
+    oauthLoginWindow: null,
+    oauthRetryBlocked: false,
+  };
+  const loginLink = {
+    hidden: false,
+    removeAttribute(name) {
+      calls.push(["remove-attribute", name]);
+    },
+  };
+  const context = {
+    state,
+    async api(path) {
+      calls.push(["api", path]);
+      if (path === "/api/oauth/status") {
+        return { attemptId: "a1b2c3d4-1234", status: "pending" };
+      }
+      if (path === "/api/status") {
+        return { authExists: true, authUpdatedAt: "2026-09-04T00:00:00.000Z" };
+      }
+      throw new Error(`Unexpected path: ${path}`);
+    },
+    blockOAuthRetry() {
+      calls.push(["block-retry"]);
+    },
+    element(id) {
+      assert.equal(id, "login-link");
+      return loginLink;
+    },
+    renderAuthStatus(status, options) {
+      calls.push(["render-auth", status.authExists, options.fresh]);
+    },
+    async runOperation(trigger, label, work, options) {
+      calls.push(["operation", trigger, label, options.allowedSelector]);
+      return work();
+    },
+    setMessage(message) {
+      calls.push(["message", message]);
+    },
+    setOAuthStopControlVisible(visible) {
+      calls.push(["stop-visible", visible]);
+    },
+    updateOperationLabel(label) {
+      calls.push(["operation-label", label]);
+    },
+    showError(error) {
+      calls.push(["error", error.message]);
+    },
+    validateOAuthAttemptId(value) {
+      calls.push(["validate-attempt", value]);
+      return value;
+    },
+    async waitForOAuthCompletion(attemptId) {
+      calls.push(["wait", attemptId]);
+    },
+    OPERATION_ALLOWED_SELECTOR: "#login-link, #stop-login-button",
+  };
+  const recoverPendingOAuthAttempt = vm.runInNewContext(
+    `${source}; recoverPendingOAuthAttempt`,
+    context,
+    { filename: "vps-oauth-reload-recovery.vm.js", timeout: 1_000 },
+  );
+
+  assert.equal(await recoverPendingOAuthAttempt(), true);
+  assert.equal(state.oauthLoginGeneration, 5);
+  assert.equal(state.oauthAttemptId, null);
+  assert.equal(loginLink.hidden, true);
+  assert.deepEqual(calls, [
+    [
+      "operation",
+      null,
+      "Checking for active ChatGPT sign-in…",
+      "#login-link, #stop-login-button",
+    ],
+    ["api", "/api/oauth/status"],
+    ["validate-attempt", "a1b2c3d4-1234"],
+    ["remove-attribute", "href"],
+    ["stop-visible", true],
+    [
+      "message",
+      "A ChatGPT sign-in is still in progress. Complete it in its existing browser tab, or stop it here.",
+    ],
+    ["operation-label", "Reconnecting to ChatGPT sign-in…"],
+    ["wait", "a1b2c3d4-1234"],
+    ["api", "/api/status"],
+    ["render-auth", true, true],
+    ["stop-visible", false],
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(state),
+    /authorizationUrl|credential|password/iu,
+  );
 });
 
 test("copy success survives the browser clearing event.currentTarget", async () => {

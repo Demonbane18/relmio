@@ -18,9 +18,10 @@ rebuild unrelated containers while checking the local endpoint.
 
 ## Authentication fails
 
-Close stale wizard and device-code tabs, keep the newest Relmio terminal open,
-and use only the complete wizard URL printed by that active process. Start one
-fresh ChatGPT device-code attempt and complete the newest code. A ChatGPT
+Close stale wizard and device-code tabs, then run `relmio open` from a
+persistent install to open the active private dashboard page. A hosted
+foreground launcher instead requires its current terminal; press Enter there
+to create a fresh private browser handoff. Start one fresh ChatGPT device-code attempt and complete the newest code. A ChatGPT
 subscription credential is valid only for the Codex targets; the generic
 OpenAI-compatible `/v1` target requires a separately billed Platform API key.
 ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
@@ -122,10 +123,20 @@ npm view relmio version
 npx --yes --ignore-scripts relmio@latest
 ```
 
-Keep the terminal open. If the running wizard accepts terminal input, press
-Enter to ask it to open the browser again. Otherwise, copy the newest printed
-`http://127.0.0.1:...` URL into the browser. That URL contains a temporary setup
-token: do not post it in an issue or screenshot.
+Homebrew and direct npm or NPX runs use the persistent dashboard. After a
+Homebrew or global npm install, run `relmio status` and `relmio open`. Without
+a global install, use the full NPX lifecycle commands:
+
+```bash
+npx --yes --ignore-scripts relmio@latest status
+npx --yes --ignore-scripts relmio@latest open
+npx --yes --ignore-scripts relmio@latest stop
+```
+
+The hosted curl, PowerShell, and Command Prompt launchers run in the
+foreground. Keep that terminal open. If the first browser launch fails, press
+Enter there to create a fresh owner-only, single-use browser handoff. Relmio
+does not print or pass the dashboard session capability in a browser URL.
 
 The local wizard may be displayed in a VS Code embedded browser. Its validated
 manual link, **Open fresh ChatGPT sign-in**, remains available if that embedded
@@ -186,9 +197,10 @@ bypassed.
 | The wizard says local n8n stack status is unavailable | Relmio could not safely verify the marker, Docker context, ownership labels, or runtime state. | No resume or removal control is offered. Reopen the current wizard after Docker is stable; do not bypass the check with manual edits to Relmio-managed files. |
 | A new local n8n + ngrok attempt asks for the credentials again | Docker startup failed, but Relmio re-attested cleanup and proved no owned resources remain. This is commonly an ngrok hostname that is not reserved for the account or an inactive/incorrect agent authtoken. | Confirm the hostname in ngrok Domains, copy only one active value from **Your Authtoken** or **Settings → Authtokens**, then re-enter the Basic Auth username and password. Relmio intentionally clears all three fields before retrying. |
 | Docker Desktop shows a WSL error `0x800705aa`, or Relmio says the WSL engine could not start | Docker Desktop was idle and tried to start its Linux VM; Windows did not have enough free memory or Hyper-V resources. Relmio did not change n8n. | Close memory-heavy apps, run `wsl --shutdown`, start Docker Desktop, wait until `docker info` works, then retry the same reviewed plan. Do not delete Relmio-managed files by hand. |
-| The browser did not open | The automatic browser launch failed, but the local server may still be running. | Keep the newest terminal open and press Enter to ask an interactive wizard terminal to open it again. If the terminal is noninteractive or the launcher still fails, copy its newest `127.0.0.1` setup URL into the browser. Do not reuse a URL from a closed terminal. |
-| The wizard says `This wizard link is incomplete` | The page was refreshed or opened without the private `?session=...` token; the token is removed from the address bar after startup. | Close the tab and open the complete `Local wizard:` URL printed by the active setup terminal. Do not reuse a URL from a closed terminal. |
-| An old wizard page reports an invalid or expired setup session | The local server was closed or a newer wizard run created a different one-time session token. | Close the old page and use only the URL printed by the currently running terminal. |
+| The browser did not open | The automatic private handoff failed, but the local server may still be running. | With a persistent install, run `relmio status`, then `relmio open`. With a hosted foreground launcher, keep its terminal open and press Enter to create a fresh handoff. |
+| The wizard says `This wizard link is incomplete` | The clean dashboard address was opened in a new tab or bookmark without the current tab-only session. | Close the tab and run `relmio open` for a persistent install. For a hosted foreground launcher, return to its active terminal and press Enter. |
+| `relmio status` says another Relmio version is running | An older compatible dashboard daemon is still serving its version-bound UI after a package upgrade. Relmio will not silently reuse it. | Run `relmio stop`, then `relmio start` and `relmio open`. For NPX, repeat the full `npx --yes --ignore-scripts relmio@latest` command before each action. Do not delete `.relmio/control` manually if Relmio reports malformed or incompatible state. |
+| An old wizard page reports an invalid or expired setup session | The local server was closed or a newer wizard run created a different private session. | Close the old page and run `relmio open`, or return to the active hosted foreground terminal and press Enter. |
 | `npx` appears to run an older wizard | An old terminal or tab is still active, or the package was run without an explicit tag. | Close old runs, check `npm view relmio version`, then run `npx --yes --ignore-scripts relmio@latest`. |
 | A white `about:blank` tab remains after selecting **Sign in with ChatGPT** | An older local wizard cleared the preopened tab's `opener` before navigating it to the validated sign-in URL. | Update to the latest `relmio@latest`, close the stranded tab, and start one fresh sign-in. The current wizard shows a preparing state, navigates the preopened tab, then clears its opener before the remote page loads. Use **Open fresh ChatGPT sign-in** only when the current wizard shows that validated manual link. |
 | `This sign-in request expired` | The OAuth tab is old or the five-minute callback window ended. | Close the old tab and select **Refresh ChatGPT sign-in** from the newest active wizard. |

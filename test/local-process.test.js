@@ -132,6 +132,9 @@ function createManualTimers() {
     get activeCount() {
       return scheduled.size;
     },
+    get scheduledMilliseconds() {
+      return [...scheduled.values()].map(({ milliseconds }) => milliseconds);
+    },
   };
 }
 
@@ -346,6 +349,8 @@ test("Windows managed paths can verify an exact ACL without rewriting it", async
   });
   assert.match(script, /\$actual=\$before/u);
   assert.doesNotMatch(script, /SetAccessControl|SetAccessRuleProtection|SetOwner|New-Object/u);
+  assert.doesNotMatch(script, /BuiltinAdministratorsSid|WindowsBuiltInRole/u);
+  assert.match(script, /if\(\$owner\.Value -ne \$sid\.Value\)\{exit 1\}/u);
   assert.match(script, /\$rules\.Count -ne 1/u);
   assert.match(script, /AreAccessRulesProtected/u);
   await assert.rejects(
@@ -357,6 +362,56 @@ test("Windows managed paths can verify an exact ACL without rewriting it", async
     }),
     /verification mode is invalid/u,
   );
+});
+
+test("Windows legacy verification accepts only an inherited effective owner-only file ACL", async () => {
+  let script = "";
+  await lockDownLocalPath("C:\\Users\\test\\.relmio\\managed.json", {
+    platform: "win32",
+    systemRoot: "C:\\Windows",
+    kind: "file",
+    verifyOnly: true,
+    verifyEffectiveOwnerOnly: true,
+    async runAclCommand(_file, args) {
+      script = args[4];
+    },
+  });
+
+  assert.doesNotMatch(script, /SetAccessControl|SetAccessRuleProtection|SetOwner|New-Object/u);
+  assert.match(script, /\$rules\.Count -ne 1/u);
+  assert.match(script, /\$rules\[0\]\.IdentityReference\.Value -ne \$sid\.Value/u);
+  assert.match(script, /AccessControlType -ne 'Allow'/u);
+  assert.match(script, /FileSystemRights -ne \[System\.Security\.AccessControl\.FileSystemRights\]::FullControl/u);
+  assert.match(script, /BuiltinAdministratorsSid/u);
+  assert.match(script, /WindowsBuiltInRole\]::Administrator/u);
+  assert.match(
+    script,
+    /\$trustedLegacyAdministratorsOwner=\$legacyInheritedOwnerOnly -and \$owner\.Value -eq \$administratorsSid\.Value -and \$principal\.IsInRole/u,
+  );
+  assert.match(script, /if\(\$owner\.Value -ne \$sid\.Value -and \(-not \$trustedLegacyAdministratorsOwner\)\)\{exit 1\}/u);
+  assert.match(script, /\$strictOwnerOnly/u);
+  assert.match(script, /\$legacyInheritedOwnerOnly/u);
+  assert.match(
+    script,
+    /\(-not \$actual\.AreAccessRulesProtected\) -and \$rules\[0\]\.IsInherited/u,
+  );
+  assert.match(script, /if\(-not \(\$strictOwnerOnly -or \$legacyInheritedOwnerOnly\)\)\{exit 1\}/u);
+
+  for (const invalid of [
+    { kind: "directory", verifyOnly: true, verifyEffectiveOwnerOnly: true },
+    { kind: "file", verifyOnly: false, verifyEffectiveOwnerOnly: true },
+    { kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: "yes" },
+  ]) {
+    await assert.rejects(
+      () => lockDownLocalPath("C:\\Users\\test\\.relmio\\managed.json", {
+        platform: "win32",
+        systemRoot: "C:\\Windows",
+        async runAclCommand() {},
+        ...invalid,
+      }),
+      /effective owner-only verification mode is invalid/u,
+    );
+  }
 });
 
 test("Windows ACL lockdown rejects malformed system roots before invoking a process", async () => {
@@ -408,6 +463,22 @@ test("Windows ACL lockdown sanitizes PowerShell launch and proof failures", asyn
 });
 
 test("Windows ACL runner bounds stalled and overlong security subprocesses", async (t) => {
+  await t.test("default timeout tolerates contended native process startup", async () => {
+    const timers = createManualTimers();
+    const child = createFakeChild(() => {}, { closeOnKill: false });
+    const command = runWindowsAclCommand("C:\\Windows\\powershell.exe", [], {
+      spawnProcess: () => child,
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+    });
+    await new Promise((resolve) => queueMicrotask(resolve));
+    const scheduledMilliseconds = timers.scheduledMilliseconds;
+    closeChild(child, 0);
+    await command;
+    assert.deepEqual(scheduledMilliseconds, [60_000]);
+    assert.equal(timers.activeCount, 0);
+  });
+
   await t.test("timeout", async () => {
     const child = createFakeChild(() => {}, { closeOnKill: false });
     await assert.rejects(
@@ -460,6 +531,63 @@ test(
     });
     assertExactOwnerOnlyAcl(await inspectWindowsAcl(directory), 3);
     assertExactOwnerOnlyAcl(await inspectWindowsAcl(credentialPath), 0);
+  },
+);
+
+test(
+  "Windows legacy verification accepts an inherited owner-only file beneath a protected directory",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "relmio-legacy-acl-test-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    await lockDownLocalPath(directory, { platform: "win32" });
+    const inheritedFile = join(directory, "managed.json");
+    await writeFile(inheritedFile, "{}", "utf8");
+    await assert.rejects(
+      () => lockDownLocalPath(inheritedFile, {
+        platform: "win32",
+        kind: "file",
+        verifyOnly: true,
+      }),
+      /owner-only protection/u,
+    );
+    await lockDownLocalPath(inheritedFile, {
+      platform: "win32",
+      kind: "file",
+      verifyOnly: true,
+      verifyEffectiveOwnerOnly: true,
+    });
+
+    const windowsPowerShell = join(
+      process.env.SystemRoot,
+      "System32",
+      "WindowsPowerShell",
+      "v1.0",
+      "powershell.exe",
+    );
+    const addOtherAccountRule = [
+      "$path=[Console]::In.ReadToEnd()",
+      "$item=[System.IO.FileInfo]::new($path)",
+      "$acl=$item.GetAccessControl()",
+      "$everyone=[System.Security.Principal.SecurityIdentifier]::new([System.Security.Principal.WellKnownSidType]::WorldSid,$null)",
+      "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($everyone,[System.Security.AccessControl.FileSystemRights]::ReadData,[System.Security.AccessControl.InheritanceFlags]::None,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow)",
+      "$acl.AddAccessRule($rule)",
+      "$item.SetAccessControl($acl)",
+    ].join(";");
+    await runWindowsAclCommand(
+      windowsPowerShell,
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", addOtherAccountRule],
+      { input: inheritedFile },
+    );
+    await assert.rejects(
+      () => lockDownLocalPath(inheritedFile, {
+        platform: "win32",
+        kind: "file",
+        verifyOnly: true,
+        verifyEffectiveOwnerOnly: true,
+      }),
+      /owner-only protection/u,
+    );
   },
 );
 

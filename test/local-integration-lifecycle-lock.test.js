@@ -193,3 +193,23 @@ test("a failed Windows owner publication removes its exact claim and permits an 
   await release();
   assert.deepEqual(await fileSystem.readdir(root), []);
 });
+
+test("integration locks forward the injected platform to process identity inspection", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const inspectedPlatforms = [];
+  const release = await acquireLocalIntegrationLifecycleLock({
+    fileSystem,
+    lockPath,
+    now: () => NOW,
+    platform: "win32",
+    lockDownPath: async () => {},
+    async getProcessIdentity(pid, options) {
+      assert.equal(pid, process.pid);
+      inspectedPlatforms.push(options.platform);
+      return { state: "active", startIdentity: "test:self" };
+    },
+  });
+  await release();
+
+  assert.deepEqual(inspectedPlatforms, ["win32"]);
+});
