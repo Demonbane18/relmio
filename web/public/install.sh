@@ -50,7 +50,8 @@ case "$installed_node_major" in
     if [ "$installed_node_major" -ge "$minimum_node_major" ] \
       && command -v npx >/dev/null 2>&1; then
       say "Using installed Node.js ${installed_node_major} runtime."
-      npx --yes --ignore-scripts relmio@latest < "$terminal_input"
+      RELMIO_FOREGROUND_WIZARD=1 \
+        npx --yes --ignore-scripts relmio@latest < "$terminal_input"
       exit $?
     fi
     ;;
@@ -194,5 +195,6 @@ fi
 
 say "Starting the newest Relmio wizard."
 node_directory="${node_binary%/*}"
-PATH="$node_directory${PATH:+:$PATH}" \
+RELMIO_FOREGROUND_WIZARD=1 \
+  PATH="$node_directory${PATH:+:$PATH}" \
   "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"

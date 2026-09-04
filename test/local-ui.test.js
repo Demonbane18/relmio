@@ -45,7 +45,15 @@ test("local endpoint wizard exposes an accessible four-step flow", async () => {
     html,
     /<nav class="steps" aria-label="Local setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="4"/u,
   );
-  assert.equal((html.match(/<h1\b/gu) ?? []).length, 1);
+  assert.equal((html.match(/<h1\b/gu) ?? []).length, 2);
+  assert.match(
+    html,
+    /id="local-dashboard"[\s\S]*<h1 id="dashboard-title"/u,
+  );
+  assert.match(
+    html,
+    /id="local-setup"[\s\S]*<h1 id="page-title"/u,
+  );
   assert.equal((html.match(/<h2[^>]*tabindex="-1"/gu) ?? []).length, 4);
   assert.match(html, /<fieldset class="target-picker">[\s\S]*<legend>/u);
   assert.match(html, /name="target" value="openai-api" checked/u);
@@ -716,7 +724,7 @@ test("local wizard explains native Windows Docker Desktop and ACL requirements",
   assert.match(script, /owner-only NTFS ACL/u);
 });
 
-test("local browser code does not persist or inject credentials", async () => {
+test("local browser code keeps provider credentials out of persistent stores and DOM injection", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
 
   assert.doesNotMatch(script, /\.innerHTML\b/u);
@@ -726,11 +734,16 @@ test("local browser code does not persist or inject credentials", async () => {
   );
   assert.doesNotMatch(script, /console\.(?:log|warn|error)/u);
   assert.match(script, /\.textContent/u);
+  assert.match(script, /import \{ bindWizardNavigation, readWizardSession \} from "\.\/session\.js";/u);
+  assert.match(script, /const token = readWizardSession\(\);/u);
+  assert.match(script, /"X-Setup-Token": token/u);
+  assert.match(script, /For a persistent install, run relmio open/u);
+  assert.match(script, /npx --yes --ignore-scripts relmio@latest open/u);
   assert.match(
     script,
-    /new URLSearchParams\(window\.location\.search\)\.get\("session"\);[\s\S]*window\.history\.replaceState\(null, "", window\.location\.pathname\);/u,
+    /For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff/u,
   );
-  assert.match(script, /"X-Setup-Token": token/u);
+  assert.doesNotMatch(script, /URL printed by its active terminal/u);
   assert.doesNotMatch(script, /session=\$\{[^}]*clientCredential/u);
 
   const installStart = script.indexOf(
@@ -753,6 +766,14 @@ test("local browser code does not persist or inject credentials", async () => {
   assert.match(script, /url\.username !== ""/u);
   assert.match(script, /url\.password !== ""/u);
   assert.match(script, /url\.hash !== ""/u);
+});
+
+test("local wizard keeps cross-route links token-free and preserves only same-tab sessions", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  assert.match(script, /bindWizardNavigation\(element\("back-to-vps"\), "\/", token\);/u);
+  assert.match(script, /bindWizardNavigation\(element\("setup-another-local"\), "\/local", token\);/u);
+  assert.match(script, /bindWizardNavigation\(element\("return-to-vps"\), "\/", token\);/u);
+  assert.doesNotMatch(script, /[?]session=/u);
 });
 
 test("local Platform key validation uses a browser-compatible pattern", async () => {
@@ -828,8 +849,9 @@ test("main wizard offers token-preserving local endpoint navigation", async () =
   assert.match(html, /id="local-endpoint-link"[\s\S]*Set up a local endpoint/u);
   assert.match(
     app,
-    /localEndpointLink\.href = `\/local\?session=\$\{encodeURIComponent\(token\)\}`;/u,
+    /bindWizardNavigation\(localEndpointLink, "\/local", token\);/u,
   );
+  assert.doesNotMatch(app, /[?]session=/u);
 });
 
 test("local CSS preserves responsive, visible security controls", async () => {

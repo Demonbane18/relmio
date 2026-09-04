@@ -28,6 +28,7 @@ import {
   validateLocalDockerHost,
 } from "../infrastructure/local-process.js";
 import { discoverLocalN8nSidecarTargets } from "./local-n8n-sidecar-installer.js";
+import { getLocalDockerStatus } from "./local-installer.js";
 import {
   acquireLocalIntegrationLifecycleLock,
   settleLocalIntegrationLifecycleOperation,
@@ -139,6 +140,198 @@ export async function resolveLocalN8nAssistantInstallRoot({
     "local",
     LOCAL_N8N_ASSISTANT_TARGET,
   );
+}
+
+function validateAssistantInventoryRecords(records, expectedServices) {
+  const seen = new Set();
+  for (const record of records) {
+    if (
+      typeof record?.Service !== "string" ||
+      !expectedServices.includes(record.Service) ||
+      seen.has(record.Service) ||
+      typeof record.State !== "string" ||
+      typeof record.Health !== "string" ||
+      !Array.isArray(record.Publishers)
+    ) {
+      throw new Error("The local companion status metadata is invalid.");
+    }
+    seen.add(record.Service);
+    for (const publisher of record.Publishers) {
+      if (
+        !publisher ||
+        publisher.PublishedPort !== 0 ||
+        publisher.URL !== ""
+      ) {
+        throw new Error("A local companion published a host port.");
+      }
+    }
+  }
+}
+
+function runningAssistantHealthchecksAreHealthy(records) {
+  return records.every((record) => {
+    if (record.State !== "running") return true;
+    if (record.Service === "relmio-sandbox-api") {
+      return record.Health === "healthy";
+    }
+    return record.Health === "" || record.Health === "healthy";
+  });
+}
+
+function localN8nAssistantSnapshot(installation) {
+  return {
+    target: "local-n8n-assistant",
+    components: {
+      codeSandbox: true,
+      searxng: installation.includeSearxng,
+    },
+    auth: { sandboxConfigured: true, disclosure: "one-time" },
+    canRemove: true,
+  };
+}
+
+async function verifyWindowsAssistantStatusPathSecurity({
+  fileSystem,
+  installRoot,
+  installation,
+  platform,
+  lockDownPath,
+}) {
+  if (platform !== "win32") return;
+  const safeInstallation = validateAssistantInstallation(installation);
+  const relmioHome = resolve(installRoot, "..", "..");
+  for (const path of [relmioHome, join(relmioHome, "local"), installRoot]) {
+    assertDirectory(await lstatIfExists(fileSystem, path));
+    await lockDownPath(path, { platform, verifyOnly: true });
+  }
+  for (const path of [
+    join(relmioHome, ROOT_MARKER),
+    join(installRoot, MANAGED_MARKER),
+    join(installRoot, COMPOSE_FILENAME),
+    join(installRoot, ".env"),
+    ...(safeInstallation.includeSearxng
+      ? [join(installRoot, "searxng-settings.yml")]
+      : []),
+  ]) {
+    const metadata = await lstatIfExists(fileSystem, path);
+    if (!metadata?.isFile?.() || metadata.isSymbolicLink()) {
+      throw new Error("Relmio refuses an unsafe local companion managed file.");
+    }
+    await lockDownPath(path, {
+      platform,
+      kind: "file",
+      verifyOnly: true,
+      verifyEffectiveOwnerOnly: true,
+    });
+  }
+}
+
+export async function getLocalN8nAssistantStatus({
+  env = process.env,
+  homeDirectory = homedir(),
+  fileSystem = defaultFileSystem,
+  runProcess = runLocalProcess,
+  platform = process.platform,
+  lockDownPath = lockDownLocalPath,
+} = {}) {
+  const target = "local-n8n-assistant";
+  const absent = { target, managed: false, state: "absent" };
+  const unavailable = { target, managed: false, state: "unavailable" };
+  try {
+    const installRoot = await resolveLocalN8nAssistantInstallRoot({
+      env,
+      homeDirectory,
+      fileSystem,
+      platform,
+    });
+    const managed = await inspectManagedInstall({ fileSystem, installRoot });
+    if (!managed.marker) return absent;
+    const { plan, installation } = validateMarker(managed.marker);
+    await verifyWindowsAssistantStatusPathSecurity({
+      fileSystem,
+      installRoot,
+      installation,
+      platform,
+      lockDownPath,
+    });
+    const docker = await getLocalDockerStatus({
+      runProcess,
+      cwd: installRoot,
+      env,
+      platform,
+    });
+    if (!docker.dockerAvailable || docker.dockerHost !== plan.dockerHost) {
+      return unavailable;
+    }
+    await attestReviewedTarget({
+      plan,
+      runProcess,
+      cwd: installRoot,
+      env,
+      platform,
+    });
+    const environment = await readCanonicalPrivateManagedFile({
+      fileSystem,
+      path: join(installRoot, ".env"),
+      platform,
+      lockDownPath,
+      label: "private environment",
+    });
+    validateCanonicalAssistantEnv(environment.contents);
+    const resources = await inspectOwnedProject({
+      installation,
+      runProcess,
+      cwd: installRoot,
+      dockerHost: plan.dockerHost,
+      allowAbsent: true,
+      allowPartial: true,
+      returnDetails: true,
+    });
+    const snapshot = localN8nAssistantSnapshot(installation);
+    if (!resources.exists || !resources.exact) {
+      return { target, managed: true, state: "partial" };
+    }
+    const expectedServices = getAssistantServiceNames(installation).filter(
+      (service) => service !== "relmio-sandbox-certs",
+    );
+    const status = await runOrThrow(
+      runProcess,
+      {
+        file: "docker",
+        args: createComposeArgs(installation.projectName, [
+          "ps",
+          "--all",
+          "--format",
+          "json",
+          ...expectedServices,
+        ]),
+        cwd: installRoot,
+        dockerHost: plan.dockerHost,
+      },
+      "Local companion inventory check",
+    );
+    const records = parseJsonRecords(status.stdout, "Local companion inventory check");
+    validateAssistantInventoryRecords(records, expectedServices);
+    if (records.length !== expectedServices.length) {
+      return { target, managed: true, state: "partial", snapshot };
+    }
+    const states = records.map((record) => record.State);
+    if (
+      states.every((value) => value === "running") &&
+      runningAssistantHealthchecksAreHealthy(records)
+    ) {
+      return { target, managed: true, state: "healthy", snapshot };
+    }
+    if (
+      states.every((value) => ["created", "exited"].includes(value)) &&
+      records.every((record) => !["starting", "unhealthy"].includes(record.Health))
+    ) {
+      return { target, managed: true, state: "stopped", snapshot };
+    }
+    return { target, managed: true, state: "partial" };
+  } catch {
+    return unavailable;
+  }
 }
 
 async function lstatIfExists(fileSystem, path) {
@@ -776,6 +969,7 @@ async function inspectOwnedProject({
   dockerHost,
   allowAbsent = false,
   allowPartial = false,
+  returnDetails = false,
 }) {
   const expectedNames = getAssistantManagedResourceNames(installation);
   const resources = {
@@ -806,7 +1000,9 @@ async function inspectOwnedProject({
     0,
   );
   if (count === 0) {
-    if (allowAbsent) return false;
+    if (allowAbsent) {
+      return returnDetails ? { exists: false, exact: false } : false;
+    }
     throw new Error("The local companion Docker resource set is incomplete.");
   }
   for (const record of [
@@ -837,7 +1033,7 @@ async function inspectOwnedProject({
   ) {
     throw new Error("The local companion Docker resource identity is invalid.");
   }
-  return true;
+  return returnDetails ? { exists: true, exact: exactResourceSet } : true;
 }
 
 function assertNoPublishedPorts(records, expectedServices) {
@@ -1580,6 +1776,13 @@ export async function editLocalN8nAssistantSearxng(
       if (oldPlan.includeSearxng || oldInstallation.includeSearxng) {
         throw new Error("SearXNG web search is already enabled for this local n8n Assistant installation.");
       }
+      await verifyWindowsAssistantStatusPathSecurity({
+        fileSystem,
+        installRoot,
+        installation: oldInstallation,
+        platform,
+        lockDownPath,
+      });
       const newPlan = normalizeLocalN8nAssistantPlan({ ...oldPlan, includeSearxng: true });
       const newInstallation = validateAssistantInstallation({
         ...oldInstallation,
@@ -1845,6 +2048,13 @@ export async function removeLocalN8nAssistant(
       throw new Error("The managed local n8n Assistant tools are not installed.");
     }
     const { plan, installation } = validateMarker(managed.marker);
+    await verifyWindowsAssistantStatusPathSecurity({
+      fileSystem,
+      installRoot,
+      installation,
+      platform,
+      lockDownPath,
+    });
     await inspectOwnedProject({
       installation,
       runProcess,

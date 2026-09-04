@@ -363,7 +363,10 @@ test("restart detection maps strict safe states to normal flow, resume, partial 
   assert.match(resumeHandler, /api\("\/api\/local\/n8n\/stack\/resume"/u);
   assert.match(resumeHandler, /body: \{ confirmed: true \}/u);
   assert.doesNotMatch(resumeHandler, /\/api\/local\/n8n\/stack\/remove|\b(?:up|down|recreate)\b/u);
-  assert.match(script, /element\("setup-another-local"\)\.href = createWizardUrl\("\/local"\)/u);
+  assert.match(
+    script,
+    /bindWizardNavigation\(element\("setup-another-local"\), "\/local", token\)/u,
+  );
 });
 
 test("the install lifecycle suppresses duplicate submission and restores the reviewed controls after success", async () => {

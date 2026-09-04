@@ -35,6 +35,29 @@ publish a fixed 10-day lifetime; do not plan around one. This provider
 credential is separate from Relmio's local capability, which remains valid
 until you rotate it.
 
+## Provider authentication and account switching
+
+Relmio's Codex targets use the [official Codex App
+Server](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#auth-endpoints).
+Codex owns the ChatGPT OAuth flow, token storage, and token refresh. Each Codex
+target has one active ChatGPT account. To switch accounts, sign out of that
+target and complete a new Codex sign-in. OpenAI currently documents its
+[two-account switcher](https://help.openai.com/en/articles/20001068-use-multiple-accounts-with-account-switching)
+as a ChatGPT web feature and says it is not yet supported in Codex desktop.
+Relmio does not keep an account pool or move requests between accounts.
+
+Relmio does not ship an xAI target in this release. xAI/Grok authentication is API-key only in the [documented xAI inference
+API](https://docs.x.ai/developers/rest-api-reference/inference).
+Relmio does not implement third-party Grok OAuth. Any future provider
+authentication is denied by default until the provider documents a supported
+method and Relmio adds a reviewed, provider-specific implementation.
+
+A 401, 403, or 429 response stops the request on the current credential. Relmio
+never changes accounts or keys automatically after an authentication,
+authorization, rate-limit, or quota response. The dashboard may report status
+and offer an explicit sign-in or credential-replacement action.
+It never returns or re-shows a stored secret.
+
 ## Requirements
 
 - Native Windows with Docker Desktop's `desktop-linux` engine, macOS, Linux,
@@ -70,8 +93,9 @@ project on the local computer.
    npx --yes --ignore-scripts relmio@latest
    ```
 
-2. Open the one-time local wizard URL printed in the terminal and choose
-   **Local endpoints**.
+2. Relmio opens the local dashboard through an owner-only, single-use browser
+   handoff. If it does not open, press Enter in the active foreground terminal
+   or run `relmio open` from a persistent install. Then select **Add connection**.
 3. Choose one of the three loopback endpoints, **Self-hosted n8n bridge**,
    **n8n AI Assistant tools**, or **New local n8n + ngrok**.
 4. For a loopback endpoint, keep the default port or select another unused
@@ -93,6 +117,36 @@ project on the local computer.
 7. If you selected Codex, complete the device-code sign-in shown by the wizard.
    If you selected Assistant tools, copy the one-time sandbox key and returned
    companion-settings block before leaving the result screen.
+
+## Persistent local dashboard
+
+The standard `relmio` command opens a dashboard before the setup flow. It
+reconstructs status from the six fixed managed directories, the selected local
+Docker context, and exact Docker resource identities. It does not keep a
+second registry or adopt containers from labels alone.
+
+An installed Relmio package provides a small dashboard lifecycle:
+
+```text
+relmio start
+relmio status
+relmio open
+relmio stop
+```
+
+These commands manage only the current operating-system account's Relmio
+dashboard on `127.0.0.1`. `relmio stop` stops only the Relmio dashboard
+process. It does not stop, restart, rebuild, or reconfigure n8n, ngrok, any
+Relmio-managed companion, or any installed endpoint.
+
+**Refresh status** is read-only. Safe connection URLs can be copied after
+attestation, but stored secrets cannot. Selecting **Add connection** opens the
+same reviewed four-step wizard, and every write still requires its own current
+ownership checks and confirmation.
+
+See [Use the local dashboard](./local-dashboard.md) for launch and reopen
+commands, the complete service and action matrix, state meanings, one-time
+credential rules, and n8n ownership boundaries.
 
 Relmio will not overwrite an unmanaged directory or follow a symlink. Its
 local files live under:

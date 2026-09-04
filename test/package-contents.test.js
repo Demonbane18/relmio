@@ -29,6 +29,7 @@ const expectedPackedFiles = new Set([
   "docs/getting-started.md",
   "docs/local-endpoints-spec.md",
   "docs/local-endpoints.md",
+  "docs/local-dashboard.md",
   "docs/local-n8n-stack.md",
   "docs/images/brand/relmio-concept-source.png",
   "docs/images/brand/relmio-banner-animated.svg",
@@ -68,6 +69,7 @@ const expectedPackedFiles = new Set([
   "scripts/preview.js",
   "src/browser.js",
   "src/cli.js",
+  "src/legacy-vps-cli.js",
   "src/domain/assistant-templates.js",
   "src/domain/assistant.js",
   "src/domain/local-n8n-assistant.js",
@@ -84,9 +86,12 @@ const expectedPackedFiles = new Set([
   "src/infrastructure/ssh.js",
   "src/services/codex-login.js",
   "src/services/assistant-installer.js",
+  "src/services/browser-handoff.js",
   "src/services/discovery.js",
   "src/services/installer.js",
   "src/services/local-chat-test.js",
+  "src/services/local-dashboard-control.js",
+  "src/services/local-dashboard.js",
   "src/services/local-installer.js",
   "src/services/local-integration-lifecycle-lock.js",
   "src/services/local-n8n-assistant-installer.js",
@@ -108,6 +113,8 @@ const expectedPackedFiles = new Set([
   "src/ui/oauth-popup.js",
   "src/ui/relmio-icon.png",
   "src/ui/relmio-icon-rounded.svg",
+  "src/ui/session.js",
+  "src/ui/session-bootstrap.js",
   "src/ui/styles.css",
   "src/ui/theme.js",
   "src/ui/time.js",
@@ -151,7 +158,7 @@ const forbiddenContent = [
   {
     label: "live wizard session URL",
     pattern:
-      /https?:\/\/(?:127\.0\.0\.1|localhost):\d+\/\?session=[A-Za-z0-9_-]{16,}/u,
+      /https?:\/\/(?:127\.0\.0\.1|localhost):\d+(?:\/|\/assistant|\/local)\?session=[A-Za-z0-9_-]{16,}/u,
   },
 ];
 

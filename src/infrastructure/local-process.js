@@ -234,6 +234,9 @@ export function runWindowsAclCommand(
  * Builtin Administrators principal to the current account, then creates and reads
  * back a protected DACL containing only that account. Any other initial owner fails
  * closed. Verification mode never changes ownership or access rules.
+ * Effective owner-only verification additionally accepts the exact legacy shape of
+ * one inherited current-user FullControl rule on a file. Callers must first verify
+ * that file's containing managed directory with the strict protected ACL contract.
  * A directory rule is inheritable, so managed children receive the same protection.
  * Call this before writing secrets into a newly created managed directory or file.
  */
@@ -245,6 +248,7 @@ export async function lockDownLocalPath(
     runAclCommand = runWindowsAclCommand,
     systemRoot = process.env.SystemRoot,
     verifyOnly = false,
+    verifyEffectiveOwnerOnly = false,
   } = {},
 ) {
   if (platform !== "win32") return;
@@ -258,6 +262,12 @@ export async function lockDownLocalPath(
   }
   if (typeof verifyOnly !== "boolean") {
     throw new TypeError("Windows ACL verification mode is invalid.");
+  }
+  if (
+    typeof verifyEffectiveOwnerOnly !== "boolean" ||
+    (verifyEffectiveOwnerOnly && (!verifyOnly || kind !== "file"))
+  ) {
+    throw new TypeError("Windows ACL effective owner-only verification mode is invalid.");
   }
   const script = [
     "$path=[Console]::In.ReadToEnd()",
@@ -282,11 +292,21 @@ export async function lockDownLocalPath(
       "$acl.SetAccessRule($rule)",
       "if($item.PSObject.Methods.Name -contains 'SetAccessControl'){$item.SetAccessControl($acl);$actual=$item.GetAccessControl()}else{[System.IO.FileSystemAclExtensions]::SetAccessControl($item,$acl);$actual=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
     ]),
-    "if(-not $actual.AreAccessRulesProtected){exit 1}",
+    ...(!verifyEffectiveOwnerOnly
+      ? ["if(-not $actual.AreAccessRulesProtected){exit 1}"]
+      : []),
     "$owner=$actual.GetOwner([System.Security.Principal.SecurityIdentifier])",
     "if($owner.Value -ne $sid.Value){exit 1}",
     "$rules=@($actual.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))",
-    "if($rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or $rules[0].InheritanceFlags -ne $expectedInheritance -or $rules[0].PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None -or $rules[0].IsInherited){exit 1}",
+    "if($rules.Count -ne 1){exit 1}",
+    "if($rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or $rules[0].InheritanceFlags -ne $expectedInheritance -or $rules[0].PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None){exit 1}",
+    ...(verifyEffectiveOwnerOnly ? [
+      "$strictOwnerOnly=$actual.AreAccessRulesProtected -and (-not $rules[0].IsInherited)",
+      "$legacyInheritedOwnerOnly=(-not $actual.AreAccessRulesProtected) -and $rules[0].IsInherited",
+      "if(-not ($strictOwnerOnly -or $legacyInheritedOwnerOnly)){exit 1}",
+    ] : [
+      "if($rules[0].IsInherited){exit 1}",
+    ]),
   ].join(";");
   try {
     await runAclCommand(

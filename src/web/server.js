@@ -1,4 +1,9 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  randomBytes as createRandomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import packageManifest from "../../package.json" with { type: "json" };
@@ -48,12 +53,14 @@ import {
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
   attestLocalCodexInstallation,
+  getManagedLocalEndpointStatus,
   getLocalDockerStatus,
   installLocalEndpoint,
   resolveLocalInstallRoot,
   restartLocalCodex,
   prepareLocalClientCredentialRotation,
 } from "../services/local-installer.js";
+import { getLocalDashboardStatus } from "../services/local-dashboard.js";
 import {
   discoverLocalN8nSidecarTargets,
   installLocalN8nSidecar,
@@ -78,12 +85,24 @@ import {
 import { validateLocalN8nStackSecrets } from "../templates/local-n8n-stack/index.js";
 import { startCodexDeviceLogin } from "../services/codex-login.js";
 import { createLocalChatTestService } from "../services/local-chat-test.js";
+import { createPrivateBrowserHandoff } from "../services/browser-handoff.js";
+import { isPrivateBrowserLaunchUrl } from "../browser.js";
 
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
 const OAUTH_SHUTDOWN_WAIT_MS = 2_000;
+const VPS_CONNECTION_IDLE_MS = 15 * 60 * 1000;
 const LOCAL_ROTATION_STAGE_TTL_MS = 2 * 60 * 1000;
+const BROWSER_BOOTSTRAP_TTL_MS = 30 * 1000;
+const BROWSER_TRANSFER_TTL_MS = 10 * 1000;
+const MAX_PENDING_BROWSER_BOOTSTRAPS = 8;
+const MAX_PENDING_BROWSER_TRANSFERS = 8;
+const BROWSER_PREPARE_PATH = "/__relmio/browser/prepare";
+const BROWSER_BOOTSTRAP_PATH = "/__relmio/browser/bootstrap";
+const BROWSER_TRANSFER_PATH = "/__relmio/browser/transfer";
+const BROWSER_BOOTSTRAP_ROUTES = new Set(["/", "/assistant", "/local"]);
+const BROWSER_BOOTSTRAP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const PACKAGE_VERSION = packageManifest.version;
 const OAUTH_VPS_CONFLICT_MESSAGE =
   "ChatGPT sign-in is in progress. Wait for it to finish or cancel it before changing the VPS.";
@@ -127,7 +146,9 @@ const defaultServices = {
   installSidecar,
   installAssistant,
   attestLocalCodexInstallation,
+  getManagedLocalEndpointStatus,
   getLocalDockerStatus,
+  getLocalDashboardStatus,
   getLocalN8nStackStatus,
   discoverLocalN8nSidecarTargets,
   getProjectMeta,
@@ -243,6 +264,296 @@ function tokenMatches(actual, expected) {
   const left = Buffer.from(actual);
   const right = Buffer.from(expected);
   return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function exactObjectKeys(value, expected) {
+  return value && typeof value === "object" && !Array.isArray(value) &&
+    Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
+}
+
+function browserBootstrapToken(randomBytes) {
+  let bytes;
+  try { bytes = Buffer.from(randomBytes(32)); } catch {
+    throw new Error("Browser launch could not be prepared.");
+  }
+  if (bytes.length !== 32) throw new Error("Browser launch could not be prepared.");
+  return bytes.toString("base64url");
+}
+
+function digestBrowserBootstrapSecret(secret) {
+  return createHash("sha256").update(secret, "utf8").digest();
+}
+
+function disposeBrowserBootstrap(state, record) {
+  if (!record || record.disposed) return;
+  record.disposed = true;
+  state.clearBrowserBootstrapTimer(record.timer);
+  void Promise.resolve(record.handoff.dispose()).catch(() => {});
+}
+
+function retireBrowserBootstrap(state, ticketId, record) {
+  if (state.browserBootstraps.get(ticketId) !== record) return false;
+  state.browserBootstraps.delete(ticketId);
+  state.browserBootstrapIds.delete(ticketId);
+  disposeBrowserBootstrap(state, record);
+  return true;
+}
+
+function purgeExpiredBrowserBootstraps(state) {
+  const currentTime = state.browserBootstrapNow();
+  for (const [ticketId, record] of state.browserBootstraps) {
+    if (record.expiresAtMs <= currentTime) retireBrowserBootstrap(state, ticketId, record);
+  }
+}
+
+function disposeBrowserTransfer(state, record) {
+  if (!record || record.disposed) return;
+  record.disposed = true;
+  state.clearBrowserBootstrapTimer(record.timer);
+}
+
+function retireBrowserTransfer(state, transferId, record) {
+  if (state.browserTransfers.get(transferId) !== record) return false;
+  state.browserTransfers.delete(transferId);
+  state.browserTransferIds.delete(transferId);
+  disposeBrowserTransfer(state, record);
+  return true;
+}
+
+function purgeExpiredBrowserTransfers(state) {
+  const currentTime = state.browserBootstrapNow();
+  for (const [transferId, record] of state.browserTransfers) {
+    if (record.expiresAtMs <= currentTime) {
+      retireBrowserTransfer(state, transferId, record);
+    }
+  }
+}
+
+function prepareBrowserTransfer(state, route) {
+  purgeExpiredBrowserTransfers(state);
+  if (state.browserTransfers.size >= state.maxPendingBrowserTransfers) {
+    throw Object.assign(new Error("Too many pending browser transfers."), {
+      statusCode: 429,
+    });
+  }
+
+  let transferId;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const candidate = browserBootstrapToken(state.browserBootstrapRandomBytes);
+    if (!state.browserTransferIds.has(candidate)) {
+      transferId = candidate;
+      break;
+    }
+  }
+  if (!transferId) throw new Error("Browser launch could not be completed.");
+  const secret = browserBootstrapToken(state.browserBootstrapRandomBytes);
+  const expiresAtMs = state.browserBootstrapNow() + state.browserTransferTtlMs;
+  if (!Number.isSafeInteger(expiresAtMs)) {
+    throw new Error("Browser launch could not be completed.");
+  }
+
+  state.browserTransferIds.add(transferId);
+  const record = {
+    route,
+    digest: digestBrowserBootstrapSecret(secret),
+    expiresAtMs,
+    disposed: false,
+    timer: null,
+  };
+  try {
+    record.timer = state.setBrowserBootstrapTimer(() => {
+      retireBrowserTransfer(state, transferId, record);
+    }, Math.max(1, expiresAtMs - state.browserBootstrapNow()));
+    record.timer?.unref?.();
+    state.browserTransfers.set(transferId, record);
+    return { transferId, secret };
+  } catch (error) {
+    state.browserTransferIds.delete(transferId);
+    disposeBrowserTransfer(state, record);
+    throw error;
+  }
+}
+
+async function prepareBrowserBootstrap(state, route) {
+  if (!BROWSER_BOOTSTRAP_ROUTES.has(route)) {
+    throw Object.assign(new Error("Browser launch route is invalid."), { statusCode: 400 });
+  }
+  purgeExpiredBrowserBootstraps(state);
+  if (
+    state.browserBootstraps.size + state.browserBootstrapReservations >=
+    state.maxPendingBrowserBootstraps
+  ) {
+    throw Object.assign(new Error("Too many pending browser launches."), { statusCode: 429 });
+  }
+
+  let ticketId;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const candidate = browserBootstrapToken(state.browserBootstrapRandomBytes);
+    if (!state.browserBootstrapIds.has(candidate)) {
+      ticketId = candidate;
+      break;
+    }
+  }
+  if (!ticketId) throw new Error("Browser launch could not be prepared.");
+  const secret = browserBootstrapToken(state.browserBootstrapRandomBytes);
+  const expiresAtMs = state.browserBootstrapNow() + state.browserBootstrapTtlMs;
+  if (!Number.isSafeInteger(expiresAtMs)) throw new Error("Browser launch could not be prepared.");
+
+  state.browserBootstrapIds.add(ticketId);
+  state.browserBootstrapReservations += 1;
+  let handoff;
+  try {
+    handoff = await state.createBrowserHandoff({
+      origin: state.origin,
+      route,
+      ticketId,
+      secret,
+      privateRoot: state.browserHandoffRoot,
+    });
+    if (
+      state.closing || !handoff || !isPrivateBrowserLaunchUrl(handoff.launchUrl) ||
+      typeof handoff.dispose !== "function"
+    ) throw new Error("Browser launch could not be prepared.");
+    const record = {
+      route,
+      digest: digestBrowserBootstrapSecret(secret),
+      createdAtMs: state.browserBootstrapNow(),
+      expiresAtMs,
+      handoff,
+      disposed: false,
+      timer: null,
+    };
+    record.timer = state.setBrowserBootstrapTimer(() => {
+      retireBrowserBootstrap(state, ticketId, record);
+    }, Math.max(1, expiresAtMs - state.browserBootstrapNow()));
+    record.timer?.unref?.();
+    state.browserBootstraps.set(ticketId, record);
+    return handoff.launchUrl;
+  } catch (error) {
+    state.browserBootstrapIds.delete(ticketId);
+    if (handoff?.dispose) {
+      try { await handoff.dispose(); } catch { /* Preserve the prepare failure. */ }
+    }
+    throw error;
+  } finally {
+    state.browserBootstrapReservations -= 1;
+  }
+}
+
+function genericBrowserBootstrapFailure(state) {
+  try { enforceRateLimit(state, "browser-bootstrap"); } catch (error) { return error; }
+  return Object.assign(new Error("Browser launch could not be verified."), { statusCode: 401 });
+}
+
+function genericBrowserTransferFailure(state) {
+  try { enforceRateLimit(state, "browser-transfer"); } catch (error) { return error; }
+  return Object.assign(new Error("Browser transfer could not be verified."), {
+    statusCode: 401,
+  });
+}
+
+function consumeBrowserBootstrap(state, body) {
+  if (
+    !exactObjectKeys(body, ["route", "secret", "ticketId"]) ||
+    !BROWSER_BOOTSTRAP_ROUTES.has(body.route) ||
+    !BROWSER_BOOTSTRAP_TOKEN_PATTERN.test(body.ticketId) ||
+    !BROWSER_BOOTSTRAP_TOKEN_PATTERN.test(body.secret)
+  ) throw genericBrowserBootstrapFailure(state);
+  const record = state.browserBootstraps.get(body.ticketId);
+  if (!record) throw genericBrowserBootstrapFailure(state);
+  if (record.expiresAtMs <= state.browserBootstrapNow()) {
+    retireBrowserBootstrap(state, body.ticketId, record);
+    throw genericBrowserBootstrapFailure(state);
+  }
+  const actualDigest = digestBrowserBootstrapSecret(body.secret);
+  if (
+    record.route !== body.route || actualDigest.length !== record.digest.length ||
+    !timingSafeEqual(actualDigest, record.digest)
+  ) throw genericBrowserBootstrapFailure(state);
+  if (!retireBrowserBootstrap(state, body.ticketId, record)) {
+    throw genericBrowserBootstrapFailure(state);
+  }
+  return record.route;
+}
+
+function consumeBrowserTransfer(state, body) {
+  if (
+    !exactObjectKeys(body, ["route", "secret", "transferId"]) ||
+    !BROWSER_BOOTSTRAP_ROUTES.has(body.route) ||
+    !BROWSER_BOOTSTRAP_TOKEN_PATTERN.test(body.transferId) ||
+    !BROWSER_BOOTSTRAP_TOKEN_PATTERN.test(body.secret)
+  ) throw genericBrowserTransferFailure(state);
+  const record = state.browserTransfers.get(body.transferId);
+  if (!record) throw genericBrowserTransferFailure(state);
+  if (record.expiresAtMs <= state.browserBootstrapNow()) {
+    retireBrowserTransfer(state, body.transferId, record);
+    throw genericBrowserTransferFailure(state);
+  }
+  const actualDigest = digestBrowserBootstrapSecret(body.secret);
+  if (
+    record.route !== body.route || actualDigest.length !== record.digest.length ||
+    !timingSafeEqual(actualDigest, record.digest)
+  ) throw genericBrowserTransferFailure(state);
+  if (!retireBrowserTransfer(state, body.transferId, record)) {
+    throw genericBrowserTransferFailure(state);
+  }
+  return state.sessionToken;
+}
+
+function readFormBody(request) {
+  const contentType = request.headers["content-type"];
+  if (
+    typeof contentType !== "string" ||
+    contentType.split(";", 1)[0].trim().toLowerCase() !==
+      "application/x-www-form-urlencoded"
+  ) return Promise.reject(new Error("Browser launch could not be verified."));
+  return new Promise((resolveBody, rejectBody) => {
+    const chunks = [];
+    let bytes = 0;
+    request.on("data", (chunk) => {
+      bytes += chunk.length;
+      if (bytes <= 2_048) chunks.push(Buffer.from(chunk));
+    });
+    request.once("error", () => rejectBody(new Error("Browser launch could not be verified.")));
+    request.once("end", () => {
+      if (bytes > 2_048) {
+        rejectBody(new Error("Browser launch could not be verified."));
+        return;
+      }
+      try {
+        const params = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+        const keys = [...params.keys()].sort();
+        if (keys.join("\0") !== ["route", "secret", "ticketId"].sort().join("\0")) {
+          throw new TypeError();
+        }
+        resolveBody({
+          route: params.get("route"),
+          secret: params.get("secret"),
+          ticketId: params.get("ticketId"),
+        });
+      } catch {
+        rejectBody(new Error("Browser launch could not be verified."));
+      }
+    });
+  });
+}
+
+function sendBrowserBootstrapHtml(response, state, route) {
+  const transfer = prepareBrowserTransfer(state, route);
+  const nonce = browserBootstrapToken(state.browserBootstrapRandomBytes);
+  const envelope = `relmio-v1.${transfer.transferId}.${transfer.secret}`;
+  const script = `window.name = ${JSON.stringify(envelope)}; window.location.replace(${JSON.stringify(route)});`;
+  const contents = `<!doctype html><html><head><meta charset="utf-8"><title>Opening Relmio</title></head><body><script nonce="${nonce}">${script}</script></body></html>`;
+  response.setHeader(
+    "Content-Security-Policy",
+    `default-src 'none'; script-src 'nonce-${nonce}'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'`,
+  );
+  response.writeHead(200, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": Buffer.byteLength(contents),
+    "Cache-Control": "no-store",
+  });
+  response.end(contents);
 }
 
 function requireApiToken(request, state) {
@@ -362,6 +673,14 @@ function oauthCredentialChangeInFlight(state) {
   );
 }
 
+function oauthCredentialOperationInFlight(state) {
+  return Boolean(
+    state.oauthLoginStartInFlight ||
+    state.oauthCredentialOperation !== null ||
+    state.oauthLogin?.status === "pending"
+  );
+}
+
 function rejectActiveOAuthCredentialChange(state) {
   if (state.oauthRetryBlocked || state.oauthLogin?.retryBlocked === true) {
     throw Object.assign(
@@ -424,12 +743,88 @@ function closeVpsConnectionBestEffort(connection) {
   }
 }
 
+function clearVpsConnectionIdleExpiry(state, connection = null) {
+  const expiry = state.vpsConnectionIdleExpiry;
+  if (!expiry || (connection !== null && expiry.connection !== connection)) {
+    return;
+  }
+  clearTimeout(expiry.timer);
+  state.vpsConnectionIdleExpiry = null;
+}
+
+function vpsConnectionHasActiveUse(state, connection) {
+  for (const use of state.vpsConnectionUses) {
+    if (use.connection === connection) return true;
+  }
+  return false;
+}
+
+function retireVpsConnectionUses(state, connection) {
+  for (const use of state.vpsConnectionUses) {
+    if (use.connection === connection) {
+      state.vpsConnectionUses.delete(use);
+    }
+  }
+}
+
+function armVpsConnectionIdleExpiry(state, connection = state.connection) {
+  if (
+    state.closing ||
+    !connection ||
+    state.connection !== connection ||
+    vpsConnectionHasActiveUse(state, connection)
+  ) {
+    return;
+  }
+  clearVpsConnectionIdleExpiry(state);
+  const expiry = { connection, timer: null };
+  expiry.timer = setTimeout(() => {
+    if (state.vpsConnectionIdleExpiry !== expiry) return;
+    state.vpsConnectionIdleExpiry = null;
+    if (state.closing || state.connection !== connection) return;
+    if (
+      vpsConnectionHasActiveUse(state, connection) ||
+      state.vpsFingerprintOperation !== null ||
+      state.vpsConnectionOperation !== null ||
+      state.vpsMutationInFlight ||
+      state.vpsCredentialOperation !== null
+    ) {
+      armVpsConnectionIdleExpiry(state, connection);
+      return;
+    }
+    detachVpsConnection(state, connection, { clearScannedHost: true });
+  }, state.vpsConnectionIdleMs);
+  expiry.timer.unref?.();
+  state.vpsConnectionIdleExpiry = expiry;
+}
+
+function acquireVpsConnectionUse(state) {
+  const connection = requireConnection(state);
+  const use = { connection, token: Symbol("vps-connection-use") };
+  clearVpsConnectionIdleExpiry(state, connection);
+  state.vpsConnectionUses.add(use);
+  let released = false;
+  return {
+    connection,
+    release() {
+      if (released) return;
+      released = true;
+      state.vpsConnectionUses.delete(use);
+      if (state.connection === connection) {
+        armVpsConnectionIdleExpiry(state, connection);
+      }
+    },
+  };
+}
+
 function detachVpsConnection(
   state,
   connection = state.connection,
   { clearScannedHost = false } = {},
 ) {
   if (state.connection === connection) {
+    clearVpsConnectionIdleExpiry(state, connection);
+    retireVpsConnectionUses(state, connection);
     state.connection = null;
     advanceVpsLifecycleGeneration(state);
     state.discovery = null;
@@ -440,6 +835,26 @@ function detachVpsConnection(
     }
   }
   closeVpsConnectionBestEffort(connection);
+}
+
+function rejectUnsafeVpsDisconnect(state) {
+  if (state.closing) {
+    throw Object.assign(new Error("The local wizard is closing."), {
+      statusCode: 409,
+    });
+  }
+  rejectActiveVpsOwner(state);
+  if (state.vpsFingerprintOperation !== null) {
+    throw Object.assign(
+      new Error("A VPS identity scan is already in progress. Wait for it to finish before disconnecting."),
+      { statusCode: 409 },
+    );
+  }
+  if (oauthCredentialOperationInFlight(state)) {
+    throw Object.assign(new Error(OAUTH_VPS_CONFLICT_MESSAGE), {
+      statusCode: 409,
+    });
+  }
 }
 
 function requireUnchangedVpsSession(state, snapshot) {
@@ -768,6 +1183,8 @@ async function loadDefaultUiFiles() {
     readFile(new URL("../ui/local.html", import.meta.url), "utf8"),
     readFile(new URL("../ui/app.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/local.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/session.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/session-bootstrap.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/oauth-popup.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/assistant.html", import.meta.url), "utf8"),
     readFile(new URL("../ui/assistant.js", import.meta.url), "utf8"),
@@ -788,19 +1205,21 @@ async function loadDefaultUiFiles() {
     "/local": files[1].replaceAll("__RELMIO_PACKAGE_VERSION__", PACKAGE_VERSION),
     "/app.js": files[2],
     "/local.js": files[3],
-    "/oauth-popup.js": files[4],
-    "/assistant": files[5],
-    "/assistant.js": files[6],
-    "/assistant.css": files[7],
-    "/theme.js": files[8],
-    "/time.js": files[9],
-    "/styles.css": files[10],
-    "/local.css": files[11],
-    "/icons/monitor.svg": files[12],
-    "/icons/sun.svg": files[13],
-    "/icons/moon.svg": files[14],
-    "/relmio-icon.png": files[15],
-    "/relmio-icon-rounded.svg": files[16],
+    "/session.js": files[4],
+    "/session-bootstrap.js": files[5],
+    "/oauth-popup.js": files[6],
+    "/assistant": files[7],
+    "/assistant.js": files[8],
+    "/assistant.css": files[9],
+    "/theme.js": files[10],
+    "/time.js": files[11],
+    "/styles.css": files[12],
+    "/local.css": files[13],
+    "/icons/monitor.svg": files[14],
+    "/icons/sun.svg": files[15],
+    "/icons/moon.svg": files[16],
+    "/relmio-icon.png": files[17],
+    "/relmio-icon-rounded.svg": files[18],
   };
 }
 
@@ -933,6 +1352,332 @@ const SAFE_LOCAL_N8N_STACK_STATES = new Set([
   "partial",
   "unavailable",
 ]);
+
+const LOCAL_DASHBOARD_SERVICE_DEFINITIONS = Object.freeze({
+  "openai-api": Object.freeze({
+    label: "OpenAI API",
+    kind: "endpoint",
+    actions: new Set(["setup", "rotate-credential"]),
+  }),
+  "codex-chatgpt": Object.freeze({
+    label: "Codex (ChatGPT login)",
+    kind: "endpoint",
+    actions: new Set(["setup", "sign-in", "rotate-credential"]),
+  }),
+  "codex-chat": Object.freeze({
+    label: "Codex Chat adapter",
+    kind: "endpoint",
+    actions: new Set(["setup", "sign-in", "rotate-credential"]),
+  }),
+  "local-n8n-stack": Object.freeze({
+    label: "n8n + ngrok",
+    kind: "n8n-stack",
+    actions: new Set(["setup", "resume", "remove"]),
+  }),
+  "n8n-openai-oauth": Object.freeze({
+    label: "OpenAI OAuth bridge",
+    kind: "n8n-oauth-bridge",
+    actions: new Set(["setup", "refresh-credential", "remove"]),
+  }),
+  "local-n8n-assistant": Object.freeze({
+    label: "AI Assistant tools",
+    kind: "n8n-assistant",
+    actions: new Set(["setup", "remove"]),
+  }),
+});
+
+const LOCAL_DASHBOARD_STATES = new Set([
+  "absent",
+  "healthy",
+  "stopped",
+  "partial",
+  "unavailable",
+]);
+
+function hasSafeExplicitLoopbackPort(value) {
+  const match = /^(?:http|ws):\/\/127\.0\.0\.1:(\d{1,5})(?:\/|$)/u.exec(value);
+  const port = Number(match?.[1]);
+  return Number.isInteger(port) && port >= 1 && port <= 65_535;
+}
+
+function requireSafeDashboardUrl(value, kind) {
+  if (typeof value !== "string" || value.length > 512) {
+    throw new TypeError("The local dashboard endpoint is invalid.");
+  }
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new TypeError("The local dashboard endpoint is invalid.");
+  }
+  if (
+    url.username !== "" ||
+    url.password !== "" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new TypeError("The local dashboard endpoint is invalid.");
+  }
+  const loopback = url.hostname === "127.0.0.1";
+  const valid =
+    (kind === "openai-api" && loopback && url.protocol === "http:" && url.pathname === "/v1") ||
+    (kind === "codex-chatgpt" && loopback && url.protocol === "ws:" && url.pathname === "/") ||
+    (kind === "codex-chat" && loopback && url.protocol === "http:" && url.pathname === "/") ||
+    (kind === "n8n-local" && loopback && url.protocol === "http:" && url.pathname === "/") ||
+    (kind === "ngrok-inspector" && loopback && url.protocol === "http:" && url.pathname === "/") ||
+    (kind === "ngrok-public" && url.protocol === "https:" && url.pathname === "/");
+  const hasExpectedPort = kind === "ngrok-public"
+    ? url.port === "" && value === url.origin
+    : hasSafeExplicitLoopbackPort(value);
+  if (!valid || !hasExpectedPort) {
+    throw new TypeError("The local dashboard endpoint is invalid.");
+  }
+  return value;
+}
+
+function createSafeDashboardSnapshot(target, snapshot) {
+  if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
+    throw new TypeError("The local dashboard snapshot is invalid.");
+  }
+  if (["openai-api", "codex-chatgpt", "codex-chat"].includes(target)) {
+    if (
+      snapshot.target !== target ||
+      snapshot.auth?.configured !== true ||
+      snapshot.auth?.disclosure !== "rotate-only" ||
+      snapshot.canRotateCredential !== true
+    ) {
+      throw new TypeError("The local dashboard endpoint snapshot is invalid.");
+    }
+    return {
+      target,
+      endpoint: requireSafeDashboardUrl(snapshot.endpoint, target),
+      auth: { configured: true, disclosure: "rotate-only" },
+      canRotateCredential: true,
+    };
+  }
+  if (target === "n8n-openai-oauth") {
+    if (
+      snapshot.target !== target ||
+      snapshot.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
+      snapshot.auth?.configured !== true ||
+      snapshot.auth?.disclosure !== "server-managed" ||
+      snapshot.canRefreshCredential !== true ||
+      snapshot.canRemove !== true
+    ) {
+      throw new TypeError("The local dashboard OAuth bridge snapshot is invalid.");
+    }
+    return {
+      target,
+      endpoint: snapshot.endpoint,
+      auth: { configured: true, disclosure: "server-managed" },
+      canRefreshCredential: true,
+      canRemove: true,
+    };
+  }
+  if (target === "local-n8n-assistant") {
+    if (
+      snapshot.target !== target ||
+      snapshot.components?.codeSandbox !== true ||
+      typeof snapshot.components?.searxng !== "boolean" ||
+      snapshot.auth?.sandboxConfigured !== true ||
+      snapshot.auth?.disclosure !== "one-time" ||
+      snapshot.canRemove !== true
+    ) {
+      throw new TypeError("The local dashboard Assistant snapshot is invalid.");
+    }
+    return {
+      target,
+      components: {
+        codeSandbox: true,
+        searxng: snapshot.components.searxng,
+      },
+      auth: { sandboxConfigured: true, disclosure: "one-time" },
+      canRemove: true,
+    };
+  }
+  if (target === "local-n8n-stack") {
+    const assistantModes = new Set(["disabled", "sandbox", "sandbox-with-searxng"]);
+    if (
+      snapshot.target !== target ||
+      !assistantModes.has(snapshot.assistantMode) ||
+      typeof snapshot.components?.n8n !== "boolean" ||
+      typeof snapshot.components?.ngrok !== "boolean" ||
+      typeof snapshot.components?.codeSandbox !== "boolean" ||
+      typeof snapshot.components?.searxng !== "boolean" ||
+      typeof snapshot.canResume !== "boolean" ||
+      snapshot.canRemove !== true
+    ) {
+      throw new TypeError("The local dashboard n8n snapshot is invalid.");
+    }
+    return {
+      target,
+      assistantMode: snapshot.assistantMode,
+      endpoints: {
+        n8nLocal: requireSafeDashboardUrl(snapshot.endpoints?.n8nLocal, "n8n-local"),
+        ngrokPublic: requireSafeDashboardUrl(snapshot.endpoints?.ngrokPublic, "ngrok-public"),
+        ngrokInspector: requireSafeDashboardUrl(
+          snapshot.endpoints?.ngrokInspector,
+          "ngrok-inspector",
+        ),
+      },
+      components: {
+        n8n: snapshot.components.n8n,
+        ngrok: snapshot.components.ngrok,
+        codeSandbox: snapshot.components.codeSandbox,
+        searxng: snapshot.components.searxng,
+      },
+      canResume: snapshot.canResume,
+      canRemove: true,
+    };
+  }
+  throw new TypeError("The local dashboard snapshot target is invalid.");
+}
+
+function expectedDashboardActions({ definition, state, snapshot }) {
+  if (state === "absent") return ["setup"];
+  if (state === "unavailable" || snapshot === null) return [];
+  const actions = [];
+  if (
+    definition.kind === "n8n-stack" &&
+    state === "stopped" &&
+    snapshot.canResume === true
+  ) {
+    actions.push("resume");
+  }
+  if (
+    definition.kind === "endpoint" &&
+    state === "healthy" &&
+    snapshot.canRotateCredential === true
+  ) {
+    if (["codex-chatgpt", "codex-chat"].includes(snapshot.target)) {
+      actions.push("sign-in");
+    }
+    actions.push("rotate-credential");
+  }
+  if (
+    definition.kind === "n8n-oauth-bridge" &&
+    state === "healthy" &&
+    snapshot.canRefreshCredential === true
+  ) {
+    actions.push("refresh-credential");
+  }
+  if (snapshot.canRemove === true) actions.push("remove");
+  return actions;
+}
+
+function requireSafeDashboardVersion(value, label) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9.+-]{1,64}$/u.test(value)) {
+    throw new TypeError(`The local dashboard ${label} is invalid.`);
+  }
+  return value;
+}
+
+function createSafeLocalDashboardStatus(status, previewMode) {
+  if (previewMode) {
+    return {
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      docker: { available: false, version: null, composeVersion: null },
+      auth: { secretsRevealable: false },
+      services: Object.entries(LOCAL_DASHBOARD_SERVICE_DEFINITIONS).map(
+        ([target, definition]) => ({
+          target,
+          label: definition.label,
+          kind: definition.kind,
+          managed: false,
+          state: "absent",
+          snapshot: null,
+          actions: ["setup"],
+        }),
+      ),
+      previewMode: true,
+    };
+  }
+  if (
+    status?.schemaVersion !== 1 ||
+    typeof status.generatedAt !== "string" ||
+    new Date(status.generatedAt).toISOString() !== status.generatedAt ||
+    typeof status.docker?.available !== "boolean" ||
+    status.auth?.secretsRevealable !== false ||
+    !Array.isArray(status.services)
+  ) {
+    throw new TypeError("The local dashboard status is invalid.");
+  }
+  const expectedServices = Object.entries(LOCAL_DASHBOARD_SERVICE_DEFINITIONS);
+  if (status.services.length !== expectedServices.length) {
+    throw new TypeError("The local dashboard service set is invalid.");
+  }
+  const services = [];
+  for (const [index, [target, definition]] of expectedServices.entries()) {
+    const service = status.services[index];
+    if (
+      service?.target !== target ||
+      service.kind !== definition.kind ||
+      typeof service.managed !== "boolean" ||
+      !LOCAL_DASHBOARD_STATES.has(service.state) ||
+      !Array.isArray(service.actions) ||
+      (["absent", "unavailable"].includes(service.state)
+        ? service.managed !== false
+        : service.managed !== true)
+    ) {
+      throw new TypeError("The local dashboard service status is invalid.");
+    }
+    const requiresNullSnapshot = ["absent", "unavailable"].includes(service.state);
+    const allowsUnattestedPartial =
+      service.state === "partial" && service.snapshot === null;
+    if (requiresNullSnapshot && service.snapshot !== null) {
+      throw new TypeError("The local dashboard service snapshot is invalid.");
+    }
+    const snapshot = requiresNullSnapshot || allowsUnattestedPartial
+      ? null
+      : createSafeDashboardSnapshot(service.target, service.snapshot);
+    const actions = expectedDashboardActions({
+      definition,
+      state: service.state,
+      snapshot,
+    });
+    if (
+      actions.some((action) => !definition.actions.has(action)) ||
+      service.actions.length !== actions.length ||
+      service.actions.some((action, actionIndex) => action !== actions[actionIndex])
+    ) {
+      throw new TypeError("The local dashboard service actions are invalid.");
+    }
+    services.push({
+      target: service.target,
+      label: definition.label,
+      kind: definition.kind,
+      managed: service.managed,
+      state: service.state,
+      snapshot,
+      actions,
+    });
+  }
+  if (
+    status.docker.available
+      ? status.docker.version === null || status.docker.composeVersion === null
+      : status.docker.version !== null || status.docker.composeVersion !== null
+  ) {
+    throw new TypeError("The local dashboard Docker status is invalid.");
+  }
+  const version = status.docker.available
+    ? requireSafeDashboardVersion(status.docker.version, "Docker version")
+    : null;
+  const composeVersion = status.docker.available
+    ? requireSafeDashboardVersion(status.docker.composeVersion, "Compose version")
+    : null;
+  return {
+    schemaVersion: 1,
+    generatedAt: status.generatedAt,
+    docker: {
+      available: status.docker.available,
+      version,
+      composeVersion,
+    },
+    auth: { secretsRevealable: false },
+    services,
+  };
+}
 
 function createSafeDockerStatus(
   status,
@@ -1634,13 +2379,38 @@ function localOAuthChangeInFlight(state) {
   return oauthCredentialChangeInFlight(state);
 }
 
-function requireReadyLocalChatTester(state) {
-  if (state.localInstalledTarget !== "codex-chat") {
+function requireCurrentLocalDashboardGeneration(state, generation) {
+  if (state.localDashboardGeneration !== generation) {
     throw Object.assign(
-      new Error("Install the Codex Chat Adapter before starting its local tester."),
+      new Error(
+        "The local dashboard changed while this request was in progress. Try again.",
+      ),
       { statusCode: 409 },
     );
   }
+}
+
+async function requireReadyLocalChatTester(state) {
+  if (state.localInstalledTarget === "codex-chat") return;
+  let status = null;
+  try {
+    status = await state.services.getManagedLocalEndpointStatus({
+      target: "codex-chat",
+    });
+  } catch {
+    // A tester session is never enabled from ambiguous ownership or runtime state.
+  }
+  if (
+    status?.managed === true &&
+    status.state === "healthy" &&
+    status.snapshot?.target === "codex-chat"
+  ) {
+    return;
+  }
+  throw Object.assign(
+    new Error("Install the Codex Chat Adapter before starting its local tester."),
+    { statusCode: 409 },
+  );
 }
 
 async function handleApi(request, response, path, state) {
@@ -1671,6 +2441,20 @@ async function handleApi(request, response, path, state) {
         ? { retryBlocked: true }
         : {}),
     });
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/local/dashboard") {
+    const status = state.previewMode
+      ? null
+      : await state.services.getLocalDashboardStatus({
+          inspectLocalN8nStack: state.services.getLocalN8nStackStatus,
+        });
+    sendJson(
+      response,
+      200,
+      createSafeLocalDashboardStatus(status, state.previewMode),
+    );
     return;
   }
 
@@ -1710,9 +2494,11 @@ async function handleApi(request, response, path, state) {
   }
 
   if (request.method === "GET" && path === "/api/local/n8n/discover") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     const discovery = state.previewMode
       ? null
       : await state.services.discoverLocalN8nSidecarTargets();
+    requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
     state.localPlan = null;
     sendJson(
       response,
@@ -1916,21 +2702,61 @@ async function handleApi(request, response, path, state) {
 
   const body = await readJsonBody(request);
 
+  if (path === "/api/local/discard") {
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    state.localDashboardGeneration += 1;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    state.localCredentialRotationPending = null;
+    state.localInstalledTarget = null;
+    state.localChatTest.resetAll?.();
+    sendJson(response, 200, { discarded: true });
+    return;
+  }
+
   if (path === "/api/local/chat-test/key") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     requireLiveLocalAction(state, "Local chat testing");
-    requireReadyLocalChatTester(state);
-    enforceRateLimit(state, path);
-    sendJson(
-      response,
-      200,
-      createSafeLocalChatTestKey(await state.localChatTest.issueKey()),
+    await requireReadyLocalChatTester(state);
+    requireCurrentLocalDashboardGeneration(
+      state,
+      localDashboardGeneration,
     );
+    enforceRateLimit(state, path);
+    const issued = await state.localChatTest.issueKey();
+    try {
+      requireCurrentLocalDashboardGeneration(
+        state,
+        localDashboardGeneration,
+      );
+    } catch (error) {
+      try {
+        await state.localChatTest.reset({ keyId: issued?.keyId });
+      } catch {
+        // Revoke only this stale issuance; never clear newer tester sessions.
+      }
+      throw error;
+    }
+    sendJson(response, 200, createSafeLocalChatTestKey(issued));
     return;
   }
 
   if (path === "/api/local/chat-test/message") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     requireLiveLocalAction(state, "Local chat testing");
-    requireReadyLocalChatTester(state);
+    await requireReadyLocalChatTester(state);
+    requireCurrentLocalDashboardGeneration(
+      state,
+      localDashboardGeneration,
+    );
     enforceRateLimit(state, path);
     const wantsStream = requestAcceptsEventStream(request);
     const stream = wantsStream ? startLocalChatTestStream(response) : null;
@@ -1940,16 +2766,25 @@ async function handleApi(request, response, path, state) {
     };
     response.once("close", abortOnClose);
     try {
-      const result = createSafeLocalChatTestResponse(
-        await state.localChatTest.message(body, {
-          ...(stream
-            ? {
-                onEvent: (event, data) => stream.send(event, data),
-                signal: requestController.signal,
-              }
-            : {}),
-        }),
+      const rawResult = await state.localChatTest.message(body, {
+        ...(stream
+          ? {
+              onEvent: (event, data) => {
+                requireCurrentLocalDashboardGeneration(
+                  state,
+                  localDashboardGeneration,
+                );
+                stream.send(event, data);
+              },
+              signal: requestController.signal,
+            }
+          : {}),
+      });
+      requireCurrentLocalDashboardGeneration(
+        state,
+        localDashboardGeneration,
       );
+      const result = createSafeLocalChatTestResponse(rawResult);
       if (stream) stream.complete(result);
       else sendJson(response, 200, result);
     } catch (error) {
@@ -1970,10 +2805,19 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/local/chat-test/reset") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     requireLiveLocalAction(state, "Local chat testing");
-    requireReadyLocalChatTester(state);
+    await requireReadyLocalChatTester(state);
+    requireCurrentLocalDashboardGeneration(
+      state,
+      localDashboardGeneration,
+    );
     enforceRateLimit(state, path);
     await state.localChatTest.reset(body);
+    requireCurrentLocalDashboardGeneration(
+      state,
+      localDashboardGeneration,
+    );
     sendJson(response, 200, { forgotten: true });
     return;
   }
@@ -2004,6 +2848,7 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/local/plan") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     let plan;
     if (body?.target === LOCAL_N8N_STACK_TARGET) {
       requireLiveLocalAction(state, "Local n8n + ngrok planning");
@@ -2095,6 +2940,7 @@ async function handleApi(request, response, path, state) {
         allowedOrigins: body.allowedOrigins,
       });
     }
+    requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
     const planId = randomUUID();
     state.localPlan = { planId, plan };
     sendJson(response, 200, {
@@ -2112,6 +2958,7 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/local/install") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     let acquiredInstallLock = false;
     try {
       requireLiveLocalAction(state, "Local endpoint installation");
@@ -2195,6 +3042,10 @@ async function handleApi(request, response, path, state) {
             // cleanup proves that no owned Docker resources remain. Restore
             // the server-side, non-secret reviewed plan so the user can
             // retry the classified startup failure without redoing the form.
+            requireCurrentLocalDashboardGeneration(
+              state,
+              localDashboardGeneration,
+            );
             state.localPlan = pending;
             throw Object.assign(error, { retryablePlan: true });
           }
@@ -2208,6 +3059,10 @@ async function handleApi(request, response, path, state) {
         });
       }
 
+      requireCurrentLocalDashboardGeneration(
+        state,
+        localDashboardGeneration,
+      );
       state.localInstalledTarget = pending.plan.target;
       sendJson(
         response,
@@ -2278,6 +3133,7 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/local/n8n/assistant/searxng/review") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     requireLiveLocalAction(state, "Local n8n Assistant SearXNG review");
     enforceRateLimit(state, path);
     if (body?.includeSearxng !== true) {
@@ -2307,6 +3163,10 @@ async function handleApi(request, response, path, state) {
       });
       const reviewId = randomUUID();
       const safeReview = createSafeLocalN8nAssistantSearxngReview(review, reviewId);
+      requireCurrentLocalDashboardGeneration(
+        state,
+        localDashboardGeneration,
+      );
       state.localAssistantSearxngReview = { reviewId, review };
       sendJson(response, 200, safeReview);
     } finally {
@@ -2503,6 +3363,7 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/local/client-credential/rotate") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     requireLiveLocalAction(state, "Local client credential rotation");
     enforceRateLimit(state, path);
     if (
@@ -2528,6 +3389,10 @@ async function handleApi(request, response, path, state) {
         target: validateLocalTarget(body.target),
       });
       const rotationId = randomUUID();
+      requireCurrentLocalDashboardGeneration(
+        state,
+        localDashboardGeneration,
+      );
       state.localCredentialRotationPending = {
         rotationId,
         target: result.target,
@@ -2752,6 +3617,8 @@ async function handleApi(request, response, path, state) {
 
       connectionOperation = acquireVpsConnectionOperation(state);
       const previousConnection = state.connection;
+      clearVpsConnectionIdleExpiry(state, previousConnection);
+      retireVpsConnectionUses(state, previousConnection);
       state.connection = null;
       connectionOperation.operation.lifecycleGeneration =
         advanceVpsLifecycleGeneration(state);
@@ -2779,6 +3646,7 @@ async function handleApi(request, response, path, state) {
         );
       }
       state.connection = candidateConnection;
+      armVpsConnectionIdleExpiry(state, candidateConnection);
       candidateConnection = null;
       state.scannedHost = null;
       sendJson(response, 200, { connected: true });
@@ -2792,54 +3660,66 @@ async function handleApi(request, response, path, state) {
 
   if (path === "/api/discover") {
     rejectActiveVpsMutation(state);
-    const connection = requireConnection(state);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
     const sessionSnapshot = {
       connection,
       lifecycleGeneration: state.vpsLifecycleGeneration,
     };
-    const discovery = await state.services.discoverN8n(connection);
-    requireUnchangedVpsSession(state, sessionSnapshot);
-    state.discovery = discovery;
-    state.networksByContainer.clear();
-    state.sidecarPlan = null;
-    state.assistantPlan = null;
-    sendJson(response, 200, state.discovery);
+    try {
+      const discovery = await state.services.discoverN8n(connection);
+      requireUnchangedVpsSession(state, sessionSnapshot);
+      state.discovery = discovery;
+      state.networksByContainer.clear();
+      state.sidecarPlan = null;
+      state.assistantPlan = null;
+      sendJson(response, 200, state.discovery);
+    } finally {
+      connectionUse.release();
+    }
     return;
   }
 
   if (path === "/api/networks") {
     rejectActiveVpsMutation(state);
-    const connection = requireConnection(state);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
     const sessionSnapshot = {
       connection,
       lifecycleGeneration: state.vpsLifecycleGeneration,
     };
-    requireDiscoveredContainer(state, body.containerName);
-    const networks = await state.services.discoverNetworks(
-      connection,
-      body.containerName,
-    );
-    requireUnchangedVpsSession(state, sessionSnapshot);
-    state.networksByContainer.set(body.containerName, networks);
-    state.sidecarPlan = null;
-    state.assistantPlan = null;
-    sendJson(response, 200, networks);
+    try {
+      requireDiscoveredContainer(state, body.containerName);
+      const networks = await state.services.discoverNetworks(
+        connection,
+        body.containerName,
+      );
+      requireUnchangedVpsSession(state, sessionSnapshot);
+      state.networksByContainer.set(body.containerName, networks);
+      state.sidecarPlan = null;
+      state.assistantPlan = null;
+      sendJson(response, 200, networks);
+    } finally {
+      connectionUse.release();
+    }
     return;
   }
 
   if (path === "/api/plan") {
     rejectActiveVpsMutation(state);
-    requireDiscoveredNetwork(
-      state,
-      body.containerName,
-      body.networkName,
-    );
-    const credentialOperation = acquireVpsCredentialOperation(
-      state,
-      "plan-snapshot",
-    );
-    state.sidecarPlan = null;
+    const connectionUse = acquireVpsConnectionUse(state);
+    let credentialOperation;
     try {
+      requireDiscoveredNetwork(
+        state,
+        body.containerName,
+        body.networkName,
+      );
+      credentialOperation = acquireVpsCredentialOperation(
+        state,
+        "plan-snapshot",
+      );
+      state.sidecarPlan = null;
       const authStatus = requireVpsPlanAuthStatus(
         await state.services.getAuthStatus(),
         "Sign in with ChatGPT before reviewing this sidecar plan.",
@@ -2867,43 +3747,49 @@ async function handleApi(request, response, path, state) {
         publishedPorts: [],
       });
     } finally {
-      credentialOperation.release();
+      credentialOperation?.release();
+      connectionUse.release();
     }
     return;
   }
 
   if (path === "/api/assistant/plan") {
     rejectActiveVpsMutation(state);
-    const includeSearxng = requireAssistantSearxngSelection(body.includeSearxng);
-    requireDiscoveredNetwork(
-      state,
-      body.containerName,
-      body.networkName,
-    );
-    const instanceAi = requireEnabledInstanceAi(state, body.containerName);
-    state.assistantPlan = {
-      planId: randomUUID(),
-      containerName: body.containerName,
-      networkName: body.networkName,
-      includeSearxng,
-      instanceAi,
-    };
-    sendJson(response, 200, {
-      planId: state.assistantPlan.planId,
-      installDirectory: ASSISTANT_ROOT,
-      companionProject: "generated ownership-bound project after confirmation",
-      sandboxUrl: "generated after verified installation",
-      includeSearxng,
-      webSearch: includeSearxng ? "enabled" : "disabled",
-      ...(includeSearxng ? { searxngUrl: "generated after verified installation" } : {}),
-      networkName: body.networkName,
-      instanceAi,
-      existingN8nChanges: [],
-      existingN8nRestarts: 0,
-      publishedPorts: [],
-      privilegedRunner: true,
-      preview: true,
-    });
+    const connectionUse = acquireVpsConnectionUse(state);
+    try {
+      const includeSearxng = requireAssistantSearxngSelection(body.includeSearxng);
+      requireDiscoveredNetwork(
+        state,
+        body.containerName,
+        body.networkName,
+      );
+      const instanceAi = requireEnabledInstanceAi(state, body.containerName);
+      state.assistantPlan = {
+        planId: randomUUID(),
+        containerName: body.containerName,
+        networkName: body.networkName,
+        includeSearxng,
+        instanceAi,
+      };
+      sendJson(response, 200, {
+        planId: state.assistantPlan.planId,
+        installDirectory: ASSISTANT_ROOT,
+        companionProject: "generated ownership-bound project after confirmation",
+        sandboxUrl: "generated after verified installation",
+        includeSearxng,
+        webSearch: includeSearxng ? "enabled" : "disabled",
+        ...(includeSearxng ? { searxngUrl: "generated after verified installation" } : {}),
+        networkName: body.networkName,
+        instanceAi,
+        existingN8nChanges: [],
+        existingN8nRestarts: 0,
+        publishedPorts: [],
+        privilegedRunner: true,
+        preview: true,
+      });
+    } finally {
+      connectionUse.release();
+    }
     return;
   }
 
@@ -2919,7 +3805,8 @@ async function handleApi(request, response, path, state) {
       body.networkName,
     );
     requireReviewedAssistantPlan(state, reviewedPlan, body);
-    const connection = requireConnection(state);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
     state.assistantPlan = null;
     const releaseVpsMutationLock = acquireVpsMutationLock(state);
     try {
@@ -2942,6 +3829,7 @@ async function handleApi(request, response, path, state) {
     } finally {
       detachVpsConnection(state, connection);
       releaseVpsMutationLock();
+      connectionUse.release();
     }
     return;
   }
@@ -2956,7 +3844,8 @@ async function handleApi(request, response, path, state) {
       body.containerName,
       body.networkName,
     );
-    const connection = requireConnection(state);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
     state.sidecarPlan = null;
     const releaseVpsMutationLock = acquireVpsMutationLock(state);
     let result;
@@ -2985,6 +3874,7 @@ async function handleApi(request, response, path, state) {
       authContents = null;
       detachVpsConnection(state, connection);
       releaseVpsMutationLock();
+      connectionUse.release();
     }
 
     sendJson(response, 200, result);
@@ -2992,12 +3882,142 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/disconnect") {
-    rejectActiveVpsMutation(state);
+    rejectUnsafeVpsDisconnect(state);
     detachVpsConnection(state, state.connection, { clearScannedHost: true });
     sendJson(response, 200, { disconnected: true });
     return;
   }
 
+  sendJson(response, 404, { error: "Not found." });
+}
+
+function persistentControlBusy(state) {
+  return Boolean(
+    state.localInstallInFlight ||
+    state.localCredentialRotationInFlight ||
+    getPendingLocalCredentialRotation(state) ||
+    state.vpsFingerprintOperation ||
+    state.vpsConnectionOperation ||
+    state.vpsConnectionUses.size > 0 ||
+    state.vpsMutationInFlight ||
+    state.vpsCredentialOperation ||
+    oauthCredentialOperationInFlight(state) ||
+    state.codexLoginStartInFlight ||
+    state.codexLogin?.status === "pending"
+  );
+}
+
+function requireControlToken(request, state) {
+  if (!tokenMatches(request.headers["x-relmio-control"], state.controlToken)) {
+    throw Object.assign(new Error("Unauthorized."), { statusCode: 401 });
+  }
+}
+
+async function handleBrowserBootstrap(request, response, path, state) {
+  if (path === BROWSER_PREPARE_PATH) {
+    if (request.method !== "POST") {
+      sendJson(response, 405, { error: "Method not allowed." });
+      return;
+    }
+    requireApiToken(request, state);
+    requireSameOrigin(request, state);
+    const body = await readJsonBody(request);
+    if (!exactObjectKeys(body, ["route"]) || !BROWSER_BOOTSTRAP_ROUTES.has(body.route)) {
+      throw Object.assign(new Error("Browser launch route is invalid."), { statusCode: 400 });
+    }
+    const launchUrl = await prepareBrowserBootstrap(state, body.route);
+    sendJson(response, 201, { launchUrl });
+    return;
+  }
+
+  if (path === BROWSER_BOOTSTRAP_PATH) {
+    if (request.method !== "POST") {
+      sendJson(response, 405, { error: "Method not allowed." });
+      return;
+    }
+    if (request.headers.origin !== "null") {
+      throw Object.assign(new Error("Cross-origin browser launch rejected."), { statusCode: 403 });
+    }
+    let body;
+    try { body = await readFormBody(request); } catch {
+      throw genericBrowserBootstrapFailure(state);
+    }
+    const route = consumeBrowserBootstrap(state, body);
+    sendBrowserBootstrapHtml(response, state, route);
+    return;
+  }
+
+  if (path === BROWSER_TRANSFER_PATH) {
+    if (request.method !== "POST") {
+      sendJson(response, 405, { error: "Method not allowed." });
+      return;
+    }
+    if (request.headers.origin !== state.origin) {
+      throw Object.assign(new Error("Cross-origin browser transfer rejected."), {
+        statusCode: 403,
+      });
+    }
+    let body;
+    try { body = await readJsonBody(request); } catch {
+      throw genericBrowserTransferFailure(state);
+    }
+    const sessionToken = consumeBrowserTransfer(state, body);
+    sendJson(response, 200, { sessionToken });
+    return;
+  }
+
+  sendJson(response, 404, { error: "Not found." });
+}
+
+async function handlePersistentControl(request, response, path, state) {
+  if (!state.controlToken) {
+    sendJson(response, 404, { error: "Not found." });
+    return;
+  }
+  requireControlToken(request, state);
+
+  if (request.method === "GET" && path === "/__relmio/control/status") {
+    sendJson(response, 200, {
+      kind: "relmio-dashboard-control",
+      protocolVersion: 1,
+      packageVersion: PACKAGE_VERSION,
+      instanceId: state.controlInstanceId,
+      pid: process.pid,
+      origin: state.origin,
+    });
+    return;
+  }
+
+  if (request.method === "POST" && path === "/__relmio/control/stop") {
+    if (persistentControlBusy(state)) {
+      throw Object.assign(
+        new Error(
+          "Relmio is completing another operation. Wait for it to finish before stopping the dashboard.",
+        ),
+        { statusCode: 409 },
+      );
+    }
+    sendJson(response, 202, {
+      stopping: true,
+      instanceId: state.controlInstanceId,
+    });
+    if (!state.controlStopRequested) {
+      state.controlStopRequested = true;
+      setImmediate(() => {
+        try {
+          state.onControlStop();
+        } catch {
+          // The daemon owns shutdown reporting after this response is sent.
+        }
+      });
+    }
+    return;
+  }
+
+  if (!["GET", "POST"].includes(request.method)) {
+    sendJson(response, 405, { error: "Method not allowed." });
+    return;
+  }
   sendJson(response, 404, { error: "Not found." });
 }
 
@@ -3012,6 +4032,16 @@ function createRequestHandler(state) {
       }
       const url = new URL(request.url, state.origin);
       const path = url.pathname;
+
+      if (path.startsWith("/__relmio/browser/")) {
+        await handleBrowserBootstrap(request, response, path, state);
+        return;
+      }
+
+      if (path.startsWith("/__relmio/control/")) {
+        await handlePersistentControl(request, response, path, state);
+        return;
+      }
 
       if (path.startsWith("/api/")) {
         await handleApi(request, response, path, state);
@@ -3072,9 +4102,58 @@ export async function startWizardServer({
   port = 0,
   previewMode = false,
   oauthShutdownWaitMs = OAUTH_SHUTDOWN_WAIT_MS,
+  vpsConnectionIdleMs = VPS_CONNECTION_IDLE_MS,
+  controlToken = null,
+  controlInstanceId = null,
+  onControlStop = null,
+  browserHandoffRoot = null,
+  browserBootstrapTtlMs = BROWSER_BOOTSTRAP_TTL_MS,
+  maxPendingBrowserBootstraps = MAX_PENDING_BROWSER_BOOTSTRAPS,
+  browserTransferTtlMs = BROWSER_TRANSFER_TTL_MS,
+  maxPendingBrowserTransfers = MAX_PENDING_BROWSER_TRANSFERS,
+  createBrowserHandoff = createPrivateBrowserHandoff,
+  randomBytes = createRandomBytes,
+  now = Date.now,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
 } = {}) {
   if (typeof sessionToken !== "string" || sessionToken.length < 32) {
     throw new TypeError("A strong wizard session token is required.");
+  }
+  if (!Number.isSafeInteger(vpsConnectionIdleMs) || vpsConnectionIdleMs < 1) {
+    throw new TypeError("The VPS connection idle timeout must be a positive integer.");
+  }
+  if (
+    !Number.isSafeInteger(browserBootstrapTtlMs) || browserBootstrapTtlMs < 1 ||
+    browserBootstrapTtlMs > BROWSER_BOOTSTRAP_TTL_MS ||
+    !Number.isSafeInteger(maxPendingBrowserBootstraps) ||
+    maxPendingBrowserBootstraps < 1 || maxPendingBrowserBootstraps > 32 ||
+    !Number.isSafeInteger(browserTransferTtlMs) || browserTransferTtlMs < 1 ||
+    browserTransferTtlMs > BROWSER_TRANSFER_TTL_MS ||
+    !Number.isSafeInteger(maxPendingBrowserTransfers) ||
+    maxPendingBrowserTransfers < 1 || maxPendingBrowserTransfers > 32 ||
+    typeof createBrowserHandoff !== "function" || typeof randomBytes !== "function" ||
+    typeof now !== "function" || typeof setTimer !== "function" ||
+    typeof clearTimer !== "function" ||
+    (browserHandoffRoot !== null && typeof browserHandoffRoot !== "string")
+  ) {
+    throw new TypeError("The private browser bootstrap adapter is invalid.");
+  }
+  const controlConfigured =
+    controlToken !== null ||
+    controlInstanceId !== null ||
+    onControlStop !== null;
+  if (
+    controlConfigured &&
+    (
+      typeof controlToken !== "string" ||
+      !/^[A-Za-z0-9_-]{43}$/u.test(controlToken) ||
+      typeof controlInstanceId !== "string" ||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(controlInstanceId) ||
+      typeof onControlStop !== "function"
+    )
+  ) {
+    throw new TypeError("The persistent dashboard stop handler is invalid.");
   }
 
   const resolvedServices = { ...defaultServices, ...services };
@@ -3087,6 +4166,9 @@ export async function startWizardServer({
     uiFiles: uiFiles ?? (await loadDefaultUiFiles()),
     origin: "http://127.0.0.1",
     connection: null,
+    vpsConnectionIdleMs,
+    vpsConnectionIdleExpiry: null,
+    vpsConnectionUses: new Set(),
     scannedHost: null,
     vpsFingerprintGeneration: 0,
     vpsFingerprintOperation: null,
@@ -3107,6 +4189,7 @@ export async function startWizardServer({
     oauthLoginStartPromise: null,
     oauthCredentialOperation: null,
     oauthCredentialGeneration: 0,
+    localDashboardGeneration: 0,
     localPlan: null,
     localAssistantSearxngReview: null,
     localInstalledTarget: null,
@@ -3118,6 +4201,25 @@ export async function startWizardServer({
     codexLoginStartPromise: null,
     rateLimits: new Map(),
     previewMode: previewMode === true,
+    controlToken,
+    controlInstanceId,
+    onControlStop,
+    controlStopRequested: false,
+    browserHandoffRoot,
+    browserBootstrapTtlMs,
+    maxPendingBrowserBootstraps,
+    browserTransferTtlMs,
+    maxPendingBrowserTransfers,
+    createBrowserHandoff,
+    browserBootstrapRandomBytes: randomBytes,
+    browserBootstrapNow: now,
+    setBrowserBootstrapTimer: setTimer,
+    clearBrowserBootstrapTimer: clearTimer,
+    browserBootstrapIds: new Set(),
+    browserBootstrapReservations: 0,
+    browserBootstraps: new Map(),
+    browserTransferIds: new Set(),
+    browserTransfers: new Map(),
     oauthShutdownWaitMs,
     closing: false,
   };
@@ -3136,8 +4238,22 @@ export async function startWizardServer({
 
   return {
     origin: state.origin,
+    async prepareBrowserLaunch(route) {
+      if (state.closing) throw new Error("The local wizard is closing.");
+      return await prepareBrowserBootstrap(state, route);
+    },
     async close() {
       state.closing = true;
+      // Snapshot the mutation before any shutdown await can let its finally
+      // block clear the shared state. This exact promise determines whether
+      // HTTP close must remain unbounded for this shutdown attempt.
+      const vpsMutationCompletion = state.vpsMutationCompletion;
+      for (const [ticketId, record] of state.browserBootstraps) {
+        retireBrowserBootstrap(state, ticketId, record);
+      }
+      for (const [transferId, record] of state.browserTransfers) {
+        retireBrowserTransfer(state, transferId, record);
+      }
       const serverClose = new Promise((resolve) => server.close(resolve));
       state.localChatTest.dispose?.();
       await waitForBoundedResult(
@@ -3162,16 +4278,25 @@ export async function startWizardServer({
         codexLogin?.completion,
         state.oauthShutdownWaitMs,
       );
-      const vpsMutationFinished = await waitForBoundedResult(
-        state.vpsMutationCompletion,
-        state.oauthShutdownWaitMs,
-      );
-      if (vpsMutationFinished) {
+      if (vpsMutationCompletion) {
+        // A signal is not permission to abandon a remote write. Keep the HTTP
+        // server, control publication, and daemon lifetime lock owned until
+        // the exact in-flight mutation reaches its finally block.
+        await vpsMutationCompletion;
+      }
+      if (!state.vpsMutationCompletion) {
         detachVpsConnection(state, state.connection, {
           clearScannedHost: true,
         });
       }
-      await waitForBoundedResult(serverClose, state.oauthShutdownWaitMs);
+      if (vpsMutationCompletion) {
+        // server.close() settles only after the mutation request has finished.
+        // The daemon must not retire its exclusive control state before that
+        // point. Other close paths retain their bounded OAuth-startup cleanup.
+        await serverClose;
+      } else {
+        await waitForBoundedResult(serverClose, state.oauthShutdownWaitMs);
+      }
     },
   };
 }

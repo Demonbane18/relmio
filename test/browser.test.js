@@ -5,133 +5,149 @@ import test from "node:test";
 import {
   attachBrowserReopenOnEnter,
   browserCommand,
+  isPrivateBrowserLaunchUrl,
   openBrowser,
 } from "../src/browser.js";
 
-test("Windows browser launching invokes the default URL handler with the local URL as a literal argument", () => {
-  const url = `http://127.0.0.1:4567/?session=${"a".repeat(43)}`;
-  const command = browserCommand(url, "win32");
+const launchUrl = "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html";
+const sessionToken = `w${"s".repeat(42)}`;
+const bootstrapSecret = "b".repeat(43);
 
-  assert.deepEqual(command, {
-    file: "cmd.exe",
-    args: ["/d", "/c", "start", "Relmio local wizard", url],
-  });
-
-  const calls = [];
+function launcherChild(exitCode = 0) {
   const child = new EventEmitter();
   child.unref = () => {};
-  assert.equal(openBrowser(url, {
-    platform: "win32",
-    spawnProcess(...args) {
-      calls.push(args);
-      return child;
-    },
-  }), true);
+  queueMicrotask(() => {
+    child.emit("spawn");
+    child.emit("exit", exitCode, null);
+  });
+  return child;
+}
 
-  assert.deepEqual(calls, [
-    ["cmd.exe", command.args, { detached: true, stdio: "ignore", shell: false }],
-  ]);
+test("browser launching accepts only a canonical private Relmio handoff file", () => {
+  assert.equal(isPrivateBrowserLaunchUrl(launchUrl), true);
+  for (const value of [
+    `http://127.0.0.1:4567/local?session=${sessionToken}`,
+    "file:///private/tmp/other/launch-0123456789abcdef01234567.html",
+    "file:///private/tmp/relmio-browser-Ab3dE9/not-launch.html",
+    "file:///private/tmp/relmio-browser-Ab3dE9/launch-secret.html",
+    "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html?session=x",
+    "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html#token",
+    "file://server/private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html",
+    "relative/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html",
+    `${launchUrl}\n--unsafe`,
+  ]) {
+    assert.equal(isPrivateBrowserLaunchUrl(value), false, value);
+  }
 });
 
-test("browser launching refuses URLs outside the exact private local wizard", () => {
-  const calls = [];
-
-  const opened = openBrowser(
-    `http://127.0.0.1:4567/?session=${"a".repeat(43)}&next=%26whoami`,
-    {
-      platform: "win32",
+test("macOS and Linux launch only the non-authorizing file URL", async () => {
+  for (const platform of ["darwin", "linux"]) {
+    const calls = [];
+    const expectedFile = platform === "darwin" ? "open" : "xdg-open";
+    assert.deepEqual(browserCommand(launchUrl, platform), {
+      file: expectedFile,
+      args: [launchUrl],
+    });
+    assert.equal(await openBrowser(launchUrl, {
+      platform,
       spawnProcess(...args) {
         calls.push(args);
-        const child = new EventEmitter();
-        child.unref = () => {};
-        return child;
+        return launcherChild();
       },
-    },
-  );
-
-  assert.equal(opened, false);
-  assert.deepEqual(calls, []);
+    }), true);
+    assert.deepEqual(calls, [[
+      expectedFile,
+      [launchUrl],
+      { detached: true, stdio: "ignore", shell: false },
+    ]]);
+    const serialized = JSON.stringify(calls);
+    assert.equal(serialized.includes(sessionToken), false);
+    assert.equal(serialized.includes(bootstrapSecret), false);
+    assert.doesNotMatch(serialized, /session=|relmio-bootstrap/iu);
+  }
 });
 
-test("browser launching accepts only the exact AI Assistant wizard route", () => {
-  const session = "b".repeat(43);
-  const url = `http://127.0.0.1:4567/assistant?session=${session}`;
+test("Windows uses the absolute system Explorer without a command parser", async () => {
   const calls = [];
-  const child = new EventEmitter();
-  child.unref = () => {};
-
-  assert.equal(openBrowser(url, {
-    platform: "linux",
+  const command = browserCommand(launchUrl, "win32", {
+    systemRoot: "C:\\Windows",
+  });
+  assert.deepEqual(command, {
+    file: "C:\\Windows\\explorer.exe",
+    args: ["\\private\\tmp\\relmio-browser-Ab3dE9\\launch-0123456789abcdef01234567.html"],
+  });
+  assert.equal(await openBrowser(launchUrl, {
+    platform: "win32",
+    systemRoot: "C:\\Windows",
     spawnProcess(...args) {
       calls.push(args);
-      return child;
+      return launcherChild();
     },
   }), true);
   assert.deepEqual(calls, [[
-    "xdg-open",
-    [url],
+    "C:\\Windows\\explorer.exe",
+    command.args,
     { detached: true, stdio: "ignore", shell: false },
   ]]);
+  assert.doesNotMatch(JSON.stringify(calls), /cmd\.exe|\/c|session=|relmio-bootstrap/iu);
+});
 
-  const rejectedUrls = [
-    ...["/assistant/extra", "/assistant%2Fextra", "/status", "//assistant"].map(
-      (pathname) => `http://127.0.0.1:4567${pathname}?session=${session}`,
-    ),
-    `http://127.0.0.1:4567/assistant?session=${session}&next=ignored`,
-    `https://127.0.0.1:4567/assistant?session=${session}`,
-    `http://localhost:4567/assistant?session=${session}`,
-    `http://127.0.0.1:4567/foo/../assistant?session=${session}`,
-    `http://127.0.0.1:4567/%2e/assistant?session=${session}`,
-    `http://127.0.0.1:4567/assistant/%2e%2e/assistant?session=${session}`,
-    `http://127.0.0.1:4567/assistant/../?session=${session}`,
-    `http://127.0.0.1:4567/.?session=${session}`,
-    `http://127.0.0.1:4567/assistant/?session=${session}`,
-    `http://127.0.0.1:4567/assistant/.?session=${session}`,
-    `http://127.1:4567/assistant?session=${session}`,
-    `http://%31%32%37.0.0.1:4567/assistant?session=${session}`,
-    `HTTP://127.0.0.1:4567/assistant?session=${session}`,
-    `http://127.0.0.1:04567/assistant?session=${session}`,
-    `http://127.0.0.1:80/assistant?session=${session}`,
-  ];
-  for (const rejectedUrl of rejectedUrls) {
-    assert.equal(openBrowser(rejectedUrl, {
-      platform: "linux",
+test("browser launching rejects legacy bearer URLs and unsafe launcher inputs", async () => {
+  const calls = [];
+  for (const rejected of [
+    `http://127.0.0.1:4567/?session=${sessionToken}`,
+    `http://127.0.0.1:4567/assistant?session=${sessionToken}`,
+    `http://127.0.0.1:4567/local?session=${sessionToken}`,
+    "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html?next=x",
+  ]) {
+    assert.equal(await openBrowser(rejected, {
       spawnProcess(...args) {
         calls.push(args);
-        return child;
+        return launcherChild();
       },
     }), false);
   }
-  assert.equal(calls.length, 1);
+  assert.deepEqual(calls, []);
+  assert.throws(
+    () => browserCommand(launchUrl, "win32", { systemRoot: "relative\\Windows" }),
+    /Windows system root/iu,
+  );
 });
 
-test("macOS and Linux retain their native browser launchers", () => {
-  assert.deepEqual(browserCommand("http://127.0.0.1:4567", "darwin"), {
-    file: "open",
-    args: ["http://127.0.0.1:4567"],
+test("browser launching reports asynchronous launcher errors and nonzero exits", async (t) => {
+  await t.test("error", async () => {
+    const child = new EventEmitter();
+    child.unref = () => {};
+    queueMicrotask(() => child.emit("error", new Error("missing launcher")));
+    assert.equal(await openBrowser(launchUrl, { spawnProcess: () => child }), false);
   });
-  assert.deepEqual(browserCommand("http://127.0.0.1:4567", "linux"), {
-    file: "xdg-open",
-    args: ["http://127.0.0.1:4567"],
+
+  await t.test("nonzero exit", async () => {
+    assert.equal(
+      await openBrowser(launchUrl, { spawnProcess: () => launcherChild(1) }),
+      false,
+    );
   });
 });
 
-test("interactive terminals reopen the local wizard on Enter without attaching to pipes", () => {
+test("interactive Enter prepares a fresh handoff before every reopen", async () => {
   const input = new EventEmitter();
   input.isTTY = true;
   input.setEncoding = () => {};
   input.resume = () => {};
   let pauseCount = 0;
-  input.pause = () => {
-    pauseCount += 1;
-  };
+  input.pause = () => { pauseCount += 1; };
   const instructions = [];
   const opened = [];
+  let prepared = 0;
 
   const detach = attachBrowserReopenOnEnter({
     input,
-    url: "http://127.0.0.1:4567/?session=fixture",
-    open: (url) => opened.push(url),
+    async prepareLaunch() {
+      prepared += 1;
+      return launchUrl.replace("0123456789abcdef01234567", `${prepared}`.padStart(24, "0"));
+    },
+    open: async (url) => { opened.push(url); },
     write: (line) => instructions.push(line),
   });
 
@@ -139,24 +155,28 @@ test("interactive terminals reopen the local wizard on Enter without attaching t
     "If the wizard did not open automatically, press Enter to open it again.",
   ]);
   input.emit("data", "\r\n");
-  assert.deepEqual(opened, ["http://127.0.0.1:4567/?session=fixture"]);
+  input.emit("data", "\n");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(prepared, 2);
+  assert.equal(opened.length, 2);
+  assert.notEqual(opened[0], opened[1]);
 
   detach();
-  input.emit("data", "\r\n");
-  assert.equal(opened.length, 1);
+  input.emit("data", "\n");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(opened.length, 2);
   assert.equal(pauseCount, 1);
+});
 
-  const noninteractiveInput = new EventEmitter();
-  noninteractiveInput.isTTY = false;
-  const noOp = attachBrowserReopenOnEnter({
-    input: noninteractiveInput,
-    url: "http://127.0.0.1:4567/?session=fixture",
-    open: (url) => opened.push(url),
-    write: (line) => instructions.push(line),
+test("noninteractive input never prepares a handoff", () => {
+  const input = new EventEmitter();
+  input.isTTY = false;
+  let prepared = 0;
+  const detach = attachBrowserReopenOnEnter({
+    input,
+    prepareLaunch: async () => { prepared += 1; return launchUrl; },
   });
-  noninteractiveInput.emit("data", "\n");
-  noOp();
-
-  assert.equal(opened.length, 1);
-  assert.equal(instructions.length, 1);
+  input.emit("data", "\n");
+  detach();
+  assert.equal(prepared, 0);
 });

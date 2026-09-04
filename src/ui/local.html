@@ -8,15 +8,17 @@
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/local.css" />
+    <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
     <script src="/local.js" type="module"></script>
   </head>
   <body
     class="local-wizard"
+    data-local-view="dashboard"
     data-current-step="1"
     data-operation-busy="false"
   >
-    <a class="skip-link" href="#main-content">Skip to local setup</a>
+    <a class="skip-link" href="#main-content">Skip to local dashboard</a>
 
     <header class="site-header">
       <div class="brand">
@@ -132,6 +134,224 @@
     </div>
 
     <main id="main-content" class="shell" tabindex="-1" aria-busy="false">
+      <section id="local-dashboard" class="local-dashboard" aria-labelledby="dashboard-title">
+        <aside class="dashboard-rail">
+          <div class="dashboard-rail-heading">
+            <span class="dashboard-rail-mark" aria-hidden="true"></span>
+            <div>
+              <strong>Local control</strong>
+              <small>Private runtime</small>
+            </div>
+          </div>
+
+          <nav id="local-dashboard-nav" aria-label="Local dashboard">
+            <ul class="dashboard-nav-list">
+              <li>
+                <a href="#dashboard-overview" aria-current="location">
+                  <svg class="dashboard-nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3.5 10.5 12 3.5l8.5 7"></path>
+                    <path d="M5.5 9.25V20h13V9.25"></path>
+                    <path d="M9.5 20v-6h5v6"></path>
+                  </svg>
+                  Overview
+                </a>
+              </li>
+              <li>
+                <a href="#dashboard-connections">
+                  <svg class="dashboard-nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M5 7h14"></path>
+                    <path d="m16 4 3 3-3 3"></path>
+                    <path d="M19 17H5"></path>
+                    <path d="m8 14-3 3 3 3"></path>
+                  </svg>
+                  Connections
+                </a>
+              </li>
+              <li>
+                <a href="#dashboard-n8n">
+                  <svg class="dashboard-nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="5" cy="12" r="2.25"></circle>
+                    <circle cx="12" cy="6" r="2.25"></circle>
+                    <circle cx="19" cy="12" r="2.25"></circle>
+                    <circle cx="12" cy="18" r="2.25"></circle>
+                    <path d="m7 11 3-3.5m4 0 3 3.5m0 2-3 3.5m-4 0L7 13"></path>
+                  </svg>
+                  n8n
+                </a>
+              </li>
+              <li>
+                <a href="#dashboard-credentials">
+                  <svg class="dashboard-nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="7.5" cy="16.5" r="3.5"></circle>
+                    <path d="m10 14 10-10"></path>
+                    <path d="m16 8 2 2"></path>
+                    <path d="m14 10 2 2"></path>
+                  </svg>
+                  Credentials
+                </a>
+              </li>
+              <li>
+                <a href="#dashboard-activity">
+                  <svg class="dashboard-nav-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 12h4l2.5-6 5 12 2.5-6h4"></path>
+                  </svg>
+                  Activity
+                </a>
+              </li>
+            </ul>
+          </nav>
+
+          <div class="dashboard-rail-utility">
+            <p><span class="dashboard-status-dot state-healthy" aria-hidden="true"></span>Bound to this computer</p>
+            <button id="dashboard-new-setup" class="button primary" type="button">
+              Add connection
+            </button>
+          </div>
+        </aside>
+
+        <div class="dashboard-workspace">
+          <header class="dashboard-heading">
+            <div>
+              <p class="local-eyebrow">Local runtime</p>
+              <h1 id="dashboard-title" tabindex="-1">Connections dashboard</h1>
+              <p>View verified local services and approved maintenance actions.</p>
+            </div>
+            <div class="dashboard-heading-actions">
+              <button id="dashboard-refresh" class="button secondary" type="button">
+                Refresh status
+              </button>
+            </div>
+          </header>
+
+          <div
+            id="dashboard-error"
+            class="dashboard-error"
+            role="alert"
+            tabindex="-1"
+            hidden
+          ></div>
+
+          <section id="dashboard-overview" class="dashboard-section" aria-labelledby="dashboard-overview-title">
+            <div class="dashboard-section-heading">
+              <div>
+                <p class="dashboard-section-label">Environment</p>
+                <h2 id="dashboard-overview-title">Local system</h2>
+              </div>
+              <p id="dashboard-last-checked">Checking now</p>
+            </div>
+
+            <div
+              id="dashboard-environment"
+              class="dashboard-environment state-checking"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              <span class="dashboard-status-dot state-checking" aria-hidden="true"></span>
+              <div>
+                <strong id="dashboard-environment-title">Checking Docker</strong>
+                <p id="dashboard-environment-detail">Reading a non-secret inventory from this computer.</p>
+              </div>
+              <span id="dashboard-environment-state" class="dashboard-state-token state-checking">Checking</span>
+            </div>
+
+            <dl class="dashboard-summary" aria-label="Connection summary">
+              <div><dt id="dashboard-healthy-count">0</dt><dd>Healthy</dd></div>
+              <div><dt id="dashboard-attention-count">0</dt><dd>Needs attention</dd></div>
+              <div><dt id="dashboard-absent-count">0</dt><dd>Not configured</dd></div>
+            </dl>
+          </section>
+
+          <section id="dashboard-connections" class="dashboard-section" aria-labelledby="dashboard-connections-title">
+            <div class="dashboard-section-heading">
+              <div>
+                <p class="dashboard-section-label">Connections</p>
+                <h2 id="dashboard-connections-title">Local services</h2>
+              </div>
+              <p>Verified actions only.</p>
+            </div>
+
+            <div class="dashboard-resource-grid">
+              <div class="dashboard-service-panel">
+                <ul
+                  id="dashboard-services"
+                  class="dashboard-service-list"
+                  aria-live="polite"
+                  aria-busy="true"
+                  aria-label="Local services"
+                >
+                  <li class="dashboard-service-row dashboard-service-placeholder" aria-hidden="true">
+                    <span></span><span></span>
+                  </li>
+                  <li class="dashboard-service-row dashboard-service-placeholder" aria-hidden="true">
+                    <span></span><span></span>
+                  </li>
+                  <li class="dashboard-service-row dashboard-service-placeholder" aria-hidden="true">
+                    <span></span><span></span>
+                  </li>
+                </ul>
+                <div id="dashboard-empty" class="dashboard-empty" hidden>
+                  <strong>No services are configured yet</strong>
+                  <p>Use a Set up action above or start a new connection.</p>
+                  <button id="dashboard-empty-setup" class="button primary" type="button">Set up first connection</button>
+                </div>
+              </div>
+
+              <section
+                id="dashboard-service-detail"
+                class="dashboard-service-detail"
+                aria-labelledby="dashboard-service-detail-title"
+                tabindex="-1"
+              >
+                <p class="dashboard-section-label">Selected connection</p>
+                <h3 id="dashboard-service-detail-title">Choose a service</h3>
+                <p id="dashboard-service-detail-copy">Select a row to inspect its verified state and connection boundary.</p>
+                <dl id="dashboard-service-facts" class="dashboard-service-facts"></dl>
+                <div id="dashboard-service-actions" class="dashboard-service-actions"></div>
+              </section>
+            </div>
+          </section>
+
+          <section id="dashboard-n8n" class="dashboard-section" aria-labelledby="dashboard-n8n-title">
+            <div class="dashboard-section-heading">
+              <div>
+                <p class="dashboard-section-label">n8n</p>
+                <h2 id="dashboard-n8n-title">n8n services</h2>
+              </div>
+              <p>Existing n8n containers remain operator-owned.</p>
+            </div>
+            <ul id="dashboard-n8n-services" class="dashboard-compact-list" aria-label="n8n services"></ul>
+          </section>
+
+          <section id="dashboard-credentials" class="dashboard-section" aria-labelledby="dashboard-credentials-title">
+            <div class="dashboard-section-heading">
+              <div>
+                <p class="dashboard-section-label">Credentials</p>
+                <h2 id="dashboard-credentials-title">Credential handling</h2>
+              </div>
+            </div>
+            <div class="dashboard-credential-note">
+              <strong>Existing credentials stay hidden</strong>
+              <p>Relmio never reveals stored OAuth tokens or saved keys. Rotate a client credential or refresh the owned bridge only through its reviewed action.</p>
+            </div>
+            <ul id="dashboard-credential-list" class="dashboard-compact-list" aria-label="Credential status"></ul>
+          </section>
+
+          <section id="dashboard-activity" class="dashboard-section" aria-labelledby="dashboard-activity-title">
+            <div class="dashboard-section-heading">
+              <div>
+                <p class="dashboard-section-label">Activity</p>
+                <h2 id="dashboard-activity-title">Latest inventory check</h2>
+              </div>
+            </div>
+            <ol id="dashboard-activity-list" class="dashboard-activity-list" aria-live="polite">
+              <li><span class="dashboard-status-dot state-checking" aria-hidden="true"></span><span>Checking local services</span></li>
+            </ol>
+          </section>
+        </div>
+      </section>
+
+      <section id="local-setup" class="setup-shell" aria-label="New local connection setup" hidden>
       <aside class="rail" aria-label="Local setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
           <p class="local-eyebrow">Local setup</p>
@@ -140,6 +360,9 @@
             Sign in to ChatGPT/Codex for supported models through a private Docker route,
             or use a Platform API key for the supported API route.
           </p>
+          <button id="setup-back-to-dashboard" class="button ghost setup-dashboard-return" type="button">
+            Back to dashboard
+          </button>
         </section>
 
         <nav class="steps" aria-label="Local setup progress">
@@ -1226,6 +1449,7 @@
           <a id="setup-another-local" class="button primary">Set up another local option</a>
           <a id="return-to-vps" class="button secondary">Set up the VPS version</a>
         </div>
+      </section>
       </section>
     </main>
 

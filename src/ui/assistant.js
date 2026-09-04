@@ -1,5 +1,6 @@
-const token = new URLSearchParams(window.location.search).get("session");
-window.history.replaceState(null, "", window.location.pathname);
+import { bindWizardNavigation, readWizardSession } from "./session.js";
+
+const token = readWizardSession();
 
 const state = {
   fingerprint: null,
@@ -753,9 +754,7 @@ element("install-button").addEventListener("click", async (event) => {
   }
 });
 
-element("setup-another-assistant").href = token
-  ? `/assistant?session=${encodeURIComponent(token)}`
-  : "/assistant";
+bindWizardNavigation(element("setup-another-assistant"), "/assistant", token);
 
 for (const button of document.querySelectorAll(".back-button")) {
   button.addEventListener("click", () => {

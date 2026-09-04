@@ -39,16 +39,19 @@ const PROJECTS = Object.freeze({
     projectPrefix: "relmio-openai-api",
     serviceName: "gateway",
     containerPort: 10_531,
+    volumeNames: Object.freeze(["openai-api-key"]),
   }),
   "codex-chatgpt": Object.freeze({
     projectPrefix: "relmio-codex-chatgpt",
     serviceName: "codex",
     containerPort: 4_500,
+    volumeNames: Object.freeze(["codex-home", "codex-workspace"]),
   }),
   "codex-chat": Object.freeze({
     projectPrefix: "relmio-codex-chat",
     serviceName: "codex-chat",
     containerPort: 14_501,
+    volumeNames: Object.freeze(["codex-home", "codex-workspace"]),
   }),
 });
 const DOCKER_SELECTION_VARIABLES = Object.freeze([
@@ -1328,18 +1331,44 @@ function createOwnershipPreflightSpecs({
   ];
 }
 
-function parseDockerLabelSet(value) {
+function parseDockerLabels(value) {
   if (typeof value !== "string" || value.length > 16 * 1024) {
     throw new Error("The local Docker ownership metadata is invalid.");
   }
-  return new Set(value.split(",").filter(Boolean));
+  const labels = new Map();
+  for (const entry of value.split(",")) {
+    const separator = entry.indexOf("=");
+    const name = separator > 0 ? entry.slice(0, separator) : "";
+    if (name === "" || labels.has(name)) {
+      throw new Error("The local Docker ownership metadata is invalid.");
+    }
+    labels.set(name, entry.slice(separator + 1));
+  }
+  return labels;
+}
+
+function expectedLocalEndpointResourceIdentities(target, projectName) {
+  const project = PROJECTS[target];
+  return {
+    container: new Map([
+      [`${projectName}-${project.serviceName}-1`, project.serviceName],
+    ]),
+    network: new Map([[`${projectName}_default`, "default"]]),
+    volume: new Map(
+      project.volumeNames.map((name) => [`${projectName}_${name}`, name]),
+    ),
+  };
 }
 
 function validateOwnershipOutput(
   output,
-  { target, installId, projectName, resource },
+  { target, installId, projectName, resource, strictResourceIdentities = false },
 ) {
   const rows = output.trim() === "" ? [] : output.trim().split("\n");
+  const expectedIdentities = strictResourceIdentities
+    ? expectedLocalEndpointResourceIdentities(target, projectName)[resource]
+    : null;
+  const seenNames = new Set();
   for (const row of rows) {
     let parsed;
     try {
@@ -1347,14 +1376,14 @@ function validateOwnershipOutput(
     } catch {
       throw new Error("The local Docker ownership metadata is invalid.");
     }
-    const labels = parseDockerLabelSet(parsed?.Labels);
-    for (const expected of [
-      `com.docker.compose.project=${projectName}`,
-      "io.relmio.managed=true",
-      `io.relmio.target=${target}`,
-      `io.relmio.install=${installId}`,
-    ]) {
-      if (!labels.has(expected)) {
+    const labels = parseDockerLabels(parsed?.Labels);
+    for (const [name, expected] of Object.entries({
+      "com.docker.compose.project": projectName,
+      "io.relmio.managed": "true",
+      "io.relmio.target": target,
+      "io.relmio.install": installId,
+    })) {
+      if (labels.get(name) !== expected) {
         throw new Error(
           "A Docker resource already uses this Relmio project identity without matching ownership. Nothing was changed.",
         );
@@ -1362,13 +1391,31 @@ function validateOwnershipOutput(
     }
     if (
       resource === "container" &&
-      !labels.has(`com.docker.compose.service=${PROJECTS[target].serviceName}`)
+      labels.get("com.docker.compose.service") !== PROJECTS[target].serviceName
     ) {
       throw new Error(
         "A Docker resource already uses this Relmio project identity without matching ownership. Nothing was changed.",
       );
     }
+    if (expectedIdentities) {
+      const name = resource === "container" ? parsed?.Names : parsed?.Name;
+      const logicalLabel = resource === "container"
+        ? "com.docker.compose.service"
+        : `com.docker.compose.${resource}`;
+      if (
+        typeof name !== "string" ||
+        !expectedIdentities.has(name) ||
+        seenNames.has(name) ||
+        labels.get(logicalLabel) !== expectedIdentities.get(name)
+      ) {
+        throw new Error(
+          `The local ${resource} identity does not match the generated Compose plan.`,
+        );
+      }
+      seenNames.add(name);
+    }
   }
+  return rows.length;
 }
 
 async function attestDockerOwnership({
@@ -1378,7 +1425,9 @@ async function attestDockerOwnership({
   installId,
   projectName,
   runProcess,
+  strictResourceIdentities = false,
 }) {
+  const counts = {};
   for (const spec of createOwnershipPreflightSpecs({
     target,
     installRoot,
@@ -1386,13 +1435,15 @@ async function attestDockerOwnership({
     projectName,
   })) {
     const result = await runOrThrow(runProcess, spec);
-    validateOwnershipOutput(result.stdout, {
+    counts[spec.resource] = validateOwnershipOutput(result.stdout, {
       target,
       installId,
       projectName,
       resource: spec.resource,
+      strictResourceIdentities,
     });
   }
+  return counts;
 }
 
 async function runOrThrow(runProcess, spec) {
@@ -1432,6 +1483,184 @@ function validatePublishedEndpoint(output, { target, port }) {
     throw new Error(
       "The local endpoint publication is not the exact planned loopback binding.",
     );
+  }
+}
+
+function parseComposeStatusRecords(output) {
+  if (typeof output !== "string" || Buffer.byteLength(output) > 1024 * 1024) {
+    throw new Error("The local endpoint status metadata is invalid.");
+  }
+  if (output.trim() === "") return [];
+  try {
+    const parsed = JSON.parse(output);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    try {
+      return output.trim().split("\n").map((line) => JSON.parse(line));
+    } catch {
+      throw new Error("The local endpoint status metadata is invalid.");
+    }
+  }
+}
+
+function localEndpointSnapshot(plan) {
+  return {
+    target: plan.target,
+    endpoint: plan.endpoint,
+    auth: { configured: true, disclosure: "rotate-only" },
+    canRotateCredential: true,
+  };
+}
+
+async function verifyWindowsManagedLocalEndpointPathSecurity({
+  fileSystem,
+  installRoot,
+  platform,
+  lockDownPath,
+}) {
+  if (platform !== "win32") return;
+  const relmioHome = resolve(installRoot, "..", "..");
+  for (const path of [relmioHome, join(relmioHome, "local"), installRoot]) {
+    assertDirectoryMetadata(await lstatIfExists(fileSystem, path));
+    await lockDownPath(path, { platform, verifyOnly: true });
+  }
+  for (const path of [
+    join(relmioHome, ROOT_MARKER),
+    join(installRoot, MANAGED_MARKER),
+    join(installRoot, COMPOSE_FILENAME),
+  ]) {
+    await assertRegularManagedMarker(
+      fileSystem,
+      path,
+      "Relmio refuses an unsafe local endpoint managed file.",
+    );
+    await lockDownPath(path, {
+      platform,
+      kind: "file",
+      verifyOnly: true,
+      verifyEffectiveOwnerOnly: true,
+    });
+  }
+}
+
+export async function getManagedLocalEndpointStatus(
+  { target },
+  {
+    fileSystem = defaultFileSystem,
+    runProcess = runLocalProcess,
+    platform = process.platform,
+    env = process.env,
+    homeDirectory = homedir(),
+    lockDownPath = lockDownLocalPath,
+  } = {},
+) {
+  const safeTarget = validateLocalTarget(target);
+  const absent = { target: safeTarget, managed: false, state: "absent" };
+  const unavailable = { target: safeTarget, managed: false, state: "unavailable" };
+  try {
+    assertSupportedPlatform(platform);
+    const installRoot = await resolveLocalInstallRoot({
+      target: safeTarget,
+      env,
+      homeDirectory,
+      fileSystem,
+      platform,
+    });
+    const relmioHome = resolve(installRoot, "..", "..");
+    if (await lstatIfExists(fileSystem, installRoot)) {
+      await verifyWindowsManagedLocalEndpointPathSecurity({
+        fileSystem,
+        installRoot,
+        platform,
+        lockDownPath,
+      });
+    }
+    const managed = await inspectManagedRoot({
+      fileSystem,
+      relmioHome,
+      installRoot,
+      target: safeTarget,
+    });
+    if (!managed.marker) return absent;
+    const selectedDockerHost = await resolveLocalDockerHost({
+      runProcess,
+      cwd: installRoot,
+      env,
+      platform,
+    });
+    if (selectedDockerHost !== managed.marker.dockerHost) return unavailable;
+    const plan = createLocalDeploymentPlan({
+      target: safeTarget,
+      port: managed.marker.port,
+    });
+    const counts = await attestDockerOwnership({
+      target: safeTarget,
+      installRoot,
+      dockerHost: managed.marker.dockerHost,
+      installId: managed.marker.installId,
+      projectName: managed.marker.projectName,
+      runProcess,
+      strictResourceIdentities: true,
+    });
+    const expectedCounts = {
+      container: 1,
+      network: 1,
+      volume: PROJECTS[safeTarget].volumeNames.length,
+    };
+    if (Object.keys(expectedCounts).some((key) => counts[key] > expectedCounts[key])) {
+      return unavailable;
+    }
+    const result = await runOrThrow(runProcess, {
+      label: "Local endpoint inventory check",
+      file: "docker",
+      args: createComposeArgs(safeTarget, managed.marker.projectName, [
+        "ps",
+        "--all",
+        "--format",
+        "json",
+        PROJECTS[safeTarget].serviceName,
+      ]),
+      cwd: installRoot,
+      dockerHost: managed.marker.dockerHost,
+    });
+    const records = parseComposeStatusRecords(result.stdout);
+    const snapshot = localEndpointSnapshot(plan);
+    if (records.length === 0) {
+      return { target: safeTarget, managed: true, state: "partial" };
+    }
+    if (records.length !== 1) {
+      return unavailable;
+    }
+    const record = records[0];
+    const expectedName = `${managed.marker.projectName}-${PROJECTS[safeTarget].serviceName}-1`;
+    if (
+      record.Name !== expectedName ||
+      record.Service !== PROJECTS[safeTarget].serviceName ||
+      typeof record.State !== "string"
+    ) {
+      return unavailable;
+    }
+    validatePublishedEndpoint(JSON.stringify(record), {
+      target: safeTarget,
+      port: plan.port,
+    });
+    if (Object.keys(expectedCounts).some((key) => counts[key] !== expectedCounts[key])) {
+      return { target: safeTarget, managed: true, state: "partial" };
+    }
+    if (record.State === "running") {
+      return record.Health === "healthy"
+        ? { target: safeTarget, managed: true, state: "healthy", snapshot }
+        : { target: safeTarget, managed: true, state: "partial" };
+    }
+    if (
+      ["created", "exited"].includes(record.State) &&
+      !["starting", "unhealthy"].includes(record.Health)
+    ) {
+      return { target: safeTarget, managed: true, state: "stopped", snapshot };
+    }
+    return { target: safeTarget, managed: true, state: "partial" };
+  } catch {
+    return unavailable;
   }
 }
 
@@ -1655,6 +1884,7 @@ async function attestManagedLocalEndpoint(
     fileSystem = defaultFileSystem,
     runProcess = runLocalProcess,
     platform = process.platform,
+    lockDownPath = lockDownLocalPath,
   } = {},
 ) {
   assertSupportedPlatform(platform);
@@ -1664,6 +1894,12 @@ async function attestManagedLocalEndpoint(
     safeTarget,
   );
   const relmioHome = resolve(safeDirectory, "..", "..");
+  await verifyWindowsManagedLocalEndpointPathSecurity({
+    fileSystem,
+    installRoot: safeDirectory,
+    platform,
+    lockDownPath,
+  });
   const managed = await inspectManagedRoot({
     fileSystem,
     relmioHome,
@@ -1739,6 +1975,7 @@ export async function prepareLocalClientCredentialRotation(
     runProcess = runLocalProcess,
     randomBytes = createRandomBytes,
     platform = process.platform,
+    lockDownPath = lockDownLocalPath,
   } = {},
 ) {
   assertSupportedPlatform(platform);
@@ -1758,7 +1995,7 @@ export async function prepareLocalClientCredentialRotation(
       missingMessage:
         "Install the local endpoint before rotating its client credential.",
     },
-    { fileSystem, runProcess, platform },
+    { fileSystem, runProcess, platform, lockDownPath },
   );
   const { clientCredential, tokenSha256 } = createClientCredential(randomBytes);
   const plan = createLocalDeploymentPlan({
@@ -1828,7 +2065,7 @@ export async function activateLocalClientCredentialRotation(
       missingMessage:
         "Install the local endpoint before rotating its client credential.",
     },
-    { fileSystem, runProcess, platform },
+    { fileSystem, runProcess, platform, lockDownPath },
   );
   const composePath = join(installDirectory, COMPOSE_FILENAME);
   await assertRegularManagedMarker(
@@ -1886,7 +2123,7 @@ export async function activateLocalClientCredentialRotation(
         missingMessage:
           "Install the local endpoint before rotating its client credential.",
       },
-      { fileSystem, runProcess, platform },
+      { fileSystem, runProcess, platform, lockDownPath },
     );
     const models = await verifyHttpEndpoint({
       plan,
@@ -1935,7 +2172,7 @@ export async function activateLocalClientCredentialRotation(
           missingMessage:
             "Install the local endpoint before rotating its client credential.",
         },
-        { fileSystem, runProcess, platform },
+        { fileSystem, runProcess, platform, lockDownPath },
       );
       await verifyHttpEndpoint({ plan, fetchImpl });
     } catch {

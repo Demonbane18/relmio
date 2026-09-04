@@ -199,6 +199,215 @@ export async function resolveLocalN8nSidecarInstallRoot({
   return join(canonicalParent, ".relmio", "local", LOCAL_N8N_SIDECAR_TARGET);
 }
 
+function localN8nSidecarSnapshot() {
+  return {
+    target: LOCAL_N8N_SIDECAR_TARGET,
+    endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
+    auth: { configured: true, disclosure: "server-managed" },
+    canRefreshCredential: true,
+    canRemove: true,
+  };
+}
+
+function parseSidecarStatusRecord(output, marker) {
+  let records;
+  try {
+    const parsed = JSON.parse(output);
+    records = Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    throw new Error("The local sidecar status metadata is invalid.");
+  }
+  const record = records[0];
+  if (
+    records.length !== 1 ||
+    record?.Name !== `${marker.projectName}-${SERVICE_NAME}-1` ||
+    record?.Service !== SERVICE_NAME ||
+    typeof record?.State !== "string" ||
+    typeof record?.Health !== "string"
+  ) {
+    throw new Error("The local sidecar status metadata is invalid.");
+  }
+  assertNoPublishedHostPort(output);
+  return record;
+}
+
+async function verifyWindowsSidecarStatusPathSecurity({
+  fileSystem,
+  installRoot,
+  platform,
+  lockDownPath,
+}) {
+  if (platform !== "win32") return;
+  const relmioHome = resolve(installRoot, "..", "..");
+  for (const path of [relmioHome, join(relmioHome, "local"), installRoot]) {
+    assertDirectory(await lstatIfExists(fileSystem, path));
+    await lockDownPath(path, { platform, verifyOnly: true });
+  }
+  for (const path of [
+    join(relmioHome, ROOT_MARKER),
+    join(installRoot, MANAGED_MARKER),
+    join(installRoot, COMPOSE_FILENAME),
+  ]) {
+    const metadata = await lstatIfExists(fileSystem, path);
+    if (!metadata?.isFile?.() || metadata.isSymbolicLink()) {
+      throw new Error("Relmio refuses an unsafe local sidecar managed file.");
+    }
+    await lockDownPath(path, {
+      platform,
+      kind: "file",
+      verifyOnly: true,
+      verifyEffectiveOwnerOnly: true,
+    });
+  }
+}
+
+export async function getLocalN8nSidecarStatus({
+  env = process.env,
+  homeDirectory = homedir(),
+  fileSystem = defaultFileSystem,
+  runProcess = runLocalProcess,
+  platform = process.platform,
+  lockDownPath = lockDownLocalPath,
+} = {}) {
+  const absent = {
+    target: LOCAL_N8N_SIDECAR_TARGET,
+    managed: false,
+    state: "absent",
+  };
+  const unavailable = {
+    target: LOCAL_N8N_SIDECAR_TARGET,
+    managed: false,
+    state: "unavailable",
+  };
+  try {
+    const installRoot = await resolveLocalN8nSidecarInstallRoot({
+      env,
+      homeDirectory,
+      fileSystem,
+      platform,
+    });
+    if (await lstatIfExists(fileSystem, installRoot)) {
+      await verifyWindowsSidecarStatusPathSecurity({
+        fileSystem,
+        installRoot,
+        platform,
+        lockDownPath,
+      });
+    }
+    const managed = await inspectManagedInstall({ fileSystem, installRoot });
+    if (!managed.marker) return absent;
+    const marker = validateMarker(managed.marker);
+    const selectedDockerHost = await resolveLocalDockerHost({
+      runProcess,
+      cwd: installRoot,
+      env,
+      platform,
+    });
+    if (selectedDockerHost !== marker.dockerHost) return unavailable;
+    await attestPlanAndAlias({
+      plan: marker,
+      runProcess,
+      cwd: installRoot,
+      installId: marker.installId,
+      projectName: marker.projectName,
+    });
+    const ownership = await attestProjectOwnership({
+      runProcess,
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+      installId: marker.installId,
+      projectName: marker.projectName,
+      returnDetails: true,
+    });
+    if (!ownership.exact) {
+      return {
+        target: LOCAL_N8N_SIDECAR_TARGET,
+        managed: true,
+        state: "partial",
+      };
+    }
+    const publication = await runOrThrow(
+      runProcess,
+      {
+        file: "docker",
+        args: createComposeArgs(marker.projectName, [
+          "ps",
+          "--all",
+          "--format",
+          "json",
+          SERVICE_NAME,
+        ]),
+        cwd: installRoot,
+        dockerHost: marker.dockerHost,
+      },
+      "Local sidecar inventory publication check",
+    );
+    const statusRecord = parseSidecarStatusRecord(publication.stdout, marker);
+    const runtime = await inspectOwnedSidecarRuntime({
+      runProcess,
+      installRoot,
+      marker,
+    });
+    const snapshot = localN8nSidecarSnapshot();
+    if (!runtime) {
+      return {
+        target: LOCAL_N8N_SIDECAR_TARGET,
+        managed: true,
+        state: "partial",
+      };
+    }
+    if (runtime.paused) {
+      return {
+        target: LOCAL_N8N_SIDECAR_TARGET,
+        managed: true,
+        state: "partial",
+      };
+    }
+    if (!runtime.running) {
+      return ["created", "exited"].includes(statusRecord.State) &&
+        !["starting", "unhealthy"].includes(statusRecord.Health)
+        ? {
+            target: LOCAL_N8N_SIDECAR_TARGET,
+            managed: true,
+            state: "stopped",
+            snapshot,
+          }
+        : {
+            target: LOCAL_N8N_SIDECAR_TARGET,
+            managed: true,
+            state: "partial",
+          };
+    }
+    if (
+      statusRecord.State !== "running" ||
+      statusRecord.Health !== "healthy" ||
+      runtime.health !== "healthy"
+    ) {
+      return {
+        target: LOCAL_N8N_SIDECAR_TARGET,
+        managed: true,
+        state: "partial",
+      };
+    }
+    await verifyRunningSidecar({
+      runProcess,
+      installRoot,
+      plan: marker,
+      installId: marker.installId,
+      projectName: marker.projectName,
+      verifyModels: false,
+    });
+    return {
+      target: LOCAL_N8N_SIDECAR_TARGET,
+      managed: true,
+      state: "healthy",
+      snapshot,
+    };
+  } catch {
+    return unavailable;
+  }
+}
+
 async function resolveLocalDockerHost({ runProcess, cwd, env, platform }) {
   assertSupportedPlatform(platform);
   rejectDockerEnvironmentOverrides(env);
@@ -733,6 +942,7 @@ async function attestProjectOwnership({
   dockerHost,
   installId,
   projectName,
+  returnDetails = false,
 }) {
   const projectFilter = `label=com.docker.compose.project=${projectName}`;
   const containers = await runOrThrow(
@@ -797,8 +1007,10 @@ async function attestProjectOwnership({
   if (volumeRows.length > MAX_DISCOVERED_CONTAINERS) {
     throw new Error("The local sidecar volume ownership check failed closed.");
   }
+  const volumeNames = [];
   for (const row of volumeRows) {
     const volumeName = validateDockerName(row?.Name);
+    volumeNames.push(volumeName);
     const inspected = await runOrThrow(
       runProcess,
       {
@@ -823,13 +1035,22 @@ async function attestProjectOwnership({
       { installId, projectName, service: false },
     );
   }
-  await inspectOwnedImageIfPresent({
+  const imagePresent = await inspectOwnedImageIfPresent({
     runProcess,
     cwd,
     dockerHost,
     installId,
     projectName,
   });
+  if (returnDetails) {
+    return {
+      exact:
+        containerRows.length === 1 &&
+        volumeNames.length === 1 &&
+        volumeNames[0] === `${projectName}_oauth-auth` &&
+        imagePresent,
+    };
+  }
 }
 
 async function inspectOwnedImageIfPresent({
@@ -1334,6 +1555,7 @@ async function inspectOwnedSidecarRuntime({
   }
   return Object.freeze({
     containerId,
+    health: sidecar.State.Health?.Status,
     paused: sidecar.State.Paused,
     running: sidecar.State.Running,
   });
@@ -1850,6 +2072,12 @@ export async function refreshLocalN8nSidecarCredential(
     completionLabel: "Local n8n OAuth sidecar credential refresh",
     releaseLock,
     operation: async () => {
+      await verifyWindowsSidecarStatusPathSecurity({
+        fileSystem,
+        installRoot,
+        platform,
+        lockDownPath,
+      });
       const managed = await inspectManagedInstall({ fileSystem, installRoot });
       if (!managed.marker) {
         throw new Error("The managed local n8n bridge is not installed.");
@@ -2207,6 +2435,12 @@ export async function removeLocalN8nSidecar(
     completionLabel: "Local n8n OAuth sidecar removal",
     releaseLock,
     operation: async () => {
+      await verifyWindowsSidecarStatusPathSecurity({
+        fileSystem,
+        installRoot,
+        platform,
+        lockDownPath,
+      });
       const managed = await inspectManagedInstall({ fileSystem, installRoot });
     if (!managed.marker) {
       throw new Error("The managed local n8n bridge is not installed.");

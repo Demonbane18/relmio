@@ -1498,6 +1498,78 @@ test("an active VPS mutation excludes OAuth start and releases ownership after f
   assert.equal(oauthStarts, 1);
 });
 
+test("wizard shutdown waits for an active VPS mutation and its HTTP request to settle", async () => {
+  const { services } = createServices();
+  const installStarted = deferred();
+  const installReady = deferred();
+  const statusStarted = deferred();
+  const statusReady = deferred();
+  services.installSidecar = async () => {
+    installStarted.resolve();
+    return await installReady.promise;
+  };
+  services.getLocalDockerStatus = async () => {
+    statusStarted.resolve();
+    return await statusReady.promise;
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    oauthShutdownWaitMs: 1,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  let installRequest;
+  let statusRequest;
+  let closing;
+  try {
+    const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+    installRequest = api(wizard.origin, "/api/install", {
+      method: "POST",
+      headers: setup.originHeader,
+      body: createVpsInstallBody(setup),
+    });
+    await installStarted.promise;
+
+    statusRequest = api(wizard.origin, "/api/local/docker/status");
+    await statusStarted.promise;
+
+    let closeSettled = false;
+    closing = wizard.close().then(() => {
+      closeSettled = true;
+    });
+    // Let the mutation finish during close's first await. A late snapshot
+    // would now miss it and take the unsafe bounded HTTP-close branch.
+    installReady.resolve({
+      baseUrl: "http://n8n-openai-oauth:10531/v1",
+      apiKeyPlaceholder: "local-only",
+      useResponsesApi: true,
+      models: ["gpt-5.6-sol"],
+      deploymentMode: "installed",
+    });
+    assert.equal((await installRequest).status, 200);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(closeSettled, false);
+
+    statusReady.resolve({ dockerAvailable: false });
+    assert.equal((await statusRequest).status, 200);
+    await closing;
+    assert.equal(closeSettled, true);
+  } finally {
+    installReady.resolve({
+      baseUrl: "http://n8n-openai-oauth:10531/v1",
+      apiKeyPlaceholder: "local-only",
+      useResponsesApi: true,
+      models: ["gpt-5.6-sol"],
+      deploymentMode: "installed",
+    });
+    statusReady.resolve({ dockerAvailable: false });
+    await installRequest?.catch(() => {});
+    await statusRequest?.catch(() => {});
+    if (closing) await closing;
+    else await wizard.close();
+  }
+});
+
 test("OAuth refresh invalidates a previously reviewed VPS credential plan", async (t) => {
   const { services } = createServices();
   const oauthCompletion = deferred();
@@ -2481,6 +2553,133 @@ test("disconnect detaches state before a throwing SSH close and rejects late dis
     assert.equal(stale.status, 400);
     assert.match((await stale.json()).error, /fresh.*plan/i);
   }
+});
+
+test("terminal OAuth retry-blocked state still permits an explicit authenticated VPS disconnect", async (t) => {
+  const { remote, services } = createServices();
+  let closeCalls = 0;
+  remote.close = () => {
+    closeCalls += 1;
+  };
+  services.startOAuthLogin = async () => {
+    throw Object.assign(
+      new Error("The ChatGPT sign-in result could not be confirmed."),
+      { retryBlocked: true },
+    );
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+
+  const login = await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: "{}",
+  });
+  assert.equal(login.status, 400);
+  assert.equal((await login.json()).retryBlocked, true);
+
+  const disconnected = await api(wizard.origin, "/api/disconnect", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: "{}",
+  });
+  assert.equal(disconnected.status, 200);
+  assert.deepEqual(await disconnected.json(), { disconnected: true });
+  assert.equal(closeCalls, 1);
+});
+
+test("an idle VPS SSH connection expires and cannot be reused", async (t) => {
+  const { remote, services } = createServices();
+  let closeCalls = 0;
+  let resolveClosed;
+  const closed = new Promise((resolve) => {
+    resolveClosed = resolve;
+  });
+  remote.close = () => {
+    closeCalls += 1;
+    resolveClosed();
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    vpsConnectionIdleMs: 20,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  await prepareVpsNetwork(wizard.origin);
+
+  await Promise.race([
+    closed,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("idle VPS connection did not expire")), 500);
+    }),
+  ]);
+  assert.equal(closeCalls, 1);
+
+  const discovery = await api(wizard.origin, "/api/discover", {
+    method: "POST",
+    headers: { Origin: wizard.origin },
+    body: "{}",
+  });
+  assert.equal(discovery.status, 400);
+  assert.deepEqual(await discovery.json(), { error: "Connect to the VPS first." });
+});
+
+test("VPS SSH idle expiry waits for an active remote operation", async (t) => {
+  const { remote, services } = createServices();
+  const originalDiscover = services.discoverN8n;
+  const discoveryStarted = deferred();
+  const discoveryReady = deferred();
+  let discoveryCalls = 0;
+  let closeCalls = 0;
+  let resolveClosed;
+  const closed = new Promise((resolve) => {
+    resolveClosed = resolve;
+  });
+  remote.close = () => {
+    closeCalls += 1;
+    resolveClosed();
+  };
+  services.discoverN8n = async (connection) => {
+    discoveryCalls += 1;
+    if (discoveryCalls === 2) {
+      discoveryStarted.resolve();
+      await discoveryReady.promise;
+    }
+    return await originalDiscover(connection);
+  };
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    vpsConnectionIdleMs: 20,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+
+  const discovery = api(wizard.origin, "/api/discover", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: "{}",
+  });
+  await discoveryStarted.promise;
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(closeCalls, 0);
+
+  discoveryReady.resolve();
+  assert.equal((await discovery).status, 200);
+  await Promise.race([
+    closed,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("released VPS connection did not expire")), 500);
+    }),
+  ]);
+  assert.equal(closeCalls, 1);
 });
 
 test("concurrent SSH connects fail fast without replacing or leaking the winning connection", async () => {

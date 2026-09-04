@@ -62,7 +62,8 @@ Explain that:
   temporary official Node.js 22 runtime;
 - npm lifecycle scripts stay disabled when it starts the published package;
 - the wizard binds to `127.0.0.1`;
-- the printed setup URL is private and temporary;
+- automatic browser opening uses an owner-only, single-use handoff file and
+  keeps the session capability out of the URL;
 - the terminal must remain open until the wizard finishes.
 
 ### 2:55 Sign in and verify freshness
@@ -136,7 +137,7 @@ Point viewers to [Troubleshooting](troubleshooting.md).
 
 - Use a disposable or sanitized demo VPS.
 - Use a reserved documentation address such as `192.0.2.10` in mock screens.
-- Hide browser address bars containing wizard session tokens.
+- Keep browser address bars visible only when they contain sanitized local demo routes; current Relmio handoffs keep session capabilities out of the URL.
 - Never open or print `auth.json`.
 - Never record an SSH password, private key, cookie, passkey prompt, or 2FA
   code.

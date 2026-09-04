@@ -55,8 +55,11 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
   assert.equal(packageJson.dependencies.ssh2, "1.17.0");
   assert.equal(packageJson.name, "relmio");
   assert.equal(packageJson.bin.relmio, "src/cli.js");
-  assert.equal(packageJson.bin.planrelay, "src/cli.js");
-  assert.equal(packageJson.bin["n8n-openai-oauth-setup"], "src/cli.js");
+  assert.equal(packageJson.bin.planrelay, "src/legacy-vps-cli.js");
+  assert.equal(
+    packageJson.bin["n8n-openai-oauth-setup"],
+    "src/legacy-vps-cli.js",
+  );
   assert.equal(packageJson.private, undefined);
   assert.equal(packageJson.license, "Apache-2.0");
   assert.match(license, /Apache License/u);

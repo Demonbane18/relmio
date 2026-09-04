@@ -8,6 +8,12 @@
   $temporaryDirectory = $null
   $previousSecurityProtocol = $null
   $securityProtocolChanged = $false
+  $foregroundWizardEnvironmentExisted = Test-Path Env:RELMIO_FOREGROUND_WIZARD
+  $previousForegroundWizardEnvironment = if ($foregroundWizardEnvironmentExisted) {
+    [Environment]::GetEnvironmentVariable("RELMIO_FOREGROUND_WIZARD", "Process")
+  } else {
+    $null
+  }
 
   function Write-RelmioInstallerMessage {
     param([Parameter(Mandatory = $true)][string]$Message)
@@ -59,6 +65,7 @@
         $installedNodeMajor -ge $minimumNodeMajor
       ) {
         Write-RelmioInstallerMessage "Using installed Node.js $installedNodeMajor runtime."
+        [Environment]::SetEnvironmentVariable("RELMIO_FOREGROUND_WIZARD", "1", "Process")
         & $npxCommand.Source --yes --ignore-scripts relmio@latest
         $relmioStatus = $LASTEXITCODE
         if ($relmioStatus -ne 0) {
@@ -143,6 +150,7 @@
     }
 
     Write-RelmioInstallerMessage "Starting the newest Relmio wizard."
+    [Environment]::SetEnvironmentVariable("RELMIO_FOREGROUND_WIZARD", "1", "Process")
     & $nodeBinary $npxCli --yes --ignore-scripts relmio@latest
     $relmioStatus = $LASTEXITCODE
     if ($relmioStatus -ne 0) {
@@ -156,8 +164,16 @@
         Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
       }
     } finally {
-      if ($securityProtocolChanged) {
-        [Net.ServicePointManager]::SecurityProtocol = $previousSecurityProtocol
+      try {
+        if ($securityProtocolChanged) {
+          [Net.ServicePointManager]::SecurityProtocol = $previousSecurityProtocol
+        }
+      } finally {
+        if ($foregroundWizardEnvironmentExisted) {
+          [Environment]::SetEnvironmentVariable("RELMIO_FOREGROUND_WIZARD", $previousForegroundWizardEnvironment, "Process")
+        } else {
+          Remove-Item Env:RELMIO_FOREGROUND_WIZARD -ErrorAction SilentlyContinue
+        }
       }
     }
   }

@@ -533,7 +533,7 @@ export async function acquireLocalIntegrationLifecycleLock({
   ) {
     throw new TypeError("The local integration lifecycle lock adapter is invalid.");
   }
-  const inspectProcessIdentity = (pid) => getProcessIdentity(pid, { platform: process.platform });
+  const inspectProcessIdentity = (pid) => getProcessIdentity(pid, { platform });
   let selfIdentity;
   try { selfIdentity = await inspectProcessIdentity(process.pid); } catch { selfIdentity = null; }
   if (!validProcessIdentity(selfIdentity) || selfIdentity.state !== "active") {

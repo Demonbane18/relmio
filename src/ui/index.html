@@ -10,6 +10,7 @@
     <title>Relmio | n8n Setup</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
+    <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
     <script src="/app.js" type="module"></script>
   </head>
@@ -412,6 +413,9 @@
         <div class="actions">
           <button class="button ghost back-button" data-back="2" type="button">
             Back
+          </button>
+          <button id="disconnect-vps-button" class="button secondary" type="button">
+            Disconnect from VPS
           </button>
           <button id="review-button" class="button primary" type="button">
             Review the exact plan

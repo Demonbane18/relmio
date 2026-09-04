@@ -1,8 +1,8 @@
 import { formatAuthUpdatedAt } from "./time.js";
 import { prepareOAuthPopup } from "./oauth-popup.js";
+import { bindWizardNavigation, readWizardSession } from "./session.js";
 
-const token = new URLSearchParams(window.location.search).get("session");
-window.history.replaceState(null, "", window.location.pathname);
+const token = readWizardSession();
 
 const state = {
   step: 1,
@@ -35,9 +35,7 @@ const state = {
 
 const element = (id) => document.getElementById(id);
 const localEndpointLink = element("local-endpoint-link");
-if (token) {
-  localEndpointLink.href = `/local?session=${encodeURIComponent(token)}`;
-}
+bindWizardNavigation(localEndpointLink, "/local", token);
 const messageToast = element("global-message");
 const message = element("global-message-text");
 const errorBox = element("global-error");
@@ -264,9 +262,7 @@ const handleCopyClick = createCopyClickHandler({
   showError,
 });
 
-element("setup-another-vps").href = token
-  ? `/?session=${encodeURIComponent(token)}`
-  : "/";
+bindWizardNavigation(element("setup-another-vps"), "/", token);
 
 const delay = (milliseconds) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
@@ -346,6 +342,101 @@ async function waitForOAuthCompletion(expectedAttemptId) {
     await delay(attempt < 40 ? 250 : 1_000);
   }
   throw new Error("The sign-in request expired. Start a fresh login.");
+}
+
+async function recoverPendingOAuthAttempt() {
+  let loginGeneration = null;
+  try {
+    const recovery = await runOperation(
+      null,
+      "Checking for active ChatGPT sign-in…",
+      async () => {
+        const result = await api("/api/oauth/status");
+        if (result.retryBlocked === true) {
+          const error = new Error(
+            result.error ??
+              "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
+          );
+          error.oauthRetryBlocked = true;
+          throw error;
+        }
+        if (result.status !== "pending") {
+          return { pending: false, status: null };
+        }
+
+        const attemptId = validateOAuthAttemptId(result.attemptId);
+        loginGeneration = state.oauthLoginGeneration + 1;
+        state.oauthLoginGeneration = loginGeneration;
+        state.oauthAttemptId = attemptId;
+        const loginLink = element("login-link");
+        loginLink.hidden = true;
+        loginLink.removeAttribute("href");
+        setOAuthStopControlVisible(true);
+        setMessage(
+          "A ChatGPT sign-in is still in progress. Complete it in its existing browser tab, or stop it here.",
+        );
+        updateOperationLabel("Reconnecting to ChatGPT sign-in…");
+        await waitForOAuthCompletion(attemptId);
+        if (state.oauthLoginGeneration !== loginGeneration) {
+          return { pending: true, status: null };
+        }
+        return {
+          pending: true,
+          status: await api("/api/status"),
+        };
+      },
+      {
+        allowedSelector: OPERATION_ALLOWED_SELECTOR,
+        progressNote:
+          "Relmio is checking for a server-owned ChatGPT sign-in attempt. If one is active, finish it in the existing browser tab or stop it here.",
+      },
+    );
+
+    if (!recovery) return true;
+    if (!recovery.pending) return false;
+    if (
+      recovery.status &&
+      state.oauthLoginGeneration === loginGeneration
+    ) {
+      renderAuthStatus(recovery.status, { fresh: true });
+    }
+    return true;
+  } catch (error) {
+    if (
+      loginGeneration === null ||
+      state.oauthLoginGeneration === loginGeneration
+    ) {
+      if (error.oauthRetryBlocked === true) {
+        blockOAuthRetry();
+      }
+      showError(error);
+    }
+    return true;
+  } finally {
+    if (
+      loginGeneration !== null &&
+      state.oauthLoginGeneration === loginGeneration
+    ) {
+      state.oauthAttemptId = null;
+      state.oauthLoginWindow = null;
+      setOAuthStopControlVisible(false);
+      if (state.oauthRetryBlocked) {
+        element("login-button").disabled = true;
+      }
+    }
+    if (state.oauthCancellationMessage) {
+      const cancellationMessage = state.oauthCancellationMessage;
+      state.oauthCancellationMessage = "";
+      setMessage(cancellationMessage);
+    }
+  }
+}
+
+async function initializeVpsWizard() {
+  const recoveredOAuth = await recoverPendingOAuthAttempt();
+  if (!recoveredOAuth) {
+    await refreshAuthStatus();
+  }
 }
 
 const OPERATION_INTERACTIVE_SELECTOR =
@@ -736,7 +827,7 @@ function showStep(step) {
 async function api(path, { method = "GET", body } = {}) {
   if (!token) {
     throw new Error(
-      "This wizard link is incomplete. Close this tab and open the full URL printed by the active setup terminal.",
+      "This wizard link is incomplete. Close this tab. For a persistent install, run relmio open. For an NPX run, use npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff.",
     );
   }
 
@@ -752,7 +843,7 @@ async function api(path, { method = "GET", body } = {}) {
     });
   } catch {
     throw new Error(
-      "The local wizard server is not reachable. Keep its terminal window open and restart the latest command.",
+      "The local wizard server is not reachable. For a persistent install, run relmio status, then relmio open. For NPX, use npx --yes --ignore-scripts relmio@latest status, then npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, keep its terminal open and restart that launcher if needed.",
     );
   }
 
@@ -1342,6 +1433,49 @@ element("vps-form").addEventListener("submit", async (event) => {
   }
 });
 
+async function disconnectVpsSession() {
+  const result = await api("/api/disconnect", {
+    method: "POST",
+    body: {},
+  });
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    Object.keys(result).length !== 1 ||
+    result.disconnected !== true
+  ) {
+    throw new Error("The wizard returned an unexpected disconnect response.");
+  }
+  invalidateReviewedPlan();
+  state.discovery = null;
+  state.networks = null;
+  resetFingerprint();
+  element("container-select").replaceChildren();
+  element("network-select").replaceChildren();
+  element("detected-vps-integration-management").hidden = true;
+  return result;
+}
+
+element("disconnect-vps-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  try {
+    const result = await runOperation(
+      button,
+      "Disconnecting from VPS…",
+      disconnectVpsSession,
+    );
+    if (!result) return;
+    showStep(2);
+    setMessage(
+      "Disconnected from the VPS. Check its identity again before reconnecting.",
+    );
+  } catch (error) {
+    showError(error);
+  }
+});
+
 element("container-select").addEventListener("change", async (event) => {
   const select = event.currentTarget;
   const containerName = select.value;
@@ -1549,4 +1683,4 @@ for (const button of document.querySelectorAll(".back-button")) {
 }
 
 renderHttpRequestBody(element("result-model").textContent);
-refreshAuthStatus().catch(showError);
+initializeVpsWizard().catch(showError);

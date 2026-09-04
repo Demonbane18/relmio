@@ -15,6 +15,51 @@ publish a fixed 10-day lifetime; do not plan around one. This provider
 credential is separate from Relmio's local capability, which remains valid
 until you rotate it.
 
+## Provider authentication boundaries
+
+Relmio's Codex targets use the [official Codex App
+Server](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#auth-endpoints).
+Codex owns the ChatGPT OAuth flow, persists its tokens in the target's private
+credential store, and refreshes them. Each target has one active ChatGPT account.
+Switching requires an explicit sign-out followed by a new sign-in;
+OpenAI currently limits its [two-account
+switcher](https://help.openai.com/en/articles/20001068-use-multiple-accounts-with-account-switching)
+to ChatGPT web and says Codex desktop does not yet support it. Relmio does not
+pool accounts or choose another account in response to usage.
+
+Relmio does not ship an xAI target in this release. xAI/Grok authentication is API-key only in the [xAI inference API
+documentation](https://docs.x.ai/developers/rest-api-reference/inference).
+Relmio does not implement third-party Grok OAuth. Future provider
+authentication is denied by default until an official, provider-supported
+method has a reviewed implementation.
+
+A provider response of 401, 403, or 429 fails on the selected
+credential. Relmio never changes accounts or keys automatically after an
+authentication, authorization, rate-limit, or quota failure. For example,
+[xAI documents backoff for `429`](https://docs.x.ai/developers/rate-limits#handling-rate-limit-errors),
+not account or key switching. OpenAI's terms also prohibit [circumventing rate
+limits or restrictions](https://openai.com/policies/terms-of-use/).
+The dashboard never returns or re-shows a stored secret. It reports only
+redacted metadata and offers explicit provider-approved recovery actions.
+
+## Local dashboard lifecycle boundary
+
+The installed dashboard lifecycle has four commands:
+
+`relmio start`, `relmio status`, `relmio open`, and `relmio stop`.
+
+They manage only the current operating-system account's Relmio dashboard on
+`127.0.0.1`. The control credential is separate from the browser session
+credential. `relmio stop` stops only the Relmio dashboard process. It does not
+call Docker or stop, restart, rebuild, recreate, or edit n8n, ngrok, Relmio
+companions, or installed endpoints.
+
+The protected on-disk publication and authenticated health response must agree
+on the exact Relmio package version. A version mismatch is never reused or
+opened as current. A compatible prior daemon may be stopped only through its
+authenticated control endpoint and exact recorded process identity; malformed,
+unresponsive, or incompatible control state remains fail-closed.
+
 ## Trust model
 
 The design assumes:
@@ -52,6 +97,12 @@ shared, or production service.
 
 - The web server binds only to `127.0.0.1`.
 - Every API request needs a random 256-bit session token.
+- Automatic browser opening passes only an owner-only handoff-file path to the
+  operating system. A route-bound one-time capability expires after 30 seconds
+  and is consumed exactly once by a form POST. The response immediately replaces
+  that POST with a clean GET using an independent 10-second per-tab transfer,
+  which is cleared before application startup. Neither value appears in process
+  arguments, a URL, a redirect, a cookie, or browser Web Storage.
 - POST requests must have the exact localhost origin.
 - Browser responses disable caching, framing, cross-origin access, and
   unnecessary permissions.
@@ -61,6 +112,10 @@ shared, or production service.
 - The server binds that confirmation to the exact normalized host and port.
 - Passwords are request-scoped, never saved, never logged, and cleared from
   the page immediately after the connection attempt.
+- The VPS flow exposes **Disconnect from VPS** and also closes an authenticated
+  SSH session after 15 minutes of inactivity. An active remote operation holds
+  a bounded lease; the idle timer resumes as soon as that operation releases
+  the connection.
 - ChatGPT login is written first to a unique pending file, validated, and then
   stored at `~/.n8n-openai-oauth/auth.json` with owner-only permissions. On
   Windows, Relmio applies and reads back the current-account-only NTFS DACL on

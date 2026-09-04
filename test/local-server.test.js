@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import packageManifest from "../package.json" with { type: "json" };
+
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
 import {
   LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
@@ -15,7 +17,16 @@ const platformApiKey = `sk-${"a".repeat(48)}`;
 const clientCredential = "local-client-credential-shown-once";
 const codexProjectName = `relmio-codex-chatgpt-${"01".repeat(16)}`;
 
-async function startLocalWizard(t, services, { previewMode = false } = {}) {
+async function startLocalWizard(
+  t,
+  services,
+  {
+    previewMode = false,
+    controlToken,
+    controlInstanceId,
+    onControlStop,
+  } = {},
+) {
   const wizard = await startWizardServer({
     sessionToken,
     services: {
@@ -25,8 +36,14 @@ async function startLocalWizard(t, services, { previewMode = false } = {}) {
       async getLocalN8nStackStatus() {
         return { managed: false, state: "absent" };
       },
+      async getManagedLocalEndpointStatus() {
+        return { managed: false, state: "absent", snapshot: null };
+      },
       ...services,
     },
+    controlToken,
+    controlInstanceId,
+    onControlStop,
     previewMode,
     uiFiles: {
       "/": "",
@@ -40,6 +57,403 @@ async function startLocalWizard(t, services, { previewMode = false } = {}) {
   t.after(() => wizard.close());
   return wizard;
 }
+
+test("persistent control endpoints report identity and request a separately authenticated shutdown", async (t) => {
+  const controlToken = "d".repeat(43);
+  const controlInstanceId = "11111111-1111-4111-8111-111111111111";
+  let shutdownRequests = 0;
+  let resolveShutdownRequest;
+  const shutdownRequested = new Promise((resolve) => {
+    resolveShutdownRequest = resolve;
+  });
+  const wizard = await startLocalWizard(t, {}, {
+    controlToken,
+    controlInstanceId,
+    onControlStop() {
+      shutdownRequests += 1;
+      resolveShutdownRequest();
+    },
+  });
+  const statusResponse = await fetch(`${wizard.origin}/__relmio/control/status`, {
+    headers: { "X-Relmio-Control": controlToken },
+  });
+  assert.equal(statusResponse.status, 200);
+  assert.deepEqual(await statusResponse.json(), {
+    kind: "relmio-dashboard-control",
+    protocolVersion: 1,
+    packageVersion: packageManifest.version,
+    instanceId: controlInstanceId,
+    pid: process.pid,
+    origin: wizard.origin,
+  });
+
+  const unauthorized = await fetch(`${wizard.origin}/__relmio/control/status`, {
+    headers: { "X-Setup-Token": sessionToken },
+  });
+  assert.equal(unauthorized.status, 401);
+  assert.equal(shutdownRequests, 0);
+
+  const wrongToken = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+    method: "POST",
+    headers: { "X-Relmio-Control": "e".repeat(43) },
+  });
+  assert.equal(wrongToken.status, 401);
+  assert.equal(shutdownRequests, 0);
+
+  const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+    method: "POST",
+    headers: { "X-Relmio-Control": controlToken },
+  });
+  assert.equal(stopResponse.status, 202);
+  assert.deepEqual(await stopResponse.json(), {
+    stopping: true,
+    instanceId: controlInstanceId,
+  });
+
+  await shutdownRequested;
+  assert.equal(shutdownRequests, 1);
+});
+
+test("foreground wizard refuses the persistent shutdown endpoint", async (t) => {
+  const wizard = await startLocalWizard(t, {});
+  const response = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+    method: "POST",
+    headers: { "X-Relmio-Control": "d".repeat(43) },
+  });
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "Not found." });
+});
+
+test("persistent shutdown refuses to interrupt an in-flight local mutation", async (t) => {
+  const controlToken = "f".repeat(43);
+  let releaseInstall;
+  let notifyInstallStarted;
+  let shutdownRequests = 0;
+  const installStarted = new Promise((resolve) => {
+    notifyInstallStarted = resolve;
+  });
+  const installGate = new Promise((resolve) => {
+    releaseInstall = resolve;
+  });
+  t.after(() => releaseInstall());
+  const wizard = await startLocalWizard(t, {
+    async installLocalEndpoint({ plan }) {
+      notifyInstallStarted();
+      await installGate;
+      return {
+        target: plan.target,
+        endpoint: plan.endpoint,
+        protocol: plan.protocol,
+        clientCredential,
+        credentialShownOnce: true,
+        models: ["gpt-5.6-sol"],
+        deploymentMode: "installed",
+        experimental: plan.experimental,
+        browserClients: plan.browserClients,
+      };
+    },
+  }, {
+    controlToken,
+    controlInstanceId: "22222222-2222-4222-8222-222222222222",
+    onControlStop() {
+      shutdownRequests += 1;
+    },
+  });
+
+  const plan = await createPlan(wizard, {
+    target: "openai-api",
+    port: 12435,
+    allowedOrigins: [],
+  });
+  const installing = postJson(wizard, "/api/local/install", {
+    planId: plan.planId,
+    confirmed: true,
+    apiKey: platformApiKey,
+  });
+  await installStarted;
+
+  const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+    method: "POST",
+    headers: { "X-Relmio-Control": controlToken },
+  });
+  assert.equal(stopResponse.status, 409);
+  assert.match((await stopResponse.json()).error, /another operation/iu);
+  assert.equal(shutdownRequests, 0);
+
+  releaseInstall();
+  assert.equal((await installing).status, 200);
+});
+
+test("persistent shutdown refuses to interrupt an in-flight VPS identity scan", async (t) => {
+  const controlToken = "g".repeat(43);
+  let releaseScan;
+  let notifyScanStarted;
+  let shutdownRequests = 0;
+  const scanStarted = new Promise((resolve) => {
+    notifyScanStarted = resolve;
+  });
+  const scanGate = new Promise((resolve) => {
+    releaseScan = resolve;
+  });
+  t.after(() => releaseScan());
+  const wizard = await startLocalWizard(t, {
+    async scanHostFingerprint() {
+      notifyScanStarted();
+      await scanGate;
+      return "SHA256:verified-test-fingerprint";
+    },
+  }, {
+    controlToken,
+    controlInstanceId: "33333333-3333-4333-8333-333333333333",
+    onControlStop() {
+      shutdownRequests += 1;
+    },
+  });
+
+  const scanning = postJson(wizard, "/api/ssh/fingerprint", {
+    host: "192.0.2.10",
+    port: 22,
+  });
+  await scanStarted;
+
+  const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+    method: "POST",
+    headers: { "X-Relmio-Control": controlToken },
+  });
+  assert.equal(stopResponse.status, 409);
+  assert.match((await stopResponse.json()).error, /another operation/iu);
+  assert.equal(shutdownRequests, 0);
+
+  releaseScan();
+  assert.equal((await scanning).status, 200);
+});
+
+test("persistent shutdown refuses to interrupt an active authenticated VPS request", async (t) => {
+  const controlToken = "j".repeat(43);
+  let releaseDiscovery;
+  let notifyDiscoveryStarted;
+  let shutdownRequests = 0;
+  const discoveryStarted = new Promise((resolve) => {
+    notifyDiscoveryStarted = resolve;
+  });
+  const discoveryGate = new Promise((resolve) => {
+    releaseDiscovery = resolve;
+  });
+  t.after(() => releaseDiscovery());
+  const remote = { close() {} };
+  const wizard = await startLocalWizard(t, {
+    async scanHostFingerprint() {
+      return "SHA256:verified-test-fingerprint";
+    },
+    async connectVerified() {
+      return remote;
+    },
+    async discoverN8n() {
+      notifyDiscoveryStarted();
+      await discoveryGate;
+      return { containers: [] };
+    },
+  }, {
+    controlToken,
+    controlInstanceId: "66666666-6666-4666-8666-666666666666",
+    onControlStop() {
+      shutdownRequests += 1;
+    },
+  });
+
+  const fingerprint = await postJson(wizard, "/api/ssh/fingerprint", {
+    host: "192.0.2.10",
+    port: 22,
+  });
+  const { fingerprint: expectedFingerprint } = await fingerprint.json();
+  const connected = await postJson(wizard, "/api/ssh/connect", {
+    host: "192.0.2.10",
+    port: 22,
+    username: "root",
+    password: "x".repeat(32),
+    expectedFingerprint,
+  });
+  assert.equal(connected.status, 200);
+
+  const discovery = postJson(wizard, "/api/discover", {});
+  await discoveryStarted;
+  const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+    method: "POST",
+    headers: { "X-Relmio-Control": controlToken },
+  });
+  assert.equal(stopResponse.status, 409);
+  assert.match((await stopResponse.json()).error, /another operation/iu);
+  assert.equal(shutdownRequests, 0);
+
+  releaseDiscovery();
+  assert.equal((await discovery).status, 200);
+});
+
+test("persistent shutdown accepts terminal OAuth retry-blocked state", async (t) => {
+  const controlToken = "h".repeat(43);
+  const controlInstanceId = "44444444-4444-4444-8444-444444444444";
+  let shutdownRequests = 0;
+  let resolveShutdownRequest;
+  const shutdownRequested = new Promise((resolve) => {
+    resolveShutdownRequest = resolve;
+  });
+  const wizard = await startLocalWizard(t, {
+    async startOAuthLogin() {
+      throw Object.assign(
+        new Error("The ChatGPT sign-in result could not be confirmed."),
+        { retryBlocked: true },
+      );
+    },
+  }, {
+    controlToken,
+    controlInstanceId,
+    onControlStop() {
+      shutdownRequests += 1;
+      resolveShutdownRequest();
+    },
+  });
+
+  const login = await postJson(wizard, "/api/oauth/login", {});
+  assert.equal(login.status, 400);
+  assert.deepEqual(await login.json(), {
+    error: "The ChatGPT sign-in result could not be confirmed.",
+    retryBlocked: true,
+  });
+
+  const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+    method: "POST",
+    headers: { "X-Relmio-Control": controlToken },
+  });
+  assert.equal(stopResponse.status, 202);
+  assert.deepEqual(await stopResponse.json(), {
+    stopping: true,
+    instanceId: controlInstanceId,
+  });
+  await shutdownRequested;
+  assert.equal(shutdownRequests, 1);
+});
+
+test("persistent shutdown still refuses an active OAuth attempt", async (t) => {
+  const controlToken = "i".repeat(43);
+  let shutdownRequests = 0;
+  const wizard = await startLocalWizard(t, {
+    async startOAuthLogin() {
+      return {
+        authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+        completion: new Promise(() => {}),
+        cancel() {},
+      };
+    },
+  }, {
+    controlToken,
+    controlInstanceId: "55555555-5555-4555-8555-555555555555",
+    onControlStop() {
+      shutdownRequests += 1;
+    },
+  });
+
+  const login = await postJson(wizard, "/api/oauth/login", {});
+  assert.equal(login.status, 200);
+
+  const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+    method: "POST",
+    headers: { "X-Relmio-Control": controlToken },
+  });
+  assert.equal(stopResponse.status, 409);
+  assert.match((await stopResponse.json()).error, /another operation/iu);
+  assert.equal(shutdownRequests, 0);
+});
+
+test("persistent shutdown refuses OAuth startup and cancellation work", async (t) => {
+  await t.test("startup", async (subtest) => {
+    const controlToken = "k".repeat(43);
+    let releaseStart;
+    let notifyStart;
+    let shutdownRequests = 0;
+    const startEntered = new Promise((resolve) => {
+      notifyStart = resolve;
+    });
+    const startGate = new Promise((resolve) => {
+      releaseStart = resolve;
+    });
+    subtest.after(() => releaseStart());
+    const wizard = await startLocalWizard(subtest, {
+      async startOAuthLogin() {
+        notifyStart();
+        await startGate;
+        return {
+          authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+          completion: Promise.resolve({ success: true }),
+          cancel() {},
+        };
+      },
+    }, {
+      controlToken,
+      controlInstanceId: "77777777-7777-4777-8777-777777777777",
+      onControlStop() {
+        shutdownRequests += 1;
+      },
+    });
+
+    const login = postJson(wizard, "/api/oauth/login", {});
+    await startEntered;
+    const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+      method: "POST",
+      headers: { "X-Relmio-Control": controlToken },
+    });
+    assert.equal(stopResponse.status, 409);
+    assert.equal(shutdownRequests, 0);
+
+    releaseStart();
+    assert.equal((await login).status, 200);
+  });
+
+  await t.test("cancellation", async (subtest) => {
+    const controlToken = "l".repeat(43);
+    let releaseCancel;
+    let notifyCancel;
+    let shutdownRequests = 0;
+    const cancelEntered = new Promise((resolve) => {
+      notifyCancel = resolve;
+    });
+    const cancelGate = new Promise((resolve) => {
+      releaseCancel = resolve;
+    });
+    subtest.after(() => releaseCancel());
+    const wizard = await startLocalWizard(subtest, {
+      async startOAuthLogin() {
+        return {
+          authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+          completion: new Promise(() => {}),
+          async cancel() {
+            notifyCancel();
+            await cancelGate;
+          },
+        };
+      },
+    }, {
+      controlToken,
+      controlInstanceId: "88888888-8888-4888-8888-888888888888",
+      onControlStop() {
+        shutdownRequests += 1;
+      },
+    });
+
+    const login = await postJson(wizard, "/api/oauth/login", {});
+    const { attemptId } = await login.json();
+    const cancelling = postJson(wizard, "/api/oauth/cancel", { attemptId });
+    await cancelEntered;
+    const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
+      method: "POST",
+      headers: { "X-Relmio-Control": controlToken },
+    });
+    assert.equal(stopResponse.status, 409);
+    assert.equal(shutdownRequests, 0);
+
+    releaseCancel();
+    assert.equal((await cancelling).status, 200);
+  });
+});
 
 async function api(wizard, path, options = {}) {
   return await fetch(`${wizard.origin}${path}`, {
@@ -264,6 +678,111 @@ test("local chat tester APIs keep the setup-token boundary and return no credent
   assert.match((await disabled.json()).error, /disabled in sanitized preview mode/iu);
 });
 
+test("local chat tester re-attests an installed adapter after the wizard restarts", async (t) => {
+  let statusCalls = 0;
+  const wizard = await startLocalWizard(t, {
+    async getManagedLocalEndpointStatus({ target }) {
+      statusCalls += 1;
+      assert.equal(target, "codex-chat");
+      return {
+        managed: true,
+        state: "healthy",
+        snapshot: {
+          target: "codex-chat",
+          endpoint: "http://127.0.0.1:14501",
+          auth: { configured: true, disclosure: "rotate-only" },
+          canRotateCredential: true,
+        },
+      };
+    },
+    localChatTest: {
+      async issueKey() {
+        return {
+          keyId: "restart-safe-tester-key",
+          publicKeyJwk: { kty: "RSA", n: "public-modulus", e: "AQAB" },
+          algorithm: "RSA-OAEP-256",
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        };
+      },
+    },
+  });
+
+  const response = await postJson(wizard, "/api/local/chat-test/key", {});
+  assert.equal(response.status, 200);
+  assert.equal(statusCalls, 1);
+  assert.equal((await response.json()).keyId, "restart-safe-tester-key");
+});
+
+test("dashboard discard revokes a tester key that finishes issuing after the discard", async (t) => {
+  let releaseFirstKey;
+  let notifyFirstKeyStarted;
+  let issueCalls = 0;
+  let resetAllCalls = 0;
+  const liveKeys = new Set();
+  const targetedResets = [];
+  const firstKeyStarted = new Promise((resolve) => {
+    notifyFirstKeyStarted = resolve;
+  });
+  const firstKeyGate = new Promise((resolve) => {
+    releaseFirstKey = resolve;
+  });
+  t.after(() => releaseFirstKey());
+
+  const wizard = await startLocalWizard(t, {
+    async getManagedLocalEndpointStatus() {
+      return {
+        managed: true,
+        state: "healthy",
+        snapshot: { target: "codex-chat" },
+      };
+    },
+    localChatTest: {
+      async issueKey() {
+        issueCalls += 1;
+        const keyId = `tester-key-${issueCalls}`;
+        if (issueCalls === 1) {
+          notifyFirstKeyStarted();
+          await firstKeyGate;
+        }
+        liveKeys.add(keyId);
+        return {
+          keyId,
+          publicKeyJwk: { kty: "RSA", n: "public-modulus", e: "AQAB" },
+          algorithm: "RSA-OAEP-256",
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        };
+      },
+      async reset({ keyId }) {
+        targetedResets.push(keyId);
+        liveKeys.delete(keyId);
+        return { forgotten: true };
+      },
+      resetAll() {
+        resetAllCalls += 1;
+        liveKeys.clear();
+      },
+    },
+  });
+
+  const issuing = postJson(wizard, "/api/local/chat-test/key", {});
+  await firstKeyStarted;
+  assert.equal((await postJson(wizard, "/api/local/discard", {})).status, 200);
+  assert.equal(resetAllCalls, 1);
+  releaseFirstKey();
+
+  const staleKey = await issuing;
+  assert.equal(staleKey.status, 409);
+  assert.match((await staleKey.json()).error, /dashboard|discard|changed/iu);
+  assert.deepEqual(targetedResets, ["tester-key-1"]);
+  assert.deepEqual([...liveKeys], []);
+
+  const freshKey = await postJson(wizard, "/api/local/chat-test/key", {});
+  assert.equal(freshKey.status, 200);
+  assert.equal((await freshKey.json()).keyId, "tester-key-2");
+  assert.deepEqual([...liveKeys], ["tester-key-2"]);
+  assert.equal(resetAllCalls, 1);
+});
+
 test("local project metadata exposes only the public GitHub star count and package version", async (t) => {
   const wizard = await startLocalWizard(t, {
     async getProjectMeta() {
@@ -426,6 +945,15 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
   const ngrokSetupErrorMessage =
     "The n8n + ngrok stack did not start because ngrok rejected its account, endpoint, or credential setup. Check the reserved hostname, active agent authtoken, and Basic Auth. Relmio removed the failed owned resources; retry is safe.";
   assert.equal(ngrokSetupErrorMessage.length <= 240, true);
+  let releaseFirstInstall;
+  let notifyFirstInstallStarted;
+  const firstInstallStarted = new Promise((resolve) => {
+    notifyFirstInstallStarted = resolve;
+  });
+  const firstInstallGate = new Promise((resolve) => {
+    releaseFirstInstall = resolve;
+  });
+  t.after(() => releaseFirstInstall());
   const calls = [];
   const wizard = await startLocalWizard(t, {
     async getLocalDockerStatus() {
@@ -436,6 +964,10 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
     },
     async installLocalN8nStack(input) {
       calls.push(input);
+      if (calls.length === 1) {
+        notifyFirstInstallStarted();
+        await firstInstallGate;
+      }
       throw Object.assign(new Error(ngrokSetupErrorMessage), {
         code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
         failureKind: LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
@@ -457,7 +989,14 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
     basicAuthUsername: "relmio",
     basicAuthPassword: password,
   });
-  const first = await attempt();
+  const firstAttempt = attempt();
+  await firstInstallStarted;
+  const discarded = await postJson(wizard, "/api/local/discard", {});
+  assert.equal(discarded.status, 409);
+  assert.match((await discarded.json()).error, /already in progress/iu);
+  releaseFirstInstall();
+
+  const first = await firstAttempt;
   assert.equal(first.status, 400);
   const firstText = await first.text();
   assert.equal(firstText.includes(authtoken), false);
@@ -687,6 +1226,460 @@ test("local Docker status exposes only the literal unavailable state when stack 
     localN8nStackState: "unavailable",
   });
   assert.equal(text.includes("must-not-leak"), false);
+});
+
+test("local dashboard returns only the fixed sanitized inventory contract", async (t) => {
+  const canary = "must-not-leak-dashboard-secret";
+  const generatedAt = "2026-09-04T02:00:00.000Z";
+  const absent = (target, label, kind) => ({
+    target,
+    label,
+    kind,
+    managed: false,
+    state: "absent",
+    snapshot: null,
+    actions: ["setup"],
+  });
+  const wizard = await startLocalWizard(t, {
+    async getLocalDashboardStatus() {
+      return {
+        schemaVersion: 1,
+        generatedAt,
+        docker: {
+          available: true,
+          version: "29.7.2",
+          composeVersion: "5.3.1",
+          dockerHost: canary,
+        },
+        auth: {
+          secretsRevealable: false,
+          token: canary,
+        },
+        services: [
+          {
+            target: "openai-api",
+            label: "OpenAI API",
+            kind: "endpoint",
+            managed: true,
+            state: "healthy",
+            snapshot: {
+              target: "openai-api",
+              endpoint: "http://127.0.0.1:12435/v1",
+              auth: { configured: true, disclosure: "rotate-only", token: canary },
+              canRotateCredential: true,
+              installRoot: canary,
+            },
+            actions: ["rotate-credential"],
+            marker: canary,
+          },
+          absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
+          absent("codex-chat", "Codex Chat adapter", "endpoint"),
+          {
+            target: "local-n8n-stack",
+            label: "n8n + ngrok",
+            kind: "n8n-stack",
+            managed: true,
+            state: "stopped",
+            snapshot: {
+              target: "local-n8n-stack",
+              assistantMode: "sandbox-with-searxng",
+              endpoints: {
+                n8nLocal: "http://127.0.0.1:80",
+                ngrokPublic: "https://example.ngrok.app",
+                ngrokInspector: "http://127.0.0.1:81",
+                secret: canary,
+              },
+              components: {
+                n8n: true,
+                ngrok: true,
+                codeSandbox: true,
+                searxng: true,
+                credential: canary,
+              },
+              canResume: true,
+              canRemove: true,
+              env: canary,
+            },
+            actions: ["resume", "remove"],
+          },
+          absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
+          absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
+        ],
+        rawError: canary,
+      };
+    },
+  });
+
+  const response = await api(wizard, "/api/local/dashboard");
+  assert.equal(response.status, 200);
+  const responseText = await response.text();
+  assert.equal(responseText.includes(canary), false);
+  assert.equal(responseText.includes("reveal-secret"), false);
+  assert.deepEqual(JSON.parse(responseText), {
+    schemaVersion: 1,
+    generatedAt,
+    docker: {
+      available: true,
+      version: "29.7.2",
+      composeVersion: "5.3.1",
+    },
+    auth: { secretsRevealable: false },
+    services: [
+      {
+        target: "openai-api",
+        label: "OpenAI API",
+        kind: "endpoint",
+        managed: true,
+        state: "healthy",
+        snapshot: {
+          target: "openai-api",
+          endpoint: "http://127.0.0.1:12435/v1",
+          auth: { configured: true, disclosure: "rotate-only" },
+          canRotateCredential: true,
+        },
+        actions: ["rotate-credential"],
+      },
+      absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
+      absent("codex-chat", "Codex Chat adapter", "endpoint"),
+      {
+        target: "local-n8n-stack",
+        label: "n8n + ngrok",
+        kind: "n8n-stack",
+        managed: true,
+        state: "stopped",
+        snapshot: {
+          target: "local-n8n-stack",
+          assistantMode: "sandbox-with-searxng",
+          endpoints: {
+            n8nLocal: "http://127.0.0.1:80",
+            ngrokPublic: "https://example.ngrok.app",
+            ngrokInspector: "http://127.0.0.1:81",
+          },
+          components: {
+            n8n: true,
+            ngrok: true,
+            codeSandbox: true,
+            searxng: true,
+          },
+          canResume: true,
+          canRemove: true,
+        },
+        actions: ["resume", "remove"],
+      },
+      absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
+      absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
+    ],
+  });
+});
+
+test("local dashboard accepts only the exact healthy Codex sign-in action matrix", async (t) => {
+  const generatedAt = "2026-09-04T02:00:00.000Z";
+  const canary = "must-not-leak-codex-dashboard-action";
+  const absent = (target, label, kind) => ({
+    target,
+    label,
+    kind,
+    managed: false,
+    state: "absent",
+    snapshot: null,
+    actions: ["setup"],
+  });
+  const endpoint = (target, endpointUrl, actions) => ({
+    target,
+    label: target === "openai-api"
+      ? "OpenAI API"
+      : target === "codex-chatgpt"
+        ? "Codex (ChatGPT login)"
+        : "Codex Chat adapter",
+    kind: "endpoint",
+    managed: true,
+    state: "healthy",
+    snapshot: {
+      target,
+      endpoint: endpointUrl,
+      auth: { configured: true, disclosure: "rotate-only" },
+      canRotateCredential: true,
+      canSignIn: true,
+      secret: canary,
+    },
+    actions,
+  });
+  const validStatus = {
+    schemaVersion: 1,
+    generatedAt,
+    docker: { available: true, version: "29.7.2", composeVersion: "5.3.1" },
+    auth: { secretsRevealable: false },
+    services: [
+      endpoint("openai-api", "http://127.0.0.1:12435/v1", ["rotate-credential"]),
+      endpoint(
+        "codex-chatgpt",
+        "ws://127.0.0.1:14500",
+        ["sign-in", "rotate-credential"],
+      ),
+      endpoint(
+        "codex-chat",
+        "http://127.0.0.1:14501",
+        ["sign-in", "rotate-credential"],
+      ),
+      absent("local-n8n-stack", "n8n + ngrok", "n8n-stack"),
+      absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
+      absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
+    ],
+  };
+  const validWizard = await startLocalWizard(t, {
+    async getLocalDashboardStatus() {
+      return validStatus;
+    },
+  });
+  const validResponse = await api(validWizard, "/api/local/dashboard");
+  assert.equal(validResponse.status, 200);
+  const validText = await validResponse.text();
+  const valid = JSON.parse(validText);
+  assert.deepEqual(
+    valid.services.slice(0, 3).map(({ actions }) => actions),
+    [
+      ["rotate-credential"],
+      ["sign-in", "rotate-credential"],
+      ["sign-in", "rotate-credential"],
+    ],
+  );
+  assert.equal(validText.includes("canSignIn"), false);
+  assert.equal(validText.includes(canary), false);
+
+  const scenarios = [
+    {
+      name: "openai-sign-in",
+      mutate(status) {
+        status.services[0].actions = ["sign-in", "rotate-credential"];
+      },
+    },
+    {
+      name: "stopped-codex",
+      mutate(status) {
+        status.services[1].state = "stopped";
+        status.services[1].actions = ["sign-in"];
+      },
+    },
+    {
+      name: "partial-codex",
+      mutate(status) {
+        status.services[1].state = "partial";
+        status.services[1].snapshot = null;
+        status.services[1].actions = ["sign-in"];
+      },
+    },
+    {
+      name: "unavailable-codex",
+      mutate(status) {
+        status.services[2].managed = false;
+        status.services[2].state = "unavailable";
+        status.services[2].snapshot = null;
+        status.services[2].actions = ["sign-in"];
+      },
+    },
+    {
+      name: "absent-codex",
+      mutate(status) {
+        status.services[2].managed = false;
+        status.services[2].state = "absent";
+        status.services[2].snapshot = null;
+        status.services[2].actions = ["sign-in"];
+      },
+    },
+    {
+      name: "extra-action",
+      mutate(status) {
+        status.services[1].actions.push("remove");
+      },
+    },
+    {
+      name: "reordered-actions",
+      mutate(status) {
+        status.services[2].actions = ["rotate-credential", "sign-in"];
+      },
+    },
+    {
+      name: "unsafe-snapshot",
+      mutate(status) {
+        status.services[1].snapshot.endpoint = `https://attacker.example/${canary}`;
+      },
+    },
+  ];
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async (subtest) => {
+      const status = structuredClone(validStatus);
+      scenario.mutate(status);
+      const wizard = await startLocalWizard(subtest, {
+        async getLocalDashboardStatus() {
+          return status;
+        },
+      });
+      const response = await api(wizard, "/api/local/dashboard");
+      assert.equal(response.status, 400);
+      const text = await response.text();
+      assert.equal(text.includes(canary), false);
+    });
+  }
+});
+
+test("local dashboard preview never runs live discovery", async (t) => {
+  let calls = 0;
+  const wizard = await startLocalWizard(t, {
+    async getLocalDashboardStatus() {
+      calls += 1;
+      throw new Error("must-not-run");
+    },
+  }, { previewMode: true });
+
+  const response = await api(wizard, "/api/local/dashboard");
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(calls, 0);
+  assert.equal(body.previewMode, true);
+  assert.equal(body.auth.secretsRevealable, false);
+  assert.equal(body.services.length, 6);
+  assert.ok(body.services.every((service) =>
+    service.managed === false &&
+    service.state === "absent" &&
+    service.snapshot === null &&
+    service.actions.length === 1 &&
+    service.actions[0] === "setup"));
+});
+
+test("local dashboard keeps unattested partial services review-only", async (t) => {
+  const absent = (target, label, kind) => ({
+    target,
+    label,
+    kind,
+    managed: false,
+    state: "absent",
+    snapshot: null,
+    actions: ["setup"],
+  });
+  const wizard = await startLocalWizard(t, {
+    async getLocalDashboardStatus() {
+      return {
+        schemaVersion: 1,
+        generatedAt: "2026-09-04T02:00:00.000Z",
+        docker: { available: true, version: "29.7.2", composeVersion: "5.3.1" },
+        auth: { secretsRevealable: false },
+        services: [
+          absent("openai-api", "OpenAI API", "endpoint"),
+          absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
+          absent("codex-chat", "Codex Chat adapter", "endpoint"),
+          {
+            target: "local-n8n-stack",
+            label: "n8n + ngrok",
+            kind: "n8n-stack",
+            managed: true,
+            state: "partial",
+            snapshot: null,
+            actions: [],
+          },
+          absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
+          absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
+        ],
+      };
+    },
+  });
+
+  const response = await api(wizard, "/api/local/dashboard");
+  assert.equal(response.status, 200);
+  const service = (await response.json()).services.find(
+    ({ target }) => target === "local-n8n-stack",
+  );
+  assert.equal(service.state, "partial");
+  assert.equal(service.snapshot, null);
+  assert.deepEqual(service.actions, []);
+});
+
+test("local dashboard rejects an incomplete or reordered fixed service set", async (t) => {
+  const definitions = [
+    ["openai-api", "OpenAI API", "endpoint"],
+    ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
+    ["codex-chat", "Codex Chat adapter", "endpoint"],
+    ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
+    ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
+    ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
+  ];
+  const serviceSet = definitions.map(([target, label, kind]) => ({
+    target,
+    label,
+    kind,
+    managed: false,
+    state: "absent",
+    snapshot: null,
+    actions: ["setup"],
+  }));
+  for (const scenario of [serviceSet.slice(0, -1), [...serviceSet].reverse()]) {
+    await t.test(String(scenario.length), async (subtest) => {
+      const wizard = await startLocalWizard(subtest, {
+        async getLocalDashboardStatus() {
+          return {
+            schemaVersion: 1,
+            generatedAt: "2026-09-04T02:00:00.000Z",
+            docker: { available: true, version: "29.7.2", composeVersion: "5.3.1" },
+            auth: { secretsRevealable: false },
+            services: scenario,
+          };
+        },
+      });
+      const response = await api(wizard, "/api/local/dashboard");
+      assert.equal(response.status, 400);
+      assert.match((await response.json()).error, /dashboard service/u);
+    });
+  }
+});
+
+test("local dashboard derives actions and rejects unsafe Docker versions", async (t) => {
+  const definitions = [
+    ["openai-api", "OpenAI API", "endpoint"],
+    ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
+    ["codex-chat", "Codex Chat adapter", "endpoint"],
+    ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
+    ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
+    ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
+  ];
+  const baseStatus = {
+    schemaVersion: 1,
+    generatedAt: "2026-09-04T02:00:00.000Z",
+    docker: { available: true, version: "29.7.2", composeVersion: "5.3.1" },
+    auth: { secretsRevealable: false },
+    services: definitions.map(([target, label, kind]) => ({
+      target,
+      label,
+      kind,
+      managed: false,
+      state: "absent",
+      snapshot: null,
+      actions: ["setup"],
+    })),
+  };
+  const scenarios = [
+    (() => {
+      const status = structuredClone(baseStatus);
+      status.services[0].actions.push("remove");
+      return status;
+    })(),
+    (() => {
+      const status = structuredClone(baseStatus);
+      status.docker.version = "/private/tmp/docker-secret";
+      return status;
+    })(),
+  ];
+  for (const [index, status] of scenarios.entries()) {
+    await t.test(String(index), async (subtest) => {
+      const wizard = await startLocalWizard(subtest, {
+        async getLocalDashboardStatus() {
+          return status;
+        },
+      });
+      const response = await api(wizard, "/api/local/dashboard");
+      assert.equal(response.status, 400);
+      const text = await response.text();
+      assert.equal(text.includes("/private/tmp/docker-secret"), false);
+    });
+  }
 });
 
 test("local n8n startup errors expose recovery only for the exact attested partial-stack code", async (t) => {
@@ -1737,6 +2730,348 @@ test("local credential rotation is setup-token protected, live-only, rate-limite
   });
   assert.equal(disabled.status, 403);
   assert.match((await disabled.json()).error, /disabled in sanitized preview mode/iu);
+});
+
+test("dashboard discard invalidates reviewed local state and clears safe installed-target state", async (t) => {
+  const assistantReview = createAssistantSearxngEditReview();
+  let installCalls = 0;
+  let assistantEditCalls = 0;
+  let rotationPrepareCalls = 0;
+  let rotationActivateCalls = 0;
+  let chatKeyCalls = 0;
+  let chatResetCalls = 0;
+  const wizard = await startLocalWizard(t, {
+    localChatTest: {
+      async issueKey() {
+        chatKeyCalls += 1;
+        return {
+          keyId: `discard-key-${chatKeyCalls}`,
+          publicKeyJwk: { kty: "RSA", n: "public-modulus", e: "AQAB" },
+          algorithm: "RSA-OAEP-256",
+          expiresAt: "2030-01-01T00:00:00.000Z",
+        };
+      },
+      resetAll() {
+        chatResetCalls += 1;
+      },
+    },
+    async getManagedLocalEndpointStatus() {
+      return { managed: false, state: "absent", snapshot: null };
+    },
+    async installLocalEndpoint({ plan }) {
+      installCalls += 1;
+      return {
+        target: plan.target,
+        endpoint: plan.endpoint,
+        protocol: plan.protocol,
+        clientCredential,
+        credentialShownOnce: true,
+        models: [],
+        deploymentMode: "installed",
+        experimental: plan.experimental,
+        browserClients: plan.browserClients,
+      };
+    },
+    async prepareLocalN8nAssistantSearxngUpdate() {
+      return assistantReview;
+    },
+    async editLocalN8nAssistantSearxng() {
+      assistantEditCalls += 1;
+      throw new Error("a discarded review must not reach the edit service");
+    },
+    async prepareLocalClientCredentialRotation({ target }) {
+      rotationPrepareCalls += 1;
+      return {
+        target,
+        endpoint: target === "codex-chatgpt"
+          ? "ws://127.0.0.1:14500"
+          : "http://127.0.0.1:14501",
+        protocol: target === "codex-chatgpt"
+          ? "codex-app-server-json-rpc"
+          : "relmio-codex-chat",
+        clientCredential,
+        tokenSha256: "a".repeat(64),
+        credentialShownOnce: true,
+        models: [],
+        deploymentMode: "staged",
+        experimental: true,
+        browserClients: false,
+      };
+    },
+    async activateLocalClientCredentialRotation() {
+      rotationActivateCalls += 1;
+      throw new Error("a discarded rotation must not reach the activation service");
+    },
+  });
+
+  const installedPlan = await createPlan(wizard, {
+    target: "codex-chat",
+    port: 14501,
+    allowedOrigins: [],
+  });
+  assert.equal(
+    (await postJson(wizard, "/api/local/install", {
+      planId: installedPlan.planId,
+      confirmed: true,
+    })).status,
+    200,
+  );
+  assert.equal(
+    (await postJson(wizard, "/api/local/chat-test/key", {})).status,
+    200,
+  );
+
+  const oldPlan = await createPlan(wizard, {
+    target: "openai-api",
+    port: 12435,
+    allowedOrigins: [],
+  });
+  const reviewed = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/review",
+    { includeSearxng: true },
+  );
+  assert.equal(reviewed.status, 200);
+  const oldReview = await reviewed.json();
+  const rotated = await postJson(
+    wizard,
+    "/api/local/client-credential/rotate",
+    { target: "codex-chatgpt" },
+  );
+  assert.equal(rotated.status, 200);
+  const oldRotation = await rotated.json();
+
+  const unauthorized = await fetch(`${wizard.origin}/api/local/discard`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: wizard.origin },
+    body: "{}",
+  });
+  assert.equal(unauthorized.status, 401);
+  const crossOrigin = await api(wizard, "/api/local/discard", {
+    method: "POST",
+    headers: { Origin: "http://malicious.example" },
+    body: "{}",
+  });
+  assert.equal(crossOrigin.status, 403);
+  const stillBlocked = await postJson(
+    wizard,
+    "/api/local/client-credential/rotate",
+    { target: "codex-chatgpt" },
+  );
+  assert.equal(stillBlocked.status, 409);
+  assert.equal(rotationPrepareCalls, 1);
+
+  const resetsBeforeDiscard = chatResetCalls;
+  const discarded = await postJson(wizard, "/api/local/discard", {});
+  assert.equal(discarded.status, 200);
+  assert.deepEqual(await discarded.json(), { discarded: true });
+  assert.equal(chatResetCalls, resetsBeforeDiscard + 1);
+
+  const oldInstall = await postJson(wizard, "/api/local/install", {
+    planId: oldPlan.planId,
+    confirmed: true,
+    apiKey: platformApiKey,
+  });
+  assert.equal(oldInstall.status, 400);
+  assert.match((await oldInstall.json()).error, /fresh local endpoint plan/iu);
+  assert.equal(installCalls, 1);
+
+  const oldEnable = await postJson(
+    wizard,
+    "/api/local/n8n/assistant/searxng/enable",
+    { reviewId: oldReview.reviewId, confirmed: true },
+  );
+  assert.equal(oldEnable.status, 400);
+  assert.match((await oldEnable.json()).error, /review/iu);
+  assert.equal(assistantEditCalls, 0);
+
+  const oldActivation = await postJson(
+    wizard,
+    "/api/local/client-credential/activate",
+    {
+      rotationId: oldRotation.rotationId,
+      clientCredential: oldRotation.clientCredential,
+    },
+  );
+  assert.equal(oldActivation.status, 400);
+  assert.match((await oldActivation.json()).error, /fresh local client credential/iu);
+  assert.equal(rotationActivateCalls, 0);
+
+  const freshRotation = await postJson(
+    wizard,
+    "/api/local/client-credential/rotate",
+    { target: "codex-chatgpt" },
+  );
+  assert.equal(freshRotation.status, 200);
+  assert.equal(rotationPrepareCalls, 2);
+
+  const discardedInstalledTarget = await postJson(
+    wizard,
+    "/api/local/chat-test/key",
+    {},
+  );
+  assert.equal(discardedInstalledTarget.status, 409);
+  assert.equal(chatKeyCalls, 1);
+});
+
+test("dashboard discard rejects a local plan that finishes discovery after the discard", async (t) => {
+  let releaseDiscovery;
+  let notifyDiscoveryStarted;
+  let installCalls = 0;
+  const discoveryStarted = new Promise((resolve) => {
+    notifyDiscoveryStarted = resolve;
+  });
+  const discoveryGate = new Promise((resolve) => {
+    releaseDiscovery = resolve;
+  });
+  t.after(() => releaseDiscovery());
+
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      notifyDiscoveryStarted();
+      await discoveryGate;
+      return {
+        dockerAvailable: true,
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        containers: [
+          {
+            containerId: "a".repeat(64),
+            containerName: "relmio-test-n8n",
+            image: "docker.n8n.io/n8nio/n8n:2.36.8",
+            networks: [
+              {
+                dockerNetworkId: "b".repeat(64),
+                networkName: "relmio-test_default",
+                disposable: false,
+              },
+            ],
+          },
+        ],
+      };
+    },
+    async getAuthStatus() {
+      return {
+        exists: true,
+        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
+        updatedAt: "2026-09-04T01:02:03.000Z",
+      };
+    },
+    async installLocalN8nSidecar() {
+      installCalls += 1;
+      throw new Error("a discarded in-flight plan must not install");
+    },
+  });
+
+  const planning = postJson(wizard, "/api/local/plan", {
+    target: "n8n-openai-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  await discoveryStarted;
+
+  assert.equal((await postJson(wizard, "/api/local/discard", {})).status, 200);
+  releaseDiscovery();
+
+  const stalePlan = await planning;
+  assert.equal(stalePlan.status, 409);
+  assert.match((await stalePlan.json()).error, /dashboard|discard|changed/iu);
+
+  const install = await postJson(wizard, "/api/local/install", {
+    planId: "discarded-in-flight-plan",
+    confirmed: true,
+  });
+  assert.equal(install.status, 400);
+  assert.match((await install.json()).error, /fresh local endpoint plan/iu);
+  assert.equal(installCalls, 0);
+});
+
+test("dashboard discard leaves a running ChatGPT login helper attached", async (t) => {
+  let finishLogin;
+  let cancelCalls = 0;
+  const completion = new Promise((resolve) => {
+    finishLogin = resolve;
+  });
+  const wizard = await startLocalWizard(t, {
+    async startOAuthLogin() {
+      return {
+        authorizationUrl: "https://auth.openai.com/oauth/authorize",
+        completion,
+        async cancel() {
+          cancelCalls += 1;
+          finishLogin();
+        },
+      };
+    },
+  });
+
+  const started = await postJson(wizard, "/api/oauth/login", {});
+  assert.equal(started.status, 200);
+  const { attemptId } = await started.json();
+  assert.equal((await postJson(wizard, "/api/local/discard", {})).status, 200);
+  const status = await api(wizard, "/api/oauth/status");
+  assert.deepEqual(await status.json(), {
+    status: "pending",
+    attemptId,
+  });
+  assert.equal(cancelCalls, 0);
+});
+
+test("dashboard discard leaves a running Codex login helper attached", async (t) => {
+  let finishLogin;
+  let cancelCalls = 0;
+  const completion = new Promise((resolve) => {
+    finishLogin = resolve;
+  });
+  const wizard = await startLocalWizard(t, {
+    async acquireLocalEndpointChangeLock() {
+      return async () => {};
+    },
+    resolveLocalInstallRoot() {
+      return "/Users/fixture/.relmio/local/codex-chatgpt";
+    },
+    async attestLocalCodexInstallation() {
+      return {
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        projectName: codexProjectName,
+      };
+    },
+    async startCodexDeviceLogin() {
+      return {
+        verificationUrl: "https://auth.openai.com/codex/device",
+        userCode: "ABCD-EFGH",
+        completion,
+        cancel() {
+          cancelCalls += 1;
+        },
+      };
+    },
+    async restartLocalCodex() {},
+  });
+
+  assert.equal(
+    (await postJson(wizard, "/api/local/codex/login", {
+      target: "codex-chatgpt",
+    })).status,
+    200,
+  );
+  assert.equal((await postJson(wizard, "/api/local/discard", {})).status, 200);
+  assert.deepEqual(
+    await (await api(wizard, "/api/local/codex/login/status")).json(),
+    { status: "pending" },
+  );
+  assert.equal(cancelCalls, 0);
+
+  finishLogin();
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const status = await api(wizard, "/api/local/codex/login/status");
+    if ((await status.json()).status === "success") break;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.deepEqual(
+    await (await api(wizard, "/api/local/codex/login/status")).json(),
+    { status: "success" },
+  );
+  assert.equal(cancelCalls, 0);
 });
 
 test("local installation rejects concurrent attempts and releases its lock after failure", async (t) => {

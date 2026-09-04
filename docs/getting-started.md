@@ -23,13 +23,42 @@ On macOS, Linux, WSL, or Git Bash:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The wizard prints a private setup URL, checks Docker, shows the plan, and asks
-before it writes files or starts Docker. Local endpoints use `127.0.0.1`.
-The n8n bridge and Assistant tools use one selected Docker network and publish
-no host port. SearXNG is off by default.
+The command starts an owner-scoped background dashboard and opens its private
+page without printing the browser capability. From there, you can inspect
+existing Relmio services or select **Add connection** to open the same
+four-step setup flow. Relmio checks Docker, shows the plan, and asks before it
+writes files or starts Docker. Local endpoints use
+`127.0.0.1`. The n8n bridge and Assistant tools use one selected Docker
+network and publish no host port. SearXNG is off by default.
+
+## Keep the dashboard available
+
+Install a persistent command with Node.js 22 or newer, then use its explicit
+lifecycle commands:
+
+```bash
+npm install --global --ignore-scripts relmio@latest
+relmio start
+relmio status
+relmio open
+relmio stop
+```
+
+`relmio start` runs the owner-scoped dashboard in the background. `relmio
+status` verifies only that process without printing its private session value.
+`relmio open` starts it when needed and opens its private page. `relmio stop`
+stops only that process; it does not stop or restart n8n, ngrok, endpoints,
+bridges, Assistant companions, or unrelated containers.
+
+The hosted curl, PowerShell, and Command Prompt launchers can use a verified
+temporary runtime. In that case the wizard remains a foreground, one-shot
+process and ends with that terminal session. The temporary runtime is removed,
+so install Relmio persistently before relying on these lifecycle commands.
 
 ## Choose a guide
 
+- [Local dashboard](./local-dashboard.md) for launch commands, service states,
+  available actions, and credential boundaries.
 - [Local endpoints](./local-endpoints.md) for the gateway, Codex, the Chat
   Adapter, the n8n bridge, and local Assistant tools.
 - [New local n8n + ngrok](./local-n8n-stack.md) if you do not already run n8n.

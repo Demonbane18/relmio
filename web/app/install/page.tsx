@@ -106,7 +106,19 @@ export default function InstallPage() {
               <p>
                 Run Relmio on your own computer, not inside the n8n container.
                 Direct installers reuse Node.js 22+ when available or download
-                and verify a temporary official runtime. NPX requires Node.js 22+.
+                and verify a temporary official runtime. They run a foreground,
+                one-shot wizard and remove any downloaded runtime afterward.
+                NPX requires Node.js 22+.
+              </p>
+            </section>
+            <section>
+              <h3>Dashboard commands</h3>
+              <p>
+                A persistent Homebrew or global npm install supports
+                {" "}<code>relmio start</code>, <code>relmio status</code>,
+                {" "}<code>relmio open</code>, and <code>relmio stop</code>.
+                Stop affects only Relmio&apos;s dashboard process; it never stops
+                n8n or a managed companion.
               </p>
             </section>
             <section>

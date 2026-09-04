@@ -1,5 +1,6 @@
-const token = new URLSearchParams(window.location.search).get("session");
-window.history.replaceState(null, "", window.location.pathname);
+import { bindWizardNavigation, readWizardSession } from "./session.js";
+
+const token = readWizardSession();
 
 const element = (id) => document.getElementById(id);
 
@@ -25,6 +26,11 @@ const state = {
   n8nOAuthGeneration: 0,
   assistantSearxngReviewId: null,
   assistantSearxngReview: null,
+  dashboardSnapshot: null,
+  dashboardSelectedTarget: null,
+  dashboardBusy: false,
+  dashboardStaleTimer: null,
+  dashboardFocusIdentity: null,
   chatTester: {
     conversationId: null,
     encryptedCredential: null,
@@ -35,18 +41,70 @@ const state = {
   },
 };
 
+const DASHBOARD_STATES = Object.freeze([
+  "checking",
+  "healthy",
+  "stopped",
+  "partial",
+  "unavailable",
+  "stale",
+  "absent",
+]);
+const DASHBOARD_ACTIONS = Object.freeze([
+  "setup",
+  "resume",
+  "remove",
+  "sign-in",
+  "rotate-credential",
+  "refresh-credential",
+]);
+const DASHBOARD_SERVICE_DEFINITIONS = Object.freeze([
+  Object.freeze({ target: "openai-api", label: "OpenAI API", kind: "endpoint" }),
+  Object.freeze({
+    target: "codex-chatgpt",
+    label: "Codex (ChatGPT login)",
+    kind: "endpoint",
+  }),
+  Object.freeze({
+    target: "codex-chat",
+    label: "Codex Chat adapter",
+    kind: "endpoint",
+  }),
+  Object.freeze({
+    target: "local-n8n-stack",
+    label: "n8n + ngrok",
+    kind: "n8n-stack",
+  }),
+  Object.freeze({
+    target: "n8n-openai-oauth",
+    label: "OpenAI OAuth bridge",
+    kind: "n8n-oauth-bridge",
+  }),
+  Object.freeze({
+    target: "local-n8n-assistant",
+    label: "AI Assistant tools",
+    kind: "n8n-assistant",
+  }),
+]);
+const DASHBOARD_SERVICE_STATES = new Set(
+  DASHBOARD_STATES.filter((value) => !["checking", "stale"].includes(value)),
+);
+const DASHBOARD_ACTION_SET = new Set(DASHBOARD_ACTIONS);
+const DASHBOARD_ASSISTANT_MODES = new Set([
+  "disabled",
+  "sandbox",
+  "sandbox-with-searxng",
+]);
+const DASHBOARD_STALE_AFTER_MS = 5 * 60 * 1_000;
+
 const messageBox = element("global-message");
 const messageText = element("global-message-text");
 const errorBox = element("global-error");
 const errorText = element("global-error-text");
 
-function createWizardUrl(path) {
-  return token ? `${path}?session=${encodeURIComponent(token)}` : path;
-}
-
-element("back-to-vps").href = createWizardUrl("/");
-element("setup-another-local").href = createWizardUrl("/local");
-element("return-to-vps").href = createWizardUrl("/");
+bindWizardNavigation(element("back-to-vps"), "/", token);
+bindWizardNavigation(element("setup-another-local"), "/local", token);
+bindWizardNavigation(element("return-to-vps"), "/", token);
 
 function setMessage(text) {
   messageText.textContent = text;
@@ -409,6 +467,12 @@ function blockOperationInteraction(event) {
   event.stopImmediatePropagation?.();
 }
 
+function preferredScrollBehavior() {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+}
+
 if (typeof document !== "undefined") {
   for (const eventName of OPERATION_BLOCKED_EVENTS) {
     document.addEventListener(eventName, blockOperationInteraction, true);
@@ -437,13 +501,13 @@ function showStep(step) {
     }
   }
 
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: preferredScrollBehavior() });
 }
 
 async function api(path, { method = "GET", body } = {}) {
   if (!token) {
     throw new Error(
-      "This wizard link is incomplete. Close this tab and open the full URL printed by the active Relmio terminal.",
+      "This wizard link is incomplete. Close this tab. For a persistent install, run relmio open. For an NPX run, use npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff.",
     );
   }
 
@@ -459,7 +523,7 @@ async function api(path, { method = "GET", body } = {}) {
     });
   } catch {
     throw new Error(
-      "The local Relmio wizard is not reachable. Keep its terminal open and try again.",
+      "The local Relmio wizard is not reachable. For a persistent install, run relmio status, then relmio open. For NPX, use npx --yes --ignore-scripts relmio@latest status, then npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, keep its terminal open and restart that launcher if needed.",
     );
   }
 
@@ -481,6 +545,1392 @@ async function api(path, { method = "GET", body } = {}) {
     throw error;
   }
   return result;
+}
+
+function dashboardContractError() {
+  return new Error("The local wizard returned an unexpected dashboard response.");
+}
+
+function assertDashboardKeys(value, names) {
+  if (!hasExactKeys(value, names)) throw dashboardContractError();
+}
+
+function normalizeDashboardVersion(value) {
+  if (value === null) return null;
+  if (typeof value !== "string" || !/^[A-Za-z0-9.+-]{1,64}$/u.test(value)) {
+    throw dashboardContractError();
+  }
+  return value;
+}
+
+function readDashboardLoopbackPort(value) {
+  const match = /^(?:http|ws):\/\/127\.0\.0\.1:(\d{1,5})(?:\/|$)/u.exec(value);
+  const port = Number(match?.[1]);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw dashboardContractError();
+  }
+  return port;
+}
+
+function normalizeDashboardEndpoint(value, target) {
+  if (typeof value !== "string" || value.length > 256) {
+    throw dashboardContractError();
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw dashboardContractError();
+  }
+  const expectedProtocol = target === "codex-chatgpt" ? "ws:" : "http:";
+  const expectedPath = target === "openai-api" ? "/v1" : "/";
+  const port = readDashboardLoopbackPort(value);
+  if (
+    parsed.protocol !== expectedProtocol ||
+    parsed.hostname !== "127.0.0.1" ||
+    parsed.pathname !== expectedPath ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535
+  ) {
+    throw dashboardContractError();
+  }
+  return value;
+}
+
+function normalizeDashboardPublicUrl(value) {
+  if (typeof value !== "string" || value.length > 256) {
+    throw dashboardContractError();
+  }
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw dashboardContractError();
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.port !== "" ||
+    parsed.pathname !== "/" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    parsed.username !== "" ||
+    parsed.password !== "" ||
+    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/u.test(parsed.hostname)
+  ) {
+    throw dashboardContractError();
+  }
+  return value;
+}
+
+function normalizeDashboardBooleans(value, names) {
+  assertDashboardKeys(value, names);
+  const normalized = {};
+  for (const name of names) {
+    if (typeof value[name] !== "boolean") throw dashboardContractError();
+    normalized[name] = value[name];
+  }
+  return normalized;
+}
+
+function normalizeEndpointDashboardSnapshot(snapshot, definition) {
+  assertDashboardKeys(snapshot, [
+    "target",
+    "endpoint",
+    "auth",
+    "canRotateCredential",
+  ]);
+  assertDashboardKeys(snapshot.auth, ["configured", "disclosure"]);
+  if (
+    snapshot.target !== definition.target ||
+    snapshot.auth.configured !== true ||
+    snapshot.auth.disclosure !== "rotate-only" ||
+    snapshot.canRotateCredential !== true
+  ) {
+    throw dashboardContractError();
+  }
+  return {
+    target: definition.target,
+    endpoint: normalizeDashboardEndpoint(snapshot.endpoint, definition.target),
+    auth: { configured: true, disclosure: "rotate-only" },
+    canRotateCredential: true,
+  };
+}
+
+function normalizeStackDashboardSnapshot(snapshot) {
+  assertDashboardKeys(snapshot, [
+    "target",
+    "assistantMode",
+    "endpoints",
+    "components",
+    "canResume",
+    "canRemove",
+  ]);
+  assertDashboardKeys(snapshot.endpoints, [
+    "n8nLocal",
+    "ngrokPublic",
+    "ngrokInspector",
+  ]);
+  if (
+    snapshot.target !== "local-n8n-stack" ||
+    !DASHBOARD_ASSISTANT_MODES.has(snapshot.assistantMode) ||
+    typeof snapshot.canResume !== "boolean" ||
+    snapshot.canRemove !== true
+  ) {
+    throw dashboardContractError();
+  }
+  return {
+    target: "local-n8n-stack",
+    assistantMode: snapshot.assistantMode,
+    endpoints: {
+      n8nLocal: normalizeDashboardEndpoint(snapshot.endpoints.n8nLocal, "codex-chat"),
+      ngrokPublic: normalizeDashboardPublicUrl(snapshot.endpoints.ngrokPublic),
+      ngrokInspector: normalizeDashboardEndpoint(
+        snapshot.endpoints.ngrokInspector,
+        "codex-chat",
+      ),
+    },
+    components: normalizeDashboardBooleans(snapshot.components, [
+      "n8n",
+      "ngrok",
+      "codeSandbox",
+      "searxng",
+    ]),
+    canResume: snapshot.canResume,
+    canRemove: true,
+  };
+}
+
+function normalizeBridgeDashboardSnapshot(snapshot) {
+  assertDashboardKeys(snapshot, [
+    "target",
+    "endpoint",
+    "auth",
+    "canRefreshCredential",
+    "canRemove",
+  ]);
+  assertDashboardKeys(snapshot.auth, ["configured", "disclosure"]);
+  if (
+    snapshot.target !== "n8n-openai-oauth" ||
+    snapshot.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
+    snapshot.auth.configured !== true ||
+    snapshot.auth.disclosure !== "server-managed" ||
+    snapshot.canRefreshCredential !== true ||
+    snapshot.canRemove !== true
+  ) {
+    throw dashboardContractError();
+  }
+  return {
+    target: "n8n-openai-oauth",
+    endpoint: "http://n8n-openai-oauth:10531/v1",
+    auth: { configured: true, disclosure: "server-managed" },
+    canRefreshCredential: true,
+    canRemove: true,
+  };
+}
+
+function normalizeAssistantDashboardSnapshot(snapshot) {
+  assertDashboardKeys(snapshot, ["target", "components", "auth", "canRemove"]);
+  assertDashboardKeys(snapshot.auth, ["sandboxConfigured", "disclosure"]);
+  if (
+    snapshot.target !== "local-n8n-assistant" ||
+    snapshot.auth.sandboxConfigured !== true ||
+    snapshot.auth.disclosure !== "one-time" ||
+    snapshot.canRemove !== true
+  ) {
+    throw dashboardContractError();
+  }
+  return {
+    target: "local-n8n-assistant",
+    components: normalizeDashboardBooleans(snapshot.components, [
+      "codeSandbox",
+      "searxng",
+    ]),
+    auth: { sandboxConfigured: true, disclosure: "one-time" },
+    canRemove: true,
+  };
+}
+
+function normalizeDashboardServiceSnapshot(snapshot, definition) {
+  if (definition.kind === "endpoint") {
+    return normalizeEndpointDashboardSnapshot(snapshot, definition);
+  }
+  if (definition.kind === "n8n-stack") {
+    return normalizeStackDashboardSnapshot(snapshot);
+  }
+  if (definition.kind === "n8n-oauth-bridge") {
+    return normalizeBridgeDashboardSnapshot(snapshot);
+  }
+  return normalizeAssistantDashboardSnapshot(snapshot);
+}
+
+function expectedDashboardActions(definition, serviceState, snapshot) {
+  if (serviceState === "absent") return ["setup"];
+  if (serviceState === "unavailable") return [];
+  if (snapshot === null) return [];
+  const actions = [];
+  if (
+    definition.kind === "n8n-stack" &&
+    serviceState === "stopped" &&
+    snapshot.canResume === true
+  ) {
+    actions.push("resume");
+  }
+  if (
+    definition.kind === "endpoint" &&
+    serviceState === "healthy" &&
+    snapshot.canRotateCredential === true
+  ) {
+    if (["codex-chatgpt", "codex-chat"].includes(definition.target)) {
+      actions.push("sign-in");
+    }
+    actions.push("rotate-credential");
+  }
+  if (
+    definition.kind === "n8n-oauth-bridge" &&
+    serviceState === "healthy" &&
+    snapshot.canRefreshCredential === true
+  ) {
+    actions.push("refresh-credential");
+  }
+  if (snapshot.canRemove === true) actions.push("remove");
+  return actions;
+}
+
+function normalizeDashboardService(service, definition) {
+  assertDashboardKeys(service, [
+    "target",
+    "label",
+    "kind",
+    "managed",
+    "state",
+    "snapshot",
+    "actions",
+  ]);
+  if (
+    service.target !== definition.target ||
+    service.label !== definition.label ||
+    service.kind !== definition.kind ||
+    typeof service.managed !== "boolean" ||
+    !DASHBOARD_SERVICE_STATES.has(service.state) ||
+    !Array.isArray(service.actions) ||
+    service.actions.some((action) => !DASHBOARD_ACTION_SET.has(action)) ||
+    new Set(service.actions).size !== service.actions.length
+  ) {
+    throw dashboardContractError();
+  }
+  if (["absent", "unavailable"].includes(service.state)) {
+    if (service.managed !== false || service.snapshot !== null) {
+      throw dashboardContractError();
+    }
+  } else if (
+    service.managed !== true ||
+    (service.snapshot === null && service.state !== "partial")
+  ) {
+    throw dashboardContractError();
+  }
+  const snapshot = service.snapshot === null
+    ? null
+    : normalizeDashboardServiceSnapshot(service.snapshot, definition);
+  const expectedActions = expectedDashboardActions(definition, service.state, snapshot);
+  if (
+    expectedActions.length !== service.actions.length ||
+    expectedActions.some((action, index) => action !== service.actions[index])
+  ) {
+    throw dashboardContractError();
+  }
+  return {
+    target: definition.target,
+    label: definition.label,
+    kind: definition.kind,
+    managed: service.managed,
+    state: service.state,
+    snapshot,
+    actions: [...service.actions],
+  };
+}
+
+function normalizeDashboardSnapshot(value) {
+  const topLevelNames = [
+    "schemaVersion",
+    "generatedAt",
+    "docker",
+    "auth",
+    "services",
+    ...(Object.hasOwn(value ?? {}, "previewMode") ? ["previewMode"] : []),
+  ];
+  assertDashboardKeys(value, topLevelNames);
+  assertDashboardKeys(value.docker, ["available", "version", "composeVersion"]);
+  assertDashboardKeys(value.auth, ["secretsRevealable"]);
+  if (
+    value.schemaVersion !== 1 ||
+    (Object.hasOwn(value, "previewMode") && value.previewMode !== true) ||
+    typeof value.generatedAt !== "string" ||
+    value.generatedAt.length > 64 ||
+    typeof value.docker.available !== "boolean" ||
+    value.auth.secretsRevealable !== false ||
+    !Array.isArray(value.services) ||
+    value.services.length !== DASHBOARD_SERVICE_DEFINITIONS.length
+  ) {
+    throw dashboardContractError();
+  }
+  const generatedAt = new Date(value.generatedAt);
+  if (
+    !Number.isFinite(generatedAt.getTime()) ||
+    generatedAt.toISOString() !== value.generatedAt
+  ) {
+    throw dashboardContractError();
+  }
+  const version = normalizeDashboardVersion(value.docker.version);
+  const composeVersion = normalizeDashboardVersion(value.docker.composeVersion);
+  if (
+    (value.docker.available && (!version || !composeVersion)) ||
+    (!value.docker.available && (version !== null || composeVersion !== null))
+  ) {
+    throw dashboardContractError();
+  }
+  return {
+    schemaVersion: 1,
+    generatedAt: value.generatedAt,
+    docker: {
+      available: value.docker.available,
+      version,
+      composeVersion,
+    },
+    auth: { secretsRevealable: false },
+    services: value.services.map((service, index) =>
+      normalizeDashboardService(service, DASHBOARD_SERVICE_DEFINITIONS[index])),
+    ...(value.previewMode === true ? { previewMode: true } : {}),
+  };
+}
+
+function dashboardStateLabel(serviceState) {
+  return {
+    checking: "Checking",
+    healthy: "Healthy",
+    stopped: "Stopped",
+    partial: "Needs recovery",
+    unavailable: "Unavailable",
+    stale: "Stale",
+    absent: "Not configured",
+  }[serviceState] ?? "Unavailable";
+}
+
+function dashboardBoundary(service) {
+  if (service.kind === "endpoint") return "Loopback only";
+  if (service.kind === "n8n-stack") return "Loopback + authenticated tunnel";
+  return "Docker network only";
+}
+
+function dashboardServiceDescription(service) {
+  if (service.state === "absent") return "Available through the reviewed setup wizard.";
+  if (service.state === "unavailable") {
+    return "Relmio could not verify ownership and state, so maintenance actions are unavailable.";
+  }
+  if (service.state === "stopped") return "Owned service is present but not running.";
+  if (service.state === "partial") {
+    if (service.snapshot === null) {
+      return "Relmio detected an incomplete managed state but could not attest a safe recovery action.";
+    }
+    return "Owned resources need an explicit recovery decision before setup can continue.";
+  }
+  if (service.kind === "n8n-assistant") {
+    return "Private Assistant companions are present. n8n configuration remains operator-owned.";
+  }
+  return "Owned service passed the latest local inventory check.";
+}
+
+function dashboardStateNode(serviceState, className = "dashboard-state-token") {
+  const node = document.createElement("span");
+  node.className = `${className} state-${serviceState}`;
+  node.textContent = dashboardStateLabel(serviceState);
+  return node;
+}
+
+function dashboardStatusDot(serviceState) {
+  const dot = document.createElement("span");
+  dot.className = `dashboard-status-dot state-${serviceState}`;
+  dot.setAttribute("aria-hidden", "true");
+  return dot;
+}
+
+function formatDashboardTime(value) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
+}
+
+function isDashboardSnapshotStale(snapshot) {
+  const age = Date.now() - new Date(snapshot.generatedAt).getTime();
+  return age > DASHBOARD_STALE_AFTER_MS || age < -60_000;
+}
+
+function clearDashboardStaleTimer() {
+  if (state.dashboardStaleTimer !== null) {
+    window.clearTimeout(state.dashboardStaleTimer);
+    state.dashboardStaleTimer = null;
+  }
+}
+
+function scheduleDashboardStaleExpiry(snapshot) {
+  clearDashboardStaleTimer();
+  if (
+    document.body.dataset.localView !== "dashboard" ||
+    isDashboardSnapshotStale(snapshot)
+  ) {
+    return;
+  }
+  const expiresIn = Math.max(
+    0,
+    new Date(snapshot.generatedAt).getTime() +
+      DASHBOARD_STALE_AFTER_MS -
+      Date.now() +
+      1,
+  );
+  state.dashboardStaleTimer = window.setTimeout(() => {
+    state.dashboardStaleTimer = null;
+    if (
+      document.body.dataset.localView !== "dashboard" ||
+      state.dashboardSnapshot !== snapshot
+    ) {
+      return;
+    }
+    if (isDashboardSnapshotStale(snapshot)) {
+      renderDashboardSnapshot(snapshot, { stale: true });
+    } else {
+      scheduleDashboardStaleExpiry(snapshot);
+    }
+  }, expiresIn);
+}
+
+function captureDashboardFocusIdentity() {
+  const active = document.activeElement;
+  const service = active?.dataset?.dashboardService;
+  if (!service) return null;
+  return {
+    service,
+    action: active.dataset.dashboardAction ?? null,
+    actionLocation: active.dataset.dashboardActionLocation ?? null,
+    fact: active.dataset.dashboardFact ?? null,
+  };
+}
+
+function restoreDashboardFocus(identity) {
+  if (!identity) return;
+  const controls = Array.from(
+    document.querySelectorAll("[data-dashboard-service]"),
+  );
+  const exact = controls.find((control) => {
+    if (control.dataset.dashboardService !== identity.service) return false;
+    if (identity.fact !== null) {
+      return control.dataset.dashboardFact === identity.fact;
+    }
+    if (identity.action === null) {
+      return control.dataset.dashboardControl === "select";
+    }
+    return control.dataset.dashboardAction === identity.action &&
+      control.dataset.dashboardActionLocation === identity.actionLocation;
+  });
+  const fallback = controls.find((control) =>
+    control.dataset.dashboardService === identity.service &&
+    control.dataset.dashboardControl === "select");
+  const target = exact && !exact.disabled && !exact.hidden ? exact : fallback;
+  if (target && !target.disabled && !target.hidden) {
+    target.focus({ preventScroll: true });
+  }
+}
+
+function appendDashboardFact(
+  container,
+  label,
+  value,
+  { copyLabel = null, service = null, fact = null } = {},
+) {
+  const row = document.createElement("div");
+  const term = document.createElement("dt");
+  const detail = document.createElement("dd");
+  term.textContent = label;
+  if (copyLabel) {
+    detail.className = "dashboard-copyable-fact";
+    const displayedValue = document.createElement("code");
+    displayedValue.textContent = value;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "button secondary dashboard-fact-copy";
+    button.dataset.copyLabel = copyLabel;
+    button.dataset.dashboardService = service;
+    button.dataset.dashboardFact = fact;
+    button.textContent = "Copy";
+    button.setAttribute("aria-label", `Copy ${copyLabel}`);
+    button.setAttribute("title", `Copy ${copyLabel}`);
+    button.addEventListener("click", async () => {
+      const error = element("dashboard-error");
+      error.hidden = true;
+      error.textContent = "";
+      try {
+        await copyText(value);
+        flashCopied(button);
+      } catch {
+        error.textContent = `Copy failed. Select the ${copyLabel} manually.`;
+        error.hidden = false;
+        error.focus();
+      }
+    });
+    detail.append(displayedValue, button);
+  } else {
+    detail.textContent = value;
+  }
+  row.append(term, detail);
+  container.append(row);
+}
+
+function dashboardComponentSummary(components) {
+  const labels = {
+    n8n: "n8n",
+    ngrok: "ngrok",
+    codeSandbox: "Code Sandbox",
+    searxng: "SearXNG",
+  };
+  return Object.entries(components)
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => labels[name])
+    .join(", ") || "None verified";
+}
+
+function dashboardToWizardTarget(target) {
+  return target === "local-n8n-assistant" ? "n8n-ai-assistant" : target;
+}
+
+function resetDashboardActionReview() {
+  invalidatePlan();
+  element("install-result-list").hidden = true;
+  element("one-time-note").hidden = true;
+  element("credential-rotation-note").hidden = true;
+  element("client-warning").hidden = true;
+  element("codex-production-warning").hidden = true;
+  element("codex-login").hidden = true;
+  element("chat-tester").hidden = true;
+  element("n8n-sidecar-removal").hidden = true;
+  element("n8n-assistant-removal").hidden = true;
+  element("n8n-stack-removal").hidden = true;
+  element("n8n-stack-resume").hidden = true;
+  element("result-credential").textContent = "";
+  element("result-sandbox-key").textContent = "";
+  element("result-n8n-settings").textContent = "";
+}
+
+function showDashboardCodexSignInManagement(service) {
+  if (
+    service.kind !== "endpoint" ||
+    service.state !== "healthy" ||
+    !["codex-chatgpt", "codex-chat"].includes(service.target) ||
+    !service.actions.includes("sign-in") ||
+    !service.snapshot?.endpoint
+  ) {
+    throw new Error("Relmio refused an unattested Codex sign-in action.");
+  }
+  resetDashboardActionReview();
+  clearChatTesterState();
+  const codexChat = isCodexChat(service.target);
+  state.installedTarget = service.target;
+
+  element("install-result-list").hidden = false;
+  for (const id of [
+    "result-api-key-row",
+    "result-responses-row",
+    "result-n8n-row",
+    "result-network-row",
+    "result-publication-row",
+    "result-models-row",
+    "result-deployment-row",
+    "result-public-url-row",
+    "result-assistant-mode-row",
+    "result-sandbox-key-row",
+    "result-searxng-row",
+    "result-n8n-settings-row",
+    "result-credential-row",
+  ]) {
+    element(id).hidden = true;
+  }
+  for (const id of [
+    "result-api-key",
+    "result-responses",
+    "result-n8n",
+    "result-network",
+    "result-publication",
+    "result-models",
+    "result-deployment",
+    "result-public-url",
+    "result-assistant-mode",
+    "result-sandbox-key",
+    "result-searxng",
+    "result-n8n-settings",
+    "result-credential",
+  ]) {
+    element(id).textContent = "";
+  }
+  element("result-endpoint-row").hidden = false;
+  element("result-endpoint-label").textContent = "Attested endpoint";
+  element("result-endpoint").textContent = service.snapshot.endpoint;
+  element("copy-searxng-button").hidden = true;
+  element("one-time-note").hidden = true;
+  element("credential-rotation-note").hidden = false;
+  element("rotate-credential-button").disabled = false;
+
+  element("client-warning").hidden = false;
+  appendPolicyNotice(
+    element("client-warning"),
+    codexChat
+      ? "Saved local client bearer required"
+      : "Saved local capability required",
+    codexChat
+      ? "The local client bearer authorizes calls to the Chat Adapter. ChatGPT sign-in authorizes Codex inside its isolated container. They are separate, and this dashboard has not checked whether either saved credential is still valid."
+      : "The local client capability authorizes App Server control. ChatGPT sign-in authorizes Codex inside its isolated container. They are separate, and this dashboard has not checked whether either saved credential is still valid.",
+  );
+  element("codex-production-warning").hidden = false;
+  element("codex-production-warning-title").textContent = codexChat
+    ? "Experimental Chat Adapter. Trusted local backends or development servers only"
+    : "Experimental WebSocket transport";
+  element("codex-production-warning-detail").textContent = codexChat
+    ? "The adapter uses a Relmio-specific POST /chat contract with no browser CORS support. It is not OpenAI /v1."
+    : "Codex App Server WebSocket is experimental and unsupported for production workloads.";
+  element("codex-login").hidden = false;
+  element("device-code-result").hidden = true;
+  element("device-code").textContent = "";
+  element("device-code-link").removeAttribute("href");
+  element("device-code-status").textContent =
+    "No ChatGPT sign-in check has run. Start a fresh sign-in only if needed.";
+
+  element("chat-tester").hidden = !codexChat;
+  if (codexChat) {
+    element("chat-tester-endpoint").value = service.snapshot.endpoint;
+    element("chat-tester-status").textContent =
+      "Paste your saved local client bearer capability, or rotate the client credential first. ChatGPT sign-in is separate and has not been checked.";
+  }
+
+  element("done-title").textContent = codexChat
+    ? "Manage installed Codex Chat Adapter"
+    : "Manage installed Codex App Server";
+  element("done-detail").textContent = codexChat
+    ? "The loopback adapter endpoint is attested. ChatGPT sign-in has not been checked or started. Use a saved local client bearer in the tester, or rotate it first."
+    : "The loopback App Server endpoint is attested. ChatGPT sign-in has not been checked or started. Keep using your saved local capability, or rotate it first.";
+  showStep(4);
+  setMessage(
+    "Installed Codex endpoint loaded. ChatGPT sign-in has not been checked or started.",
+  );
+}
+
+function showDashboardRotationReview(service) {
+  resetDashboardActionReview();
+  state.installedTarget = service.target;
+  element("credential-rotation-note").hidden = false;
+  element("rotate-credential-button").disabled = false;
+  element("done-title").textContent = `Rotate ${service.label} credential`;
+  element("done-detail").textContent =
+    "A replacement will be shown once, then activated and verified. The existing credential stays active until that sequence succeeds.";
+  showStep(4);
+  setMessage("Review the one-time credential rotation before continuing.");
+}
+
+function showDashboardRemovalReview(service) {
+  resetDashboardActionReview();
+  const wizardTarget = dashboardToWizardTarget(service.target);
+  state.installedTarget = wizardTarget;
+  if (service.kind === "n8n-stack") {
+    state.localN8nStackState = service.state;
+    element("n8n-stack-removal").hidden = false;
+    element("remove-n8n-stack-confirm").checked = false;
+    element("remove-n8n-stack-confirm").disabled = false;
+    element("remove-n8n-stack-button").disabled = true;
+    element("done-title").textContent = "Review owned n8n + ngrok removal";
+  } else if (service.kind === "n8n-oauth-bridge") {
+    element("n8n-sidecar-removal").hidden = false;
+    element("remove-bridge-confirm").checked = false;
+    element("remove-bridge-confirm").disabled = false;
+    element("remove-bridge-button").disabled = true;
+    element("done-title").textContent = "Review bridge removal";
+  } else {
+    element("n8n-assistant-removal").hidden = false;
+    element("remove-assistant-confirm").checked = false;
+    element("remove-assistant-confirm").disabled = false;
+    element("remove-assistant-button").disabled = true;
+    element("done-title").textContent = "Review Assistant tools removal";
+  }
+  element("done-detail").textContent =
+    "Nothing has changed. Read the exact ownership boundary and confirm separately only if you want to continue.";
+  showStep(4);
+  setMessage("No removal has started. Review the separate confirmation first.");
+}
+
+async function runDashboardAction(service, action) {
+  if (state.dashboardBusy || !service.actions.includes(action)) return;
+  if (
+    !state.dashboardSnapshot ||
+    isDashboardSnapshotStale(state.dashboardSnapshot)
+  ) {
+    if (state.dashboardSnapshot) {
+      renderDashboardSnapshot(state.dashboardSnapshot, { stale: true });
+    }
+    const error = element("dashboard-error");
+    error.textContent =
+      "This inventory snapshot expired. Refresh status before using any action.";
+    error.hidden = false;
+    error.focus();
+    return;
+  }
+  const wizardTarget = dashboardToWizardTarget(service.target);
+  if (action === "setup") {
+    await enterSetupView(wizardTarget);
+    return;
+  }
+  if (action === "refresh-credential") {
+    await enterSetupView(wizardTarget);
+    setMessage("Use the existing sign-in and ownership checks before applying a bridge credential refresh.");
+    return;
+  }
+  if (action === "sign-in") {
+    await enterSetupView(wizardTarget, { checkDocker: false });
+    showDashboardCodexSignInManagement(service);
+    return;
+  }
+  await enterSetupView(wizardTarget, { checkDocker: false });
+  if (action === "resume") {
+    showStoppedManagedLocalN8nStack();
+  } else if (action === "rotate-credential") {
+    showDashboardRotationReview(service);
+  } else if (action === "remove") {
+    showDashboardRemovalReview(service);
+  }
+}
+
+function renderDashboardAction(service, action, { compact = false, disabled = false } = {}) {
+  if (!DASHBOARD_ACTION_SET.has(action) || !service.actions.includes(action)) return null;
+  const labels = {
+    setup: "Set up",
+    resume: "Resume",
+    remove: compact ? "Remove" : "Review removal",
+    "sign-in": "Sign in",
+    "rotate-credential": compact ? "Rotate" : "Rotate credential",
+    "refresh-credential": compact ? "Refresh" : "Refresh credential",
+  };
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `button ${["setup", "resume", "sign-in"].includes(action) ? "primary" : "secondary"}`;
+  button.dataset.dashboardService = service.target;
+  button.dataset.dashboardAction = action;
+  button.dataset.dashboardActionLocation = compact ? "row" : "detail";
+  button.textContent = labels[action];
+  if (compact) {
+    const accessibleLabels = {
+      setup: `Set up ${service.label}`,
+      resume: `Resume ${service.label}`,
+      remove: `Review removal for ${service.label}`,
+      "sign-in": `Sign in to ${service.label}`,
+      "rotate-credential": `Rotate ${service.label} credential`,
+      "refresh-credential": `Refresh ${service.label} credential`,
+    };
+    button.setAttribute("aria-label", accessibleLabels[action]);
+  }
+  const actionDisabled = disabled || state.dashboardBusy;
+  button.disabled = actionDisabled;
+  if (actionDisabled) {
+    button.title = state.dashboardBusy
+      ? "Wait for the local inventory check to finish."
+      : "Refresh the local inventory before using this action.";
+  } else {
+    button.addEventListener("click", () => {
+      runDashboardAction(service, action).catch(() => {
+        const error = element("dashboard-error");
+        error.textContent = "Relmio could not open that reviewed action. Refresh status and try again.";
+        error.hidden = false;
+        error.focus();
+      });
+    });
+  }
+  return button;
+}
+
+function renderDashboardServiceDetail(service, { stale = false } = {}) {
+  element("dashboard-service-detail-title").textContent = service.label;
+  element("dashboard-service-detail-copy").textContent = dashboardServiceDescription(service);
+  const facts = element("dashboard-service-facts");
+  facts.replaceChildren();
+  appendDashboardFact(facts, "State", dashboardStateLabel(service.state));
+  appendDashboardFact(facts, "Boundary", dashboardBoundary(service));
+  appendDashboardFact(facts, "Ownership", service.managed ? "Relmio managed" : "Not attested");
+  if (service.snapshot?.endpoint) {
+    appendDashboardFact(facts, "Endpoint", service.snapshot.endpoint, {
+      copyLabel: `${service.label} endpoint`,
+      service: service.target,
+      fact: "endpoint",
+    });
+  }
+  if (service.kind === "n8n-stack" && service.snapshot) {
+    appendDashboardFact(facts, "Local n8n", service.snapshot.endpoints.n8nLocal, {
+      copyLabel: "local n8n URL",
+      service: service.target,
+      fact: "n8n-local",
+    });
+    appendDashboardFact(facts, "Public route", service.snapshot.endpoints.ngrokPublic, {
+      copyLabel: "public n8n URL",
+      service: service.target,
+      fact: "n8n-public",
+    });
+    appendDashboardFact(facts, "Inspector", service.snapshot.endpoints.ngrokInspector, {
+      copyLabel: "ngrok inspector URL",
+      service: service.target,
+      fact: "ngrok-inspector",
+    });
+    appendDashboardFact(facts, "Components", dashboardComponentSummary(service.snapshot.components));
+    appendDashboardFact(facts, "Assistant mode", assistantModeLabel(service.snapshot.assistantMode));
+  }
+  if (service.kind === "n8n-assistant" && service.snapshot) {
+    appendDashboardFact(facts, "Components", dashboardComponentSummary(service.snapshot.components));
+    appendDashboardFact(facts, "Sandbox credential", "Configured; shown only at creation");
+  }
+  if (service.kind === "endpoint" && service.snapshot) {
+    appendDashboardFact(facts, "Credential", "Configured; rotate only");
+  }
+  if (service.kind === "n8n-oauth-bridge" && service.snapshot) {
+    appendDashboardFact(facts, "Credential", "Server managed; never revealed here");
+  }
+  const actions = element("dashboard-service-actions");
+  actions.replaceChildren(
+    ...service.actions
+      .map((action) => renderDashboardAction(service, action, { disabled: stale }))
+      .filter(Boolean),
+  );
+  if (actions.childElementCount === 0) {
+    const note = document.createElement("p");
+    note.textContent = stale
+      ? "Actions are paused until a fresh inventory is available."
+      : "No safe maintenance action is available for this state.";
+    actions.append(note);
+  }
+}
+
+function renderDashboardServiceRow(service, { selected, stale }) {
+  const item = document.createElement("li");
+  item.className = "dashboard-service-row";
+  const select = document.createElement("button");
+  select.type = "button";
+  select.className = "dashboard-service-select";
+  select.dataset.dashboardService = service.target;
+  select.dataset.dashboardControl = "select";
+  select.setAttribute("aria-pressed", String(selected));
+  select.setAttribute("aria-controls", "dashboard-service-detail");
+  select.append(dashboardStatusDot(service.state));
+  const copy = document.createElement("span");
+  copy.className = "dashboard-service-copy";
+  const titleLine = document.createElement("span");
+  titleLine.className = "dashboard-service-title-line";
+  const title = document.createElement("strong");
+  title.textContent = service.label;
+  const boundary = document.createElement("span");
+  boundary.className = "dashboard-boundary-token";
+  boundary.textContent = dashboardBoundary(service);
+  titleLine.append(title, boundary);
+  const detail = document.createElement("small");
+  detail.textContent = `${dashboardStateLabel(service.state)} · ${dashboardServiceDescription(service)}`;
+  copy.append(titleLine, detail);
+  select.append(copy);
+  select.addEventListener("click", () => {
+    state.dashboardSelectedTarget = service.target;
+    for (const candidate of document.querySelectorAll(".dashboard-service-select")) {
+      candidate.setAttribute("aria-pressed", String(candidate === select));
+    }
+    renderDashboardServiceDetail(service, { stale });
+  });
+  item.append(select);
+  const rowActions = document.createElement("div");
+  rowActions.className = "dashboard-service-row-actions";
+  const primaryAction = service.actions.find((action) => action !== "remove");
+  const actionButton = primaryAction
+    ? renderDashboardAction(service, primaryAction, { compact: true, disabled: stale })
+    : null;
+  if (actionButton) rowActions.append(actionButton);
+  if (rowActions.childElementCount > 0) item.append(rowActions);
+  return item;
+}
+
+function renderDashboardCompactService(service) {
+  const item = document.createElement("li");
+  item.append(dashboardStatusDot(service.state));
+  const copy = document.createElement("span");
+  const title = document.createElement("strong");
+  const detail = document.createElement("small");
+  title.textContent = service.label;
+  detail.textContent = dashboardBoundary(service);
+  copy.append(title, detail);
+  item.append(copy, dashboardStateNode(service.state));
+  return item;
+}
+
+function renderDashboardSectionStatus(label, detail, serviceState) {
+  const item = document.createElement("li");
+  item.append(dashboardStatusDot(serviceState));
+  const copy = document.createElement("span");
+  const title = document.createElement("strong");
+  const supporting = document.createElement("small");
+  title.textContent = label;
+  supporting.textContent = detail;
+  copy.append(title, supporting);
+  item.append(copy, dashboardStateNode(serviceState));
+  return item;
+}
+
+function renderDashboardChecking() {
+  clearDashboardStaleTimer();
+  state.dashboardFocusIdentity = captureDashboardFocusIdentity();
+  state.dashboardBusy = true;
+  document.body.dataset.dashboardBusy = "true";
+  element("dashboard-refresh").disabled = true;
+  element("dashboard-services").setAttribute("aria-busy", "true");
+  for (const control of document.querySelectorAll(
+    "[data-dashboard-action], .dashboard-service-select",
+  )) {
+    control.disabled = true;
+  }
+  element("dashboard-environment").className = "dashboard-environment state-checking";
+  const statusDot = element("dashboard-environment").querySelector(
+    ".dashboard-status-dot",
+  );
+  if (statusDot) statusDot.className = "dashboard-status-dot state-checking";
+  element("dashboard-environment-title").textContent = "Checking Docker";
+  element("dashboard-environment-detail").textContent =
+    "Reading a non-secret inventory from this computer.";
+  element("dashboard-environment-state").className =
+    "dashboard-state-token state-checking";
+  element("dashboard-environment-state").textContent = "Checking";
+  element("dashboard-last-checked").textContent = "Checking now";
+}
+
+function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(snapshot) } = {}) {
+  const focusIdentity =
+    state.dashboardFocusIdentity ?? captureDashboardFocusIdentity();
+  state.dashboardFocusIdentity = null;
+  state.dashboardSnapshot = snapshot;
+  state.dashboardBusy = false;
+  document.body.dataset.dashboardBusy = "false";
+  document.body.dataset.dashboardStale = String(stale);
+  element("dashboard-refresh").disabled = false;
+  element("dashboard-services").setAttribute("aria-busy", "false");
+  const attentionStates = new Set(["stopped", "partial", "unavailable"]);
+  const healthy = snapshot.services.filter(({ state: serviceState }) => serviceState === "healthy").length;
+  const attention = snapshot.services.filter(({ state: serviceState }) => attentionStates.has(serviceState)).length;
+  const absent = snapshot.services.filter(({ state: serviceState }) => serviceState === "absent").length;
+  element("dashboard-healthy-count").textContent = String(healthy);
+  element("dashboard-attention-count").textContent = String(attention);
+  element("dashboard-absent-count").textContent = String(absent);
+  element("dashboard-last-checked").textContent = stale
+    ? `Last verified ${formatDashboardTime(snapshot.generatedAt)}`
+    : `Checked ${formatDashboardTime(snapshot.generatedAt)}`;
+
+  const environmentState = stale
+    ? "stale"
+    : snapshot.previewMode === true || !snapshot.docker.available
+      ? "unavailable"
+      : attention > 0
+        ? "partial"
+        : "healthy";
+  const environment = element("dashboard-environment");
+  environment.className = `dashboard-environment state-${environmentState}`;
+  environment.replaceChildren(
+    dashboardStatusDot(environmentState),
+    (() => {
+      const copy = document.createElement("div");
+      const title = document.createElement("strong");
+      const detail = document.createElement("p");
+      title.id = "dashboard-environment-title";
+      detail.id = "dashboard-environment-detail";
+      title.textContent = stale
+        ? "Inventory needs refresh"
+        : snapshot.previewMode === true
+          ? "Sanitized preview"
+        : snapshot.docker.available
+          ? "Docker is available"
+          : "Docker is unavailable";
+      detail.textContent = stale
+        ? "Showing the last verified snapshot. Maintenance actions are paused."
+        : snapshot.previewMode === true
+          ? "Live Docker discovery and maintenance are disabled in this preview."
+        : snapshot.docker.available
+          ? `Engine ${snapshot.docker.version}; Compose ${snapshot.docker.composeVersion}`
+          : "Start Docker, then refresh. No setup or maintenance action has run.";
+      copy.append(title, detail);
+      return copy;
+    })(),
+    (() => {
+      const status = dashboardStateNode(environmentState);
+      status.id = "dashboard-environment-state";
+      return status;
+    })(),
+  );
+
+  const allAbsent = absent === snapshot.services.length;
+  element("dashboard-empty").hidden = !allAbsent;
+  element("dashboard-services").hidden = false;
+  element("dashboard-service-detail").hidden = false;
+  const selected = snapshot.services.find(
+    ({ target }) => target === state.dashboardSelectedTarget,
+  ) ?? snapshot.services.find(({ state: serviceState }) => serviceState !== "absent")
+    ?? snapshot.services[0];
+  state.dashboardSelectedTarget = selected.target;
+  element("dashboard-services").replaceChildren(
+    ...snapshot.services.map((service) =>
+      renderDashboardServiceRow(service, {
+        selected: service.target === selected.target,
+        stale,
+      })),
+  );
+  renderDashboardServiceDetail(selected, { stale });
+
+  const n8nServices = snapshot.services.filter(
+    ({ kind, state: serviceState }) =>
+      kind !== "endpoint" && serviceState !== "absent",
+  );
+  element("dashboard-n8n-services").replaceChildren(
+    ...(n8nServices.length > 0
+      ? n8nServices.map(renderDashboardCompactService)
+      : [renderDashboardSectionStatus(
+          "No n8n services configured",
+          "Start one from the Connections inventory above.",
+          "absent",
+        )]),
+  );
+  const credentialServices = snapshot.services.filter(({ kind, state: serviceState }) =>
+    kind !== "n8n-stack" && serviceState !== "absent");
+  const credentialList = element("dashboard-credential-list");
+  credentialList.replaceChildren(
+    ...credentialServices.map((service) => {
+      const item = renderDashboardCompactService(service);
+      item.lastElementChild.textContent = service.kind === "n8n-oauth-bridge"
+        ? "Refresh only"
+        : service.kind === "n8n-assistant"
+          ? "Shown once"
+          : "Rotate only";
+      return item;
+    }),
+  );
+  credentialList.hidden = credentialServices.length === 0;
+
+  const activity = document.createElement("li");
+  activity.append(dashboardStatusDot(environmentState));
+  const activityCopy = document.createElement("span");
+  activityCopy.textContent = stale
+    ? "Last verified inventory retained; actions paused"
+    : `Inventory verified: ${healthy} healthy, ${attention} need attention, ${absent} not configured`;
+  const time = document.createElement("time");
+  time.dateTime = snapshot.generatedAt;
+  time.textContent = formatDashboardTime(snapshot.generatedAt);
+  activity.append(activityCopy, time);
+  element("dashboard-activity-list").replaceChildren(activity);
+  if (stale) clearDashboardStaleTimer();
+  else scheduleDashboardStaleExpiry(snapshot);
+  restoreDashboardFocus(focusIdentity);
+}
+
+function renderDashboardFailure() {
+  state.dashboardBusy = false;
+  document.body.dataset.dashboardBusy = "false";
+  document.body.dataset.dashboardStale = "false";
+  element("dashboard-refresh").disabled = false;
+  const error = element("dashboard-error");
+  error.textContent = state.dashboardSnapshot
+    ? "Relmio could not refresh the local inventory. The last verified snapshot is marked stale and all maintenance actions are paused."
+    : "Relmio could not safely read the local inventory. No dashboard actions are available.";
+  error.hidden = false;
+  if (state.dashboardSnapshot) {
+    renderDashboardSnapshot(state.dashboardSnapshot, { stale: true });
+    return;
+  }
+  const unavailableServices = DASHBOARD_SERVICE_DEFINITIONS.map(
+    ({ target, label, kind }) => ({
+      target,
+      label,
+      kind,
+      managed: false,
+      state: "unavailable",
+      snapshot: null,
+      actions: [],
+    }),
+  );
+  element("dashboard-services").setAttribute("aria-busy", "false");
+  element("dashboard-services").hidden = false;
+  element("dashboard-services").replaceChildren(
+    ...unavailableServices.map((service) =>
+      renderDashboardServiceRow(service, { selected: false, stale: true })),
+  );
+  element("dashboard-empty").hidden = true;
+  element("dashboard-service-detail").hidden = false;
+  element("dashboard-service-detail-title").textContent = "Inventory unavailable";
+  element("dashboard-service-detail-copy").textContent =
+    "Relmio will not infer ownership or expose maintenance controls from an unreadable response.";
+  element("dashboard-service-facts").replaceChildren();
+  element("dashboard-service-actions").replaceChildren();
+  element("dashboard-healthy-count").textContent = "—";
+  element("dashboard-attention-count").textContent = "—";
+  element("dashboard-absent-count").textContent = "—";
+  element("dashboard-last-checked").textContent = "Unavailable";
+  const environment = element("dashboard-environment");
+  environment.className = "dashboard-environment state-unavailable";
+  const statusDot = environment.querySelector(".dashboard-status-dot");
+  if (statusDot) statusDot.className = "dashboard-status-dot state-unavailable";
+  element("dashboard-environment-title").textContent = "Local inventory unavailable";
+  element("dashboard-environment-detail").textContent = "Refresh when the local wizard and Docker are ready.";
+  element("dashboard-environment-state").className =
+    "dashboard-state-token state-unavailable";
+  element("dashboard-environment-state").textContent = "Unavailable";
+
+  element("dashboard-n8n-services").replaceChildren(
+    renderDashboardSectionStatus(
+      "n8n inventory unavailable",
+      "Refresh to verify managed n8n components.",
+      "unavailable",
+    ),
+  );
+  const credentialList = element("dashboard-credential-list");
+  credentialList.replaceChildren(
+    renderDashboardSectionStatus(
+      "Credential status unavailable",
+      "No stored credential can be viewed or changed from this state.",
+      "unavailable",
+    ),
+  );
+  credentialList.hidden = false;
+
+  const activity = document.createElement("li");
+  activity.append(dashboardStatusDot("unavailable"));
+  const activityCopy = document.createElement("span");
+  activityCopy.textContent = "Local inventory unavailable; no actions are available";
+  activity.append(activityCopy);
+  element("dashboard-activity-list").replaceChildren(activity);
+}
+
+async function loadLocalDashboard() {
+  renderDashboardChecking();
+  element("dashboard-error").hidden = true;
+  element("dashboard-error").textContent = "";
+  try {
+    const snapshot = normalizeDashboardSnapshot(await api("/api/local/dashboard"));
+    renderDashboardSnapshot(snapshot);
+  } catch {
+    renderDashboardFailure();
+  }
+}
+
+function clearOneTimeSetupValues() {
+  for (const id of [
+    "result-endpoint",
+    "result-api-key",
+    "result-responses",
+    "result-n8n",
+    "result-network",
+    "result-publication",
+    "result-models",
+    "result-deployment",
+    "result-public-url",
+    "result-assistant-mode",
+    "result-credential",
+    "result-sandbox-key",
+    "result-searxng",
+    "result-n8n-settings",
+    "device-code",
+    "assistant-searxng-edit-sandbox",
+    "assistant-searxng-edit-search",
+    "assistant-searxng-edit-result",
+    "assistant-searxng-edit-settings",
+  ]) {
+    element(id).textContent = "";
+  }
+  for (const id of [
+    "platform-api-key",
+    "ngrok-authtoken",
+    "ngrok-basic-auth-username",
+    "ngrok-basic-auth-password",
+  ]) {
+    element(id).value = "";
+  }
+  clearChatTesterState();
+}
+
+function resetPendingSetupState() {
+  invalidatePlan();
+  state.dashboardFocusIdentity = null;
+  state.installedTarget = null;
+  state.assistantSearxngReviewId = null;
+  state.assistantSearxngReview = null;
+  clearOneTimeSetupValues();
+
+  for (const id of [
+    "refresh-bridge-confirm",
+    "enable-assistant-searxng-confirm",
+    "remove-bridge-confirm",
+    "remove-assistant-confirm",
+    "remove-n8n-stack-confirm",
+    "include-local-searxng",
+  ]) {
+    element(id).checked = false;
+  }
+  for (const id of [
+    "refresh-bridge-confirm",
+    "enable-assistant-searxng-confirm",
+    "remove-bridge-confirm",
+    "remove-assistant-confirm",
+    "remove-n8n-stack-confirm",
+  ]) {
+    element(id).disabled = true;
+  }
+  for (const id of [
+    "refresh-bridge-button",
+    "enable-assistant-searxng-button",
+    "remove-bridge-button",
+    "remove-assistant-button",
+    "remove-n8n-stack-button",
+  ]) {
+    element(id).disabled = true;
+  }
+  for (const id of [
+    "assistant-searxng-edit-review",
+    "assistant-searxng-edit-settings",
+    "install-result-list",
+    "one-time-note",
+    "credential-rotation-note",
+    "client-warning",
+    "codex-production-warning",
+    "codex-login",
+    "chat-tester",
+    "n8n-sidecar-removal",
+    "n8n-assistant-removal",
+    "n8n-stack-removal",
+    "n8n-stack-resume",
+    "device-code-result",
+  ]) {
+    element(id).hidden = true;
+  }
+  for (const id of ["n8n-oauth-link", "device-code-link"]) {
+    element(id).removeAttribute("href");
+  }
+  element("n8n-oauth-link").hidden = true;
+  element("refresh-bridge-status").textContent =
+    "No sign-in is copied until you complete ChatGPT sign-in and confirm this separate action.";
+  element("assistant-searxng-edit-status").textContent =
+    "This is available only for a Relmio-owned Assistant installation without SearXNG.";
+}
+
+function focusVisibleSetupHeading() {
+  if (document.body.dataset.localView !== "setup") return;
+  const active = document.activeElement;
+  if (
+    active &&
+    active !== document.body &&
+    active.hidden !== true &&
+    active.isConnected !== false
+  ) {
+    return;
+  }
+  document.querySelector('[data-step]:not([hidden]) h2')?.focus({
+    preventScroll: true,
+  });
+}
+
+async function enterSetupView(target = null, { checkDocker = true } = {}) {
+  clearDashboardStaleTimer();
+  element("local-dashboard").hidden = true;
+  element("local-setup").hidden = false;
+  document.body.dataset.localView = "setup";
+  let refreshSelectedN8n = false;
+  if (target) {
+    const input = document.querySelector(`input[name="target"][value="${target}"]`);
+    if (!input) throw new Error("The requested setup option is unavailable.");
+    input.checked = true;
+    state.suppressTargetRefresh = true;
+    try {
+      renderTarget();
+      refreshSelectedN8n = checkDocker && isN8nDockerTarget(state.target);
+    } finally {
+      state.suppressTargetRefresh = false;
+    }
+  }
+  showStep(1);
+  if (checkDocker) await initializeLocalWizard();
+  if (refreshSelectedN8n) await refreshSelectedN8nContext();
+  focusVisibleSetupHeading();
+}
+
+async function enterDashboardView({
+  refresh = true,
+  preserveFocus = false,
+  preserveScroll = false,
+} = {}) {
+  clearDashboardStaleTimer();
+  await api("/api/local/discard", { method: "POST", body: {} });
+  resetPendingSetupState();
+  element("local-setup").hidden = true;
+  element("local-dashboard").hidden = false;
+  document.body.dataset.localView = "dashboard";
+  if (!preserveScroll) {
+    window.scrollTo({ top: 0, behavior: preferredScrollBehavior() });
+  }
+  if (!preserveFocus) {
+    element("dashboard-title").focus?.({ preventScroll: true });
+  }
+  if (refresh) await loadLocalDashboard();
+  else if (state.dashboardSnapshot) {
+    scheduleDashboardStaleExpiry(state.dashboardSnapshot);
+  }
+}
+
+function syncDashboardNavigation(hash = window.location.hash) {
+  const links = Array.from(
+    document.querySelectorAll("#local-dashboard-nav a"),
+  );
+  const requestedHash = links.some(
+    (link) => link.getAttribute("href") === hash,
+  )
+    ? hash
+    : "#dashboard-overview";
+  for (const link of links) {
+    if (link.getAttribute("href") === requestedHash) {
+      link.setAttribute("aria-current", "location");
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  }
+}
+
+function initializeLocalDashboard() {
+  element("dashboard-new-setup").addEventListener("click", () => {
+    enterSetupView().catch(showError);
+  });
+  element("dashboard-empty-setup").addEventListener("click", () => {
+    enterSetupView().catch(showError);
+  });
+  element("setup-back-to-dashboard").addEventListener("click", () => {
+    enterDashboardView().catch(showError);
+  });
+  element("dashboard-refresh").addEventListener("click", () => {
+    enterDashboardView({
+      preserveFocus: true,
+      preserveScroll: true,
+    }).catch(renderDashboardFailure);
+  });
+  for (const link of document.querySelectorAll("#local-dashboard-nav a")) {
+    link.addEventListener("click", () => {
+      syncDashboardNavigation(link.getAttribute("href"));
+    });
+  }
+  window.addEventListener("hashchange", () => syncDashboardNavigation());
+  syncDashboardNavigation();
+  Promise.all([
+    enterDashboardView(),
+    refreshProjectMeta().catch(() => {}),
+  ]).catch(renderDashboardFailure);
 }
 
 function parseRelmioStreamEvent(block) {
@@ -511,7 +1961,7 @@ function parseRelmioStreamEvent(block) {
 async function streamChatTesterMessage(body, onEvent) {
   if (!token) {
     throw new Error(
-      "This wizard link is incomplete. Close this tab and open the full URL printed by the active Relmio terminal.",
+      "This wizard link is incomplete. Close this tab. For a persistent install, run relmio open. For an NPX run, use npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff.",
     );
   }
   let response;
@@ -526,7 +1976,7 @@ async function streamChatTesterMessage(body, onEvent) {
       body: JSON.stringify(body),
     });
   } catch {
-    throw new Error("The local Relmio wizard is not reachable. Keep its terminal open and try again.");
+    throw new Error("The local Relmio wizard is not reachable. For a persistent install, run relmio status, then relmio open. For NPX, use npx --yes --ignore-scripts relmio@latest status, then npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, keep its terminal open and restart that launcher if needed.");
   }
   if (
     !response.ok ||
@@ -2227,6 +3677,7 @@ element("review-assistant-searxng-edit").addEventListener("click", async (event)
     element("assistant-searxng-edit-search").textContent = review.searxngUrl;
     element("assistant-searxng-edit-review").hidden = false;
     element("enable-assistant-searxng-confirm").checked = false;
+    element("enable-assistant-searxng-confirm").disabled = false;
     element("enable-assistant-searxng-button").disabled = true;
     element("assistant-searxng-edit-result").textContent =
       "Review ready. Confirm the SearXNG-only change to continue.";
@@ -3080,4 +4531,4 @@ async function initializeLocalWizard() {
 }
 
 renderTarget();
-initializeLocalWizard();
+initializeLocalDashboard();

@@ -7,6 +7,61 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.13.0] - 2026-09-04
+
+### Added
+
+- Add owner-scoped local dashboard lifecycle commands: `relmio start`,
+  `relmio status`, `relmio open`, and `relmio stop`.
+- Reopen Relmio's local launcher to rediscover a fixed inventory of six local
+  services: the OpenAI API endpoint, both Codex endpoints, the owned n8n stack,
+  the OAuth bridge, and the AI Assistant tools.
+- Copy verified service URLs and use only actions supported by the latest
+  inventory state, including Codex sign-in, client-credential rotation, OAuth
+  bridge refresh, owned-stack resume, removal, and a return to setup.
+
+### Changed
+
+- Keep hosted curl, PowerShell, and Command Prompt launches foreground-only
+  when they use a verified temporary runtime, while persistent package installs
+  can manage the dashboard between terminal sessions.
+- Make the persistent dashboard the default local launcher's home while
+  keeping the existing four-step **Add connection** setup flow intact and the
+  separate VPS flow available through `relmio vps`.
+- Present Docker availability, service boundaries, component state, and
+  recovery choices in a responsive dashboard that marks stale inventory and
+  refreshes it read-only.
+- Pair every dashboard rail label with an accessible inline SVG icon, using a
+  neutral workflow mark for n8n at the compact navigation size.
+
+### Fixed
+
+- Re-attest exact generated Docker ownership and health before reporting a
+  service as healthy, including each companion's selected external n8n
+  container and Docker network on Windows.
+- Keep owned n8n-stack recovery guidance accurate across Compose validation,
+  image pulls, and startup waits. Safe single-line validation details can now
+  explain the problem without exposing paths, credentials, or raw Docker
+  output, extending the Compose diagnostics introduced in v0.12.2.
+
+### Security
+
+- Open the local dashboard through an owner-only, single-use browser handoff
+  whose route-bound capability expires after 30 seconds and never appears in
+  process arguments, the visible URL, redirects, or cookies.
+- Leave ChatGPT OAuth ownership with the official Codex App Server, keep one
+  active account per Codex target, reject automatic account or key changes
+  after authentication, rate-limit, or quota failures, and deny undocumented
+  provider authentication methods by default.
+- Return only sanitized states, components, and allowlisted endpoints from
+  persistent inventory. Relmio never reveals stored secrets, and one-time
+  values are consumed before returning to the dashboard.
+- Recheck owner-only Windows ACLs at mutation time and fail closed before any
+  Docker or Compose change when a managed path or file no longer has its
+  attested permissions.
+- Let operators disconnect the VPS explicitly and close idle authenticated SSH
+  sessions after 15 minutes without interrupting an active remote operation.
+
 ## [0.12.2] - 2026-09-03
 
 ### Fixed
@@ -788,6 +843,7 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
+[0.13.0]: https://github.com/Demonbane18/relmio/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/Demonbane18/relmio/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/Demonbane18/relmio/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/Demonbane18/relmio/compare/v0.11.0...v0.12.0

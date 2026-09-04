@@ -310,6 +310,7 @@ export function createLocalChatTestService({
 } = {}) {
   const sessions = new Map();
   let pendingKeyIssuances = 0;
+  let sessionGeneration = 0;
 
   function expireSession(keyId, session) {
     if (sessions.get(keyId) !== session) {
@@ -331,6 +332,7 @@ export function createLocalChatTestService({
   }
 
   function resetAllSessions() {
+    sessionGeneration += 1;
     for (const [keyId, session] of sessions) {
       expireSession(keyId, session);
     }
@@ -350,6 +352,7 @@ export function createLocalChatTestService({
 
   return {
     async issueKey() {
+      const issueGeneration = sessionGeneration;
       discardExpiredSessions();
       if (sessions.size + pendingKeyIssuances >= maxSessions) {
         throw requestError(
@@ -363,6 +366,9 @@ export function createLocalChatTestService({
           modulusLength: 2_048,
           publicExponent: 0x10001,
         });
+        if (sessionGeneration !== issueGeneration) {
+          throw expiredKeyError();
+        }
         const keyId = randomUUID();
         const expiresAt = now() + keyTtlMs;
         const session = {

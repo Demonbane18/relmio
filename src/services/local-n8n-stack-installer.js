@@ -43,6 +43,7 @@ const LIFECYCLE_LOCK_PUBLICATION_GRACE_MS = 30_000;
 const MAX_LIFECYCLE_LOCK_RECLAIM_ATTEMPTS = 4;
 const MAX_LIFECYCLE_LOCK_OWNER_BYTES = 4 * 1024;
 const MAX_DOCKER_METADATA_BYTES = 1024 * 1024;
+const MAX_COMPOSE_VALIDATION_DETAIL_BYTES = 180;
 export const LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE = "LOCAL_N8N_MANAGED_PARTIAL_STACK";
 export const LOCAL_N8N_LIFECYCLE_LOCK_RELEASE_ERROR_CODE = "LOCAL_N8N_LIFECYCLE_LOCK_RELEASE";
 export const LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE = "LOCAL_N8N_STACK_RETRYABLE_STARTUP";
@@ -171,7 +172,13 @@ async function ensureDirectory(fileSystem, path, platform, lockDownPath) {
   await lockDownPath(path, { platform });
 }
 
-async function writePrivateFile(fileSystem, path, contents, mode) {
+async function writePrivateFile(
+  fileSystem,
+  path,
+  contents,
+  mode,
+  { platform, lockDownPath },
+) {
   const existing = await lstatIfExists(fileSystem, path);
   if (existing) {
     throw new Error("Relmio refuses to overwrite a local n8n managed file.");
@@ -180,8 +187,14 @@ async function writePrivateFile(fileSystem, path, contents, mode) {
   try {
     await fileSystem.writeFile(temporary, contents, { flag: "wx", mode });
     await fileSystem.chmod(temporary, mode);
+    await lockDownPath(temporary, { platform, kind: "file" });
     await fileSystem.rename(temporary, path);
     await fileSystem.chmod(path, mode);
+    await lockDownPath(path, {
+      platform,
+      kind: "file",
+      verifyOnly: true,
+    });
   } catch (error) {
     try { await fileSystem.unlink(temporary); } catch { /* no temporary file */ }
     throw error;
@@ -448,6 +461,46 @@ function composeFailureOutput(result, error) {
     .join("\n");
 }
 
+function safeComposeValidationDetail(result, error) {
+  const fragments = [
+    result?.stdout,
+    result?.stderr,
+    error instanceof Error ? error.message : "",
+  ].filter((value) => typeof value === "string" && value.trim() !== "");
+  if (fragments.length !== 1) return null;
+  const detail = fragments[0].trim();
+  if (
+    detail === "" ||
+    Buffer.byteLength(detail) > MAX_COMPOSE_VALIDATION_DETAIL_BYTES ||
+    /[\u0000-\u001f\u007f]/u.test(detail) ||
+    /(?:^|\s)(?:https?|file|unix|npipe):\/\//iu.test(detail) ||
+    /\/(?:Users|home|private|tmp|var|opt|docker)\//iu.test(detail) ||
+    /[A-Za-z]:\\/u.test(detail) ||
+    /\b(?:docker-)?compose\.ya?ml\b|(?:^|\s)\.env\b/iu.test(detail) ||
+    /(?:access|refresh)?[_-]?token|private[_-]?key|password|authorization|cookie|secret|\bsk-[A-Za-z0-9_-]{8,}|\bBearer\s+\S+/iu.test(detail) ||
+    /\b[A-Za-z0-9_-]{32,}\b/u.test(detail) ||
+    !/^(?:services|networks|volumes|configs)\.[a-z0-9][a-z0-9_.-]{0,95} (?:(?:must be (?:a |an )?(?:mapping|list|string|number|boolean|integer))|is required|Additional property [a-z0-9_.-]{1,64} is not allowed)$/iu.test(detail)
+  ) return null;
+  return detail;
+}
+
+async function validateComposeConfiguration(runProcess, spec) {
+  let result;
+  try {
+    result = await runProcess(spec);
+  } catch (error) {
+    const detail = safeComposeValidationDetail(undefined, error);
+    throw new Error(detail
+      ? `Local n8n Compose validation failed: ${detail}`
+      : "Local n8n Compose validation failed.");
+  }
+  if (result?.code === 0) return result;
+  const detail = safeComposeValidationDetail(result);
+  throw new Error(detail
+    ? `Local n8n Compose validation failed: ${detail}`
+    : "Local n8n Compose validation failed.");
+}
+
 function hasWindowsWslEngineResourceFailure(result, error) {
   const output = composeFailureOutput(result, error);
   return (
@@ -459,7 +512,7 @@ function hasWindowsWslEngineResourceFailure(result, error) {
   );
 }
 
-function classifyStackCreationFailure(result, error) {
+function classifyStackCreationFailure(result, error, phase) {
   if (hasNgrokSetupRejectionEvidence(result)) {
     return STACK_STARTUP_FAILURE_KINDS.NGROK_SETUP_REJECTED;
   }
@@ -467,6 +520,24 @@ function classifyStackCreationFailure(result, error) {
     return STACK_STARTUP_FAILURE_KINDS.DOCKER_ENGINE_RESOURCES;
   }
   const output = composeFailureOutput(result, error);
+  if (
+    phase === "pull" &&
+    (
+      /\bTLS handshake timeout\b/iu.test(output) ||
+      /\btoo\s*many\s*requests\b|\btoomanyrequests\b|\brate[- ]limit(?:ed| exceeded)?\b/iu.test(output) ||
+      /\bunexpected EOF\b/iu.test(output) ||
+      /\bcontext deadline exceeded\b/iu.test(output) ||
+      /The local Docker process timed out\./u.test(output)
+    )
+  ) {
+    return STACK_STARTUP_FAILURE_KINDS.STACK_IMAGE_PULL;
+  }
+  if (
+    phase === "start" &&
+    (/\bunhealthy\b/iu.test(output) || /\bhealth[- ]?check failed\b/iu.test(output))
+  ) {
+    return STACK_STARTUP_FAILURE_KINDS.STACK_STARTUP_WAIT;
+  }
   if (
     /\bwait[- ]timeout\b/iu.test(output) ||
     /\btimed out waiting\b/iu.test(output) ||
@@ -509,16 +580,19 @@ function stackCreationFailureMessage(failureKind) {
   }
 }
 
-async function createStackWithCompose({ runProcess, spec }) {
+async function createStackWithCompose({ runProcess, spec, phase }) {
+  if (phase !== "pull" && phase !== "start") {
+    throw new TypeError("Local n8n Compose startup phase is invalid.");
+  }
   let result;
   try {
     result = await runProcess(spec);
   } catch (error) {
-    const failureKind = classifyStackCreationFailure(undefined, error);
+    const failureKind = classifyStackCreationFailure(undefined, error, phase);
     throw createTypedStartupFailure(failureKind, stackCreationFailureMessage(failureKind));
   }
   if (result?.code === 0) return result;
-  const failureKind = classifyStackCreationFailure(result);
+  const failureKind = classifyStackCreationFailure(result, undefined, phase);
   throw createTypedStartupFailure(failureKind, stackCreationFailureMessage(failureKind));
 }
 
@@ -807,7 +881,7 @@ async function classifyOwnedStackRuntime({ runProcess, cwd, marker }) {
       resourcePolicy: "subset",
     });
   } catch {
-    return "unavailable";
+    return Object.freeze({ state: "unavailable", exactOwnership: false });
   }
 
   try {
@@ -823,30 +897,32 @@ async function classifyOwnedStackRuntime({ runProcess, cwd, marker }) {
     // An empty resource set with an exact owned marker is also partial: the
     // separately confirmed remover can then delete only the stale managed
     // files after re-attesting the empty Docker set.
-    return "partial";
+    return Object.freeze({ state: "partial", exactOwnership: false });
   }
 
   let rows;
   try {
     rows = await readOwnedStackServiceStates({ runProcess, cwd, marker });
   } catch {
-    return "unavailable";
+    return Object.freeze({ state: "unavailable", exactOwnership: true });
   }
   if (hasExactStoppedState(rows, marker)) {
     try {
       await verifyAssistantEgressNetworks({ runProcess, cwd, marker });
-      return "stopped";
+      return Object.freeze({ state: "stopped", exactOwnership: true });
     } catch {
-      return "partial";
+      return Object.freeze({ state: "partial", exactOwnership: true });
     }
   }
-  if (!hasExactRunningState(rows, marker)) return "partial";
+  if (!hasExactRunningState(rows, marker)) {
+    return Object.freeze({ state: "partial", exactOwnership: true });
+  }
 
   try {
     await verifyRunningStack({ runProcess, cwd, marker });
-    return "healthy";
+    return Object.freeze({ state: "healthy", exactOwnership: true });
   } catch {
-    return "partial";
+    return Object.freeze({ state: "partial", exactOwnership: true });
   }
 }
 
@@ -897,6 +973,85 @@ async function validateManagedLocalRootOwnership({ fileSystem, installRoot }) {
   return paths;
 }
 
+async function verifyWindowsStatusPathSecurity({
+  fileSystem,
+  installRoot,
+  marker,
+  platform,
+  lockDownPath,
+}) {
+  if (platform !== "win32") return;
+  const safeMarker = validateLocalN8nStackMarker(marker);
+  const { relmioRoot, localRoot, rootMarkerPath } = managedLocalRootPaths(installRoot);
+  for (const path of [
+    relmioRoot,
+    localRoot,
+    installRoot,
+    join(installRoot, RUNTIME_DIRECTORY),
+  ]) {
+    assertPrivateDirectory(
+      await lstatIfExists(fileSystem, path),
+      "local n8n managed directory",
+    );
+    await lockDownPath(path, { platform, verifyOnly: true });
+  }
+  for (const path of [
+    rootMarkerPath,
+    join(installRoot, MARKER),
+    join(installRoot, ENV_FILE),
+    join(installRoot, COMPOSE_FILE),
+    join(installRoot, "ngrok.yml"),
+    join(installRoot, RUNTIME_DIRECTORY, TRAFFIC_POLICY),
+    ...(safeMarker.assistantMode === "sandbox-with-searxng"
+      ? [join(installRoot, RUNTIME_DIRECTORY, "searxng-settings.yml")]
+      : []),
+  ]) {
+    const metadata = await lstatIfExists(fileSystem, path);
+    if (!metadata?.isFile?.() || metadata.isSymbolicLink()) {
+      throw new Error("Relmio refuses an unsafe local n8n managed file.");
+    }
+    await lockDownPath(path, {
+      platform,
+      kind: "file",
+      verifyOnly: true,
+      verifyEffectiveOwnerOnly: true,
+    });
+  }
+}
+
+function createLocalN8nStackStatusSnapshot(marker, state) {
+  const safe = validateLocalN8nStackMarker(marker);
+  const codeSandbox = safe.assistantMode !== "disabled";
+  return Object.freeze({
+    target: LOCAL_N8N_STACK_TARGET,
+    assistantMode: safe.assistantMode,
+    endpoints: Object.freeze({
+      n8nLocal: `http://127.0.0.1:${safe.n8nPort}`,
+      ngrokPublic: `https://${safe.ngrokHostname}`,
+      ngrokInspector: `http://127.0.0.1:${safe.ngrokInspectorPort}`,
+    }),
+    components: Object.freeze({
+      n8n: true,
+      ngrok: true,
+      codeSandbox,
+      searxng: safe.assistantMode === "sandbox-with-searxng",
+    }),
+    canResume: state === "stopped",
+    canRemove: true,
+  });
+}
+
+function withLocalN8nStackStatusSnapshot(coarseStatus, marker) {
+  const result = { ...coarseStatus };
+  Object.defineProperty(result, "snapshot", {
+    configurable: false,
+    enumerable: false,
+    value: createLocalN8nStackStatusSnapshot(marker, coarseStatus.state),
+    writable: false,
+  });
+  return Object.freeze(result);
+}
+
 export async function getLocalN8nStackStatus({
   runProcess = runLocalProcess,
   fileSystem = defaultFileSystem,
@@ -904,6 +1059,7 @@ export async function getLocalN8nStackStatus({
   cwd = process.cwd(),
   env = process.env,
   platform = hostPlatform(),
+  lockDownPath = lockDownLocalPath,
 } = {}) {
   let installRoot;
   try {
@@ -922,6 +1078,13 @@ export async function getLocalN8nStackStatus({
       "local n8n managed directory",
     );
     const marker = await readOwnedMarker({ fileSystem, installRoot });
+    await verifyWindowsStatusPathSecurity({
+      fileSystem,
+      installRoot,
+      marker,
+      platform,
+      lockDownPath,
+    });
     const dockerHost = await resolveAttestedDockerHost({
       runProcess,
       cwd,
@@ -931,17 +1094,22 @@ export async function getLocalN8nStackStatus({
     if (dockerHost !== marker.dockerHost) {
       return LOCAL_N8N_STACK_UNAVAILABLE;
     }
-    const runtimeState = await classifyOwnedStackRuntime({
+    const runtime = await classifyOwnedStackRuntime({
       runProcess,
       cwd: installRoot,
       marker,
     });
-    if (runtimeState === "healthy") return LOCAL_N8N_STACK_HEALTHY;
-    if (runtimeState === "stopped") return LOCAL_N8N_STACK_STOPPED;
-    if (runtimeState === "partial") return LOCAL_N8N_STACK_PARTIAL;
-    return LOCAL_N8N_STACK_UNAVAILABLE;
+    if (runtime.state === "unavailable") return LOCAL_N8N_STACK_UNAVAILABLE;
+    const coarseStatus = runtime.state === "healthy"
+      ? LOCAL_N8N_STACK_HEALTHY
+      : runtime.state === "stopped"
+        ? LOCAL_N8N_STACK_STOPPED
+        : LOCAL_N8N_STACK_PARTIAL;
+    return runtime.exactOwnership
+      ? withLocalN8nStackStatusSnapshot(coarseStatus, marker)
+      : coarseStatus;
   } catch {
-    return installRoot ? LOCAL_N8N_STACK_UNAVAILABLE : LOCAL_N8N_STACK_NOT_MANAGED;
+    return LOCAL_N8N_STACK_UNAVAILABLE;
   }
 }
 
@@ -958,7 +1126,13 @@ async function ensureManagedLocalRoot({ fileSystem, installRoot, platform, lockD
       rootCreated = true;
       await fileSystem.chmod(relmioRoot, 0o700);
       await lockDownPath(relmioRoot, { platform });
-      await writePrivateFile(fileSystem, rootMarkerPath, `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`, 0o600);
+      await writePrivateFile(
+        fileSystem,
+        rootMarkerPath,
+        `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`,
+        0o600,
+        { platform, lockDownPath },
+      );
     }
     await fileSystem.chmod(relmioRoot, 0o700);
     await lockDownPath(relmioRoot, { platform });
@@ -1007,13 +1181,14 @@ async function createManagedFiles({
     const assistantSecrets = installation.assistantMode === "disabled"
       ? null : createAssistantSecrets({ randomBytes, includeSearxng: installation.assistantMode === "sandbox-with-searxng" });
     const runtimeSecrets = { n8nEncryptionKey: n8nKey.toString("hex"), ...assistantSecrets };
-    await writePrivateFile(fileSystem, join(installRoot, MARKER), `${JSON.stringify(installation.marker)}\n`, 0o600);
-    await writePrivateFile(fileSystem, join(installRoot, ENV_FILE), createLocalN8nStackEnv({ installation, secrets, runtimeSecrets }), 0o600);
-    await writePrivateFile(fileSystem, join(installRoot, COMPOSE_FILE), createLocalN8nStackComposeFile({ installation }), 0o600);
-    await writePrivateFile(fileSystem, join(installRoot, "ngrok.yml"), createNgrokConfig(), 0o644);
-    await writePrivateFile(fileSystem, join(installRoot, RUNTIME_DIRECTORY, TRAFFIC_POLICY), createNgrokTrafficPolicy({ username: secrets.basicAuthUsername, password: secrets.basicAuthPassword }), 0o600);
+    const privateFileOptions = { platform, lockDownPath };
+    await writePrivateFile(fileSystem, join(installRoot, MARKER), `${JSON.stringify(installation.marker)}\n`, 0o600, privateFileOptions);
+    await writePrivateFile(fileSystem, join(installRoot, ENV_FILE), createLocalN8nStackEnv({ installation, secrets, runtimeSecrets }), 0o600, privateFileOptions);
+    await writePrivateFile(fileSystem, join(installRoot, COMPOSE_FILE), createLocalN8nStackComposeFile({ installation }), 0o600, privateFileOptions);
+    await writePrivateFile(fileSystem, join(installRoot, "ngrok.yml"), createNgrokConfig(), 0o644, privateFileOptions);
+    await writePrivateFile(fileSystem, join(installRoot, RUNTIME_DIRECTORY, TRAFFIC_POLICY), createNgrokTrafficPolicy({ username: secrets.basicAuthUsername, password: secrets.basicAuthPassword }), 0o600, privateFileOptions);
     if (installation.assistantMode === "sandbox-with-searxng") {
-      await writePrivateFile(fileSystem, join(installRoot, RUNTIME_DIRECTORY, "searxng-settings.yml"), createSearxngSettings(), 0o644);
+      await writePrivateFile(fileSystem, join(installRoot, RUNTIME_DIRECTORY, "searxng-settings.yml"), createSearxngSettings(), 0o644, privateFileOptions);
     }
   } catch (error) {
     if (installDirectoryCreated) {
@@ -1385,7 +1560,13 @@ async function createLifecycleLockDirectory({
     await fileSystem.chmod(lockPath, 0o700);
     await lockDownPath(lockPath, { platform });
     const ownerPath = join(lockPath, LOCK_OWNER_FILE);
-    await writePrivateFile(fileSystem, ownerPath, `${JSON.stringify(ownerPublication)}\n`, 0o600);
+    await writePrivateFile(
+      fileSystem,
+      ownerPath,
+      `${JSON.stringify(ownerPublication)}\n`,
+      0o600,
+      { platform, lockDownPath },
+    );
     await lockDownPath(ownerPath, { platform, kind: "file" });
     const published = await inspectLifecycleLockClaim({
       fileSystem, lockPath, platform, lockDownPath,
@@ -1790,10 +1971,16 @@ export async function installLocalN8nStack({
           lockDownPath,
         });
         filesCreated = true;
-        await runOrThrow(runProcess, { file: "docker", args: composeArgs(installation.marker, ["config", "--quiet"]), cwd: installRoot, dockerHost }, "Local n8n Compose validation");
+        await validateComposeConfiguration(runProcess, {
+          file: "docker",
+          args: composeArgs(installation.marker, ["config", "--quiet"]),
+          cwd: installRoot,
+          dockerHost,
+        });
         creationAttempted = true;
         await createStackWithCompose({
           runProcess,
+          phase: "pull",
           spec: {
             file: "docker",
             args: composeArgs(installation.marker, ["pull"]),
@@ -1804,6 +1991,7 @@ export async function installLocalN8nStack({
         });
         await createStackWithCompose({
           runProcess,
+          phase: "start",
           spec: {
             file: "docker",
             args: composeArgs(installation.marker, [
@@ -1899,16 +2087,23 @@ export async function resumeLocalN8nStack({
       if (dockerHost !== marker.dockerHost) {
         throw new Error("The local Docker context changed. The owned stack was not started.");
       }
-      const runtimeState = await classifyOwnedStackRuntime({
+      const runtimeState = (await classifyOwnedStackRuntime({
         runProcess,
         cwd: installRoot,
         marker,
-      });
+      })).state;
       if (runtimeState !== "stopped") {
         throw new Error(
           "Relmio can resume only an exact, ownership-attested stopped local n8n stack. No containers, volumes, or configuration were changed.",
         );
       }
+      await verifyWindowsStatusPathSecurity({
+        fileSystem,
+        installRoot,
+        marker,
+        platform,
+        lockDownPath,
+      });
       await runOrThrow(runProcess, {
         file: "docker",
         // Compose start acts on the exact existing container names. It never
@@ -1965,6 +2160,13 @@ export async function removeLocalN8nStack({
       const marker = await readOwnedMarker({ fileSystem, installRoot });
       const dockerHost = await resolveAttestedDockerHost({ runProcess, cwd, env, platform });
       if (dockerHost !== marker.dockerHost) throw new Error("The local Docker context changed. Nothing was removed.");
+      await verifyWindowsStatusPathSecurity({
+        fileSystem,
+        installRoot,
+        marker,
+        platform,
+        lockDownPath,
+      });
       const cleanupState = await attemptOwnershipAttestedCleanup({ runProcess, cwd: installRoot, marker });
       if (cleanupState === "ownership-unconfirmed") {
         throw new Error("Local n8n removal was not attempted because ownership could not be safely confirmed. Managed files were preserved and unrelated n8n deployments were not changed.");
