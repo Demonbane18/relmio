@@ -1,16 +1,18 @@
 # Local Docker endpoints
 
-The unreleased OAuth-only candidate installs isolated provider runtimes for
-local apps and private companions for n8n. Its seven dashboard services differ
-from published 0.13.0. Live SuperGrok tool calls passed with local clients and a disposable n8n
-Assistant. Normal setup integration and protected release checks remain open.
+Relmio 0.14.0 installs isolated provider runtimes for local apps and private
+companions for n8n. SuperGrok is a first-class local and VPS option with its own
+official device sign-in. It does not require or read ChatGPT credentials. The
+adapter remains experimental. Its seven dashboard services keep the three local
+OAuth endpoints separate from the four n8n and support options.
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|
 | **Codex with ChatGPT: agent clients** | Official Codex App Server JSON-RPC over WebSocket | ChatGPT sign-in through Codex | A trusted native Codex/App Server client owned by the same person |
 | **Codex Chat Adapter: development backends** | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in through Codex | A trusted local backend or development server owned by the same person |
-| **SuperGrok: development backends** *(unreleased candidate)* | Loopback `/v1/chat/completions` and simple `POST /chat` | Fresh OAuth/device sign-in through the official Grok CLI | A trusted local backend or development server owned by the same person |
+| **SuperGrok: development backends** | Loopback `/v1/chat/completions` and simple `POST /chat` | Fresh OAuth/device sign-in through the official Grok CLI | A trusted local backend or development server owned by the same person |
 | **Self-hosted n8n bridge** | Private `http://n8n-openai-oauth:10531/v1` on one existing Docker network | Local ChatGPT OAuth copied into a private sidecar volume | Only the selected self-hosted n8n deployment |
+| **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` on one existing Docker network | Separate fresh Grok OAuth session and one-time local bearer | Only the selected local or VPS n8n deployment |
 | **n8n AI Assistant tools** | Private Code Sandbox plus optional SearXNG JSON search on one existing Docker network | A generated sandbox key shown once; model-provider credentials stay in n8n | Only the selected self-hosted n8n deployment |
 | **New local n8n + ngrok** | A new owned n8n stack with loopback access and a Basic-Auth-protected public ngrok route | n8n credentials stay in its owned data volume; ngrok uses an operator-supplied token | A new disposable local n8n installation and its webhooks |
 
@@ -47,11 +49,10 @@ target and complete a new Codex sign-in. OpenAI currently documents its
 as a ChatGPT web feature and says it is not yet supported in Codex desktop.
 Relmio does not keep an account pool or move requests between accounts.
 
-The SuperGrok OAuth candidate is unreleased. There is no upstream API-key
-setup or API-key profile registry in this candidate. Existing API installations
-and stored data are left untouched.
+Relmio 0.14.0 has no upstream API-key setup or API-key profile registry.
+Existing API installations and stored data are left untouched.
 
-The unreleased SuperGrok adapter uses the pinned official Grok CLI for fresh
+The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
 OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
 handler reads only that runtime's marked session to call xAI's documented CLI
 chat proxy. It does not inspect another app's credentials, import tokens,
@@ -84,7 +85,7 @@ See the [direct OAuth route](supergrok-oauth-route-decision.md) and
   Windows credentials; POSIX hosts retain owner-only modes.
 - Docker Engine or Docker Desktop with Docker Compose v2 on the local computer
 - A free loopback port: `14500` for native Codex, `14501` for Codex Chat
-  Adapter, or `14502` for the unreleased Grok Build adapter
+  Adapter, or `14502` for the Grok Build adapter
 
 - For the n8n bridge, a running official n8n container with an existing shared
   Docker network; no host port is required
@@ -116,7 +117,7 @@ project on the local computer.
 2. Relmio opens the local dashboard through an owner-only, single-use browser
    handoff. If it does not open, press Enter in the active foreground terminal
    or run `relmio open` from a persistent install. Then select **Add connection**.
-3. In this candidate, choose a Codex endpoint, **SuperGrok**, **Self-hosted
+3. Choose a Codex endpoint, **SuperGrok**, **Self-hosted
    n8n bridge**, **n8n AI Assistant tools**, or **New local n8n + ngrok**.
 4. For a local endpoint, choose an unused loopback port. For the ChatGPT n8n
    bridge, sign in locally and select the running n8n container and its Docker
@@ -137,11 +138,11 @@ project on the local computer.
 
 ## Persistent local dashboard
 
-The standard `relmio` command opens a dashboard before the setup flow. The
-published 0.13.0 dashboard reconstructs status from six fixed managed
-directories, the selected local Docker context, and exact Docker resource
-identities. The candidate has three OAuth endpoints and four n8n/support
-services. It does not discover or manage retired API-key targets.
+The standard `relmio` command opens a dashboard before the setup flow. Relmio
+0.14.0 reconstructs status for three OAuth endpoints and four n8n/support
+services from fixed managed directories, the selected local Docker context,
+and exact Docker resource identities. It does not discover or manage retired
+API-key targets.
 
 The dashboard does not keep a second registry or adopt containers from labels
 alone.
@@ -241,10 +242,10 @@ uncertain locks remain blocked for safe inspection.
 
 ## SuperGrok OAuth for n8n
 
-This connection is under development. It must use the official Grok runtime's
-OAuth and pass the intended n8n model-node acceptance before it is offered as
-working. No API key is requested, stored, or used as a fallback. The companion
-must publish no host port and leave the selected existing n8n untouched.
+This experimental connection uses the official Grok runtime's OAuth and a
+separate one-time local bearer. No xAI API key is requested, stored, or used as
+a fallback. The companion publishes no host port and leaves the selected n8n
+untouched. It works locally or through the VPS wizard without ChatGPT sign-in.
 
 ## n8n AI Assistant tools
 
@@ -455,7 +456,7 @@ completed terminal event arrives.
 
 ## SuperGrok: development backends
 
-The unreleased `xai-grok-build` target defaults to `http://127.0.0.1:14502`.
+The experimental `xai-grok-build` target defaults to `http://127.0.0.1:14502`.
 Use `http://127.0.0.1:14502/v1` in a Chat Completions client. `grok-build` is
 a supported legacy routing alias. The runtime's fresh OAuth catalog uses the
 official CLI proxy's fixed `GET /v1/models` endpoint; the current live account
@@ -510,7 +511,7 @@ The local bearer remains necessary even on loopback; keep it private.
 ## Retired API installations
 
 **Upgrading does not stop an existing API-key gateway.** This OAuth-only
-candidate no longer discovers or manages `openai-api` or `xai-inference`.
+version no longer discovers or manages `openai-api` or `xai-inference`.
 An older container can continue listening and using its saved credential even
 though it has no dashboard row. The upgrade does not migrate or delete its data.
 
@@ -559,7 +560,7 @@ file. Relmio does not perform this migration automatically.
 ## Recovery and uninstall
 
 The manual recovery commands below apply to the two Codex targets. Use the
-reviewed management flow for the Grok candidate and the separately confirmed
+reviewed management flow for the Grok target and the separately confirmed
 Ready-screen removal for `n8n-openai-oauth`. These actions remove only owned
 resources and never remove or disconnect the selected n8n or external network.
 
@@ -707,14 +708,14 @@ an explicit sign-out and fresh sign-in.
 
 ## Private SuperGrok companion for existing n8n
 
-The unreleased **SuperGrok for n8n** connection installs a separate owned
+The experimental **SuperGrok for n8n** connection installs a separate owned
 companion on one selected n8n Docker network. It publishes no host port and
 keeps its fresh official login in its own volume. The plan does not read or
 import a ChatGPT session.
 
-An earlier released SuperGrok installation without the fresh-session
-`tokenSha256` marker is not upgraded automatically. This candidate refuses
-setup before changing its files, Docker resources, or runtime session; migration
+An earlier development SuperGrok installation without the fresh-session
+`tokenSha256` marker is not upgraded automatically. Relmio 0.14.0 refuses setup
+before changing its files, Docker resources, or runtime session; migration
 requires a separately reviewed path.
 
 After reviewing the installation, copy its one-time Relmio client credential.
@@ -723,6 +724,9 @@ is a supported legacy alias; a workflow OpenAI-compatible model node can use
 **From list** to load a fresh authenticated catalog. Turn **Use Responses API**
 off for that workflow model node. Use the local credential in the field named
 API key; it authorizes Relmio only, and no xAI API key is needed.
+
+This differs from the OpenAI OAuth/Codex recipe, which uses **Use Responses API**
+on in OpenAI Chat Model node version 1.3.
 
 For self-hosted n8n versions that expose **AI Assistant settings**, use its
 admin model connection settings. The n8n 2.36.8 configuration reference documents

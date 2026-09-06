@@ -132,10 +132,10 @@ export default function InstallPage() {
             <section>
               <h3>Credential boundary</h3>
               <p>
-                The current candidate handles provider OAuth only. Codex and Grok
-                keep their own sign-in sessions. SuperGrok support for local apps
-                and n8n has passed disposable live tool-call tests and remains
-                unreleased.
+                Relmio 0.14.0 handles provider OAuth only. Codex and SuperGrok
+                keep separate sign-in sessions. Experimental SuperGrok setup works
+                with local apps and private local or VPS n8n companions without a
+                ChatGPT credential.
               </p>
             </section>
             <section>

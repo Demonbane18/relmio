@@ -51,6 +51,13 @@ test("README surfaces are concise product entry points linked to canonical docs"
     assert.match(guide, /Authentication fails/u);
     assert.match(guide, /Local image build failed/u);
     assert.match(guide, /npx --yes --ignore-scripts relmio@latest/u);
+    assert.match(guide, /SuperGrok setup does not require or read ChatGPT credentials/u);
+    assert.match(guide, /full Windows gate[\s\S]*conditional[\s\S]*Git Bash 2\.38\.1/iu);
+    assert.match(guide, /VPS Chat success was user-reported[\s\S]*VPS Assistant and Calculator remain unverified/iu);
+    assert.match(guide, /OpenAI OAuth[^\n]*\*\*On\*\*/iu);
+    assert.match(guide, /SuperGrok OAuth[^\n]*\*\*Off\*\*/iu);
+    assert.match(guide, /MSYS=enable_pcon/u);
+    assert.match(guide, /## Upgrade from 0\.13\.0/u);
     assert.match(
       guide,
       /## Support[\s\S]*href="https:\/\/ko-fi\.com\/paldogies"[\s\S]*src="https:\/\/storage\.ko-fi\.com\/cdn\/kofi6\.png\?v=6"/u,
@@ -82,8 +89,7 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
       /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
     );
     assert.doesNotMatch(entryPoint, /Press Enter to reopen the same\s+dashboard/u);
-    assert.match(entryPoint, /seven services[\s\S]*published\s+0\.13\.0/iu);
-    assert.match(entryPoint, /OAuth-only candidate/u);
+    assert.match(entryPoint, /seven services[\s\S]*Relmio\s+0\.14\.0/iu);
     assert.doesNotMatch(entryPoint, /eight dashboard services|not a ninth dashboard service/u);
     assert.match(entryPoint, /never stored\s+secrets/u);
     assert.match(entryPoint, /existing four-step setup flow/u);
@@ -195,12 +201,13 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
   assertOnlyDocumentationAddresses(dashboard);
 });
 
-test("public guides document OAuth-only provider scope and unreleased status", async () => {
+test("public guides document the 0.14.0 OAuth-only provider scope", async () => {
   const paths = ["README.md", "npm/README.md", "docs/local-endpoints.md", "docs/local-dashboard.md", "docs/security.md", "docs/roadmap.md"];
   for (const path of paths) {
     const guide = await readFile(path, "utf8");
     assert.match(guide, /OAuth/iu, path);
-    assert.match(guide, /unreleased/iu, path);
+    assert.match(guide, /experimental/iu, path);
+    assert.doesNotMatch(guide, /\bunreleased\b/iu, path);
     assert.match(guide, /fresh[\s\S]*sign-in/iu, path);
     assert.match(guide, /\/v1\/chat\/completions/u, path);
     assert.match(guide, /(?:never|does not|must not)[\s\S]*(?:inspect|read|convert)/iu, path);
@@ -224,7 +231,7 @@ test("SuperGrok guidance separates fresh discovery, tested models, and n8n contr
     assert.match(guide, /(?:listing|discovery)[\s\S]*not[\s\S]*tool proof/iu);
   }
   for (const guide of [readme, npmReadme, endpoints]) {
-    assert.match(guide, /not upgraded automatically[\s\S]*separately reviewed path/iu);
+    assert.match(guide, /not upgraded automatically[\s\S]*separately reviewed\s+path/iu);
   }
   assert.match(endpoints, /fresh-session\s+`tokenSha256` marker/u);
   assert.match(endpoints, /GET \/v1\/models/u);
@@ -239,9 +246,10 @@ test("SuperGrok guidance separates fresh discovery, tested models, and n8n contr
 });
 
 test("VPS guides explain explicit disconnect and bounded SSH inactivity", async () => {
-  const [dashboard, vpsGuide, security] = await Promise.all([
+  const [dashboard, vpsGuide, supergrokGuide, security] = await Promise.all([
     readFile("docs/local-dashboard.md", "utf8"),
     readFile("docs/vps-and-n8n.md", "utf8"),
+    readFile("docs/vps-supergrok.md", "utf8"),
     readFile("docs/security.md", "utf8"),
   ]);
 
@@ -250,6 +258,11 @@ test("VPS guides explain explicit disconnect and bounded SSH inactivity", async 
     assert.match(guide, /15 minutes\s+of\s+inactivity/u);
     assert.match(guide, /active\s+(?:VPS|remote)\s+operation/u);
   }
+  assert.match(vpsGuide, /SuperGrok[\s\S]*does not require or read ChatGPT credentials/iu);
+  assert.match(vpsGuide, /OpenAI OAuth[^\n]*\*\*On\*\*/iu);
+  assert.match(vpsGuide, /SuperGrok OAuth[^\n]*\*\*Off\*\*/iu);
+  assert.match(supergrokGuide, /user reported[\s\S]*Chat[\s\S]*worked/iu);
+  assert.match(supergrokGuide, /VPS Assistant and Calculator remain unverified/iu);
 });
 
 test("OAuth roadmap includes both clients and preserves external acceptance gates", async () => {
@@ -271,14 +284,16 @@ test("OAuth roadmap includes both clients and preserves external acceptance gate
   assert.match(dashboard, /four OAuth entries/u);
   assert.match(dashboard, /Provider-managed · not inspected/u);
   assert.match(dashboard, /healthy container does not establish/iu);
-  const unreleased = changelog.split("## Unreleased")[1].split("## [0.13.0]")[0];
-  assert.match(unreleased, /actual disposable n8n[\s\S]*passed[\s\S]*protected\s+release checks remain open/u);
-  assert.doesNotMatch(unreleased, /Add separate API-key|Add named OpenAI/u);
+  const release = changelog.split("## [0.14.0]")[1].split("## [0.13.0]")[0];
+  assert.match(release, /SuperGrok OAuth[\s\S]*local apps[\s\S]*local or VPS n8n/iu);
+  assert.match(release, /Git Bash 2\.38\.1[\s\S]*MSYS=enable_pcon/u);
+  assert.match(release, /Require SSH host-key confirmation[\s\S]*final human[\s\S]*VPS write/u);
+  assert.doesNotMatch(release, /Add separate API-key|Add named OpenAI/u);
 });
 
 test("release changelog retains the Unreleased section above the dated release", async () => {
   const changelog = await readFile("CHANGELOG.md", "utf8");
-  assert.match(changelog, /## Unreleased[\s\S]*## \[0\.10\.0\] - 2026-08-31/u);
+  assert.match(changelog, /## Unreleased[\s\S]*## \[0\.14\.0\] - 2026-09-06/u);
 });
 
 test("published guides document the local n8n Assistant tools wizard contract", async () => {
@@ -496,6 +511,7 @@ test("n8n configuration guide provides copy-paste model and HTTP recipes", async
   assert.match(guide, /Basic LLM Chain/u);
   assert.match(guide, /OpenAI Chat Model/u);
   assert.match(guide, /http:\/\/n8n-openai-oauth:10531\/v1\/chat\/completions/u);
+  assert.match(guide, /http:\/\/n8n-supergrok:14502\/v1/u);
   assert.match(guide, /Bearer local-only/u);
   assert.match(guide, /"model": "gpt-5\.6-sol"/u);
   assert.match(guide, /"messages"/u);
@@ -503,6 +519,8 @@ test("n8n configuration guide provides copy-paste model and HTTP recipes", async
   assert.match(guide, /curl --request POST/u);
   assert.match(guide, /node version 1\.3/u);
   assert.match(guide, /\/v1\/chat\/completions/u);
+  assert.match(guide, /OpenAI OAuth[\s\S]*Use Responses API[\s\S]*On/iu);
+  assert.match(guide, /SuperGrok OAuth[\s\S]*Use Responses API[\s\S]*Off/iu);
   assertOnlyDocumentationAddresses(guide);
 });
 

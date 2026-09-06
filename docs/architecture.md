@@ -2,19 +2,24 @@
 
 ## Design
 
-The wizard runs on your computer. It signs in locally, verifies one SSH host,
-inspects it without changing it, shows the plan, then creates a separate
-sidecar only after approval.
+The wizard runs on your computer. It verifies one SSH host, inspects it without
+changing it, shows the provider-specific plan, then creates a separate sidecar
+only after approval. OpenAI OAuth uses a ChatGPT/Codex sign-in. SuperGrok uses
+its own official device sign-in and does not read or require ChatGPT credentials.
 
 ```mermaid
 flowchart LR
   B["Local browser<br>127.0.0.1"] --> W["Local Node wizard"]
   W --> O["ChatGPT/Codex OAuth login<br>local callback"]
+  W --> G["SuperGrok device sign-in<br>separate provider session"]
   W -->|verified SSH + SFTP| V["VPS"]
   V --> N["Existing n8n container<br>unchanged"]
   V --> S["New openai-oauth sidecar"]
   N -->|Docker DNS<br>n8n-openai-oauth:10531| S
   S --> C["OpenAI service used by<br>the upstream helper"]
+  V --> Q["New SuperGrok companion"]
+  N -->|"Docker DNS<br>n8n-supergrok:14502"| Q
+  Q --> G
 ```
 
 ## Local endpoint architecture
@@ -28,7 +33,7 @@ local n8n container without changing n8n itself.
 flowchart LR
   B["Local browser<br>127.0.0.1"] --> W["Local Node wizard"]
   W --> D["Local Docker Engine"]
-  D --> G["Grok Build candidate<br>127.0.0.1:14502/chat"]
+  D --> G["Grok Build<br>127.0.0.1:14502/chat"]
   D --> A["Codex App Server<br>127.0.0.1:14500"]
   D --> H["Codex Chat Adapter<br>127.0.0.1:14501/chat"]
   D --> N["Existing local n8n<br>unchanged"]
@@ -45,18 +50,18 @@ flowchart LR
   S -->|"unofficial OAuth bridge"| C
 ```
 
-These candidate connections have different protocols:
+These connections have different protocols:
 
 | Target | Wire protocol | Upstream credential |
 |---|---|---|
-| `xai-grok-build`, candidate | Relmio `POST /chat` and OpenAI-compatible Chat Completions `/v1` | Fresh OAuth session managed by the pinned official Grok CLI |
-| `n8n-supergrok-oauth`, candidate | Private Chat Completions `/v1` for n8n | Separate fresh Grok CLI OAuth session in the companion volume |
+| `xai-grok-build`, experimental | Relmio `POST /chat` and OpenAI-compatible Chat Completions `/v1` | Fresh OAuth session managed by the pinned official Grok CLI |
+| `n8n-supergrok-oauth`, experimental | Private Chat Completions `/v1` for n8n | Separate fresh Grok CLI OAuth session in the companion volume |
 | `codex-chatgpt` | Official Codex App Server JSON-RPC | ChatGPT sign-in managed by Codex |
 | `codex-chat` | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in managed by Codex |
 | `n8n-openai-oauth` | Private OpenAI-compatible HTTP `/v1` for n8n only | Local ChatGPT OAuth copied into a private sidecar volume |
 | `n8n-ai-assistant` | n8n Instance AI Code Sandbox plus optional SearXNG JSON search | Generated sandbox key; model-provider credential configured directly in n8n |
 
-Relmio's candidate handles OAuth only. API-key gateways and profiles are
+Relmio 0.14.0 handles provider OAuth only. API-key gateways and profiles are
 retired without modifying existing installations or saved data. The Grok
 adapter reads only its marked, same-runtime fresh CLI session and renews OAuth
 through the official flow. It forwards client-owned tool calls and results through

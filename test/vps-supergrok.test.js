@@ -6,6 +6,15 @@ import { startWizardServer } from "../src/web/server.js";
 const containerId = "a".repeat(64);
 const networkId = "b".repeat(64);
 const selected = { containerName: "n8n-fixture", networkName: "fixture-net" };
+function deferred() {
+  let resolve;
+  return {
+    promise: new Promise((resolvePromise) => {
+      resolve = resolvePromise;
+    }),
+    resolve,
+  };
+}
 function emptyRemote({ collision = false, running = true } = {}) {
   const calls = [];
   return { calls, async exec(command) {
@@ -43,7 +52,7 @@ test("device prompt exposes only an official URL and device code, never raw diag
   assert.deepEqual(parseGrokDevicePrompt("https://accounts.x.ai.evil.test/device https://user:secret@accounts.x.ai/device https://accounts.x.ai:444/device"), { verificationUrl: null, userCode: null });
 });
 
-async function serverFixture(t) {
+async function serverFixture(t, configureServices = () => {}) {
   const token = "t".repeat(43);
   let installed = 0;
   let freshId = containerId;
@@ -56,6 +65,7 @@ async function serverFixture(t) {
     reviewVpsSuperGrok: async args => ({ ...selected, action: args.action, containerId: freshId, networkId, installId: null, publishedPorts: [] }),
     installVpsSuperGrok: async () => { installed++; return { state: "healthy", clientKey: "c".repeat(64) }; },
   };
+  configureServices(services);
   const server = await startWizardServer({ sessionToken: token, services, uiFiles: { "/": "test" } });
   t.after(() => server.close());
   const post = async (path, body = {}, authenticated = true) => fetch(server.origin + path, { method: "POST", headers: { Origin: server.origin, "Content-Type": "application/json", ...(authenticated ? { "X-Setup-Token": token } : {}) }, body: JSON.stringify(body) });
@@ -97,4 +107,148 @@ test("discovery and disconnection invalidate a reviewed SuperGrok action", async
   await f.post("/api/disconnect");
   assert.notEqual((await f.post("/api/vps/supergrok/apply", { ...plan, confirmed: true })).status, 200);
   assert.equal(f.count(), 0);
+});
+
+test("a newer SuperGrok review rejects a late prior review instead of replacing its confirmed plan", async (t) => {
+  const firstReview = deferred();
+  const firstStarted = deferred();
+  let reviews = 0;
+  const f = await serverFixture(t, (services) => {
+    services.reviewVpsSuperGrok = async (args) => {
+      reviews += 1;
+      if (reviews === 1) {
+        firstStarted.resolve();
+        return await firstReview.promise;
+      }
+      return { ...selected, action: args.action, containerId, networkId, installId: null, publishedPorts: [] };
+    };
+  });
+
+  const staleReview = f.post("/api/vps/supergrok/plan", { ...selected, action: "install" });
+  await firstStarted.promise;
+  const currentReview = await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" });
+  assert.equal(currentReview.status, 200);
+  const currentPlan = await currentReview.json();
+
+  firstReview.resolve({ ...selected, action: "install", containerId, networkId, installId: null, publishedPorts: [] });
+  const stale = await staleReview;
+  assert.equal(stale.status, 409);
+  assert.match((await stale.json()).error, /newer SuperGrok review/u);
+
+  assert.equal((await f.post("/api/vps/supergrok/apply", { ...currentPlan, confirmed: true })).status, 200);
+  assert.equal(f.count(), 1);
+});
+
+test("a completed discovery cannot let an earlier SuperGrok review repopulate a stale plan", async (t) => {
+  const review = deferred();
+  const reviewStarted = deferred();
+  const f = await serverFixture(t, (services) => {
+    services.reviewVpsSuperGrok = async (args) => {
+      reviewStarted.resolve();
+      await review.promise;
+      return { ...selected, action: args.action, containerId, networkId, installId: null, publishedPorts: [] };
+    };
+  });
+
+  const pendingReview = f.post("/api/vps/supergrok/plan", { ...selected, action: "install" });
+  await reviewStarted.promise;
+  assert.equal((await f.post("/api/discover")).status, 200);
+  review.resolve();
+
+  const stale = await pendingReview;
+  assert.equal(stale.status, 409);
+  assert.match((await stale.json()).error, /VPS session changed|newer SuperGrok review/u);
+  assert.notEqual((await f.post("/api/vps/supergrok/apply", {
+    ...selected,
+    action: "install",
+    planId: "not-a-current-plan",
+    confirmed: true,
+  })).status, 200);
+  assert.equal(f.count(), 0);
+});
+
+test("a pending discovery immediately invalidates a reviewed SuperGrok action", async (t) => {
+  const discovery = deferred();
+  const discoveryStarted = deferred();
+  let discoveries = 0;
+  const f = await serverFixture(t, (services) => {
+    services.discoverN8n = async () => {
+      discoveries += 1;
+      if (discoveries === 1) {
+        return { containers: [{ id: containerId, name: selected.containerName, image: "n8nio/n8n", state: "running" }] };
+      }
+      discoveryStarted.resolve();
+      return await discovery.promise;
+    };
+  });
+  const plan = await (await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" })).json();
+
+  const refreshing = f.post("/api/discover");
+  await discoveryStarted.promise;
+  assert.notEqual((await f.post("/api/vps/supergrok/apply", { ...plan, confirmed: true })).status, 200);
+  assert.equal(f.count(), 0);
+
+  discovery.resolve({ containers: [{ id: containerId, name: selected.containerName, image: "n8nio/n8n", state: "running" }] });
+  assert.equal((await refreshing).status, 200);
+});
+
+test("each provider review invalidates plans from the other VPS providers", async (t) => {
+  const f = await serverFixture(t, (services) => {
+    services.getAuthStatus = async () => ({
+      exists: true,
+      path: "/fixture/auth.json",
+      updatedAt: "2026-09-06T00:00:00.000Z",
+    });
+    services.discoverNetworks = async () => ({
+      networks: [selected.networkName],
+      instanceAi: { status: "enabled" },
+    });
+  });
+  const sidecarPlan = await (await f.post("/api/plan", selected)).json();
+  assert.equal((await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" })).status, 200);
+  assert.notEqual((await f.post("/api/install", { ...selected, planId: sidecarPlan.planId, confirmed: true })).status, 200);
+
+  const grokBeforeSidecar = await (await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" })).json();
+  assert.equal((await f.post("/api/plan", selected)).status, 200);
+  assert.notEqual((await f.post("/api/vps/supergrok/apply", { ...grokBeforeSidecar, confirmed: true })).status, 200);
+
+  const assistantPlan = await (await f.post("/api/assistant/plan", { ...selected, includeSearxng: false })).json();
+  assert.equal((await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" })).status, 200);
+  assert.notEqual((await f.post("/api/assistant/install", { ...selected, includeSearxng: false, planId: assistantPlan.planId, confirmed: true })).status, 200);
+
+  const grokBeforeAssistant = await (await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" })).json();
+  assert.equal((await f.post("/api/assistant/plan", { ...selected, includeSearxng: false })).status, 200);
+  assert.notEqual((await f.post("/api/vps/supergrok/apply", { ...grokBeforeAssistant, confirmed: true })).status, 200);
+  assert.equal(f.count(), 0);
+});
+
+test("only the latest started discovery can replace the current VPS context", async (t) => {
+  const firstDiscovery = deferred();
+  const secondDiscovery = deferred();
+  const firstStarted = deferred();
+  const secondStarted = deferred();
+  let discoveries = 0;
+  const f = await serverFixture(t, (services) => {
+    services.discoverN8n = async () => {
+      discoveries += 1;
+      if (discoveries === 1) {
+        return { containers: [{ id: containerId, name: selected.containerName, image: "n8nio/n8n", state: "running" }] };
+      }
+      if (discoveries === 2) {
+        firstStarted.resolve();
+        return await firstDiscovery.promise;
+      }
+      secondStarted.resolve();
+      return await secondDiscovery.promise;
+    };
+  });
+
+  const older = f.post("/api/discover");
+  await firstStarted.promise;
+  const newer = f.post("/api/discover");
+  await secondStarted.promise;
+  firstDiscovery.resolve({ containers: [] });
+  assert.equal((await older).status, 409);
+  secondDiscovery.resolve({ containers: [{ id: containerId, name: selected.containerName, image: "n8nio/n8n", state: "running" }] });
+  assert.equal((await newer).status, 200);
 });

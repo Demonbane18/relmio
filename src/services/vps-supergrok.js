@@ -253,6 +253,13 @@ export function parseGrokDevicePrompt(output) {
   return { verificationUrl, userCode: code };
 }
 
+export function classifyGrokLoginExitCode(exitCode) {
+  if (exitCode === 0) return "complete";
+  // GNU timeout returns 124 when its configured deadline elapses. Do not
+  // interpret other signal-derived exits (for example, 137) as a timeout.
+  return exitCode === 124 ? "expired" : "failed";
+}
+
 export async function getVpsGrokLoginStatus({ remote, installId }) {
   const marker = await readMarker(remote);
   if (!marker || marker.installId !== installId) throw fail();
@@ -261,7 +268,9 @@ export async function getVpsGrokLoginStatus({ remote, installId }) {
   if (!credential) return { state: "idle" };
   const logs = await remote.exec(`docker logs --tail 60 ${names(marker).credential}`);
   if (logs.code !== 0) throw fail();
-  const state = credential.State?.Running ? "pending" : credential.State?.ExitCode === 0 ? "complete" : "failed";
+  const state = credential.State?.Running
+    ? "pending"
+    : classifyGrokLoginExitCode(credential.State?.ExitCode);
   return { state, ...(state === "pending" ? parseGrokDevicePrompt(logs.stdout + logs.stderr) : {}) };
 }
 

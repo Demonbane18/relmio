@@ -14,7 +14,7 @@ test("renders one selectable map for all five setup options", async () => {
   assert.match(home, /<SignalPlotter\s*\/>/u);
   for (const label of [
     "n8n with ChatGPT sign-in",
-    "Grok Build OAuth",
+    "SuperGrok OAuth",
     "n8n Code Sandbox",
     "Codex Chat Adapter",
     "Codex App Server",

@@ -20,6 +20,7 @@ const expectedRoutes = [
   "local-endpoints",
   "local-n8n-stack",
   "vps-and-n8n",
+  "vps-supergrok",
   "ai-assistant",
   "troubleshooting",
   "faq",
@@ -83,7 +84,7 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
   );
   assert.match(renderedDocumentation, /foreground, one-shot/u);
   assert.match(renderedDocumentation, /official Codex App Server/u);
-  assert.match(renderedDocumentation, /OAuth-only candidate/u);
+  assert.match(renderedDocumentation, /Relmio 0\.14\.0/u);
   assert.doesNotMatch(renderedDocumentation.split("export const changelogContent")[0], /fresh xAI API key|Select API profile/u);
   assert.match(renderedDocumentation, /official Grok CLI[\s\S]*fresh/iu);
   assert.match(renderedDocumentation, /\/v1\/chat\/completions/u);
@@ -115,6 +116,7 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
         "local-endpoints.md",
         "local-n8n-stack.md",
         "vps-and-n8n.md",
+        "vps-supergrok.md",
         "ai-assistant.md",
         "troubleshooting.md",
         "faq.md",

@@ -748,7 +748,23 @@ function advanceVpsLifecycleGeneration(state) {
 function invalidateVpsPlans(state) {
   state.sidecarPlan = null;
   state.assistantPlan = null;
+  invalidateSuperGrokPlan(state);
+}
+
+function invalidateSuperGrokPlan(state) {
   state.supergrokPlan = null;
+  state.supergrokPlanGeneration += 1;
+}
+
+function beginVpsDiscoveryRefresh(state) {
+  invalidateVpsPlans(state);
+  state.vpsDiscoveryGeneration += 1;
+  return state.vpsDiscoveryGeneration;
+}
+
+function beginSuperGrokPlanReview(state) {
+  invalidateVpsPlans(state);
+  return state.supergrokPlanGeneration;
 }
 
 function closeVpsConnectionBestEffort(connection) {
@@ -874,11 +890,27 @@ function rejectUnsafeVpsDisconnect(state) {
   }
 }
 
-function requireUnchangedVpsSession(state, snapshot) {
-  rejectActiveVpsMutation(state);
+function requireUnchangedVpsSession(
+  state,
+  snapshot,
+  { allowCredentialSnapshot = false } = {},
+) {
+  if (allowCredentialSnapshot) {
+    if (state.closing) {
+      throw Object.assign(new Error("The local wizard is closing."), {
+        statusCode: 409,
+      });
+    }
+  } else {
+    rejectActiveVpsMutation(state);
+  }
   if (
     state.connection !== snapshot.connection ||
-    state.vpsLifecycleGeneration !== snapshot.lifecycleGeneration
+    state.vpsLifecycleGeneration !== snapshot.lifecycleGeneration ||
+    (
+      snapshot.discoveryGeneration !== undefined &&
+      state.vpsDiscoveryGeneration !== snapshot.discoveryGeneration
+    )
   ) {
     throw Object.assign(
       new Error("The VPS session changed while this request was running. Try the VPS action again."),
@@ -4084,6 +4116,7 @@ async function handleApi(request, response, path, state) {
     const sessionSnapshot = {
       connection,
       lifecycleGeneration: state.vpsLifecycleGeneration,
+      discoveryGeneration: beginVpsDiscoveryRefresh(state),
     };
     try {
       const discovery = await state.services.discoverN8n(connection);
@@ -4105,6 +4138,7 @@ async function handleApi(request, response, path, state) {
     const sessionSnapshot = {
       connection,
       lifecycleGeneration: state.vpsLifecycleGeneration,
+      discoveryGeneration: beginVpsDiscoveryRefresh(state),
     };
     try {
       requireDiscoveredContainer(state, body.containerName);
@@ -4126,17 +4160,30 @@ async function handleApi(request, response, path, state) {
     rejectActiveVpsMutation(state);
     const connectionUse = acquireVpsConnectionUse(state);
     const { connection } = connectionUse;
-    const snapshot = { connection, lifecycleGeneration: state.vpsLifecycleGeneration };
+    const snapshot = {
+      connection,
+      lifecycleGeneration: state.vpsLifecycleGeneration,
+      discoveryGeneration: state.vpsDiscoveryGeneration,
+    };
     let releaseMutation;
     try {
       if (path === "/api/vps/supergrok/status" || path === "/api/vps/supergrok/plan") {
         requireDiscoveredNetwork(state, body.containerName, body.networkName);
         const args = { remote: connection, containerName: body.containerName, networkName: body.networkName, action: body.action };
+        const planGeneration = path.endsWith("/plan")
+          ? beginSuperGrokPlanReview(state)
+          : null;
         const result = path.endsWith("/plan")
           ? await state.services.reviewVpsSuperGrok(args)
           : await state.services.inspectVpsSuperGrok(args);
         requireUnchangedVpsSession(state, snapshot);
         if (path.endsWith("/plan")) {
+          if (state.supergrokPlanGeneration !== planGeneration) {
+            throw Object.assign(
+              new Error("A newer SuperGrok review replaced this plan. Review the current plan before installing."),
+              { statusCode: 409 },
+            );
+          }
           state.supergrokPlan = { ...result, planId: randomUUID() };
           sendJson(response, 200, state.supergrokPlan);
         } else sendJson(response, 200, result);
@@ -4188,7 +4235,13 @@ async function handleApi(request, response, path, state) {
         state,
         "plan-snapshot",
       );
+      const sessionSnapshot = {
+        connection: connectionUse.connection,
+        lifecycleGeneration: state.vpsLifecycleGeneration,
+        discoveryGeneration: state.vpsDiscoveryGeneration,
+      };
       state.sidecarPlan = null;
+      invalidateSuperGrokPlan(state);
       const authStatus = requireVpsPlanAuthStatus(
         await state.services.getAuthStatus(),
         "Sign in with ChatGPT before reviewing this sidecar plan.",
@@ -4197,6 +4250,9 @@ async function handleApi(request, response, path, state) {
         state,
         credentialOperation.operation,
       );
+      requireUnchangedVpsSession(state, sessionSnapshot, {
+        allowCredentialSnapshot: true,
+      });
       state.sidecarPlan = {
         planId: randomUUID(),
         containerName: body.containerName,
@@ -4233,6 +4289,8 @@ async function handleApi(request, response, path, state) {
         body.networkName,
       );
       const instanceAi = requireEnabledInstanceAi(state, body.containerName);
+      state.assistantPlan = null;
+      invalidateSuperGrokPlan(state);
       state.assistantPlan = {
         planId: randomUUID(),
         containerName: body.containerName,
@@ -4643,10 +4701,13 @@ export async function startWizardServer({
     vpsFingerprintOperation: null,
     vpsConnectionOperation: null,
     vpsLifecycleGeneration: 0,
+    vpsDiscoveryGeneration: 0,
     discovery: null,
     networksByContainer: new Map(),
     sidecarPlan: null,
     assistantPlan: null,
+    supergrokPlan: null,
+    supergrokPlanGeneration: 0,
     vpsMutationInFlight: false,
     vpsMutationLock: null,
     vpsMutationCompletion: null,

@@ -28,6 +28,17 @@ function preserveFragmentSession(browserWindow, session) {
   ) return;
 
   fragmentSessionWindows.add(browserWindow);
+  const documentPath = browserWindow.location.pathname;
+  // Navigation carries the private capability through history before reloading.
+  // Back/Forward can restore that same-document entry with the old route's DOM.
+  browserWindow.addEventListener("popstate", () => {
+    if (browserWindow.location.pathname !== documentPath) {
+      browserWindow.location.reload();
+    }
+  });
+  browserWindow.addEventListener("pageshow", (event) => {
+    if (event.persisted) browserWindow.location.reload();
+  });
   browserWindow.addEventListener("hashchange", () => {
     browserWindow.history.replaceState(
       { relmioWizardSession: session },

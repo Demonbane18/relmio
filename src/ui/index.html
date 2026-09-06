@@ -87,11 +87,11 @@
     <main id="main-content" class="shell" tabindex="-1" aria-busy="false">
       <aside class="rail" aria-label="Setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
-          <h1 id="page-title">Connect n8n to supported models</h1>
+          <h1 id="page-title">Connect n8n to a private model bridge</h1>
           <p class="lede">
-            Sign in to ChatGPT/Codex, then add one private Docker sidecar. Your
-            existing n8n image, Compose file, container, and workflows stay untouched.
-            The sidecar is unofficial, private, and policy-uncertain.
+            Choose the provider and destination first. Each route keeps your existing
+            n8n image, Compose file, container, and workflows untouched. The OpenAI
+            bridge remains unofficial, private, and policy-uncertain.
           </p>
         </section>
 
@@ -186,12 +186,40 @@
       </aside>
 
       <section class="panel" data-step="1" aria-labelledby="signin-title">
-        <aside class="final-note"><h3>Use SuperGrok on your VPS</h3><p>Connect your eligible Grok account to n8n with a private companion and official device sign-in.</p><a id="vps-supergrok-start" class="button secondary">Set up SuperGrok for n8n</a></aside>
         <div class="panel-heading">
-          <h2 id="signin-title" tabindex="-1">Use your local ChatGPT sign-in</h2>
+          <p class="panel-kicker">Choose a route</p>
+          <h2 id="signin-title" tabindex="-1">Which provider and destination?</h2>
+          <p>Start the route that matches the account and n8n location you already use.</p>
+        </div>
+
+        <div class="provider-route-grid" aria-label="Provider and destination choices">
+          <button id="openai-vps-route" class="provider-route provider-route--selected" type="button" aria-describedby="openai-vps-route-detail">
+            <span class="provider-route__eyebrow">OpenAI OAuth · VPS</span>
+            <strong>ChatGPT/Codex bridge</strong>
+            <span id="openai-vps-route-detail">Use your local ChatGPT sign-in, then review a private VPS sidecar.</span>
+          </button>
+          <a id="vps-supergrok-start" class="provider-route" aria-describedby="supergrok-vps-route-detail">
+            <span class="provider-route__eyebrow">SuperGrok · VPS</span>
+            <strong>Private Grok companion</strong>
+            <span id="supergrok-vps-route-detail">Use an official Grok device sign-in on the VPS. ChatGPT is not required.</span>
+          </a>
+          <a id="local-endpoint-link" class="provider-route" aria-describedby="local-route-detail">
+            <span class="provider-route__eyebrow">OpenAI OAuth or SuperGrok · local</span>
+            <strong>Endpoint on this computer</strong>
+            <span id="local-route-detail">Create a loopback-only local connection or a private local n8n companion.</span>
+          </a>
+        </div>
+
+        <aside class="route-safety" aria-label="Route safety boundary">
+          <strong>Every route stays explicit.</strong>
+          <span>Server identity comes before a VPS password; a reviewed plan and your confirmation come before any write.</span>
+        </aside>
+
+        <div class="panel-heading provider-route-heading">
+          <p class="panel-kicker">OpenAI OAuth · VPS</p>
+          <h3>Use your local ChatGPT sign-in</h3>
           <p>
-            ChatGPT/Codex sign-in stays on this computer until you approve its
-            encrypted SSH upload to your VPS. It is not a Platform API key.
+            This is a ChatGPT/Codex sign-in, not a Platform API key. It stays on this computer until you approve its encrypted SSH upload to your VPS.
           </p>
         </div>
 
@@ -207,19 +235,6 @@
             </p>
           </div>
         </div>
-
-        <aside class="final-note" aria-labelledby="local-endpoint-title">
-          <h3 id="local-endpoint-title">Need an endpoint on this computer?</h3>
-          <p>
-            Install a loopback-only OpenAI API endpoint with a Platform key, or
-            the experimental official Codex App Server with ChatGPT sign-in.
-          </p>
-          <div class="actions">
-            <a id="local-endpoint-link" class="button secondary">
-              Set up a local endpoint
-            </a>
-          </div>
-        </aside>
 
         <div class="actions">
           <button id="login-button" class="button secondary" type="button">
@@ -530,6 +545,10 @@
         </section>
 
         <div id="sidecar-ready-content">
+        <aside class="approval" aria-label="Provider-specific n8n setting">
+          <strong>OpenAI OAuth/Codex: Use Responses API ON</strong>
+          <p>Keep it on for the Chat Model v1.3 recipe. If you switch to SuperGrok, turn it <strong>OFF</strong>; SuperGrok requires Chat Completions. When the OpenAI node has no switch, its default Chat Completions route is supported.</p>
+        </aside>
         <h3>1. OpenAI credential</h3>
         <dl class="result-list">
           <div>

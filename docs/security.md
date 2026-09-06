@@ -1,8 +1,9 @@
 # Security and limits
 
-The VPS/n8n route handles a ChatGPT OAuth credential and SSH authentication.
-Local endpoints use provider-owned OAuth sessions and generated local
-capabilities. Treat all of them like passwords.
+The VPS/n8n route handles SSH authentication plus either a ChatGPT OAuth
+credential or a separate SuperGrok OAuth session. Local endpoints use
+provider-owned OAuth sessions and generated local capabilities. SuperGrok does
+not require or read ChatGPT credentials. Treat all of them like passwords.
 Read this page before you offer the wizard to another person.
 
 ## ChatGPT/Codex sign-in lifetime
@@ -27,24 +28,25 @@ switcher](https://help.openai.com/en/articles/20001068-use-multiple-accounts-wit
 to ChatGPT web and says Codex desktop does not yet support it. Relmio does not
 pool accounts or choose another account in response to usage.
 
-The unreleased SuperGrok adapter uses the pinned official Grok CLI for fresh
+The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
 OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
 handler reads only that runtime's marked session to call xAI's documented CLI
 chat proxy. It does not inspect another app's credentials, import tokens,
 replay browser cookies, or accept an xAI API key. The CLI remains the sole
 credential writer; the HTTP handler never consumes refresh tokens.
 
-Local apps use `/v1/chat/completions` with model `grok-build` and a separate
-Relmio client bearer. n8n executes its own tools and returns matching results.
-The legacy simple `/chat` request shape remains available through the direct
-transport. Browser bundles must not hold the local bearer or call it directly.
+Local apps use `/v1/chat/completions` with a freshly discovered model and a
+separate Relmio client bearer. `grok-build` remains a legacy routing alias. n8n
+executes its own tools and returns matching results. The legacy simple `/chat`
+request shape remains available through the direct transport. Browser bundles
+must not hold the local bearer or call it directly.
 
 Provider credentials stay inside the fresh runtime. Client-owned tools execute
 in the client or n8n, never inside the credential-holding HTTP gateway. The
 runtime validates private-file ownership, permissions, issuer, session mode,
 expiry and installation marker before using the token. It returns neither
-provider credentials nor raw authentication errors. Logout/refusal, packaged
-runtime verification and protected release checks remain separate gates.
+provider credentials nor raw authentication errors. Runtime health, provider
+readiness, and client-specific live acceptance remain separate checks.
 
 A provider response of 401, 403, or 429 fails on the selected
 credential. Relmio never changes accounts automatically after an

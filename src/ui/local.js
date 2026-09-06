@@ -96,6 +96,21 @@ const errorText = element("global-error-text");
 bindWizardNavigation(element("back-to-vps"), "/", token);
 bindWizardNavigation(element("setup-another-local"), "/local", token);
 bindWizardNavigation(element("return-to-vps"), "/", token);
+bindWizardNavigation(element("local-route-vps-openai"), "/", token);
+bindWizardNavigation(element("local-route-vps-supergrok"), "/supergrok-vps", token);
+
+element("local-route-current").addEventListener("click", () => {
+  if (state.operationBusy) return;
+  element("target-form").scrollIntoView({
+    block: "start",
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth",
+  });
+  document.querySelector('input[name="target"]:checked')?.focus({
+    preventScroll: true,
+  });
+});
 
 function setMessage(text) {
   messageText.textContent = text;
@@ -2780,6 +2795,18 @@ function renderTarget() {
   const assistant = isN8nAssistant(state.target);
   const stack = isN8nStack(state.target);
   const n8nTarget = isN8nDockerTarget(state.target);
+  const routeLabel = n8nSuperGrok
+    ? "SuperGrok · local n8n companion"
+    : grokBuild
+      ? "SuperGrok · local endpoint"
+      : sidecar
+        ? "OpenAI OAuth · local n8n bridge"
+        : stack
+          ? "Local n8n + ngrok"
+          : assistant
+            ? "Local n8n Assistant tools"
+            : "ChatGPT/Codex · local endpoint";
+  element("local-route-current-label").textContent = routeLabel;
   const endpointFields = element("endpoint-fields");
   const portInput = element("local-port");
   if (!n8nTarget) {
@@ -2805,6 +2832,7 @@ function renderTarget() {
   element("n8n-sidecar-oauth").hidden = !sidecar;
   element("n8n-sidecar-refresh").hidden = !sidecar;
   element("n8n-sidecar-scope").hidden = !sidecar;
+  element("supergrok-n8n-reminder").hidden = !n8nSuperGrok;
   element("n8n-assistant-options").hidden = !assistant;
   element("n8n-assistant-searxng-edit").hidden = !assistant;
   element("boundary-title").textContent = stack
@@ -2861,6 +2889,17 @@ function renderPlan(plan) {
   const assistant = isN8nAssistant(plan.target);
   const stack = isN8nStack(plan.target);
   const n8nTarget = isN8nDockerTarget(plan.target);
+  element("review-provider-context").textContent = n8nSuperGrok
+    ? "SuperGrok · local n8n companion · Chat Completions"
+    : sidecar
+      ? "OpenAI OAuth · local n8n bridge · Responses API on"
+      : grokBuild
+        ? "SuperGrok · local endpoint · official sign-in follows installation"
+        : stack
+          ? "Local n8n + ngrok · separate owned stack"
+          : assistant
+            ? "Local n8n Assistant tools · provider stays operator-managed"
+            : "ChatGPT/Codex · local endpoint";
   element("review-endpoint-label").textContent = stack ? "Local n8n URL" : assistant ? "Support services" : "Endpoint";
   element("review-endpoint").textContent = stack ? plan.localUrl : assistant ? (plan.includeSearxng ? "Code Sandbox + SearXNG" : "Code Sandbox only") : plan.endpoint;
   element("review-protocol").textContent = stack ? "New local n8n stack with ngrok Basic Auth" : sidecar ? "OpenAI-compatible HTTP /v1 inside Docker" : n8nSuperGrok ? "OpenAI Chat Completions /v1 inside Docker" : assistant ? "n8n Instance AI companion services" : grokBuild ? "SuperGrok Chat Completions: /v1/chat/completions" : codexChat ? "Relmio Codex Chat HTTP: POST /chat" : "Codex App Server JSON-RPC over WebSocket";
@@ -3052,6 +3091,17 @@ function renderInstallResult(result) {
 
   const grokBuild = isGrokBuild(result.target);
   const codexChat = isCodexChat(result.target);
+  element("done-provider-context").textContent = n8nSuperGrok
+    ? "SuperGrok · local n8n companion · finish official sign-in before use"
+    : sidecar
+      ? "OpenAI OAuth · local n8n bridge · Responses API on"
+      : grokBuild
+        ? "SuperGrok · local endpoint · complete official sign-in before use"
+        : stack
+          ? "Local n8n + ngrok · owned stack"
+          : assistant
+            ? "Local n8n Assistant tools · n8n configuration remains yours"
+            : "ChatGPT/Codex · local endpoint";
   state.installedTarget = result.target;
   element("install-result-list").hidden = false;
   element("client-warning").hidden = false;
@@ -3443,7 +3493,8 @@ element("target-form").addEventListener("submit", async (event) => {
   invalidatePlan();
   try {
     const sidecar = isN8nSidecar(state.target);
-      const assistant = isN8nAssistant(state.target);
+    const n8nSuperGrok = isN8nSuperGrok(state.target);
+    const assistant = isN8nAssistant(state.target);
     const stack = isN8nStack(state.target);
     const n8nTarget = isN8nDockerTarget(state.target);
     if (
@@ -3453,7 +3504,7 @@ element("target-form").addEventListener("submit", async (event) => {
         element("n8n-network").value === "")
     ) {
       throw new Error(
-        assistant
+        n8nSuperGrok || assistant
           ? "Choose a running n8n container and shared Docker network."
           : "Choose a running n8n container and shared Docker network, then complete local ChatGPT sign-in.",
       );

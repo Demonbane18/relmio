@@ -1,10 +1,11 @@
 # SuperGrok for n8n on a VPS
 
-This unreleased candidate adds a browser setup for a private SuperGrok companion
-on an existing n8n VPS. It uses the same pinned official Grok CLI, fresh-session
-reader, Chat Completions adapter and account model discovery as local n8n.
+Relmio 0.14.0 includes browser setup for a private SuperGrok companion on an
+existing n8n VPS. It uses the same pinned official Grok CLI, fresh-session reader,
+Chat Completions adapter, and account model discovery as local n8n. It does not
+require or read ChatGPT credentials.
 
-Run the candidate's `relmio vps` wizard, then choose **Set up SuperGrok for n8n**.
+Run `relmio vps`, then choose **Set up SuperGrok for n8n**.
 You can also choose **SuperGrok companion** from the detected n8n management
 screen. That link keeps the current wizard's verified SSH connection. ChatGPT
 sign-in is not required for this flow.
@@ -31,7 +32,8 @@ sign-in is not required for this flow.
    endpoint with the same URL, local bearer and text model ID. Assistant's sandbox
    is a separate companion with its own prerequisites.
 
-Test n8n Chat, Assistant node-search, and an AI Agent with Calculator. Ask the
+Test each n8n path separately: Chat, Assistant node search, and an AI Agent with
+Calculator. Ask the
 Agent to call Calculator for `317 * 29`, then verify both the tool result and the
 model's final answer are `9193`. Relmio does not create these workflows or replace
 your existing credentials or provider selections.
@@ -69,7 +71,9 @@ and `sha256sum`, outbound HTTPS for the pinned image/CLI and provider, and an
 eligible Grok account. The shared `/docker/n8n-openai-oauth` root must be absent or
 already marked as Relmio-managed; unmanaged files are not adopted automatically.
 
-The adapter is experimental. Local/disposable test evidence does not establish
-that it has passed acceptance on your production VPS. Review and approve that
-specific installation separately. This feature does not authorize an npm publish,
-release, merge or production deployment.
+The adapter remains experimental. During the VPS handoff, the user's first Chat
+test returned `404 not_found` with Responses API on. The user reported that Chat
+worked after turning the switch off. That successful run was not independently
+captured, and VPS Assistant and Calculator remain unverified. Local Windows live
+checks for those paths do not establish acceptance on a production VPS. Review
+and approve each VPS installation separately.

@@ -114,7 +114,7 @@ an approved install is not interrupted by that idle timer.
 
 ## Upgrading an older API installation
 
-The OAuth-only candidate does not show or manage legacy API-key endpoints.
+Relmio 0.14.0 does not show or manage legacy API-key endpoints.
 Upgrading leaves their containers and credential volumes untouched, so they
 can remain running. Use the [legacy retirement guide](local-endpoints.md#retired-api-installations)
 to review and stop only an exactly owned endpoint. Dashboard absence is not
@@ -130,9 +130,7 @@ Docker objects, network and publication boundaries, Compose state, and
 generated health checks. This does not change an installed service: it does
 not install, start, restart, recreate, remove, or execute inside a container.
 
-The unreleased OAuth-only candidate always has these seven rows, even when
-nothing is installed. Published 0.13.0 has a different inventory and no Grok
-Build target.
+Relmio 0.14.0 always has these seven rows, even when nothing is installed.
 
 | Dashboard service | Verified connection details | Actions after current attestation |
 |---|---|---|
@@ -209,17 +207,18 @@ stores the active credential, and refreshes it. Each Codex
 target has one active ChatGPT account. Changing accounts requires an explicit
 sign-out and a new sign-in; Relmio does not pool accounts.
 
-The unreleased SuperGrok adapter uses the pinned official Grok CLI for fresh
+The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
 OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
 handler reads only that runtime's marked session to call xAI's documented CLI
 chat proxy. It does not inspect another app's credentials, import tokens,
 replay browser cookies, or accept an xAI API key. The CLI remains the sole
 credential writer; the HTTP handler never consumes refresh tokens.
 
-Local apps use `/v1/chat/completions` with model `grok-build` and a separate
-Relmio client bearer. n8n executes its own tools and returns matching results.
-The legacy simple `/chat` request shape remains available through the direct
-transport. Browser bundles must not hold the local bearer or call it directly.
+Local apps use `/v1/chat/completions` with a freshly discovered model and a
+separate Relmio client bearer. `grok-build` remains a legacy routing alias.
+n8n executes its own tools and returns matching results. The legacy simple
+`/chat` request shape remains available through the direct transport. Browser
+bundles must not hold the local bearer or call it directly.
 
 
 Relmio never changes accounts automatically after a 401, 403, or 429,
@@ -258,9 +257,9 @@ Use **Back to dashboard** when you are done. The dashboard then runs a fresh
 inventory. It does not reuse the previous setup plan.
 
 
-## Unreleased provider controls
+## Provider controls
 
-The current candidate separates **Runtime health**, **Provider readiness**,
+Relmio 0.14.0 separates **Runtime health**, **Provider readiness**,
 and **Inventory freshness**. A healthy container does not establish that its
 provider account is signed in or entitled to a model. Stale inventory preserves
 the last observed truth while disabling maintenance actions.
@@ -269,6 +268,7 @@ The four OAuth entries show **Provider-managed · not inspected**. Guidance
 buttons do not claim a sign-in or sign-out occurred. Rotating a local capability
 does not change the provider session. No API-key profile controls are present.
 
-The SuperGrok candidate serves both local apps and n8n through Chat Completions.
-A disposable n8n Assistant passed live tool-call/result acceptance. That proof
-does not change the current operator-owned n8n installation or certify release.
+The experimental SuperGrok adapter serves both local apps and n8n through Chat
+Completions without a ChatGPT credential. Windows live checks covered n8n Chat,
+Assistant tool use, and a Calculator workflow. Those checks do not establish the
+same results on a production VPS.

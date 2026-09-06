@@ -314,6 +314,15 @@
   font: 750 var(--type-detail)/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.local-wizard .supergrok-n8n-reminder {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+}
+
+.local-wizard .supergrok-n8n-reminder strong {
+  color: var(--warning);
+}
+
 .local-wizard .local-repository-action {
   background: var(--background);
   color: var(--text);
@@ -1445,6 +1454,60 @@
 }
 
 /* Connection choices */
+
+.local-wizard .local-route-context {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.local-wizard .local-route-context__link,
+.local-wizard .local-route-context__current {
+  display: grid;
+  gap: 0.125rem;
+  min-height: 3.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  background: var(--surface-muted);
+  text-align: left;
+  text-decoration: none;
+  font: inherit;
+}
+
+.local-wizard .local-route-context__link:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.local-wizard .local-route-context__current {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  cursor: pointer;
+}
+
+.local-wizard .local-route-context span,
+.local-wizard .local-provider-context {
+  color: var(--accent-deep);
+  font-size: var(--type-detail);
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.local-wizard .local-route-context strong {
+  overflow-wrap: anywhere;
+  font-size: var(--type-supporting);
+}
+
+.local-wizard .local-provider-context {
+  margin: -0.5rem 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+}
 
 /* Large, selectable rows keep the choice easy without seven competing panels. */
 .target-picker {
@@ -3044,6 +3107,7 @@
   }
 
   .target-picker,
+  .local-route-context,
   .local-fields,
   .sidecar-selects,
   .local-review-grid,

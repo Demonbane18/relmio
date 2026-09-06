@@ -14,22 +14,23 @@
   <a href="https://github.com/Demonbane18/relmio/blob/main/LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-0f8f83"></a>
 </p>
 
-Relmio helps self-hosted n8n use models available through your own
-ChatGPT/Codex sign-in. It installs an unofficial `openai-oauth` sidecar on the
-same private Docker network as n8n. The bridge has no host port.
+Relmio helps self-hosted n8n and local apps use models through your own
+ChatGPT/Codex or SuperGrok sign-in. Each provider keeps its own private OAuth
+session. SuperGrok setup does not require or read ChatGPT credentials.
 
-Relmio's current development direction is **OAuth-only**. API-key connections
-belong directly in n8n or the client that uses them.
+Relmio 0.14.0 handles provider OAuth only. API-key connections belong directly
+in n8n or the client that uses them.
 ChatGPT sign-in is not an OpenAI Platform API key.
 
-The SuperGrok OAuth adapter in this checkout is **unreleased**. Fresh official
-sign-in, model discovery, and live tool calls passed with local clients and a
-disposable n8n Assistant. Fresh private-installer acceptance passed; protected
-release checks remain in progress. `relmio@latest` does not include this
-candidate.
+SuperGrok is a first-class local and VPS setup option in 0.14.0, but the adapter
+remains experimental. Live Windows checks covered fresh sign-in, model discovery,
+n8n Chat, Assistant node search, and a Calculator workflow. The full Windows gate
+remains conditional because Git Bash 2.38.1 needs the per-process terminal setting
+described below. VPS Chat success was user-reported after Responses API was turned
+off; VPS Assistant and Calculator remain unverified.
 
 Existing API-key endpoints are left running and retain their data during an
-upgrade; they are no longer shown in the candidate dashboard. Follow the
+upgrade; they are no longer shown in the 0.14.0 dashboard. Follow the
 [legacy endpoint retirement guide](https://relmio.vercel.app/docs/local-endpoints#retired-api-installations)
 to review and stop an exact owned endpoint.
 
@@ -41,6 +42,17 @@ or Command Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
+
+Git Bash 2.38.1 does not give the portable launcher the native child TTY it
+needs under its default mintty setup. Use `MSYS=enable_pcon` for this process,
+or run the native PowerShell or Command Prompt installer instead:
+
+```bash
+MSYS=enable_pcon npx --yes --ignore-scripts relmio@latest
+```
+
+This does not change global Git configuration. An upgraded Git Bash version
+has not been verified by the 0.14.0 acceptance run.
 
 The command opens a private dashboard on `127.0.0.1` and rediscovers services
 Relmio already manages. Select **Add connection** to open the four-step wizard,
@@ -80,23 +92,42 @@ n8n, ngrok, model endpoints, bridges, Assistant companions, or unrelated
 containers. Hosted launchers remain a foreground, one-shot process when they
 use a verified temporary runtime.
 
-After an upgrade, a dashboard from another Relmio version is never reused.
-Run `relmio stop`, then `relmio start` or `relmio open` to replace it
-explicitly.
+## Upgrade from 0.13.0
 
-**Refresh status** rediscovers the seven services in the OAuth-only candidate:
+After installing 0.14.0, run `relmio stop`, then `relmio start` or `relmio
+open`. Relmio never reuses a dashboard from another version. The upgrade leaves
+existing API-key gateway containers and credential volumes untouched, and the
+0.14.0 dashboard does not manage them. It also refuses to adopt an earlier
+SuperGrok development install that lacks the fresh-session marker; review that
+installation before removal or migration.
+
+**Refresh status** rediscovers the seven services in Relmio 0.14.0:
 Codex App Server, Codex Chat Adapter, Grok Build, the owned n8n stack, the
-ChatGPT OAuth bridge, AI Assistant tools, and SuperGrok for n8n. This differs from published
-0.13.0, which has an OpenAI API route and no Grok Build target.
+ChatGPT OAuth bridge, AI Assistant tools, and SuperGrok for n8n.
 Refresh status shows only verified connection URLs and state, never stored
 secrets. Select **Add connection** to use the existing four-step setup flow.
 Use `relmio vps` when you want to open the separate VPS setup directly.
+
+Choose **Set up SuperGrok for n8n** in the VPS wizard to add the same private
+Grok OAuth companion to an existing remote n8n. Review the exact plan before
+installation, then complete official device sign-in in your browser. See
+[SuperGrok on a VPS](https://relmio.vercel.app/docs/vps-supergrok) for Chat
+Completions settings and ownership-safe management. No existing n8n restart or
+provider change is required.
 
 [Learn how to use the local dashboard](https://github.com/Demonbane18/relmio/blob/main/docs/local-dashboard.md)
 
 ## Pick a path
 
 ### Existing n8n model bridge
+
+Pick the connection that matches the provider account. The Responses API switch
+is provider-specific:
+
+| Connection | Base URL | Value for n8n's API-key field | Use Responses API |
+| --- | --- | --- | --- |
+| OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in the Relmio OpenAI Chat Model v1.3 recipe |
+| SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
 
 Sign in with your own ChatGPT/Codex account, select the running n8n container
 and Docker network, then install the sidecar. Configure n8n with:
@@ -110,7 +141,7 @@ Responses API: On
 Relmio does not edit or restart n8n. The bridge is unofficial, private,
 experimental, and policy-uncertain.
 
-For the unreleased SuperGrok companion, choose **SuperGrok for n8n**, select
+For SuperGrok, choose **SuperGrok for n8n**, select
 its container and network, then review the private installation. Copy the
 one-time Relmio client credential and use `http://n8n-supergrok:14502/v1`.
 `grok-build` remains a legacy routing alias; use a freshly discovered model
@@ -125,9 +156,9 @@ field authorizes access to Relmio only; it is not an xAI API key. For workflow
 model nodes, turn **Use Responses API** off and choose **From list**. For Chat
 Hub, turn it off in **Settings > Chat > OpenAI > Edit provider**. The Assistant
 custom endpoint uses a discovered model name in its text field; it is separate
-from the Chat setting. An earlier released SuperGrok install without the
-fresh-session marker is not upgraded automatically; migration requires a
-separately reviewed path. Sign out with `relmio grok logout --n8n`. This
+from the Chat setting. An earlier development install without the fresh-session
+marker is not upgraded automatically; migration requires a separately reviewed
+path. Sign out with `relmio grok logout --n8n`. This
 companion publishes no host port.
 
 ### New local n8n + ngrok
@@ -147,7 +178,7 @@ the n8n Assistant node-catalog tool and a Calculator workflow (`317 × 29 =
 uses Grok 4.6. Existing n8n is never reconfigured or restarted by this setup.
 No xAI API key is requested.
 
-After installing the local SuperGrok endpoint from this candidate, sign in:
+After installing the local SuperGrok endpoint, sign in:
 
 ```sh
 relmio grok login
@@ -156,7 +187,7 @@ relmio grok login
 Approve the displayed code on the official provider page. To sign out later,
 run `relmio grok logout`. These commands act only on the attested Relmio runtime.
 
-[Read the SuperGrok candidate guide](https://relmio.vercel.app/docs/local-endpoints#supergrok-development-backends)
+[Read the SuperGrok guide](https://relmio.vercel.app/docs/local-endpoints#supergrok-development-backends)
 
 ## n8n AI Assistant tools
 
@@ -179,11 +210,10 @@ Relmio uses the official Codex App Server, and Codex owns the ChatGPT OAuth
 flow, storage, and refresh. Each Codex target has one active ChatGPT account;
 switching requires explicit sign-out and sign-in.
 
-The published 0.13.0 package has no xAI target. The OAuth-only expansion in
-this checkout is **unreleased**. Relmio does not configure upstream API keys,
-maintain API-key profiles, or fall back to separately billed API access.
+Relmio 0.14.0 does not configure upstream API keys, maintain API-key profiles,
+or fall back to separately billed API access.
 
-The unreleased SuperGrok adapter uses the pinned official Grok CLI for fresh
+The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
 OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
 handler reads only that runtime's marked session to call xAI's documented CLI
 chat proxy. It does not inspect another app's credentials, import tokens,
@@ -217,6 +247,9 @@ until you rotate it.
 - **Authentication fails.** Close old sign-in tabs and run `relmio open` to
   open the active private dashboard page.
 - **Local image build failed.** Check Docker, disk space, and registry access.
+- **Old Git Bash says stdin is not a TTY.** Rerun that process with
+  `MSYS=enable_pcon`, or use native PowerShell or Command Prompt. Do not add a
+  global Git setting.
 
 ## Guides
 
@@ -224,6 +257,7 @@ until you rotate it.
 - https://relmio.vercel.app/docs/getting-started
 - https://relmio.vercel.app/docs/local-endpoints
 - https://relmio.vercel.app/docs/local-n8n-stack
+- https://relmio.vercel.app/docs/vps-supergrok
 - https://relmio.vercel.app/docs/ai-assistant
 - https://relmio.vercel.app/docs/troubleshooting
 - https://relmio.vercel.app/docs/security

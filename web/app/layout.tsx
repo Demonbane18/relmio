@@ -29,7 +29,7 @@ OWN-WORLD
 The public site is a playful illustrated world built around Relmio's original doorway mascot. Operational surfaces remain clear, calm setup guides.
 
 STORY
-The interface keeps n8n with ChatGPT sign-in, the unreleased Grok Build OAuth candidate, n8n Code Sandbox, Codex Chat Adapter, and Codex App Server distinct and truthful.
+The interface keeps n8n with ChatGPT sign-in, experimental SuperGrok OAuth, n8n Code Sandbox, Codex Chat Adapter, and Codex App Server distinct and truthful.
 
 FIRST VIEWPORT
 A short invitation, one install action, and a broad animated vector scene introduce the product. The detailed connection guide follows the story.

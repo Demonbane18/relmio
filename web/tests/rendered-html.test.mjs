@@ -38,7 +38,7 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /aria-label="Setup options"/);
   assert.match(html, /aria-pressed="true"/);
   assert.match(html, /n8n with ChatGPT sign-in/);
-  assert.match(html, /Grok Build OAuth/);
+  assert.match(html, /SuperGrok OAuth/);
   assert.match(html, /n8n Code Sandbox/);
   assert.match(html, /Codex Chat Adapter/);
   assert.match(html, /Codex App Server/);
@@ -103,6 +103,7 @@ test("server-renders canonical generated Markdown documentation routes", async (
   ]);
   assert.match(indexHtml, /Relmio documentation/u);
   assert.match(indexHtml, /href="\/docs\/getting-started"/u);
+  assert.match(indexHtml, /href="\/docs\/vps-supergrok"/u);
   assert.match(indexHtml, /aria-label="Documentation navigation"/u);
   assert.match(indexHtml, /Find a guide/u);
   assert.match(
@@ -148,11 +149,11 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /https:\/\/ko-fi\.com\/paldogies/);
   assert.match(
     html,
-    /The current candidate handles provider OAuth only\./,
+    /Relmio 0\.14\.0 handles provider OAuth only\./,
   );
   assert.match(
     html,
-    /SuperGrok support for local apps and n8n has passed disposable live tool-call tests and remains unreleased\./,
+    /Experimental SuperGrok setup works with local apps and private local or VPS n8n companions without a ChatGPT credential\./,
   );
   assert.match(
     html,

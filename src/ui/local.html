@@ -463,6 +463,12 @@
           </p>
         </div>
 
+        <nav class="local-route-context" aria-label="Provider and destination choices">
+          <a id="local-route-vps-openai" class="local-route-context__link"><span>OpenAI OAuth</span>VPS bridge</a>
+          <a id="local-route-vps-supergrok" class="local-route-context__link"><span>SuperGrok</span>VPS companion</a>
+          <button id="local-route-current" class="local-route-context__current" type="button"><span>Local</span><strong id="local-route-current-label">Choose a local connection</strong></button>
+        </nav>
+
         <div class="status-row" aria-live="polite">
           <span id="docker-indicator" class="status-dot" aria-hidden="true"></span>
           <div>
@@ -870,6 +876,11 @@
             <p id="target-guidance-detail">Provider sessions remain runtime-owned. Relmio separately generates local client credentials where a local runtime requires them.</p>
           </aside>
 
+          <aside id="supergrok-n8n-reminder" class="policy-note supergrok-n8n-reminder" hidden aria-live="polite">
+            <strong>SuperGrok completion has two deliberate steps</strong>
+            <p>Install the private sidecar, then run <code>relmio grok login --n8n</code> in an interactive terminal. In n8n, use Chat Completions: turn <strong>Use Responses API off</strong>. The OpenAI OAuth/Codex recipe uses it on, so recheck the switch whenever you change providers.</p>
+          </aside>
+
           <div class="actions">
             <a id="back-to-vps" class="button ghost">Back to VPS setup</a>
             <button id="review-button" class="button primary" type="submit" disabled>
@@ -885,6 +896,8 @@
           <h2 id="review-title" tabindex="-1">Review the exact local plan</h2>
           <p>No file or container has been changed yet.</p>
         </div>
+
+        <p id="review-provider-context" class="local-provider-context"></p>
 
         <dl class="result-list review-details">
           <div>
@@ -1081,6 +1094,8 @@
             Rotate local capability
           </button>
         </aside>
+
+        <p id="done-provider-context" class="local-provider-context"></p>
 
         <dl id="install-result-list" class="result-list">
           <div id="result-endpoint-row">
