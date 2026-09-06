@@ -1,0 +1,56 @@
+/* Hallmark · macrostructure: Wide illustrated stage over a short invitation · tone: bespoke playful
+ * theme: custom (Doorway Playground · vibe: friendly doorway world, hand-drawn relay
+ * paper oklch(95.5% 0.028 92) · accent oklch(55% 0.095 185) teal
+ * display Bricolage Grotesque + body Geist · axes: warm-cream paper / round-arch display / teal anchor)
+ * scope: DoorwayHero only. Namespaced --doorway-* tokens; no existing token is redefined.
+ */
+
+/* Bricolage Grotesque is served locally; see web/public/fonts/README.md. */
+
+.doorway-theme {
+  /* Type */
+  --doorway-font-display:
+    "Bricolage Grotesque", "Avenir Next", "Trebuchet MS",
+    var(--font-geist-sans), Arial, sans-serif;
+  --doorway-font-body: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+
+  /* Illustration palette — OKLCH light-dark pairs track data-theme and
+     prefers-color-scheme like the existing relmio.css tokens. */
+  --doorway-cream: light-dark(oklch(95.5% 0.028 92), oklch(25% 0.022 95));
+  --doorway-cream-soft: light-dark(oklch(98% 0.014 95), oklch(19% 0.016 95));
+  --doorway-cloud: light-dark(oklch(98% 0.014 95), oklch(85% 0.025 235));
+  --doorway-scene-ink: oklch(30% 0.038 175);
+  --doorway-night-sky: #142e40;
+  --doorway-moonlight: #f8e9bf;
+  --doorway-window: light-dark(oklch(95.5% 0.028 92), #f3cd7a);
+  --doorway-ink: light-dark(oklch(30% 0.038 175), oklch(91% 0.02 170));
+  --doorway-ink-soft: light-dark(oklch(48% 0.03 175), oklch(72% 0.022 170));
+  --doorway-teal: light-dark(oklch(55% 0.095 185), oklch(77% 0.105 178));
+  --doorway-teal-deep: light-dark(oklch(44% 0.08 186), oklch(63% 0.09 180));
+  --doorway-teal-soft: light-dark(oklch(91% 0.04 186), oklch(32% 0.038 184));
+  --doorway-coral: light-dark(oklch(65% 0.155 45), oklch(73% 0.13 48));
+  --doorway-coral-soft: light-dark(oklch(90% 0.055 58), oklch(37% 0.065 50));
+  --doorway-butter: light-dark(oklch(89% 0.115 95), oklch(80% 0.095 95));
+  --doorway-sky: light-dark(oklch(83% 0.05 225), oklch(55% 0.07 225));
+  --doorway-sky-soft: light-dark(oklch(94% 0.02 225), oklch(64% 0.04 225));
+  --doorway-hill-back: light-dark(oklch(79% 0.065 158), oklch(38% 0.045 163));
+  --doorway-hill-front: light-dark(oklch(87% 0.06 152), oklch(30% 0.038 160));
+  --doorway-shadow: light-dark(oklch(30% 0.038 175 / 0.16), oklch(0% 0 0 / 0.4));
+  --doorway-focus-ring: light-dark(oklch(42% 0.085 186), oklch(80% 0.11 178));
+
+  /* Original banner artwork retains its brand colours in either theme. */
+  --doorway-brand-mascot: #087f7b;
+  --doorway-brand-cream: #f6f0e9;
+
+  /* Type scale for the hero */
+  --doorway-text-display: clamp(2.5rem, 4.3vw, 3.5rem);
+  --doorway-text-lede: clamp(1rem, 1.4vw, 1.125rem);
+
+  /* Motion — Hallmark named easings and duration buckets */
+  --doorway-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --doorway-ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --doorway-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --doorway-dur-micro: 120ms;
+  --doorway-dur-short: 220ms;
+  --doorway-dur-long: 420ms;
+}

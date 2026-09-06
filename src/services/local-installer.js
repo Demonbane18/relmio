@@ -1,4 +1,5 @@
 import { createHash, randomBytes as createRandomBytes, randomUUID } from "node:crypto";
+import { constants as fileSystemConstants } from "node:fs";
 import * as defaultFileSystem from "node:fs/promises";
 import { createConnection, createServer } from "node:net";
 import { homedir } from "node:os";
@@ -13,13 +14,13 @@ import {
   createCodexConfig,
   createCodexDockerfile,
   createCodexRequirements,
+  createGrokBuildComposeFile,
+  createGrokBuildDockerfile,
+  GROK_BUILD_CLI_VERSION,
   createLocalDeploymentPlan,
   createLocalDockerignore,
-  createOpenAiGatewayComposeFile,
-  createOpenAiGatewayDockerfile,
   validateInstallId,
   validateLocalTarget,
-  validatePlatformApiKey,
 } from "../domain/local-endpoints.js";
 import {
   runLocalProcess,
@@ -35,12 +36,6 @@ const ROOT_MARKER_SCHEMA_VERSION = 1;
 const COMPOSE_FILENAME = "docker-compose.yml";
 const INCOMPLETE_LOCK_STALE_MS = 30_000;
 const PROJECTS = Object.freeze({
-  "openai-api": Object.freeze({
-    projectPrefix: "relmio-openai-api",
-    serviceName: "gateway",
-    containerPort: 10_531,
-    volumeNames: Object.freeze(["openai-api-key"]),
-  }),
   "codex-chatgpt": Object.freeze({
     projectPrefix: "relmio-codex-chatgpt",
     serviceName: "codex",
@@ -52,6 +47,12 @@ const PROJECTS = Object.freeze({
     serviceName: "codex-chat",
     containerPort: 14_501,
     volumeNames: Object.freeze(["codex-home", "codex-workspace"]),
+  }),
+  "xai-grok-build": Object.freeze({
+    projectPrefix: "relmio-xai-grok-build",
+    serviceName: "grok-build",
+    containerPort: 14_502,
+    volumeNames: Object.freeze(["grok-home"]),
   }),
 });
 const DOCKER_SELECTION_VARIABLES = Object.freeze([
@@ -65,6 +66,12 @@ const DOCKER_SELECTION_VARIABLES = Object.freeze([
 
 function isMissing(error) {
   return error?.code === "ENOENT";
+}
+
+function errorWithCode(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
 }
 
 function assertSupportedPlatform(platform) {
@@ -243,11 +250,14 @@ async function inspectManagedRoot({ fileSystem, relmioHome, installRoot, target 
     const installId = validateInstallId(marker?.installId);
     const dockerHost = validateLocalDockerHost(marker?.dockerHost);
     const projectName = `${PROJECTS[target].projectPrefix}-${installId}`;
+    const tokenSha256 = marker?.tokenSha256;
     if (
       marker?.schemaVersion !== MARKER_SCHEMA_VERSION ||
       marker?.target !== target ||
       !Number.isInteger(marker?.port) ||
-      marker?.projectName !== projectName
+      marker?.projectName !== projectName ||
+      (tokenSha256 !== undefined &&
+        (typeof tokenSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(tokenSha256)))
     ) {
       throw new TypeError();
     }
@@ -261,6 +271,9 @@ async function inspectManagedRoot({ fileSystem, relmioHome, installRoot, target 
         dockerHost,
         installId,
         projectName,
+        ...(target === "xai-grok-build" && typeof tokenSha256 === "string"
+          ? { tokenSha256 }
+          : {}),
       },
       previousPort: marker.port,
     };
@@ -591,7 +604,7 @@ async function removeDetachedStaleLock(fileSystem, path, state, nestedState = nu
 }
 
 async function acquireLocalProjectLock(
-  { installRoot, target },
+  { installRoot, target, lockName = target },
   {
     fileSystem = defaultFileSystem,
     processId = process.pid,
@@ -601,10 +614,16 @@ async function acquireLocalProjectLock(
   } = {},
 ) {
   const safeTarget = validateLocalTarget(target);
+  if (
+    typeof lockName !== "string" ||
+    lockName !== safeTarget
+  ) {
+    throw new TypeError("The local project lock name is invalid.");
+  }
   const safeInstallRoot = validateInstallDirectory(installRoot, safeTarget);
   const lockPath = join(
     dirname(resolve(safeInstallRoot, "..", "..")),
-    `.relmio-local-${safeTarget}.lock`,
+    `.relmio-local-${lockName}.lock`,
   );
   const ownerPath = join(lockPath, "owner.json");
   const ownerToken = randomUUID();
@@ -948,7 +967,7 @@ function replaceClientCredentialVerifier({ target, composeFile, tokenSha256 }) {
     throw new Error("The managed local endpoint configuration is invalid.");
   }
 
-  const pattern = target === "openai-api" || target === "codex-chat"
+  const pattern = target !== "codex-chatgpt"
     ? /^([ \t]*RELMIO_GATEWAY_TOKEN_SHA256:[ \t]*)[a-f0-9]{64}([ \t]*)$/gmu
     : /^([ \t]*-[ \t]+--ws-token-sha256[ \t]*\n[ \t]*-[ \t]+)[a-f0-9]{64}([ \t]*)$/gmu;
   const matches = [...composeFile.matchAll(pattern)];
@@ -1189,7 +1208,6 @@ function createDeploymentSpecs({
   installRoot,
   dockerHost,
   projectName,
-  apiKey,
 }) {
   const project = PROJECTS[target];
   const specs = [
@@ -1208,23 +1226,6 @@ function createDeploymentSpecs({
       dockerHost,
     },
   ];
-  if (target === "openai-api") {
-    specs.push({
-      label: "OpenAI Platform credential seed",
-      file: "docker",
-      args: createComposeArgs(target, projectName, [
-        "run",
-        "--rm",
-        "--no-deps",
-        "--no-build",
-        "-T",
-        "credential-seed",
-      ]),
-      cwd: installRoot,
-      dockerHost,
-      input: Buffer.from(validatePlatformApiKey(apiKey), "utf8"),
-    });
-  }
   specs.push({
     label: "Local endpoint start",
     file: "docker",
@@ -1365,7 +1366,10 @@ function validateOwnershipOutput(
   { target, installId, projectName, resource, strictResourceIdentities = false },
 ) {
   const rows = output.trim() === "" ? [] : output.trim().split("\n");
-  const expectedIdentities = strictResourceIdentities
+  const expectedIdentities = (
+    strictResourceIdentities === true ||
+    strictResourceIdentities?.[resource] === true
+  )
     ? expectedLocalEndpointResourceIdentities(target, projectName)[resource]
     : null;
   const seenNames = new Set();
@@ -1664,88 +1668,44 @@ export async function getManagedLocalEndpointStatus(
   }
 }
 
-function parseModelIds(value) {
-  if (!Array.isArray(value?.data)) {
-    throw new Error("The OpenAI Platform model response could not be verified.");
-  }
-  const models = value.data
-    .map((entry) => entry?.id)
-    .filter(
-      (id) =>
-        typeof id === "string" &&
-        id.length > 0 &&
-        id.length <= 128 &&
-        /^[A-Za-z0-9_.:-]+$/u.test(id),
-    );
-  if (models.length === 0) {
-    throw new Error("The OpenAI Platform model response could not be verified.");
-  }
-  return models;
-}
-
 async function verifyHttpEndpoint({ plan, clientCredential, fetchImpl }) {
   const healthPath = plan.target === "codex-chatgpt" ? "/readyz" : "/health";
-  const httpEndpoint = `http://127.0.0.1:${plan.port}${healthPath}`;
   let health;
   try {
-    health = await fetchImpl(httpEndpoint, {
+    health = await fetchImpl(`http://127.0.0.1:${plan.port}${healthPath}`, {
       method: "GET",
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
     throw new Error("The local endpoint did not answer its readiness check.");
   }
-  if (!health.ok) {
-    throw new Error("The local endpoint did not pass its readiness check.");
-  }
-
-  if (plan.target === "codex-chat" && clientCredential !== undefined) {
+  if (!health.ok) throw new Error("The local endpoint did not pass its readiness check.");
+  if (["codex-chat", "xai-grok-build"].includes(plan.target) && clientCredential !== undefined) {
     let verification;
     try {
-      verification = await fetchImpl(
-        `http://127.0.0.1:${plan.port}/auth/verify`,
-        {
-          method: "GET",
-          headers: { Authorization: `Bearer ${clientCredential}` },
-          signal: AbortSignal.timeout(10_000),
-        },
-      );
+      verification = await fetchImpl(`http://127.0.0.1:${plan.port}/auth/verify`, {
+        method: "GET", headers: { Authorization: `Bearer ${clientCredential}` }, signal: AbortSignal.timeout(10_000),
+      });
     } catch {
-      throw new Error(
-        "The Codex Chat client credential could not be verified.",
-      );
+      throw new Error("The local agent client credential could not be verified.");
     }
-    if (!verification.ok) {
-      throw new Error(
-        "The Codex Chat client credential could not be verified.",
-      );
-    }
+    if (!verification.ok) throw new Error("The local agent client credential could not be verified.");
   }
+  return [];
+}
 
-  if (plan.target !== "openai-api" || clientCredential === undefined) {
-    return [];
-  }
-
-  let response;
-  try {
-    response = await fetchImpl(`http://127.0.0.1:${plan.port}/v1/models`, {
-      method: "GET",
-      headers: { Authorization: `Bearer ${clientCredential}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch {
-    throw new Error("The OpenAI Platform credential could not be verified.");
-  }
-  if (!response.ok) {
-    throw new Error("The OpenAI Platform credential could not be verified.");
-  }
-  try {
-    return parseModelIds(await response.json());
-  } catch (error) {
-    if (error?.message?.includes("model response")) {
-      throw error;
-    }
-    throw new Error("The OpenAI Platform model response could not be verified.");
+async function verifyGrokBuildCli({ installRoot, dockerHost, projectName, runProcess }) {
+  const result = await runOrThrow(runProcess, {
+    label: "Grok Build CLI version verification",
+    file: "docker",
+    args: createComposeArgs("xai-grok-build", projectName, [
+      "run", "--rm", "--no-deps", "--pull", "never", "--entrypoint", "grok", "grok-build", "--version",
+    ]),
+    cwd: installRoot,
+    dockerHost,
+  });
+  if (!new RegExp(`^grok ${GROK_BUILD_CLI_VERSION.replaceAll(".", "\\.")} \\([0-9a-f]{7,64}\\)\\r?\\n?$`, "u").test(result.stdout)) {
+    throw new Error("The managed Grok Build CLI version could not be verified.");
   }
 }
 
@@ -1864,13 +1824,6 @@ export function verifyCodexWebSocketCapability(
   });
 }
 
-async function defaultReadGatewaySource() {
-  return defaultFileSystem.readFile(
-    new URL("../gateway/openai.js", import.meta.url),
-    "utf8",
-  );
-}
-
 async function defaultReadCodexChatSource() {
   return defaultFileSystem.readFile(
     new URL("../gateway/codex-chat.js", import.meta.url),
@@ -1878,13 +1831,88 @@ async function defaultReadCodexChatSource() {
   );
 }
 
+async function defaultReadGrokBuildSource() {
+  return defaultFileSystem.readFile(
+    new URL("../supergrok/runtime.js", import.meta.url),
+    "utf8",
+  );
+}
+
+async function defaultReadGrokBuildChatSource() {
+  return defaultFileSystem.readFile(
+    new URL("../supergrok/chat.js", import.meta.url),
+    "utf8",
+  );
+}
+
+async function defaultReadGrokBuildSessionSource() {
+  return defaultFileSystem.readFile(
+    new URL("../supergrok/session.js", import.meta.url),
+    "utf8",
+  );
+}
+
+async function attestManagedGrokBuildFiles({
+  fileSystem,
+  installRoot,
+  marker,
+  readGrokBuildSource,
+  readGrokBuildChatSource,
+  readGrokBuildSessionSource,
+}) {
+  const expected = {
+    Dockerfile: createGrokBuildDockerfile(),
+    ".dockerignore": createLocalDockerignore("xai-grok-build"),
+    [COMPOSE_FILENAME]: createGrokBuildComposeFile({
+      port: marker.port,
+      tokenSha256: marker.tokenSha256,
+      installId: marker.installId,
+    }),
+    "gateway.js": validateGrokBuildPackagedSource(await readGrokBuildSource()),
+    "chat.js": validateGrokBuildPackagedSource(await readGrokBuildChatSource()),
+    "session.js": validateGrokBuildPackagedSource(await readGrokBuildSessionSource()),
+  };
+  for (const [name, contents] of Object.entries(expected)) {
+    const path = join(installRoot, name);
+    const metadata = await lstatIfExists(fileSystem, path);
+    if (!metadata?.isFile?.() || metadata.isSymbolicLink()) {
+      throw new Error("The managed Grok Build files could not be attested.");
+    }
+    const actual = await fileSystem.readFile(path, "utf8");
+    if (actual !== contents) {
+      throw new Error("The managed Grok Build files changed. Nothing was launched.");
+    }
+  }
+}
+
+function validateGrokBuildPackagedSource(source) {
+  if (
+    typeof source !== "string" ||
+    source.length === 0 ||
+    source.length > 512 * 1024
+  ) {
+    throw new Error("The packaged Grok Build runtime is invalid.");
+  }
+  return source;
+}
+
 async function attestManagedLocalEndpoint(
-  { target, installDirectory, missingMessage, notRunningMessage },
+  {
+    target,
+    installDirectory,
+    missingMessage,
+    notRunningMessage,
+    allowStopped = false,
+    requireExactGatewayIdentity = false,
+  },
   {
     fileSystem = defaultFileSystem,
     runProcess = runLocalProcess,
     platform = process.platform,
     lockDownPath = lockDownLocalPath,
+    readGrokBuildSource = defaultReadGrokBuildSource,
+    readGrokBuildChatSource = defaultReadGrokBuildChatSource,
+    readGrokBuildSessionSource = defaultReadGrokBuildSessionSource,
   } = {},
 ) {
   assertSupportedPlatform(platform);
@@ -1909,14 +1937,33 @@ async function attestManagedLocalEndpoint(
   if (managed.deploymentMode !== "updated" || !managed.marker) {
     throw new Error(missingMessage);
   }
-  await attestDockerOwnership({
+  if (safeTarget === "xai-grok-build") {
+    if (typeof managed.marker.tokenSha256 !== "string") {
+      throw new Error(
+        "The managed Grok Build verifier is missing. This legacy installation requires a separately reviewed migration; its saved session has not been changed.",
+      );
+    }
+    await attestManagedGrokBuildFiles({
+      fileSystem,
+      installRoot: safeDirectory,
+      marker: managed.marker,
+      readGrokBuildSource,
+      readGrokBuildChatSource,
+      readGrokBuildSessionSource,
+    });
+  }
+  const ownership = await attestDockerOwnership({
     target: safeTarget,
     installRoot: safeDirectory,
     dockerHost: managed.marker.dockerHost,
     installId: managed.marker.installId,
     projectName: managed.marker.projectName,
     runProcess,
+    strictResourceIdentities: requireExactGatewayIdentity ? { container: true } : false,
   });
+  if (requireExactGatewayIdentity && ownership.container !== 1) {
+    throw new Error("The managed local gateway identity is not exact.");
+  }
   const verification = createVerificationSpecs({
     target: safeTarget,
     installRoot: safeDirectory,
@@ -1924,7 +1971,24 @@ async function attestManagedLocalEndpoint(
     projectName: managed.marker.projectName,
   });
   const running = await runOrThrow(runProcess, verification.running);
-  if (!running.stdout.split(/\s+/u).includes(PROJECTS[safeTarget].serviceName)) {
+  const runningServices = running.stdout.trim() === ""
+    ? []
+    : running.stdout.trim().split(/\s+/u);
+  const gatewayIsRunning =
+    runningServices.length === 1 &&
+    runningServices[0] === PROJECTS[safeTarget].serviceName;
+  if (!gatewayIsRunning) {
+    if (allowStopped === true && runningServices.length === 0) {
+      return {
+        target: safeTarget,
+        installDirectory: safeDirectory,
+        port: managed.marker.port,
+        dockerHost: managed.marker.dockerHost,
+        installId: managed.marker.installId,
+        projectName: managed.marker.projectName,
+        running: false,
+      };
+    }
     throw new Error(
       notRunningMessage ?? "The managed local endpoint is not running.",
     );
@@ -1939,7 +2003,9 @@ async function attestManagedLocalEndpoint(
     installDirectory: safeDirectory,
     port: managed.marker.port,
     dockerHost: managed.marker.dockerHost,
+    installId: managed.marker.installId,
     projectName: managed.marker.projectName,
+    running: true,
   };
 }
 
@@ -1961,6 +2027,26 @@ export async function attestLocalCodexInstallation(
     dependencies,
   );
   return {
+    dockerHost: attested.dockerHost,
+    projectName: attested.projectName,
+  };
+}
+
+export async function attestLocalGrokBuildInstallation(
+  { installDirectory },
+  dependencies = {},
+) {
+  const attested = await attestManagedLocalEndpoint(
+    {
+      target: "xai-grok-build",
+      installDirectory,
+      missingMessage: "Install the local Grok Build endpoint before signing in.",
+      notRunningMessage: "The managed local Grok Build endpoint is not running.",
+    },
+    dependencies,
+  );
+  return {
+    installDirectory: attested.installDirectory,
     dockerHost: attested.dockerHost,
     projectName: attested.projectName,
   };
@@ -2001,7 +2087,6 @@ export async function prepareLocalClientCredentialRotation(
   const plan = createLocalDeploymentPlan({
     target: safeTarget,
     port: attested.port,
-    allowedOrigins: [],
   });
   return {
     target: plan.target,
@@ -2088,7 +2173,6 @@ export async function activateLocalClientCredentialRotation(
   const plan = createLocalDeploymentPlan({
     target: safeTarget,
     port: attested.port,
-    allowedOrigins: [],
   });
   const validateCompose = () =>
     runOrThrow(runProcess, {
@@ -2221,7 +2305,7 @@ export async function activateLocalClientCredentialRotation(
 }
 
 export async function installLocalEndpoint(
-  { plan, apiKey, confirmed },
+  request,
   {
     fileSystem = defaultFileSystem,
     env = process.env,
@@ -2229,8 +2313,10 @@ export async function installLocalEndpoint(
     runProcess = runLocalProcess,
     randomBytes = createRandomBytes,
     isPortAvailable = isLoopbackPortAvailable,
-    readGatewaySource = defaultReadGatewaySource,
     readCodexChatSource = defaultReadCodexChatSource,
+    readGrokBuildSource = defaultReadGrokBuildSource,
+    readGrokBuildChatSource = defaultReadGrokBuildChatSource,
+    readGrokBuildSessionSource = defaultReadGrokBuildSessionSource,
     fetchImpl = fetch,
     verifyCodexCapability = verifyCodexWebSocketCapability,
     platform = process.platform,
@@ -2240,6 +2326,17 @@ export async function installLocalEndpoint(
     getProcessIdentity,
   } = {},
 ) {
+  if (
+    !request ||
+    typeof request !== "object" ||
+    Array.isArray(request) ||
+    Object.keys(request).length !== 2 ||
+    !Object.hasOwn(request, "plan") ||
+    !Object.hasOwn(request, "confirmed")
+  ) {
+    throw new TypeError("The OAuth local endpoint install request is invalid.");
+  }
+  const { plan, confirmed } = request;
   if (confirmed !== true) {
     throw new Error("Confirm the reviewed local endpoint plan before installing.");
   }
@@ -2249,12 +2346,7 @@ export async function installLocalEndpoint(
   const normalizedPlan = createLocalDeploymentPlan({
     target: plan?.target,
     port: plan?.port,
-    allowedOrigins: plan?.allowedOrigins,
   });
-  const safeApiKey =
-    normalizedPlan.target === "openai-api"
-      ? validatePlatformApiKey(apiKey)
-      : null;
   const installRoot = await resolveLocalInstallRoot({
     target: normalizedPlan.target,
     env,
@@ -2277,6 +2369,14 @@ export async function installLocalEndpoint(
     installRoot,
     target: normalizedPlan.target,
   });
+  if (
+    normalizedPlan.target === "xai-grok-build" && managed.marker &&
+    typeof managed.marker.tokenSha256 !== "string"
+  ) {
+    throw new Error(
+      "This legacy Grok installation requires a separately reviewed migration to a fresh OAuth session. Its files, containers, and saved session have not been changed.",
+    );
+  }
   const dockerHost = managed.marker?.dockerHost ??
     (await resolveLocalDockerHost({
       runProcess,
@@ -2332,28 +2432,24 @@ export async function installLocalEndpoint(
 
   let dockerfile;
   let composeFile;
-  if (normalizedPlan.target === "openai-api") {
-    const gatewaySource = await readGatewaySource();
-    if (
-      typeof gatewaySource !== "string" ||
-      gatewaySource.length === 0 ||
-      gatewaySource.length > 512 * 1024
-    ) {
-      throw new Error("The packaged local gateway runtime is invalid.");
-    }
-    dockerfile = createOpenAiGatewayDockerfile();
-    composeFile = createOpenAiGatewayComposeFile({
+  if (normalizedPlan.target === "xai-grok-build") {
+    const [gatewaySource, chatSource, sessionSource] = await Promise.all([
+      readGrokBuildSource(),
+      readGrokBuildChatSource(),
+      readGrokBuildSessionSource(),
+    ]);
+    validateGrokBuildPackagedSource(gatewaySource);
+    validateGrokBuildPackagedSource(chatSource);
+    validateGrokBuildPackagedSource(sessionSource);
+    dockerfile = createGrokBuildDockerfile();
+    composeFile = createGrokBuildComposeFile({
       port: normalizedPlan.port,
       tokenSha256,
-      allowedOrigins: normalizedPlan.allowedOrigins,
       installId,
     });
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, "gateway.mjs"),
-      gatewaySource,
-      0o600,
-    );
+    await writeManagedFile(fileSystem, join(installRoot, "gateway.js"), gatewaySource, 0o600);
+    await writeManagedFile(fileSystem, join(installRoot, "chat.js"), chatSource, 0o600);
+    await writeManagedFile(fileSystem, join(installRoot, "session.js"), sessionSource, 0o600);
   } else if (normalizedPlan.target === "codex-chat") {
     const gatewaySource = await readCodexChatSource();
     if (
@@ -2436,6 +2532,9 @@ export async function installLocalEndpoint(
       dockerHost,
       installId,
       projectName,
+      ...(normalizedPlan.target === "xai-grok-build"
+        ? { tokenSha256 }
+        : {}),
     })}\n`,
     0o600,
   );
@@ -2448,7 +2547,6 @@ export async function installLocalEndpoint(
       installRoot,
       dockerHost,
       projectName,
-      apiKey: safeApiKey,
     })) {
       if (spec.args.includes("up")) {
         deploymentStarted = true;
@@ -2483,6 +2581,14 @@ export async function installLocalEndpoint(
       await verifyCodexCapability({
         port: normalizedPlan.port,
         clientCredential,
+      });
+    }
+    if (normalizedPlan.target === "xai-grok-build") {
+      await verifyGrokBuildCli({
+        installRoot,
+        dockerHost,
+        projectName,
+        runProcess,
       });
     }
   } catch (error) {

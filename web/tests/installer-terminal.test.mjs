@@ -93,12 +93,12 @@ test("prominently exposes the dedicated AI Assistant launcher without changing i
   assert.match(page, /n8n AI Assistant companion/u);
   assert.match(page, /npx --yes --ignore-scripts relmio@latest assistant/u);
   assert.ok(
-    page.indexOf("n8n AI Assistant companion") < page.indexOf("data-install-toolbox"),
-    "the AI Assistant launcher must be visible before the general installer toolbox",
+    page.indexOf("n8n AI Assistant companion") > page.indexOf("<CopyCommand"),
+    "the general installer command must precede the AI Assistant launcher",
   );
   assert.match(
     styles,
-    /\.assistantLaunch\s*\{[^}]*background:\s*var\(--color-on-light\);[^}]*color:\s*var\(--color-on-dark\);/su,
+    /\.assistantLaunch\s*\{[^}]*border-block:\s*1px solid var\(--relay-line,[^}]*background:\s*var\(--relay-surface,[^}]*color:\s*var\(--relay-ink,/su,
   );
 });
 

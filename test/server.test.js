@@ -2267,15 +2267,13 @@ test("shutdown rejects pending VPS lifecycle work and closes a stale SSH connect
   }
 });
 
-test("pending VPS discovery cannot overwrite state while an assistant mutation owns the connection", async () => {
+test("pending VPS discovery invalidates an assistant plan before it can mutate the connection", async () => {
   const { services, remote } = createServices();
   const originalDiscover = services.discoverN8n;
   const discoveryStarted = deferred();
   const discoveryReady = deferred();
-  const installStarted = deferred();
-  const installReady = deferred();
   let discoverCalls = 0;
-  const assistantResult = createAssistantInstallResult();
+  let installCalls = 0;
   services.discoverN8n = async (connection) => {
     discoverCalls += 1;
     if (discoverCalls === 1) return await originalDiscover(connection);
@@ -2283,15 +2281,14 @@ test("pending VPS discovery cannot overwrite state while an assistant mutation o
     return await discoveryReady.promise;
   };
   services.installAssistant = async () => {
-    installStarted.resolve();
-    return await installReady.promise;
+    installCalls += 1;
+    return createAssistantInstallResult();
   };
   const wizard = await startWizardServer({
     sessionToken,
     services,
     uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
   });
-  let pendingInstall;
   try {
     const setup = await prepareVpsNetwork(wizard.origin, {
       assistantPlan: true,
@@ -2302,29 +2299,25 @@ test("pending VPS discovery cannot overwrite state while an assistant mutation o
       body: "{}",
     });
     await discoveryStarted.promise;
-    pendingInstall = api(wizard.origin, "/api/assistant/install", {
+    const staleInstall = await api(wizard.origin, "/api/assistant/install", {
       method: "POST",
       headers: setup.originHeader,
       body: createVpsInstallBody(setup, { assistant: true }),
     });
-    await installStarted.promise;
+    assert.equal(staleInstall.status, 400);
+    assert.match((await staleInstall.json()).error, /fresh.*plan/i);
+    assert.equal(installCalls, 0);
     discoveryReady.resolve({ containers: [] });
     const discovery = await pendingDiscovery;
-    assert.equal(discovery.status, 409);
-    assert.match((await discovery.json()).error, /installation.*progress/i);
+    assert.equal(discovery.status, 200);
     assert.equal(remote.closed, false);
-    installReady.resolve(assistantResult);
-    assert.equal((await pendingInstall).status, 200);
-    assert.equal(remote.closed, true);
   } finally {
     discoveryReady.resolve({ containers: [] });
-    installReady.resolve(assistantResult);
-    await pendingInstall?.catch(() => {});
     await wizard.close();
   }
 });
 
-test("a completed intervening VPS mutation invalidates pending discovery state", async (t) => {
+test("pending VPS discovery invalidates an assistant plan for containers and networks", async (t) => {
   for (const kind of ["containers", "networks"]) {
     await t.test(kind, async (subtest) => {
       const { services } = createServices();
@@ -2350,13 +2343,28 @@ test("a completed intervening VPS mutation invalidates pending discovery state",
         }
         return await originalDiscoverNetworks(connection, containerName);
       };
-      services.installAssistant = async () => createAssistantInstallResult();
+      let installCalls = 0;
+      services.installAssistant = async () => {
+        installCalls += 1;
+        return createAssistantInstallResult();
+      };
       const wizard = await startWizardServer({
         sessionToken,
         services,
         uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
       });
-      subtest.after(() => wizard.close());
+      subtest.after(async () => {
+        staleResultReady.resolve(
+          kind === "containers"
+            ? { containers: [] }
+            : {
+                networks: ["stale-network"],
+                recommended: "stale-network",
+                instanceAi: { status: "missing" },
+              },
+        );
+        await wizard.close();
+      });
       const setup = await prepareVpsNetwork(wizard.origin, {
         assistantPlan: true,
       });
@@ -2379,7 +2387,9 @@ test("a completed intervening VPS mutation invalidates pending discovery state",
         headers: setup.originHeader,
         body: createVpsInstallBody(setup, { assistant: true }),
       });
-      assert.equal(install.status, 200);
+      assert.equal(install.status, 400);
+      assert.match((await install.json()).error, /fresh.*plan/i);
+      assert.equal(installCalls, 0);
 
       staleResultReady.resolve(
         kind === "containers"
@@ -2390,11 +2400,7 @@ test("a completed intervening VPS mutation invalidates pending discovery state",
               instanceAi: { status: "missing" },
             },
       );
-      const staleDiscovery = await pendingDiscovery;
-      assert.equal(staleDiscovery.status, 409);
-      const payload = await staleDiscovery.json();
-      assert.match(payload.error, /VPS session changed/i);
-      assert.doesNotMatch(JSON.stringify(payload), /password|private|token/iu);
+      assert.equal((await pendingDiscovery).status, 200);
     });
   }
 });

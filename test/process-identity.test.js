@@ -188,6 +188,39 @@ test("process identity fails closed for invalid adapters, paths, output, and PID
 });
 
 test("the default identity subprocess runner bounds timeout, output, and stream failures", async (t) => {
+  await t.test("commands without input do not open an unused stdin pipe", async () => {
+    const result = await runIdentityCommand("identity-probe", [], {
+      spawnProcess(_file, _args, options) {
+        assert.deepEqual(options.stdio, ["ignore", "pipe", "ignore"]);
+        const child = createIdentityChild((started) => {
+          started.stdout.write("process identity");
+          started.emit("close", 0);
+        });
+        child.stdin = null;
+        return child;
+      },
+    });
+    assert.deepEqual(result, { code: 0, stdout: "process identity" });
+  });
+
+  await t.test("commands requiring input receive it through a pipe", async () => {
+    const result = await runIdentityCommand("identity-probe", [], {
+      input: "11",
+      spawnProcess(_file, _args, options) {
+        assert.deepEqual(options.stdio, ["pipe", "pipe", "ignore"]);
+        const child = createIdentityChild();
+        let received = "";
+        child.stdin.on("data", (data) => { received += data; });
+        child.stdin.on("finish", () => {
+          assert.equal(received, "11");
+          child.emit("close", 0);
+        });
+        return child;
+      },
+    });
+    assert.equal(result.code, 0);
+  });
+
   await t.test("timeout", async () => {
     const child = createIdentityChild();
     await assert.rejects(
@@ -222,6 +255,7 @@ test("the default identity subprocess runner bounds timeout, output, and stream 
     });
     await assert.rejects(
       runIdentityCommand("identity-probe", [], {
+        input: "11",
         spawnProcess: () => stdinChild,
         timeoutMs: 1_000,
       }),

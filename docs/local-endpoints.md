@@ -1,15 +1,18 @@
 # Local Docker endpoints
 
-Relmio can install a Docker endpoint on your computer or add a private model
-bridge beside local n8n. Each option has its own sign-in method and network
-rule:
+Relmio 0.14.0 installs isolated provider runtimes for local apps and private
+companions for n8n. SuperGrok is a first-class local and VPS option with its own
+official device sign-in. It does not require or read ChatGPT credentials. The
+adapter remains experimental. Its seven dashboard services keep the three local
+OAuth endpoints separate from the four n8n and support options.
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|
-| **OpenAI API: compatible clients** | OpenAI-compatible HTTP under `/v1` | Server-side OpenAI Platform API key only | A private local app, SDK, or same-owner development web app |
 | **Codex with ChatGPT: agent clients** | Official Codex App Server JSON-RPC over WebSocket | ChatGPT sign-in through Codex | A trusted native Codex/App Server client owned by the same person |
 | **Codex Chat Adapter: development backends** | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in through Codex | A trusted local backend or development server owned by the same person |
+| **SuperGrok: development backends** | Loopback `/v1/chat/completions` and simple `POST /chat` | Fresh OAuth/device sign-in through the official Grok CLI | A trusted local backend or development server owned by the same person |
 | **Self-hosted n8n bridge** | Private `http://n8n-openai-oauth:10531/v1` on one existing Docker network | Local ChatGPT OAuth copied into a private sidecar volume | Only the selected self-hosted n8n deployment |
+| **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` on one existing Docker network | Separate fresh Grok OAuth session and one-time local bearer | Only the selected local or VPS n8n deployment |
 | **n8n AI Assistant tools** | Private Code Sandbox plus optional SearXNG JSON search on one existing Docker network | A generated sandbox key shown once; model-provider credentials stay in n8n | Only the selected self-hosted n8n deployment |
 | **New local n8n + ngrok** | A new owned n8n stack with loopback access and a Basic-Auth-protected public ngrok route | n8n credentials stay in its owned data volume; ngrok uses an operator-supplied token | A new disposable local n8n installation and its webhooks |
 
@@ -46,17 +49,34 @@ target and complete a new Codex sign-in. OpenAI currently documents its
 as a ChatGPT web feature and says it is not yet supported in Codex desktop.
 Relmio does not keep an account pool or move requests between accounts.
 
-Relmio does not ship an xAI target in this release. xAI/Grok authentication is API-key only in the [documented xAI inference
-API](https://docs.x.ai/developers/rest-api-reference/inference).
-Relmio does not implement third-party Grok OAuth. Any future provider
-authentication is denied by default until the provider documents a supported
-method and Relmio adds a reviewed, provider-specific implementation.
+Relmio 0.14.0 has no upstream API-key setup or API-key profile registry.
+Existing API installations and stored data are left untouched.
 
-A 401, 403, or 429 response stops the request on the current credential. Relmio
-never changes accounts or keys automatically after an authentication,
-authorization, rate-limit, or quota response. The dashboard may report status
-and offer an explicit sign-in or credential-replacement action.
-It never returns or re-shows a stored secret.
+The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
+OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
+handler reads only that runtime's marked session to call xAI's documented CLI
+chat proxy. It does not inspect another app's credentials, import tokens,
+replay browser cookies, or accept an xAI API key. The CLI remains the sole
+credential writer; the HTTP handler never consumes refresh tokens.
+
+Local apps use `/v1/chat/completions` with model `grok-build` and a separate
+Relmio client bearer. n8n executes its own tools and returns matching results.
+The legacy simple `/chat` request shape remains available through the direct
+transport. Browser bundles must not hold the local bearer or call it directly.
+
+The default URL is `http://127.0.0.1:14502`. Use the `/v1` base URL with a
+Chat Completions client. n8n's custom-model API-key field holds the local
+Relmio bearer, never an xAI API key or the provider's OAuth token. A private
+Docker connection uses the `grok-build` service on its owned network. Existing
+n8n environment changes and restarts remain outside this setup.
+
+The session volume must be empty at first initialization or already carry
+this installation's matching fresh-session marker. An older unmarked Grok
+store is refused rather than imported. Authentication or quota failures never
+select a different account or fall back to API-key billing.
+
+See the [direct OAuth route](supergrok-oauth-route-decision.md) and
+[n8n acceptance contract](local-n8n-xai-spec.md).
 
 ## Requirements
 
@@ -64,18 +84,19 @@ It never returns or re-shows a stored secret.
   or Linux under WSL2. Relmio verifies an owner-only NTFS DACL before writing
   Windows credentials; POSIX hosts retain owner-only modes.
 - Docker Engine or Docker Desktop with Docker Compose v2 on the local computer
-- For a loopback endpoint, a free local port (`12435` for OpenAI API, `14500`
-  for native Codex, or `14501` for the Codex Chat Adapter by default)
+- A free loopback port: `14500` for native Codex, `14501` for Codex Chat
+  Adapter, or `14502` for the Grok Build adapter
+
 - For the n8n bridge, a running official n8n container with an existing shared
   Docker network; no host port is required
 - For n8n AI Assistant tools, the same running n8n and shared-network
   requirement, plus enough capacity for a privileged Docker-in-Docker runner
 - For a new local n8n stack, an ngrok authtoken and reserved hostname, strong
   Basic Auth credentials, and two free loopback ports
-- One of these provider credentials:
-  - an OpenAI Platform API key for the OpenAI-compatible endpoint; or
-  - a ChatGPT account eligible for Codex for either Codex target; or
-  - an existing local `openai-oauth` ChatGPT sign-in for the private n8n bridge
+- An eligible ChatGPT account for Codex, an existing local `openai-oauth`
+  ChatGPT sign-in for the private n8n bridge, or an eligible SuperGrok account
+  for the experimental official Grok Build runtime
+
 - For loopback endpoints, a trusted local app that can keep the Relmio
   capability secret
 
@@ -96,16 +117,13 @@ project on the local computer.
 2. Relmio opens the local dashboard through an owner-only, single-use browser
    handoff. If it does not open, press Enter in the active foreground terminal
    or run `relmio open` from a persistent install. Then select **Add connection**.
-3. Choose one of the three loopback endpoints, **Self-hosted n8n bridge**,
-   **n8n AI Assistant tools**, or **New local n8n + ngrok**.
-4. For a loopback endpoint, keep the default port or select another unused
-   local port. For the OpenAI API option, add any browser origins that must be
-   allowed and enter your Platform API key. For the n8n bridge, sign in with
-   ChatGPT locally, then explicitly choose the running n8n container and shared
-   Docker network discovered by Relmio. For Assistant tools, choose whether to
-   add SearXNG JSON web search; it is off by default and Code Sandbox is always
-   included. For a new n8n stack, follow the dedicated
-   [new local n8n + ngrok guide](./local-n8n-stack.md).
+3. Choose a Codex endpoint, **SuperGrok**, **Self-hosted
+   n8n bridge**, **n8n AI Assistant tools**, or **New local n8n + ngrok**.
+4. For a local endpoint, choose an unused loopback port. For the ChatGPT n8n
+   bridge, sign in locally and select the running n8n container and its Docker
+   network. Assistant tools include Code Sandbox and optional SearXNG, off by
+   default. For a new stack, use the [new n8n guide](./local-n8n-stack.md).
+
 5. Review the exact bind or private-network boundary, managed path, protocol,
    and limitations. Confirm the plan before Relmio writes files or starts
    Docker.
@@ -120,10 +138,14 @@ project on the local computer.
 
 ## Persistent local dashboard
 
-The standard `relmio` command opens a dashboard before the setup flow. It
-reconstructs status from the six fixed managed directories, the selected local
-Docker context, and exact Docker resource identities. It does not keep a
-second registry or adopt containers from labels alone.
+The standard `relmio` command opens a dashboard before the setup flow. Relmio
+0.14.0 reconstructs status for three OAuth endpoints and four n8n/support
+services from fixed managed directories, the selected local Docker context,
+and exact Docker resource identities. It does not discover or manage retired
+API-key targets.
+
+The dashboard does not keep a second registry or adopt containers from labels
+alone.
 
 An installed Relmio package provides a small dashboard lifecycle:
 
@@ -152,7 +174,7 @@ Relmio will not overwrite an unmanaged directory or follow a symlink. Its
 local files live under:
 
 ```text
-~/.relmio/local/openai-api
+~/.relmio/local/xai-grok-build
 ~/.relmio/local/codex-chatgpt
 ~/.relmio/local/codex-chat
 ~/.relmio/local/n8n-openai-oauth
@@ -218,6 +240,13 @@ may be reclaimed only after a bounded publication grace and a nested arbitration
 claim; active, ambiguous, malformed, replaced, symbolic-link, or ownership-
 uncertain locks remain blocked for safe inspection.
 
+## SuperGrok OAuth for n8n
+
+This experimental connection uses the official Grok runtime's OAuth and a
+separate one-time local bearer. No xAI API key is requested, stored, or used as
+a fallback. The companion publishes no host port and leaves the selected n8n
+untouched. It works locally or through the VPS wizard without ChatGPT sign-in.
+
 ## n8n AI Assistant tools
 
 The local Assistant option creates a separate ownership-labeled Compose
@@ -263,89 +292,20 @@ and n8n container remain untouched.
 
 ## Safe updates and credential rotation
 
-To replace only the credential used by your local client, select **Rotate client
-credential** on the installed endpoint's Ready screen. Relmio first stages and
-shows the new one-time capability while the previous capability remains active.
-It then updates and validates the managed Compose configuration, recreates only
-the attested service, and verifies the new bearer against `/v1/models`, the
-authenticated Codex WebSocket handshake, or the adapter's authenticated probe
-before reporting success.
+Select the offered local credential rotation action to replace only the
+Relmio bearer used by your local app. Relmio attests the exact installation,
+stages a new capability, activates its verifier, and checks the authenticated
+endpoint before reporting success. The provider's OAuth session remains in
+its private volume.
 
-This client-only rotation preserves the upstream Platform API key in its private
-named volume and preserves the Codex home and workspace volumes. If activation
-or verification fails, Relmio restores the previous verifier and re-attests its
-health and loopback publication. Relmio does not retain the previous raw client
-credential, so rollback does not replay an authenticated request with it. If
-that rollback cannot be confirmed, Relmio attempts to stop only the exact
-managed service and reports whether the stopped state could be verified.
+If activation fails, Relmio restores the previous verifier and re-attests
+health and loopback publication. It does not retain the old raw capability.
+An uncertain rollback fails closed and reports whether the exact owned
+service could be stopped.
 
-Rerun the browser wizard with the same target and port when you need a complete
-managed update. Relmio verifies the marker and Docker resource ownership and
-reuses the installation's unique Compose identity. For `openai-api`, provide the
-current or replacement Platform API key during that full update; Relmio reseeds
-its private named volume independently from the local client capability. A full
-`codex-chatgpt` or `codex-chat` update retains the private Codex home and
-workspace volumes unless you explicitly delete them.
-
-Do not hand-edit the marker, Compose file, credential volume, or verifier. If
-the marker or resource labels do not attest as one Relmio installation, the
-wizard stops without overwriting them.
-
-## OpenAI API: compatible clients
-
-The result screen provides:
-
-```text
-Base URL: http://127.0.0.1:12435/v1
-API key field: <the Relmio local capability shown once by the wizard>
-```
-
-Use the Relmio capability shown once by the wizard, not the upstream Platform
-key, in your local
-client's API-key field. The gateway authenticates the local request with that
-capability, replaces its authorization header with the protected Platform key,
-and forwards only `GET /v1/models`, `POST /v1/responses`, and
-`POST /v1/chat/completions` to `https://api.openai.com`.
-
-For a quick private test:
-
-```bash
-export RELMIO_LOCAL_KEY="<capability shown once by the wizard>"
-printf 'Authorization: Bearer %s\n' "$RELMIO_LOCAL_KEY" |
-  curl http://127.0.0.1:12435/v1/models --header @-
-unset RELMIO_LOCAL_KEY
-```
-
-The upstream key is passed only over stdin to a transient, network-disabled
-seed helper, which atomically writes it into a private, labeled Docker volume.
-The gateway mounts that volume read-only. Relmio does not create a host key
-file, put the key in the generated Compose environment, return it from the
-wizard, forward it from the client, or use it for the Codex option. OpenAI's
-API documentation says API credentials are secrets and should not be exposed
-in client-side code. Treat the local capability the same way.
-
-### Browser origins
-
-Native clients and local backends normally send no `Origin` header and can use
-the endpoint after bearer authentication. A browser request is allowed only
-when its exact `http` or `https` origin was entered during setup. For example,
-`http://localhost:3000` and `http://127.0.0.1:3000` are different origins.
-
-Relmio does not accept wildcard origins, `null`, credentials, paths, queries,
-or fragments. An allowed origin is a cross-origin request control, not a
-secret-storage system: JavaScript, browser extensions, or anyone who can read
-the page can still recover a bearer value embedded in a frontend bundle. Use
-browser access only for a private, same-owner local development app. Prefer a
-native client or a local backend when the capability must remain confidential.
-
-### Billing and credits
-
-Requests use the OpenAI Platform project associated with the supplied API key
-and are billed or credited there under the Platform account's current terms,
-limits, and pricing. A ChatGPT subscription or Codex for Open Source benefit
-is not substituted for Platform API billing on this route. OpenAI documents
-API-key use as usage-based access and ChatGPT sign-in as subscription access in
-its [Codex authentication guide](https://learn.chatgpt.com/docs/auth).
+A full managed update retains the target's private credential and workspace
+volumes unless deletion is explicitly confirmed. Do not hand-edit the marker,
+Compose file, credential volume, or verifier. Ownership drift stops the update.
 
 ## Codex with ChatGPT: agent clients
 
@@ -459,8 +419,8 @@ paths and the empty private workspace. It explicitly denies
 `/home/node/.codex`, the private volume containing the ChatGPT session.
 
 This route is deliberately not `/v1/chat/completions` or `/v1/responses`.
-OpenAI SDKs and tools that require those schemas still need the Platform-backed
-OpenAI API target. The adapter rejects every request carrying an `Origin`
+SDKs that require those schemas need a separately configured API endpoint
+in the consuming client. The Codex Chat Adapter rejects every request carrying an `Origin`
 header and sends no CORS permission, so browser JavaScript must not call it
 directly. Keep the bearer in a trusted local backend or development server and
 let the browser call that server's own session-aware route.
@@ -494,42 +454,115 @@ adapter failures with redacted messages. Assistant text appears incrementally
 while the adapter is working; the tester reports success only after the
 completed terminal event arrives.
 
+## SuperGrok: development backends
+
+The experimental `xai-grok-build` target defaults to `http://127.0.0.1:14502`.
+Use `http://127.0.0.1:14502/v1` in a Chat Completions client. `grok-build` is
+a supported legacy routing alias. The runtime's fresh OAuth catalog uses the
+official CLI proxy's fixed `GET /v1/models` endpoint; the current live account
+listed `grok-4.6` and `grok-4.5`. A listing is not per-model tool proof. It also
+accepts the bounded Relmio `POST /chat` contract and streams SSE. Keep its
+local bearer in a trusted backend. Browser-origin requests are rejected, and
+the Responses API is not supported.
+
+After the local endpoint is installed, run this in an interactive terminal:
+
+```sh
+relmio grok login
+```
+
+Approve the displayed device code on the official provider page. The login has
+a fifteen-minute limit. `relmio grok logout` explicitly signs this runtime out;
+it does not affect another application's account. Interrupted login cleanup
+fails closed when the container's termination cannot be established.
+
+The pinned official Grok CLI owns sign-in and sign-out in the runtime's fresh
+private volume. Complete device login in an interactive terminal; do not copy
+tokens into Relmio or configure an xAI API key. The HTTP handler reads only this
+runtime's marked session and never consumes refresh tokens. Expiry requires
+another explicit official sign-in.
+
+The generated image pins the executable for credential actions. Inference
+uses direct HTTP and does not invoke CLI tools. Explicit `grok-4.6` passed an
+actual n8n Assistant node-catalog tool and an n8n AI Agent Calculator workflow
+with `317 × 29 = 9193`. Live disposable OAuth and n8n tool/result acceptance
+passed; fresh private-installer acceptance also passed. Live logout/refusal,
+browser, and release gates remain separate. A healthy container alone proves
+neither OAuth readiness nor credential isolation.
+
 ## Network and container boundary
 
-Each of the three loopback endpoint projects publishes exactly one host
+Each of the three OAuth endpoint projects publishes exactly one loopback
 mapping:
 
 ```text
 127.0.0.1:<selected-port>:<container-port>
 ```
 
-They are not available through the computer's LAN address. Each long-running
-service runs as a non-root user, drops Linux capabilities, sets
-`no-new-privileges`, uses a read-only root filesystem, and has bounded
-temporary storage and resource limits. None of the services mounts the Docker
-socket or a general host directory. The one-shot OpenAI seed helper has no
-network, port, or logs and retains only `CHOWN` while running as root long
-enough to atomically set ownership on the volume entry.
-The OpenAI gateway receives only its private API-key named volume, mounted
-read-only; both Codex targets receive no host path and use target-specific
-private named volumes.
+Long-running endpoints use non-root users, dropped Linux capabilities,
+`no-new-privileges`, read-only root filesystems, bounded temporary storage,
+and target-specific named volumes. No endpoint mounts a host home directory,
+Docker socket, SSH key, or browser profile.
 
-The n8n sidecar publishes no host mapping. It receives only its private OAuth
-volume and the reviewed external n8n network. It does not mount the Docker
-socket or any host path, and only its container is created or removed by this
-flow.
+Private n8n companions publish no host mapping. They join only the reviewed
+network and leave the selected n8n container and external network unchanged.
+The local bearer remains necessary even on loopback; keep it private.
 
-The loopback binding and capability are complementary controls. Other
-processes running as the same local user may still be able to reach a loopback
-port, so protect the capability and keep the computer itself trusted.
+## Retired API installations
+
+**Upgrading does not stop an existing API-key gateway.** This OAuth-only
+version no longer discovers or manages `openai-api` or `xai-inference`.
+An older container can continue listening and using its saved credential even
+though it has no dashboard row. The upgrade does not migrate or delete its data.
+
+To retire one, review it manually before stopping anything. These instructions
+apply only to a legacy Relmio API endpoint, never to n8n or its OAuth bridge.
+
+1. Read the exact legacy target's `.managed-by-relmio.json` locally. Do not
+   source or execute it. Require schema version `2`, target `openai-api` or
+   `xai-inference`, a 32-character lowercase hexadecimal `installId`, and the
+   expected `relmio-<target>-<installId>` project name. Use only a recognized
+   local Docker socket. Stop if any identity is uncertain.
+2. List containers using all three ownership labels. Replace each placeholder
+   with its manually verified literal value:
+
+   ```bash
+   docker --host <verified-local-socket> ps -a \
+     --filter label=io.relmio.managed=true \
+     --filter label=io.relmio.target=<legacy-target> \
+     --filter label=io.relmio.install=<installId>
+   ```
+
+3. Inspect only the returned literal container ID's labels and published ports.
+   Do not print its environment or credential volume contents:
+
+   ```bash
+   docker --host <verified-local-socket> container inspect \
+     --format '{{json .Config.Labels}}' <literal-container-id>
+   docker --host <verified-local-socket> container inspect \
+     --format '{{json .HostConfig.PortBindings}}' <literal-container-id>
+   ```
+
+4. Confirm the exact target, installation, Compose project, and loopback mapping.
+   If they match and you intend to stop that endpoint, stop and remove only that
+   container. Do not run these commands for an uncertain or foreign resource:
+
+   ```bash
+   docker --host <verified-local-socket> container stop <literal-container-id>
+   docker --host <verified-local-socket> container rm <literal-container-id>
+   ```
+
+Keep its volumes, managed directory, and marker for recovery. Credential-volume
+or network deletion requires a separate explicit decision and exact ownership
+review. Never use a wildcard, a global prune, or another project's Compose
+file. Relmio does not perform this migration automatically.
 
 ## Recovery and uninstall
 
-The manual recovery commands below apply only to the three loopback endpoint
-targets. For `n8n-openai-oauth`, use the Ready screen's separately confirmed
-**Remove bridge** action. It attests and removes only the sidecar Compose
-project, private auth volume, image, and managed directory; it never removes or
-disconnects n8n or the selected external network.
+The manual recovery commands below apply to the two Codex targets. Use the
+reviewed management flow for the Grok target and the separately confirmed
+Ready-screen removal for `n8n-openai-oauth`. These actions remove only owned
+resources and never remove or disconnect the selected n8n or external network.
 
 The commands below are intentionally scoped to one persisted installation.
 They are not safe until you verify ownership. First open, but do not execute or
@@ -546,7 +579,7 @@ literal values only after confirming all of these conditions:
 In every example, manually replace each angle-bracket placeholder with the
 already-validated literal. Do not use `eval`, source the JSON, or construct a
 Docker command from unvalidated marker text. The only valid service name is
-`gateway` for `openai-api`, `codex` for `codex-chatgpt`, or `codex-chat`
+`codex` for `codex-chatgpt` or `codex-chat`
 for `codex-chat`.
 
 ### Recover from a failed install
@@ -588,7 +621,7 @@ service:
 docker --host <dockerHost> compose \
   --project-name <projectName> \
   --file <absolute-managed-compose> \
-  rm --stop --force <gateway-or-codex-or-codex-chat>
+  rm --stop --force <codex-or-codex-chat>
 ```
 
 This recovery command does not target other services, remove the project
@@ -613,23 +646,7 @@ well; they preserve the ownership identity needed to safely reuse or later
 delete those volumes. Never remove the parent `~/.relmio`, use a wildcard, or
 remove the other target.
 
-### Permanently uninstall the OpenAI API endpoint
 
-After repeating the OpenAI target's marker and label checks, delete its one
-managed service, project network, and API-key volume with the exact
-project-scoped command:
-
-```bash
-docker --host <dockerHost> compose \
-  --project-name <projectName> \
-  --file <absolute-managed-compose> \
-  down --volumes
-```
-
-For this target, `--volumes` irreversibly deletes the private volume containing
-the Platform API key. After Docker confirms that every matching labeled
-resource is gone, you may remove only the exact
-`~/.relmio/local/openai-api` managed directory through your file manager.
 
 ### Permanently delete Codex credentials and workspace
 
@@ -656,12 +673,9 @@ directory for the target you verified through your file manager.
   `docker version` and `docker compose version` locally.
 - **Port already in use:** choose another unprivileged port in the wizard and
   review the updated endpoint before confirming.
-- **`401` from `/v1`:** use the Relmio capability shown by the wizard in the
-  client's bearer/API-key field. Do not send the Platform key to the local
-  endpoint.
-- **Browser request rejected:** enter the exact page origin, including scheme
-  and port, then update the managed endpoint. Wildcards are intentionally not
-  supported.
+- **`401` from the local adapter:** use the Relmio bearer shown once at setup.
+  That bearer protects the local connection; it is not a provider API key.
+
 - **Browser cannot connect to Codex:** this is expected. Both Codex targets
   reject browser-origin requests. Use the raw App Server from a trusted native
   client or keep the Chat Adapter bearer in a local backend.
@@ -687,4 +701,65 @@ Acceptance into Codex for Open Source can provide program benefits, but Relmio
 does not interpret membership as permission to repurpose ChatGPT credentials
 for general API calls, share an account, bypass safeguards, or alter the scope
 of another OpenAI agreement. The local Codex option stays inside the official
-Codex protocol; general `/v1` calls continue to require Platform credentials.
+Codex protocol. Ordinary API-key integrations belong in the consuming client.
+
+Relmio never changes accounts automatically. Changing a provider account requires
+an explicit sign-out and fresh sign-in.
+
+## Private SuperGrok companion for existing n8n
+
+The experimental **SuperGrok for n8n** connection installs a separate owned
+companion on one selected n8n Docker network. It publishes no host port and
+keeps its fresh official login in its own volume. The plan does not read or
+import a ChatGPT session.
+
+An earlier development SuperGrok installation without the fresh-session
+`tokenSha256` marker is not upgraded automatically. Relmio 0.14.0 refuses setup
+before changing its files, Docker resources, or runtime session; migration
+requires a separately reviewed path.
+
+After reviewing the installation, copy its one-time Relmio client credential.
+Set the n8n custom model URL to `http://n8n-supergrok:14502/v1`. `grok-build`
+is a supported legacy alias; a workflow OpenAI-compatible model node can use
+**From list** to load a fresh authenticated catalog. Turn **Use Responses API**
+off for that workflow model node. Use the local credential in the field named
+API key; it authorizes Relmio only, and no xAI API key is needed.
+
+This differs from the OpenAI OAuth/Codex recipe, which uses **Use Responses API**
+on in OpenAI Chat Model node version 1.3.
+
+For self-hosted n8n versions that expose **AI Assistant settings**, use its
+admin model connection settings. The n8n 2.36.8 configuration reference documents
+persisted model connections that override environment defaults; these are
+separate from workflow-canvas credentials. Verify that your running version
+offers that setting before changing anything. Relmio does not edit or restart
+an existing n8n deployment to enable it.
+
+The n8n 2.36.8 Assistant custom-endpoint dialog uses a model text field; it
+does not load a model dropdown. Enter a selected discovered routing name there.
+The Assistant test passed a node-catalog tool with explicit `grok-4.6`, without
+restarting n8n after saving the connection. That credential protects the
+private sidecar; it is not an xAI API key or an OAuth token.
+
+For n8n Chat Hub, turn **Use Responses API** off in **Settings > Chat > OpenAI
+> Edit provider**. A plain Chat conversation then passed with the existing
+Grok 4.6 workflow credential. This provider-wide Chat setting does not change
+the separate Assistant connection, and Chat tool calls remain untested.
+
+Explicit `N8N_INSTANCE_AI_MODEL`, `N8N_INSTANCE_AI_MODEL_URL`, or
+`N8N_INSTANCE_AI_MODEL_API_KEY` settings can make the corresponding controls
+environment-managed. n8n then refuses those admin-setting changes. Check the
+existing configuration first; do not remove environment settings or restart
+n8n through Relmio to bypass that restriction. The disposable test enabled
+`instance-ai` with none of those three model variables set.
+
+Source: [n8n 2.36.8 provider connection configuration](https://github.com/n8n-io/n8n/blob/n8n%402.36.8/packages/%40n8n/instance-ai/docs/configuration.md#provider-connections).
+
+```sh
+relmio grok login --n8n
+```
+
+The command starts official device sign-in in the companion's managed
+runtime. Use `relmio grok logout --n8n` for explicit sign-out. A healthy runtime
+alone does not prove that its account is signed in. Removal requires its own
+confirmation and affects only the attested companion resources.

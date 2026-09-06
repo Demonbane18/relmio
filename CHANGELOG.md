@@ -7,6 +7,67 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.14.0] - 2026-09-06
+
+Relmio 0.14.0 adds experimental SuperGrok OAuth for local apps and existing
+local or VPS n8n deployments without requiring a ChatGPT sign-in.
+
+### Added
+
+- Add SuperGrok Chat Completions for local apps and private n8n clients using a
+  fresh official Grok device sign-in, isolated provider session, and separate
+  local Relmio bearer. n8n executes its own tool calls.
+- Keep the simple `/chat` interface through the same direct HTTP transport.
+- Add a dedicated SuperGrok VPS wizard for verified SSH identity, read-only n8n
+  discovery, reviewed installation, device sign-in, model checks, status,
+  sign-out, cancellation, and owned-only removal. The companion joins one
+  selected Docker network and publishes no host port.
+
+### Changed
+
+- Use one guided browser flow for provider, local or VPS destination, discovery,
+  review, sign-in, and completion. Provider changes invalidate stale plans and
+  keep the OpenAI OAuth and SuperGrok instructions distinct.
+- Redesign the public homepage with the original Relmio mascot, a full-width
+  day/night landscape, timed destination labels, and accessible motion controls.
+  Keep the install wizard focused on large controls and plain instructions.
+- Limit provider setup to OAuth. Remove upstream API-key gateways, profiles,
+  registration and selection routes, and the API-key n8n xAI sidecar.
+- Show seven dashboard services and four provider-owned OAuth entries. Keep
+  runtime health, provider readiness, and inventory freshness independent.
+- Preserve the last observed state while inventory is stale and disable
+  maintenance actions until a successful refresh.
+- Document the provider-specific n8n setting prominently: the Relmio OpenAI
+  OAuth recipe uses Responses API on, while SuperGrok requires it off for
+  workflow model nodes and Chat Hub.
+- Keep existing API-key gateways and credential data running but outside the
+  0.14.0 dashboard. Refuse to adopt an earlier SuperGrok development install
+  that lacks the fresh-session marker.
+
+### Fixed
+
+- Keep endpoint URLs readable on narrow dashboard layouts.
+- Use supported Docker Compose run options for Grok login and version probes.
+- Keep Windows identity and unsafe-path tests portable by forwarding filesystem
+  metadata options and using a directory junction that does not require
+  Developer Mode or administrator-created symbolic links.
+- Document that Git Bash 2.38.1 needs per-process `MSYS=enable_pcon` for the
+  portable launcher TTY check, with native PowerShell and Command Prompt as the
+  supported alternatives. No global Git setting is required.
+
+### Security
+
+- Pin Grok's executable inside the image and disable automatic update checks.
+- Read only the current runtime's marked private OAuth session. The official
+  CLI remains the credential writer; the HTTP handler does not execute CLI
+  tools, import other applications' credentials, or consume refresh tokens.
+- Preserve existing API installations and credential data without adopting,
+  migrating, or deleting them through the OAuth-only runtime.
+- Require SSH host-key confirmation, an exact reviewed plan, and final human
+  confirmation before every VPS write. Keep the companion under
+  `/docker/n8n-openai-oauth`, leave n8n unchanged, and remove only resources
+  that pass exact ownership checks.
+
 ## [0.13.0] - 2026-09-04
 
 ### Added
@@ -843,6 +904,7 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
+[0.14.0]: https://github.com/Demonbane18/relmio/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/Demonbane18/relmio/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/Demonbane18/relmio/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/Demonbane18/relmio/compare/v0.12.0...v0.12.1

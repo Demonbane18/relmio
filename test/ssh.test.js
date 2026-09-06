@@ -12,6 +12,31 @@ import {
 const exampleHost = "vps.example.test";
 const fixturePassword = "x".repeat(32);
 
+test("SSH sends bridge capability through stdin, never command arguments, and bounds input", async () => {
+  const client = new FakeClient();
+  let receivedCommand;
+  let receivedInput;
+  client.exec = (command, callback) => {
+    receivedCommand = command;
+    const stream = new EventEmitter();
+    stream.stderr = new EventEmitter();
+    stream.end = input => {
+      receivedInput = input;
+      stream.emit("data", Buffer.from("safe-result"));
+      stream.emit("close", 0);
+    };
+    callback(null, stream);
+  };
+  const remote = await connectVerified({ host: exampleHost, port: 22, username: "root", password: fixturePassword, expectedFingerprint: formatSha256Fingerprint("ab".repeat(32)) }, { createClient: () => client });
+  const input = "fixture-capability";
+  const result = await remote.exec("fixed-remote-probe", { input });
+  assert.equal(receivedCommand, "fixed-remote-probe");
+  assert.equal(receivedInput, input);
+  assert.equal(result.stdout, "safe-result");
+  await assert.rejects(() => remote.exec("fixed-remote-probe", { input: "x".repeat(65537) }), /input is invalid/u);
+  remote.close();
+});
+
 class FakeClient extends EventEmitter {
   connect(config) {
     this.config = config;

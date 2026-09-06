@@ -63,7 +63,7 @@ export function runIdentityCommand(
       child = spawnProcess(file, args, {
         shell: false,
         windowsHide: true,
-        stdio: ["pipe", "pipe", "ignore"],
+        stdio: [input === "" ? "ignore" : "pipe", "pipe", "ignore"],
         env: { ...process.env, LANG: "C", LC_ALL: "C", TZ: "UTC" },
       });
     } catch {
@@ -72,7 +72,8 @@ export function runIdentityCommand(
     }
     if (
       !child || typeof child.once !== "function" || typeof child.kill !== "function" ||
-      typeof child.stdout?.on !== "function" || typeof child.stdin?.end !== "function"
+      typeof child.stdout?.on !== "function" ||
+      (input !== "" && typeof child.stdin?.end !== "function")
     ) {
       reject(new Error("The local process identity could not be inspected."));
       return;
@@ -103,7 +104,7 @@ export function runIdentityCommand(
       output.push(buffer);
     });
     child.stdout.once?.("error", fail);
-    child.stdin.once?.("error", fail);
+    child.stdin?.once?.("error", fail);
     child.once("error", fail);
     child.once("close", (code) => {
       finish(null, {
@@ -112,7 +113,9 @@ export function runIdentityCommand(
       });
     });
     timeout = setTimeout(fail, timeoutMs);
-    try { child.stdin.end(input); } catch { fail(); }
+    if (input !== "") {
+      try { child.stdin.end(input); } catch { fail(); }
+    }
   });
 }
 

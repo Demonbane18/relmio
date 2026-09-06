@@ -1,0 +1,87 @@
+{
+  "method": "Computed from specified OKLCH colors in linear sRGB, clipped to gamut. Browser rendered colors still need inspection.",
+  "pairs": [
+    {
+      "foreground": "ink",
+      "background": "cream-soft",
+      "theme": "light",
+      "contrast": 12.67,
+      "AA_normal_text": true,
+      "used_for_text": true
+    },
+    {
+      "foreground": "ink",
+      "background": "cream-soft",
+      "theme": "dark",
+      "contrast": 14.24,
+      "AA_normal_text": true,
+      "used_for_text": true
+    },
+    {
+      "foreground": "ink-soft",
+      "background": "cream-soft",
+      "theme": "light",
+      "contrast": 6.08,
+      "AA_normal_text": true,
+      "used_for_text": true
+    },
+    {
+      "foreground": "ink-soft",
+      "background": "cream-soft",
+      "theme": "dark",
+      "contrast": 7.52,
+      "AA_normal_text": true,
+      "used_for_text": true
+    },
+    {
+      "foreground": "cream-soft",
+      "background": "teal-deep",
+      "theme": "light",
+      "contrast": 7.0,
+      "AA_normal_text": true,
+      "used_for_text": true
+    },
+    {
+      "foreground": "cream-soft",
+      "background": "teal-deep",
+      "theme": "dark",
+      "contrast": 5.52,
+      "AA_normal_text": true,
+      "used_for_text": true
+    },
+    {
+      "foreground": "cream-soft",
+      "background": "teal",
+      "theme": "light",
+      "contrast": 4.37,
+      "AA_normal_text": false,
+      "used_for_text": false
+    },
+    {
+      "foreground": "cream-soft",
+      "background": "teal",
+      "theme": "dark",
+      "contrast": 9.33,
+      "AA_normal_text": true,
+      "used_for_text": false
+    }
+  ],
+  "correction": "The proposed teal hover background failed normal-text contrast in light mode. The install link retains teal-deep on hover and changes its border instead.",
+  "rendered_hero": {
+    "method": "Browser Canvas sRGB conversion of computed colors with ancestor-background alpha composition; active hero text only.",
+    "light": {
+      "headline": 11.99,
+      "supporting": 5.78,
+      "install": 7.06,
+      "pause": 12.59,
+      "caption": 5.78
+    },
+    "dark": {
+      "headline": 14.62,
+      "supporting": 7.69,
+      "install": 5.51,
+      "pause": 14.28,
+      "caption": 7.69
+    }
+  }
+}

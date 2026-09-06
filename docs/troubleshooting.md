@@ -21,9 +21,8 @@ rebuild unrelated containers while checking the local endpoint.
 Close stale wizard and device-code tabs, then run `relmio open` from a
 persistent install to open the active private dashboard page. A hosted
 foreground launcher instead requires its current terminal; press Enter there
-to create a fresh private browser handoff. Start one fresh ChatGPT device-code attempt and complete the newest code. A ChatGPT
-subscription credential is valid only for the Codex targets; the generic
-OpenAI-compatible `/v1` target requires a separately billed Platform API key.
+to create a fresh private browser handoff. Start one fresh ChatGPT device-code attempt and complete the newest code. Use the selected provider's official sign-in. Relmio 0.14.0 does not accept upstream API
+keys. Grok Build sign-in uses its official attended CLI flow.
 ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
 them automatically during active use before they expire, so active sessions
 usually continue without another browser login. The official [OpenAI
@@ -185,6 +184,7 @@ bypassed.
 |---|---|---|
 | `node: command not found`, `node is not recognized`, or Node is older than 22 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
 | `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell or the collision-safe temporary-file command shown above in Command Prompt. Git Bash is not required. If Command Prompt does not have `curl`, update Windows or use the PowerShell route. |
+| Git Bash 2.38.1 reports that stdin is not a TTY | Its default mintty setup does not give Relmio's native portable-runtime child the required TTY. | Prefix this process with `MSYS=enable_pcon`, or use the native PowerShell or Command Prompt installer. Do not add a global Git setting. No upgraded Git Bash version was verified in the 0.14.0 acceptance run. |
 | Windows cannot locate its built-in security tool or apply owner-only protection | The bootstrap may have started successfully, but the running wizard could not use the inbox Windows PowerShell security API to protect and verify its local files. | Setup stops before saving secrets. Ask the Windows administrator to allow the inbox security API, then retry. PowerShell, Command Prompt, `npx`, and other Windows launch methods all use this same check and do not bypass it. |
 | The bootstrap stays on a `Please wait` stage | Node.js is missing or older than 22, so the bootstrap is downloading, checking, or extracting a temporary Node.js 22 runtime. | Keep the terminal open while the deterministic stage messages advance. The runtime is verified before it runs, is removed after the wizard exits, and is not installed system-wide. |
 | A bootstrap reports a checksum mismatch | The Node.js download did not match its reviewed official SHA-256 checksum, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
@@ -230,6 +230,7 @@ bypassed.
 | n8n reports `ECONNREFUSED`, `ENOTFOUND`, or “Couldn’t connect” | The Base URL is wrong, the sidecar is unhealthy, or n8n and the sidecar do not share a network. | Use exactly `http://n8n-openai-oauth:10531/v1`, inspect both container networks, and check the sidecar health/logs. |
 | Models do not appear in n8n | Credential test, network, auth, or model compatibility may be failing. | Verify `/v1/models` inside the sidecar, then retry the n8n credential. |
 | Responses API request fails but models work | The n8n node or bridge version may be incompatible. | Confirm the project is pinned to `openai-oauth@2.0.0`. Try a basic `/v1/responses` request; use chat completions only as a compatibility fallback. |
+| SuperGrok returns `404 not_found` while models work | The n8n connection is sending a Responses API request to the Chat Completions-only companion. | Turn **Use Responses API** off in the workflow OpenAI Chat Model node and in **Settings > Chat > OpenAI > Edit provider** for Chat Hub. This setting is separate from the Assistant custom endpoint. |
 | Wizard refuses the install directory | `/docker/n8n-openai-oauth` exists without the wizard marker. | Nothing was overwritten. Move the old directory to a backup name or finish the manual installation; do not delete it blindly. |
 | A manually created `openai-oauth` container already works | It usually does not block the wizard because the wizard uses a separate project, directory, and collision-resistant hostname. | Keep the working deployment until the new endpoint passes a test. If an exact directory, project, container, or network alias collides, move or rename only the old sidecar after backing it up; never remove n8n. |
 
@@ -310,10 +311,17 @@ restart n8n.
 
 ## Responses API setting
 
-On OpenAI Chat Model node version 1.3, leave **Use Responses API** on. Earlier
-node versions do not show that switch and use Chat Completions by default.
-Upstream supports both `/v1/responses` and `/v1/chat/completions`. Turn the
-switch off only as a temporary compatibility test if:
+Use the switch that matches the provider:
+
+- **OpenAI OAuth/Codex recipe:** leave **Use Responses API** on in OpenAI Chat
+  Model node version 1.3. Earlier node versions do not show the switch and use
+  Chat Completions by default. The bridge supports both routes.
+- **SuperGrok:** turn **Use Responses API** off in workflow model nodes and Chat
+  Hub. The companion supports Chat Completions, not `/v1/responses`. Its
+  Assistant custom endpoint is configured separately.
+
+For the OpenAI OAuth bridge, turn the switch off only as a temporary compatibility
+test if:
 
 - `/v1/models` works;
 - the node is definitely calling the correct Base URL; and

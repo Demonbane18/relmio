@@ -1,8 +1,9 @@
 # Security and limits
 
-The VPS/n8n route handles a ChatGPT OAuth credential and SSH authentication.
-Local endpoints can also handle an OpenAI Platform API key, a Codex/ChatGPT
-session, and generated local capabilities. Treat all of them like passwords.
+The VPS/n8n route handles SSH authentication plus either a ChatGPT OAuth
+credential or a separate SuperGrok OAuth session. Local endpoints use
+provider-owned OAuth sessions and generated local capabilities. SuperGrok does
+not require or read ChatGPT credentials. Treat all of them like passwords.
 Read this page before you offer the wizard to another person.
 
 ## ChatGPT/Codex sign-in lifetime
@@ -27,18 +28,34 @@ switcher](https://help.openai.com/en/articles/20001068-use-multiple-accounts-wit
 to ChatGPT web and says Codex desktop does not yet support it. Relmio does not
 pool accounts or choose another account in response to usage.
 
-Relmio does not ship an xAI target in this release. xAI/Grok authentication is API-key only in the [xAI inference API
-documentation](https://docs.x.ai/developers/rest-api-reference/inference).
-Relmio does not implement third-party Grok OAuth. Future provider
-authentication is denied by default until an official, provider-supported
-method has a reviewed implementation.
+The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
+OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
+handler reads only that runtime's marked session to call xAI's documented CLI
+chat proxy. It does not inspect another app's credentials, import tokens,
+replay browser cookies, or accept an xAI API key. The CLI remains the sole
+credential writer; the HTTP handler never consumes refresh tokens.
+
+Local apps use `/v1/chat/completions` with a freshly discovered model and a
+separate Relmio client bearer. `grok-build` remains a legacy routing alias. n8n
+executes its own tools and returns matching results. The legacy simple `/chat`
+request shape remains available through the direct transport. Browser bundles
+must not hold the local bearer or call it directly.
+
+Provider credentials stay inside the fresh runtime. Client-owned tools execute
+in the client or n8n, never inside the credential-holding HTTP gateway. The
+runtime validates private-file ownership, permissions, issuer, session mode,
+expiry and installation marker before using the token. It returns neither
+provider credentials nor raw authentication errors. Runtime health, provider
+readiness, and client-specific live acceptance remain separate checks.
 
 A provider response of 401, 403, or 429 fails on the selected
-credential. Relmio never changes accounts or keys automatically after an
+credential. Relmio never changes accounts automatically after an
 authentication, authorization, rate-limit, or quota failure. For example,
 [xAI documents backoff for `429`](https://docs.x.ai/developers/rate-limits#handling-rate-limit-errors),
-not account or key switching. OpenAI's terms also prohibit [circumventing rate
-limits or restrictions](https://openai.com/policies/terms-of-use/).
+not account or key switching. Any xAI API integration is also subject to the
+[xAI Enterprise Terms](https://x.ai/legal/terms-of-service-enterprise).
+OpenAI's terms prohibit [circumventing rate limits or
+restrictions](https://openai.com/policies/terms-of-use/).
 The dashboard never returns or re-shows a stored secret. It reports only
 redacted metadata and offers explicit provider-approved recovery actions.
 
@@ -176,22 +193,17 @@ shared, or production service.
   browser, written into Compose/environment values, or included in errors.
 - Generated Compose files publish only literal
   `127.0.0.1:<selected-port>:<container-port>` mappings.
-- Every OpenAI `/v1` operation that can reach OpenAI, every raw Codex WebSocket
-  upgrade, and every Codex Chat Adapter route except `GET /health` requires a
-  random Relmio capability displayed once by the wizard; only its SHA-256
-  verifier is persisted. Exact-origin CORS `OPTIONS` is a non-forwarding
-  exception only for the Platform-backed `/v1` gateway. The bearer remains
-  valid until an endpoint update rotates it.
-- The Platform API key is accepted only for the OpenAI gateway. A transient,
-  network-disabled helper receives it over stdin and atomically seeds a private,
-  labeled Docker volume that the gateway mounts read-only. No host key file or
-  Compose environment value is created, and the key is never returned to the
-  browser after installation.
+- Every raw Codex WebSocket upgrade and every Codex Chat Adapter route except
+  `GET /health` requires a random local Relmio capability. Grok chat also
+  requires a local bearer. The wizard displays the capability once and
+  persists only its SHA-256 verifier. It remains valid until rotation.
+- Relmio accepts no upstream API-key setup or API-key profile operations.
+  Retired API installations and saved data remain untouched.
+
 - ChatGPT sign-in is accepted only through the official Codex App Server
   account flow. Relmio never returns or converts the resulting tokens.
-- Browser requests to the OpenAI gateway require an exact configured `http`
-  or `https` origin. Wildcards and `null` are rejected; requests without an
-  `Origin` remain available to authenticated native clients and backends.
+
+
 - The Chat Adapter rejects every request carrying an `Origin` header, emits no
   CORS permission, and exposes only its authenticated Relmio-specific
   `POST /chat` contract plus readiness and credential-verification probes.
@@ -292,16 +304,15 @@ expose it.
 
 The local capabilities have separate consequences:
 
-- The OpenAI gateway capability can spend through the protected Platform API
-  key, subject to that Platform project's permissions and limits.
+
+
 - The raw Codex App Server capability can invoke broad App Server methods
   inside its isolated container and use its signed-in ChatGPT/Codex session.
 - The separate Chat Adapter bearer can submit chat turns and resume its bounded
   conversation threads through the signed-in Codex container. Its narrower
   HTTP surface and model permission profile reduce access, but do not make the
   bearer safe to expose or share.
-- An origin allowlist does not make a bearer embedded in browser JavaScript
-  private. The Chat Adapter rejects browser origins entirely; keep its bearer
+- The Chat Adapter and Grok adapter reject browser origins entirely; keep the bearer
   in a trusted local backend or development server.
 - Do not expose any local endpoint on a LAN, public IP, domain, reverse proxy, or
   hosted service. Loopback binding and the bearer capability are both required.
@@ -321,10 +332,8 @@ The local capabilities have separate consequences:
 - Rate limits and account restrictions still apply.
 - OpenAI can change or discontinue service behavior and can suspend access for
   Terms or usage-policy violations.
-- The local OpenAI-compatible endpoint requires a Platform API key. Its usage
-  is billed or credited to the associated Platform project; a ChatGPT
-  subscription or Codex for Open Source benefit is not substituted for API
-  billing.
+
+
 - The raw local Codex option preserves the official App Server JSON-RPC protocol.
   It does not provide `/v1/chat/completions`, `/v1/responses`, or any other
   OpenAI API compatibility route.

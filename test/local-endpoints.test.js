@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import test from "node:test";
+import { runInNewContext } from "node:vm";
+import { brotliCompressSync, brotliDecompressSync } from "node:zlib";
 
+import { PROVIDER_TARGET_BINDINGS } from "../src/domain/provider-lifecycle.js";
 import {
   CODEX_CLI_VERSION,
   LOCAL_TARGETS,
@@ -12,120 +18,20 @@ import {
   createCodexConfig,
   createCodexDockerfile,
   createCodexRequirements,
+  GROK_BUILD_CLI_VERSION,
+  GROK_BUILD_REQUIREMENTS_TOML,
+  createGrokBuildComposeFile,
+  createGrokBuildDockerfile,
   createLocalDockerignore,
   createLocalDeploymentPlan,
-  createOpenAiGatewayComposeFile,
-  createOpenAiGatewayDockerfile,
-  validateAllowedOrigins,
   validateInstallId,
   validateLocalPort,
   validateLocalTarget,
-  validatePlatformApiKey,
   validateSha256Verifier,
 } from "../src/domain/local-endpoints.js";
 
 const verifier = "a".repeat(64);
 const installId = "b".repeat(32);
-
-test("local endpoint validation accepts the explicit provider contracts", () => {
-  assert.equal(validateLocalTarget("openai-api"), "openai-api");
-  assert.equal(validateLocalTarget("codex-chatgpt"), "codex-chatgpt");
-  assert.equal(validateLocalTarget("codex-chat"), "codex-chat");
-  assert.equal(validateLocalPort("12435"), 12435);
-  assert.equal(
-    validatePlatformApiKey(`sk-${"a".repeat(48)}`),
-    `sk-${"a".repeat(48)}`,
-  );
-  assert.equal(validateSha256Verifier(verifier), verifier);
-  assert.equal(validateInstallId(installId), installId);
-});
-
-test("local endpoint validation rejects ambiguous auth and unsafe port values", () => {
-  for (const target of [
-    "openai",
-    "chatgpt",
-    "openai-oauth",
-    "constructor",
-    "toString",
-    "__proto__",
-    "",
-    null,
-  ]) {
-    assert.throws(() => validateLocalTarget(target), /target/i);
-  }
-  for (const port of [0, 22, 80, 1023, 65_536, "12435;id", "--help"] ) {
-    assert.throws(() => validateLocalPort(port), /port/i);
-  }
-  for (const key of [
-    "chatgpt-session-token",
-    "eyJhbGciOi.fake.jwt",
-    "sk-short",
-    `sk-${"a".repeat(20)}\nsecond`,
-    ` sk-${"a".repeat(48)}`,
-  ]) {
-    assert.throws(() => validatePlatformApiKey(key), /Platform API key/i);
-  }
-  for (const hash of ["a".repeat(63), "z".repeat(64), `${verifier}\n`]) {
-    assert.throws(() => validateSha256Verifier(hash), /verifier/i);
-  }
-  for (const id of ["b".repeat(31), "B".repeat(32), `${installId}\n`]) {
-    assert.throws(() => validateInstallId(id), /installation ID/i);
-  }
-});
-
-test("browser origins are exact, normalized, deduplicated, and bounded", () => {
-  assert.deepEqual(
-    validateAllowedOrigins([
-      "http://localhost:3000",
-      "https://app.example.com",
-      "http://localhost:3000",
-    ]),
-    ["http://localhost:3000", "https://app.example.com"],
-  );
-  assert.deepEqual(validateAllowedOrigins(undefined), []);
-
-  for (const origin of [
-    "*",
-    "null",
-    "file:///tmp/app.html",
-    "http://user:pass@localhost:3000",
-    "https://app.example.com/path",
-    "https://app.example.com?query=yes",
-    "https://app.example.com/#fragment",
-    "javascript:alert(1)",
-  ]) {
-    assert.throws(() => validateAllowedOrigins([origin]), /origin/i);
-  }
-  assert.throws(
-    () =>
-      validateAllowedOrigins(
-        Array.from({ length: 11 }, (_, index) => `https://app${index}.example`),
-      ),
-    /origin/i,
-  );
-});
-
-test("OpenAI API deployment plan is explicitly Platform-backed and browser capable", () => {
-  const plan = createLocalDeploymentPlan({
-    target: "openai-api",
-    port: 12435,
-    allowedOrigins: ["http://localhost:3000"],
-  });
-
-  assert.deepEqual(plan, {
-    target: "openai-api",
-    label: "OpenAI API",
-    bindHost: "127.0.0.1",
-    port: 12435,
-    endpoint: "http://127.0.0.1:12435/v1",
-    protocol: "openai-v1",
-    upstreamAuth: "platform-api-key",
-    allowedOrigins: ["http://localhost:3000"],
-    browserClients: true,
-    experimental: false,
-    managedPath: "~/.relmio/local/openai-api",
-  });
-});
 
 test("Codex deployment plan preserves official App Server semantics", () => {
   const plan = createLocalDeploymentPlan({
@@ -141,7 +47,6 @@ test("Codex deployment plan preserves official App Server semantics", () => {
     endpoint: "ws://127.0.0.1:14500",
     protocol: "codex-app-server-json-rpc",
     upstreamAuth: "chatgpt-via-codex",
-    allowedOrigins: [],
     browserClients: false,
     experimental: true,
     managedPath: "~/.relmio/local/codex-chatgpt",
@@ -158,7 +63,6 @@ test("Codex Chat has its own loopback HTTP contract and hardened adapter image",
     endpoint: "http://127.0.0.1:14501",
     protocol: "relmio-codex-chat-http",
     upstreamAuth: "chatgpt-via-codex",
-    allowedOrigins: [],
     browserClients: false,
     experimental: true,
     managedPath: "~/.relmio/local/codex-chat",
@@ -207,95 +111,93 @@ test("Codex Chat has its own loopback HTTP contract and hardened adapter image",
   assert.doesNotMatch(compose, /0\.0\.0\.0:14501|:::14501|\/var\/run\/docker\.sock|n8n/i);
 });
 
-test("OpenAI gateway Compose uses a private seeded volume without weakening runtime isolation", () => {
-  const compose = createOpenAiGatewayComposeFile({
-    port: 12435,
-    tokenSha256: verifier,
-    allowedOrigins: ["http://localhost:3000"],
-    installId,
+test("SuperGrok is an isolated direct OAuth adapter with an exact official login pin", async () => {
+  const plan = createLocalDeploymentPlan({ target: "xai-grok-build" });
+  assert.deepEqual(plan, {
+    target: "xai-grok-build", label: "SuperGrok", bindHost: "127.0.0.1",
+    port: 14502, endpoint: "http://127.0.0.1:14502", protocol: "relmio-grok-build-chat-http",
+    upstreamAuth: "provider-owned-oauth", browserClients: false,
+    experimental: true, managedPath: "~/.relmio/local/xai-grok-build",
   });
-
-  assert.match(compose, /127\.0\.0\.1:12435:10531/);
-  assert.match(compose, /RELMIO_GATEWAY_TOKEN_SHA256: a{64}/);
-  assert.match(
-    compose,
-    /OPENAI_API_KEY_FILE: \/run\/relmio-secret\/openai-api-key/,
-  );
-  const encodedOrigins = /RELMIO_ALLOWED_ORIGINS_BASE64: (\S+)/u.exec(compose)?.[1];
-  assert.deepEqual(
-    JSON.parse(Buffer.from(encodedOrigins, "base64").toString("utf8")),
-    ["http://localhost:3000"],
-  );
-  assert.match(
-    compose,
-    /openai-api-key:\/run\/relmio-secret:ro/,
-  );
-  assert.match(compose, /credential-seed:/);
-  assert.match(compose, /profiles:\n\s+- relmio-credential-seed/);
-  assert.match(compose, /network_mode: none/);
-  assert.match(compose, /restart: "no"/);
-  assert.match(compose, /pull_policy: never/);
-  assert.match(compose, /openai-api-key:\/run\/relmio-secret\n/);
-  assert.match(compose, /user: "0:0"/);
-  assert.match(compose, /cap_add:\n\s+- CHOWN/);
-  assert.ok(
-    compose.indexOf(
-      "chmod 0400 /run/relmio-secret/.openai-api-key.next",
-    ) <
-      compose.indexOf(
-        "chown 1000:1000 /run/relmio-secret/.openai-api-key.next",
-      ),
-  );
-  assert.match(compose, /logging:\n\s+driver: "none"/);
-  assert.match(
-    compose,
-    /volumes:\n\s+openai-api-key:\n\s+labels:\n\s+io\.relmio\.managed: "true"\n\s+io\.relmio\.target: "openai-api"\n\s+io\.relmio\.install: "b{32}"/,
-  );
+  assert.equal(GROK_BUILD_CLI_VERSION, "1.0.13");
+  const dockerfile = createGrokBuildDockerfile();
+  const compose = createGrokBuildComposeFile({ port: 14502, tokenSha256: verifier, installId });
+  const policyArguments = dockerfile.match(/printf '%s\\n' ((?:'[^']*' ?)+) > \/etc\/grok\/requirements\.toml/u)?.[1];
+  assert.ok(policyArguments);
+  const generatedPolicy = [...policyArguments.matchAll(/'([^']*)'/gu)].map((match) => match[1]).join("\n") + "\n";
+  assert.match(dockerfile, /@xai-official\/grok@1\.0\.13/);
+  assert.match(dockerfile, /--ignore-scripts/);
+  assert.match(dockerfile, /COPY --chown=node:node gateway\.js chat\.js session\.js \/app\//);
+  assert.match(dockerfile, /mkdir -p \/etc\/grok/);
+  assert.equal(generatedPolicy, GROK_BUILD_REQUIREMENTS_TOML);
+  assert.match(dockerfile, /disable_bypass_permissions_mode = true/);
+  for (const tool of ["Bash", "Edit", "Read", "Grep", "MCPTool", "WebFetch", "WebSearch"]) {
+    assert.match(dockerfile, new RegExp(`action = "deny", tool = "${tool}"`, "u"));
+  }
+  assert.match(dockerfile, /chmod 0444 \/etc\/grok\/requirements\.toml/);
+  assert.match(compose, /127\.0\.0\.1:14502:14502/);
+  const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  assert.ok(compose.includes(`RELMIO_GATEWAY_VERSION: ${version}`));
+  assert.match(compose, /grok-home:\/home\/node\/\.grok/);
+  assert.match(compose, /RELMIO_GATEWAY_PUBLIC_PORT: "14502"/);
+  assert.ok(compose.includes(`RELMIO_GATEWAY_INSTALL_ID: "${installId}"`));
   assert.match(compose, /no-new-privileges:true/);
   assert.match(compose, /cap_drop:\n\s+- ALL/);
   assert.match(compose, /read_only: true/);
-  assert.match(compose, /io\.relmio\.install: "b{32}"/);
-  assert.match(compose, /networks:\n\s+default:\n\s+labels:/);
-  assert.doesNotMatch(compose, /0\.0\.0\.0:12435|:::12435|n8n|openai-oauth/i);
-  assert.doesNotMatch(compose, /OPENAI_API_KEY:\s*sk-/);
-  assert.doesNotMatch(compose, /file: \.\/secrets|^secrets:/m);
-  const seedService = /\n  credential-seed:\n([\s\S]*?)\nnetworks:/u.exec(
-    compose,
-  )?.[1];
-  assert.ok(seedService);
-  assert.doesNotMatch(seedService, /^\s+ports:/m);
-  const seedScript = /\n    command:\n      - \|\n([\s\S]*?)\n    volumes:/u.exec(
-    seedService,
-  )?.[1];
-  assert.ok(seedScript);
-  assert.match(
-    seedScript,
-    /cat > \/run\/relmio-secret\/\.openai-api-key\.next/,
-  );
-  assert.doesNotMatch(seedScript, /\becho\b|\bprintf\b|\btee\b|\benv\b/);
-  assert.doesNotMatch(compose, /external:\s*true/);
+  assert.doesNotMatch(compose, /:\/etc\/grok(?:\/|$)/u);
+  assert.doesNotMatch(compose, /xai_api_key|codex|workspace|n8n/i);
 });
 
-test("OpenAI gateway Dockerfile packages only the dependency-free runtime", () => {
-  const dockerfile = createOpenAiGatewayDockerfile();
-
-  assert.match(dockerfile, /^FROM node:22-bookworm-slim$/m);
-  assert.match(dockerfile, /COPY --chown=node:node gateway\.mjs/);
-  assert.match(dockerfile, /^USER node$/m);
-  assert.match(dockerfile, /ENTRYPOINT \["node", "\/app\/gateway\.mjs"\]/);
-  assert.doesNotMatch(dockerfile, /npm install|openai-oauth|@openai\/codex/);
+test("Grok Build image runtime has no repository package metadata dependency", async () => {
+  const source = await readFile(new URL("../src/supergrok/runtime.js", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /createRequire|package\.json/u);
+  assert.equal(createLocalDockerignore("xai-grok-build"), "**\n!Dockerfile\n!gateway.js\n!chat.js\n!session.js\n");
+  assert.doesNotMatch(createGrokBuildDockerfile(), /COPY[^\n]*package\.json/u);
 });
 
-test("local Docker build contexts exclude credentials and unrelated managed files", () => {
-  const gateway = createLocalDockerignore("openai-api");
-  const codex = createLocalDockerignore("codex-chatgpt");
-
-  assert.equal(gateway, "**\n!Dockerfile\n!gateway.mjs\n");
-  assert.equal(
-    codex,
-    "**\n!Dockerfile\n!config.toml\n!requirements.toml\n",
-  );
-  assert.doesNotMatch(gateway, /secrets|openai-api-key/iu);
+test("Grok image bootstraps only the pinned platform payload outside credential storage", () => {
+  const dockerfile = createGrokBuildDockerfile();
+  const program = dockerfile.match(/&& node -e '([^']+)'/u)?.[1];
+  assert.ok(program);
+  assert.match(dockerfile, /--include=optional --ignore-scripts/u);
+  assert.match(dockerfile, /ln -sf \/opt\/relmio-grok\/grok \/usr\/local\/bin\/grok/u);
+  assert.match(dockerfile, /GROK_HOME=\/tmp\/relmio-grok-bootstrap GROK_MANAGED_BY_NPM=1 grok --no-auto-update --version/u);
+  assert.match(dockerfile, /^ENV GROK_MANAGED_BY_NPM=1$/mu);
+  const payload = Buffer.from("fixture native executable");
+  for (const arch of ["x64", "arm64"]) {
+    const metadata = `/fixture/grok-linux-${arch}/package.json`;
+    const writes = [];
+    const fs = {
+      readFileSync(file) {
+        if (file === metadata) return JSON.stringify({ version: GROK_BUILD_CLI_VERSION });
+        assert.equal(file, `/fixture/grok-linux-${arch}/bin/grok.br`);
+        return brotliCompressSync(payload);
+      },
+      mkdirSync(file, options) { writes.push({ file, options }); },
+      writeFileSync(file, bytes, options) { writes.push({ file, bytes, options }); },
+    };
+    const requireFixture = (name) => ({ "node:fs": fs, "node:path": path.posix, "node:zlib": { brotliDecompressSync } })[name];
+    requireFixture.resolve = (name, options) => {
+      assert.equal(name, `@xai-official/grok-linux-${arch}/package.json`);
+      assert.equal(JSON.stringify(options), JSON.stringify({ paths: ["/usr/local/lib/node_modules/@xai-official/grok"] }));
+      return metadata;
+    };
+    const execute = () => runInNewContext(program, {
+      require: requireFixture,
+      process: { platform: "linux", arch, env: { GROK_HOME: "/foreign/credential-home" } },
+    });
+    execute();
+    assert.equal(writes[0].file, "/opt/relmio-grok");
+    assert.equal(writes[0].options.mode, 0o755);
+    assert.equal(writes[1].file, "/opt/relmio-grok/grok");
+    assert.deepEqual(writes[1].bytes, payload);
+    assert.equal(writes[1].options.mode, 0o755);
+    assert.equal(writes[1].options.flag, "wx");
+    writes.length = 0;
+    fs.readFileSync = () => JSON.stringify({ version: "0.0.0" });
+    assert.throws(execute, /version mismatch/u);
+    assert.equal(writes.length, 0);
+  }
 });
 
 test("Codex image and config pin the official App Server and ChatGPT login", () => {
@@ -370,11 +272,22 @@ test("Codex Compose isolates the official server behind one loopback binding", (
   assert.doesNotMatch(compose, /0\.0\.0\.0:14500|:::14500/);
 });
 
-test("local target metadata remains closed and immutable", () => {
-  assert.deepEqual(Object.keys(LOCAL_TARGETS).sort(), [
-    "codex-chat",
-    "codex-chatgpt",
-    "openai-api",
-  ]);
-  assert.equal(Object.isFrozen(LOCAL_TARGETS), true);
+
+
+test("OAuth-only targets reject retired API routes before planning", () => {
+  assert.deepEqual(Object.keys(LOCAL_TARGETS), ["codex-chatgpt", "codex-chat", "xai-grok-build"]);
+  for (const target of Object.keys(LOCAL_TARGETS)) {
+    assert.doesNotMatch(LOCAL_TARGETS[target].upstreamAuth, /api-key/i);
+    assert.equal(LOCAL_TARGETS[target].label, PROVIDER_TARGET_BINDINGS[target].label);
+  }
+  for (const target of ["openai-api", "xai-inference", "n8n-xai-inference"]) {
+    assert.throws(() => validateLocalTarget(target), /target/i);
+    assert.throws(() => createLocalDeploymentPlan({ target, port: 12435 }), /target/i);
+  }
+  assert.deepEqual(createLocalDeploymentPlan({ target: "xai-grok-build" }), {
+    target: "xai-grok-build", label: "SuperGrok", bindHost: "127.0.0.1", port: 14502,
+    endpoint: "http://127.0.0.1:14502", protocol: "relmio-grok-build-chat-http",
+    upstreamAuth: "provider-owned-oauth", browserClients: false, experimental: true,
+    managedPath: "~/.relmio/local/xai-grok-build",
+  });
 });

@@ -36,11 +36,26 @@ const state = {
 const element = (id) => document.getElementById(id);
 const localEndpointLink = element("local-endpoint-link");
 bindWizardNavigation(localEndpointLink, "/local", token);
+bindWizardNavigation(element("vps-supergrok-start"), "/supergrok-vps", token);
+bindWizardNavigation(element("vps-supergrok-manage"), "/supergrok-vps", token);
 const messageToast = element("global-message");
 const message = element("global-message-text");
 const errorBox = element("global-error");
 const errorMessage = element("global-error-text");
 const toastTimers = new WeakMap();
+
+element("openai-vps-route").addEventListener("click", () => {
+  if (state.operationBusy) return;
+  clearError();
+  element("auth-indicator").scrollIntoView?.({
+    block: "center",
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth",
+  });
+  element("auth-title").focus?.({ preventScroll: true });
+  setMessage("OpenAI OAuth for a VPS uses the ChatGPT sign-in below.");
+});
 
 function dismissToast(toast) {
   window.clearTimeout(toastTimers.get(toast));
@@ -1340,10 +1355,38 @@ element("stop-login-button").addEventListener("click", async (event) => {
   }
 });
 
-element("signin-next").addEventListener("click", () => {
+async function continueWithOpenAiVps() {
   clearError();
-  showStep(2);
-  setMessage("Enter the VPS address exactly as Hostinger shows it.");
+  try {
+    const discovered = await runOperation(
+      element("signin-next"),
+      "Checking the verified VPS connection…",
+      discover,
+      {
+        progressNote:
+          "Relmio is inspecting the existing verified SSH connection with read-only Docker commands. Keep this page open.",
+      },
+    );
+    if (!discovered) return;
+    renderDiscovery(discovered);
+    setMessage(
+      "n8n was found on the verified VPS connection. Choose its network, then install or manage a Relmio-owned companion.",
+    );
+  } catch (error) {
+    showStep(2);
+    if (error?.message === "Connect to the VPS first.") {
+      setMessage("Enter the VPS address exactly as Hostinger shows it.");
+      return;
+    }
+    showError(error);
+    setMessage(
+      "The verified VPS connection could not be inspected. Review the error, then reconnect only if needed.",
+    );
+  }
+}
+
+element("signin-next").addEventListener("click", () => {
+  void continueWithOpenAiVps();
 });
 
 element("fingerprint-button").addEventListener("click", async (event) => {

@@ -75,7 +75,7 @@ test("uses an editorial homepage without decorative status or marquee patterns",
   assert.match(home, /id="top"/u);
   assert.match(home, /href="\/install"/u);
   assert.match(home, /href="\/docs"/u);
-  assert.match(home, /<HashLink targetId="chat">Chat<\/HashLink>/u);
+  assert.match(home, /<HashLink targetId="chat">Chat demo<\/HashLink>/u);
   assert.match(hashLink, /target\.scrollIntoView/u);
   assert.match(hashLink, /target\.focus\(\{ preventScroll: true \}\)/u);
   assert.match(hashLink, /prefers-reduced-motion:\s*reduce/u);
@@ -206,7 +206,7 @@ test("keeps global metadata neutral across separate credential routes", async ()
   const layout = await appFile("layout.tsx");
 
   assert.match(layout, /Relmio \| Connect local AI tools safely/u);
-  assert.match(layout, /keeping each sign-in, key, and connection separate/u);
+  assert.match(layout, /Bring your AI sign-ins to your tools/u);
   assert.doesNotMatch(layout, /Your ChatGPT plan, relayed/u);
   assert.doesNotMatch(layout, /private path from ChatGPT sign-in/iu);
 });
@@ -314,7 +314,8 @@ test("keeps mobile editorial visual order aligned with DOM focus order", async (
   assert.ok(mobileNav, "missing mobile editorial navigation rule");
   assert.doesNotMatch(mobileNav, /order\s*:/u);
   assert.match(mobileNav, /width:\s*100%;/u);
-  assert.match(mobileNav, /overflow-x:\s*auto;/u);
+  assert.match(mobileNav, /flex-wrap:\s*wrap;/u);
+  assert.match(mobileNav, /overflow-x:\s*visible;/u);
 
   for (const source of [home, install]) {
     const brandIndex = source.indexOf('className="editorial-brand"');
@@ -323,11 +324,8 @@ test("keeps mobile editorial visual order aligned with DOM focus order", async (
 
     assert.ok(brandIndex >= 0, "missing editorial brand in header");
     assert.ok(navIndex >= 0, "missing editorial nav in header");
-    assert.ok(actionsIndex >= 0, "missing editorial actions in header");
-    assert.ok(
-      brandIndex < navIndex && navIndex < actionsIndex,
-      "header DOM order must remain brand, navigation, then actions",
-    );
+    assert.ok(brandIndex < navIndex, "header DOM order must remain brand, then navigation");
+    assert.ok(actionsIndex > navIndex, "header actions must follow navigation");
   }
 });
 
@@ -425,9 +423,6 @@ test("gives documentation the same editorial console framing", async () => {
   assert.match(documentPage, /aria-label="Documentation navigation"/u);
   assert.match(documentPage, /DocumentOutline/u);
   assert.match(docsStyles, /\.editorialPage/u);
-  assert.match(
-    docsStyles,
-    /\.routeLegend li > strong\s*\{[^}]*color:\s*#eff9f6;/su,
-  );
+  assert.match(docsStyles, /\.article pre\s*\{[^}]*background:\s*#09100f;/su);
   assert.doesNotMatch(documentPage, /dangerouslySetInnerHTML|rehypeRaw|innerHTML/u);
 });

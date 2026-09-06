@@ -1,33 +1,65 @@
 import { validatePort } from "./validation.js";
+import { getProviderTargetBinding } from "./provider-lifecycle.js";
 import packageManifest from "../../package.json" with { type: "json" };
 
 export const CODEX_CLI_VERSION = "0.147.0";
+export const GROK_BUILD_CLI_VERSION = "1.0.13";
+export const GROK_BUILD_REQUIREMENTS_TOML = [
+  "[ui]",
+  "disable_bypass_permissions_mode = true",
+  "",
+  "[permission]",
+  "rules = [",
+  '  { action = "deny", tool = "Bash" },',
+  '  { action = "deny", tool = "Edit" },',
+  '  { action = "deny", tool = "Read" },',
+  '  { action = "deny", tool = "Grep" },',
+  '  { action = "deny", tool = "MCPTool" },',
+  '  { action = "deny", tool = "WebFetch" },',
+  '  { action = "deny", tool = "WebSearch" },',
+  "]",
+  "",
+].join("\n");
 const PACKAGE_VERSION = packageManifest.version;
 
+function createLocalTargetDefinition(targetId, runtimeMetadata) {
+  const binding = getProviderTargetBinding(targetId);
+  if (
+    !runtimeMetadata ||
+    typeof runtimeMetadata !== "object" ||
+    Object.keys(runtimeMetadata).length !== 3 ||
+    !Object.hasOwn(runtimeMetadata, "browserClients") ||
+    !Object.hasOwn(runtimeMetadata, "experimental") ||
+    !Object.hasOwn(runtimeMetadata, "containerPort")
+  ) {
+    throw new TypeError("Local endpoint runtime metadata is invalid.");
+  }
+
+  return Object.freeze({
+    label: binding.label,
+    protocol: binding.protocol,
+    upstreamAuth: binding.upstreamAuth,
+    browserClients: runtimeMetadata.browserClients,
+    experimental: runtimeMetadata.experimental,
+    containerPort: runtimeMetadata.containerPort,
+  });
+}
+
 export const LOCAL_TARGETS = Object.freeze({
-  "openai-api": Object.freeze({
-    label: "OpenAI API",
-    protocol: "openai-v1",
-    upstreamAuth: "platform-api-key",
-    browserClients: true,
-    experimental: false,
-    containerPort: 10_531,
-  }),
-  "codex-chatgpt": Object.freeze({
-    label: "Codex with ChatGPT",
-    protocol: "codex-app-server-json-rpc",
-    upstreamAuth: "chatgpt-via-codex",
+  "codex-chatgpt": createLocalTargetDefinition("codex-chatgpt", {
     browserClients: false,
     experimental: true,
     containerPort: 4_500,
   }),
-  "codex-chat": Object.freeze({
-    label: "Codex Chat Adapter",
-    protocol: "relmio-codex-chat-http",
-    upstreamAuth: "chatgpt-via-codex",
+  "codex-chat": createLocalTargetDefinition("codex-chat", {
     browserClients: false,
     experimental: true,
     containerPort: 14_501,
+  }),
+  "xai-grok-build": createLocalTargetDefinition("xai-grok-build", {
+    browserClients: false,
+    experimental: true,
+    containerPort: 14_502,
   }),
 });
 
@@ -49,17 +81,6 @@ export function validateLocalPort(value) {
   return port;
 }
 
-export function validatePlatformApiKey(value) {
-  if (
-    typeof value !== "string" ||
-    value.length > 512 ||
-    !/^sk-[A-Za-z0-9_-]{32,509}$/u.test(value)
-  ) {
-    throw new TypeError("OpenAI Platform API key is invalid.");
-  }
-  return value;
-}
-
 export function validateSha256Verifier(value) {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/u.test(value)) {
     throw new TypeError("Local capability verifier is invalid.");
@@ -74,59 +95,19 @@ export function validateInstallId(value) {
   return value;
 }
 
-function validateBrowserOrigin(value) {
-  if (typeof value !== "string" || value.length > 2_048) {
-    throw new TypeError("Browser origin is invalid.");
-  }
-
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new TypeError("Browser origin is invalid.");
-  }
-
-  if (
-    !["http:", "https:"].includes(url.protocol) ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.pathname !== "/" ||
-    url.search !== "" ||
-    url.hash !== "" ||
-    value !== url.origin
-  ) {
-    throw new TypeError("Browser origin is invalid.");
-  }
-
-  return url.origin;
-}
-
-export function validateAllowedOrigins(value = []) {
-  if (!Array.isArray(value) || value.length > 10) {
-    throw new TypeError("Browser origin list is invalid.");
-  }
-
-  return [...new Set(value.map(validateBrowserOrigin))];
-}
-
 export function createLocalDeploymentPlan({
   target,
   port,
-  allowedOrigins,
 }) {
   const safeTarget = validateLocalTarget(target);
-  const safePort = validateLocalPort(port);
+  const safePort = validateLocalPort(
+    safeTarget === "xai-grok-build" ? port ?? 14_502 : port,
+  );
   const targetDefinition = LOCAL_TARGETS[safeTarget];
-  const safeOrigins =
-    safeTarget === "openai-api"
-      ? validateAllowedOrigins(allowedOrigins)
-      : validateAllowedOrigins([]);
   const endpoint =
-    safeTarget === "openai-api"
-      ? `http://127.0.0.1:${safePort}/v1`
-      : safeTarget === "codex-chatgpt"
-        ? `ws://127.0.0.1:${safePort}`
-        : `http://127.0.0.1:${safePort}`;
+    safeTarget === "codex-chatgpt"
+      ? `ws://127.0.0.1:${safePort}`
+      : `http://127.0.0.1:${safePort}`;
 
   return {
     target: safeTarget,
@@ -136,146 +117,123 @@ export function createLocalDeploymentPlan({
     endpoint,
     protocol: targetDefinition.protocol,
     upstreamAuth: targetDefinition.upstreamAuth,
-    allowedOrigins: safeOrigins,
     browserClients: targetDefinition.browserClients,
     experimental: targetDefinition.experimental,
     managedPath: `~/.relmio/local/${safeTarget}`,
   };
 }
 
-export function createOpenAiGatewayDockerfile() {
-  return `FROM node:22-bookworm-slim
-
-WORKDIR /app
-COPY --chown=node:node gateway.mjs /app/gateway.mjs
-
-USER node
-
-ENTRYPOINT ["node", "/app/gateway.mjs"]
-`;
-}
-
 export function createLocalDockerignore(target) {
   const safeTarget = validateLocalTarget(target);
-  if (safeTarget === "openai-api") {
-    return "**\n!Dockerfile\n!gateway.mjs\n";
+  if (safeTarget === "xai-grok-build") {
+    return "**\n!Dockerfile\n!gateway.js\n!chat.js\n!session.js\n";
   }
   return safeTarget === "codex-chat"
     ? "**\n!Dockerfile\n!gateway.mjs\n!config.toml\n!requirements.toml\n"
     : "**\n!Dockerfile\n!config.toml\n!requirements.toml\n";
 }
 
-export function createOpenAiGatewayComposeFile({
-  port,
-  tokenSha256,
-  allowedOrigins,
-  installId,
-}) {
+export function createGrokBuildDockerfile() {
+  // The npm launcher prefers GROK_HOME/bin/grok, which is a writable credential
+  // volume. Extract the pinned platform payload into the image instead.
+  const bootstrap = [
+    'const fs = require("node:fs");',
+    'const path = require("node:path");',
+    'const zlib = require("node:zlib");',
+    'if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch)) throw new Error("Unsupported Grok image platform");',
+    'const metadata = require.resolve("@xai-official/grok-linux-" + process.arch + "/package.json", { paths: ["/usr/local/lib/node_modules/@xai-official/grok"] });',
+    `if (JSON.parse(fs.readFileSync(metadata, "utf8")).version !== "${GROK_BUILD_CLI_VERSION}") throw new Error("Grok platform version mismatch");`,
+    'const binary = zlib.brotliDecompressSync(fs.readFileSync(path.join(path.dirname(metadata), "bin/grok.br")));',
+    'fs.mkdirSync("/opt/relmio-grok", { mode: 0o755 });',
+    'fs.writeFileSync("/opt/relmio-grok/grok", binary, { mode: 0o755, flag: "wx" });',
+  ].join(" ");
+  const requirements = GROK_BUILD_REQUIREMENTS_TOML.trimEnd()
+    .split("\n")
+    .map((line) => `'${line}'`)
+    .join(" ");
+  return `FROM node:22-bookworm-slim
+
+WORKDIR /app
+
+RUN npm install --global --include=optional --ignore-scripts @xai-official/grok@${GROK_BUILD_CLI_VERSION} \\
+    && node -e '${bootstrap}' \\
+    && ln -sf /opt/relmio-grok/grok /usr/local/bin/grok \\
+    && GROK_HOME=/tmp/relmio-grok-bootstrap GROK_MANAGED_BY_NPM=1 grok --no-auto-update --version \\
+    && npm cache clean --force \\
+    && mkdir -p /etc/grok \\
+    && printf '%s\\n' ${requirements} > /etc/grok/requirements.toml \\
+    && chmod 0444 /etc/grok/requirements.toml \\
+    && mkdir -p /home/node/.grok /workspace \\
+    && chown -R node:node /home/node/.grok /workspace
+
+COPY --chown=node:node gateway.js chat.js session.js /app/
+
+ENV GROK_HOME=/home/node/.grok
+ENV GROK_MANAGED_BY_NPM=1
+WORKDIR /workspace
+USER node
+
+ENTRYPOINT ["node", "/app/gateway.js"]
+`;
+}
+
+export function createGrokBuildComposeFile({ port, tokenSha256, installId }) {
   const safePort = validateLocalPort(port);
   const safeVerifier = validateSha256Verifier(tokenSha256);
-  const safeOrigins = validateAllowedOrigins(allowedOrigins);
   const safeInstallId = validateInstallId(installId);
-  const originsBase64 = Buffer.from(JSON.stringify(safeOrigins), "utf8").toString(
-    "base64",
-  );
-  const gatewayImage = `relmio-openai-api-${safeInstallId}-gateway:local`;
-
   return `services:
-  gateway:
-    image: ${gatewayImage}
+  grok-build:
+    image: relmio-grok-build-${safeInstallId}:local
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true
     environment:
-      OPENAI_API_KEY_FILE: /run/relmio-secret/openai-api-key
       RELMIO_GATEWAY_TOKEN_SHA256: ${safeVerifier}
-      RELMIO_ALLOWED_ORIGINS_BASE64: ${originsBase64}
+      RELMIO_GATEWAY_VERSION: ${PACKAGE_VERSION}
       RELMIO_GATEWAY_HOST: 0.0.0.0
-      RELMIO_GATEWAY_PORT: "10531"
-    volumes:
-      - openai-api-key:/run/relmio-secret:ro
+      RELMIO_GATEWAY_PORT: "14502"
+      RELMIO_GATEWAY_PUBLIC_PORT: "${safePort}"
+      RELMIO_GATEWAY_INSTALL_ID: "${safeInstallId}"
     ports:
-      - "127.0.0.1:${safePort}:10531"
+      - "127.0.0.1:${safePort}:14502"
+    volumes:
+      - grok-home:/home/node/.grok
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     read_only: true
     tmpfs:
-      - /tmp:size=16m,mode=1777
+      - /tmp:size=64m,mode=1777,nodev,nosuid
+      - /run:size=16m,mode=0755,nodev,nosuid
     pids_limit: 128
-    mem_limit: 512m
-    cpus: 1.0
+    mem_limit: 2g
+    cpus: 2.0
     healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - 'fetch("http://127.0.0.1:10531/health").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))'
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:14502/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 10s
       timeout: 5s
-      retries: 6
-      start_period: 10s
+      retries: 9
+      start_period: 20s
     labels:
       io.relmio.managed: "true"
-      io.relmio.target: "openai-api"
-      io.relmio.install: "${safeInstallId}"
-
-  credential-seed:
-    image: ${gatewayImage}
-    pull_policy: never
-    profiles:
-      - relmio-credential-seed
-    restart: "no"
-    network_mode: none
-    user: "0:0"
-    entrypoint:
-      - /bin/sh
-      - -c
-    command:
-      - |
-        set -eu
-        umask 077
-        trap 'rm -f -- /run/relmio-secret/.openai-api-key.next' EXIT HUP INT TERM
-        rm -f -- /run/relmio-secret/.openai-api-key.next
-        cat > /run/relmio-secret/.openai-api-key.next
-        chmod 0400 /run/relmio-secret/.openai-api-key.next
-        chown 1000:1000 /run/relmio-secret/.openai-api-key.next
-        mv -f -- /run/relmio-secret/.openai-api-key.next /run/relmio-secret/openai-api-key
-        trap - EXIT HUP INT TERM
-    volumes:
-      - openai-api-key:/run/relmio-secret
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-    read_only: true
-    pids_limit: 32
-    mem_limit: 64m
-    cpus: 0.25
-    logging:
-      driver: "none"
-    labels:
-      io.relmio.managed: "true"
-      io.relmio.target: "openai-api"
+      io.relmio.target: "xai-grok-build"
       io.relmio.install: "${safeInstallId}"
 
 networks:
   default:
     labels:
       io.relmio.managed: "true"
-      io.relmio.target: "openai-api"
+      io.relmio.target: "xai-grok-build"
       io.relmio.install: "${safeInstallId}"
 
 volumes:
-  openai-api-key:
+  grok-home:
     labels:
       io.relmio.managed: "true"
-      io.relmio.target: "openai-api"
+      io.relmio.target: "xai-grok-build"
       io.relmio.install: "${safeInstallId}"
 `;
 }

@@ -790,6 +790,29 @@ test("browser transfer bootstrap clears malformed window.name without making a r
   }
 });
 
+test("history restores the matching wizard document and never resumes a cached credential screen", () => {
+  const listeners = new Map();
+  let reloads = 0;
+  const browserWindow = {
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    history: {
+      state: { relmioWizardSession: "H".repeat(43) },
+      replaceState(state) { this.state = state; },
+    },
+    location: { pathname: "/supergrok-vps", hash: "", reload() { reloads++; } },
+  };
+  readWizardSession(browserWindow);
+  listeners.get("popstate")();
+  listeners.get("pageshow")({ persisted: false });
+  assert.equal(reloads, 0);
+  browserWindow.location.pathname = "/";
+  listeners.get("popstate")();
+  assert.equal(reloads, 1);
+  listeners.get("pageshow")({ persisted: true });
+  assert.equal(reloads, 2);
+  assert.deepEqual(browserWindow.history.state, { relmioWizardSession: "H".repeat(43) });
+});
+
 test("wizard navigation keeps the capability in same-tab history and all link URLs token-free", () => {
   const sessionToken = "D".repeat(43);
   const listeners = new Map();
@@ -1121,6 +1144,151 @@ test("OAuth UI offers an accessible stop control and rejects stale polling after
   assert.match(app, /oauthLoginGeneration/u);
   assert.match(app, /oauthRetryBlocked/u);
   assert.match(app, /stop-login-button/u);
+});
+
+test("OpenAI VPS continuation reuses a verified connection before requesting SSH", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("async function continueWithOpenAiVps()");
+  const end = script.indexOf('\nelement("signin-next").addEventListener', start);
+  assert.ok(start >= 0 && end > start);
+  const calls = [];
+  let discovery = { discovery: { containers: [{ name: "n8n" }] }, networks: { networks: ["private"] } };
+  const continuation = vm.runInNewContext(
+    `${script.slice(start, end)}; continueWithOpenAiVps;`,
+    {
+      clearError() {
+        calls.push("clear-error");
+      },
+      discover: async () => {
+        calls.push("discover");
+        if (discovery instanceof Error) throw discovery;
+        return discovery;
+      },
+      element(id) {
+        assert.equal(id, "signin-next");
+        return { id };
+      },
+      renderDiscovery(result) {
+        calls.push(["render", result]);
+      },
+      async runOperation(trigger, label, work, options) {
+        calls.push(["operation", trigger.id, label, options.progressNote]);
+        return work();
+      },
+      setMessage(message) {
+        calls.push(["message", message]);
+      },
+      showError(error) {
+        calls.push(["error", error.message]);
+      },
+      showStep(step) {
+        calls.push(["step", step]);
+      },
+    },
+    { filename: "openai-vps-continuation.vm.js", timeout: 1_000 },
+  );
+
+  await continuation();
+  assert.equal(calls.filter(([name]) => name === "operation").length, 1);
+  assert.ok(calls.some(([name]) => name === "render"));
+  assert.equal(calls.some(([name]) => name === "step"), false);
+
+  calls.length = 0;
+  discovery = new Error("Connect to the VPS first.");
+  await continuation();
+  assert.ok(calls.some(([name, step]) => name === "step" && step === 2));
+  assert.equal(calls.some(([name]) => name === "error"), false);
+  assert.ok(calls.some(([name, message]) => name === "message" && message === "Enter the VPS address exactly as Hostinger shows it."));
+
+  calls.length = 0;
+  discovery = new Error("Docker inspection failed.");
+  await continuation();
+  assert.ok(calls.some(([name, message]) => name === "error" && message === "Docker inspection failed."));
+  assert.ok(calls.some(([name, message]) => name === "message" && /reconnect only if needed/u.test(message)));
+});
+
+test("SuperGrok device polling defers while another VPS read is active", async () => {
+  const script = await readFile("src/ui/supergrok-vps.js", "utf8");
+  const start = script.indexOf("function scheduleLoginPoll");
+  const end = script.indexOf('\nfor (const id of ["host", "port"])');
+  assert.ok(start >= 0 && end > start);
+
+  const timers = new Map();
+  let nextTimer = 1;
+  let apiCalls = 0;
+  let loginState = "pending";
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { hidden: true, textContent: "", href: "" });
+    return nodes.get(id);
+  };
+  const state = {
+    busy: true,
+    loginGeneration: 1,
+    pollTimer: null,
+    status: { installId: "fixture-install" },
+  };
+  const window = {
+    clearTimeout(id) {
+      timers.delete(id);
+    },
+    setTimeout(callback, delay) {
+      const id = nextTimer++;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+  };
+  const context = {
+    api: async () => {
+      apiCalls += 1;
+      return {
+        state: loginState,
+        userCode: loginState === "pending" ? "TEST-CODE" : undefined,
+        verificationUrl: loginState === "pending" ? "https://accounts.x.ai/device" : undefined,
+      };
+    },
+    element,
+    perform: async (_label, work) => work(),
+    refreshStatus: async () => {},
+    setMessage() {},
+    state,
+    window,
+  };
+  vm.runInNewContext(
+    `${script.slice(start, end)}\nglobalThis.pollLogin = pollLogin;`,
+    context,
+    { filename: "supergrok-login-poll.vm.js" },
+  );
+  const flush = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  await context.pollLogin("fixture-install", 1);
+  assert.equal(apiCalls, 0);
+  const deferredTimer = state.pollTimer;
+  assert.equal(timers.get(deferredTimer)?.delay, 500);
+
+  state.busy = false;
+  timers.get(deferredTimer).callback();
+  await flush();
+  assert.equal(apiCalls, 1);
+  assert.equal(element("login-state").textContent, "Complete the sign-in on the official Grok page, then return here.");
+  assert.equal(timers.get(state.pollTimer)?.delay, 2_000);
+
+  state.busy = true;
+  await context.pollLogin("fixture-install", state.loginGeneration);
+  const cancelledTimer = state.pollTimer;
+  state.loginGeneration += 1;
+  timers.get(cancelledTimer).callback();
+  await flush();
+  assert.equal(apiCalls, 1);
+
+  state.busy = false;
+  loginState = "expired";
+  await context.pollLogin("fixture-install", state.loginGeneration);
+  assert.match(element("login-state").textContent, /device code expired/u);
 });
 
 test("wizard theme preferences store only the selected color mode", async () => {

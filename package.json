@@ -1,7 +1,7 @@
 {
   "name": "relmio",
-  "version": "0.13.0",
-  "description": "Use ChatGPT/Codex sign-in with self-hosted n8n through a private Docker bridge, or set up a separate Platform API route.",
+  "version": "0.14.0",
+  "description": "Connect provider OAuth sign-in to private local apps and self-hosted n8n.",
   "keywords": [
     "relmio",
     "gpt-5-6-sol",
@@ -9,7 +9,6 @@
     "gpt-5-6-luna",
     "gpt-2-0-image",
     "n8n",
-    "openai-api",
     "chatgpt",
     "codex",
     "oauth",

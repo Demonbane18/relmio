@@ -112,6 +112,14 @@ finished. The server also closes an authenticated SSH session after 15 minutes
 of inactivity. An active VPS operation holds a bounded lease, so discovery or
 an approved install is not interrupted by that idle timer.
 
+## Upgrading an older API installation
+
+Relmio 0.14.0 does not show or manage legacy API-key endpoints.
+Upgrading leaves their containers and credential volumes untouched, so they
+can remain running. Use the [legacy retirement guide](local-endpoints.md#retired-api-installations)
+to review and stop only an exactly owned endpoint. Dashboard absence is not
+proof that an old endpoint has stopped.
+
 ## Read the inventory
 
 **Refresh status** first forgets abandoned setup drafts, staged replacements,
@@ -122,22 +130,21 @@ Docker objects, network and publication boundaries, Compose state, and
 generated health checks. This does not change an installed service: it does
 not install, start, restart, recreate, remove, or execute inside a container.
 
-The inventory always has these six rows, even when nothing is installed:
+Relmio 0.14.0 always has these seven rows, even when nothing is installed.
 
 | Dashboard service | Verified connection details | Actions after current attestation |
 |---|---|---|
-| **OpenAI API** | Loopback HTTP URL ending in `/v1` | **Set up** when absent; **Rotate credential** when healthy |
 | **Codex (ChatGPT login)** | Loopback App Server WebSocket URL | **Set up** when absent; **Sign in** and **Rotate credential** when healthy |
 | **Codex Chat adapter** | Loopback HTTP adapter URL | **Set up** when absent; **Sign in** and **Rotate credential** when healthy |
-| **n8n + ngrok** | Local n8n URL, authenticated public ngrok URL, and loopback ngrok inspector URL | **Set up** when absent; **Resume** when the exact owned stack is stopped; **Review removal** only when an owned recovery action is attested |
-| **OpenAI OAuth bridge** | `http://n8n-openai-oauth:10531/v1` inside the selected Docker network | **Set up** when absent; **Refresh credential** when healthy; **Review removal** only for an exactly attested owned service |
-| **AI Assistant tools** | Installed component state; no stored sandbox key | **Set up** when absent; **Review removal** only for an exactly attested owned project |
+| **SuperGrok** | Loopback SuperGrok Chat Completions URL | **Set up** when absent; sign-in/sign-out guidance and local capability rotation when offered |
+| **n8n + ngrok** | Local n8n, authenticated ngrok, and loopback inspector URLs | **Set up** when absent; **Resume** or **Review removal** only after exact ownership attestation |
+| **OpenAI OAuth bridge** | Private `http://n8n-openai-oauth:10531/v1` | **Set up**, **Refresh credential**, or **Review removal** only when offered |
+| **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` | **Set up**, official sign-in/sign-out guidance, or **Review removal** only when offered |
+| **AI Assistant tools** | Installed component state; no saved sandbox key | **Set up** or **Review removal** only when offered |
 
-The dashboard copy buttons accept only the verified URL forms for each row.
-The three endpoint URLs must use their expected loopback protocol, path, and
-port. The owned n8n stack may also show its configured HTTPS ngrok hostname.
-The OAuth bridge address is fixed and works only inside its selected Docker
-network.
+Copy buttons accept only verified URLs for the selected service. The OAuth
+bridge works only inside its selected Docker network. Grok Build's healthy
+container state does not prove that OAuth or live inference is ready.
 
 ## Use the state and action matrix
 
@@ -162,7 +169,7 @@ the owned sidecar credential.
 ## Keep credentials separate
 
 The dashboard returns sanitized state and allowlisted URLs. It never returns a
-stored Platform API key, ChatGPT session, OAuth token, local client credential,
+stored ChatGPT session, OAuth token, local client credential,
 ngrok token, Basic Auth password, n8n encryption key, or Assistant runner
 secret.
 
@@ -200,12 +207,21 @@ stores the active credential, and refreshes it. Each Codex
 target has one active ChatGPT account. Changing accounts requires an explicit
 sign-out and a new sign-in; Relmio does not pool accounts.
 
-No xAI target is enabled in this release. xAI/Grok authentication is API-key only. Relmio does not implement third-party Grok OAuth.
-Future provider authentication is denied by default until official
-documentation defines a supported method and Relmio adds a reviewed
-implementation.
+The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
+OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
+handler reads only that runtime's marked session to call xAI's documented CLI
+chat proxy. It does not inspect another app's credentials, import tokens,
+replay browser cookies, or accept an xAI API key. The CLI remains the sole
+credential writer; the HTTP handler never consumes refresh tokens.
 
-Relmio never changes accounts or keys automatically after a 401, 403, or 429,
+Local apps use `/v1/chat/completions` with a freshly discovered model and a
+separate Relmio client bearer. `grok-build` remains a legacy routing alias.
+n8n executes its own tools and returns matching results. The legacy simple
+`/chat` request shape remains available through the direct transport. Browser
+bundles must not hold the local bearer or call it directly.
+
+
+Relmio never changes accounts automatically after a 401, 403, or 429,
 rate-limit, or quota response. It reports the failure and waits for the account
 owner to act. The dashboard may report that a credential is configured, but it
 never returns or re-shows a stored secret.
@@ -239,3 +255,20 @@ Select **Add connection** to open the same four-step setup flow:
 
 Use **Back to dashboard** when you are done. The dashboard then runs a fresh
 inventory. It does not reuse the previous setup plan.
+
+
+## Provider controls
+
+Relmio 0.14.0 separates **Runtime health**, **Provider readiness**,
+and **Inventory freshness**. A healthy container does not establish that its
+provider account is signed in or entitled to a model. Stale inventory preserves
+the last observed truth while disabling maintenance actions.
+
+The four OAuth entries show **Provider-managed · not inspected**. Guidance
+buttons do not claim a sign-in or sign-out occurred. Rotating a local capability
+does not change the provider session. No API-key profile controls are present.
+
+The experimental SuperGrok adapter serves both local apps and n8n through Chat
+Completions without a ChatGPT credential. Windows live checks covered n8n Chat,
+Assistant tool use, and a Calculator workflow. Those checks do not establish the
+same results on a production VPS.

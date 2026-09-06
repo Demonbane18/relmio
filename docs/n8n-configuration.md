@@ -3,6 +3,19 @@
 Use this page after the wizard says **The private bridge is ready**. Each value
 has its own code block for easy copying.
 
+## Pick the provider recipe
+
+The Responses API switch is provider-specific. Check it whenever you change the
+credential or Base URL.
+
+| Connection | Base URL | Value for the API-key field | Use Responses API |
+| --- | --- | --- | --- |
+| OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in OpenAI Chat Model node version 1.3 |
+| SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
+
+The numbered recipe below configures the OpenAI OAuth bridge. SuperGrok uses its
+own official device sign-in and never requires or reads ChatGPT credentials.
+
 ## 1. Create the OpenAI credential
 
 In n8n, create or edit an **OpenAI** credential.
@@ -258,6 +271,21 @@ After the fixed test succeeds, switch the entire JSON body field to
 ```
 
 This reads the `prompt` property from the item produced by the previous node.
+
+## SuperGrok in n8n
+
+Create a separate OpenAI-compatible credential with the Base URL and one-time
+local bearer shown by the SuperGrok wizard. For a workflow OpenAI Chat Model,
+select a freshly discovered model **From list** and turn **Use Responses API**
+off. For Chat Hub, turn it off in **Settings > Chat > OpenAI > Edit provider**.
+Leaving it on sends the request to an unsupported Responses route and can return
+`404 not_found` even when the companion and model are healthy.
+
+The n8n AI Assistant custom endpoint uses the same private Base URL and bearer,
+but its model is a text field. Enter a model returned by account discovery.
+Assistant's Code Sandbox is a separate companion with its own prerequisites.
+See [SuperGrok on a VPS](./vps-supergrok.md) for the remote flow and its remaining
+live acceptance limits.
 
 ## Related official n8n documentation
 

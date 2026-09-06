@@ -129,8 +129,7 @@
 }
 
 .sidebar ul,
-.pageList,
-.routeLegend ol {
+.pageList {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -376,79 +375,24 @@
 
 .indexHero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.7fr);
-  gap: clamp(2rem, 6vw, 6rem);
-  align-items: end;
+  gap: 1rem;
+  align-items: start;
+  max-width: 68ch;
   padding-bottom: clamp(2rem, 5vw, 4rem);
   border-bottom: 1px solid var(--color-border);
 }
 
 .intro {
-  max-width: 60ch;
+  max-width: 64ch;
   margin: 0;
   color: var(--color-text-secondary);
   font-size: clamp(1rem, 1.4vw, 1.1875rem);
   line-height: 1.65;
 }
 
-.routeLegend {
-  border: 1px solid #2b3835;
-  border-radius: 1rem;
-  overflow: hidden;
-  background: #09100f;
-  color: #eff9f6;
-  box-shadow: 0 18px 42px rgb(4 10 9 / 18%);
-}
-
-.routeLegendTitle {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  min-height: 3rem;
-  padding-inline: 1rem;
-  border-bottom: 1px solid #2b3835;
-  color: #75d9ce;
-  font-family: var(--font-family-code);
-  font-size: 0.6875rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.routeLegend li {
-  display: grid;
-  grid-template-columns: 2rem minmax(0, 1fr) auto;
-  gap: 0.75rem;
-  align-items: center;
-  min-height: 3.25rem;
-  padding-inline: 1rem;
-  border-bottom: 1px solid #24312e;
-}
-
-.routeLegend li:last-child {
-  border-bottom: 0;
-}
-
-.routeLegend li > span {
-  color: #75d9ce;
-  font-family: var(--font-family-code);
-  font-size: 0.6875rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.routeLegend li > strong {
-  color: #eff9f6;
-  font-size: 0.8125rem;
-  font-weight: 550;
-}
-
-.routeLegend li > svg {
-  width: 1rem;
-  color: #8da39d;
-}
-
 .search {
-  margin-top: clamp(2rem, 5vw, 4rem);
+  max-width: 68ch;
+  margin-top: clamp(1.75rem, 4vw, 3rem);
 }
 
 .search label {
@@ -501,8 +445,8 @@
   grid-template-columns: minmax(11rem, 0.4fr) minmax(0, 1fr);
   gap: 2rem;
   align-items: baseline;
-  min-height: 4.75rem;
-  padding: 1.25rem 2.5rem 1.25rem 0.5rem;
+  min-height: 4.25rem;
+  padding: 1rem 2.5rem 1rem 0.5rem;
   color: var(--color-text-primary);
   text-decoration: none;
   transition:
@@ -556,7 +500,7 @@
   top: 6rem;
   align-self: start;
   min-width: 0;
-  padding-left: 1.25rem;
+  padding-left: 1rem;
   border-left: 1px solid var(--color-border);
 }
 
@@ -702,10 +646,6 @@
     align-items: start;
   }
 
-  .routeLegend {
-    max-width: 30rem;
-  }
-
   .pageList a {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.35rem;
@@ -741,10 +681,6 @@
     font-size: clamp(2.35rem, 13vw, 3.5rem);
   }
 
-  .routeLegend li {
-    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
-  }
-
   .footer {
     justify-content: flex-start;
   }
@@ -760,7 +696,6 @@
 }
 
 @media (forced-colors: active) {
-  .routeLegend,
   .article pre {
     border-color: CanvasText;
     background: Canvas;

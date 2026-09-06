@@ -19,23 +19,23 @@ const geistMono = Geist_Mono({
 
 const title = "Relmio | Connect local AI tools safely";
 const description =
-  "Connect n8n, OpenAI API tools, and supported Codex clients while keeping each sign-in, key, and connection separate.";
+  "Bring your AI sign-ins to your tools. Guided setup for n8n and local connections, with every credential kept where it belongs.";
 
 const directionContract = `<!--
 THESIS
-Every option shows where it starts, which sign-in or key it uses, how it connects, and where it ends.
+Relmio opens a door between the AI people use and the tools where they make things.
 
 OWN-WORLD
-Relmio is a calm setup guide for local AI tools, not a generic AI landing page.
+The public site is a playful illustrated world built around Relmio's original doorway mascot. Operational surfaces remain clear, calm setup guides.
 
 STORY
-The interface keeps n8n with ChatGPT sign-in, the OpenAI API, n8n Code Sandbox, Codex Chat Adapter, and Codex App Server distinct and truthful.
+The interface keeps n8n with ChatGPT sign-in, experimental SuperGrok OAuth, n8n Code Sandbox, Codex Chat Adapter, and Codex App Server distinct and truthful.
 
 FIRST VIEWPORT
-An editorial introduction and an interactive connection map explain the options before the supporting detail.
+A short invitation, one install action, and a broad animated vector scene introduce the product. The detailed connection guide follows the story.
 
 FORM
-Signal Plotter direction; concept seed 95cdc256; muted teal, graphite, warm canvas, semantic amber; motion expresses route and state.
+Doorway Playground direction, governed by DESIGN.md and Hallmark; upright Bricolage Grotesque, Geist body, warm cream, pine ink, and the existing teal logo. Coordinated scene motion has a pause control, an offscreen pause, and immediate reduced-motion support. Original logo artwork and proportions remain fixed.
 
 FINISH
 unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
@@ -58,7 +58,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title,
     description,
     applicationName: "Relmio",
-    keywords: ["ai", "chatgpt", "codex", "openai"],
+    keywords: ["ai", "n8n", "oauth", "local tools", "model relay"],
     icons: {
       icon: "/relmio-icon-rounded.svg",
       shortcut: "/relmio-icon-rounded.svg",
@@ -67,7 +67,7 @@ export async function generateMetadata(): Promise<Metadata> {
       title,
       description,
       type: "website",
-      images: [{ url: imageUrl, width: 1200, height: 630, alt: "Relmio" }],
+      images: [{ url: imageUrl, width: 1200, height: 630, alt: "Relmio: Bring your AI sign-ins to your tools." }],
     },
     twitter: {
       card: "summary_large_image",

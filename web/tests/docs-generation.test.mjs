@@ -20,6 +20,7 @@ const expectedRoutes = [
   "local-endpoints",
   "local-n8n-stack",
   "vps-and-n8n",
+  "vps-supergrok",
   "ai-assistant",
   "troubleshooting",
   "faq",
@@ -83,9 +84,15 @@ test("generates the hosted docs from the canonical root Markdown page map", asyn
   );
   assert.match(renderedDocumentation, /foreground, one-shot/u);
   assert.match(renderedDocumentation, /official Codex App Server/u);
-  assert.match(renderedDocumentation, /xAI\/Grok authentication is API-key only/u);
-  assert.match(renderedDocumentation, /does not implement third-party Grok OAuth/u);
-  assert.match(renderedDocumentation, /never changes accounts or keys automatically/u);
+  assert.match(renderedDocumentation, /Relmio 0\.14\.0/u);
+  assert.doesNotMatch(renderedDocumentation.split("export const changelogContent")[0], /fresh xAI API key|Select API profile/u);
+  assert.match(renderedDocumentation, /official Grok CLI[\s\S]*fresh/iu);
+  assert.match(renderedDocumentation, /\/v1\/chat\/completions/u);
+  assert.match(renderedDocumentation, /HTTP handler reads only this[\s\S]*runtime's marked session/u);
+  assert.match(renderedDocumentation, /never consumes refresh tokens/u);
+  assert.match(renderedDocumentation, /does not invoke CLI tools/u);
+  assert.match(renderedDocumentation, /Live logout\/refusal,\s+browser, and release gates remain separate/u);
+  assert.match(renderedDocumentation, /never changes accounts automatically/u);
   assert.match(generator, /--check/u);
   assert.doesNotMatch(generator, /readFile\([^)]*README\.md/u);
 });
@@ -109,6 +116,7 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
         "local-endpoints.md",
         "local-n8n-stack.md",
         "vps-and-n8n.md",
+        "vps-supergrok.md",
         "ai-assistant.md",
         "troubleshooting.md",
         "faq.md",

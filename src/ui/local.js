@@ -6,7 +6,7 @@ const element = (id) => document.getElementById(id);
 
 const state = {
   step: 1,
-  target: "openai-api",
+  target: "xai-grok-build",
   dockerAvailable: false,
   localN8nStackState: null,
   planId: null,
@@ -54,37 +54,28 @@ const DASHBOARD_ACTIONS = Object.freeze([
   "setup",
   "resume",
   "remove",
-  "sign-in",
-  "rotate-credential",
+  "sign-in-chatgpt",
+  "sign-out-chatgpt",
+  "sign-in-grok-build",
+  "sign-out-grok-build",
+  "remove-owned-supergrok",
+  "rotate-local-capability",
   "refresh-credential",
 ]);
 const DASHBOARD_SERVICE_DEFINITIONS = Object.freeze([
-  Object.freeze({ target: "openai-api", label: "OpenAI API", kind: "endpoint" }),
-  Object.freeze({
-    target: "codex-chatgpt",
-    label: "Codex (ChatGPT login)",
-    kind: "endpoint",
-  }),
-  Object.freeze({
-    target: "codex-chat",
-    label: "Codex Chat adapter",
-    kind: "endpoint",
-  }),
-  Object.freeze({
-    target: "local-n8n-stack",
-    label: "n8n + ngrok",
-    kind: "n8n-stack",
-  }),
-  Object.freeze({
-    target: "n8n-openai-oauth",
-    label: "OpenAI OAuth bridge",
-    kind: "n8n-oauth-bridge",
-  }),
-  Object.freeze({
-    target: "local-n8n-assistant",
-    label: "AI Assistant tools",
-    kind: "n8n-assistant",
-  }),
+  Object.freeze({ target: "codex-chatgpt", label: "Codex (ChatGPT login)", kind: "endpoint" }),
+  Object.freeze({ target: "codex-chat", label: "Codex Chat adapter", kind: "endpoint" }),
+  Object.freeze({ target: "xai-grok-build", label: "SuperGrok", kind: "endpoint" }),
+  Object.freeze({ target: "local-n8n-stack", label: "n8n + ngrok", kind: "n8n-stack" }),
+  Object.freeze({ target: "n8n-openai-oauth", label: "OpenAI OAuth bridge", kind: "n8n-oauth-bridge" }),
+  Object.freeze({ target: "local-n8n-assistant", label: "AI Assistant tools", kind: "n8n-assistant" }),
+  Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok for n8n", kind: "n8n-supergrok" }),
+]);
+const DASHBOARD_PROVIDER_DEFINITIONS = Object.freeze([
+  Object.freeze({ target: "codex-chatgpt", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" }),
+  Object.freeze({ target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" }),
+  Object.freeze({ target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" }),
+  Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" }),
 ]);
 const DASHBOARD_SERVICE_STATES = new Set(
   DASHBOARD_STATES.filter((value) => !["checking", "stale"].includes(value)),
@@ -105,6 +96,21 @@ const errorText = element("global-error-text");
 bindWizardNavigation(element("back-to-vps"), "/", token);
 bindWizardNavigation(element("setup-another-local"), "/local", token);
 bindWizardNavigation(element("return-to-vps"), "/", token);
+bindWizardNavigation(element("local-route-vps-openai"), "/", token);
+bindWizardNavigation(element("local-route-vps-supergrok"), "/supergrok-vps", token);
+
+element("local-route-current").addEventListener("click", () => {
+  if (state.operationBusy) return;
+  element("target-form").scrollIntoView({
+    block: "start",
+    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth",
+  });
+  document.querySelector('input[name="target"]:checked')?.focus({
+    preventScroll: true,
+  });
+});
 
 function setMessage(text) {
   messageText.textContent = text;
@@ -452,6 +458,16 @@ function startInstallProgress(button) {
 
 function stopInstallProgress(button) {
   stopOperation(button);
+  element("install-settings-button").disabled =
+    !state.planId || !state.plan || !element("install-confirm").checked;
+  // The operation lock snapshots controls before a successful install renders
+  // its removal panel. Restore the private removal confirmation after that
+  // snapshot so a ready sidecar can be removed only after a new confirmation.
+  if (state.installedTarget === "n8n-supergrok-oauth") {
+    element("remove-supergrok-confirm").checked = false;
+    element("remove-supergrok-confirm").disabled = false;
+    element("remove-supergrok-button").disabled = true;
+  }
   element("install-panel").setAttribute("aria-busy", "false");
 }
 
@@ -479,9 +495,12 @@ if (typeof document !== "undefined") {
   }
 }
 
-function showStep(step) {
+function showStep(step, { showSetupProgress = true } = {}) {
   state.step = step;
   document.body.dataset.currentStep = String(step);
+  element("setup-progress").hidden = !showSetupProgress;
+  element("done-step-caption").hidden = !showSetupProgress;
+  element("success-mark").hidden = !showSetupProgress;
 
   for (const panel of document.querySelectorAll("[data-step]")) {
     const active = Number(panel.dataset.step) === step;
@@ -493,8 +512,8 @@ function showStep(step) {
 
   for (const marker of document.querySelectorAll("[data-step-marker]")) {
     const markerStep = Number(marker.dataset.stepMarker);
-    marker.classList.toggle("complete", markerStep < step);
-    if (markerStep === step) {
+    marker.classList.toggle("complete", showSetupProgress && markerStep < step);
+    if (showSetupProgress && markerStep === step) {
       marker.setAttribute("aria-current", "step");
     } else {
       marker.removeAttribute("aria-current");
@@ -583,7 +602,7 @@ function normalizeDashboardEndpoint(value, target) {
     throw dashboardContractError();
   }
   const expectedProtocol = target === "codex-chatgpt" ? "ws:" : "http:";
-  const expectedPath = target === "openai-api" ? "/v1" : "/";
+  const expectedPath = "/";
   const port = readDashboardLoopbackPort(value);
   if (
     parsed.protocol !== expectedProtocol ||
@@ -755,6 +774,26 @@ function normalizeAssistantDashboardSnapshot(snapshot) {
   };
 }
 
+function normalizeN8nSuperGrokDashboardSnapshot(snapshot) {
+  assertDashboardKeys(snapshot, ["target", "endpoint", "auth", "canRemove"]);
+  assertDashboardKeys(snapshot.auth, ["configured", "disclosure"]);
+  if (
+    snapshot.target !== "n8n-supergrok-oauth" ||
+    snapshot.endpoint !== "http://n8n-supergrok:14502/v1" ||
+    snapshot.auth.configured !== true ||
+    snapshot.auth.disclosure !== "one-time" ||
+    snapshot.canRemove !== true
+  ) {
+    throw dashboardContractError();
+  }
+  return {
+    target: "n8n-supergrok-oauth",
+    endpoint: "http://n8n-supergrok:14502/v1",
+    auth: { configured: true, disclosure: "one-time" },
+    canRemove: true,
+  };
+}
+
 function normalizeDashboardServiceSnapshot(snapshot, definition) {
   if (definition.kind === "endpoint") {
     return normalizeEndpointDashboardSnapshot(snapshot, definition);
@@ -765,10 +804,13 @@ function normalizeDashboardServiceSnapshot(snapshot, definition) {
   if (definition.kind === "n8n-oauth-bridge") {
     return normalizeBridgeDashboardSnapshot(snapshot);
   }
+  if (definition.kind === "n8n-supergrok") {
+    return normalizeN8nSuperGrokDashboardSnapshot(snapshot);
+  }
   return normalizeAssistantDashboardSnapshot(snapshot);
 }
 
-function expectedDashboardActions(definition, serviceState, snapshot) {
+function expectedDashboardActions(definition, serviceState, snapshot, provider) {
   if (serviceState === "absent") return ["setup"];
   if (serviceState === "unavailable") return [];
   if (snapshot === null) return [];
@@ -786,9 +828,11 @@ function expectedDashboardActions(definition, serviceState, snapshot) {
     snapshot.canRotateCredential === true
   ) {
     if (["codex-chatgpt", "codex-chat"].includes(definition.target)) {
-      actions.push("sign-in");
+      actions.push("sign-in-chatgpt", "sign-out-chatgpt");
+    } else if (definition.target === "xai-grok-build") {
+      actions.push("sign-in-grok-build", "sign-out-grok-build");
     }
-    actions.push("rotate-credential");
+    actions.push("rotate-local-capability");
   }
   if (
     definition.kind === "n8n-oauth-bridge" &&
@@ -797,11 +841,27 @@ function expectedDashboardActions(definition, serviceState, snapshot) {
   ) {
     actions.push("refresh-credential");
   }
+  if (definition.kind === "n8n-supergrok" && serviceState === "healthy") {
+    return ["sign-in-grok-build", "sign-out-grok-build", "remove-owned-supergrok"];
+  }
   if (snapshot.canRemove === true) actions.push("remove");
   return actions;
 }
 
-function normalizeDashboardService(service, definition) {
+function normalizeDashboardProvider(value, definition) {
+  assertDashboardKeys(value, ["target", "label", "authentication", "readiness"]);
+  if (
+    value.target !== definition.target ||
+    value.label !== definition.label ||
+    value.authentication !== "provider-oauth" ||
+    value.readiness !== "runtime-owned"
+  ) {
+    throw dashboardContractError();
+  }
+  return { ...definition };
+}
+
+function normalizeDashboardService(service, definition, provider) {
   assertDashboardKeys(service, [
     "target",
     "label",
@@ -836,7 +896,12 @@ function normalizeDashboardService(service, definition) {
   const snapshot = service.snapshot === null
     ? null
     : normalizeDashboardServiceSnapshot(service.snapshot, definition);
-  const expectedActions = expectedDashboardActions(definition, service.state, snapshot);
+  const expectedActions = expectedDashboardActions(
+    definition,
+    service.state,
+    snapshot,
+    provider,
+  );
   if (
     expectedActions.length !== service.actions.length ||
     expectedActions.some((action, index) => action !== service.actions[index])
@@ -861,6 +926,7 @@ function normalizeDashboardSnapshot(value) {
     "docker",
     "auth",
     "services",
+    "providers",
     ...(Object.hasOwn(value ?? {}, "previewMode") ? ["previewMode"] : []),
   ];
   assertDashboardKeys(value, topLevelNames);
@@ -874,10 +940,15 @@ function normalizeDashboardSnapshot(value) {
     typeof value.docker.available !== "boolean" ||
     value.auth.secretsRevealable !== false ||
     !Array.isArray(value.services) ||
-    value.services.length !== DASHBOARD_SERVICE_DEFINITIONS.length
+    value.services.length !== DASHBOARD_SERVICE_DEFINITIONS.length ||
+    !Array.isArray(value.providers) ||
+    value.providers.length !== DASHBOARD_PROVIDER_DEFINITIONS.length
   ) {
     throw dashboardContractError();
   }
+  const providers = value.providers.map((provider, index) =>
+    normalizeDashboardProvider(provider, DASHBOARD_PROVIDER_DEFINITIONS[index]));
+  const providersByTarget = new Map(providers.map((provider) => [provider.target, provider]));
   const generatedAt = new Date(value.generatedAt);
   if (
     !Number.isFinite(generatedAt.getTime()) ||
@@ -903,7 +974,12 @@ function normalizeDashboardSnapshot(value) {
     },
     auth: { secretsRevealable: false },
     services: value.services.map((service, index) =>
-      normalizeDashboardService(service, DASHBOARD_SERVICE_DEFINITIONS[index])),
+      normalizeDashboardService(
+        service,
+        DASHBOARD_SERVICE_DEFINITIONS[index],
+        providersByTarget.get(service.target),
+      )),
+    providers,
     ...(value.previewMode === true ? { previewMode: true } : {}),
   };
 }
@@ -1116,6 +1192,7 @@ function resetDashboardActionReview() {
   element("codex-login").hidden = true;
   element("chat-tester").hidden = true;
   element("n8n-sidecar-removal").hidden = true;
+  element("n8n-supergrok-removal").hidden = true;
   element("n8n-assistant-removal").hidden = true;
   element("n8n-stack-removal").hidden = true;
   element("n8n-stack-resume").hidden = true;
@@ -1129,7 +1206,7 @@ function showDashboardCodexSignInManagement(service) {
     service.kind !== "endpoint" ||
     service.state !== "healthy" ||
     !["codex-chatgpt", "codex-chat"].includes(service.target) ||
-    !service.actions.includes("sign-in") ||
+    !service.actions.includes("sign-in-chatgpt") ||
     !service.snapshot?.endpoint
   ) {
     throw new Error("Relmio refused an unattested Codex sign-in action.");
@@ -1141,12 +1218,9 @@ function showDashboardCodexSignInManagement(service) {
 
   element("install-result-list").hidden = false;
   for (const id of [
-    "result-api-key-row",
-    "result-responses-row",
     "result-n8n-row",
     "result-network-row",
     "result-publication-row",
-    "result-models-row",
     "result-deployment-row",
     "result-public-url-row",
     "result-assistant-mode-row",
@@ -1158,12 +1232,9 @@ function showDashboardCodexSignInManagement(service) {
     element(id).hidden = true;
   }
   for (const id of [
-    "result-api-key",
-    "result-responses",
     "result-n8n",
     "result-network",
     "result-publication",
-    "result-models",
     "result-deployment",
     "result-public-url",
     "result-assistant-mode",
@@ -1230,11 +1301,30 @@ function showDashboardRotationReview(service) {
   state.installedTarget = service.target;
   element("credential-rotation-note").hidden = false;
   element("rotate-credential-button").disabled = false;
-  element("done-title").textContent = `Rotate ${service.label} credential`;
+  element("done-title").textContent = `Rotate local capability for ${service.label}`;
   element("done-detail").textContent =
     "A replacement will be shown once, then activated and verified. The existing credential stays active until that sequence succeeds.";
   showStep(4);
-  setMessage("Review the one-time credential rotation before continuing.");
+  setMessage("Review the one-time local capability rotation before continuing.");
+}
+
+function showDashboardProviderRuntimeGuidance(service, action) {
+  resetDashboardActionReview();
+  const provider = dashboardProviderForTarget(service.target);
+  const providerLabel = provider?.label ?? "provider";
+  const signingOut = action.startsWith("sign-out");
+  const n8nSuperGrok = service.target === "n8n-supergrok-oauth";
+  const command = `relmio grok ${signingOut ? "logout" : "login"}${n8nSuperGrok ? " --n8n" : ""}`;
+  element("done-title").textContent = `Guidance only: ${signingOut ? "sign out of" : "sign in to"} ${providerLabel}`;
+  element("done-detail").textContent = providerLabel === "ChatGPT"
+    ? signingOut
+      ? "Guidance only: use the installed Codex runtime's supported sign-out process. Then use Sign in to ChatGPT to start its existing device-code flow. Relmio does not inspect or end provider sessions."
+      : "Guidance only: use the installed Codex runtime's supported sign-in process. Relmio keeps provider identity separate from local capability management."
+    : signingOut
+      ? `Run ${command} in your terminal to sign this isolated SuperGrok runtime out through its official CLI. Opening this guidance does not change the provider session.`
+      : `Run ${command} in an interactive terminal, then confirm the displayed device code on the official provider page. OAuth stays in the isolated runtime; opening this guidance does not start sign-in.`;
+  showStep(4, { showSetupProgress: false });
+  setMessage(`Guidance only: Relmio did not change the ${providerLabel} provider session.`);
 }
 
 function showDashboardRemovalReview(service) {
@@ -1254,6 +1344,12 @@ function showDashboardRemovalReview(service) {
     element("remove-bridge-confirm").disabled = false;
     element("remove-bridge-button").disabled = true;
     element("done-title").textContent = "Review bridge removal";
+  } else if (service.kind === "n8n-supergrok") {
+    element("n8n-supergrok-removal").hidden = false;
+    element("remove-supergrok-confirm").checked = false;
+    element("remove-supergrok-confirm").disabled = false;
+    element("remove-supergrok-button").disabled = true;
+    element("done-title").textContent = "Review SuperGrok for n8n removal";
   } else {
     element("n8n-assistant-removal").hidden = false;
     element("remove-assistant-confirm").checked = false;
@@ -1293,17 +1389,26 @@ async function runDashboardAction(service, action) {
     setMessage("Use the existing sign-in and ownership checks before applying a bridge credential refresh.");
     return;
   }
-  if (action === "sign-in") {
+  if (action === "sign-in-chatgpt") {
     await enterSetupView(wizardTarget, { checkDocker: false });
     showDashboardCodexSignInManagement(service);
+    return;
+  }
+  if (
+    action === "sign-out-chatgpt" ||
+    action === "sign-in-grok-build" ||
+    action === "sign-out-grok-build"
+  ) {
+    await enterSetupView(wizardTarget, { checkDocker: false });
+    showDashboardProviderRuntimeGuidance(service, action);
     return;
   }
   await enterSetupView(wizardTarget, { checkDocker: false });
   if (action === "resume") {
     showStoppedManagedLocalN8nStack();
-  } else if (action === "rotate-credential") {
+  } else if (action === "rotate-local-capability") {
     showDashboardRotationReview(service);
-  } else if (action === "remove") {
+  } else if (action === "remove" || action === "remove-owned-supergrok") {
     showDashboardRemovalReview(service);
   }
 }
@@ -1314,13 +1419,17 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
     setup: "Set up",
     resume: "Resume",
     remove: compact ? "Remove" : "Review removal",
-    "sign-in": "Sign in",
-    "rotate-credential": compact ? "Rotate" : "Rotate credential",
+    "remove-owned-supergrok": compact ? "Remove" : "Review removal",
+    "sign-in-chatgpt": "Sign in to ChatGPT",
+    "sign-out-chatgpt": "ChatGPT sign-out guidance",
+    "sign-in-grok-build": "Grok Build sign-in guidance",
+    "sign-out-grok-build": "Grok Build sign-out guidance",
+    "rotate-local-capability": compact ? "Rotate" : "Rotate local capability",
     "refresh-credential": compact ? "Refresh" : "Refresh credential",
   };
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `button ${["setup", "resume", "sign-in"].includes(action) ? "primary" : "secondary"}`;
+  button.className = `button ${["setup", "resume", "sign-in-chatgpt", "sign-in-grok-build"].includes(action) ? "primary" : "secondary"}`;
   button.dataset.dashboardService = service.target;
   button.dataset.dashboardAction = action;
   button.dataset.dashboardActionLocation = compact ? "row" : "detail";
@@ -1330,8 +1439,12 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
       setup: `Set up ${service.label}`,
       resume: `Resume ${service.label}`,
       remove: `Review removal for ${service.label}`,
-      "sign-in": `Sign in to ${service.label}`,
-      "rotate-credential": `Rotate ${service.label} credential`,
+      "remove-owned-supergrok": `Review removal for ${service.label}`,
+      "sign-in-chatgpt": `Sign in to ChatGPT for ${service.label}`,
+      "sign-out-chatgpt": `ChatGPT sign-out guidance for ${service.label}`,
+      "sign-in-grok-build": `Grok Build sign-in guidance for ${service.label}`,
+      "sign-out-grok-build": `Grok Build sign-out guidance for ${service.label}`,
+      "rotate-local-capability": `Rotate local capability for ${service.label}`,
       "refresh-credential": `Refresh ${service.label} credential`,
     };
     button.setAttribute("aria-label", accessibleLabels[action]);
@@ -1355,7 +1468,85 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
   return button;
 }
 
-function renderDashboardServiceDetail(service, { stale = false } = {}) {
+function dashboardProviderForTarget(target, snapshot = state.dashboardSnapshot) {
+  return snapshot?.providers?.find((provider) => provider.target === target) ?? null;
+}
+
+function dashboardProviderState(provider) {
+  return provider ? "absent" : "absent";
+}
+
+function dashboardProviderReadiness(provider) {
+  return provider ? "Provider-managed · not inspected" : "Not applicable";
+}
+
+function dashboardProviderAuthentication(provider) {
+  return provider ? "Provider sign-in" : "Not applicable";
+}
+
+function renderDashboardRelayPath(service, provider = dashboardProviderForTarget(service.target)) {
+  const relay = element("dashboard-relay");
+  relay.replaceChildren();
+  const runtimeState = service.state === "healthy" ? "healthy" : service.state;
+  const nodes = [
+    {
+      label: "Local app",
+      state: service.state,
+      detail: service.state === "healthy" ? "Local capability configured" : dashboardStateLabel(service.state),
+    },
+    {
+      label: "Relmio runtime",
+      state: runtimeState,
+      detail: runtimeState === "healthy" ? "Runtime reachable" : dashboardStateLabel(runtimeState),
+    },
+    {
+      label: "Provider / integration",
+      state: dashboardProviderState(provider),
+      detail: dashboardProviderReadiness(provider),
+    },
+  ];
+  relay.append(
+    ...nodes.map((node) => {
+      const item = document.createElement("li");
+      const title = document.createElement("span");
+      const detail = document.createElement("small");
+      title.textContent = node.label;
+      detail.textContent = node.detail;
+      item.append(dashboardStatusDot(node.state), title, detail);
+      return item;
+    }),
+  );
+}
+
+function renderDashboardProvider(provider) {
+  const item = document.createElement("li");
+  const providerState = dashboardProviderState(provider);
+  const service = DASHBOARD_SERVICE_DEFINITIONS.find(
+    ({ target }) => target === provider.target,
+  );
+  item.append(dashboardStatusDot(providerState));
+  const copy = document.createElement("span");
+  const title = document.createElement("strong");
+  const detail = document.createElement("small");
+  title.textContent = service?.label ?? provider.label;
+  detail.textContent = `Provider: ${provider.label} · ${dashboardProviderReadiness(provider)}`;
+  copy.append(title, detail);
+  const badge = dashboardStateNode(providerState);
+  badge.textContent = "Not inspected";
+  item.append(copy, badge);
+  return item;
+}
+
+function renderDashboardTruth(id, label, serviceState) {
+  const truth = element(id);
+  truth.textContent = label;
+  truth.dataset.state = serviceState;
+}
+
+function renderDashboardServiceDetail(
+  service,
+  { stale = false, provider = dashboardProviderForTarget(service.target) } = {},
+) {
   element("dashboard-service-detail-title").textContent = service.label;
   element("dashboard-service-detail-copy").textContent = dashboardServiceDescription(service);
   const facts = element("dashboard-service-facts");
@@ -1363,6 +1554,10 @@ function renderDashboardServiceDetail(service, { stale = false } = {}) {
   appendDashboardFact(facts, "State", dashboardStateLabel(service.state));
   appendDashboardFact(facts, "Boundary", dashboardBoundary(service));
   appendDashboardFact(facts, "Ownership", service.managed ? "Relmio managed" : "Not attested");
+  if (provider) {
+    appendDashboardFact(facts, "Authentication", dashboardProviderAuthentication(provider));
+    appendDashboardFact(facts, "Provider readiness", dashboardProviderReadiness(provider));
+  }
   if (service.snapshot?.endpoint) {
     appendDashboardFact(facts, "Endpoint", service.snapshot.endpoint, {
       copyLabel: `${service.label} endpoint`,
@@ -1399,6 +1594,10 @@ function renderDashboardServiceDetail(service, { stale = false } = {}) {
   if (service.kind === "n8n-oauth-bridge" && service.snapshot) {
     appendDashboardFact(facts, "Credential", "Server managed; never revealed here");
   }
+  if (service.kind === "n8n-supergrok" && service.snapshot) {
+    appendDashboardFact(facts, "Client bearer", "Configured; shown only at creation");
+  }
+  renderDashboardRelayPath(service, provider);
   const actions = element("dashboard-service-actions");
   actions.replaceChildren(
     ...service.actions
@@ -1507,6 +1706,9 @@ function renderDashboardChecking() {
   element("dashboard-environment-state").className =
     "dashboard-state-token state-checking";
   element("dashboard-environment-state").textContent = "Checking";
+  renderDashboardTruth("dashboard-runtime-health", "Checking", "checking");
+  renderDashboardTruth("dashboard-provider-readiness", "Checking", "checking");
+  renderDashboardTruth("dashboard-inventory-freshness", "Checking", "checking");
   element("dashboard-last-checked").textContent = "Checking now";
 }
 
@@ -1524,20 +1726,32 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
   const healthy = snapshot.services.filter(({ state: serviceState }) => serviceState === "healthy").length;
   const attention = snapshot.services.filter(({ state: serviceState }) => attentionStates.has(serviceState)).length;
   const absent = snapshot.services.filter(({ state: serviceState }) => serviceState === "absent").length;
-  element("dashboard-healthy-count").textContent = String(healthy);
-  element("dashboard-attention-count").textContent = String(attention);
-  element("dashboard-absent-count").textContent = String(absent);
-  element("dashboard-last-checked").textContent = stale
-    ? `Last verified ${formatDashboardTime(snapshot.generatedAt)}`
-    : `Checked ${formatDashboardTime(snapshot.generatedAt)}`;
-
-  const environmentState = stale
-    ? "stale"
-    : snapshot.previewMode === true || !snapshot.docker.available
+  const providerState = "absent";
+  const runtimeState = snapshot.previewMode === true || !snapshot.docker.available
       ? "unavailable"
       : attention > 0
         ? "partial"
         : "healthy";
+  renderDashboardTruth(
+    "dashboard-runtime-health",
+    runtimeState === "healthy" ? "Healthy" : dashboardStateLabel(runtimeState),
+    runtimeState,
+  );
+  renderDashboardTruth(
+    "dashboard-provider-readiness",
+    "Provider-managed · not inspected",
+    providerState,
+  );
+  renderDashboardTruth(
+    "dashboard-inventory-freshness",
+    stale ? "Refresh needed" : "Current",
+    stale ? "stale" : "healthy",
+  );
+  element("dashboard-last-checked").textContent = stale
+    ? `Last verified ${formatDashboardTime(snapshot.generatedAt)}`
+    : `Checked ${formatDashboardTime(snapshot.generatedAt)}`;
+
+  const environmentState = runtimeState;
   const environment = element("dashboard-environment");
   environment.className = `dashboard-environment state-${environmentState}`;
   environment.replaceChildren(
@@ -1548,13 +1762,11 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
       const detail = document.createElement("p");
       title.id = "dashboard-environment-title";
       detail.id = "dashboard-environment-detail";
-      title.textContent = stale
-        ? "Inventory needs refresh"
-        : snapshot.previewMode === true
+      title.textContent = snapshot.previewMode === true
           ? "Sanitized preview"
         : snapshot.docker.available
-          ? "Docker is available"
-          : "Docker is unavailable";
+          ? stale ? "Docker was available at last verification" : "Docker is available"
+          : stale ? "Docker was unavailable at last verification" : "Docker is unavailable";
       detail.textContent = stale
         ? "Showing the last verified snapshot. Maintenance actions are paused."
         : snapshot.previewMode === true
@@ -1588,7 +1800,10 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
         stale,
       })),
   );
-  renderDashboardServiceDetail(selected, { stale });
+  renderDashboardServiceDetail(selected, {
+    stale,
+    provider: dashboardProviderForTarget(selected.target, snapshot),
+  });
 
   const n8nServices = snapshot.services.filter(
     ({ kind, state: serviceState }) =>
@@ -1603,28 +1818,18 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
           "absent",
         )]),
   );
-  const credentialServices = snapshot.services.filter(({ kind, state: serviceState }) =>
-    kind !== "n8n-stack" && serviceState !== "absent");
   const credentialList = element("dashboard-credential-list");
   credentialList.replaceChildren(
-    ...credentialServices.map((service) => {
-      const item = renderDashboardCompactService(service);
-      item.lastElementChild.textContent = service.kind === "n8n-oauth-bridge"
-        ? "Refresh only"
-        : service.kind === "n8n-assistant"
-          ? "Shown once"
-          : "Rotate only";
-      return item;
-    }),
+    ...snapshot.providers.map(renderDashboardProvider),
   );
-  credentialList.hidden = credentialServices.length === 0;
+  credentialList.hidden = snapshot.providers.length === 0;
 
   const activity = document.createElement("li");
-  activity.append(dashboardStatusDot(environmentState));
+  activity.append(dashboardStatusDot(stale ? "stale" : environmentState));
   const activityCopy = document.createElement("span");
   activityCopy.textContent = stale
     ? "Last verified inventory retained; actions paused"
-    : `Inventory verified: ${healthy} healthy, ${attention} need attention, ${absent} not configured`;
+    : `Inventory verified: ${healthy} healthy, ${attention} runtime checks need attention, ${absent} not configured`;
   const time = document.createElement("time");
   time.dateTime = snapshot.generatedAt;
   time.textContent = formatDashboardTime(snapshot.generatedAt);
@@ -1672,10 +1877,11 @@ function renderDashboardFailure() {
   element("dashboard-service-detail-copy").textContent =
     "Relmio will not infer ownership or expose maintenance controls from an unreadable response.";
   element("dashboard-service-facts").replaceChildren();
+  renderDashboardRelayPath(unavailableServices[0], null);
   element("dashboard-service-actions").replaceChildren();
-  element("dashboard-healthy-count").textContent = "—";
-  element("dashboard-attention-count").textContent = "—";
-  element("dashboard-absent-count").textContent = "—";
+  renderDashboardTruth("dashboard-runtime-health", "Unavailable", "unavailable");
+  renderDashboardTruth("dashboard-provider-readiness", "Unavailable", "unavailable");
+  renderDashboardTruth("dashboard-inventory-freshness", "Unavailable", "unavailable");
   element("dashboard-last-checked").textContent = "Unavailable";
   const environment = element("dashboard-environment");
   environment.className = "dashboard-environment state-unavailable";
@@ -1727,12 +1933,9 @@ async function loadLocalDashboard() {
 function clearOneTimeSetupValues() {
   for (const id of [
     "result-endpoint",
-    "result-api-key",
-    "result-responses",
     "result-n8n",
     "result-network",
     "result-publication",
-    "result-models",
     "result-deployment",
     "result-public-url",
     "result-assistant-mode",
@@ -1749,7 +1952,6 @@ function clearOneTimeSetupValues() {
     element(id).textContent = "";
   }
   for (const id of [
-    "platform-api-key",
     "ngrok-authtoken",
     "ngrok-basic-auth-username",
     "ngrok-basic-auth-password",
@@ -1771,6 +1973,7 @@ function resetPendingSetupState() {
     "refresh-bridge-confirm",
     "enable-assistant-searxng-confirm",
     "remove-bridge-confirm",
+    "remove-supergrok-confirm",
     "remove-assistant-confirm",
     "remove-n8n-stack-confirm",
     "include-local-searxng",
@@ -1781,6 +1984,7 @@ function resetPendingSetupState() {
     "refresh-bridge-confirm",
     "enable-assistant-searxng-confirm",
     "remove-bridge-confirm",
+    "remove-supergrok-confirm",
     "remove-assistant-confirm",
     "remove-n8n-stack-confirm",
   ]) {
@@ -1790,6 +1994,7 @@ function resetPendingSetupState() {
     "refresh-bridge-button",
     "enable-assistant-searxng-button",
     "remove-bridge-button",
+    "remove-supergrok-button",
     "remove-assistant-button",
     "remove-n8n-stack-button",
   ]) {
@@ -1806,6 +2011,7 @@ function resetPendingSetupState() {
     "codex-login",
     "chat-tester",
     "n8n-sidecar-removal",
+    "n8n-supergrok-removal",
     "n8n-assistant-removal",
     "n8n-stack-removal",
     "n8n-stack-resume",
@@ -2054,23 +2260,20 @@ function selectedTarget() {
   return document.querySelector('input[name="target"]:checked')?.value;
 }
 
-function readAllowedOrigins() {
-  return element("allowed-origins")
-    .value.split(/\r?\n/u)
-    .map((value) => value.trim())
-    .filter((value) => value !== "");
-}
-
 function isCodexChat(target) {
   return target === "codex-chat";
 }
 
-function isOpenAiApi(target) {
-  return target === "openai-api";
+function isGrokBuild(target) {
+  return target === "xai-grok-build";
 }
 
 function isN8nSidecar(target) {
   return target === "n8n-openai-oauth";
+}
+
+function isN8nSuperGrok(target) {
+  return target === "n8n-supergrok-oauth";
 }
 
 function isN8nAssistant(target) {
@@ -2082,7 +2285,7 @@ function isN8nStack(target) {
 }
 
 function isN8nDockerTarget(target) {
-  return isN8nSidecar(target) || isN8nAssistant(target);
+  return isN8nSidecar(target) || isN8nSuperGrok(target) || isN8nAssistant(target);
 }
 
 function assistantModeLabel(mode) {
@@ -2153,7 +2356,8 @@ function updateReviewAvailability() {
     ((!sidecar || state.n8nOAuthExists) &&
       element("n8n-container").value !== "" &&
       element("n8n-network").value !== "");
-  element("review-button").disabled = !state.dockerAvailable || !n8nReady;
+  element("review-button").disabled =
+    !state.dockerAvailable || !n8nReady;
 }
 
 function renderSidecarNetworkOptions() {
@@ -2234,7 +2438,7 @@ async function refreshN8nDiscovery() {
   state.n8nContainers = validateN8nDiscovery(result);
   state.n8nDiscoveryLoaded = true;
   element("detected-local-integration-management").hidden =
-    state.n8nContainers.length === 0;
+    isN8nSuperGrok(state.target) || state.n8nContainers.length === 0;
   setSelectOptions(
     element("n8n-container"),
     state.n8nContainers.map((container) => ({
@@ -2584,33 +2788,39 @@ function renderTarget() {
   state.target = selectedTarget();
   invalidatePlan();
 
-  const openAiApi = isOpenAiApi(state.target);
+  const grokBuild = isGrokBuild(state.target);
+  const n8nSuperGrok = isN8nSuperGrok(state.target);
   const codexChat = isCodexChat(state.target);
   const sidecar = isN8nSidecar(state.target);
   const assistant = isN8nAssistant(state.target);
   const stack = isN8nStack(state.target);
-  const n8nTarget = sidecar || assistant;
+  const n8nTarget = isN8nDockerTarget(state.target);
+  const routeLabel = n8nSuperGrok
+    ? "SuperGrok · local n8n companion"
+    : grokBuild
+      ? "SuperGrok · local endpoint"
+      : sidecar
+        ? "OpenAI OAuth · local n8n bridge"
+        : stack
+          ? "Local n8n + ngrok"
+          : assistant
+            ? "Local n8n Assistant tools"
+            : "ChatGPT/Codex · local endpoint";
+  element("local-route-current-label").textContent = routeLabel;
   const endpointFields = element("endpoint-fields");
   const portInput = element("local-port");
-  const originsInput = element("allowed-origins");
   if (!n8nTarget) {
-    portInput.value = openAiApi ? "12435" : codexChat ? "14501" : "14500";
+    portInput.value = grokBuild ? "14502" : codexChat ? "14501" : "14500";
   }
   endpointFields.hidden = n8nTarget || stack;
   portInput.disabled = n8nTarget || stack;
   portInput.required = !n8nTarget && !stack;
-  originsInput.disabled = n8nTarget || stack;
-  element("origins-field").hidden = n8nTarget || stack || !openAiApi;
   element("n8n-sidecar-fields").hidden = !n8nTarget;
+  element("detected-local-integration-management").hidden =
+    n8nSuperGrok || state.n8nContainers.length === 0;
   element("n8n-stack-fields").hidden = !stack;
   element("n8n-stack-secrets").hidden = true;
-  for (const id of [
-    "ngrok-hostname",
-    "n8n-stack-port",
-    "ngrok-inspector-port",
-    "n8n-stack-timezone",
-    "n8n-stack-assistant-mode",
-  ]) {
+  for (const id of ["ngrok-hostname", "n8n-stack-port", "ngrok-inspector-port", "n8n-stack-timezone", "n8n-stack-assistant-mode"]) {
     element(id).disabled = !stack;
     element(id).required = stack;
   }
@@ -2622,43 +2832,34 @@ function renderTarget() {
   element("n8n-sidecar-oauth").hidden = !sidecar;
   element("n8n-sidecar-refresh").hidden = !sidecar;
   element("n8n-sidecar-scope").hidden = !sidecar;
+  element("supergrok-n8n-reminder").hidden = !n8nSuperGrok;
   element("n8n-assistant-options").hidden = !assistant;
   element("n8n-assistant-searxng-edit").hidden = !assistant;
   element("boundary-title").textContent = stack
     ? "Loopback n8n with authenticated public access"
-    : n8nTarget
-    ? "Docker-network-only guarantee"
-    : "Loopback-only guarantee";
+    : n8nTarget ? "Docker-network-only guarantee" : "Loopback-only guarantee";
   element("boundary-detail").textContent = stack
     ? "n8n and the ngrok inspector bind only to loopback. The separately public ngrok URL requires mandatory Basic Auth."
     : n8nTarget
-    ? "Relmio publishes no host port. Only the selected n8n Docker network can reach these managed services."
-    : "Relmio publishes the selected port on 127.0.0.1, not your LAN or the public internet.";
+      ? "Relmio publishes no host port. Only the selected n8n Docker network can reach these managed services."
+      : "Relmio publishes the selected port on 127.0.0.1, not your LAN or the public internet.";
   element("target-guidance-title").textContent = stack
     ? "Creates a separate Relmio-owned n8n stack"
-    : sidecar
-    ? "Uses a local ChatGPT OAuth credential"
-    : assistant
-      ? "Installs n8n AI Assistant support services"
-    : openAiApi
-    ? "Uses an OpenAI Platform API key"
-    : codexChat
-      ? "Uses official Codex ChatGPT sign-in through the experimental Relmio-specific Chat Adapter"
-      : "Uses the official Codex ChatGPT sign-in";
+    : sidecar ? "Uses a local ChatGPT OAuth credential"
+    : n8nSuperGrok ? "Uses official SuperGrok sign-in for n8n"
+    : assistant ? "Installs n8n AI Assistant support services"
+    : grokBuild ? "Uses official SuperGrok sign-in"
+    : codexChat ? "Uses official Codex ChatGPT sign-in through the experimental Relmio-specific Chat Adapter"
+    : "Uses the official Codex ChatGPT sign-in";
   element("target-guidance-detail").textContent = stack
     ? "This never discovers, edits, restarts, or reuses existing n8n. Code Sandbox uses a privileged local runner; add the existing private OAuth bridge later as a separate option."
-    : sidecar
-    ? "Relmio copies the validated local credential into its own private managed volume. No credential is sent to or returned through this browser."
-    : assistant
-      ? "Code Sandbox is always included. SearXNG JSON web search is optional and off by default. The generated sandbox API key is shown once; model-provider credentials stay separate and are configured directly in n8n."
-    : openAiApi
-    ? "Your Platform key is seeded over stdin into a private Docker volume and is never returned to the browser. A separate local client credential is generated for your apps."
-    : codexChat
-      ? "This exposes Relmio-specific HTTP POST /chat for a trusted local backend or development server. It is not OpenAI /v1, has no CORS, and browser bundles must never connect directly."
-      : "This runs Codex App Server as its own experimental protocol. It does not translate the ChatGPT session into a generic OpenAI /v1 API and it does not accept direct browser connections.";
-  if (n8nTarget && !state.suppressTargetRefresh) {
-    refreshSelectedN8nContext().catch(showError);
-  }
+    : sidecar ? "Relmio copies the validated local credential into its own private managed volume. No credential is sent to or returned through this browser."
+    : n8nSuperGrok ? "Relmio adds only a private sidecar to the selected n8n network. Run relmio grok login --n8n after installation; provider tokens are never requested in this browser."
+    : assistant ? "Code Sandbox is always included. SearXNG JSON web search is optional and off by default. The generated sandbox API key is shown once; model-provider credentials stay separate and are configured directly in n8n."
+    : grokBuild ? "This provides private Chat Completions with tool calls for local apps and n8n. The official Grok CLI signs in to its own fresh session; clients use a separate Relmio bearer."
+    : codexChat ? "This exposes Relmio-specific HTTP POST /chat for a trusted local backend or development server. It is not OpenAI /v1, has no CORS, and browser bundles must never connect directly."
+    : "This runs Codex App Server as its own experimental protocol. It does not translate the ChatGPT session into a generic OpenAI /v1 API and it does not accept direct browser connections.";
+  if (n8nTarget && !state.suppressTargetRefresh) refreshSelectedN8nContext().catch(showError);
   updateReviewAvailability();
 }
 
@@ -2681,195 +2882,80 @@ function replaceListItems(container, items) {
 }
 
 function renderPlan(plan) {
-  const openAiApi = isOpenAiApi(plan.target);
+  const grokBuild = isGrokBuild(plan.target);
+  const n8nSuperGrok = isN8nSuperGrok(plan.target);
   const codexChat = isCodexChat(plan.target);
   const sidecar = isN8nSidecar(plan.target);
   const assistant = isN8nAssistant(plan.target);
   const stack = isN8nStack(plan.target);
-  const n8nTarget = sidecar || assistant;
-  element("review-endpoint-label").textContent = stack
-    ? "Local n8n URL"
-    : assistant
-    ? "Support services"
-    : "Endpoint";
-  element("review-endpoint").textContent = stack
-    ? plan.localUrl
-    : assistant
-    ? plan.includeSearxng
-      ? "Code Sandbox + SearXNG"
-      : "Code Sandbox only"
-    : plan.endpoint;
-  element("review-protocol").textContent = stack
-    ? "New local n8n stack with ngrok Basic Auth"
+  const n8nTarget = isN8nDockerTarget(plan.target);
+  element("review-provider-context").textContent = n8nSuperGrok
+    ? "SuperGrok · local n8n companion · Chat Completions"
     : sidecar
-    ? "OpenAI-compatible HTTP /v1 inside Docker"
-    : assistant
-      ? "n8n Instance AI companion services"
-    : openAiApi
-    ? "OpenAI-compatible HTTP /v1"
-    : codexChat
-      ? "Relmio Codex Chat HTTP: POST /chat"
-      : "Codex App Server JSON-RPC over WebSocket";
-  element("review-auth").textContent = stack
-    ? "ngrok authtoken + mandatory Basic Auth (entered only during installation)"
-    : sidecar
-    ? "Local ChatGPT OAuth credential (not Platform API key)"
-    : assistant
-      ? "Model-provider credential configured separately in n8n"
-    : openAiApi
-    ? "OpenAI Platform API key"
-    : "ChatGPT sign-in through official Codex";
+      ? "OpenAI OAuth · local n8n bridge · Responses API on"
+      : grokBuild
+        ? "SuperGrok · local endpoint · official sign-in follows installation"
+        : stack
+          ? "Local n8n + ngrok · separate owned stack"
+          : assistant
+            ? "Local n8n Assistant tools · provider stays operator-managed"
+            : "ChatGPT/Codex · local endpoint";
+  element("review-endpoint-label").textContent = stack ? "Local n8n URL" : assistant ? "Support services" : "Endpoint";
+  element("review-endpoint").textContent = stack ? plan.localUrl : assistant ? (plan.includeSearxng ? "Code Sandbox + SearXNG" : "Code Sandbox only") : plan.endpoint;
+  element("review-protocol").textContent = stack ? "New local n8n stack with ngrok Basic Auth" : sidecar ? "OpenAI-compatible HTTP /v1 inside Docker" : n8nSuperGrok ? "OpenAI Chat Completions /v1 inside Docker" : assistant ? "n8n Instance AI companion services" : grokBuild ? "SuperGrok Chat Completions: /v1/chat/completions" : codexChat ? "Relmio Codex Chat HTTP: POST /chat" : "Codex App Server JSON-RPC over WebSocket";
+  element("review-auth").textContent = stack ? "ngrok authtoken + mandatory Basic Auth (entered only during installation)" : sidecar ? "Local ChatGPT OAuth credential (not Platform API key)" : n8nSuperGrok ? "Official SuperGrok sign-in; local client bearer shown once" : assistant ? "Model-provider credential configured separately in n8n" : grokBuild ? "Official SuperGrok sign-in" : "ChatGPT sign-in through official Codex";
   element("review-browser-row").hidden = n8nTarget || stack;
-  element("review-browser").textContent = openAiApi
-    ? plan.allowedOrigins.length > 0
-      ? `Only ${plan.allowedOrigins.length} exact allowed origin(s)`
-      : "Native clients only until exact origins are added"
-    : codexChat
-      ? "No. Trusted local backends and development servers only"
-      : "No. Trusted native local clients only";
-  element("review-origins-row").hidden = n8nTarget || stack || !openAiApi;
-  element("review-origins").textContent = openAiApi
-    ? plan.allowedOrigins.length > 0
-      ? plan.allowedOrigins.join(", ")
-      : "None"
-    : "";
-  for (const id of ["review-n8n-row", "review-network-row", "review-publication-row"]) {
-    element(id).hidden = !n8nTarget;
-  }
+  element("review-browser").textContent = codexChat ? "No. Trusted local backends and development servers only" : "No. Trusted native local clients only";
+  element("review-origins-row").hidden = true;
+  for (const id of ["review-n8n-row", "review-network-row", "review-publication-row"]) element(id).hidden = !n8nTarget;
   element("review-n8n").textContent = n8nTarget ? plan.n8nContainerName : "";
   element("review-network").textContent = n8nTarget ? plan.networkName : "";
   element("review-publication").textContent = n8nTarget ? "None" : "";
   element("review-public-url-row").hidden = !stack;
   element("review-assistant-mode-row").hidden = !stack;
   element("review-public-url").textContent = stack ? plan.ngrokPublicUrl : "";
-  element("review-assistant-mode").textContent = stack
-    ? assistantModeLabel(plan.assistantMode)
-    : "";
-  element("review-path").textContent = plan.managedPath;
-
+  element("review-assistant-mode").textContent = stack ? assistantModeLabel(plan.assistantMode) : "";
+  element("review-path").textContent = n8nSuperGrok
+    ? "~/.relmio/local/n8n-supergrok-oauth"
+    : plan.managedPath ?? "Managed by Relmio";
   if (stack) {
-    for (const id of ["review-n8n-row", "review-network-row", "review-publication-row"]) {
-      element(id).hidden = true;
-    }
-    replaceListItems(element("review-will"), [
-      "Create a brand-new Relmio-owned n8n stack at the displayed managed path.",
-      `Bind n8n to ${plan.localUrl} and the ngrok inspector to loopback only.`,
-      `Expose ${plan.ngrokPublicUrl} only through ngrok with mandatory Basic Auth.`,
-      `Install the selected Assistant mode: ${assistantModeLabel(plan.assistantMode)}.`,
-    ]);
-    replaceListItems(element("review-will-not"), [
-      "Discover, edit, restart, stop, recreate, or reuse any existing n8n deployment.",
-      "Expose the n8n or ngrok inspector port to the LAN or public internet.",
-      "Display or return the ngrok authtoken, Basic Auth password, or generated n8n encryption key.",
-      "Add the existing private OAuth bridge; choose it afterward as a separate wizard option.",
-    ]);
-    element("install-confirm-copy").textContent =
-      "I reviewed this exact plan and authorize Relmio to create a brand-new owned n8n stack and a public ngrok URL protected by mandatory Basic Auth. I understand existing n8n deployments are untouched.";
-    appendPolicyNotice(
-      element("review-policy"),
-      "Public ngrok access is authenticated; local services remain loopback-only",
-      "The ngrok authtoken and Basic Auth credentials are required only after review. Code Sandbox uses a privileged local runner. The existing private OAuth bridge remains a separate wizard choice.",
-    );
+    for (const id of ["review-n8n-row", "review-network-row", "review-publication-row"]) element(id).hidden = true;
+    replaceListItems(element("review-will"), ["Create a brand-new Relmio-owned n8n stack at the displayed managed path.", `Bind n8n to ${plan.localUrl} and the ngrok inspector to loopback only.`, `Expose ${plan.ngrokPublicUrl} only through ngrok with mandatory Basic Auth.`, `Install the selected Assistant mode: ${assistantModeLabel(plan.assistantMode)}.`]);
+    replaceListItems(element("review-will-not"), ["Discover, edit, restart, stop, recreate, or reuse any existing n8n deployment.", "Expose the n8n or ngrok inspector port to the LAN or public internet.", "Display or return the ngrok authtoken, Basic Auth password, or generated n8n encryption key.", "Add the existing private OAuth bridge; choose it afterward as a separate wizard option."]);
+    element("install-confirm-copy").textContent = "I reviewed this exact plan and authorize Relmio to create a brand-new owned n8n stack and a public ngrok URL protected by mandatory Basic Auth. I understand existing n8n deployments are untouched.";
+    appendPolicyNotice(element("review-policy"), "Public ngrok access is authenticated; local services remain loopback-only", "The ngrok authtoken and Basic Auth credentials are required only after review. Code Sandbox uses a privileged local runner. The existing private OAuth bridge remains a separate wizard choice.");
   } else if (sidecar) {
-    replaceListItems(element("review-will"), [
-      "Create only the new openai-oauth sidecar and its private managed credential volume.",
-      "Attach the sidecar to the exact selected existing Docker network.",
-      "Expose port 10531 only inside that Docker network.",
-      "Verify the private API and available models before reporting success.",
-    ]);
-    replaceListItems(element("review-will-not"), [
-      "Edit, exec into, rebuild, restart, stop, recreate, or change network membership on the selected n8n container.",
-      "Publish port 10531 to localhost, your LAN, ngrok, or the internet.",
-      "Return or display your ChatGPT OAuth credential in this browser.",
-      "Install n8n AI Assistant Code Sandbox or SearXNG.",
-    ]);
-    element("install-confirm-copy").textContent =
-      "I reviewed this exact Docker-network-only plan and authorize Relmio to copy my local ChatGPT OAuth credential into its private managed volume and start only the new `openai-oauth` sidecar. I understand it is unofficial; Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish port 10531.";
+    replaceListItems(element("review-will"), ["Create only the new openai-oauth sidecar and its private managed credential volume.", "Attach the sidecar to the exact selected existing Docker network.", "Expose port 10531 only inside that Docker network.", "Verify the private API and available models before reporting success."]);
+    replaceListItems(element("review-will-not"), ["Edit, exec into, rebuild, restart, stop, recreate, or change network membership on the selected n8n container.", "Publish port 10531 to localhost, your LAN, ngrok, or the internet.", "Return or display your ChatGPT OAuth credential in this browser.", "Install n8n AI Assistant Code Sandbox or SearXNG."]);
+    element("install-confirm-copy").textContent = "I reviewed this exact Docker-network-only plan and authorize Relmio to copy my local ChatGPT OAuth credential into its private managed volume and start only the new openai-oauth sidecar. I understand it is unofficial; Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish port 10531.";
+    appendPolicyNotice(element("review-policy"), "Unofficial, private Docker-network bridge", "n8n will use http://n8n-openai-oauth:10531/v1 on the selected network. The API key placeholder is local-only. This option does not install Code Sandbox or SearXNG, and it does not turn ChatGPT OAuth into an OpenAI Platform API key.");
+  } else if (n8nSuperGrok) {
+    replaceListItems(element("review-will"), ["Create only the new SuperGrok Chat Completions sidecar and its private session volume.", "Attach it to the exact selected existing Docker network.", "Expose port 14502 only inside that Docker network.", "Verify local health and access before reporting success; provider login and fresh model discovery remain separate."]);
+    replaceListItems(element("review-will-not"), ["Edit, exec into, rebuild, restart, stop, recreate, or change network membership on the selected n8n container.", "Publish port 14502 to localhost, your LAN, ngrok, or the internet.", "Request, display, import, or store a SuperGrok provider token in this browser.", "Install Code Sandbox or SearXNG."]);
+    element("install-confirm-copy").textContent = "I reviewed this exact Docker-network-only plan and authorize Relmio to start only its managed SuperGrok sidecar. I understand n8n and its network membership remain untouched and no host port is published.";
+    appendPolicyNotice(element("review-policy"), "Private SuperGrok sidecar", "n8n will use http://n8n-supergrok:14502/v1 with the one-time local bearer and Chat Completions. Run relmio grok login --n8n separately, then use a fresh catalog model. For workflow model nodes, turn Use Responses API off and choose From list; for Assistant, enter a discovered model name; for Chat, turn Use Responses API off in Settings > Chat > OpenAI.");
   } else if (assistant) {
-    replaceListItems(element("review-will"), [
-      "Create the ownership-bound Code Sandbox API, certificate initializer, and privileged Docker-in-Docker runner.",
-      plan.includeSearxng
-        ? "Create SearXNG with its JSON search API enabled on the selected private network."
-        : "Keep web search disabled; no SearXNG service, settings file, or URL will be created.",
-      "Attach only the sandbox API and optional SearXNG service to the exact selected existing Docker network.",
-      "Verify service health, the exact running set, optional JSON search, and zero host publication.",
-    ]);
-    replaceListItems(element("review-will-not"), [
-      "Edit, exec into, rebuild, restart, stop, recreate, or change network membership on the selected n8n container.",
-      "Publish the sandbox, runner, or SearXNG ports to localhost, your LAN, ngrok, or the internet.",
-      "Store or configure an AI model-provider credential for n8n.",
-      "Apply the returned n8n environment settings or restart n8n for you.",
-    ]);
-    element("install-confirm-copy").textContent =
-      "I reviewed this exact private companion plan and authorize Relmio to start its Code Sandbox services with a privileged Docker-in-Docker runner and the selected SearXNG option. I understand this is for local development and testing; Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish any companion port.";
+    replaceListItems(element("review-will"), ["Create the ownership-bound Code Sandbox API, certificate initializer, and privileged Docker-in-Docker runner.", plan.includeSearxng ? "Create SearXNG with its JSON search API enabled on the selected private network." : "Keep web search disabled; no SearXNG service, settings file, or URL will be created.", "Attach only the sandbox API and optional SearXNG service to the exact selected existing Docker network.", "Verify service health, the exact running set, optional JSON search, and zero host publication."]);
+    replaceListItems(element("review-will-not"), ["Edit, exec into, rebuild, restart, stop, recreate, or change network membership on the selected n8n container.", "Publish the sandbox, runner, or SearXNG ports to localhost, your LAN, ngrok, or the internet.", "Store or configure an AI model-provider credential for n8n.", "Apply the returned n8n environment settings or restart n8n for you."]);
+    element("install-confirm-copy").textContent = "I reviewed this exact private companion plan and authorize Relmio to start its Code Sandbox services with a privileged Docker-in-Docker runner and the selected SearXNG option. I understand this is for local development and testing; Relmio will not edit, exec into, rebuild, restart, stop, recreate, or change n8n network membership, or publish any companion port.";
+    appendPolicyNotice(element("review-policy"), "Privileged local companion; operator-owned n8n configuration", plan.includeSearxng ? "Relmio will install Code Sandbox and private SearXNG. After verification, copy the one-time sandbox API key and returned URLs into your own n8n environment. Any n8n restart remains your action. Use Daytona instead for production sandboxing." : "Relmio will install Code Sandbox without web search. After verification, copy the one-time sandbox API key and returned URL into your own n8n environment. Any n8n restart remains your action. Use Daytona instead for production sandboxing.");
   } else {
-    replaceListItems(element("review-will"), [
-      "Build one target-specific Docker image.",
-      "Bind the selected port exactly to 127.0.0.1.",
-      "Generate a separate one-time client credential.",
-      "Keep provider credentials in private Docker volumes.",
-    ]);
-    replaceListItems(element("review-will-not"), [
-      "Publish the endpoint to your LAN or internet.",
-      "Turn ChatGPT credentials into Platform API credentials.",
-      "Modify or restart your n8n container.",
-      "Reuse the existing Hostinger deployment.",
-    ]);
-    element("install-confirm-copy").textContent =
-      "I reviewed this exact loopback plan and authorize Relmio to write its managed local files and start this Docker container.";
-  }
-
-  if (sidecar) {
-    appendPolicyNotice(
-      element("review-policy"),
-      "Unofficial, private Docker-network bridge",
-      "n8n will use http://n8n-openai-oauth:10531/v1 on the selected network. The API key placeholder is local-only. This option does not install Code Sandbox or SearXNG, and it does not turn ChatGPT OAuth into an OpenAI Platform API key.",
-    );
-  } else if (assistant) {
-    appendPolicyNotice(
-      element("review-policy"),
-      "Privileged local companion; operator-owned n8n configuration",
-      plan.includeSearxng
-        ? "Relmio will install Code Sandbox and private SearXNG. After verification, copy the one-time sandbox API key and returned URLs into your own n8n environment. Any n8n restart remains your action. Use Daytona instead for production sandboxing."
-        : "Relmio will install Code Sandbox without web search. After verification, copy the one-time sandbox API key and returned URL into your own n8n environment. Any n8n restart remains your action. Use Daytona instead for production sandboxing.",
-    );
-  } else if (stack) {
-    appendPolicyNotice(
-      element("review-policy"),
-      "Authenticated public test stack",
-      "Only the ngrok URL is public, and mandatory Basic Auth protects it. Local n8n and the ngrok inspector remain bound to loopback; Code Sandbox and SearXNG publish no host ports.",
-    );
-  } else if (openAiApi) {
-    appendPolicyNotice(
-      element("review-policy"),
-      "OpenAI Platform terms and billing apply",
-      "This option sends requests to the OpenAI API with your developer Platform key. ChatGPT subscriptions and open-source program benefits do not turn a ChatGPT credential into an API key.",
-    );
-  } else if (codexChat) {
-    appendPolicyNotice(
-      element("review-policy"),
-      "Experimental Codex Chat Adapter. Trusted local backends or development servers only",
-      "This option runs a small authenticated Relmio HTTP adapter on loopback. It accepts only POST /chat from a trusted local backend or development server. It has no CORS and is not OpenAI /v1. ChatGPT credentials stay in the isolated Codex Docker volume and never become Platform API keys.",
-    );
-  } else {
-    appendPolicyNotice(
-      element("review-policy"),
-      "Experimental, high-trust Codex integration",
-      "This option exposes the official Codex App Server only on loopback. Its client capability controls Codex inside the isolated container, may act through the ChatGPT session you sign in with, and may recover that container's ChatGPT session credential. Treat it like your ChatGPT password. It is not a browser or OpenAI /v1 API.",
-    );
+    replaceListItems(element("review-will"), ["Build one target-specific Docker image.", "Bind the selected port exactly to 127.0.0.1.", "Generate a separate one-time client credential.", "Keep provider sessions in private Docker volumes."]);
+    replaceListItems(element("review-will-not"), ["Publish the endpoint to your LAN or internet.", "Turn a provider sign-in into an API key.", "Modify or restart your n8n container.", "Reuse the existing Hostinger deployment."]);
+    element("install-confirm-copy").textContent = "I reviewed this exact loopback plan and authorize Relmio to write its managed local files and start this Docker container.";
+    appendPolicyNotice(element("review-policy"), grokBuild ? "Experimental SuperGrok integration" : codexChat ? "Experimental Codex Chat Adapter. Trusted local backends or development servers only" : "Experimental, high-trust Codex integration", grokBuild ? "The official Grok CLI signs in to a fresh private session. Relmio exposes Chat Completions for local apps and n8n, without API keys, imported tokens, or automatic account switching." : codexChat ? "This option runs a small authenticated Relmio HTTP adapter on loopback. It accepts only POST /chat from a trusted local backend or development server. It has no CORS and is not OpenAI /v1. ChatGPT credentials stay in the isolated Codex Docker volume and never become Platform API keys." : "This option exposes the official Codex App Server only on loopback. Its client capability controls Codex inside the isolated container and may recover that container's ChatGPT session credential. Treat it like your ChatGPT password. It is not a browser or OpenAI /v1 API.");
   }
 }
 
 function prepareInstallPanel() {
-  const openAiApi = isOpenAiApi(state.plan.target);
+  const grokBuild = isGrokBuild(state.plan.target);
+  const n8nSuperGrok = isN8nSuperGrok(state.plan.target);
   const codexChat = isCodexChat(state.plan.target);
   const sidecar = isN8nSidecar(state.plan.target);
   const assistant = isN8nAssistant(state.plan.target);
   const stack = isN8nStack(state.plan.target);
-  const n8nTarget = sidecar || assistant || stack;
-  const apiKey = element("platform-api-key");
-  element("api-key-field").hidden = !openAiApi;
-  element("codex-install-warning").hidden = openAiApi || n8nTarget;
+  const n8nTarget = sidecar || n8nSuperGrok || assistant || stack;
+  element("codex-install-warning").hidden = n8nTarget;
   element("sidecar-install-note").hidden = !sidecar;
   element("assistant-install-note").hidden = !assistant;
   element("n8n-stack-install-note").hidden = !stack;
@@ -2880,43 +2966,12 @@ function prepareInstallPanel() {
     element(id).value = "";
     element(id).setCustomValidity("");
   }
-  for (const id of ["generate-ngrok-basic-auth-password", "toggle-ngrok-basic-auth-password"]) {
-    element(id).disabled = !stack;
-  }
+  for (const id of ["generate-ngrok-basic-auth-password", "toggle-ngrok-basic-auth-password"]) element(id).disabled = !stack;
   resetBasicAuthPasswordVisibility();
-  element("codex-install-warning-title").textContent = codexChat
-    ? "Credential for trusted local backends or development servers only"
-    : "High-trust capability";
-  element("codex-install-warning-detail").textContent = codexChat
-    ? "The generated bearer authorizes chat turns through your signed-in Codex container. Keep it only in a trusted local backend or development server; never put it in browser code."
-    : "Anyone holding the generated client credential can control Codex inside its isolated container, act through your signed-in ChatGPT session, and may be able to recover that container's ChatGPT session credential. Treat this capability like your ChatGPT password and give it only to a trusted native local app.";
-  apiKey.required = openAiApi;
-  apiKey.value = "";
-  element("install-intro").textContent = stack
-    ? "Enter the ngrok authtoken and mandatory Basic Auth credentials for the reviewed new owned stack. They are sent only to this local Relmio process and cleared immediately."
-    : sidecar
-    ? "Relmio will re-attest the selected running n8n container and Docker network, seed its private credential volume, and install only the new sidecar."
-    : assistant
-      ? "Relmio will re-attest the selected running n8n container and Docker network, then create and verify only its private Code Sandbox services and selected SearXNG option."
-    : openAiApi
-    ? "Enter the OpenAI Platform API key this endpoint will use upstream. It is sent only to this local Relmio process."
-    : codexChat
-      ? "Relmio will install the experimental Codex Chat Adapter and official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready."
-      : "Relmio will install the official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready.";
-  setButtonLabel(
-    element("install-button"),
-    stack
-      ? "Create new local n8n + ngrok"
-      : sidecar
-      ? "Install private n8n bridge"
-      : assistant
-        ? "Install n8n Assistant tools"
-      : openAiApi
-      ? "Install OpenAI API endpoint"
-      : codexChat
-        ? "Install Codex Chat Adapter"
-        : "Install Codex App Server",
-  );
+  element("codex-install-warning-title").textContent = codexChat ? "Credential for trusted local backends or development servers only" : "High-trust capability";
+  element("codex-install-warning-detail").textContent = codexChat ? "The generated bearer authorizes chat turns through your signed-in Codex container. Keep it only in a trusted local backend or development server; never put it in browser code." : "Anyone holding the generated client credential can control Codex inside its isolated container, act through your signed-in ChatGPT session, and may be able to recover that container's ChatGPT session credential. Treat this capability like your ChatGPT password and give it only to a trusted native local app.";
+  element("install-intro").textContent = stack ? "Enter the ngrok authtoken and mandatory Basic Auth credentials for the reviewed new owned stack. They are sent only to this local Relmio process and cleared immediately." : sidecar ? "Relmio will re-attest the selected running n8n container and Docker network, seed its private credential volume, and install only the new sidecar." : n8nSuperGrok ? "Relmio will re-attest the selected running n8n container and Docker network, then install only its private SuperGrok Chat Completions sidecar." : assistant ? "Relmio will re-attest the selected running n8n container and Docker network, then create and verify only its private Code Sandbox services and selected SearXNG option." : grokBuild ? "Relmio will install the experimental SuperGrok integration. Complete official provider sign-in only after the container is ready." : codexChat ? "Relmio will install the experimental Codex Chat Adapter and official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready." : "Relmio will install the official Codex App Server first. You will complete ChatGPT device sign-in after the container is ready.";
+  setButtonLabel(element("install-button"), stack ? "Create new local n8n + ngrok" : sidecar ? "Install private n8n bridge" : n8nSuperGrok ? "Install SuperGrok for n8n" : assistant ? "Install n8n Assistant tools" : grokBuild ? "Install SuperGrok integration" : codexChat ? "Install Codex Chat Adapter" : "Install Codex App Server");
 }
 
 const ASSISTANT_SANDBOX_IMAGE =
@@ -2940,11 +2995,12 @@ function hasExactAssistantSettings(value, expectedSettings) {
 
 function renderInstallResult(result) {
   const sidecar = isN8nSidecar(result.target);
+  const n8nSuperGrok = isN8nSuperGrok(result.target);
   const assistant = isN8nAssistant(result.target);
   const stack = isN8nStack(result.target);
-  const n8nTarget = sidecar || assistant || stack;
+  const n8nTarget = sidecar || n8nSuperGrok || assistant || stack;
   const endpoint = stack ? result.localUrl : result.endpoint;
-  const endpointTargets = ["openai-api", "codex-chatgpt", "codex-chat"];
+  const endpointTargets = ["codex-chatgpt", "codex-chat", "xai-grok-build"];
   const assistantSettings = result?.n8nSettings;
   const expectedAssistantSettings = assistant
     ? {
@@ -2979,11 +3035,39 @@ function renderInstallResult(result) {
     result.deploymentMode === "installed" &&
     typeof result.networkName === "string" &&
     hasExactAssistantSettings(assistantSettings, expectedAssistantSettings);
+  const n8nSuperGrokResultValid =
+    n8nSuperGrok &&
+    hasExactKeys(result, [
+      "target",
+      "endpoint",
+      "baseUrl",
+      "protocol",
+      "networkName",
+      "n8nContainerName",
+      "hostPublication",
+      "clientCredential",
+      "credentialShownOnce",
+      "deploymentMode",
+      "models",
+    ]) &&
+    result.endpoint === "http://n8n-supergrok:14502/v1" &&
+    result.baseUrl === result.endpoint &&
+    result.protocol === "openai-chat-completions" &&
+    isSafeDockerDisplayName(result.networkName) &&
+    isSafeDockerDisplayName(result.n8nContainerName) &&
+    result.hostPublication === "none" &&
+    /^[A-Za-z0-9_-]{32,256}$/u.test(result.clientCredential ?? "") &&
+    result.credentialShownOnce === true &&
+    result.deploymentMode === "installed" &&
+    Array.isArray(result.models) &&
+    result.models.length === 1 &&
+    result.models[0] === "grok-build";
   if (
     typeof endpoint !== "string" ||
     (!n8nTarget && typeof result.clientCredential !== "string") ||
     (!endpointTargets.includes(result.target) && !n8nTarget) ||
     (assistant && !assistantResultValid) ||
+    (n8nSuperGrok && !n8nSuperGrokResultValid) ||
     (sidecar &&
       (result.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
         result.apiKeyPlaceholder !== "local-only" ||
@@ -3005,12 +3089,24 @@ function renderInstallResult(result) {
     throw new Error("The local installer returned an unexpected response.");
   }
 
-  const openAiApi = isOpenAiApi(result.target);
+  const grokBuild = isGrokBuild(result.target);
   const codexChat = isCodexChat(result.target);
+  element("done-provider-context").textContent = n8nSuperGrok
+    ? "SuperGrok · local n8n companion · finish official sign-in before use"
+    : sidecar
+      ? "OpenAI OAuth · local n8n bridge · Responses API on"
+      : grokBuild
+        ? "SuperGrok · local endpoint · complete official sign-in before use"
+        : stack
+          ? "Local n8n + ngrok · owned stack"
+          : assistant
+            ? "Local n8n Assistant tools · n8n configuration remains yours"
+            : "ChatGPT/Codex · local endpoint";
   state.installedTarget = result.target;
   element("install-result-list").hidden = false;
   element("client-warning").hidden = false;
   element("n8n-sidecar-removal").hidden = !sidecar;
+  element("n8n-supergrok-removal").hidden = !n8nSuperGrok;
   element("n8n-assistant-removal").hidden = !assistant;
   element("n8n-stack-removal").hidden = !stack;
   element("n8n-stack-resume").hidden = true;
@@ -3019,6 +3115,11 @@ function renderInstallResult(result) {
   element("remove-bridge-button").disabled = true;
   element("remove-bridge-status").textContent =
     "The bridge remains installed until this separate confirmation is checked.";
+  element("remove-supergrok-confirm").checked = false;
+  element("remove-supergrok-confirm").disabled = !n8nSuperGrok;
+  element("remove-supergrok-button").disabled = true;
+  element("remove-supergrok-status").textContent =
+    "The sidecar remains installed until this separate confirmation is checked.";
   element("remove-assistant-confirm").checked = false;
   element("remove-assistant-confirm").disabled = false;
   element("remove-assistant-button").disabled = true;
@@ -3038,13 +3139,18 @@ function renderInstallResult(result) {
   element("one-time-note").hidden = sidecar || stack;
   element("one-time-note-title").textContent = assistant
     ? "Copy this sandbox key now"
+    : n8nSuperGrok
+      ? "Copy this local client bearer now"
     : "Copy this credential now";
   element("one-time-note-detail").textContent = assistant
     ? `Relmio shows the sandbox API key only in this install response. Copy the returned companion settings before leaving this page. ${ASSISTANT_N8N_SETTINGS_NOTE}`
-    : "Relmio shows the generated client credential only in this install response. It cannot recover it after you leave this page.";
+    : n8nSuperGrok
+      ? "Relmio shows the local client bearer only in this install response. It cannot recover it after you leave this page."
+      : "Relmio shows the generated client credential only in this install response. It cannot recover it after you leave this page.";
   element("credential-rotation-note").hidden = n8nTarget;
-  element("result-credential-row").hidden = n8nTarget;
-  if (!n8nTarget) {
+  element("result-credential-row").hidden = n8nTarget && !n8nSuperGrok;
+  element("result-credential-label").textContent = n8nSuperGrok ? "Local client bearer" : "Client credential";
+  if (!n8nTarget || n8nSuperGrok) {
     element("result-credential").textContent = result.clientCredential;
   } else {
     element("result-credential").textContent = "";
@@ -3057,15 +3163,6 @@ function renderInstallResult(result) {
   ]) {
     element(id).hidden = !n8nTarget;
   }
-  for (const id of [
-    "result-api-key-row",
-    "result-responses-row",
-    "result-models-row",
-  ]) {
-    element(id).hidden = !sidecar;
-  }
-  element("result-api-key").textContent = sidecar ? "local-only" : "";
-  element("result-responses").textContent = sidecar ? "On" : "";
   element("result-n8n").textContent = stack
     ? result.projectName
     : n8nTarget
@@ -3077,11 +3174,6 @@ function renderInstallResult(result) {
   element("result-publication").textContent = stack
     ? result.hostPublication
     : n8nTarget ? "None" : "";
-  element("result-models").textContent = sidecar
-    ? result.models.length > 0
-      ? result.models.join(", ")
-      : "No models reported"
-    : "";
   element("result-deployment").textContent = n8nTarget ? result.deploymentMode : "";
   element("result-public-url-row").hidden = !stack;
   element("result-assistant-mode-row").hidden = !stack;
@@ -3107,8 +3199,8 @@ function renderInstallResult(result) {
       .map(([name, value]) => `${name}=${value}`)
       .join("\n")
     : "";
-  element("codex-production-warning").hidden = openAiApi || n8nTarget;
-  element("codex-login").hidden = n8nTarget || openAiApi;
+  element("codex-production-warning").hidden = grokBuild || n8nTarget;
+  element("codex-login").hidden = n8nTarget || grokBuild;
   element("chat-tester").hidden = n8nTarget || !codexChat;
   if (codexChat && !state.chatTester.keyId) {
     element("chat-tester-endpoint").value = result.endpoint;
@@ -3123,10 +3215,12 @@ function renderInstallResult(result) {
     ? "New local n8n + ngrok is ready"
     : sidecar
     ? "Private n8n bridge is ready"
+    : n8nSuperGrok
+    ? "SuperGrok for n8n is ready"
     : assistant
       ? "n8n Assistant tools are ready"
-    : openAiApi
-    ? "OpenAI API endpoint is ready"
+    : grokBuild
+        ? "SuperGrok endpoint is installed"
     : codexChat
       ? "Codex Chat Adapter is installed"
       : "Codex App Server is installed";
@@ -3134,10 +3228,12 @@ function renderInstallResult(result) {
     ? "Use the loopback n8n URL locally. Before relying on the public URL, verify manually that anonymous access is blocked and your Basic Auth credentials succeed."
     : sidecar
     ? "Use the private base URL and local-only API key placeholder in n8n on the selected Docker network."
+    : n8nSuperGrok
+    ? "Use the private base URL with the one-time local bearer and Chat Completions in n8n. Use a fresh catalog model where the n8n control supports it; grok-build remains a legacy routing alias. Run relmio grok login --n8n before use."
     : assistant
       ? `${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not change or restart n8n.`
-    : openAiApi
-    ? "Copy the endpoint and generated bearer credential into your local app."
+    : grokBuild
+        ? "Use the endpoint plus /v1 as your client base URL and the one-time Relmio bearer. grok-build remains a legacy routing alias; complete official SuperGrok sign-in before sending a request."
     : codexChat
       ? "Copy the endpoint and generated bearer credential into your trusted local backend or development server, then sign the isolated Codex container in to ChatGPT."
       : "Copy the endpoint and capability, then sign the isolated Codex container in to ChatGPT.";
@@ -3147,10 +3243,12 @@ function renderInstallResult(result) {
       ? "Authenticated public ngrok route; owned disposable stack"
       : sidecar
       ? "For the selected self-hosted n8n container only"
+      : n8nSuperGrok
+      ? "For the selected self-hosted n8n container only"
       : assistant
         ? "Companions are ready; n8n configuration remains operator-owned"
-      : openAiApi
-      ? "For local OpenAI-compatible clients"
+      : grokBuild
+          ? "For trusted local SuperGrok clients"
       : codexChat
         ? "For trusted local backends or development servers only"
         : "For trusted native Codex clients only",
@@ -3158,12 +3256,14 @@ function renderInstallResult(result) {
       ? "Use the displayed local n8n URL on this computer. Open the public ngrok URL in an anonymous browser first: it must reject access until you enter the Basic Auth credentials you provided. This is not an n8n or inspector host-port publication. Export needed workflows and credentials first. Remove only this owned disposable stack with the separate confirmation; existing n8n deployments remain untouched."
       : sidecar
       ? "Set the base URL to http://n8n-openai-oauth:10531/v1, use local-only as the API key placeholder, and enable the Responses API. Host publication is None. This bridge is unofficial and installs neither AI Assistant Code Sandbox nor SearXNG."
+      : n8nSuperGrok
+      ? "Set the base URL to http://n8n-supergrok:14502/v1 and use the one-time local bearer. For workflow model nodes, turn Use Responses API off and choose From list. For Assistant, enter a discovered model name. For Chat, turn Use Responses API off in Settings > Chat > OpenAI > Edit provider. Host publication is None. SuperGrok authentication is owned by its official CLI: run relmio grok login --n8n or relmio grok logout --n8n."
       : assistant
         ? result.includeSearxng
           ? `Code Sandbox and SearXNG JSON search were verified with no host publication. ${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. The privileged runner is for local development and testing; use Daytona for production.`
           : `Code Sandbox was verified with no host publication; SearXNG was not installed. ${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. The privileged runner is for local development and testing; use Daytona for production.`
-      : openAiApi
-      ? "Use the generated client credential as the bearer API key. Your upstream Platform key remains private in the managed Docker volume."
+      : grokBuild
+          ? "Use the one-time bearer only with this Relmio endpoint. OAuth stays inside its private runtime. This installation binds to loopback; a private Docker connection for n8n requires a separately reviewed companion setup."
       : codexChat
         ? "Use this one-time credential only as a Bearer token for the Relmio-specific POST /chat endpoint. It is not an OpenAI API key, has no browser CORS support, and must remain in a trusted local backend or development server."
         : "This capability is not an OpenAI API key. Treat it like your ChatGPT password: the client is trusted to control the isolated container and may recover its ChatGPT session credential. It must speak official Codex App Server JSON-RPC over WebSocket.",
@@ -3393,17 +3493,18 @@ element("target-form").addEventListener("submit", async (event) => {
   invalidatePlan();
   try {
     const sidecar = isN8nSidecar(state.target);
+    const n8nSuperGrok = isN8nSuperGrok(state.target);
     const assistant = isN8nAssistant(state.target);
     const stack = isN8nStack(state.target);
-    const n8nTarget = sidecar || assistant;
+    const n8nTarget = isN8nDockerTarget(state.target);
     if (
       n8nTarget &&
-      ((!assistant && !state.n8nOAuthExists) ||
+      ((sidecar && !state.n8nOAuthExists) ||
         element("n8n-container").value === "" ||
         element("n8n-network").value === "")
     ) {
       throw new Error(
-        assistant
+        n8nSuperGrok || assistant
           ? "Choose a running n8n container and shared Docker network."
           : "Choose a running n8n container and shared Docker network, then complete local ChatGPT sign-in.",
       );
@@ -3433,8 +3534,6 @@ element("target-form").addEventListener("submit", async (event) => {
         : {
             target: state.target,
             port: element("local-port").value,
-            allowedOrigins:
-              state.target === "openai-api" ? readAllowedOrigins() : [],
           },
     });
     if (
@@ -3468,7 +3567,6 @@ for (const input of document.querySelectorAll('input[name="target"]')) {
 }
 
 element("local-port").addEventListener("input", invalidatePlan);
-element("allowed-origins").addEventListener("input", invalidatePlan);
 element("include-local-searxng").addEventListener("change", invalidatePlan);
 for (const id of ["ngrok-hostname", "n8n-stack-port", "ngrok-inspector-port", "n8n-stack-timezone", "n8n-stack-assistant-mode"]) {
   element(id).addEventListener("input", invalidatePlan);
@@ -3806,7 +3904,6 @@ element("install-settings-button").addEventListener("click", () => {
 element("install-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   if (state.operationBusy) return;
-  const apiKeyInput = element("platform-api-key");
   const stack = isN8nStack(state.plan?.target);
   const stackSecretInputs = [
     element("ngrok-authtoken"),
@@ -3820,18 +3917,12 @@ element("install-button").addEventListener("click", async (event) => {
     showError(new Error("Review and confirm a fresh local plan first."));
     return;
   }
-  if (state.plan.target === "openai-api" && !apiKeyInput.reportValidity()) {
-    return;
-  }
   if (stack && !validateLocalN8nStackCredentials()) {
     return;
   }
   const requestBody = {
     planId: state.planId,
     confirmed: element("install-confirm").checked,
-    ...(state.plan.target === "openai-api"
-      ? { apiKey: apiKeyInput.value }
-      : {}),
     ...(stack
       ? {
           ngrokAuthtoken: stackSecretInputs[0].value,
@@ -3840,7 +3931,6 @@ element("install-button").addEventListener("click", async (event) => {
         }
       : {}),
   };
-  apiKeyInput.value = "";
   for (const input of stackSecretInputs) input.value = "";
   const installProgressStarted = startInstallProgress(button);
   if (!installProgressStarted) return;
@@ -3849,6 +3939,8 @@ element("install-button").addEventListener("click", async (event) => {
       ? "Creating and verifying the new owned n8n stack and authenticated ngrok endpoint…"
       : isN8nSidecar(state.plan.target)
       ? "Creating and verifying only the private Docker-network sidecar…"
+      : isN8nSuperGrok(state.plan.target)
+      ? "Creating and verifying only the private SuperGrok n8n sidecar…"
       : isN8nAssistant(state.plan.target)
         ? "Creating and verifying the private Code Sandbox and selected SearXNG option…"
       : "Building and verifying the loopback-only Docker container…",
@@ -3866,10 +3958,12 @@ element("install-button").addEventListener("click", async (event) => {
         ? "New local n8n stack verified. The public ngrok URL is protected by mandatory Basic Auth."
         : result.target === "n8n-openai-oauth"
         ? "Private n8n bridge verified with no host publication. Configure its private URL in n8n."
+        : result.target === "n8n-supergrok-oauth"
+        ? "Private SuperGrok n8n sidecar verified with no host publication. Copy the one-time bearer and run the official CLI sign-in separately."
         : result.target === "n8n-ai-assistant"
           ? "Code Sandbox companions verified with no host publication. Copy the one-time n8n settings before leaving this page."
-        : result.target === "openai-api"
-        ? "Local OpenAI API endpoint verified. Copy its one-time client credential now."
+        : result.target === "xai-grok-build"
+            ? "Grok Build integration verified. Complete provider sign-in only through Grok Build's official flow."
         : result.target === "codex-chat"
           ? "Codex Chat Adapter for trusted local backends or development servers verified. Copy its one-time bearer and complete ChatGPT sign-in."
           : "Codex App Server verified. Copy its one-time capability and complete ChatGPT sign-in.",
@@ -3925,12 +4019,10 @@ element("install-button").addEventListener("click", async (event) => {
     setMessage("Installation stopped. Prepare and confirm a fresh plan before retrying.");
     showError(error);
   } finally {
-    requestBody.apiKey = undefined;
     requestBody.ngrokAuthtoken = undefined;
     requestBody.basicAuthUsername = undefined;
     requestBody.basicAuthPassword = undefined;
-    apiKeyInput.value = "";
-    stopInstallProgress(button);
+      stopInstallProgress(button);
     for (const input of stackSecretInputs) {
       input.value = "";
       input.disabled = !retryStackCredentials;
@@ -3990,6 +4082,48 @@ element("remove-bridge-button").addEventListener("click", async (event) => {
       confirmation.disabled = true;
       button.disabled = true;
     }
+  }
+});
+
+element("remove-supergrok-confirm").addEventListener("change", (event) => {
+  element("remove-supergrok-button").disabled = !event.currentTarget.checked;
+});
+
+element("remove-supergrok-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const confirmation = element("remove-supergrok-confirm");
+  clearError();
+  if (state.installedTarget !== "n8n-supergrok-oauth" || !confirmation.checked) {
+    showError(new Error("Confirm removal of this managed SuperGrok sidecar first."));
+    return;
+  }
+  let removed = false;
+  if (setBusy(button, true, "Removing SuperGrok sidecar…") === false) return;
+  setMessage("Removing only Relmio-owned SuperGrok sidecar resources. n8n and its external network remain untouched.");
+  try {
+    const result = await api("/api/local/supergrok/remove", {
+      method: "POST",
+      body: { confirmed: true },
+    });
+    if (!hasExactKeys(result, ["target", "removed"]) || result.target !== "n8n-supergrok-oauth" || result.removed !== true) {
+      throw new Error("The local wizard returned an unexpected SuperGrok removal response.");
+    }
+    removed = true;
+    state.installedTarget = null;
+    element("result-credential").textContent = "";
+    confirmation.disabled = true;
+    element("install-result-list").hidden = true;
+    element("one-time-note").hidden = true;
+    element("client-warning").hidden = true;
+    element("done-title").textContent = "SuperGrok for n8n was removed";
+    element("done-detail").textContent = "Relmio removed only its SuperGrok sidecar, private session volume, and managed files. n8n and the external Docker network were left unchanged.";
+    element("remove-supergrok-status").textContent = "SuperGrok sidecar removed. The selected n8n container and external Docker network were not changed.";
+    setMessage("SuperGrok for n8n removed; n8n and its external Docker network remain unchanged.");
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+    if (removed) button.disabled = true;
   }
 });
 
