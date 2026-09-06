@@ -112,9 +112,12 @@ class SshConnection {
     });
   }
 
-  exec(command) {
+  exec(command, { input } = {}) {
     if (typeof command !== "string" || command.length === 0) {
       return Promise.reject(new TypeError("Remote command is invalid."));
+    }
+    if (input !== undefined && (typeof input !== "string" || Buffer.byteLength(input) > 64 * 1024)) {
+      return Promise.reject(new TypeError("Remote command input is invalid."));
     }
 
     return new Promise((resolve, reject) => {
@@ -166,6 +169,7 @@ class SshConnection {
             });
           }
         });
+        if (input !== undefined) stream.end(input);
       });
     });
   }

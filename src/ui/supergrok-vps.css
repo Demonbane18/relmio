@@ -1,0 +1,45 @@
+.supergrok-vps { height: auto; min-height: 100svh; overflow: auto; }
+.grok-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 330px) minmax(0, 780px);
+  gap: 32px;
+  max-width: 1200px;
+  margin: 32px auto;
+  padding: 0 24px;
+}
+.grok-intro h1 { font-size: 2rem; line-height: 1.15; }
+.grok-intro h2 { font-size: 1rem; }
+.grok-intro p { line-height: 1.65; }
+.grok-panels { display: grid; gap: 20px; min-width: 0; }
+.supergrok-vps .panel { padding: 24px; }
+.supergrok-vps form, .supergrok-vps label { display: grid; gap: 8px; }
+.supergrok-vps form { gap: 18px; }
+.supergrok-vps label { margin: 14px 0; font-weight: 600; }
+.supergrok-vps .check { display: flex; align-items: flex-start; gap: 12px; font-weight: 400; }
+.supergrok-vps input:not([type="checkbox"]):not([type="radio"]), .supergrok-vps select {
+  width: 100%; min-width: 0; max-width: 100%; padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted); color: var(--text); font: inherit;
+}
+.supergrok-vps input:focus-visible, .supergrok-vps select:focus-visible {
+  outline: 2px solid var(--accent-bright); outline-offset: 2px;
+}
+.supergrok-vps .check input { width: auto; margin-top: 4px; accent-color: var(--accent); }
+.supergrok-vps code, .supergrok-vps dd { overflow-wrap: anywhere; }
+.supergrok-vps dd { margin: 4px 0 14px; }
+.supergrok-vps .device-code { font-size: 1.8rem; font-family: monospace; letter-spacing: .1em; }
+.supergrok-vps #error-message { border-left: 3px solid var(--danger); padding: 12px; }
+.supergrok-vps [hidden] { display: none !important; }
+.supergrok-vps .actions { flex-wrap: wrap; }
+.supergrok-vps [aria-busy="true"] { cursor: progress; }
+.supergrok-vps .site-header { gap: 24px; }
+.supergrok-vps .site-header .theme-picker { margin-left: auto; }
+.supergrok-vps .skip-link { position: fixed; top: -80px; left: 12px; z-index: 100; }
+.supergrok-vps .skip-link:focus { top: 8px; }
+@media (max-width: 760px) {
+  .grok-layout { grid-template-columns: 1fr; padding: 0 16px; gap: 18px; margin-top: 20px; }
+  .supergrok-vps .panel { padding: 18px; }
+  .supergrok-vps .site-header { gap: 12px; flex-wrap: wrap; height: auto; padding: 12px 16px; }
+  .supergrok-vps .site-header .button { font-size: .85rem; }
+}

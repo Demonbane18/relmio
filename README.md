@@ -99,6 +99,12 @@ Refresh status shows only verified connection URLs and state, never stored
 secrets. Select **Add connection** to use the existing four-step setup flow.
 Use `relmio vps` when you want to open the separate VPS setup directly.
 
+In this candidate, choose **Set up SuperGrok for n8n** in the VPS wizard to add
+the same private Grok OAuth companion to an existing remote n8n. Review the exact
+plan before installation, then complete official device sign-in in your browser.
+See [SuperGrok on a VPS](docs/vps-supergrok.md) for Chat Completions settings and
+ownership-safe management. No existing n8n restart or provider change is required.
+
 [Learn how to use the local dashboard](docs/local-dashboard.md)
 
 ## Pick a path

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Connect SuperGrok to self-hosted n8n through a private companion." />
+  <title>Relmio | SuperGrok on your VPS</title>
+  <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/supergrok-vps.css" />
+  <script src="/session-bootstrap.js"></script>
+  <script src="/theme.js" type="module"></script>
+  <script src="/supergrok-vps.js" type="module"></script>
+</head>
+<body class="supergrok-vps">
+  <a class="skip-link" href="#main-content">Skip to SuperGrok setup</a>
+  <header class="site-header"><div class="brand"><img class="brand-mark" src="/relmio-icon.png" alt="" width="28" height="28" /><span>Relmio</span></div><a id="back-link" class="button ghost">Other n8n integrations</a><fieldset class="theme-picker">
+        <legend class="visually-hidden">Color theme</legend>
+        <label title="Use system appearance">
+          <input type="radio" name="color-theme" value="system" checked />
+          <span class="theme-icon theme-icon-system" aria-hidden="true"></span>
+          <span class="visually-hidden">System</span>
+        </label>
+        <label title="Use light appearance">
+          <input type="radio" name="color-theme" value="light" />
+          <span class="theme-icon theme-icon-light" aria-hidden="true"></span>
+          <span class="visually-hidden">Light</span>
+        </label>
+        <label title="Use dark appearance">
+          <input type="radio" name="color-theme" value="dark" />
+          <span class="theme-icon theme-icon-dark" aria-hidden="true"></span>
+          <span class="visually-hidden">Dark</span>
+        </label>
+      </fieldset></header>
+  <main id="main-content" class="grok-layout">
+    <aside class="grok-intro"><p class="eyebrow">SELF-HOSTED N8N</p><h1>SuperGrok on your VPS</h1><p>Use your eligible Grok account with n8n Chat, AI Agents, and Assistant through a private Docker companion.</p><aside class="final-note"><h2>Your n8n stays as it is</h2><p>No n8n restart or rebuild. No changes to its Compose file, workflows, credentials, or current provider selection. No public companion port.</p></aside><p>Official device sign-in creates a fresh session on this VPS. No ChatGPT sign-in or xAI API key is needed.</p><p id="status-message" role="status" aria-live="polite">Checking the VPS connection…</p><p id="error-message" role="alert" tabindex="-1" hidden></p></aside>
+    <div class="grok-panels">
+      <section id="ssh-panel" class="panel" aria-labelledby="ssh-title">
+        <h2 id="ssh-title">Connect to your VPS</h2>
+        <p>Check its identity before entering your password. The password is used for this SSH connection only.</p>
+        <form id="ssh-form">
+          <label>VPS address<input id="host" autocomplete="off" required placeholder="Your VPS IP or hostname" /></label>
+          <label>SSH port<input id="port" type="number" value="22" min="1" max="65535" required /></label>
+          <p>SSH account: root</p>
+          <button id="scan-button" class="button secondary" type="button">Check VPS identity</button>
+          <div id="fingerprint-box" hidden><p>Compare this fingerprint with your VPS provider:</p><code id="fingerprint"></code><label class="check"><input id="trust-host" type="checkbox" />I checked the address and trust this VPS fingerprint.</label></div>
+          <label>VPS password<input id="password" type="password" autocomplete="current-password" disabled /></label>
+          <button id="connect-button" class="button primary" disabled>Connect and find n8n</button>
+        </form>
+      </section>
+      <section id="selection-panel" class="panel" aria-labelledby="selection-title" hidden>
+        <h2 id="selection-title">Choose your n8n</h2><p>Discovery reads Docker metadata without executing anything inside n8n.</p>
+        <label>Running n8n container<select id="container"></select></label>
+        <label>Shared Docker network<select id="network"></select></label>
+        <p id="installation-state"></p>
+        <div class="actions"><button id="refresh-button" class="button secondary" type="button">Refresh status</button><button id="disconnect-button" class="button ghost" type="button">Disconnect from VPS</button></div>
+        <div id="manage-actions" class="actions"><button class="button primary" data-action="install">Review installation</button><button class="button primary" data-action="sign-in" hidden>Sign in with Grok</button><button class="button secondary" data-action="sign-out" hidden>Sign out of Grok</button><button class="button secondary" data-action="cancel-sign-in" hidden>Cancel sign-in</button><button class="button ghost" data-action="remove" hidden>Remove companion</button></div>
+      </section>
+      <section id="review-panel" class="panel" aria-labelledby="review-title" hidden>
+        <h2 id="review-title">Review the exact action</h2><p id="review-summary"></p>
+        <dl><dt>n8n container</dt><dd id="review-container"></dd><dt>Private network</dt><dd id="review-network"></dd><dt>Companion directory</dt><dd>/docker/n8n-openai-oauth/supergrok</dd><dt>Private endpoint</dt><dd>http://n8n-supergrok:14502/v1</dd></dl>
+        <p>Existing n8n changes: none. Existing n8n restarts: zero. Published companion ports: none.</p>
+        <label class="check"><input id="confirm-action" type="checkbox" />I approve this action on only the reviewed SuperGrok companion.</label>
+        <div class="actions"><button id="apply-button" class="button primary" disabled>Confirm action</button><button id="cancel-review" class="button ghost">Back</button></div>
+      </section>
+      <section id="login-panel" class="panel" aria-labelledby="login-title" hidden><h2 id="login-title">Complete official Grok sign-in</h2><p id="login-state" role="status">Preparing device sign-in…</p><p id="device-code" class="device-code"></p><a id="device-link" class="button primary" target="_blank" rel="noopener noreferrer" hidden>Open official Grok sign-in</a><p>This sign-in expires after 15 minutes. Your provider tokens stay in the companion's private Docker volume.</p></section>
+      <section id="settings-panel" class="panel" aria-labelledby="settings-title" hidden>
+        <h2 id="settings-title">Connect n8n to SuperGrok</h2><p>In an OpenAI credential, set the Base URL to <code>http://n8n-supergrok:14502/v1</code>. Use the local bridge bearer below in its API-key field.</p>
+        <label>Local bridge bearer<input id="client-key" type="password" autocomplete="off" spellcheck="false" /></label><p id="key-help">The newly generated bearer is shown only in this browser session. Save it directly in your n8n credential. For an existing installation, enter its saved local bearer to check models.</p>
+        <div class="actions"><button id="copy-key" class="button secondary">Copy local bearer</button><button id="models-button" class="button secondary">Check account models</button></div><p id="models-result" role="status"></p>
+        <p><strong>Use Chat Completions.</strong> Turn off “Use Responses API” in the workflow OpenAI Chat Model and Chat Hub's OpenAI provider settings. Choose a model from your account's returned list.</p>
+        <p>For Assistant, use the same URL, bearer and a text model ID. Its sandbox is a separate companion. Relmio does not switch your existing n8n provider settings.</p>
+        <p>Test an AI Agent with Calculator: ask it to call Calculator for 317 × 29, then verify the tool result and final answer are 9193.</p>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

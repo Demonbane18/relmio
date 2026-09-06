@@ -1,5 +1,8 @@
 # VPS and n8n
 
+For the unreleased SuperGrok browser setup, see [SuperGrok on a VPS](./vps-supergrok.md).
+It uses a fresh official Grok device sign-in and does not require ChatGPT credentials.
+
 Relmio adds a sidecar at `/docker/n8n-openai-oauth`. It does not edit, rebuild,
 recreate, stop, or restart your n8n Compose project or image. n8n reaches the
 sidecar on its Docker network at `http://n8n-openai-oauth:10531/v1`. The

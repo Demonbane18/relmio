@@ -10,6 +10,7 @@ import packageManifest from "../../package.json" with { type: "json" };
 
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
 import { installSidecar } from "../services/installer.js";
+import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels } from "../services/vps-supergrok.js";
 import { installAssistant } from "../services/assistant-installer.js";
 import {
   getAuthStatus,
@@ -111,7 +112,7 @@ const MAX_PENDING_BROWSER_TRANSFERS = 8;
 const BROWSER_PREPARE_PATH = "/__relmio/browser/prepare";
 const BROWSER_BOOTSTRAP_PATH = "/__relmio/browser/bootstrap";
 const BROWSER_TRANSFER_PATH = "/__relmio/browser/transfer";
-const BROWSER_BOOTSTRAP_ROUTES = new Set(["/", "/assistant", "/local"]);
+const BROWSER_BOOTSTRAP_ROUTES = new Set(["/", "/assistant", "/local", "/supergrok-vps"]);
 const BROWSER_BOOTSTRAP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const PACKAGE_VERSION = packageManifest.version;
 const OAUTH_VPS_CONFLICT_MESSAGE =
@@ -154,6 +155,7 @@ const defaultServices = {
   discoverN8n,
   discoverNetworks,
   installSidecar,
+  inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels,
   installAssistant,
   attestLocalCodexInstallation,
   getManagedLocalEndpointStatus,
@@ -746,6 +748,7 @@ function advanceVpsLifecycleGeneration(state) {
 function invalidateVpsPlans(state) {
   state.sidecarPlan = null;
   state.assistantPlan = null;
+  state.supergrokPlan = null;
 }
 
 function closeVpsConnectionBestEffort(connection) {
@@ -1212,6 +1215,9 @@ async function loadDefaultUiFiles() {
     readFile(new URL("../ui/icons/moon.svg", import.meta.url), "utf8"),
     readFile(new URL("../ui/relmio-icon.png", import.meta.url)),
     readFile(new URL("../ui/relmio-icon-rounded.svg", import.meta.url), "utf8"),
+    readFile(new URL("../ui/supergrok-vps.html", import.meta.url), "utf8"),
+    readFile(new URL("../ui/supergrok-vps.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/supergrok-vps.css", import.meta.url), "utf8"),
   ]);
 
   return {
@@ -1234,6 +1240,9 @@ async function loadDefaultUiFiles() {
     "/icons/moon.svg": files[16],
     "/relmio-icon.png": files[17],
     "/relmio-icon-rounded.svg": files[18],
+    "/supergrok-vps": files[19],
+    "/supergrok-vps.js": files[20],
+    "/supergrok-vps.css": files[21],
   };
 }
 
@@ -4081,8 +4090,7 @@ async function handleApi(request, response, path, state) {
       requireUnchangedVpsSession(state, sessionSnapshot);
       state.discovery = discovery;
       state.networksByContainer.clear();
-      state.sidecarPlan = null;
-      state.assistantPlan = null;
+      invalidateVpsPlans(state);
       sendJson(response, 200, state.discovery);
     } finally {
       connectionUse.release();
@@ -4106,10 +4114,61 @@ async function handleApi(request, response, path, state) {
       );
       requireUnchangedVpsSession(state, sessionSnapshot);
       state.networksByContainer.set(body.containerName, networks);
-      state.sidecarPlan = null;
-      state.assistantPlan = null;
+      invalidateVpsPlans(state);
       sendJson(response, 200, networks);
     } finally {
+      connectionUse.release();
+    }
+    return;
+  }
+
+  if (path.startsWith("/api/vps/supergrok/")) {
+    rejectActiveVpsMutation(state);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    const snapshot = { connection, lifecycleGeneration: state.vpsLifecycleGeneration };
+    let releaseMutation;
+    try {
+      if (path === "/api/vps/supergrok/status" || path === "/api/vps/supergrok/plan") {
+        requireDiscoveredNetwork(state, body.containerName, body.networkName);
+        const args = { remote: connection, containerName: body.containerName, networkName: body.networkName, action: body.action };
+        const result = path.endsWith("/plan")
+          ? await state.services.reviewVpsSuperGrok(args)
+          : await state.services.inspectVpsSuperGrok(args);
+        requireUnchangedVpsSession(state, snapshot);
+        if (path.endsWith("/plan")) {
+          state.supergrokPlan = { ...result, planId: randomUUID() };
+          sendJson(response, 200, state.supergrokPlan);
+        } else sendJson(response, 200, result);
+      } else if (path === "/api/vps/supergrok/apply") {
+        enforceRateLimit(state, path);
+        const plan = state.supergrokPlan;
+        requireReviewedVpsPlan(plan, body, "SuperGrok");
+        if (body.confirmed !== true || plan.action !== body.action) throw new Error("Confirm the exact reviewed SuperGrok action.");
+        requireDiscoveredNetwork(state, body.containerName, body.networkName);
+        state.supergrokPlan = null;
+        releaseMutation = acquireVpsMutationLock(state);
+        snapshot.lifecycleGeneration = state.vpsLifecycleGeneration;
+        const fresh = await state.services.reviewVpsSuperGrok({ remote: connection, ...plan });
+        if (["containerId", "networkId", "installId", "action"].some(key => fresh[key] !== plan[key])) throw new Error("The SuperGrok selection changed. Review a fresh plan.");
+        const result = await (plan.action === "install" ? state.services.installVpsSuperGrok : state.services.changeVpsSuperGrok)({ remote: connection, plan, confirmed: true });
+        if (state.connection !== connection || state.vpsLifecycleGeneration !== snapshot.lifecycleGeneration) {
+          throw new Error("The VPS session changed during the companion action. Reconnect and inspect its status.");
+        }
+        sendJson(response, 200, result);
+      } else if (path === "/api/vps/supergrok/login-status") {
+        const result = await state.services.getVpsGrokLoginStatus({ remote: connection, installId: body.installId });
+        requireUnchangedVpsSession(state, snapshot);
+        sendJson(response, 200, result);
+      } else if (path === "/api/vps/supergrok/models") {
+        try {
+          const result = await state.services.discoverVpsGrokModels({ remote: connection, installId: body.installId, clientKey: body.clientKey });
+          requireUnchangedVpsSession(state, snapshot);
+          sendJson(response, 200, result);
+        } finally { body.clientKey = undefined; }
+      } else sendJson(response, 404, { error: "Not found." });
+    } finally {
+      releaseMutation?.();
       connectionUse.release();
     }
     return;

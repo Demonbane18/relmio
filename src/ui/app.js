@@ -36,6 +36,8 @@ const state = {
 const element = (id) => document.getElementById(id);
 const localEndpointLink = element("local-endpoint-link");
 bindWizardNavigation(localEndpointLink, "/local", token);
+bindWizardNavigation(element("vps-supergrok-start"), "/supergrok-vps", token);
+bindWizardNavigation(element("vps-supergrok-manage"), "/supergrok-vps", token);
 const messageToast = element("global-message");
 const message = element("global-message-text");
 const errorBox = element("global-error");

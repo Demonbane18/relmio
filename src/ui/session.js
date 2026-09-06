@@ -1,5 +1,5 @@
 const WIZARD_SESSION_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
-const WIZARD_ROUTES = new Set(["/", "/assistant", "/local"]);
+const WIZARD_ROUTES = new Set(["/", "/assistant", "/local", "/supergrok-vps"]);
 const fragmentSessionWindows = new WeakSet();
 
 const pendingBrowserTransfer = globalThis.__relmioWizardSessionReady;
