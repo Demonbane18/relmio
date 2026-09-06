@@ -30,6 +30,9 @@
 .supergrok-vps dd { margin: 4px 0 14px; }
 .supergrok-vps .device-code { font-size: 1.8rem; font-family: monospace; letter-spacing: .1em; }
 .supergrok-vps #error-message { border-left: 3px solid var(--danger); padding: 12px; }
+.grok-api-warning { margin: 20px 0; padding: 16px; border: 1px solid var(--warning-border); border-radius: var(--radius); background: var(--warning-soft); }
+.grok-api-warning h3 { margin: 0 0 8px; color: var(--warning); font-size: 1rem; }
+.grok-api-warning p { margin: 8px 0 0; line-height: 1.6; }
 .supergrok-vps [hidden] { display: none !important; }
 .supergrok-vps .actions { flex-wrap: wrap; }
 .supergrok-vps [aria-busy="true"] { cursor: progress; }

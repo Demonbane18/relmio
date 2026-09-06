@@ -22,8 +22,12 @@ sign-in is not required for this flow.
    uploaded.
 6. Choose **Check account models**. Use a returned model such as `grok-4.6` only
    when it is available to your account. A listed model may not support every tool.
-7. Turn **Use Responses API** off in workflow OpenAI Chat Model nodes and Chat
-   Hub's OpenAI provider settings. For Assistant, use its custom OpenAI-compatible
+7. **SuperGrok requires Use Responses API OFF.** In the workflow Editor, open the
+   OpenAI Chat Model node and turn this switch off; also turn it off in Chat Hub's
+   OpenAI provider settings. Leaving it on returns `404 not_found`. This differs
+   from Relmio's **OpenAI OAuth/Codex recipe, which uses Responses API ON**.
+   Recheck the switch whenever changing providers, save, and run a fresh test.
+   For Assistant, use its custom OpenAI-compatible
    endpoint with the same URL, local bearer and text model ID. Assistant's sandbox
    is a separate companion with its own prerequisites.
 
