@@ -123,7 +123,7 @@ class FakeElement {
 
 function extractOperationHelpers(script) {
   const start = script.indexOf("const OPERATION_INTERACTIVE_SELECTOR");
-  const end = script.indexOf("\nfunction showStep(step)", start);
+  const end = script.indexOf("\nfunction showStep(step,", start);
   assert.ok(start >= 0, "missing central operation helper marker");
   assert.ok(end > start, "missing central operation helper end marker");
   return script.slice(start, end);
@@ -151,6 +151,8 @@ function createHarness(script) {
   navigation.setAttribute("href", "/local");
   const themeInput = new FakeElement("input");
   const hiddenAction = new FakeElement("button", { hidden: true });
+  const superGrokRemovalConfirm = new FakeElement("input", { disabled: true });
+  const superGrokRemovalButton = new FakeElement("button", { disabled: true });
   const deviceCodeCopy = new FakeElement("button", { textContent: "Copy" });
   deviceCodeCopy.setAttribute("data-operation-allow", "copy");
   body.append(
@@ -161,6 +163,8 @@ function createHarness(script) {
     navigation,
     themeInput,
     hiddenAction,
+    superGrokRemovalConfirm,
+    superGrokRemovalButton,
     deviceCodeCopy,
     operationProgress,
     mainContent,
@@ -176,6 +180,10 @@ function createHarness(script) {
     ["install-elapsed", elapsed],
     ["install-progress-bar", progressbar],
     ["main-content", mainContent],
+    ["install-settings-button", hiddenAction],
+    ["install-confirm", enabledInput],
+    ["remove-supergrok-confirm", superGrokRemovalConfirm],
+    ["remove-supergrok-button", superGrokRemovalButton],
   ]) {
     elements.set(id, value);
   }
@@ -189,6 +197,8 @@ function createHarness(script) {
     navigation,
     themeInput,
     hiddenAction,
+    superGrokRemovalConfirm,
+    superGrokRemovalButton,
     deviceCodeCopy,
   ];
   const document = {
@@ -235,7 +245,7 @@ function createHarness(script) {
     operationProgressTimer: null,
   };
   const helpers = runInNewContext(
-    `${extractOperationHelpers(script)}\n({ setBusy, startOperation, stopOperation, updateOperationProgress });`,
+    `${extractOperationHelpers(script)}\n({ setBusy, startOperation, stopOperation, stopInstallProgress, updateOperationProgress });`,
     {
       Date,
       MutationObserver: FakeMutationObserver,
@@ -279,6 +289,8 @@ function createHarness(script) {
     progressbar,
     readonlyTextarea,
     state,
+    superGrokRemovalButton,
+    superGrokRemovalConfirm,
     themeInput,
   };
 }
@@ -296,6 +308,47 @@ function blockedEvent(target) {
     },
   };
 }
+
+test("installation completion reconciles confirmation after restoring the old control snapshot", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  for (const outcome of ["invalidated", "unchecked", "confirmed-retry"]) {
+    const harness = createHarness(script);
+    harness.state.planId = "reviewed-plan";
+    harness.state.plan = { target: "xai-grok-build" };
+    harness.enabledInput.checked = true;
+    harness.hiddenAction.disabled = false;
+    harness.helpers.startOperation(harness.activeButton, "Installing locally…");
+    if (outcome !== "confirmed-retry") {
+      harness.enabledInput.checked = false;
+      harness.hiddenAction.disabled = true;
+    }
+    if (outcome === "invalidated") {
+      harness.state.planId = null;
+      harness.state.plan = null;
+    }
+    harness.helpers.stopInstallProgress(harness.activeButton);
+    assert.equal(harness.hiddenAction.disabled, outcome !== "confirmed-retry", outcome);
+    assert.equal(harness.state.operationBusy, false);
+  }
+});
+
+test("private SuperGrok removal confirmation is enabled after the install lock restores old controls", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const harness = createHarness(script);
+  harness.state.installedTarget = "n8n-supergrok-oauth";
+  harness.helpers.startOperation(harness.activeButton, "Installing locally…");
+
+  // renderInstallResult enables the new confirmation while the operation lock
+  // is active; stopOperation would otherwise restore its prior disabled state.
+  harness.superGrokRemovalConfirm.checked = false;
+  harness.superGrokRemovalConfirm.disabled = false;
+  harness.superGrokRemovalButton.disabled = true;
+  harness.helpers.stopInstallProgress(harness.activeButton);
+
+  assert.equal(harness.superGrokRemovalConfirm.disabled, false);
+  assert.equal(harness.superGrokRemovalConfirm.checked, false);
+  assert.equal(harness.superGrokRemovalButton.disabled, true);
+});
 
 test("local wizard exposes one semantic indeterminate operation progress region", async () => {
   const html = await readFile("src/ui/local.html", "utf8");

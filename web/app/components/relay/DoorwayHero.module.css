@@ -1,0 +1,361 @@
+/* Hallmark · macrostructure: wide illustrated stage with a short invitation
+ * theme: custom Doorway Playground · tone: playful · anchor hue: teal
+ * display: Bricolage Grotesque · body: Geist · enrichment: authored SVG journey
+ * lead and independent critique: P4 H4 E4 S4 R3 V4 · local review passed
+ * Audit scope and exceptions: tasks/hallmark-browser-acceptance-2026-09-06.md
+ */
+
+/* ---------- Layout ---------- */
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-5);
+  width: 100%;
+  padding-block: clamp(var(--spacing-6), 3vh, var(--spacing-8)) var(--spacing-11);
+  font-family: var(--doorway-font-body);
+}
+
+.heroIntro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-4);
+  width: min(calc(100% - var(--spacing-8)), 70rem);
+  margin-inline: auto;
+  text-align: center;
+}
+
+.headline {
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--doorway-ink);
+  font-family: var(--doorway-font-display);
+  font-size: var(--doorway-text-display);
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+}
+
+.lede {
+  max-width: 46ch;
+  margin: 0;
+  color: var(--doorway-ink-soft);
+  font-size: var(--doorway-text-lede);
+  line-height: 1.55;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-3);
+  margin: var(--spacing-1) 0 0;
+}
+
+.installLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: var(--spacing-11);
+  padding-inline: var(--spacing-5);
+  border: var(--border-width) solid var(--doorway-teal-deep);
+  border-radius: 999px;
+  background: var(--doorway-teal-deep);
+  color: var(--doorway-cream-soft);
+  font-size: var(--text-label-size);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.installLink svg {
+  width: 1em;
+  height: 1em;
+}
+
+.installLink:hover {
+  border-color: var(--doorway-ink);
+}
+
+.installLink:active {
+  transform: translateY(0);
+}
+
+.installLink:focus-visible,
+.pauseButton:focus-visible {
+  outline: 3px solid var(--doorway-focus-ring);
+  outline-offset: 2px;
+}
+
+.stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-3);
+  width: 100%;
+  margin: 0;
+}
+
+.sceneSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 84 / 35;
+}
+
+
+.pauseButton {
+  position: absolute;
+  right: var(--spacing-3);
+  top: var(--spacing-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  min-height: var(--spacing-11);
+  padding-inline: var(--spacing-3);
+  border: var(--border-width) solid color-mix(in srgb, var(--doorway-ink) 28%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--doorway-cream-soft) 88%, transparent);
+  color: var(--doorway-ink);
+  font-family: var(--doorway-font-body);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pauseButton svg {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.pauseButton:hover {
+  border-color: var(--doorway-ink);
+}
+
+.pauseButton:active {
+  transform: translateY(0);
+}
+
+.pauseButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+/* ---------- Scene paint roles ---------- */
+.nightScene { display: none; }
+.sleepEyes { fill: none; stroke: var(--doorway-brand-cream); stroke-width: 3.5; stroke-linecap: round; }
+.sleepCapStripe { fill: none; stroke: var(--doorway-brand-cream); stroke-width: 4; stroke-linecap: round; }
+.sleepLetters { fill: var(--doorway-brand-cream); font-family: var(--doorway-font-body); font-weight: 700; opacity: .8; animation: doorway-sleep 4.5s ease-in-out infinite; }
+@keyframes doorway-sleep { 0%, 100% { transform: translateY(0); opacity: .6; } 50% { transform: translateY(-5px); opacity: 1; } }
+.nightSkyStop { stop-color: var(--doorway-night-sky); }
+.moonlight { fill: var(--doorway-moonlight); }
+.paintCloud { fill: var(--doorway-cloud); }
+.paintWindow { fill: var(--doorway-window); }
+:global(:root[data-theme="dark"]) .nightScene { display: initial; }
+:global(:root[data-theme="dark"]) .dayEyes { display: none; }
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme])) .nightScene { display: initial; }
+  :global(:root:not([data-theme])) .dayEyes { display: none; }
+}
+
+
+.paintBrandCream { fill: var(--doorway-brand-cream); }
+.paintBrandMascot { fill: var(--doorway-brand-mascot); }
+
+.paintCream { fill: var(--doorway-cream); }
+.paintCreamSoft { fill: var(--doorway-cream-soft); }
+.paintInk { fill: var(--doorway-ink); }
+.paintTeal { fill: var(--doorway-teal); }
+.paintTealDeep { fill: var(--doorway-teal-deep); }
+.paintTealSoft { fill: var(--doorway-teal-soft); }
+.paintCoral { fill: var(--doorway-coral); }
+.paintCoralSoft { fill: var(--doorway-coral-soft); }
+.paintButter { fill: var(--doorway-butter); }
+.paintSky { fill: var(--doorway-sky); }
+.paintSkySoft { fill: var(--doorway-sky-soft); }
+.paintHillBack { fill: var(--doorway-hill-back); }
+.paintHillFront { fill: var(--doorway-hill-front); }
+.paintShadow { fill: var(--doorway-shadow); }
+
+.strokeInk {
+  stroke: var(--doorway-scene-ink);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lane {
+  fill: none;
+  stroke: var(--doorway-ink-soft);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1 15;
+  opacity: 0.75;
+}
+
+.tuft {
+  fill: none;
+  stroke: var(--doorway-teal-deep);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.smileLine {
+  fill: none;
+  stroke-linecap: round;
+}
+
+/* ---------- Ambient animation ---------- */
+
+.drift {
+  animation: doorway-drift 8s var(--doorway-ease-in-out) infinite alternate;
+}
+
+.driftSlow {
+  animation: doorway-drift 12s var(--doorway-ease-in-out) infinite alternate;
+}
+
+.twinkle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: doorway-twinkle 2.6s var(--doorway-ease-in-out) infinite alternate;
+}
+
+.spinSlow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: doorway-spin 48s linear infinite;
+}
+
+.mascotFloat {
+  animation: doorway-float 3.8s var(--doorway-ease-in-out) infinite;
+}
+
+@keyframes doorway-float {
+  50% { transform: translateY(-7px); }
+}
+
+.gearSpin {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: doorway-spin 14s linear infinite;
+}
+
+.blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: doorway-blink 5.4s var(--doorway-ease-in-out) infinite;
+}
+
+.sway {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: doorway-sway 2.9s var(--doorway-ease-in-out) infinite alternate;
+}
+
+.flagWave {
+  transform-box: fill-box;
+  transform-origin: 0% 50%;
+  animation: doorway-flag 1.9s var(--doorway-ease-in-out) infinite alternate;
+}
+
+@keyframes doorway-drift {
+  from { transform: translate(-9px, 2px); }
+  to { transform: translate(9px, -3px); }
+}
+
+@keyframes doorway-twinkle {
+  from { opacity: 0.4; transform: scale(0.55); }
+  to { opacity: 1; transform: scale(1) rotate(10deg); }
+}
+
+@keyframes doorway-spin {
+  to { transform: rotate(1turn); }
+}
+
+@keyframes doorway-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  93.5% { transform: scaleY(0.08); }
+  97% { transform: scaleY(1); }
+}
+
+@keyframes doorway-sway {
+  from { transform: rotate(-2.5deg); }
+  to { transform: rotate(3deg); }
+}
+
+@keyframes doorway-flag {
+  from { transform: skewY(-4deg); }
+  to { transform: skewY(5deg); }
+}
+
+.hero[data-scene-running="false"] .sceneSvg * {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sceneSvg * {
+    animation: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .installLink,
+  .pauseButton {
+    transition:
+      transform var(--doorway-dur-micro) var(--doorway-ease-out),
+      background var(--doorway-dur-micro) var(--doorway-ease-out),
+      border-color var(--doorway-dur-micro) var(--doorway-ease-out);
+  }
+}
+
+@media (max-width: 48rem) {
+  .hero {
+    gap: var(--spacing-6);
+    padding-block-start: var(--spacing-6);
+  }
+
+  .heroIntro {
+    width: calc(100% - var(--spacing-8));
+  }
+
+  .headline {
+    font-size: clamp(2.1rem, 9.5vw, 3rem);
+  }
+
+  .sceneSvg {
+    height: auto;
+    aspect-ratio: 84 / 35;
+  }
+
+  .pauseButton {
+    position: static;
+    align-self: flex-end;
+    order: -1;
+    margin-inline-end: var(--spacing-2);
+  }
+}
+
+@media (max-width: 26rem) {
+  .lede {
+    font-size: var(--text-supporting-size);
+  }
+}
+
+.strokeCoral { stroke: var(--doorway-coral); }
+
+.strokeCreamSoft { stroke: var(--doorway-cream-soft); }
+
+
+.arrivalLabel {
+  fill: var(--doorway-scene-ink);
+  font-family: var(--doorway-font-body);
+  font-size: 18px;
+  font-weight: 600;
+}

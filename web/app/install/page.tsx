@@ -53,19 +53,13 @@ export default function InstallPage() {
 
       <section className={styles.intro} aria-labelledby="install-title">
         <p className={styles.eyebrow}>Self-hosted n8n · local installer</p>
-        <div className={styles.introGrid}>
+        <section className={styles.introGrid}>
           <h1 id="install-title">Install Relmio on your computer.</h1>
           <p>
             Connect to a compatible self-hosted n8n setup, inspect the target,
             then approve the exact companion plan only when it matches.
           </p>
-        </div>
-      </section>
-
-      <section className={styles.assistantLaunch} aria-labelledby="assistant-launch-title">
-        <p>n8n AI Assistant companion</p>
-        <h2 id="assistant-launch-title">Launch its dedicated local wizard.</h2>
-        <code>npx --yes --ignore-scripts relmio@latest assistant</code>
+        </section>
       </section>
 
       <section
@@ -75,10 +69,10 @@ export default function InstallPage() {
         data-install-toolbox
         aria-labelledby="install-method-title"
       >
-        <div className={styles.toolboxHeading}>
+        <header className={styles.toolboxHeading}>
           <p>Start locally</p>
           <h2 id="install-method-title">Choose an installation method</h2>
-        </div>
+        </header>
         <CopyCommand />
 
         <ol className={styles.steps} aria-label="Installation sequence">
@@ -91,6 +85,12 @@ export default function InstallPage() {
         </ol>
       </section>
 
+      <section className={styles.assistantLaunch} aria-labelledby="assistant-launch-title">
+        <p>n8n AI Assistant companion</p>
+        <h2 id="assistant-launch-title">Launch its dedicated local wizard.</h2>
+        <code>npx --yes --ignore-scripts relmio@latest assistant</code>
+      </section>
+
       <section className={styles.reference} aria-label="Installation details">
         <details className={styles.disclosure}>
           <summary>
@@ -100,7 +100,7 @@ export default function InstallPage() {
             </span>
             <ChevronDown aria-hidden="true" />
           </summary>
-          <div className={styles.disclosureGrid}>
+          <section className={styles.disclosureGrid}>
             <section>
               <h3>Where it runs</h3>
               <p>
@@ -132,9 +132,10 @@ export default function InstallPage() {
             <section>
               <h3>Credential boundary</h3>
               <p>
-                The OpenAI-compatible <code>/v1</code> route uses a Platform API
-                key. ChatGPT sign-in is only for the experimental Codex App Server
-                and Chat Adapter paths.
+                The current candidate handles provider OAuth only. Codex and Grok
+                keep their own sign-in sessions. SuperGrok support for local apps
+                and n8n has passed disposable live tool-call tests and remains
+                unreleased.
               </p>
             </section>
             <section>
@@ -148,7 +149,7 @@ export default function InstallPage() {
                 lifetime. <a href="https://learn.chatgpt.com/docs/auth" target="_blank" rel="noreferrer">Read the authentication guide</a>.
               </p>
             </section>
-          </div>
+          </section>
         </details>
       </section>
 

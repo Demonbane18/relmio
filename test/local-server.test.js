@@ -13,9 +13,17 @@ import {
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "local-server-test-session-token-1234567890";
-const platformApiKey = `sk-${"a".repeat(48)}`;
 const clientCredential = "local-client-credential-shown-once";
 const codexProjectName = `relmio-codex-chatgpt-${"01".repeat(16)}`;
+
+function dashboardProviders() {
+  return [
+    { target: "codex-chatgpt", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
+    { target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
+    { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" },
+    { target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
+  ];
+}
 
 async function startLocalWizard(
   t,
@@ -161,14 +169,12 @@ test("persistent shutdown refuses to interrupt an in-flight local mutation", asy
   });
 
   const plan = await createPlan(wizard, {
-    target: "openai-api",
-    port: 12435,
-    allowedOrigins: [],
+    target: "xai-grok-build",
+    port: 14502,
   });
   const installing = postJson(wizard, "/api/local/install", {
     planId: plan.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   await installStarted;
 
@@ -573,7 +579,6 @@ test("local chat tester APIs keep the setup-token boundary and return no credent
   const planned = await createPlan(wizard, {
     target: "codex-chat",
     port: "14501",
-    allowedOrigins: [],
   });
   const installed = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
@@ -873,6 +878,18 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
   assert.equal(JSON.stringify(planned).includes(dockerHost), false);
   assert.equal(planned.plan.localUrl, stackPlan.localUrl);
   assert.equal(planned.plan.ngrokPublicUrl, stackPlan.ngrokPublicUrl);
+
+  const retiredKey = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+    ngrokAuthtoken,
+    basicAuthUsername: "relmio",
+    basicAuthPassword,
+    apiKey: "retired-api-key-field",
+  });
+  assert.equal(retiredKey.status, 400);
+  assert.match((await retiredKey.json()).error, /n8n \+ ngrok install request/iu);
+  assert.equal(installInput, undefined);
 
   const invalidPassword = "too-short";
   const invalid = await postJson(wizard, "/api/local/install", {
@@ -1256,24 +1273,24 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
           token: canary,
         },
         services: [
+          absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
+          absent("codex-chat", "Codex Chat adapter", "endpoint"),
           {
-            target: "openai-api",
-            label: "OpenAI API",
+            target: "xai-grok-build",
+            label: "SuperGrok",
             kind: "endpoint",
             managed: true,
             state: "healthy",
             snapshot: {
-              target: "openai-api",
-              endpoint: "http://127.0.0.1:12435/v1",
+              target: "xai-grok-build",
+              endpoint: "http://127.0.0.1:14502",
               auth: { configured: true, disclosure: "rotate-only", token: canary },
               canRotateCredential: true,
               installRoot: canary,
             },
-            actions: ["rotate-credential"],
+            actions: ["sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"],
             marker: canary,
           },
-          absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
-          absent("codex-chat", "Codex Chat adapter", "endpoint"),
           {
             target: "local-n8n-stack",
             label: "n8n + ngrok",
@@ -1304,7 +1321,27 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
           },
           absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
           absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
+          {
+            target: "n8n-supergrok-oauth",
+            label: "SuperGrok for n8n",
+            kind: "n8n-supergrok",
+            managed: true,
+            state: "healthy",
+            snapshot: {
+              target: "n8n-supergrok-oauth",
+              endpoint: "http://n8n-supergrok:14502/v1",
+              auth: { configured: true, disclosure: "one-time", secret: canary },
+              canRemove: true,
+              installRoot: canary,
+            },
+            actions: [
+              "sign-in-grok-build",
+              "sign-out-grok-build",
+              "remove-owned-supergrok",
+            ],
+          },
         ],
+        providers: dashboardProviders(),
         rawError: canary,
       };
     },
@@ -1325,22 +1362,22 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
     },
     auth: { secretsRevealable: false },
     services: [
+      absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
+      absent("codex-chat", "Codex Chat adapter", "endpoint"),
       {
-        target: "openai-api",
-        label: "OpenAI API",
+        target: "xai-grok-build",
+        label: "SuperGrok",
         kind: "endpoint",
         managed: true,
         state: "healthy",
         snapshot: {
-          target: "openai-api",
-          endpoint: "http://127.0.0.1:12435/v1",
+          target: "xai-grok-build",
+          endpoint: "http://127.0.0.1:14502",
           auth: { configured: true, disclosure: "rotate-only" },
           canRotateCredential: true,
         },
-        actions: ["rotate-credential"],
+        actions: ["sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"],
       },
-      absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
-      absent("codex-chat", "Codex Chat adapter", "endpoint"),
       {
         target: "local-n8n-stack",
         label: "n8n + ngrok",
@@ -1368,7 +1405,26 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
       },
       absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
       absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
+      {
+        target: "n8n-supergrok-oauth",
+        label: "SuperGrok for n8n",
+        kind: "n8n-supergrok",
+        managed: true,
+        state: "healthy",
+        snapshot: {
+          target: "n8n-supergrok-oauth",
+          endpoint: "http://n8n-supergrok:14502/v1",
+          auth: { configured: true, disclosure: "one-time" },
+          canRemove: true,
+        },
+        actions: [
+          "sign-in-grok-build",
+          "sign-out-grok-build",
+          "remove-owned-supergrok",
+        ],
+      },
     ],
+    providers: dashboardProviders(),
   });
 });
 
@@ -1386,10 +1442,10 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
   });
   const endpoint = (target, endpointUrl, actions) => ({
     target,
-    label: target === "openai-api"
-      ? "OpenAI API"
-      : target === "codex-chatgpt"
+    label: target === "codex-chatgpt"
         ? "Codex (ChatGPT login)"
+        : target === "xai-grok-build"
+          ? "SuperGrok"
         : "Codex Chat adapter",
     kind: "endpoint",
     managed: true,
@@ -1410,21 +1466,27 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
     docker: { available: true, version: "29.7.2", composeVersion: "5.3.1" },
     auth: { secretsRevealable: false },
     services: [
-      endpoint("openai-api", "http://127.0.0.1:12435/v1", ["rotate-credential"]),
       endpoint(
         "codex-chatgpt",
         "ws://127.0.0.1:14500",
-        ["sign-in", "rotate-credential"],
+        ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
       ),
       endpoint(
         "codex-chat",
         "http://127.0.0.1:14501",
-        ["sign-in", "rotate-credential"],
+        ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
+      ),
+      endpoint(
+        "xai-grok-build",
+        "http://127.0.0.1:14502",
+        ["sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"],
       ),
       absent("local-n8n-stack", "n8n + ngrok", "n8n-stack"),
       absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
       absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
+      absent("n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"),
     ],
+    providers: dashboardProviders(),
   };
   const validWizard = await startLocalWizard(t, {
     async getLocalDashboardStatus() {
@@ -1436,11 +1498,11 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
   const validText = await validResponse.text();
   const valid = JSON.parse(validText);
   assert.deepEqual(
-    valid.services.slice(0, 3).map(({ actions }) => actions),
+    [valid.services[0], valid.services[1], valid.services[2]].map(({ actions }) => actions),
     [
-      ["rotate-credential"],
-      ["sign-in", "rotate-credential"],
-      ["sign-in", "rotate-credential"],
+      ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
+      ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
+      ["sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"],
     ],
   );
   assert.equal(validText.includes("canSignIn"), false);
@@ -1448,60 +1510,60 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
 
   const scenarios = [
     {
-      name: "openai-sign-in",
+      name: "grok-wrong-sign-in",
       mutate(status) {
-        status.services[0].actions = ["sign-in", "rotate-credential"];
+        status.services[2].actions = ["sign-in-chatgpt", "rotate-local-capability"];
       },
     },
     {
       name: "stopped-codex",
       mutate(status) {
-        status.services[1].state = "stopped";
-        status.services[1].actions = ["sign-in"];
+        status.services[0].state = "stopped";
+        status.services[0].actions = ["sign-in-chatgpt"];
       },
     },
     {
       name: "partial-codex",
       mutate(status) {
-        status.services[1].state = "partial";
-        status.services[1].snapshot = null;
-        status.services[1].actions = ["sign-in"];
+        status.services[0].state = "partial";
+        status.services[0].snapshot = null;
+        status.services[0].actions = ["sign-in-chatgpt"];
       },
     },
     {
       name: "unavailable-codex",
       mutate(status) {
-        status.services[2].managed = false;
-        status.services[2].state = "unavailable";
-        status.services[2].snapshot = null;
-        status.services[2].actions = ["sign-in"];
+        status.services[1].managed = false;
+        status.services[1].state = "unavailable";
+        status.services[1].snapshot = null;
+        status.services[1].actions = ["sign-in-chatgpt"];
       },
     },
     {
       name: "absent-codex",
       mutate(status) {
-        status.services[2].managed = false;
-        status.services[2].state = "absent";
-        status.services[2].snapshot = null;
-        status.services[2].actions = ["sign-in"];
+        status.services[1].managed = false;
+        status.services[1].state = "absent";
+        status.services[1].snapshot = null;
+        status.services[1].actions = ["sign-in-chatgpt"];
       },
     },
     {
       name: "extra-action",
       mutate(status) {
-        status.services[1].actions.push("remove");
+        status.services[0].actions.push("remove");
       },
     },
     {
       name: "reordered-actions",
       mutate(status) {
-        status.services[2].actions = ["rotate-credential", "sign-in"];
+        status.services[1].actions = ["rotate-local-capability", "sign-in-chatgpt", "sign-out-chatgpt"];
       },
     },
     {
       name: "unsafe-snapshot",
       mutate(status) {
-        status.services[1].snapshot.endpoint = `https://attacker.example/${canary}`;
+        status.services[0].snapshot.endpoint = `https://attacker.example/${canary}`;
       },
     },
   ];
@@ -1537,7 +1599,17 @@ test("local dashboard preview never runs live discovery", async (t) => {
   assert.equal(calls, 0);
   assert.equal(body.previewMode, true);
   assert.equal(body.auth.secretsRevealable, false);
-  assert.equal(body.services.length, 6);
+  assert.equal(body.services.length, 7);
+  assert.equal(body.providers.length, 4);
+  assert.deepEqual(
+    body.providers,
+    [
+      { target: "codex-chatgpt", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
+      { target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
+      { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" },
+      { target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
+    ],
+  );
   assert.ok(body.services.every((service) =>
     service.managed === false &&
     service.state === "absent" &&
@@ -1564,9 +1636,9 @@ test("local dashboard keeps unattested partial services review-only", async (t) 
         docker: { available: true, version: "29.7.2", composeVersion: "5.3.1" },
         auth: { secretsRevealable: false },
         services: [
-          absent("openai-api", "OpenAI API", "endpoint"),
           absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
           absent("codex-chat", "Codex Chat adapter", "endpoint"),
+          absent("xai-grok-build", "SuperGrok", "endpoint"),
           {
             target: "local-n8n-stack",
             label: "n8n + ngrok",
@@ -1578,7 +1650,9 @@ test("local dashboard keeps unattested partial services review-only", async (t) 
           },
           absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
           absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
+          absent("n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"),
         ],
+        providers: dashboardProviders(),
       };
     },
   });
@@ -1595,12 +1669,13 @@ test("local dashboard keeps unattested partial services review-only", async (t) 
 
 test("local dashboard rejects an incomplete or reordered fixed service set", async (t) => {
   const definitions = [
-    ["openai-api", "OpenAI API", "endpoint"],
     ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
     ["codex-chat", "Codex Chat adapter", "endpoint"],
+    ["xai-grok-build", "SuperGrok", "endpoint"],
     ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
+    ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
   ];
   const serviceSet = definitions.map(([target, label, kind]) => ({
     target,
@@ -1621,6 +1696,7 @@ test("local dashboard rejects an incomplete or reordered fixed service set", asy
             docker: { available: true, version: "29.7.2", composeVersion: "5.3.1" },
             auth: { secretsRevealable: false },
             services: scenario,
+            providers: dashboardProviders(),
           };
         },
       });
@@ -1633,12 +1709,13 @@ test("local dashboard rejects an incomplete or reordered fixed service set", asy
 
 test("local dashboard derives actions and rejects unsafe Docker versions", async (t) => {
   const definitions = [
-    ["openai-api", "OpenAI API", "endpoint"],
     ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
     ["codex-chat", "Codex Chat adapter", "endpoint"],
+    ["xai-grok-build", "SuperGrok", "endpoint"],
     ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
+    ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
   ];
   const baseStatus = {
     schemaVersion: 1,
@@ -1654,6 +1731,7 @@ test("local dashboard derives actions and rejects unsafe Docker versions", async
       snapshot: null,
       actions: ["setup"],
     })),
+    providers: dashboardProviders(),
   };
   const scenarios = [
     (() => {
@@ -1779,7 +1857,7 @@ test("local n8n startup errors expose recovery only for the exact attested parti
   }
 });
 
-test("local Docker status, planning, and installation expose only safe fields", async (t) => {
+test("local Docker status, OAuth planning, and installation expose only safe fields", async (t) => {
   let installerInput;
   const wizard = await startLocalWizard(t, {
     async getLocalDockerStatus() {
@@ -1793,25 +1871,21 @@ test("local Docker status, planning, and installation expose only safe fields", 
     async installLocalEndpoint(input) {
       installerInput = input;
       return {
-        target: "openai-api",
-        endpoint: "http://127.0.0.1:12435/v1",
-        protocol: "openai-v1",
+        target: "xai-grok-build",
+        endpoint: "http://127.0.0.1:14502",
+        protocol: "relmio-grok-build-chat-http",
         clientCredential,
         credentialShownOnce: true,
-        models: ["gpt-5.6-sol"],
+        models: [],
         deploymentMode: "installed",
-        experimental: false,
-        browserClients: true,
-        internalPath: "/Users/fixture/.relmio/local/openai-api",
-        upstreamApiKey: platformApiKey,
+        experimental: true,
+        browserClients: false,
+        internalPath: "/Users/fixture/.relmio/local/xai-grok-build",
       };
     },
   });
 
-  const dockerResponse = await api(
-    wizard,
-    "/api/local/docker/status",
-  );
+  const dockerResponse = await api(wizard, "/api/local/docker/status");
   assert.deepEqual(await dockerResponse.json(), {
     dockerAvailable: true,
     dockerVersion: "28.3.2",
@@ -1819,72 +1893,125 @@ test("local Docker status, planning, and installation expose only safe fields", 
   });
 
   const planned = await createPlan(wizard, {
-    target: "openai-api",
-    port: "12435",
-    allowedOrigins: ["http://localhost:3000", "http://localhost:3000"],
+    target: "xai-grok-build",
+    port: "14502",
   });
   assert.equal(typeof planned.planId, "string");
   assert.ok(planned.planId.length >= 32);
-  assert.equal(planned.planId.includes("openai-api"), false);
+  assert.equal(planned.planId.includes("xai-grok-build"), false);
   assert.deepEqual(planned.plan, {
-    target: "openai-api",
-    label: "OpenAI API",
+    target: "xai-grok-build",
+    label: "SuperGrok",
     bindHost: "127.0.0.1",
-    port: 12435,
-    endpoint: "http://127.0.0.1:12435/v1",
-    protocol: "openai-v1",
-    upstreamAuth: "platform-api-key",
-    allowedOrigins: ["http://localhost:3000"],
-    browserClients: true,
-    experimental: false,
-    managedPath: "~/.relmio/local/openai-api",
+    port: 14502,
+    endpoint: "http://127.0.0.1:14502",
+    protocol: "relmio-grok-build-chat-http",
+    upstreamAuth: "provider-owned-oauth",
+    browserClients: false,
+    experimental: true,
+    managedPath: "~/.relmio/local/xai-grok-build",
   });
 
   const installResponse = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   assert.equal(installResponse.status, 200);
   const installedText = await installResponse.text();
-  assert.equal(installedText.includes(platformApiKey), false);
   assert.equal(installedText.includes("/Users/"), false);
   assert.deepEqual(JSON.parse(installedText), {
-    target: "openai-api",
-    endpoint: "http://127.0.0.1:12435/v1",
-    protocol: "openai-v1",
+    target: "xai-grok-build",
+    endpoint: "http://127.0.0.1:14502",
+    protocol: "relmio-grok-build-chat-http",
     clientCredential,
     credentialShownOnce: true,
-    models: ["gpt-5.6-sol"],
+    models: [],
     deploymentMode: "installed",
-    experimental: false,
-    browserClients: true,
+    experimental: true,
+    browserClients: false,
   });
   assert.deepEqual(installerInput, {
-    plan: {
-      target: "openai-api",
-      label: "OpenAI API",
-      bindHost: "127.0.0.1",
-      port: 12435,
-      endpoint: "http://127.0.0.1:12435/v1",
-      protocol: "openai-v1",
-      upstreamAuth: "platform-api-key",
-      allowedOrigins: ["http://localhost:3000"],
-      browserClients: true,
-      experimental: false,
-      managedPath: "~/.relmio/local/openai-api",
-    },
-    apiKey: platformApiKey,
+    plan: planned.plan,
     confirmed: true,
   });
 
   const replay = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   assert.equal(replay.status, 400);
   assert.match((await replay.json()).error, /fresh local endpoint plan/iu);
+});
+
+test("OAuth endpoint plans reject retired API fields before any service work", async (t) => {
+  let serviceCalls = 0;
+  const wizard = await startLocalWizard(t, {
+    async getLocalDockerStatus() {
+      serviceCalls += 1;
+      throw new Error("must not run");
+    },
+  });
+  const oauthTargets = [
+    ["codex-chatgpt", 14500],
+    ["codex-chat", 14501],
+    ["xai-grok-build", 14502],
+  ];
+  for (const [target, port] of oauthTargets) {
+    const accepted = await postJson(wizard, "/api/local/plan", { target, port });
+    assert.equal(accepted.status, 200);
+    for (const retiredField of ["apiKey", "allowedOrigins"]) {
+      const rejected = await postJson(wizard, "/api/local/plan", {
+        target,
+        port,
+        [retiredField]: retiredField === "apiKey" ? "retired-api-key-field" : [],
+      });
+      assert.equal(rejected.status, 400);
+      assert.match((await rejected.json()).error, /OAuth local endpoint plan request/iu);
+    }
+  }
+  assert.equal(serviceCalls, 0);
+});
+
+test("n8n OAuth, SuperGrok, and Assistant plans reject extra fields before discovery or auth checks", async (t) => {
+  let discoveryCalls = 0;
+  let authCalls = 0;
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      discoveryCalls += 1;
+      throw new Error("must not run");
+    },
+    async getAuthStatus() {
+      authCalls += 1;
+      throw new Error("must not run");
+    },
+  });
+  const base = {
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  };
+  const cases = [
+    ["n8n-openai-oauth", {}],
+    ["n8n-supergrok-oauth", {}],
+    ["n8n-ai-assistant", { includeSearxng: true }],
+  ];
+  const extras = [
+    { apiKey: "synthetic" },
+    { unknownField: true },
+    { allowedOrigins: [] },
+  ];
+  for (const [target, fields] of cases) {
+    for (const extra of extras) {
+      const response = await postJson(wizard, "/api/local/plan", {
+        target,
+        ...base,
+        ...fields,
+        ...extra,
+      });
+      assert.equal(response.status, 400);
+    }
+  }
+  assert.equal(discoveryCalls, 0);
+  assert.equal(authCalls, 0);
 });
 
 test("local n8n sidecar discovery and planning bind exact private Docker resources without leaking local auth paths", async (t) => {
@@ -2077,6 +2204,14 @@ test("local n8n sidecar install is single-use, uses the server-side OAuth path, 
     n8nContainerId: "a".repeat(64),
     dockerNetworkId: "b".repeat(64),
   });
+  const malformedInstall = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+    apiKey: "retired-api-key-field",
+  });
+  assert.equal(malformedInstall.status, 400);
+  assert.match((await malformedInstall.json()).error, /OAuth bridge install request/iu);
+  assert.equal(installCalls.length, 0);
   const response = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
@@ -2112,6 +2247,226 @@ test("local n8n sidecar install is single-use, uses the server-side OAuth path, 
   assert.equal(replay.status, 400);
   assert.match((await replay.json()).error, /fresh local endpoint plan/iu);
   assert.equal(installCalls.length, 1);
+});
+
+test("local n8n SuperGrok planning and install bind reviewed Docker resources without reading ChatGPT auth", async (t) => {
+  const prepared = [];
+  const installed = [];
+  let authCalls = 0;
+  const dockerHost = "unix:///Users/fixture/.docker/run/docker.sock";
+  const clientKey = "S".repeat(43);
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      return {
+        dockerAvailable: true,
+        dockerHost,
+        containers: [{
+          containerId: "a".repeat(64),
+          containerName: "relmio-test-n8n",
+          image: "docker.n8n.io/n8nio/n8n:2.36.8",
+          networks: [{
+            dockerNetworkId: "b".repeat(64),
+            networkName: "relmio-test_default",
+            disposable: true,
+          }],
+        }],
+      };
+    },
+    async getAuthStatus() {
+      authCalls += 1;
+      throw new Error("ChatGPT auth must not be read for SuperGrok");
+    },
+    prepareLocalN8nSuperGrokPlan(input) {
+      prepared.push(input);
+      return {
+        kind: "n8n-supergrok",
+        target: "n8n-supergrok-oauth",
+        label: "SuperGrok for n8n",
+        endpoint: "http://n8n-supergrok:14502/v1",
+        baseUrl: "http://n8n-supergrok:14502/v1",
+        protocol: "openai-chat-completions",
+        upstreamAuth: "provider-owned-oauth",
+        ...input,
+        managedPath: "~/.relmio/local/n8n-supergrok-oauth",
+        hostPublication: "none",
+        experimental: true,
+      };
+    },
+    async installLocalN8nSuperGrok(input) {
+      installed.push(input);
+      return {
+        target: "n8n-supergrok-oauth",
+        endpoint: "http://n8n-supergrok:14502/v1",
+        baseUrl: "http://n8n-supergrok:14502/v1",
+        protocol: "openai-chat-completions",
+        networkName: input.plan.networkName,
+        n8nContainerName: input.plan.n8nContainerName,
+        hostPublication: "none",
+        clientKey,
+        credentialShownOnce: true,
+        deploymentMode: "installed",
+        privateMarker: "must-not-leak",
+      };
+    },
+  });
+
+  const planned = await createPlan(wizard, {
+    target: "n8n-supergrok-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  assert.equal(authCalls, 0);
+  assert.deepEqual(prepared, [{
+    dockerHost,
+    n8nContainerId: "a".repeat(64),
+    n8nContainerName: "relmio-test-n8n",
+    dockerNetworkId: "b".repeat(64),
+    networkName: "relmio-test_default",
+  }]);
+  assert.deepEqual(planned.plan, {
+    kind: "n8n-supergrok",
+    target: "n8n-supergrok-oauth",
+    label: "SuperGrok for n8n",
+    endpoint: "http://n8n-supergrok:14502/v1",
+    baseUrl: "http://n8n-supergrok:14502/v1",
+    protocol: "openai-chat-completions",
+    upstreamAuth: "provider-owned-oauth",
+    n8nContainerId: "a".repeat(64),
+    n8nContainerName: "relmio-test-n8n",
+    dockerNetworkId: "b".repeat(64),
+    networkName: "relmio-test_default",
+    managedPath: "~/.relmio/local/n8n-supergrok-oauth",
+    hostPublication: "none",
+    experimental: true,
+    disposableHarnessWarning: true,
+  });
+  assert.doesNotMatch(JSON.stringify(planned), /dockerHost|must-not-leak/iu);
+
+  const unconfirmed = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: false,
+  });
+  assert.equal(unconfirmed.status, 400);
+  assert.match((await unconfirmed.json()).error, /Confirm the reviewed/iu);
+  assert.equal(installed.length, 0);
+
+  const extraField = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+    apiKey: "must-not-be-accepted",
+  });
+  assert.equal(extraField.status, 400);
+  assert.match((await extraField.json()).error, /SuperGrok install request/iu);
+  assert.equal(installed.length, 0);
+
+  const response = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+  });
+  assert.equal(response.status, 200);
+  assert.equal(authCalls, 0);
+  assert.equal(installed.length, 1);
+  assert.deepEqual(installed[0], {
+    plan: {
+      kind: "n8n-supergrok",
+      target: "n8n-supergrok-oauth",
+      label: "SuperGrok for n8n",
+      endpoint: "http://n8n-supergrok:14502/v1",
+      baseUrl: "http://n8n-supergrok:14502/v1",
+      protocol: "openai-chat-completions",
+      upstreamAuth: "provider-owned-oauth",
+      dockerHost,
+      n8nContainerId: "a".repeat(64),
+      n8nContainerName: "relmio-test-n8n",
+      dockerNetworkId: "b".repeat(64),
+      networkName: "relmio-test_default",
+      managedPath: "~/.relmio/local/n8n-supergrok-oauth",
+      hostPublication: "none",
+      experimental: true,
+      disposableHarnessWarning: true,
+    },
+    confirmed: true,
+  });
+  const responseText = await response.text();
+  assert.doesNotMatch(responseText, /must-not-leak|clientKey|dockerHost/iu);
+  assert.deepEqual(JSON.parse(responseText), {
+    target: "n8n-supergrok-oauth",
+    endpoint: "http://n8n-supergrok:14502/v1",
+    baseUrl: "http://n8n-supergrok:14502/v1",
+    protocol: "openai-chat-completions",
+    networkName: "relmio-test_default",
+    n8nContainerName: "relmio-test-n8n",
+    hostPublication: "none",
+    clientCredential: clientKey,
+    credentialShownOnce: true,
+    deploymentMode: "installed",
+    models: ["grok-build"],
+  });
+});
+
+test("local n8n SuperGrok install rejects result drift without exposing returned fields", async (t) => {
+  const canary = "must-not-leak-supergrok-installer-result";
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      return {
+        dockerAvailable: true,
+        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
+        containers: [{
+          containerId: "a".repeat(64),
+          containerName: "relmio-test-n8n",
+          networks: [{
+            dockerNetworkId: "b".repeat(64),
+            networkName: "relmio-test_default",
+            disposable: false,
+          }],
+        }],
+      };
+    },
+    prepareLocalN8nSuperGrokPlan(input) {
+      return {
+        kind: "n8n-supergrok",
+        target: "n8n-supergrok-oauth",
+        label: "SuperGrok for n8n",
+        endpoint: "http://n8n-supergrok:14502/v1",
+        baseUrl: "http://n8n-supergrok:14502/v1",
+        protocol: "openai-chat-completions",
+        upstreamAuth: "provider-owned-oauth",
+        ...input,
+        managedPath: "~/.relmio/local/n8n-supergrok-oauth",
+        hostPublication: "none",
+        experimental: true,
+      };
+    },
+    async installLocalN8nSuperGrok() {
+      return {
+        target: "n8n-supergrok-oauth",
+        endpoint: "http://n8n-supergrok:14502/v1",
+        baseUrl: "http://n8n-supergrok:14502/v1",
+        protocol: "openai-chat-completions",
+        networkName: "different_network",
+        n8nContainerName: "relmio-test-n8n",
+        hostPublication: "none",
+        clientKey: "K".repeat(43),
+        credentialShownOnce: true,
+        deploymentMode: "installed",
+        secret: canary,
+      };
+    },
+  });
+  const planned = await createPlan(wizard, {
+    target: "n8n-supergrok-oauth",
+    n8nContainerId: "a".repeat(64),
+    dockerNetworkId: "b".repeat(64),
+  });
+  const response = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+  });
+  assert.equal(response.status, 502);
+  const text = await response.text();
+  assert.match(text, /invalid result/iu);
+  assert.equal(text.includes(canary), false);
+  assert.equal(text.includes("different_network"), false);
 });
 
 test("local n8n Assistant planning, install, and removal expose only the reviewed companion contract", async (t) => {
@@ -2205,7 +2560,7 @@ test("local n8n Assistant planning, install, and removal expose only the reviewe
     dockerNetworkId: "b".repeat(64),
   });
   assert.equal(missingChoice.status, 400);
-  assert.match((await missingChoice.json()).error, /SearXNG|choose/iu);
+  assert.match((await missingChoice.json()).error, /Assistant plan request/iu);
 
   const planned = await createPlan(wizard, {
     target: "n8n-ai-assistant",
@@ -2213,6 +2568,14 @@ test("local n8n Assistant planning, install, and removal expose only the reviewe
     dockerNetworkId: "b".repeat(64),
     includeSearxng: true,
   });
+  const malformedInstall = await postJson(wizard, "/api/local/install", {
+    planId: planned.planId,
+    confirmed: true,
+    apiKey: "retired-api-key-field",
+  });
+  assert.equal(malformedInstall.status, 400);
+  assert.match((await malformedInstall.json()).error, /Assistant install request/iu);
+  assert.equal(installed.length, 0);
   assert.deepEqual(prepared, [{
     dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
     n8nContainerId: "a".repeat(64),
@@ -2493,6 +2856,153 @@ test("local n8n sidecar removal requires explicit confirmation and shares the lo
     removed: true,
   });
   assert.equal(removeCalls, 1);
+});
+
+test("local n8n SuperGrok status and removal are sanitized, current, and mutation-guarded", async (t) => {
+  const canary = "must-not-leak-supergrok-status-or-removal";
+  let statusCalls = 0;
+  let releaseStatus;
+  let notifyStatusStarted;
+  const statusStarted = new Promise((resolve) => {
+    notifyStatusStarted = resolve;
+  });
+  const statusGate = new Promise((resolve) => {
+    releaseStatus = resolve;
+  });
+  let removeCalls = 0;
+  let releaseRemoval;
+  let notifyRemovalStarted;
+  const removalStarted = new Promise((resolve) => {
+    notifyRemovalStarted = resolve;
+  });
+  const removalGate = new Promise((resolve) => {
+    releaseRemoval = resolve;
+  });
+  t.after(() => {
+    releaseStatus();
+    releaseRemoval();
+  });
+  const wizard = await startLocalWizard(t, {
+    async getLocalN8nSuperGrokStatus() {
+      statusCalls += 1;
+      if (statusCalls === 1) {
+        return {
+          target: "n8n-supergrok-oauth",
+          managed: true,
+          state: "healthy",
+          snapshot: {
+            target: "n8n-supergrok-oauth",
+            endpoint: "http://n8n-supergrok:14502/v1",
+            auth: {
+              configured: true,
+              disclosure: "one-time",
+              secret: canary,
+            },
+            canRemove: true,
+            installRoot: canary,
+          },
+        };
+      }
+      if (statusCalls === 2) {
+        notifyStatusStarted();
+        await statusGate;
+        return {
+          target: "n8n-supergrok-oauth",
+          managed: false,
+          state: "absent",
+        };
+      }
+      return {
+        target: "n8n-supergrok-oauth",
+        managed: true,
+        state: "healthy",
+        snapshot: {
+          target: "n8n-supergrok-oauth",
+          endpoint: "http://unreviewed-sidecar:14502/v1",
+          auth: { configured: true, disclosure: "one-time" },
+          canRemove: true,
+          secret: canary,
+        },
+      };
+    },
+    async removeLocalN8nSuperGrok({ confirmed }) {
+      removeCalls += 1;
+      assert.equal(confirmed, true);
+      if (removeCalls === 1) {
+        return {
+          target: "n8n-supergrok-oauth",
+          removed: false,
+          secret: canary,
+        };
+      }
+      notifyRemovalStarted();
+      await removalGate;
+      return { target: "n8n-supergrok-oauth", removed: true };
+    },
+  });
+
+  const healthy = await api(wizard, "/api/local/supergrok/status");
+  assert.equal(healthy.status, 200);
+  const healthyText = await healthy.text();
+  assert.equal(healthyText.includes(canary), false);
+  assert.deepEqual(JSON.parse(healthyText), {
+    target: "n8n-supergrok-oauth",
+    managed: true,
+    state: "healthy",
+    snapshot: {
+      target: "n8n-supergrok-oauth",
+      endpoint: "http://n8n-supergrok:14502/v1",
+      auth: { configured: true, disclosure: "one-time" },
+      canRemove: true,
+    },
+  });
+
+  const staleStatus = api(wizard, "/api/local/supergrok/status");
+  await statusStarted;
+  const discard = await postJson(wizard, "/api/local/discard", {});
+  assert.equal(discard.status, 200);
+  releaseStatus();
+  assert.equal((await staleStatus).status, 409);
+
+  const unsafeStatus = await api(wizard, "/api/local/supergrok/status");
+  assert.equal(unsafeStatus.status, 502);
+  const unsafeStatusText = await unsafeStatus.text();
+  assert.match(unsafeStatusText, /status is invalid|snapshot is invalid/iu);
+  assert.equal(unsafeStatusText.includes(canary), false);
+
+  const extra = await postJson(wizard, "/api/local/supergrok/remove", {
+    confirmed: true,
+    apiKey: "must-not-be-accepted",
+  });
+  assert.equal(extra.status, 400);
+  assert.equal(removeCalls, 0);
+  const unconfirmed = await postJson(wizard, "/api/local/supergrok/remove", {
+    confirmed: false,
+  });
+  assert.equal(unconfirmed.status, 400);
+  assert.equal(removeCalls, 0);
+
+  const unsafe = await postJson(wizard, "/api/local/supergrok/remove", {
+    confirmed: true,
+  });
+  assert.equal(unsafe.status, 502);
+  const unsafeText = await unsafe.text();
+  assert.match(unsafeText, /invalid/iu);
+  assert.equal(unsafeText.includes(canary), false);
+
+  const removing = postJson(wizard, "/api/local/supergrok/remove", {
+    confirmed: true,
+  });
+  await removalStarted;
+  const concurrent = await postJson(wizard, "/api/local/supergrok/remove", {
+    confirmed: true,
+  });
+  assert.equal(concurrent.status, 409);
+  assert.equal(removeCalls, 2);
+  const discardDuringRemoval = await postJson(wizard, "/api/local/discard", {});
+  assert.equal(discardDuringRemoval.status, 409);
+  releaseRemoval();
+  assert.equal((await removing).status, 200);
 });
 
 test("pending ChatGPT OAuth blocks sidecar planning, installation, and removal without consuming the reviewed plan", async (t) => {
@@ -2807,7 +3317,6 @@ test("dashboard discard invalidates reviewed local state and clears safe install
   const installedPlan = await createPlan(wizard, {
     target: "codex-chat",
     port: 14501,
-    allowedOrigins: [],
   });
   assert.equal(
     (await postJson(wizard, "/api/local/install", {
@@ -2822,9 +3331,8 @@ test("dashboard discard invalidates reviewed local state and clears safe install
   );
 
   const oldPlan = await createPlan(wizard, {
-    target: "openai-api",
-    port: 12435,
-    allowedOrigins: [],
+    target: "xai-grok-build",
+    port: 14502,
   });
   const reviewed = await postJson(
     wizard,
@@ -2870,7 +3378,6 @@ test("dashboard discard invalidates reviewed local state and clears safe install
   const oldInstall = await postJson(wizard, "/api/local/install", {
     planId: oldPlan.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   assert.equal(oldInstall.status, 400);
   assert.match((await oldInstall.json()).error, /fresh local endpoint plan/iu);
@@ -2912,6 +3419,54 @@ test("dashboard discard invalidates reviewed local state and clears safe install
   );
   assert.equal(discardedInstalledTarget.status, 409);
   assert.equal(chatKeyCalls, 1);
+});
+
+test("dashboard discard rejects an inventory read that finishes after the discard", async (t) => {
+  const started = Promise.withResolvers();
+  const inspection = Promise.withResolvers();
+  t.after(() => inspection.resolve());
+  let calls = 0;
+  const snapshot = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    docker: { available: true, version: "29.7.2", composeVersion: "5.3.1" },
+    auth: { secretsRevealable: false },
+    services: [
+      ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
+      ["codex-chat", "Codex Chat adapter", "endpoint"],
+      ["xai-grok-build", "SuperGrok", "endpoint"],
+      ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
+      ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
+      ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
+      ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+    ].map(([target, label, kind]) => ({
+      target, label, kind, managed: false, state: "absent", snapshot: null,
+      actions: ["setup"],
+    })),
+    providers: dashboardProviders(),
+  };
+  const wizard = await startLocalWizard(t, {
+    async getLocalDashboardStatus() {
+      calls += 1;
+      if (calls === 1) {
+        started.resolve();
+        await inspection.promise;
+      }
+      return snapshot;
+    },
+  });
+  const reading = api(wizard, "/api/local/dashboard");
+  await started.promise;
+  assert.equal((await postJson(wizard, "/api/local/discard", {})).status, 200);
+  inspection.resolve();
+  const stale = await reading;
+  assert.equal(stale.status, 409);
+  const rejected = await stale.json();
+  assert.match(rejected.error, /dashboard.*changed/iu);
+  assert.equal(Object.hasOwn(rejected, "services"), false);
+  const refreshed = await api(wizard, "/api/local/dashboard");
+  assert.equal(refreshed.status, 200);
+  assert.equal((await refreshed.json()).services.length, 7);
 });
 
 test("dashboard discard rejects a local plan that finishes discovery after the discard", async (t) => {
@@ -3114,26 +3669,22 @@ test("local installation rejects concurrent attempts and releases its lock after
   });
 
   const firstPlan = await createPlan(wizard, {
-    target: "openai-api",
-    port: 12435,
-    allowedOrigins: [],
+    target: "xai-grok-build",
+    port: 14502,
   });
   const firstInstall = postJson(wizard, "/api/local/install", {
     planId: firstPlan.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   await firstInstallStarted;
 
   const secondPlan = await createPlan(wizard, {
-    target: "openai-api",
-    port: 12436,
-    allowedOrigins: [],
+    target: "xai-grok-build",
+    port: 14503,
   });
   const concurrent = await postJson(wizard, "/api/local/install", {
     planId: secondPlan.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   assert.equal(concurrent.status, 409);
   assert.match((await concurrent.json()).error, /already in progress/iu);
@@ -3142,7 +3693,7 @@ test("local installation rejects concurrent attempts and releases its lock after
   const concurrentRotation = await postJson(
     wizard,
     "/api/local/client-credential/rotate",
-    { target: "openai-api" },
+    { target: "xai-grok-build" },
   );
   assert.equal(concurrentRotation.status, 409);
   assert.match(
@@ -3157,7 +3708,6 @@ test("local installation rejects concurrent attempts and releases its lock after
   const retried = await postJson(wizard, "/api/local/install", {
     planId: secondPlan.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   assert.equal(retried.status, 200);
   assert.equal(installCalls, 2);
@@ -3229,7 +3779,6 @@ test("credential rotation blocks installation until the managed service change c
   const plan = await createPlan(wizard, {
     target: "codex-chatgpt",
     port: 14500,
-    allowedOrigins: [],
   });
   const concurrentInstall = await postJson(wizard, "/api/local/install", {
     planId: plan.planId,
@@ -3267,21 +3816,19 @@ test("credential rotation blocks installation until the managed service change c
 test("a local plan is consumed before a failed install and errors redact secrets and paths", async (t) => {
   let installCalls = 0;
   const wizard = await startLocalWizard(t, {
-    async installLocalEndpoint({ apiKey }) {
+    async installLocalEndpoint({ plan }) {
       installCalls += 1;
-      throw new Error(`Docker failed in /Users/fixture using ${apiKey}`);
+      throw new Error(`Docker failed in /Users/fixture using ${plan.target}`);
     },
   });
   const planned = await createPlan(wizard, {
-    target: "openai-api",
-    port: 12435,
-    allowedOrigins: [],
+    target: "xai-grok-build",
+    port: 14502,
   });
 
   const failed = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   assert.equal(failed.status, 400);
   assert.deepEqual(await failed.json(), {
@@ -3291,7 +3838,6 @@ test("a local plan is consumed before a failed install and errors redact secrets
   const replay = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   assert.equal(replay.status, 400);
   assert.equal(installCalls, 1);
@@ -3367,9 +3913,7 @@ test("Codex device-code sign-in requires installation and restarts only its loca
   const planned = await createPlan(wizard, {
     target: "codex-chatgpt",
     port: 14500,
-    allowedOrigins: ["https://ignored.example"],
   });
-  assert.deepEqual(planned.plan.allowedOrigins, []);
   const install = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
@@ -3464,7 +4008,6 @@ test("pending Codex sign-in blocks installation and credential rotation in the s
   const plan = await createPlan(wizard, {
     target: "codex-chatgpt",
     port: 14500,
-    allowedOrigins: [],
   });
   const install = await postJson(wizard, "/api/local/install", {
     planId: plan.planId,
@@ -3788,6 +4331,12 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
       async removeLocalN8nSidecar() {
         calls.push("n8n-remove");
       },
+      async getLocalN8nSuperGrokStatus() {
+        calls.push("supergrok-status");
+      },
+      async removeLocalN8nSuperGrok() {
+        calls.push("supergrok-remove");
+      },
       async startCodexDeviceLogin() {
         calls.push("login");
       },
@@ -3818,14 +4367,12 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
   assert.equal(n8nPlan.status, 403);
 
   const planned = await createPlan(wizard, {
-    target: "openai-api",
-    port: 12435,
-    allowedOrigins: [],
+    target: "xai-grok-build",
+    port: 14502,
   });
   const install = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
-    apiKey: platformApiKey,
   });
   assert.equal(install.status, 403);
 
@@ -3833,6 +4380,19 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
     confirmed: true,
   });
   assert.equal(removal.status, 403);
+  const superGrokStatus = await api(wizard, "/api/local/supergrok/status");
+  assert.deepEqual(await superGrokStatus.json(), {
+    target: "n8n-supergrok-oauth",
+    managed: false,
+    state: "absent",
+    snapshot: null,
+  });
+  const superGrokRemoval = await postJson(
+    wizard,
+    "/api/local/supergrok/remove",
+    { confirmed: true },
+  );
+  assert.equal(superGrokRemoval.status, 403);
 
   const login = await postJson(
     wizard,

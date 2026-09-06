@@ -47,7 +47,12 @@ function deferred() {
 
 function extractLocalInstallHandler(script) {
   const helperStart = script.indexOf("function resetBasicAuthPasswordVisibility()");
-  const helperEnd = script.indexOf("function showStep(step)", helperStart);
+  const helperEnd = script.indexOf("function showStep(step,", helperStart);
+  const apiKeyHelperStart = script.indexOf("function isCodexChat(target)");
+  const apiKeyHelperEnd = script.indexOf(
+    "function isGrokBuild(target)",
+    apiKeyHelperStart,
+  );
   const handlerStart = script.indexOf(
     'element("install-button").addEventListener("click"',
   );
@@ -56,10 +61,14 @@ function extractLocalInstallHandler(script) {
     handlerStart,
   );
   assert.ok(helperStart >= 0 && helperEnd > helperStart);
+  assert.ok(apiKeyHelperStart >= 0 && apiKeyHelperEnd > apiKeyHelperStart);
   assert.ok(handlerStart >= 0 && handlerEnd > handlerStart);
   return {
     handler: script.slice(handlerStart, handlerEnd),
-    helpers: script.slice(helperStart, helperEnd),
+    helpers: `${script.slice(helperStart, helperEnd)}\n${script.slice(
+      apiKeyHelperStart,
+      apiKeyHelperEnd,
+    )}`,
   };
 }
 
@@ -163,6 +172,7 @@ function createInstallHarness(script, { target = "local-n8n-stack" } = {}) {
     },
     isN8nAssistant: () => false,
     isN8nSidecar: () => false,
+    isN8nSuperGrok: () => false,
     isN8nStack: (candidate) => candidate === "local-n8n-stack",
     renderInstallResult: (result) => renderedResults.push(result),
     setMessage: (message) => messages.push(message),

@@ -15,6 +15,9 @@ import {
   startLocalDashboardControlPlane,
   stopLocalDashboardControlPlane,
 } from "./services/local-dashboard-control.js";
+import { runGrokBuildLogin } from "./services/grok-login.js";
+import { resolveLocalInstallRoot } from "./services/local-installer.js";
+import { resolveLocalN8nSuperGrokInstallRoot } from "./services/local-n8n-supergrok-installer.js";
 import { startWizardServer } from "./web/server.js";
 
 const cliPath = fileURLToPath(import.meta.url);
@@ -36,6 +39,13 @@ export function cliMode(argumentsList, { commandName = "relmio" } = {}) {
     return ["n8n-openai-oauth-setup", "planrelay"].includes(commandName)
       ? "wizard"
       : "local";
+  }
+  if (
+    (argumentsList.length === 2 || (argumentsList.length === 3 && argumentsList[2] === "--n8n")) &&
+    argumentsList[0] === "grok" &&
+    ["login", "logout"].includes(argumentsList[1])
+  ) {
+    return `grok-${argumentsList[1]}`;
   }
   if (argumentsList.length !== 1) {
     throw new Error("Unknown Relmio command. Run relmio --help.");
@@ -155,6 +165,9 @@ export async function runCli({
   readBrowserUrl = readLocalDashboardBrowserUrl,
   runDaemon = runLocalDashboardDaemon,
   ensureBrowserLaunchRoot = ensureLocalDashboardBrowserLaunchRoot,
+  runGrokLogin = runGrokBuildLogin,
+  resolveInstallRoot = resolveLocalInstallRoot,
+  resolveN8nSuperGrokInstallRoot = resolveLocalN8nSuperGrokInstallRoot,
 } = {}) {
   const mode = cliMode(argumentsList, { commandName });
   if (mode === "version") {
@@ -166,7 +179,7 @@ export async function runCli({
     return 0;
   }
   if (mode === "help") {
-    log("Usage: relmio [local|vps|assistant|start|status|open|stop|--version]");
+    log("Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]");
     log("  local      Open the persistent local services dashboard (default)");
     log("  vps        Open the separate VPS setup wizard");
     log("  assistant  Open the dedicated AI Assistant companion wizard");
@@ -174,6 +187,36 @@ export async function runCli({
     log("  status     Report whether the exact local dashboard is running");
     log("  open       Start when needed and open the local dashboard");
     log("  stop       Stop only the Relmio dashboard process");
+    log("  grok login  Start the official SuperGrok device sign-in");
+    log("  grok logout Sign out of the managed local SuperGrok endpoint");
+    log("  Add --n8n to grok login/logout for the private n8n SuperGrok companion");
+    return 0;
+  }
+
+  if (mode === "grok-login" || mode === "grok-logout") {
+    const interactive = isInteractive();
+    if (mode === "grok-login" && !interactive) {
+      log("Grok Build sign-in requires an interactive terminal.");
+      return 1;
+    }
+    const action = mode === "grok-login" ? "device-auth" : "logout";
+    const privateN8n = argumentsList[2] === "--n8n";
+    const target = privateN8n ? "n8n-supergrok-oauth" : "xai-grok-build";
+    const installDirectory = await (privateN8n ? resolveN8nSuperGrokInstallRoot : resolveInstallRoot)({
+      target,
+      env,
+    });
+    const result = await runGrokLogin({
+      ...(privateN8n ? { target } : {}),
+      action,
+      installDirectory,
+      isTTY: interactive,
+      environment: env,
+    });
+    if (!result || result.success !== true || result.action !== action) {
+      throw new Error("Grok Build credential action was not completed.");
+    }
+    log(mode === "grok-login" ? "Grok Build sign-in completed." : "Grok Build sign-out completed.");
     return 0;
   }
 

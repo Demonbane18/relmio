@@ -36,7 +36,11 @@ test("CLI recognizes version and explicit wizard routes", () => {
   assert.equal(cliMode(["open"]), "open");
   assert.equal(cliMode(["gui"]), "open");
   assert.equal(cliMode(["stop"]), "stop");
+  assert.equal(cliMode(["grok", "login"]), "grok-login");
+  assert.equal(cliMode(["grok", "logout"]), "grok-logout");
   assert.equal(cliMode(["__relmio-dashboard-daemon"]), "daemon");
+  assert.throws(() => cliMode(["grok"]), /Unknown Relmio command/u);
+  assert.throws(() => cliMode(["grok", "login", "extra"]), /Unknown Relmio command/u);
   assert.throws(() => cliMode(["local", "extra"]), /Unknown Relmio command/u);
   assert.throws(() => cliMode(["--version", "extra"]), /Unknown Relmio command/u);
   assert.throws(() => cliMode(["unknown"]), /Unknown Relmio command/u);
@@ -81,7 +85,7 @@ test("help mode prints the supported routes without starting the wizard", async 
   });
   assert.equal(serverStarted, false);
   assert.deepEqual(output, [
-    "Usage: relmio [local|vps|assistant|start|status|open|stop|--version]",
+    "Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]",
     "  local      Open the persistent local services dashboard (default)",
     "  vps        Open the separate VPS setup wizard",
     "  assistant  Open the dedicated AI Assistant companion wizard",
@@ -89,8 +93,90 @@ test("help mode prints the supported routes without starting the wizard", async 
     "  status     Report whether the exact local dashboard is running",
     "  open       Start when needed and open the local dashboard",
     "  stop       Stop only the Relmio dashboard process",
+    "  grok login  Start the official SuperGrok device sign-in",
+    "  grok logout Sign out of the managed local SuperGrok endpoint",
+    "  Add --n8n to grok login/logout for the private n8n SuperGrok companion",
   ]);
   assert.doesNotMatch(output.join("\n"), /__relmio-dashboard-daemon/u);
+});
+
+test("Grok CLI commands resolve the canonical local installation and dispatch only the credential action", async (t) => {
+  for (const scenario of [
+    { argumentsList: ["grok", "login"], action: "device-auth", isTTY: true, message: "Grok Build sign-in completed." },
+    { argumentsList: ["grok", "logout"], action: "logout", isTTY: false, message: "Grok Build sign-out completed." },
+  ]) {
+    await t.test(scenario.argumentsList.join(" "), async () => {
+      const output = [];
+      const environment = { RELMIO_HOME: "/private/relmio/.relmio" };
+      let resolved = 0;
+      let dispatched = 0;
+      const forbidden = () => { throw new Error("Grok command started a dashboard or browser"); };
+      const exitCode = await runCli({
+        argumentsList: scenario.argumentsList,
+        env: environment,
+        isInteractive: () => scenario.isTTY,
+        log: line => output.push(line),
+        resolveInstallRoot: async options => {
+          resolved += 1;
+          assert.deepEqual(options, { target: "xai-grok-build", env: environment });
+          return "/private/relmio/.relmio/local/xai-grok-build";
+        },
+        runGrokLogin: async options => {
+          dispatched += 1;
+          assert.deepEqual(options, {
+            action: scenario.action,
+            installDirectory: "/private/relmio/.relmio/local/xai-grok-build",
+            isTTY: scenario.isTTY,
+            environment,
+          });
+          return { action: scenario.action, success: true };
+        },
+        startServer: forbidden,
+        startControlPlane: forbidden,
+        open: forbidden,
+      });
+      assert.equal(exitCode, 0);
+      assert.equal(resolved, 1);
+      assert.equal(dispatched, 1);
+      assert.deepEqual(output, [scenario.message]);
+    });
+  }
+});
+
+test("Grok login refuses a non-interactive terminal before resolving files or starting credential work", async () => {
+  const output = [];
+  let effects = 0;
+  const exitCode = await runCli({
+    argumentsList: ["grok", "login"],
+    isInteractive: () => false,
+    log: line => output.push(line),
+    resolveInstallRoot: async () => { effects += 1; },
+    runGrokLogin: async () => { effects += 1; },
+  });
+  assert.equal(exitCode, 1);
+  assert.equal(effects, 0);
+  assert.deepEqual(output, ["Grok Build sign-in requires an interactive terminal."]);
+});
+
+test("Grok command failures do not print completion", async () => {
+  const output = [];
+  await assert.rejects(runCli({
+    argumentsList: ["grok", "logout"],
+    isInteractive: () => false,
+    log: line => output.push(line),
+    resolveInstallRoot: async () => "/private/relmio/.relmio/local/xai-grok-build",
+    runGrokLogin: async () => { throw new Error("credential action failed"); },
+  }), /credential action failed/u);
+  assert.deepEqual(output, []);
+
+  await assert.rejects(runCli({
+    argumentsList: ["grok", "logout"],
+    isInteractive: () => false,
+    log: line => output.push(line),
+    resolveInstallRoot: async () => "/private/relmio/.relmio/local/xai-grok-build",
+    runGrokLogin: async () => ({ action: "logout", success: false }),
+  }), /credential action was not completed/u);
+  assert.deepEqual(output, []);
 });
 
 test("non-interactive default launch exits without starting the wizard", async () => {
@@ -499,3 +585,26 @@ test(
     }
   },
 );
+
+test("grok --n8n selects only the private companion with exact argument handling", async () => {
+  for (const verb of ["login", "logout"]) {
+    const calls = [];
+    assert.equal(cliMode(["grok", verb, "--n8n"]), `grok-${verb}`);
+    const env = { RELMIO_HOME: "/private/fixture/.relmio" };
+    assert.equal(await runCli({
+      argumentsList: ["grok", verb, "--n8n"], env, isInteractive: () => true, log: () => {},
+      resolveInstallRoot: () => { throw new Error("Local endpoint must not be selected"); },
+      resolveN8nSuperGrokInstallRoot: async (options) => { assert.equal(options.env, env); return "/private/fixture/.relmio/local/n8n-supergrok-oauth"; },
+      runGrokLogin: async (options) => { calls.push(options); return { action: options.action, success: true }; },
+    }), 0);
+    assert.equal(calls[0].target, "n8n-supergrok-oauth");
+    assert.equal(calls[0].action, verb === "login" ? "device-auth" : "logout");
+  }
+  for (const args of [["grok", "login", "--n8n", "extra"], ["grok", "login", "--host"], ["grok", "--n8n", "login"]]) {
+    assert.throws(() => cliMode(args), /Unknown/u);
+  }
+  assert.equal(await runCli({
+    argumentsList: ["grok", "login", "--n8n"], isInteractive: () => false, log: () => {},
+    resolveN8nSuperGrokInstallRoot: () => { throw new Error("Must refuse before filesystem access"); },
+  }), 1);
+});

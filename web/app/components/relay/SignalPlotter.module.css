@@ -1,21 +1,3 @@
-.homeLead {
-  display: grid;
-  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
-  gap: var(--spacing-8);
-  align-items: center;
-  width: min(calc(100% - var(--spacing-12)), 84rem);
-  min-height: 78svh;
-  margin-inline: auto;
-  padding-block: var(--spacing-8);
-}
-
-.intro {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--spacing-5);
-}
-
 .kicker,
 .plotterEyebrow,
 .detailHeader p {
@@ -28,75 +10,9 @@
   text-transform: uppercase;
 }
 
-.title {
-  max-width: 10ch;
-  margin: 0;
-  color: var(--color-text-primary);
-  font-size: clamp(var(--font-size-4xl), 6vw, 4.75rem);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.055em;
-  line-height: 0.98;
-}
-
-.lede {
-  max-width: 42ch;
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: var(--text-large-size);
-  line-height: var(--text-large-leading);
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-3);
-}
-
-.primaryAction,
-.secondaryAction {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: var(--spacing-11);
-  padding-inline: var(--spacing-4);
-  border: var(--border-width) solid var(--color-border-emphasized);
-  border-radius: var(--radius-element);
-  font-size: var(--text-label-size);
-  font-weight: var(--font-weight-semibold);
-  text-decoration: none;
-}
-
-.primaryAction {
-  gap: var(--spacing-2);
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
-}
-
-.primaryAction svg,
 .detailFooter svg {
   width: 1em;
   height: 1em;
-}
-
-.secondaryAction {
-  background: var(--color-background-card);
-  color: var(--color-text-primary);
-}
-
-.primaryAction:hover,
-.secondaryAction:hover {
-  transform: translateY(calc(var(--border-width) * -1));
-}
-
-.introBoundary {
-  max-width: 43ch;
-  margin: 0;
-  padding-left: var(--spacing-3);
-  border-left: var(--border-width) solid var(--color-border-emphasized);
-  color: var(--color-text-secondary);
-  font-size: var(--text-supporting-size);
-  line-height: var(--text-supporting-leading);
 }
 
 .plotter {
@@ -415,8 +331,6 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .primaryAction,
-  .secondaryAction,
   .routeButton {
     transition:
       transform var(--duration-fast) var(--ease-standard),
@@ -427,30 +341,15 @@
 }
 
 @media (max-width: 64rem) {
-  .homeLead,
   .boundaryEvidence {
     grid-template-columns: minmax(0, 1fr);
-  }
-
-  .intro {
-    max-width: 46rem;
-  }
-
-  .title {
-    max-width: 13ch;
   }
 }
 
 @media (max-width: 48rem) {
-  .homeLead,
   .boundaryEvidence {
     width: calc(100% - var(--spacing-8));
     min-height: auto;
-  }
-
-  .title {
-    font-size: var(--text-display-1-size);
-    line-height: var(--text-display-1-leading);
   }
 
   .plotterHeader {
@@ -496,6 +395,153 @@
   }
 }
 
+/* A quiet route selector: the route facts do the visual work. */
+
+.plotter {
+  border-radius: var(--radius-element);
+  background: var(--color-background-surface);
+  box-shadow: none;
+}
+
+.plotterHeader {
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--spacing-2) var(--spacing-4);
+  padding: var(--spacing-4);
+}
+
+.plotterHeader > p:last-child {
+  grid-column: 2;
+  max-width: 42ch;
+}
+
+.topology {
+  grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.45fr);
+  min-height: 0;
+  gap: var(--spacing-4);
+  padding: var(--spacing-4);
+  background: transparent;
+}
+
+.routeControls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-2);
+  align-content: start;
+}
+
+.routeButton {
+  min-height: 3.25rem;
+  gap: var(--spacing-2);
+  padding: var(--spacing-2);
+  border-color: transparent;
+  border-radius: var(--radius-inner);
+  background: var(--color-background-muted);
+}
+
+.routeButton:hover,
+.routeButton[aria-pressed="true"] {
+  border-color: var(--color-border-emphasized);
+  background: var(--color-background-card);
+  box-shadow: none;
+}
+
+.routeIcon {
+  width: var(--spacing-6);
+  height: var(--spacing-6);
+  border-radius: var(--radius-full);
+  background: transparent;
+}
+
+.routeMap {
+  justify-content: center;
+  padding-left: var(--spacing-4);
+  border-left: var(--border-width) solid var(--color-border);
+}
+
+.routeSvg {
+  min-height: 10rem;
+  max-height: 12rem;
+}
+
+.mapCaption {
+  font-size: var(--font-size-2xs);
+}
+
+.detailHeader,
+.detailFooter {
+  padding: var(--spacing-3) var(--spacing-4);
+}
+
+.detailHeader h3 {
+  font-size: var(--text-heading-3-size);
+}
+
+.routeStory {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 var(--spacing-4);
+}
+
+.routeStory li,
+.routeStory li:not(:first-child) {
+  padding: var(--spacing-3) var(--spacing-3) var(--spacing-3) 0;
+  border-bottom: var(--border-width) solid var(--color-border);
+  border-left: 0;
+}
+
+.routeStory li:nth-child(even) {
+  padding-right: 0;
+  padding-left: var(--spacing-3);
+  border-left: var(--border-width) solid var(--color-border);
+}
+
+.boundaryEvidence {
+  gap: clamp(var(--spacing-5), 6vw, var(--spacing-9));
+  padding-block: clamp(var(--spacing-7), 8vh, var(--spacing-10));
+}
+
+.evidenceIntro h2 {
+  font-size: clamp(var(--text-heading-2-size), 3vw, var(--text-display-2-size));
+  line-height: 1.08;
+}
+
+@media (max-width: 48rem) {
+
+  .plotterHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plotterHeader > p:last-child {
+    grid-column: auto;
+  }
+
+  .topology {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .routeControls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .routeMap {
+    display: none;
+  }
+
+  .routeStory {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .routeStory li:nth-child(even) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .detailHeader,
+  .detailFooter {
+    align-items: flex-start;
+  }
+}
+
 @media (max-width: 32rem) {
   .routeControls,
   .evidenceList {
@@ -509,5 +555,28 @@
 
   .routeButton {
     min-height: var(--spacing-11);
+  }
+}
+
+/* Public hero: a single authored doorway scene. */
+
+.routeExplorer {
+  width: min(calc(100% - var(--spacing-12)), 84rem);
+  margin: 0 auto;
+}
+
+.routeExplorer .topology {
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.3fr);
+}
+
+@media (max-width: 48rem) {
+
+  .routeExplorer {
+    width: calc(100% - var(--spacing-8));
+    margin-top: var(--spacing-2);
+  }
+
+  .routeExplorer .topology {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

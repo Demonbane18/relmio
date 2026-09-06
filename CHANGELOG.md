@@ -7,6 +7,47 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.14.0] - 2026-09-06
+
+The OAuth-only candidate has not been released. Fresh SuperGrok sign-in,
+direct tool-call/result exchange, cancellation, and actual disposable n8n
+Assistant tool use passed on 2026-09-05. The generated runtime also passed
+startup and HTTP checks. Native Windows and protected release checks remain open.
+Local Opera GX acceptance covers the redesigned homepage, day/night scene,
+responsive layouts, pause controls, and reduced motion.
+
+### Added
+
+- Add SuperGrok Chat Completions for local apps and private n8n clients using
+  fresh official Grok device sign-in. n8n executes its own tool calls.
+- Keep the simple `/chat` interface through the same direct HTTP transport.
+
+### Changed
+
+- Redesign the public homepage with the original Relmio mascot, a full-width
+  day/night landscape, timed destination labels, and accessible motion controls.
+  Keep the install wizard focused on large controls and plain instructions.
+- Limit provider setup to OAuth. Remove upstream API-key gateways, profiles,
+  registration and selection routes, and the API-key n8n xAI sidecar.
+- Show seven dashboard services and four provider-owned OAuth entries. Keep
+  runtime health, provider readiness, and inventory freshness independent.
+- Preserve the last observed state while inventory is stale and disable
+  maintenance actions until a successful refresh.
+
+### Fixed
+
+- Keep endpoint URLs readable on narrow dashboard layouts.
+- Use supported Docker Compose run options for Grok login and version probes.
+
+### Security
+
+- Pin Grok's executable inside the image and disable automatic update checks.
+- Read only the current runtime's marked private OAuth session. The official
+  CLI remains the credential writer; the HTTP handler does not execute CLI
+  tools, import other applications' credentials, or consume refresh tokens.
+- Preserve existing API installations and credential data without adopting,
+  migrating, or deleting them through the OAuth-only candidate.
+
 ## [0.13.0] - 2026-09-04
 
 ### Added
@@ -843,6 +884,7 @@ checks the registry separately after publication.
 - The sidecar uses an internal-only Docker network endpoint and no published
   VPS port.
 
+[0.14.0]: https://github.com/Demonbane18/relmio/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/Demonbane18/relmio/compare/v0.12.2...v0.13.0
 [0.12.2]: https://github.com/Demonbane18/relmio/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/Demonbane18/relmio/compare/v0.12.0...v0.12.1

@@ -1,6 +1,5 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, Route } from "lucide-react";
 import {
   Children,
   isValidElement,
@@ -171,29 +170,15 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
           </article>
         ) : (
           <article className={styles.article} id="docs-content" tabIndex={-1}>
-            <section className={styles.indexHero} aria-labelledby="docs-title">
-              <div>
-                <p className={styles.eyebrow}>Field manual · {documentationPages.length} guides</p>
-                <h1 id="docs-title">Relmio documentation</h1>
-                <p className={styles.intro}>
-                  See which sign-in or key each option uses, how it connects, and
-                  where it ends. These guides come from the repository documentation.
-                </p>
-              </div>
-              <section className={styles.routeLegend} aria-label="Relmio setup guides">
-                <div className={styles.routeLegendTitle}>
-                  <Route aria-hidden="true" size={18} strokeWidth={1.75} />
-                  <span>Setup guides</span>
-                </div>
-                <ol>
-                  <li><span>01</span><strong>n8n + ChatGPT</strong><ArrowRight aria-hidden="true" /></li>
-                  <li><span>02</span><strong>OpenAI API</strong><ArrowRight aria-hidden="true" /></li>
-                  <li><span>03</span><strong>Code Sandbox</strong><ArrowRight aria-hidden="true" /></li>
-                  <li><span>04</span><strong>Chat Adapter</strong><ArrowRight aria-hidden="true" /></li>
-                  <li><span>05</span><strong>App Server</strong><ArrowRight aria-hidden="true" /></li>
-                </ol>
-              </section>
-            </section>
+            <header className={styles.indexHero} aria-labelledby="docs-title">
+              <p className={styles.eyebrow}>Field manual · {documentationPages.length} guides</p>
+              <h1 id="docs-title">Relmio documentation</h1>
+              <p className={styles.intro}>
+                Practical setup guides for private local tools, self-hosted n8n,
+                and their authentication boundaries. The content comes directly
+                from the repository documentation.
+              </p>
+            </header>
             <DocumentationSearch pages={searchPages} />
           </article>
         )}

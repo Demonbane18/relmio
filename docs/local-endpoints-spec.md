@@ -10,6 +10,9 @@ This spec is product and engineering guidance based on the current official
 OpenAI documentation. It is not a legal opinion. Relmio must not claim that
 OpenAI has endorsed, certified, or pre-approved the project.
 
+The 2026-09-05 OAuth-only correction supersedes the earlier API-key design.
+Grok is an unreleased candidate; its live acceptance remains open.
+
 ## Objective
 
 Add a local Docker installation path to the Relmio browser wizard without
@@ -18,8 +21,8 @@ weakening the existing VPS/n8n safety boundary.
 Relmio offers three intentionally different loopback client contracts plus two
 private n8n-only companion contracts:
 
-1. `openai-api` is an OpenAI-compatible HTTP gateway backed by the user's
-   OpenAI Platform API key.
+1. `xai-grok-build` is an experimental Relmio `/chat` adapter using the
+   official Grok Build runtime and provider-owned SuperGrok OAuth.
 2. `codex-chatgpt` is the official Codex App Server protocol backed by the
    user's ChatGPT/Codex sign-in.
 3. `codex-chat` is a small Relmio-specific HTTP chat adapter backed by the
@@ -68,20 +71,15 @@ The existing VPS/n8n wizard remains a separate legacy setup path. The wizard
 landing experience adds a prominent **Local endpoints** option which opens a
 dedicated local installer.
 
-The local installer starts with five provider cards:
+The local installer offers OAuth endpoints and separate n8n support options:
 
-### OpenAI API
+### Grok Build candidate
 
-- Label: **OpenAI API, compatible clients**
-- Default HTTP port: `12435`
-- Requires an OpenAI Platform API key beginning with `sk-`.
-- Accepts zero or more exact browser origins. No wildcard origin is allowed.
-- Result:
-  - Base URL: `http://127.0.0.1:<port>/v1`
-  - A newly generated Relmio bearer key, displayed once
-  - A warning that the upstream Platform API key is seeded over stdin into a
-    private labeled Docker volume, never written to a host file, and never
-    returned by the wizard
+- Default HTTP port: `14502`; authenticated Relmio `POST /chat` over ACP.
+- Official pinned Grok runtime owns sign-in, refresh, and credential storage.
+- Browser-origin requests fail closed; no token extraction or API-key fallback.
+- Root-owned tool policy is checked before startup and every turn.
+- Live sign-in, logout, HTTP chat, and credential-isolation canaries are required.
 
 ### Codex with ChatGPT
 
@@ -216,9 +214,8 @@ Request:
 
 ```json
 {
-  "target": "openai-api",
-  "port": 12435,
-  "allowedOrigins": ["http://localhost:3000"]
+  "target": "codex-chat",
+  "port": 14501
 }
 ```
 
@@ -243,7 +240,7 @@ publication, privileged-runner warning, and operator-owned n8n configuration.
 Request fields:
 
 - `planId`: the opaque identifier returned by the most recent reviewed plan
-- `apiKey`: required only for `openai-api`; accepted only in request memory
+- Upstream API-key fields and retired API targets are rejected before side effects
 - `confirmed`: must be exactly `true`
 
 The server consumes the plan before attempting installation, so callers cannot
@@ -312,54 +309,7 @@ Response:
 Returns `idle`, `pending`, `success`, or `error`. Errors are sanitized; raw
 App Server output is never returned.
 
-## Local OpenAI gateway contract
 
-### Listener
-
-- Container listener: `0.0.0.0:10531`
-- Host publication: `127.0.0.1:<selected-port>:10531`
-- A generated Compose file containing `0.0.0.0:<port>` or an unqualified
-  `<port>:<port>` mapping is invalid.
-
-### Authentication
-
-- Relmio generates 32 random bytes and returns the base64url capability once.
-- Only the SHA-256 verifier is persisted.
-- Every operation that can reach `/v1` upstream requires
-  `Authorization: Bearer <Relmio capability>`. An exact-origin `OPTIONS`
-  preflight is the sole unauthenticated, non-forwarding metadata exception.
-- Comparison uses a constant-time operation.
-- The upstream OpenAI key replaces, and is never combined with, the client's
-  Authorization header.
-
-### Proxy behavior
-
-- The upstream origin is fixed to `https://api.openai.com`.
-- Only `GET /v1/models`, `POST /v1/responses`, and
-  `POST /v1/chat/completions` are forwarded.
-- `CONNECT`, `TRACE`, absolute-form URLs, protocol-relative URLs, invalid Host
-  headers, and oversized headers are rejected.
-- Hop-by-hop, cookie, forwarding, proxy-authorization, origin, and referrer
-  headers are not forwarded upstream.
-- Response status, supported end-to-end headers, streaming bodies, client
-  cancellation, and backpressure are preserved.
-- Upstream `429` responses and `Retry-After` are passed through unchanged.
-- Local overload responses use `429` and never retry upstream automatically.
-
-### Browser origin policy
-
-- Requests without `Origin` are accepted after bearer authentication.
-- Browser requests require an exact configured `http` or `https` origin.
-- Wildcards, `null`, credentials, paths, queries, and fragments are rejected.
-- Preflight allows only the configured origin and a small documented header
-  list.
-- Browser credentials are still caller secrets; Relmio must not encourage
-  embedding the local key in a public frontend bundle.
-
-### Health
-
-- `GET /health` is the only unauthenticated gateway route.
-- It returns only local process readiness and no provider/account details.
 
 ## Codex App Server contract
 
@@ -464,7 +414,7 @@ compatibility fallback. Success requires `turn/completed` with
 
 Managed roots:
 
-- `~/.relmio/local/openai-api`
+- `~/.relmio/local/xai-grok-build`
 - `~/.relmio/local/codex-chatgpt`
 - `~/.relmio/local/codex-chat`
 - `~/.relmio/local/n8n-openai-oauth`
@@ -476,9 +426,8 @@ be an absolute path whose final component is `.relmio`.
 Controls:
 
 - Managed directories use mode `0700`; generated files use owner-only modes.
-- The Platform API key is seeded over stdin by a transient, network-disabled
-  helper into a private labeled named volume and is never written to a host
-  file or Compose environment value.
+
+
 - Existing unmanaged directories are never overwritten.
 - Symlinks in a managed path are rejected.
 - A schema-2 JSON marker identifies the target, configured port, validated
@@ -522,12 +471,7 @@ All three long-running loopback endpoint services:
 - publish one explicit loopback port only;
 - use pinned application dependencies.
 
-The OpenAI install also invokes a one-shot credential seed helper. It has no
-network or published port, disables logging, uses the same read-only image,
-sets `no-new-privileges`, and has tight CPU, memory, and PID limits. It runs as
-root only long enough to replace the volume entry atomically and retains only
-the `CHOWN` capability needed to make that entry readable by the non-root
-gateway; it is removed immediately after seeding.
+
 
 The n8n sidecar follows the same non-root, read-only-root, dropped-capability,
 bounded-resource controls but has no `ports` mapping. Its separate OAuth seed
@@ -545,7 +489,7 @@ internal network and is explicitly limited to local development and testing.
 
 ### Assets
 
-- OpenAI Platform API key
+- Grok OAuth credentials in the provider-owned volume
 - Codex/ChatGPT refresh and access credentials in the Codex volume
 - ChatGPT OAuth credentials copied into the n8n sidecar's private auth volume
 - generated local capability tokens
@@ -558,7 +502,7 @@ internal network and is explicitly limited to local development and testing.
 - wizard process to local filesystem
 - wizard process to Docker Engine
 - local client to published loopback endpoint
-- gateway to `api.openai.com`
+- Official Grok runtime to provider authentication and model services
 - Codex App Server to OpenAI's Codex services
 
 ### Principal threats and controls
@@ -566,8 +510,8 @@ internal network and is explicitly limited to local development and testing.
 | Threat | Required control |
 |---|---|
 | LAN/public exposure | literal `127.0.0.1` Compose binding plus template and runtime inspection tests |
-| Local cross-site request | bearer capability, exact Origin allowlist, strict preflight, Host validation |
-| Upstream key disclosure | separate local/upstream credentials, stdin-seeded private named volume, redacted errors, no body logging |
+| Local cross-site request | bearer capability, browser Origin rejection, Host validation |
+| OAuth credential disclosure | provider-owned credential volumes, enforced model tool restrictions, redacted errors, no body logging |
 | ChatGPT token repurposing in supported paths | official App Server lifecycle only; the adapter is Relmio-specific and exposes no `/v1` route; the private n8n bridge remains separately labeled unofficial/policy-uncertain |
 | Private sidecar exposure | zero host publishers, one exact reviewed external network, fixed Docker DNS alias, and no reverse-proxy labels |
 | Sidecar credential disclosure | server-side validation, stdin-only seed helper, private labeled volume, disabled seed logs, and redacted results |
@@ -586,15 +530,13 @@ internal network and is explicitly limited to local development and testing.
 - The browser wizard visibly offers all three loopback contracts plus the local
   self-hosted n8n bridge and n8n AI Assistant tools; the legacy VPS path remains
   separate.
-- Platform keys are accepted only by `openai-api`; both Codex targets use only
-  official App Server-backed ChatGPT authentication.
+- Upstream API-key fields are rejected. Codex and Grok use their official
+  provider-owned OAuth runtimes.
 - Loopback Compose files publish only literal `127.0.0.1` bindings; the n8n
   sidecar Compose file publishes no host port.
-- Every non-health gateway operation that can reach OpenAI and every App Server
-  WebSocket handshake is capability-authenticated; exact-origin CORS preflight
-  is a non-forwarding metadata exception.
-- Gateway unit/integration tests cover auth, origins, Host validation,
-  streaming, cancellation, upstream errors, and secret redaction.
+- Every model operation and App Server WebSocket handshake requires the local
+  capability. Browser-origin requests fail closed before provider activity.
+
 - Adapter tests cover auth, Origin rejection, request/protocol validation,
   process cleanup, bounds, concurrency, final-output selection, and redaction.
 - Local installer tests prove confirmation, unmanaged-root refusal, symlink

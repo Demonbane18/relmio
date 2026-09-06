@@ -21,14 +21,14 @@ flowchart LR
 
 The local installer is a separate path in the same browser wizard. It uses the
 local Docker Engine and never opens SSH or writes to a VPS. Three options create
-loopback endpoints; two create private companion projects beside an existing
+loopback endpoints; three create private companion projects beside an existing
 local n8n container without changing n8n itself.
 
 ```mermaid
 flowchart LR
   B["Local browser<br>127.0.0.1"] --> W["Local Node wizard"]
   W --> D["Local Docker Engine"]
-  D --> G["OpenAI-compatible gateway<br>127.0.0.1:12435/v1"]
+  D --> G["Grok Build candidate<br>127.0.0.1:14502/chat"]
   D --> A["Codex App Server<br>127.0.0.1:14500"]
   D --> H["Codex Chat Adapter<br>127.0.0.1:14501/chat"]
   D --> N["Existing local n8n<br>unchanged"]
@@ -36,26 +36,33 @@ flowchart LR
   D --> X["Code Sandbox + optional SearXNG<br>no host ports"]
   N -->|"selected private Docker network<br>n8n-openai-oauth:10531"| S
   N -->|"selected private Docker network<br>generated aliases"| X
-  G -->|"Platform API key"| P["OpenAI Platform API"]
+  D --> Q["SuperGrok companion<br>no host port"]
+  N -->|"private Docker network<br>Chat Completions"| Q
+  G -->|"Grok CLI OAuth session / Chat Completions"| P["SuperGrok"]
+  Q -->|"Separate Grok CLI OAuth session"| P
   A -->|"Official Codex sign-in"| C["ChatGPT/Codex service"]
   H -->|"Official App Server lifecycle"| C
   S -->|"unofficial OAuth bridge"| C
 ```
 
-The five options do different jobs:
+These candidate connections have different protocols:
 
 | Target | Wire protocol | Upstream credential |
 |---|---|---|
-| `openai-api` | OpenAI-compatible HTTP `/v1` | OpenAI Platform API key |
+| `xai-grok-build`, candidate | Relmio `POST /chat` and OpenAI-compatible Chat Completions `/v1` | Fresh OAuth session managed by the pinned official Grok CLI |
+| `n8n-supergrok-oauth`, candidate | Private Chat Completions `/v1` for n8n | Separate fresh Grok CLI OAuth session in the companion volume |
 | `codex-chatgpt` | Official Codex App Server JSON-RPC | ChatGPT sign-in managed by Codex |
 | `codex-chat` | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in managed by Codex |
 | `n8n-openai-oauth` | Private OpenAI-compatible HTTP `/v1` for n8n only | Local ChatGPT OAuth copied into a private sidecar volume |
 | `n8n-ai-assistant` | n8n Instance AI Code Sandbox plus optional SearXNG JSON search | Generated sandbox key; model-provider credential configured directly in n8n |
 
-Relmio never adapts a ChatGPT/Codex credential into the local `/v1` gateway.
-The OpenAI gateway replaces the caller's Relmio capability with the
-protected Platform key only at the upstream boundary. The native Codex service
-keeps the initialization, thread, turn, approval, and event protocol. The
+Relmio's candidate handles OAuth only. API-key gateways and profiles are
+retired without modifying existing installations or saved data. The Grok
+adapter reads only its marked, same-runtime fresh CLI session and renews OAuth
+through the official flow. It forwards client-owned tool calls and results through
+Chat Completions; it does not execute model-requested tools itself or import an
+existing host login. The retired ACP adapter is not packaged. The native Codex
+service keeps the initialization, thread, turn, approval, and event protocol. The
 adapter invokes that same official lifecycle behind a bounded, read-only
 conversational contract without claiming OpenAI API compatibility. Its model
 sandbox denies network access and uses a root-deny filesystem policy with only
@@ -69,7 +76,7 @@ Each of the three endpoint projects publishes exactly one literal `127.0.0.1`
 binding and requires a generated bearer capability. The n8n sidecar publishes
 no host port; only containers on its selected existing network can resolve its
 private hostname. Their managed roots are
-`~/.relmio/local/openai-api`, `~/.relmio/local/codex-chatgpt`, and
+`~/.relmio/local/xai-grok-build`, `~/.relmio/local/codex-chatgpt`, and
 `~/.relmio/local/codex-chat`, with the sidecar under
 `~/.relmio/local/n8n-openai-oauth` and Assistant tools under
 `~/.relmio/local/n8n-ai-assistant`. The Codex credentials and workspaces use

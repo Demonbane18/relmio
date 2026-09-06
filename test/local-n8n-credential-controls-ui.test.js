@@ -133,7 +133,12 @@ function loadCredentialControls(script, harness, { randomValues, showError } = {
   const helpers = extractBetween(
     script,
     "function resetBasicAuthPasswordVisibility()",
-    "\nfunction showStep(step)",
+    "\nfunction showStep(step,",
+  );
+  const apiKeyHelpers = extractBetween(
+    script,
+    "function isCodexChat(target)",
+    "\nfunction isGrokBuild(target)",
   );
   const generateHandler = extractBetween(
     script,
@@ -189,7 +194,7 @@ function loadCredentialControls(script, harness, { randomValues, showError } = {
   delete sandbox.globalThis;
 
   return runInNewContext(
-    `${validator}\n${helpers}\n${generateHandler}\n${toggleHandler}\n${installHandler}\n({
+    `${validator}\n${helpers}\n${apiKeyHelpers}\n${generateHandler}\n${toggleHandler}\n${installHandler}\n({
       validate: validateLocalN8nStackCredentials,
       generate: element("generate-ngrok-basic-auth-password").handlers.get("click"),
       toggle: element("toggle-ngrok-basic-auth-password").handlers.get("click"),

@@ -594,193 +594,6 @@ function createAssistantInventoryRunner(
   return runner;
 }
 
-test("local dashboard returns a fixed sanitized inventory and isolates leaf failures", async () => {
-  const secret = "sk-secret-canary";
-  const result = await getLocalDashboardStatus({
-    now: () => new Date("2026-09-04T00:00:00.000Z"),
-    getDockerStatus: async () => ({
-      dockerAvailable: true,
-      dockerVersion: "28.3.3",
-      composeVersion: "2.39.1",
-      dockerHost: "unix:///secret/docker.sock",
-    }),
-    inspectLocalEndpoint: async ({ target }) => {
-      if (target === "codex-chatgpt") throw new Error(`${secret}: raw Docker failure`);
-      return {
-        target,
-        managed: true,
-        state: "healthy",
-        snapshot: {
-          target,
-          endpoint: target === "openai-api"
-            ? "http://127.0.0.1:10531/v1"
-            : "http://127.0.0.1:14501",
-          auth: { configured: true, disclosure: "rotate-only", token: secret },
-          canRotateCredential: true,
-          installId: secret,
-        },
-      };
-    },
-    inspectLocalN8nStack: async () => ({
-      target: "local-n8n-stack",
-      managed: true,
-      state: "stopped",
-      snapshot: {
-        target: "local-n8n-stack",
-        assistantMode: "sandbox-with-searxng",
-        endpoints: {
-          n8nLocal: "http://127.0.0.1:80",
-          ngrokPublic: "https://example.ngrok-free.app",
-          ngrokInspector: "http://127.0.0.1:81",
-          secret,
-        },
-        components: { n8n: true, ngrok: true, codeSandbox: true, searxng: true },
-        canResume: true,
-        canRemove: true,
-        projectName: secret,
-      },
-    }),
-    inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent" }),
-    inspectLocalN8nAssistant: async () => ({
-      managed: true,
-      state: "healthy",
-      snapshot: {
-        target: "local-n8n-assistant",
-        components: { codeSandbox: true, searxng: false },
-        auth: { sandboxConfigured: true, disclosure: "one-time", token: secret },
-        canRemove: true,
-      },
-    }),
-  });
-
-  assert.equal(result.schemaVersion, 1);
-  assert.equal(result.generatedAt, "2026-09-04T00:00:00.000Z");
-  assert.deepEqual(result.docker, {
-    available: true,
-    version: "28.3.3",
-    composeVersion: "2.39.1",
-  });
-  assert.deepEqual(result.auth, { secretsRevealable: false });
-  assert.deepEqual(
-    result.services.map(({ target, state }) => ({ target, state })),
-    [
-      { target: "openai-api", state: "healthy" },
-      { target: "codex-chatgpt", state: "unavailable" },
-      { target: "codex-chat", state: "healthy" },
-      { target: "local-n8n-stack", state: "stopped" },
-      { target: "n8n-openai-oauth", state: "absent" },
-      { target: "local-n8n-assistant", state: "healthy" },
-    ],
-  );
-  assert.equal(result.services[1].managed, false);
-  assert.equal(result.services[1].snapshot, null);
-  assert.deepEqual(result.services[1].actions, []);
-  assert.deepEqual(
-    result.services.map(({ actions }) => actions),
-    [
-      ["rotate-credential"],
-      [],
-      ["sign-in", "rotate-credential"],
-      ["resume", "remove"],
-      ["setup"],
-      ["remove"],
-    ],
-  );
-  assert.deepEqual(result.services[3].snapshot.endpoints, {
-    n8nLocal: "http://127.0.0.1:80",
-    ngrokPublic: "https://example.ngrok-free.app",
-    ngrokInspector: "http://127.0.0.1:81",
-  });
-  assert.equal(JSON.stringify(result).includes(secret), false);
-  assert.equal(JSON.stringify(result).includes("docker.sock"), false);
-  assert.equal(JSON.stringify(result).includes("projectName"), false);
-});
-
-test("local dashboard derives sign-in only for healthy attested Codex endpoints", async (t) => {
-  const endpointSnapshot = (target) => ({
-    target,
-    endpoint: target === "codex-chatgpt"
-      ? "ws://127.0.0.1:14500"
-      : target === "codex-chat"
-        ? "http://127.0.0.1:14501"
-        : "http://127.0.0.1:10531/v1",
-    auth: { configured: true, disclosure: "rotate-only" },
-    canRotateCredential: true,
-  });
-  const scenarios = [
-    { state: "healthy", expected: ["sign-in", "rotate-credential"] },
-    { state: "stopped", expected: [] },
-    { state: "partial", expected: [] },
-    { state: "unavailable", expected: [] },
-    { state: "absent", expected: ["setup"] },
-  ];
-  for (const target of ["codex-chatgpt", "codex-chat"]) {
-    for (const scenario of scenarios) {
-      await t.test(`${target}-${scenario.state}`, async () => {
-        const result = await getLocalDashboardStatus({
-          getDockerStatus: async () => ({ dockerAvailable: false }),
-          inspectLocalEndpoint: async ({ target: requestedTarget }) => {
-            if (requestedTarget === "openai-api") {
-              return {
-                target: requestedTarget,
-                managed: true,
-                state: "healthy",
-                snapshot: endpointSnapshot(requestedTarget),
-              };
-            }
-            if (requestedTarget !== target) {
-              return { target: requestedTarget, managed: false, state: "absent" };
-            }
-            if (scenario.state === "absent" || scenario.state === "unavailable") {
-              return { target, managed: false, state: scenario.state };
-            }
-            if (scenario.state === "partial") {
-              return { target, managed: true, state: "partial" };
-            }
-            return {
-              target,
-              managed: true,
-              state: scenario.state,
-              snapshot: endpointSnapshot(target),
-            };
-          },
-          inspectLocalN8nStack: async () => ({ managed: false, state: "absent" }),
-          inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent" }),
-          inspectLocalN8nAssistant: async () => ({ managed: false, state: "absent" }),
-        });
-        const selected = result.services.find((service) => service.target === target);
-        const openAi = result.services.find((service) => service.target === "openai-api");
-        assert.deepEqual(selected.actions, scenario.expected);
-        assert.deepEqual(openAi.actions, ["rotate-credential"]);
-        assert.equal(openAi.actions.includes("sign-in"), false);
-      });
-    }
-  }
-
-  const unsafe = await getLocalDashboardStatus({
-    getDockerStatus: async () => ({ dockerAvailable: false }),
-    inspectLocalEndpoint: async ({ target }) => target === "codex-chat"
-      ? {
-          target,
-          managed: true,
-          state: "healthy",
-          snapshot: {
-            ...endpointSnapshot(target),
-            endpoint: "https://attacker.example",
-            canSignIn: true,
-          },
-        }
-      : { target, managed: false, state: "absent" },
-    inspectLocalN8nStack: async () => ({ managed: false, state: "absent" }),
-    inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent" }),
-    inspectLocalN8nAssistant: async () => ({ managed: false, state: "absent" }),
-  });
-  const unsafeCodex = unsafe.services.find((service) => service.target === "codex-chat");
-  assert.equal(unsafeCodex.state, "unavailable");
-  assert.deepEqual(unsafeCodex.actions, []);
-  assert.equal(JSON.stringify(unsafeCodex).includes("canSignIn"), false);
-});
-
 test("both Codex targets derive sign-in after exact Docker rediscovery", async (t) => {
   for (const target of ["codex-chatgpt", "codex-chat"]) {
     await t.test(target, async (subtest) => {
@@ -802,7 +615,7 @@ test("both Codex targets derive sign-in after exact Docker rediscovery", async (
       });
       assert.deepEqual(
         dashboard.services.find((service) => service.target === target).actions,
-        ["sign-in", "rotate-credential"],
+        ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
       );
       assertReadOnlyDockerCalls(runProcess.calls);
     });
@@ -834,160 +647,6 @@ test("local dashboard rejects malformed snapshots instead of reflecting unknown 
   );
 });
 
-test("local dashboard fails closed on a contradictory absent inspection", async () => {
-  const result = await getLocalDashboardStatus({
-    getDockerStatus: async () => ({ dockerAvailable: false }),
-    inspectLocalEndpoint: async ({ target }) => target === "openai-api"
-      ? {
-          target,
-          managed: true,
-          state: "absent",
-          snapshot: { target, endpoint: "http://127.0.0.1:12435/v1" },
-        }
-      : { target, managed: false, state: "absent" },
-    inspectLocalN8nStack: async () => ({ managed: false, state: "absent" }),
-    inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent" }),
-    inspectLocalN8nAssistant: async () => ({ managed: false, state: "absent" }),
-  });
-
-  assert.deepEqual(result.services[0], {
-    target: "openai-api",
-    label: "OpenAI API",
-    kind: "endpoint",
-    managed: false,
-    state: "unavailable",
-    snapshot: null,
-    actions: [],
-  });
-});
-
-test("local dashboard preserves a non-exact partial state without exposing capabilities", async () => {
-  const result = await getLocalDashboardStatus({
-    getDockerStatus: async () => ({ dockerAvailable: false }),
-    inspectLocalEndpoint: async ({ target }) =>
-      target === "openai-api"
-        ? { target, managed: true, state: "partial" }
-        : { target, managed: false, state: "absent" },
-    inspectLocalN8nStack: async () => ({ managed: false, state: "absent" }),
-    inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent" }),
-    inspectLocalN8nAssistant: async () => ({ managed: false, state: "absent" }),
-  });
-
-  assert.deepEqual(result.services[0], {
-    target: "openai-api",
-    label: "OpenAI API",
-    kind: "endpoint",
-    managed: true,
-    state: "partial",
-    snapshot: null,
-    actions: [],
-  });
-});
-
-test("generic endpoint inventory rediscovers only strictly owned resources without mutations", async (t) => {
-  const emptyHome = await mkdtemp(join(tmpdir(), "relmio-dashboard-empty-"));
-  t.after(() => rm(emptyHome, { recursive: true, force: true }));
-  assert.deepEqual(
-    await getManagedLocalEndpointStatus(
-      { target: "openai-api" },
-      { homeDirectory: await realpath(emptyHome), env: {} },
-    ),
-    { target: "openai-api", managed: false, state: "absent" },
-  );
-
-  const homeDirectory = await createManagedRoot(t, "openai-api");
-  for (const [dockerState, expected] of [
-    ["running", "healthy"],
-    ["exited", "stopped"],
-    ["restarting", "partial"],
-  ]) {
-    const runProcess = createEndpointInventoryRunner({ state: dockerState });
-    const result = await getManagedLocalEndpointStatus(
-      { target: "openai-api" },
-      { homeDirectory, env: {}, runProcess },
-    );
-    assert.equal(result.state, expected);
-    assert.equal(result.managed, true);
-    if (expected === "partial") {
-      assert.equal(result.snapshot, undefined);
-    } else {
-      assert.deepEqual(result.snapshot, {
-        target: "openai-api",
-        endpoint: "http://127.0.0.1:12435/v1",
-        auth: { configured: true, disclosure: "rotate-only" },
-        canRotateCredential: true,
-      });
-    }
-    assert.equal(JSON.stringify(result).includes("secret-canary"), false);
-    assertReadOnlyDockerCalls(runProcess.calls);
-  }
-
-  const partial = await getManagedLocalEndpointStatus(
-    { target: "openai-api" },
-    { homeDirectory, env: {}, runProcess: createEndpointInventoryRunner({ missing: true }) },
-  );
-  assert.equal(partial.state, "partial");
-
-  const foreign = await getManagedLocalEndpointStatus(
-    { target: "openai-api" },
-    { homeDirectory, env: {}, runProcess: createEndpointInventoryRunner({ foreign: true }) },
-  );
-  assert.deepEqual(foreign, {
-    target: "openai-api",
-    managed: false,
-    state: "unavailable",
-  });
-});
-
-test("generic endpoint status requires exact generated names and logical Compose identities", async (t) => {
-  const homeDirectory = await createManagedRoot(t, "openai-api");
-  for (const options of [
-    { wrongContainerName: true },
-    { wrongNetworkName: true },
-    { wrongVolumeName: true },
-    { wrongServiceLabel: true },
-    { wrongNetworkLabel: true },
-    { wrongVolumeLabel: true },
-    { duplicateResource: "container" },
-    { duplicateResource: "network" },
-    { duplicateResource: "volume" },
-    { duplicateStatus: true },
-    { wrongStatusService: true },
-    { wrongStatusName: true },
-  ]) {
-    const runProcess = createEndpointInventoryRunner(options);
-    assert.deepEqual(
-      await getManagedLocalEndpointStatus(
-        { target: "openai-api" },
-        { homeDirectory, env: {}, runProcess },
-      ),
-      { target: "openai-api", managed: false, state: "unavailable" },
-    );
-    assertReadOnlyDockerCalls(runProcess.calls);
-  }
-});
-
-test("generic endpoint status exposes no rotation action until generated healthchecks are healthy", async (t) => {
-  const homeDirectory = await createManagedRoot(t, "openai-api");
-  for (const options of [
-    { health: "starting" },
-    { health: "unhealthy" },
-    { health: "" },
-    { state: "restarting", health: "starting" },
-    { state: "dead", health: "unhealthy" },
-  ]) {
-    const runProcess = createEndpointInventoryRunner(options);
-    const result = await getManagedLocalEndpointStatus(
-      { target: "openai-api" },
-      { homeDirectory, env: {}, runProcess },
-    );
-    assert.equal(result.state, "partial");
-    assert.equal(result.snapshot, undefined);
-    assert.equal(JSON.stringify(result).includes("secret-canary"), false);
-    assertReadOnlyDockerCalls(runProcess.calls);
-  }
-});
-
 test("restarted Codex Chat remains partial while its generated healthcheck is starting", async (t) => {
   const homeDirectory = await createManagedRoot(t, "codex-chat");
   const runProcess = createEndpointInventoryRunner({
@@ -1005,19 +664,6 @@ test("restarted Codex Chat remains partial while its generated healthcheck is st
     state: "partial",
   });
   assertReadOnlyDockerCalls(runProcess.calls);
-});
-
-test("generic endpoint inventory fails closed on a malformed managed marker", async (t) => {
-  const homeDirectory = await createManagedRoot(t, "openai-api", { projectName: "foreign" });
-  const result = await getManagedLocalEndpointStatus(
-    { target: "openai-api" },
-    { homeDirectory, env: {}, runProcess: createEndpointInventoryRunner() },
-  );
-  assert.deepEqual(result, {
-    target: "openai-api",
-    managed: false,
-    state: "unavailable",
-  });
 });
 
 test("OAuth bridge inventory reports healthy, stopped, partial, and foreign states read-only", async (t) => {
@@ -1146,76 +792,6 @@ test("Assistant status re-attests its reviewed n8n target and generated healthch
   }
 });
 
-test("Windows status checks verify managed ACLs without normalizing or querying Docker on failure", async (t) => {
-  const endpointHome = await createManagedRoot(t, "openai-api");
-  const sidecar = await createManagedSidecarRoot(t);
-  const assistant = await createManagedAssistantRoot(t);
-  await writeFile(
-    join(endpointHome, ".relmio", "local", "openai-api", "docker-compose.yml"),
-    "services: {}\n",
-  );
-  await writeFile(
-    join(sidecar.homeDirectory, ".relmio", "local", "n8n-openai-oauth", "docker-compose.yml"),
-    "services: {}\n",
-  );
-  await writeFile(
-    join(assistant.homeDirectory, ".relmio", "local", "n8n-ai-assistant", "docker-compose.yml"),
-    "services: {}\n",
-  );
-  const dockerCalls = [];
-  const runProcess = async (spec) => {
-    dockerCalls.push(spec);
-    throw new Error("Docker must not be queried after an unsafe ACL");
-  };
-  const cases = [
-    {
-      sensitiveSuffix: "docker-compose.yml",
-      invoke: (lockDownPath) => getManagedLocalEndpointStatus(
-        { target: "openai-api" },
-        { homeDirectory: endpointHome, env: {}, platform: "win32", lockDownPath, runProcess },
-      ),
-      expected: { target: "openai-api", managed: false, state: "unavailable" },
-    },
-    {
-      sensitiveSuffix: "docker-compose.yml",
-      invoke: (lockDownPath) => getLocalN8nSidecarStatus({
-        homeDirectory: sidecar.homeDirectory,
-        env: {},
-        platform: "win32",
-        lockDownPath,
-        runProcess,
-      }),
-      expected: { target: "n8n-openai-oauth", managed: false, state: "unavailable" },
-    },
-    {
-      sensitiveSuffix: ".env",
-      invoke: (lockDownPath) => getLocalN8nAssistantStatus({
-        homeDirectory: assistant.homeDirectory,
-        env: {},
-        platform: "win32",
-        lockDownPath,
-        runProcess,
-      }),
-      expected: { target: "local-n8n-assistant", managed: false, state: "unavailable" },
-    },
-  ];
-  for (const entry of cases) {
-    const aclCalls = [];
-    const lockDownPath = async (path, options) => {
-      aclCalls.push({ path, options });
-      assert.equal(options.platform, "win32");
-      assert.equal(options.verifyOnly, true);
-      if (path.endsWith(entry.sensitiveSuffix)) {
-        throw new Error("unsafe owner ACL");
-      }
-    };
-    assert.deepEqual(await entry.invoke(lockDownPath), entry.expected);
-    assert.equal(aclCalls.some(({ options }) => options.kind === "file"), true);
-    assert.equal(aclCalls.some(({ path }) => path.endsWith(entry.sensitiveSuffix)), true);
-  }
-  assert.deepEqual(dockerCalls, []);
-});
-
 test("standalone n8n inventories do not query Docker when their managed paths are absent", async (t) => {
   const temporaryHome = await mkdtemp(join(tmpdir(), "relmio-dashboard-absent-"));
   t.after(() => rm(temporaryHome, { recursive: true, force: true }));
@@ -1251,4 +827,47 @@ test("Assistant inventory fails closed when its private environment is malformed
     state: "unavailable",
   });
   assert.equal(JSON.stringify(result).includes("secret-canary"), false);
+});
+
+
+test("OAuth dashboard contract has exactly seven services and four runtime-owned providers", async () => {
+  const status = await getLocalDashboardStatus({
+    inspectLocalEndpoint: async ({ target }) => ({ managed: false, state: "absent", snapshot: null }),
+    inspectLocalN8nStack: async () => ({ managed: false, state: "absent", snapshot: null }),
+    inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent", snapshot: null }),
+    inspectLocalN8nAssistant: async () => ({ managed: false, state: "absent", snapshot: null }),
+    inspectLocalN8nSuperGrok: async () => ({ managed: false, state: "absent", snapshot: null }),
+  });
+  assert.deepEqual(status.services.map(({ target }) => target), ["codex-chatgpt", "codex-chat", "xai-grok-build", "local-n8n-stack", "n8n-openai-oauth", "local-n8n-assistant", "n8n-supergrok-oauth"]);
+  assert.deepEqual(status.providers, [
+    { target: "codex-chatgpt", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
+    { target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
+    { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" },
+    { target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
+  ]);
+  assert.equal(JSON.stringify(status).includes("api-key"), false);
+});
+
+test("private SuperGrok inventory keeps provider readiness neutral and strips secret fields", async () => {
+  const snapshot = { target: "n8n-supergrok-oauth", endpoint: "http://n8n-supergrok:14502/v1", auth: { configured: true, disclosure: "one-time" }, canRemove: true };
+  const inspectors = {
+    getDockerStatus: async () => ({ dockerAvailable: false }),
+    inspectLocalEndpoint: async () => ({ managed: false, state: "absent" }),
+    inspectLocalN8nStack: async () => ({ managed: false, state: "absent" }),
+    inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent" }),
+    inspectLocalN8nAssistant: async () => ({ managed: false, state: "absent" }),
+  };
+  const read = async (value) => getLocalDashboardStatus({ ...inspectors, inspectLocalN8nSuperGrok: async () => value });
+  const status = await read({ managed: true, state: "healthy", snapshot: { ...snapshot, token: "secret-must-not-escape" } });
+  const entry = status.services.find(item => item.target === snapshot.target);
+  assert.deepEqual(entry.snapshot, snapshot);
+  assert.deepEqual(entry.actions, ["sign-in-grok-build", "sign-out-grok-build", "remove-owned-supergrok"]);
+  assert.equal(status.providers.find(item => item.target === snapshot.target).readiness, "runtime-owned");
+  assert.equal(JSON.stringify(status).includes("secret-must-not-escape"), false);
+  for (const badSnapshot of [{ ...snapshot, endpoint: "http://evil:14502/v1" }, { ...snapshot, auth: { configured: true, disclosure: "server-managed" } }]) {
+    const invalid = await read({ managed: true, state: "healthy", snapshot: badSnapshot });
+    assert.equal(invalid.services.find(item => item.target === snapshot.target).state, "unavailable");
+  }
+  const stopped = await read({ managed: true, state: "stopped", snapshot });
+  assert.deepEqual(stopped.services.find(item => item.target === snapshot.target).actions, ["remove-owned-supergrok"]);
 });

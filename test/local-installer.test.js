@@ -16,13 +16,19 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { createLocalDeploymentPlan } from "../src/domain/local-endpoints.js";
+import {
+  createGrokBuildComposeFile,
+  createGrokBuildDockerfile,
+  createLocalDeploymentPlan,
+} from "../src/domain/local-endpoints.js";
 import {
   acquireLocalEndpointChangeLock as acquireLocalEndpointChangeLockService,
   activateLocalClientCredentialRotation as activateLocalClientCredentialRotationService,
   attestLocalCodexInstallation,
+  attestLocalGrokBuildInstallation,
   getLocalDockerStatus,
   installLocalEndpoint as installLocalEndpointService,
   restartLocalCodex as restartLocalCodexService,
@@ -42,14 +48,32 @@ const prepareLocalClientCredentialRotation = (request, dependencies) =>
   prepareLocalClientCredentialRotationService(request, withTestLocalSecurity(dependencies));
 const restartLocalCodex = (request, dependencies) =>
   restartLocalCodexService(request, withTestLocalSecurity(dependencies));
+const attestLocalGrokBuild = (request, dependencies) =>
+  attestLocalGrokBuildInstallation(request, withTestLocalSecurity(dependencies));
 
-const platformKey = `sk-${"p".repeat(48)}`;
-const rotatedPlatformKey = `sk-${"q".repeat(48)}`;
 const capability = Buffer.alloc(32, 7).toString("base64url");
 const TEST_DOCKER_HOST = process.platform === "win32"
   ? "npipe:////./pipe/dockerDesktopLinuxEngine"
   : "unix:///var/run/docker.sock";
 const TEST_DOCKER_CONTEXT = process.platform === "win32" ? "desktop-linux" : "default";
+
+test("direct OAuth endpoint installation rejects retired API-key fields before process work", async () => {
+  let processCalls = 0;
+  await assert.rejects(
+    () => installLocalEndpoint({
+      plan: createLocalDeploymentPlan({ target: "xai-grok-build" }),
+      confirmed: true,
+      apiKey: "retired-api-key-field",
+    }, {
+      runProcess: async () => {
+        processCalls += 1;
+        throw new Error("must not run");
+      },
+    }),
+    /OAuth local endpoint install request is invalid/u,
+  );
+  assert.equal(processCalls, 0);
+});
 
 async function createTestHome(t) {
   const root = await import("node:fs/promises").then(({ mkdtemp }) =>
@@ -99,6 +123,7 @@ function createRunner({
   publisherHost = "127.0.0.1",
   publishedPort = 12435,
   replaceFailureCount = 0,
+  grokVersion = "grok 1.0.13 (5e9a58528b76)\n",
 } = {}) {
   const calls = [];
   let replacementFailures = replaceFailureCount;
@@ -121,11 +146,16 @@ function createRunner({
     if (args === "compose version --short") {
       return { stdout: "2.29.2\n", stderr: "", code: 0 };
     }
+    if (args.endsWith("grok-build --version")) {
+      return { stdout: grokVersion, stderr: "", code: 0 };
+    }
     if (args.includes("ps --status running --services")) {
       return {
-        stdout: args.includes("relmio-openai-api")
+        stdout: args.includes("relmio-openai-api") || args.includes("relmio-xai-inference")
           ? "gateway\n"
-          : args.includes("relmio-codex-chat-")
+          : args.includes("relmio-xai-grok-build-")
+            ? "grok-build\n"
+            : args.includes("relmio-codex-chat-")
             ? "codex-chat\n"
             : "codex\n",
         stderr: "",
@@ -133,9 +163,11 @@ function createRunner({
       };
     }
     if (args.includes("ps --format json")) {
-      const targetPort = args.includes("relmio-openai-api")
+      const targetPort = args.includes("relmio-openai-api") || args.includes("relmio-xai-inference")
         ? 10_531
-        : args.includes("relmio-codex-chat-")
+        : args.includes("relmio-xai-grok-build-")
+          ? 14_502
+          : args.includes("relmio-codex-chat-")
           ? 14_501
           : 4_500;
       return {
@@ -814,61 +846,6 @@ test("Codex credential rotation rolls back when the fresh WebSocket capability i
   assert.equal(
     runProcess.calls.filter(({ args }) => args.includes("--force-recreate")).length,
     2,
-  );
-});
-
-test("credential rotation preserves the OpenAI upstream volume and verifies the fresh local credential", async (t) => {
-  const home = await createTestHome(t);
-  const runProcess = createRunner();
-  const fetchImpl = createFetch();
-  const env = { RELMIO_HOME: join(home, ".relmio") };
-  const randomValues = [
-    Buffer.alloc(32, 2),
-    Buffer.alloc(32, 7),
-    Buffer.alloc(32, 9),
-  ];
-  const randomBytes = () => randomValues.shift();
-  const plan = createLocalDeploymentPlan({
-    target: "openai-api",
-    port: 12435,
-    allowedOrigins: ["http://localhost:3000"],
-  });
-  const installed = await installLocalEndpoint(
-    { plan, apiKey: platformKey, confirmed: true },
-    { env, runProcess, randomBytes, isPortAvailable: async () => true, fetchImpl },
-  );
-  runProcess.calls.length = 0;
-  fetchImpl.calls.length = 0;
-
-  const staged = await prepareLocalClientCredentialRotation(
-    { target: "openai-api" },
-    { env, runProcess, randomBytes, fetchImpl },
-  );
-  const activated = await activateLocalClientCredentialRotation(
-    staged,
-    { env, runProcess, fetchImpl },
-  );
-  const rotated = { ...staged, ...activated };
-
-  assert.equal(rotated.target, "openai-api");
-  assert.equal(rotated.endpoint, "http://127.0.0.1:12435/v1");
-  assert.notEqual(rotated.clientCredential, installed.clientCredential);
-  assert.deepEqual(rotated.models, ["gpt-5.6-terra"]);
-  assert.equal(rotated.deploymentMode, "updated");
-  assert.equal(rotated.experimental, false);
-  assert.equal(rotated.browserClients, true);
-  assert.equal(
-    runProcess.calls.some(({ args, input }) =>
-      args.includes("credential-seed") || input !== undefined,
-    ),
-    false,
-  );
-  const modelRequest = fetchImpl.calls.find(({ url }) =>
-    String(url).endsWith("/v1/models"),
-  );
-  assert.equal(
-    modelRequest.options.headers.Authorization,
-    `Bearer ${rotated.clientCredential}`,
   );
 });
 
@@ -1912,338 +1889,6 @@ test("a post-open reclaim owner write cannot survive stale lock replacement", { 
   await releaseSuccessor();
 });
 
-test("install refuses missing confirmation before filesystem or Docker actions", async (t) => {
-  const home = await createTestHome(t);
-  const runProcess = createRunner();
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: false },
-        {
-          env: { RELMIO_HOME: join(home, ".relmio") },
-          runProcess,
-          randomBytes: () => Buffer.alloc(32, 7),
-          isPortAvailable: async () => true,
-          readGatewaySource: async () => "export {};",
-          fetchImpl: createFetch(),
-        },
-      ),
-    /confirm/i,
-  );
-  await assert.rejects(() => lstat(join(home, ".relmio")), /ENOENT/);
-  assert.deepEqual(runProcess.calls, []);
-});
-
-test("install validates provider credentials before writes", async (t) => {
-  const home = await createTestHome(t);
-  const runProcess = createRunner();
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: "chatgpt-access-token", confirmed: true },
-        {
-          env: { RELMIO_HOME: join(home, ".relmio") },
-          runProcess,
-        },
-      ),
-    /Platform API key/i,
-  );
-  await assert.rejects(() => lstat(join(home, ".relmio")), /ENOENT/);
-  assert.deepEqual(runProcess.calls, []);
-});
-
-test("fresh endpoint root initialization removes only an empty failed root and retries immediately", async (t) => {
-  const home = await createTestHome(t);
-  const env = { RELMIO_HOME: join(home, ".relmio") };
-  const relmioHome = env.RELMIO_HOME;
-  const runner = createRunner({
-    contextHost: "unix:///var/run/docker.sock",
-    contextName: "default",
-  });
-  let failRootChmod = true;
-  const fileSystem = {
-    ...nodeFileSystem,
-    async chmod(path, mode) {
-      if (path === relmioHome && failRootChmod) {
-        failRootChmod = false;
-        throw new Error("injected fresh-root chmod failure");
-      }
-      return nodeFileSystem.chmod(path, mode);
-    },
-  };
-  const request = { apiKey: platformKey, confirmed: true };
-  const dependencies = {
-    env,
-    fileSystem,
-    getProcessIdentity: async () => ({
-      state: "active",
-      startIdentity: "test-fresh-root-owner",
-    }),
-    platform: "linux",
-    runProcess: runner,
-    randomBytes: () => Buffer.alloc(32, 7),
-    isPortAvailable: async () => true,
-    readGatewaySource: async () => "export {};",
-    fetchImpl: createFetch(),
-  };
-
-  await assert.rejects(
-    () => installLocalEndpoint({ plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }), ...request }, dependencies),
-    /injected fresh-root chmod failure/iu,
-  );
-  await assert.rejects(() => lstat(relmioHome), /ENOENT/u);
-
-  const result = await installLocalEndpoint(
-    { plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }), ...request },
-    dependencies,
-  );
-  assert.equal(result.deploymentMode, "installed");
-  assert.equal((await lstat(relmioHome)).isDirectory(), true);
-});
-
-test("fresh endpoint root initialization rolls back after Windows ACL setup fails", async (t) => {
-  const home = await createTestHome(t);
-  const env = { RELMIO_HOME: join(home, ".relmio") };
-  const relmioHome = env.RELMIO_HOME;
-  const runner = createRunner({
-    contextHost: "npipe:////./pipe/dockerDesktopLinuxEngine",
-    contextName: "desktop-linux",
-  });
-  let failRootAcl = true;
-  const lockDownPath = async (path) => {
-    if (path === relmioHome && failRootAcl) {
-      failRootAcl = false;
-      throw new Error("injected fresh-root ACL failure");
-    }
-  };
-  const request = { apiKey: platformKey, confirmed: true };
-  const dependencies = {
-    env,
-    getProcessIdentity: async () => ({
-      state: "active",
-      startIdentity: "test-windows-acl-owner",
-    }),
-    platform: "win32",
-    runProcess: runner,
-    lockDownPath,
-    randomBytes: () => Buffer.alloc(32, 7),
-    isPortAvailable: async () => true,
-    readGatewaySource: async () => "export {};",
-    fetchImpl: createFetch(),
-  };
-
-  await assert.rejects(
-    () => installLocalEndpoint({ plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }), ...request }, dependencies),
-    /injected fresh-root ACL failure/iu,
-  );
-  await assert.rejects(() => lstat(relmioHome), /ENOENT/u);
-
-  const result = await installLocalEndpoint(
-    { plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }), ...request },
-    dependencies,
-  );
-  assert.equal(result.deploymentMode, "installed");
-  assert.equal((await lstat(relmioHome)).isDirectory(), true);
-});
-
-test("OpenAI install keeps the Platform key only in a private seeded Docker volume", async (t) => {
-  const home = await createTestHome(t);
-  const runProcess = createRunner();
-  const fetchImpl = createFetch();
-  const env = { RELMIO_HOME: join(home, ".relmio") };
-  const plan = createLocalDeploymentPlan({
-    target: "openai-api",
-    port: 12435,
-    allowedOrigins: ["http://localhost:3000"],
-  });
-
-  const result = await installLocalEndpoint(
-    { plan, apiKey: platformKey, confirmed: true },
-    {
-      env,
-      runProcess,
-      randomBytes: () => Buffer.alloc(32, 7),
-      isPortAvailable: async () => true,
-      readGatewaySource: async () => "export const runtimeFixture = true;\n",
-      fetchImpl,
-    },
-  );
-
-  assert.deepEqual(result, {
-    target: "openai-api",
-    endpoint: "http://127.0.0.1:12435/v1",
-    protocol: "openai-v1",
-    clientCredential: capability,
-    credentialShownOnce: true,
-    models: ["gpt-5.6-terra"],
-    deploymentMode: "installed",
-    experimental: false,
-    browserClients: true,
-  });
-
-  const installRoot = await resolveLocalInstallRoot({ target: "openai-api", env });
-  const secretPath = join(installRoot, "secrets", "openai-api-key");
-  await assert.rejects(() => lstat(secretPath), /ENOENT/);
-  assert.deepEqual((await readdir(installRoot)).sort(), [
-    ".dockerignore",
-    ".managed-by-relmio.json",
-    "Dockerfile",
-    "docker-compose.yml",
-    "gateway.mjs",
-  ]);
-  if (process.platform !== "win32") {
-    assert.equal((await stat(installRoot)).mode & 0o777, 0o700);
-  }
-  assert.equal(
-    await readFile(join(installRoot, ".dockerignore"), "utf8"),
-    "**\n!Dockerfile\n!gateway.mjs\n",
-  );
-  const compose = await readFile(join(installRoot, "docker-compose.yml"), "utf8");
-  assert.doesNotMatch(compose, new RegExp(platformKey));
-  assert.doesNotMatch(compose, new RegExp(capability));
-  assert.match(compose, /127\.0\.0\.1:12435:10531/);
-  assert.match(compose, new RegExp(`io\\.relmio\\.install: "${"07".repeat(16)}"`));
-  assert.deepEqual(
-    JSON.parse(
-      await readFile(join(installRoot, ".managed-by-relmio.json"), "utf8"),
-    ),
-    {
-      schemaVersion: 2,
-      target: "openai-api",
-      port: 12435,
-      dockerHost: TEST_DOCKER_HOST,
-      installId: "07".repeat(16),
-      projectName: `relmio-openai-api-${"07".repeat(16)}`,
-    },
-  );
-  assert.equal(await readFile(join(installRoot, "gateway.mjs"), "utf8"), "export const runtimeFixture = true;\n");
-  for (const artifactName of await readdir(installRoot)) {
-    assert.doesNotMatch(
-      await readFile(join(installRoot, artifactName), "utf8"),
-      new RegExp(platformKey),
-    );
-  }
-
-  const seedCalls = runProcess.calls.filter(({ input }) => input !== undefined);
-  assert.equal(seedCalls.length, 1);
-  assert.deepEqual(seedCalls[0].input, Buffer.from(platformKey, "utf8"));
-  assert.equal(seedCalls[0].file, "docker");
-  assert.deepEqual(seedCalls[0].args.slice(-6), [
-    "run",
-    "--rm",
-    "--no-deps",
-    "--no-build",
-    "-T",
-    "credential-seed",
-  ]);
-  const processMetadata = runProcess.calls.map(({ input, ...spec }) => spec);
-  assert.doesNotMatch(JSON.stringify(processMetadata), new RegExp(platformKey));
-  assert.doesNotMatch(JSON.stringify(result), new RegExp(platformKey));
-  assert.ok(processMetadata.every(({ shell, env: processEnv }) =>
-    shell === undefined && processEnv === undefined
-  ));
-  const buildIndex = runProcess.calls.findIndex(({ args }) =>
-    args.at(-2) === "build" && args.at(-1) === "gateway"
-  );
-  const seedIndex = runProcess.calls.indexOf(seedCalls[0]);
-  const startIndex = runProcess.calls.findIndex(({ args }) =>
-    args.includes("up")
-  );
-  assert.ok(buildIndex !== -1 && buildIndex < seedIndex && seedIndex < startIndex);
-  assert.ok(
-    runProcess.calls.some(({ args }) =>
-      args.join(" ").startsWith("volume ls --filter label=com.docker.compose.project=")
-    ),
-  );
-
-  assert.ok(
-    runProcess.calls.every(
-      ({ file, args }) =>
-        file === "docker" &&
-        !args.join(" ").match(/n8n|openai-oauth|--remove-orphans/i),
-    ),
-  );
-  assert.ok(
-    runProcess.calls
-      .filter(({ args }) => args.includes("compose"))
-      .every(
-        ({ cwd, dockerHost }) =>
-          cwd === installRoot &&
-          dockerHost === TEST_DOCKER_HOST,
-      ),
-  );
-  assert.ok(
-    runProcess.calls.some(({ args }) =>
-      args.join(" ").includes(
-        `compose --project-name relmio-openai-api-${"07".repeat(16)} --file docker-compose.yml up -d --wait --wait-timeout 90 --no-deps gateway`,
-      ),
-    ),
-  );
-  assert.equal(
-    fetchImpl.calls.at(-1).options.headers.Authorization,
-    `Bearer ${capability}`,
-  );
-});
-
-test("Codex install has no Platform secret and returns native App Server details", async (t) => {
-  const home = await createTestHome(t);
-  const runProcess = createRunner({ publishedPort: 14500 });
-  const verifyCodexCapability = createCodexCapabilityVerifier();
-  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port: 14500 });
-
-  const result = await installLocalEndpoint(
-    { plan, confirmed: true },
-    {
-      env: { RELMIO_HOME: join(home, ".relmio") },
-      runProcess,
-      randomBytes: () => Buffer.alloc(32, 7),
-      isPortAvailable: async () => true,
-      fetchImpl: createFetch(),
-      verifyCodexCapability,
-    },
-  );
-
-  assert.deepEqual(result, {
-    target: "codex-chatgpt",
-    endpoint: "ws://127.0.0.1:14500",
-    protocol: "codex-app-server-json-rpc",
-    clientCredential: capability,
-    credentialShownOnce: true,
-    models: [],
-    deploymentMode: "installed",
-    experimental: true,
-    browserClients: false,
-  });
-  assert.deepEqual(verifyCodexCapability.calls, [
-    { port: 14500, clientCredential: capability },
-  ]);
-  const installRoot = await resolveLocalInstallRoot({
-    target: "codex-chatgpt",
-    env: { RELMIO_HOME: join(home, ".relmio") },
-  });
-  await assert.rejects(
-    () => readFile(join(installRoot, "secrets", "openai-api-key")),
-    /ENOENT/,
-  );
-  const compose = await readFile(join(installRoot, "docker-compose.yml"), "utf8");
-  assert.match(compose, /@openai\/codex|codex-home|127\.0\.0\.1:14500:4500/);
-  assert.doesNotMatch(compose, new RegExp(capability));
-  const requirements = await readFile(
-    join(installRoot, "requirements.toml"),
-    "utf8",
-  );
-  assert.match(requirements, /default_permissions = "relmio-workspace"/);
-  assert.match(requirements, /"relmio-workspace" = true/);
-  assert.doesNotMatch(requirements, /allowed_sandbox_modes/);
-  if (process.platform !== "win32") {
-    assert.equal((await stat(join(installRoot, "requirements.toml"))).mode & 0o777, 0o600);
-  }
-});
-
 test("Codex Chat install packages the adapter and verifies only its non-billing readiness route", async (t) => {
   const home = await createTestHome(t);
   const runProcess = createRunner({ publishedPort: 14501 });
@@ -2306,6 +1951,173 @@ test("Codex Chat install packages the adapter and verifies only its non-billing 
   );
 });
 
+test("Grok Build install packages its direct OAuth runtime dependencies and verifies its local bearer", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({ publishedPort: 14502 });
+  const fetchImpl = createFetch();
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const plan = createLocalDeploymentPlan({ target: "xai-grok-build" });
+  const result = await installLocalEndpoint({ plan, confirmed: true }, {
+    env, runProcess, randomBytes: () => Buffer.alloc(32, 7), isPortAvailable: async () => true,
+    readGrokBuildSource: async () => "export const runtimeFixture = true;\n",
+    readGrokBuildChatSource: async () => "export const chatFixture = true;\n",
+    readGrokBuildSessionSource: async () => "export const sessionFixture = true;\n",
+    fetchImpl,
+  });
+  assert.equal(result.target, "xai-grok-build");
+  assert.equal(result.endpoint, "http://127.0.0.1:14502");
+  assert.equal(result.experimental, true);
+  assert.deepEqual(fetchImpl.calls.map(({ url }) => url), [
+    "http://127.0.0.1:14502/health", "http://127.0.0.1:14502/auth/verify",
+  ]);
+  const installRoot = await resolveLocalInstallRoot({ target: "xai-grok-build", env });
+  assert.equal(await readFile(join(installRoot, "gateway.js"), "utf8"), "export const runtimeFixture = true;\n");
+  assert.equal(await readFile(join(installRoot, "chat.js"), "utf8"), "export const chatFixture = true;\n");
+  assert.equal(await readFile(join(installRoot, "session.js"), "utf8"), "export const sessionFixture = true;\n");
+  assert.equal((await stat(join(installRoot, "gateway.js"))).mode & 0o777, 0o600);
+  assert.equal((await stat(join(installRoot, "chat.js"))).mode & 0o777, 0o600);
+  assert.equal((await stat(join(installRoot, "session.js"))).mode & 0o777, 0o600);
+  const compose = await readFile(join(installRoot, "docker-compose.yml"), "utf8");
+  assert.match(compose, /127\.0\.0\.1:14502:14502/);
+  assert.match(compose, /grok-home:\/home\/node\/\.grok/);
+  assert.doesNotMatch(compose, /xai_api_key|codex|workspace|n8n/i);
+  const grokVerification = runProcess.calls.find(({ args }) => args.join(" ").endsWith("grok-build --version"));
+  assert.ok(grokVerification);
+  assert.deepEqual(grokVerification.args.slice(-9), [
+    "run", "--rm", "--no-deps", "--pull", "never", "--entrypoint", "grok", "grok-build", "--version",
+  ]);
+});
+
+test("Grok Build attestation refuses a tampered Compose or packaged runtime before a login can launch", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({ publishedPort: 14502 });
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const sources = {
+    readGrokBuildSource: async () => "export const runtimeFixture = true;\n",
+    readGrokBuildChatSource: async () => "export const chatFixture = true;\n",
+    readGrokBuildSessionSource: async () => "export const sessionFixture = true;\n",
+  };
+  await installLocalEndpoint({ plan: createLocalDeploymentPlan({ target: "xai-grok-build" }), confirmed: true }, {
+    env, runProcess, randomBytes: () => Buffer.alloc(32, 7), isPortAvailable: async () => true,
+    ...sources, fetchImpl: createFetch(),
+  });
+  const installRoot = await resolveLocalInstallRoot({ target: "xai-grok-build", env });
+  await attestLocalGrokBuild({ installDirectory: installRoot }, { runProcess, ...sources });
+  await writeFile(join(installRoot, "docker-compose.yml"), "services: { attacker: {} }\n");
+  const callsBeforeCompose = runProcess.calls.length;
+  await assert.rejects(
+    () => attestLocalGrokBuild({ installDirectory: installRoot }, { runProcess, ...sources }),
+    /managed Grok Build files changed/u,
+  );
+  assert.equal(runProcess.calls.length, callsBeforeCompose);
+  const marker = JSON.parse(await readFile(join(installRoot, ".managed-by-relmio.json"), "utf8"));
+  await writeFile(
+    join(installRoot, "docker-compose.yml"),
+    createGrokBuildComposeFile({
+      port: marker.port,
+      tokenSha256: marker.tokenSha256,
+      installId: marker.installId,
+    }),
+  );
+  await writeFile(join(installRoot, "Dockerfile"), "FROM attacker\n");
+  const callsBeforeDockerfile = runProcess.calls.length;
+  await assert.rejects(
+    () => attestLocalGrokBuild({ installDirectory: installRoot }, { runProcess, ...sources }),
+    /managed Grok Build files changed/u,
+  );
+  assert.equal(runProcess.calls.length, callsBeforeDockerfile);
+  await writeFile(join(installRoot, "Dockerfile"), createGrokBuildDockerfile());
+  await writeFile(join(installRoot, "gateway.js"), "export const attacker = true;\n");
+  const callsBeforeRuntime = runProcess.calls.length;
+  await assert.rejects(
+    () => attestLocalGrokBuild({ installDirectory: installRoot }, { runProcess, ...sources }),
+    /managed Grok Build files changed/u,
+  );
+  assert.equal(runProcess.calls.length, callsBeforeRuntime);
+});
+
+test("a legacy Grok Build installation blocks setup before changing files or its saved session", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({ publishedPort: 14502 });
+  const env = { RELMIO_HOME: join(home, ".relmio") };
+  const sources = {
+    readGrokBuildSource: async () => "export const runtimeFixture = true;\n",
+    readGrokBuildChatSource: async () => "export const chatFixture = true;\n",
+    readGrokBuildSessionSource: async () => "export const sessionFixture = true;\n",
+  };
+  const plan = createLocalDeploymentPlan({ target: "xai-grok-build" });
+  await installLocalEndpoint({ plan, confirmed: true }, {
+    env, runProcess, randomBytes: () => Buffer.alloc(32, 7), isPortAvailable: async () => true,
+    ...sources, fetchImpl: createFetch(),
+  });
+  const installRoot = await resolveLocalInstallRoot({ target: "xai-grok-build", env });
+  const markerPath = join(installRoot, ".managed-by-relmio.json");
+  const legacyMarker = JSON.parse(await readFile(markerPath, "utf8"));
+  delete legacyMarker.tokenSha256;
+  await writeFile(markerPath, `${JSON.stringify(legacyMarker)}\n`);
+
+  const callsBeforeLogin = runProcess.calls.length;
+  await assert.rejects(
+    () => attestLocalGrokBuild({ installDirectory: installRoot }, { runProcess, ...sources }),
+    /verifier is missing/u,
+  );
+  assert.equal(runProcess.calls.length, callsBeforeLogin);
+
+  const names = await readdir(installRoot);
+  const before = await Promise.all(names.map((name) => readFile(join(installRoot, name))));
+  const callsBeforeSetup = runProcess.calls.length;
+  await assert.rejects(() => installLocalEndpoint({ plan, confirmed: true }, {
+    env, runProcess, randomBytes: () => { throw new Error("must not rotate a credential"); },
+    isPortAvailable: async () => true, ...sources, fetchImpl: createFetch(),
+  }), /legacy Grok installation requires a separately reviewed migration/u);
+  assert.equal(runProcess.calls.length, callsBeforeSetup, "must not inspect, mount, replace or remove the existing Docker session volume");
+  assert.deepEqual(await readdir(installRoot), names);
+  assert.deepEqual(await Promise.all(names.map((name) => readFile(join(installRoot, name)))), before);
+});
+
+test("Grok Build install rolls back when its exact managed CLI cannot be attested", async (t) => {
+  const home = await createTestHome(t);
+  const runProcess = createRunner({ publishedPort: 14502, grokVersion: "grok 1.0.12 (badc0ffee)\n" });
+  await assert.rejects(() => installLocalEndpoint({ plan: createLocalDeploymentPlan({ target: "xai-grok-build" }), confirmed: true }, {
+    env: { RELMIO_HOME: join(home, ".relmio") }, runProcess,
+    randomBytes: () => Buffer.alloc(32, 7), isPortAvailable: async () => true,
+    readGrokBuildSource: async () => "export const fixture = true;\n",
+    readGrokBuildChatSource: async () => "export const chat = true;\n",
+    readGrokBuildSessionSource: async () => "export const session = true;\n",
+    fetchImpl: createFetch(),
+  }), /CLI version/u);
+  assert.ok(runProcess.calls.some(({ args }) => args.includes("rm") && args.includes("grok-build")));
+});
+
+test("Grok Build install rejects an invalid packaged direct OAuth dependency before build or deployment", async (t) => {
+  const home = await createTestHome(t);
+  const processCalls = [];
+  await assert.rejects(
+    () => installLocalEndpoint({
+      plan: createLocalDeploymentPlan({ target: "xai-grok-build" }),
+      confirmed: true,
+    }, {
+      env: { RELMIO_HOME: join(home, ".relmio") },
+      runProcess: async (spec) => {
+        processCalls.push(spec);
+        return createRunner()(spec);
+      },
+      randomBytes: () => Buffer.alloc(32, 7),
+      isPortAvailable: async () => true,
+      readGrokBuildSource: async () => "export const runtime = true;\n",
+      readGrokBuildChatSource: async () => "",
+      readGrokBuildSessionSource: async () => "export const session = true;\n",
+      fetchImpl: createFetch(),
+    }),
+    /packaged Grok Build runtime is invalid/u,
+  );
+  assert.ok(processCalls.length > 0, "read-only Docker ownership checks may precede packaged-source validation");
+  assert.ok(
+    processCalls.every(({ args }) => !args.includes("build") && !args.includes("up")),
+    "invalid sources must prevent build and deployment",
+  );
+});
+
 test("Codex install removes only its exact service when capability authentication fails", async (t) => {
   const home = await createTestHome(t);
   const runProcess = createRunner({ publishedPort: 14500 });
@@ -2344,366 +2156,4 @@ test("Codex install removes only its exact service when capability authenticatio
     "--services",
     "codex",
   ]);
-});
-
-test("installer refuses unmanaged and symlinked managed roots", async (t) => {
-  const home = await createTestHome(t);
-  const stateRoot = join(home, ".relmio");
-  const localRoot = join(stateRoot, "local");
-  const targetRoot = join(localRoot, "openai-api");
-  await mkdir(targetRoot, { recursive: true });
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        { env: { RELMIO_HOME: stateRoot }, runProcess: createRunner() },
-      ),
-    /managed-root marker|managed marker/i,
-  );
-  if (process.platform !== "win32") {
-    assert.equal((await stat(stateRoot)).mode & 0o777, 0o755);
-  }
-
-  await rm(targetRoot, { recursive: true });
-  await writeFile(
-    join(stateRoot, ".managed-by-relmio-root.json"),
-    `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`,
-  );
-  const outside = join(home, "outside");
-  await mkdir(outside);
-  await symlink(outside, targetRoot, process.platform === "win32" ? "junction" : undefined);
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        { env: { RELMIO_HOME: stateRoot }, runProcess: createRunner() },
-      ),
-    /symbolic link|symlink/i,
-  );
-});
-
-test("managed marker files themselves cannot be symbolic links", { skip: process.platform === "win32" }, async (t) => {
-  const home = await createTestHome(t);
-  const stateRoot = join(home, ".relmio");
-  const localRoot = join(stateRoot, "local");
-  const codexRoot = join(localRoot, "codex-chatgpt");
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-  await mkdir(stateRoot, { recursive: true });
-
-  const outsideRootMarker = join(home, "outside-root-marker.json");
-  await writeFile(
-    outsideRootMarker,
-    `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`,
-  );
-  await symlink(
-    outsideRootMarker,
-    join(stateRoot, ".managed-by-relmio-root.json"),
-  );
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        { env: { RELMIO_HOME: stateRoot }, runProcess: createRunner() },
-      ),
-    /managed-root marker/i,
-  );
-
-  await rm(join(stateRoot, ".managed-by-relmio-root.json"));
-  await writeFile(
-    join(stateRoot, ".managed-by-relmio-root.json"),
-    `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`,
-  );
-  await mkdir(codexRoot, { recursive: true });
-  const installId = "0123456789abcdef0123456789abcdef";
-  const outsideTargetMarker = join(home, "outside-target-marker.json");
-  await writeFile(
-    outsideTargetMarker,
-    `${JSON.stringify({
-      schemaVersion: 2,
-      target: "codex-chatgpt",
-      port: 14500,
-      dockerHost: TEST_DOCKER_HOST,
-      installId,
-      projectName: `relmio-codex-chatgpt-${installId}`,
-    })}\n`,
-  );
-  await symlink(
-    outsideTargetMarker,
-    join(codexRoot, ".managed-by-relmio.json"),
-  );
-  await assert.rejects(
-    () =>
-      attestLocalCodexInstallation(
-        { installDirectory: codexRoot },
-        { runProcess: createRunner() },
-      ),
-    /managed marker/i,
-  );
-});
-
-test("Windows reparse-point marker metadata is rejected before Docker mutation", async (t) => {
-  const home = await createTestHome(t);
-  const stateRoot = join(home, ".relmio");
-  const rootMarkerPath = join(stateRoot, ".managed-by-relmio-root.json");
-  await mkdir(stateRoot, { recursive: true });
-  await writeFile(
-    rootMarkerPath,
-    `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`,
-  );
-  const runProcess = createRunner();
-  const fileSystem = {
-    ...nodeFileSystem,
-    async lstat(path) {
-      const metadata = await nodeFileSystem.lstat(path);
-      if (path === rootMarkerPath) {
-        return {
-          isDirectory: () => false,
-          isFile: () => true,
-          isSymbolicLink: () => true,
-        };
-      }
-      return metadata;
-    },
-  };
-  await assert.rejects(
-    () => installLocalEndpoint(
-      {
-        plan: createLocalDeploymentPlan({ target: "openai-api", port: 12435 }),
-        apiKey: platformKey,
-        confirmed: true,
-      },
-      {
-        env: { RELMIO_HOME: stateRoot },
-        fileSystem,
-        runProcess,
-        platform: "win32",
-        processId: 41_050,
-        isProcessAlive: () => true,
-      },
-    ),
-    /managed-root marker/i,
-  );
-  assert.equal(runProcess.calls.length, 0);
-});
-
-test("installer rejects unsafe managed bases and ancestor symlinks", async (t) => {
-  const home = await createTestHome(t);
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-  const common = {
-    runProcess: createRunner(),
-    randomBytes: () => Buffer.alloc(32, 7),
-    isPortAvailable: async () => true,
-    readGatewaySource: async () => "export {};",
-    fetchImpl: createFetch(),
-  };
-
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        { ...common, env: { RELMIO_HOME: home } },
-      ),
-    /storage path/i,
-  );
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        {
-          ...common,
-          env: {
-            RELMIO_HOME: join(home, ".relmio"),
-            DOCKER_CONTEXT: "remote",
-          },
-        },
-      ),
-    /Docker environment overrides/i,
-  );
-
-  const realParent = join(home, "real-parent");
-  const linkedParent = join(home, "linked-parent");
-  await mkdir(realParent);
-  await symlink(realParent, linkedParent, process.platform === "win32" ? "junction" : undefined);
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        {
-          ...common,
-          env: { RELMIO_HOME: join(linkedParent, ".relmio") },
-        },
-      ),
-    /symbolic-link ancestor/i,
-  );
-});
-
-test("installer refuses foreign Docker containers, networks, and named volumes before writing", async (t) => {
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-  for (const foreignOwnership of ["container", "network", "volume"]) {
-    const home = await createTestHome(t);
-    await assert.rejects(
-      () =>
-        installLocalEndpoint(
-          { plan, apiKey: platformKey, confirmed: true },
-          {
-            env: { RELMIO_HOME: join(home, ".relmio") },
-            runProcess: createRunner({ foreignOwnership }),
-            randomBytes: () => Buffer.alloc(32, 7),
-            isPortAvailable: async () => true,
-            readGatewaySource: async () => "export {};",
-            fetchImpl: createFetch(),
-          },
-        ),
-      /without matching ownership/i,
-    );
-    await assert.rejects(() => lstat(join(home, ".relmio")), /ENOENT/);
-  }
-});
-
-test("installer rejects occupied and non-loopback publication ports", async (t) => {
-  const home = await createTestHome(t);
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-  const common = {
-    env: { RELMIO_HOME: join(home, ".relmio") },
-    randomBytes: () => Buffer.alloc(32, 7),
-    readGatewaySource: async () => "export {};",
-    fetchImpl: createFetch(),
-  };
-
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        { ...common, runProcess: createRunner(), isPortAvailable: async () => false },
-      ),
-    /port.*use|available/i,
-  );
-
-  await rm(join(home, ".relmio"), { recursive: true, force: true });
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        {
-          ...common,
-          runProcess: createRunner({ publisherHost: "0.0.0.0" }),
-          isPortAvailable: async () => true,
-        },
-      ),
-    /loopback|publication/i,
-  );
-});
-
-test("installer stops only its own service when publication verification fails", async (t) => {
-  const home = await createTestHome(t);
-  const runProcess = createRunner({ publisherHost: "0.0.0.0" });
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-
-  await assert.rejects(
-    () =>
-      installLocalEndpoint(
-        { plan, apiKey: platformKey, confirmed: true },
-        {
-          env: { RELMIO_HOME: join(home, ".relmio") },
-          runProcess,
-          randomBytes: () => Buffer.alloc(32, 7),
-          isPortAvailable: async () => true,
-          readGatewaySource: async () => "export {};",
-          fetchImpl: createFetch(),
-        },
-      ),
-    /loopback|publication/i,
-  );
-
-  assert.ok(
-    runProcess.calls.some(({ args }) =>
-      args.join(" ").includes(
-        `compose --project-name relmio-openai-api-${"07".repeat(16)} --file docker-compose.yml rm --force --stop gateway`,
-      ),
-    ),
-  );
-  assert.ok(
-    runProcess.calls.every(({ args }) => !args.join(" ").match(/n8n|--volumes/i)),
-  );
-  assert.ok(
-    runProcess.calls.some(({ args }) =>
-      args.join(" ").includes("ps --all --services gateway"),
-    ),
-  );
-});
-
-test("installer fails loudly when unsafe-service cleanup cannot be confirmed", async (t) => {
-  for (const options of [
-    { cleanupCode: 1 },
-    { cleanupStillRunning: true },
-  ]) {
-    const home = await createTestHome(t);
-    const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-
-    await assert.rejects(
-      () =>
-        installLocalEndpoint(
-          { plan, apiKey: platformKey, confirmed: true },
-          {
-            env: { RELMIO_HOME: join(home, ".relmio") },
-            runProcess: createRunner({ publisherHost: "0.0.0.0", ...options }),
-            randomBytes: () => Buffer.alloc(32, 7),
-            isPortAvailable: async () => true,
-            readGatewaySource: async () => "export {};",
-            fetchImpl: createFetch(),
-          },
-        ),
-      /could not confirm.*stopped/i,
-    );
-  }
-});
-
-test("managed update re-seeds the named volume and rotates the client key", async (t) => {
-  const home = await createTestHome(t);
-  const env = { RELMIO_HOME: join(home, ".relmio") };
-  const plan = createLocalDeploymentPlan({ target: "openai-api", port: 12435 });
-  const runProcess = createRunner();
-  const install = (randomByte, apiKey) =>
-    installLocalEndpoint(
-      { plan, apiKey, confirmed: true },
-      {
-        env,
-        runProcess,
-        randomBytes: () => Buffer.alloc(32, randomByte),
-        isPortAvailable: async () => {
-          if (randomByte === 8) {
-            throw new Error("same managed port must not be probed");
-          }
-          return true;
-        },
-        readGatewaySource: async () => "export {};",
-        fetchImpl: createFetch(),
-      },
-    );
-
-  const first = await install(7, platformKey);
-  const second = await install(8, rotatedPlatformKey);
-  assert.equal(first.deploymentMode, "installed");
-  assert.equal(second.deploymentMode, "updated");
-  assert.notEqual(first.clientCredential, second.clientCredential);
-  assert.deepEqual(
-    runProcess.calls
-      .filter(({ input }) => input !== undefined)
-      .map(({ input }) => input),
-    [
-      Buffer.from(platformKey, "utf8"),
-      Buffer.from(rotatedPlatformKey, "utf8"),
-    ],
-  );
-  const installRoot = await resolveLocalInstallRoot({
-    target: "openai-api",
-    env,
-  });
-  for (const artifactName of await readdir(installRoot)) {
-    const contents = await readFile(join(installRoot, artifactName), "utf8");
-    assert.doesNotMatch(contents, new RegExp(platformKey));
-    assert.doesNotMatch(contents, new RegExp(rotatedPlatformKey));
-  }
 });

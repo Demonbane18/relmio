@@ -21,7 +21,7 @@ Relmio separates authentication, transport, and client compatibility instead of 
 ## Operating Context
 
 - A hosted chat can test a supported ChatGPT sign-in stored in the user's browser.
-- The local wizard can expose an OpenAI-compatible endpoint backed by a user-supplied OpenAI Platform API key.
+- The OAuth-only local wizard connects official provider sign-in to supported private local endpoints. SuperGrok uses Chat Completions with a separate local client bearer; upstream API keys are not collected.
 - Experimental Codex App Server and Codex Chat Adapter routes use ChatGPT sign-in within their documented trust boundaries.
 - The n8n path installs a separate private Docker sidecar and can prepare an isolated AI Assistant code sandbox with optional SearXNG search.
 - Documentation, local installation commands, and explicit human confirmation gates are part of the normal evaluation and setup flow.

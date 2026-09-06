@@ -14,7 +14,7 @@ test("renders one selectable map for all five setup options", async () => {
   assert.match(home, /<SignalPlotter\s*\/>/u);
   for (const label of [
     "n8n with ChatGPT sign-in",
-    "OpenAI API",
+    "Grok Build OAuth",
     "n8n Code Sandbox",
     "Codex Chat Adapter",
     "Codex App Server",
@@ -30,22 +30,25 @@ test("uses real pressed buttons and exposes the complete boundary story", async 
 
   assert.match(plotter, /<button[\s\S]*aria-pressed=\{selected\}[\s\S]*type="button"/u);
   assert.match(plotter, /aria-controls="relay-route-detail"/u);
-  for (const field of ["Starts here", "Sign-in or key", "Connection", "Ends here"]) {
+  for (const field of ["Starts here", "Authentication", "Connection", "Ends here"]) {
     assert.ok(plotter.includes(field), `missing route field: ${field}`);
   }
   assert.match(plotter, /Your ChatGPT\/Codex sign-in stays in a private sidecar volume/u);
   assert.match(plotter, /unofficial, private, experimental, and policy-uncertain/u);
-  assert.match(plotter, /A local Relmio credential protects your Platform key/u);
+  assert.match(plotter, /A local Relmio bearer protects the provider-owned OAuth runtime/u);
   assert.match(plotter, /Sandbox API key shown once; separate runner secrets/u);
-  assert.match(plotter, /Platform key is entered directly in n8n/u);
+  assert.match(plotter, /Model-provider credentials are configured directly in n8n/u);
   assert.match(plotter, /A local Relmio credential protects your ChatGPT sign-in/u);
-  assert.match(plotter, /never turns one into the other/u);
+  assert.match(plotter, /Choose a route to see what it uses and where it connects/u);
   assert.doesNotMatch(plotter, /gatewayMouth|M 300 168 H 332/u);
 });
 
 test("animates the active path with an explicit reduced-motion final state", async () => {
   const plotter = await appFile("components/relay/SignalPlotter.tsx");
-  const signalPacket = plotter.match(/<motion\.circle[\s\S]*?\/>/u)?.[0] ?? "";
+  const signalClassIndex = plotter.indexOf("className={styles.signalPacket}");
+  const signalStart = plotter.lastIndexOf("<motion.circle", signalClassIndex);
+  const signalEnd = plotter.indexOf("/>", signalClassIndex) + 2;
+  const signalPacket = plotter.slice(signalStart, signalEnd);
 
   assert.match(plotter, /from "motion\/react"/u);
   assert.match(plotter, /useReducedMotion\(\)/u);
@@ -58,18 +61,6 @@ test("animates the active path with an explicit reduced-motion final state", asy
   );
   assert.doesNotMatch(signalPacket, /initial=\{false\}/u);
   assert.match(plotter, /layoutId="active-relay-route"/u);
-});
-
-test("keeps the connection map asymmetric instead of using a card grid", async () => {
-  const styles = await appFile("components/relay/SignalPlotter.module.css");
-
-  assert.match(
-    styles,
-    /\.homeLead\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*0\.72fr\)\s+minmax\(0,\s*1\.28fr\)/u,
-  );
-  assert.match(styles, /\.routeControls\s*\{[\s\S]*flex-direction:\s*column/u);
-  assert.doesNotMatch(styles, /repeat\(4,\s*minmax/u);
-  assert.doesNotMatch(styles, /\.card(?:Grid)?\b/iu);
 });
 
 test("keeps the evidence copy inside verified local and human-gated boundaries", async () => {

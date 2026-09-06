@@ -40,8 +40,8 @@ test("README surfaces are concise product entry points linked to canonical docs"
     readFile("npm/README.md", "utf8"),
   ]);
   for (const guide of [readme, npmReadme]) {
-    assert.match(guide, /Use ChatGPT sign-in with n8n/u);
-    assert.match(guide, /ChatGPT sign-in is not an OpenAI Platform API key/u);
+    assert.match(guide, /Bring your AI sign-ins to your tools/u);
+    assert.match(guide, /ChatGPT sign-in is not an\s+OpenAI Platform API key/u);
     assert.match(guide, /unofficial[\s\S]*private[\s\S]*policy-uncertain/iu);
     assert.match(guide, /img\.shields\.io\/github\/stars\/Demonbane18\/relmio/u);
     assert.match(guide, /## Quick install/u);
@@ -82,7 +82,9 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
       /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
     );
     assert.doesNotMatch(entryPoint, /Press Enter to reopen the same\s+dashboard/u);
-    assert.match(entryPoint, /six supported local services/u);
+    assert.match(entryPoint, /seven services[\s\S]*published\s+0\.13\.0/iu);
+    assert.match(entryPoint, /OAuth-only candidate/u);
+    assert.doesNotMatch(entryPoint, /eight dashboard services|not a ninth dashboard service/u);
     assert.match(entryPoint, /never stored\s+secrets/u);
     assert.match(entryPoint, /existing four-step setup flow/u);
     assert.match(entryPoint, /relmio vps/u);
@@ -136,15 +138,18 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
     /hosted curl, PowerShell, and Command Prompt launchers run in the\s+foreground/iu,
   );
   for (const service of [
-    "OpenAI API",
     "Codex (ChatGPT login)",
     "Codex Chat adapter",
     "n8n + ngrok",
     "OpenAI OAuth bridge",
     "AI Assistant tools",
+    "SuperGrok",
   ]) {
     assert.ok(dashboard.includes(`**${service}**`));
   }
+  const grokActionRow = dashboard.split("\n").find((line) => line.startsWith("| **SuperGrok** |"));
+  assert.match(grokActionRow, /sign-in\/sign-out guidance/u);
+  assert.match(grokActionRow, /local capability rotation/u);
   for (const state of [
     "Checking",
     "Healthy",
@@ -179,7 +184,7 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
     dashboard,
     /\*\*Refresh status\*\* first forgets abandoned setup drafts[\s\S]*does not change an installed service/u,
   );
-  assert.match(dashboard, /never returns a[\s\S]*Platform API key[\s\S]*OAuth token/u);
+  assert.match(dashboard, /never returns a[\s\S]*ChatGPT session[\s\S]*OAuth token/u);
   assert.match(dashboard, /ChatGPT device sign-in authorizes Codex/u);
   assert.match(dashboard, /Chat Adapter bearer authorizes your client/u);
   assert.match(dashboard, /does not start a browser sign-in by itself/u);
@@ -190,37 +195,47 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
   assertOnlyDocumentationAddresses(dashboard);
 });
 
-test("public guides document persistent dashboard lifecycle and fail-closed provider support", async () => {
-  const [readme, npmReadme, gettingStarted, localEndpoints, dashboard, security] =
-    await Promise.all([
-      readFile("README.md", "utf8"),
-      readFile("npm/README.md", "utf8"),
-      readFile("docs/getting-started.md", "utf8"),
-      readFile("docs/local-endpoints.md", "utf8"),
-      readFile("docs/local-dashboard.md", "utf8"),
-      readFile("docs/security.md", "utf8"),
-    ]);
-
-  for (const guide of [readme, npmReadme, gettingStarted, dashboard]) {
-    assert.match(
-      guide,
-      /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
-    );
-    assert.match(guide, /stops only (?:that|the Relmio dashboard) process/iu);
-    assert.match(guide, /foreground[\s,-]+one-shot/iu);
+test("public guides document OAuth-only provider scope and unreleased status", async () => {
+  const paths = ["README.md", "npm/README.md", "docs/local-endpoints.md", "docs/local-dashboard.md", "docs/security.md", "docs/roadmap.md"];
+  for (const path of paths) {
+    const guide = await readFile(path, "utf8");
+    assert.match(guide, /OAuth/iu, path);
+    assert.match(guide, /unreleased/iu, path);
+    assert.match(guide, /fresh[\s\S]*sign-in/iu, path);
+    assert.match(guide, /\/v1\/chat\/completions/u, path);
+    assert.match(guide, /(?:never|does not|must not)[\s\S]*(?:inspect|read|convert)/iu, path);
+    assert.match(guide, /(?:never changes accounts|never changes accounts automatically)/iu, path);
+    assert.doesNotMatch(guide, /Choose \*\*OpenAI API\*\*|fresh xAI API key|selected xAI API-key profile/u, path);
   }
+});
 
-  for (const guide of [localEndpoints, dashboard, security]) {
-    assert.match(guide, /official Codex App Server/u);
-    assert.match(guide, /Codex owns the ChatGPT OAuth flow/u);
-    assert.match(guide, /one active ChatGPT account/u);
-    assert.match(guide, /xAI\/Grok authentication is API-key only/u);
-    assert.match(guide, /does not implement third-party Grok OAuth/u);
-    assert.match(guide, /401, 403, (?:or )?429/u);
-    assert.match(guide, /never (?:changes|rotates) accounts or keys automatically/iu);
-    assert.match(guide, /denied by default/u);
-    assert.match(guide, /never returns or re-shows a stored secret/u);
+test("SuperGrok guidance separates fresh discovery, tested models, and n8n controls", async () => {
+  const [readme, npmReadme, endpoints, decision, generated] = await Promise.all([
+    readFile("README.md", "utf8"),
+    readFile("npm/README.md", "utf8"),
+    readFile("docs/local-endpoints.md", "utf8"),
+    readFile("docs/supergrok-oauth-route-decision.md", "utf8"),
+    readFile("web/app/docs/generated-content.ts", "utf8"),
+  ]);
+
+  for (const guide of [readme, npmReadme, endpoints, decision]) {
+    assert.match(guide, /grok-build[\s\S]*legacy (?:routing )?alias/iu);
+    assert.match(guide, /grok-4\.6[\s\S]*grok-4\.5/u);
+    assert.match(guide, /(?:listing|discovery)[\s\S]*not[\s\S]*tool proof/iu);
   }
+  for (const guide of [readme, npmReadme, endpoints]) {
+    assert.match(guide, /not upgraded automatically[\s\S]*separately reviewed path/iu);
+  }
+  assert.match(endpoints, /fresh-session\s+`tokenSha256` marker/u);
+  assert.match(endpoints, /GET \/v1\/models/u);
+  assert.match(endpoints, /From list/u);
+  assert.match(endpoints, /Use Responses API[\s\S]*off[\s\S]*workflow model node/iu);
+  assert.match(endpoints, /model text field/u);
+  assert.match(endpoints, /Settings > Chat > OpenAI\s*> Edit provider/u);
+  assert.match(endpoints, /does not change[\s\S]*Assistant connection/iu);
+  assert.match(decision, /9193[\s\S]*317 × 29/u);
+  assert.match(decision, /wired into this candidate's runtime, installer, and dashboard/u);
+  assert.match(generated, /grok-build[\s\S]*legacy routing alias/iu);
 });
 
 test("VPS guides explain explicit disconnect and bounded SSH inactivity", async () => {
@@ -237,17 +252,28 @@ test("VPS guides explain explicit disconnect and bounded SSH inactivity", async 
   }
 });
 
-test("provider roadmap requires official authentication support before implementation", async () => {
-  const roadmap = await readFile("docs/roadmap.md", "utf8");
-
-  assert.match(roadmap, /xAI\/Grok API-key support/u);
-  assert.match(roadmap, /does not document a third-party Grok OAuth flow/u);
-  assert.match(roadmap, /denied by default/u);
-  assert.match(roadmap, /401, 403, or 429/u);
-  assert.match(roadmap, /never automatically switches accounts or keys/u);
-  assert.match(roadmap, /provider-owned OAuth client registration/u);
-  assert.doesNotMatch(roadmap, /technically plausible/iu);
-  assert.doesNotMatch(roadmap, /Hermes Agent/iu);
+test("OAuth roadmap includes both clients and preserves external acceptance gates", async () => {
+  const [roadmap, spec, endpoints, dashboard, changelog] = await Promise.all([
+    readFile("docs/roadmap.md", "utf8"), readFile("docs/local-n8n-xai-spec.md", "utf8"),
+    readFile("docs/local-endpoints.md", "utf8"), readFile("docs/local-dashboard.md", "utf8"),
+    readFile("CHANGELOG.md", "utf8"),
+  ]);
+  assert.match(roadmap, /Both n8n and local apps are required clients/u);
+  assert.match(roadmap, /reads only that runtime's marked session/u);
+  assert.match(roadmap, /publish no host port/u);
+  assert.match(roadmap, /HTTP handler never consumes refresh tokens/u);
+  assert.match(spec, /Actual disposable n8n 2\.36\.8 Instance AI also passed/u);
+  assert.match(spec, /Basic LLM\s+Chain success does not meet the user's Assistant requirement/u);
+  assert.match(spec, /Execute the actual n8n AI Assistant in disposable n8n/u);
+  assert.match(spec, /No xAI API key may be requested/u);
+  assert.match(spec, /without an API-key fallback/u);
+  assert.match(endpoints, /seven dashboard services/u);
+  assert.match(dashboard, /four OAuth entries/u);
+  assert.match(dashboard, /Provider-managed · not inspected/u);
+  assert.match(dashboard, /healthy container does not establish/iu);
+  const unreleased = changelog.split("## Unreleased")[1].split("## [0.13.0]")[0];
+  assert.match(unreleased, /actual disposable n8n[\s\S]*passed[\s\S]*protected\s+release checks remain open/u);
+  assert.doesNotMatch(unreleased, /Add separate API-key|Add named OpenAI/u);
 });
 
 test("release changelog retains the Unreleased section above the dated release", async () => {
@@ -340,26 +366,19 @@ test("local endpoint curl samples keep bearer credentials out of process argumen
   }
 });
 
-test("canonical local endpoint guidance documents credential rotation", async () => {
-  const localGuide = await readFile("docs/local-endpoints.md", "utf8");
-
-  assert.match(localGuide, /previous capability remains active/u);
-  assert.match(localGuide, /authenticated Codex WebSocket handshake/u);
-  assert.match(localGuide, /preserves the upstream Platform API key/u);
-  assert.match(
-    localGuide,
-    /restores\s+the\s+previous\s+verifier\s+and\s+re-attests\s+its\s+health\s+and\s+loopback\s+publication/u,
-  );
-  assert.match(
-    localGuide,
-    /does\s+not\s+retain\s+the\s+previous\s+raw\s+client\s+credential/u,
-  );
+test("canonical local endpoint guidance keeps local rotation separate from OAuth", async () => {
+  const guide = await readFile("docs/local-endpoints.md", "utf8");
+  assert.match(guide, /provider's OAuth session remains in\s+its private volume/u);
+  assert.match(guide, /restores the previous verifier and re-attests\s+health and loopback publication/u);
+  assert.match(guide, /does not retain the old raw capability/u);
+  assert.match(guide, /uncertain rollback fails closed/iu);
+  assert.doesNotMatch(guide, /For OpenAI API|selected protected profile registry/u);
 });
 
 test("security guidance distinguishes loopback endpoints from the n8n bridge", async () => {
   const security = await readFile("docs/security.md", "utf8");
 
-  assert.match(security, /every raw Codex WebSocket[\s\S]*every Codex Chat Adapter route except `GET \/health`/u);
+  assert.match(security, /Every raw Codex WebSocket[\s\S]*every Codex Chat Adapter route except[\s\S]*`GET \/health`/u);
   assert.match(security, /Chat Adapter rejects every request carrying an `Origin` header/u);
   assert.match(security, /All three long-running loopback endpoint containers/u);
   assert.match(security, /`n8n-openai-oauth` option is a Docker-network-only/u);
@@ -390,10 +409,8 @@ test("public guides link to canonical standalone client credential rotation deta
     assert.match(guide, /https:\/\/relmio\.vercel\.app\/docs\/local-endpoints/u);
   }
 
-  assert.match(localGuide, /previous capability remains active/u);
-  assert.match(localGuide, /authenticated Codex WebSocket handshake/u);
-  assert.match(localGuide, /preserves the upstream Platform API key/u);
-  assert.match(localGuide, /restores the previous verifier and re-attests its\s+health and loopback publication/u);
+  assert.match(localGuide, /provider's OAuth session remains/u);
+  assert.match(localGuide, /restores the previous verifier/u);
 });
 
 test("beginner documentation states the critical safety and product limits", async () => {
@@ -487,4 +504,17 @@ test("n8n configuration guide provides copy-paste model and HTTP recipes", async
   assert.match(guide, /node version 1\.3/u);
   assert.match(guide, /\/v1\/chat\/completions/u);
   assertOnlyDocumentationAddresses(guide);
+});
+
+test("OAuth retirement warns about still-running legacy endpoints and gives owned-only removal", async () => {
+  const guide = await readFile("docs/local-endpoints.md", "utf8");
+  assert.match(guide, /Upgrading does not stop an existing API-key gateway/u);
+  assert.match(guide, /container inspect[\s\S]*json \.Config\.Labels/u);
+  assert.match(guide, /label=io\.relmio\.install=<installId>/u);
+  assert.match(guide, /container stop <literal-container-id>/u);
+  assert.match(guide, /Keep its volumes, managed directory, and marker/u);
+  assert.match(guide, /never to n8n or its OAuth bridge/u);
+  for (const path of ["README.md", "npm/README.md", "docs/local-dashboard.md"]) {
+    assert.match(await readFile(path, "utf8"), /#retired-api-installations/u);
+  }
 });

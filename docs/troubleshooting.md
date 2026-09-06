@@ -21,9 +21,8 @@ rebuild unrelated containers while checking the local endpoint.
 Close stale wizard and device-code tabs, then run `relmio open` from a
 persistent install to open the active private dashboard page. A hosted
 foreground launcher instead requires its current terminal; press Enter there
-to create a fresh private browser handoff. Start one fresh ChatGPT device-code attempt and complete the newest code. A ChatGPT
-subscription credential is valid only for the Codex targets; the generic
-OpenAI-compatible `/v1` target requires a separately billed Platform API key.
+to create a fresh private browser handoff. Start one fresh ChatGPT device-code attempt and complete the newest code. Use the selected provider's official sign-in. The OAuth-only candidate does not accept upstream API
+keys. Grok Build sign-in uses its official attended CLI flow.
 ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
 them automatically during active use before they expire, so active sessions
 usually continue without another browser login. The official [OpenAI

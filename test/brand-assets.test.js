@@ -5,7 +5,7 @@ import test from "node:test";
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const SOCIAL_PREVIEW_SHA256 =
-  "2e9101fd535776a6b2c3866e914bc09ec2e00d6a14b118e63a9de0a73bc7a8b7";
+  "84538f14cb3c36cbf7708407eb07609ba4fb121589d170d3d4f674841b0a0985";
 
 test("gateway android is the canonical logo across public surfaces", async () => {
   const [
@@ -74,7 +74,7 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     npmReadme,
     /cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-banner-animated\.svg/u,
   );
-  assert.match(readme, /Use ChatGPT sign-in with n8n/u);
+  assert.match(readme, /Bring your AI sign-ins to your tools/u);
   assert.match(npmReadme, /alt="Animated Relmio mascot carrying a private n8n connection through its doorway"/u);
   assert.match(brandGuide, /images\/brand\/relmio-logo\.png/u);
   assert.match(metadata, /new URL\("\/og\.png", metadataBase\)/u);

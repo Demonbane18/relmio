@@ -4,7 +4,7 @@
 
 <h1 align="center">Relmio</h1>
 
-<p align="center"><strong>Use ChatGPT sign-in with n8n. Keep every credential where it belongs.</strong></p>
+<p align="center"><strong>Bring your AI sign-ins to your tools. Keep every credential where it belongs.</strong></p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/relmio"><img alt="npm version" src="https://img.shields.io/npm/v/relmio?logo=npm&amp;color=0f8f83"></a>
@@ -18,11 +18,20 @@ Relmio helps self-hosted n8n use models available through your own
 ChatGPT/Codex sign-in. It installs an unofficial `openai-oauth` sidecar on the
 same private Docker network as n8n. The bridge has no host port.
 
-Need the supported OpenAI API instead? Relmio can set up a separate local
-`/v1` endpoint backed by your OpenAI Platform API key.
+Relmio's current development direction is **OAuth-only**. API-key connections
+belong directly in n8n or the client that uses them.
+ChatGPT sign-in is not an OpenAI Platform API key.
 
-ChatGPT sign-in is not an OpenAI Platform API key. Relmio keeps those paths
-separate.
+The SuperGrok OAuth adapter in this checkout is **unreleased**. Fresh official
+sign-in, model discovery, and live tool calls passed with local clients and a
+disposable n8n Assistant. Fresh private-installer acceptance passed; protected
+release checks remain in progress. `relmio@latest` does not include this
+candidate.
+
+Existing API-key endpoints are left running and retain their data during an
+upgrade; they are no longer shown in the candidate dashboard. Follow the
+[legacy endpoint retirement guide](https://relmio.vercel.app/docs/local-endpoints#retired-api-installations)
+to review and stop an exact owned endpoint.
 
 ## Quick install
 
@@ -82,8 +91,11 @@ The hosted curl, PowerShell, and Command Prompt launchers can use a verified
 temporary Node.js runtime. In that mode Relmio remains a foreground, one-shot
 process for that terminal and leaves no persistent command behind.
 
-**Refresh status** rediscovers the same six supported local services without
-changing them. It shows only verified connection URLs and state, never stored
+**Refresh status** rediscovers the seven services in the OAuth-only candidate:
+Codex App Server, Codex Chat Adapter, Grok Build, the owned n8n stack, the
+ChatGPT OAuth bridge, AI Assistant tools, and SuperGrok for n8n. This differs from published
+0.13.0, which has an OpenAI API route and no Grok Build target.
+Refresh status shows only verified connection URLs and state, never stored
 secrets. Select **Add connection** to use the existing four-step setup flow.
 Use `relmio vps` when you want to open the separate VPS setup directly.
 
@@ -107,6 +119,26 @@ account before using it.
 
 [Read the existing n8n guide](https://relmio.vercel.app/docs/local-endpoints#self-hosted-n8n-bridge)
 
+For the unreleased SuperGrok companion, choose **SuperGrok for n8n**, select
+its container and network, then review the private installation. Copy the
+one-time Relmio client credential and use `http://n8n-supergrok:14502/v1`.
+`grok-build` remains a legacy routing alias; use a freshly discovered model
+where the n8n control supports it. Then run:
+
+```sh
+relmio grok login --n8n
+```
+
+Approve the official device sign-in. The credential entered in n8n's API key
+field authorizes access to Relmio only; it is not an xAI API key. For workflow
+model nodes, turn **Use Responses API** off and choose **From list**. For Chat
+Hub, turn it off in **Settings > Chat > OpenAI > Edit provider**. The Assistant
+custom endpoint uses a discovered model name in its text field; it is separate
+from the Chat setting. An earlier released SuperGrok install without the
+fresh-session marker is not upgraded automatically; migration requires a
+separately reviewed path. Sign out with `relmio grok logout --n8n`. This
+companion publishes no host port.
+
 ### I do not have n8n yet
 
 Choose **New local n8n + ngrok**. Relmio creates a separate n8n stack and walks
@@ -116,13 +148,27 @@ the host network.
 
 [Read the new n8n guide](https://relmio.vercel.app/docs/local-n8n-stack)
 
-### I need the supported OpenAI API
+### I want to use SuperGrok
 
-Choose **OpenAI API** and enter your own Platform API key. Platform usage is
-billed separately from ChatGPT. Relmio stores the key in its private local
-service and gives your app a different local credential.
+The experimental **SuperGrok** adapter uses official OAuth with your eligible
+subscription. Local apps and n8n use `/v1/chat/completions` and a separate
+local Relmio bearer. The current account catalog listed `grok-4.6` and
+`grok-4.5`; discovery is not per-model tool proof. Explicit `grok-4.6` passed
+the n8n Assistant node-catalog tool and a Calculator workflow (`317 × 29 =
+9193`). `grok-build` remains a legacy alias, not a claim that every request
+uses Grok 4.6. Existing n8n is never reconfigured or restarted by this setup.
+No xAI API key is requested.
 
-[Read the local endpoint guide](https://relmio.vercel.app/docs/local-endpoints)
+After installing the local SuperGrok endpoint from this candidate, sign in:
+
+```sh
+relmio grok login
+```
+
+Approve the displayed code on the official provider page. To sign out later,
+run `relmio grok logout`. These commands act only on the attested Relmio runtime.
+
+[Read the SuperGrok candidate guide](https://relmio.vercel.app/docs/local-endpoints#supergrok-development-backends)
 
 ## n8n AI Assistant tools
 
@@ -131,8 +177,7 @@ Sandbox beside an existing n8n container. SearXNG web search is optional and
 off by default. Relmio shows the sandbox key and n8n settings once. It does not
 change or restart n8n.
 
-The Assistant model provider still needs its own supported credential. Enter
-your Platform API key directly in n8n. The privileged local runner is for
+Configure the Assistant's supported model connection directly in n8n. The privileged local runner is for
 development and testing; n8n recommends Daytona for production.
 
 [Read the AI Assistant guide](https://relmio.vercel.app/docs/ai-assistant)
@@ -150,12 +195,30 @@ Relmio's Codex targets use the official Codex App Server. Codex owns the
 ChatGPT OAuth flow, credential storage, and refresh. Each target has one active
 ChatGPT account; changing it requires an explicit sign-out and new sign-in.
 
-xAI/Grok authentication is API-key only. Relmio does not ship an xAI target in
-this release or implement third-party Grok OAuth, pool accounts, or automatically rotate accounts or keys after a
-401, 403, or 429, rate-limit, or quota response. Future provider authentication
-is denied by default until the provider documents a supported method and
-Relmio adds a reviewed implementation. The dashboard may report that a
-credential is configured, but it never returns or re-shows a stored secret.
+The published 0.13.0 package has no xAI target. The OAuth-only expansion in
+this checkout is **unreleased**. Relmio does not configure upstream API keys,
+maintain API-key profiles, or fall back to separately billed API access.
+
+The unreleased SuperGrok adapter uses the pinned official Grok CLI for fresh
+OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
+handler reads only that runtime's marked session to call xAI's documented CLI
+chat proxy. It does not inspect another app's credentials, import tokens,
+replay browser cookies, or accept an xAI API key. The CLI remains the sole
+credential writer; the HTTP handler never consumes refresh tokens.
+
+Local apps use `/v1/chat/completions` with a separate Relmio client bearer.
+`grok-build` is a supported legacy routing alias; a fresh authenticated catalog
+can provide current routing names, but a listing does not prove a model's tool
+behavior. n8n executes its own tools and returns matching results. The legacy
+simple `/chat` request shape remains available through the direct transport.
+Browser bundles must not hold the local bearer or call it directly.
+
+
+Relmio never changes accounts automatically after a 401, 403, or 429,
+rate-limit, or quota response. Future provider authentication is denied by
+default until the provider documents a supported method and Relmio adds a
+reviewed implementation. The dashboard may report that a credential is
+configured, but it never returns or re-shows a stored secret.
 
 ## Sign-in lifetime
 

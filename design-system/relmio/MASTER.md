@@ -1,17 +1,23 @@
-# Relmio Design System: Signal Plotter
+# Relmio Design System: Doorway Playground
 
-> Generated with UI UX Pro Max, then product-grounded against `PRODUCT.md`, the approved Signal Plotter comp, the Impeccable craft floor, and the live Relmio routes. Page files under `pages/` override this master where noted.
+> The public website follows the current Hallmark direction in `../../DESIGN.md`
+> and `pages/home.md`. The original Signal Plotter system remains a compatibility
+> baseline for operational surfaces. Its earlier public composition has been
+> superseded by the user's illustrated, animated brief.
 
 **Project:** Relmio
-**Direction:** Editorial infrastructure console with a visible request path
-**Design dials:** variance 8/10 · motion 8/10 · density 5/10
-**Concept seed:** `95cdc256`
+**Direction:** Playful animated public website; clear guided installation
+**Design dials:** cartoon illustration · visible controlled motion · plain public copy · readable docs · generous wizard controls
+**Legacy Signal Plotter concept seed:** `95cdc256`
 
 ## Thesis
 
-Every option shows where it starts, which sign-in or key it uses, how it connects, and where it ends. Relmio should feel like a calm setup guide, not a generic AI landing page. The UI keeps the five real options separate without implying unsupported capabilities.
+The public website introduces Relmio through its doorway mascot and a playful animated world. The route guide then shows where each option starts, which sign-in or key it uses, and where it ends. Installation stays direct and practical. The five options remain distinct without implying unsupported capabilities.
 
-## Brand tokens
+## Operational compatibility tokens
+
+The public homepage defines its scoped, semantic OKLCH tokens beside its component
+styles. These existing token pairs continue to govern operational surfaces.
 
 | Role | Light | Dark | CSS token |
 | --- | --- | --- | --- |
@@ -37,7 +43,8 @@ Rules:
 
 ## Typography
 
-- Display, body, and UI: Geist via `next/font`, weights 400–700.
+- Body and UI: Geist via `next/font`, weights 400–700. Homepage display text uses
+  upright, bold Bricolage Grotesque; functional headings retain Geist.
 - Technical labels, model names, route IDs, and commands: Geist Mono with tabular figures.
 - Display scale: `clamp(3rem, 7.5vw, 7.25rem)`, line-height 0.91–0.98, slightly negative tracking.
 - Page title: `clamp(2.25rem, 5vw, 4.75rem)`.
@@ -59,7 +66,9 @@ Rules:
 
 ### Route controls
 
-- The home stage is one interactive connection map, not repeated feature cards.
+- The home opens with a short invitation, one install action, and a broad animated
+  vector world. The interactive route guide follows the product story.
+- The website may be spacious and expressive. The local wizard retains its practical large controls and direct guidance; shared branding does not require identical composition.
 - A route control is a real `button` with visible text, `aria-pressed`, and a 44px minimum target.
 - Selecting a route crossfades its description, moves one signal packet along a fixed path, updates the destination state, and exposes a direct deep link.
 - Keyboard: Tab selects a control; Enter/Space activates it; no hover-only information.
@@ -99,14 +108,21 @@ Motion explains cause and path. Keep the static information readable before anim
 - Use `transform` and `opacity`; never animate layout dimensions, top, or left.
 - Under `prefers-reduced-motion: reduce`, remove travel and spring movement, render final states immediately, and retain text/status feedback.
 
+## Local browser wizard
+
+Keep large buttons, full-row connection choices, plain language, and one clear next
+action. Show the selected connection’s explanation; use native disclosures for
+requirements and supporting sign-in details. Do not hide errors, review facts,
+or required confirmations. Preserve the four-step flow and all service safeguards.
+
 ## Responsive behavior
 
 | Viewport | Layout |
 | --- | --- |
 | 375px | One-column; route controls wrap or scroll only inside their labeled control row; stage remains fully operable; no page overflow. |
-| 768px | Stacked editorial split with a compact connection map; installer tabs wrap; chat occupies one viewport-height work area. |
-| 1024px | Asymmetric 5/7 split for narrative and interactive stage; persistent global navigation. |
-| 1440px | Full connection map with generous gutters and max-width containment. |
+| 768px | Illustrated stage remains legible; guide stacks as needed; installer tabs wrap; chat keeps its own work area. |
+| 1024px | Broad integrated stage with persistent global navigation; the practical guide follows below. |
+| 1440px | Full illustrated world with generous gutters and max-width containment. |
 
 All mobile body/input text is at least 16px. Touch targets are at least 44×44px and separated by at least 8px.
 
@@ -122,8 +138,8 @@ All mobile body/input text is at least 16px. Touch targets are at least 44×44px
 
 ## Product-truth guardrails
 
-- Keep these labels distinct and visible: **n8n with ChatGPT sign-in**, **OpenAI API**, **n8n Code Sandbox**, **Codex Chat Adapter**, and **Codex App Server**.
-- OpenAI API uses a Platform API key with loopback `/v1`.
+- Keep these labels distinct and visible: **n8n with ChatGPT sign-in**, **Grok Build OAuth**, **n8n Code Sandbox**, **Codex Chat Adapter**, and **Codex App Server**.
+- SuperGrok remains unreleased. The current private Chat Completions candidate passed disposable n8n Assistant and workflow tool-call acceptance; do not imply every model or client was tested.
 - n8n Code Sandbox is an AI Assistant companion with a user-owned Platform key entered in n8n and optional SearXNG.
 - Chat Adapter and App Server use supported ChatGPT sign-in paths and are experimental trusted-client surfaces.
 - Hosted chat is a bounded demo and does not claim tools, files, commands, or external browsing.
@@ -133,7 +149,7 @@ All mobile body/input text is at least 16px. Touch targets are at least 44×44px
 
 - Generic centered hero + four equal feature cards + oversized CTA band.
 - Purple/pink AI gradients, glow halos, glassmorphism as decoration, or cyberpunk scan lines.
-- Decorative route animation with no selectable state or product consequence.
+- Decorative motion without a pause control or reduced-motion still state.
 - Multiple transcript scroll owners, smooth-scroll on every stream delta, or React state as the only submit lock.
 - Floating composer that overlaps messages, tiny icon targets, hover-only descriptions, or auto-rotating content.
 - Excess badges, excessive pills, emoji icons, gradient text, and repeated rounded containers nested three levels deep.
@@ -148,3 +164,55 @@ All mobile body/input text is at least 16px. Touch targets are at least 44×44px
 - [ ] Installer terminal stays black in light and dark modes.
 - [ ] Opera GX desktop and mobile evidence covers home, chat, installer, and docs.
 - [ ] No unrelated root/runtime/n8n/VPS behavior changed.
+
+## Previous homepage artwork, retained for comparison
+
+The original logo files are unchanged and must retain their aspect ratios.
+`assets/doorway-source.png` is generated presentation artwork inspired by the
+approved doorway concept, not a replacement logo or a product screenshot.
+Its former delivery WebP is excluded from the public bundle; the source is
+retained only as a historical design study. The current hero uses authored SVG.
+The illustrated forms are decorative; connection capabilities are described in
+the route guide. Pointer depth uses the existing motion library, is bounded and
+resets on leave, and is disabled for reduced motion and coarse pointers.
+
+## Active Kimi redesign direction
+
+The user rejected the boxed raster-art composition. The public homepage must
+change structurally, with an authored cartoon/vector scene and noticeable motion.
+The scene belongs in the page composition, not in a generic product card. Keep the
+original logo, five truthful connection options, working actions, and accessible
+reading order. Continuous motion needs a pause control and a complete static
+reduced-motion path. The existing installer retains its practical design.
+
+
+## Hallmark redesign, current direction
+
+The user rejected the framed doorway artwork as still too technical and static.
+The current public direction is Doorway Playground in `DESIGN.md`: original
+cartoon/vector art, a wide animated stage, upright Bricolage display, Geist body,
+warm cream/deep pine with the original teal brand anchor. The logo stays intact.
+The practical local wizard and operational surfaces keep the existing system.
+
+Hallmark 1.1.0 is installed as a personal Codex plugin. Its design, redesign and
+audit rules apply within the user's authorized scope; prior creative delegation
+supplies the audience, mood, bespoke direction and permission to proceed.
+References are recorded in `REFERENCE-STUDY.md`; seven textual design systems
+were compared, with no claim of live visual or motion verification.
+
+Astra owned the design contract and integration. Kimi K3 through OpenCode Go
+delivered the SVG scene, scoped palette and component; root integrated and
+verified the output after the worker ended on a provider rate limit.
+Opera checks and a fresh independent review passed for the local candidate.
+The reviewer was requested as Sol High, but could not independently expose its
+observed model/effort. No completed-code check implies user aesthetic approval.
+See `HALLMARK-CHECKLIST.md` and the browser acceptance report for proof and limits.
+
+
+### Final landscape behavior
+The illustration spans the browser width with curved ground edges and a raised
+cloud. The neutral traveller passes behind destinations. Local and VPS labels
+appear briefly on arrival, sharing the same pause clock; permanent scene labels
+are omitted. Night mode adds a moon, stars and a warmly lit workshop window while
+retaining object colors. Unsupported SVG animation and reduced motion show a
+complete still scene. Header links, theme controls and the original logo remain.

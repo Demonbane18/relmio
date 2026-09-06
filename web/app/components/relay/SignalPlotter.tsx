@@ -8,7 +8,6 @@ import {
   useReducedMotion,
 } from "motion/react";
 import {
-  ArrowRight,
   Box,
   Braces,
   ExternalLink,
@@ -16,7 +15,6 @@ import {
   Server,
 } from "lucide-react";
 import { useState } from "react";
-import { HashLink } from "../HashLink";
 import styles from "./SignalPlotter.module.css";
 
 const routeDefinitions = [
@@ -36,16 +34,16 @@ const routeDefinitions = [
   },
   {
     id: "model-relay",
-    label: "OpenAI API",
+    label: "Grok Build OAuth",
     icon: Box,
     source: "Private local app or SDK",
-    credential: "A local Relmio credential protects your Platform key",
-    transport: "127.0.0.1 /v1, then HTTPS to api.openai.com",
-    destination: "OpenAI Platform API",
-    link: "/docs/local-endpoints#openai-api-compatible-clients",
-    linkLabel: "Read the OpenAI API guide",
-    note: "The key stays a Platform credential. ChatGPT sign-in is not converted into an API key.",
-    tone: "Uses a Platform API key",
+    credential: "A local Relmio bearer protects the provider-owned OAuth runtime",
+    transport: "Private loopback Chat Completions route with a local /chat helper",
+    destination: "SuperGrok through Grok Build",
+    link: "/docs/local-endpoints#grok-build-development-backends",
+    linkLabel: "Read the Grok Build candidate guide",
+    note: "Unreleased candidate. Official OAuth stays with Grok Build; disposable n8n AI Assistant and workflow AI Agent tool-call tests passed, while release gates remain separate.",
+    tone: "OAuth candidate, unreleased",
     sourceY: 92,
   },
   {
@@ -58,7 +56,7 @@ const routeDefinitions = [
     destination: "Code Sandbox and its runner",
     link: "/docs/ai-assistant#what-the-wizard-changes",
     linkLabel: "Read the AI Assistant guide",
-    note: "The Platform key is entered directly in n8n, never supplied to the companion. Relmio does not edit the existing n8n container, image, or workflows.",
+    note: "Model-provider credentials are configured directly in n8n, never supplied to the companion. Relmio does not edit the existing n8n container, image, or workflows.",
     tone: "Separate n8n tool",
     sourceY: 152,
   },
@@ -127,36 +125,11 @@ export function SignalPlotter() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <section className={styles.homeLead} id="content-start" tabIndex={-1}>
-        <section className={styles.intro} aria-labelledby="home-title">
-          <p className={styles.kicker}>Your OpenAI setup, kept separate</p>
-          <h1 className={styles.title} id="home-title">
-            Use your ChatGPT sign-in with the right local tool.
-          </h1>
-          <p className={styles.lede}>
-            Sign in with ChatGPT for the experimental Codex paths. Use a Platform
-            key for compatible <code>/v1</code> tools. Choose a path to see where
-            n8n, your credential, and the destination connect.
-          </p>
-          <nav className={styles.actions} aria-label="Get started">
-            <HashLink className={styles.primaryAction} targetId="chat">
-              Open hosted chat
-              <ArrowRight aria-hidden="true" />
-            </HashLink>
-            <Link className={styles.secondaryAction} href="/install">
-              Install Relmio
-            </Link>
-          </nav>
-          <p className={styles.introBoundary}>
-            ChatGPT sign-in and Platform API keys do different jobs. Relmio never turns one into the other.
-          </p>
-        </section>
-
-        <section className={styles.plotter} aria-labelledby="plotter-title">
+      <section className={`${styles.plotter} ${styles.routeExplorer}`} aria-labelledby="plotter-title">
           <header className={styles.plotterHeader}>
-            <p className={styles.plotterEyebrow}>How each option connects</p>
-            <h2 id="plotter-title">Choose what you are setting up</h2>
-            <p>See the sign-in, connection, and destination for each path.</p>
+            <p className={styles.plotterEyebrow}>Route guide</p>
+            <h2 id="plotter-title">Choose a connection</h2>
+            <p>Choose a route to see what it uses and where it connects.</p>
           </header>
 
           <section className={styles.topology}>
@@ -282,7 +255,7 @@ export function SignalPlotter() {
                   <strong>{activeRoute.source}</strong>
                 </li>
                 <li>
-                  <small>Sign-in or key</small>
+                  <small>Authentication</small>
                   <strong>{activeRoute.credential}</strong>
                 </li>
                 <li>
@@ -303,7 +276,6 @@ export function SignalPlotter() {
               </footer>
             </motion.article>
           </AnimatePresence>
-        </section>
       </section>
 
       <section
@@ -313,7 +285,7 @@ export function SignalPlotter() {
       >
         <header className={styles.evidenceIntro}>
           <p className={styles.kicker}>Before anything changes</p>
-          <h2 id="boundary-title">What Relmio changes and leaves alone.</h2>
+          <h2 id="boundary-title">What Relmio changes, and what it leaves alone.</h2>
           <p>
             Each option shows which credential it uses, where it connects, and
             what it reaches. Before writing to a VPS, the wizard verifies the

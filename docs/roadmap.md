@@ -1,114 +1,76 @@
 # Product roadmap
 
-This roadmap describes intended research and product direction. It is not a
-promise that a provider, subscription tier, or unofficial integration will
-remain available. Every provider must pass its own technical, security, terms,
-and entitlement checks before Relmio presents it as supported.
+Relmio connects provider-owned OAuth sign-in to private local apps and
+self-hosted n8n. Ordinary API-key connections belong in the consuming client.
+The current OAuth-only candidate is unreleased. Published 0.13.0 still has a
+different set of setup options.
 
-## Product direction
+## Preserve existing connections
 
-Relmio currently keeps three different boundaries explicit: a supported
-OpenAI Platform API path, official Codex App Server targets that own their
-ChatGPT sign-in, and an unofficial private n8n bridge. The longer-term product
-is a provider-neutral local gateway:
+Keep the ChatGPT/Codex routes, the private `n8n-openai-oauth` bridge, and their
+existing deployment identifiers. Do not change an operator's n8n container,
+image, Compose file, or network membership. A local dashboard refresh must
+remain read-only and must not adopt resources from labels alone.
 
-```text
-OpenAI-compatible client
-  -> private Relmio endpoint
-    -> selected provider adapter
-      -> provider-authorized OAuth or API access
-```
+Remove upstream API-key setup, storage, profiles, gateways, and sidecars from
+the candidate. Existing API installations and saved data remain untouched.
+Relmio's own local bearer, sandbox key, and ngrok credentials retain their
+separate purposes and protections.
 
-The client should not need to understand each provider's authentication flow.
-Provider credentials must remain isolated from one another, protected like
-passwords, and excluded from responses, logs, package contents, and Git.
+## Official SuperGrok OAuth for local apps
 
-Keep the existing `n8n-openai-oauth` deployment identifiers until a tested
-migration exists; public branding must not silently change safety boundaries.
+The unreleased SuperGrok adapter uses the pinned official Grok CLI for fresh
+OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
+handler reads only that runtime's marked session to call xAI's documented CLI
+chat proxy. It does not inspect another app's credentials, import tokens,
+replay browser cookies, or accept an xAI API key. The CLI remains the sole
+credential writer; the HTTP handler never consumes refresh tokens.
 
-## Milestone 1: provider-neutral foundation
+Local apps use `/v1/chat/completions` with model `grok-build` and a separate
+Relmio client bearer. n8n executes its own tools and returns matching results.
+The legacy simple `/chat` request shape remains available through the direct
+transport. Browser bundles must not hold the local bearer or call it directly.
 
-- Define a provider adapter contract for authentication, token refresh, model
-  discovery, request transport, streaming, and normalized errors.
-- Keep the current ChatGPT/Codex implementation working while separating its
-  provider-specific behavior from the n8n installation workflow.
-- Define capability reporting so clients can distinguish Responses API,
-  chat-completions, streaming, reasoning, and tool-calling support.
-- Add contract tests that can be run against fakes without storing real OAuth
-  credentials in fixtures.
-- Design future non-n8n client access under a separate threat model. The
-  current private-network and no-published-port rules remain in force until
-  that design is approved and tested.
+Required acceptance:
 
-### Exit criteria
+- Verify the pinned CLI and direct Chat handler in the generated image.
+- Complete fresh official sign-in, tool-call/result exchange and cancellation.
+  These passed in the disposable runtime on 2026-09-05.
+- Complete explicit logout and generic signed-out refusal without recording
+  credentials. Preserve the signed-in test session until that final check.
+- Verify Opera GX setup/management, stale inventory, keyboard, mobile widths,
+  zoom and reduced motion. Keep runtime health separate from provider readiness.
 
-- The current n8n setup behaves exactly as before.
-- A provider can be added without weakening SSH verification, confirmation
-  gates, credential handling, or the private sidecar boundary.
-- Unsupported provider capabilities fail explicitly instead of being silently
-  translated into a different behavior.
+## SuperGrok OAuth beside n8n
 
-## Milestone 2: xAI/Grok API-key support
+Both n8n and local apps are required clients. Actual n8n 2.36.8 Instance AI
+passed live `workflows/list`, matching result ID and final consumption of an
+unpredictable draft name omitted from the prompt. The disposable n8n container
+and volume were removed after the test. This establishes client tool support;
+normal installation and protected release checks still remain.
 
-xAI's public inference API documents API-key authentication. It does not document a third-party Grok OAuth flow
-that Relmio can safely register or ship.
-The first xAI integration must therefore use an operator-supplied xAI API key,
-keep it in a provider-specific owner-only credential store, and never present
-consumer Grok or X subscription sign-in as interchangeable with API access.
+The companion must publish no host port and must leave the existing n8n
+installation unchanged. Test it with a disposable n8n project first. A green
+local mock is not live subscription or n8n model-node acceptance.
 
-Before implementation:
+## Release requirements
 
-1. Define an xAI adapter that declares only the models and request features the
-   official API documents.
-2. Keep the key outside browser responses, logs, generated Compose files, and
-   package contents. The dashboard may report only that a key is configured.
-3. Preserve 401 and 403 as authentication or entitlement failures and 429 as a
-   rate-limit response. Relmio never automatically switches accounts or keys.
-4. Test `/v1/models`, Responses-style requests, streaming, reasoning, and tool
-   support against documented contracts and provider-approved test credentials.
-5. Verify the adapter through the intended n8n nodes without editing or
-   restarting the operator's n8n deployment.
+Keep runtime health, provider readiness, and inventory freshness independent.
+Each OAuth target has one active provider account. Account changes require an
+explicit sign-out and sign-in. Relmio never changes accounts automatically
+when authentication, entitlement, rate-limit, or quota checks fail.
 
-### Exit criteria
+Complete current-candidate tests, security and protocol review, browser QA,
+package inspection, documentation checks, and native Windows evidence before
+requesting the protected release actions. Do not guess a release version.
 
-- Every capability is grounded in current official xAI documentation.
-- A configured key remains isolated, replaceable only by an explicit owner
-  action, and never returned or re-shown.
-- Unsupported models, entitlements, and protocol features fail explicitly.
-- Provider authentication remains denied by default for every unimplemented
-  method.
-
-## Milestone 3: provider-supported OAuth feasibility
-
-OAuth work remains blocked unless the provider publishes a third-party flow
-and offers a provider-owned OAuth client registration appropriate for Relmio.
-An OAuth feasibility spike may begin only after that documentation exists.
-
-The decision gate is fail closed:
-
-- **Proceed:** the provider approves the client, documents authorization,
-  refresh, revocation, expiry, and logout, and the reviewed implementation
-  passes security and n8n contract tests.
-- **Defer:** the flow exists only in a first-party application or through
-  unstable, undocumented behavior.
-- **Do not implement:** support would require cookies, copied client IDs or
-  secrets, another application's credential store, entitlement workarounds,
-  account pooling, or rate-limit circumvention.
-
-## Not in the first provider expansion
-
-- Publicly exposing the gateway to the internet.
-- Pooling or sharing subscriptions between users.
-- Bypassing quotas, provider safeguards, or subscription-tier restrictions.
-- Automatically routing one request across multiple paid accounts.
-- Automatic account or key failover after a 401, 403, or 429 response.
-- Claiming complete OpenAI compatibility when a provider supports only a
-  subset of the protocol.
+No public gateway, pooled subscription, shared account, quota evasion, or
+undocumented credential flow is in scope. Defer a feature when official
+interfaces cannot support it safely; record the precise missing capability.
 
 ## Research references
 
-- [OpenAI Codex App Server authentication](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#auth-endpoints)
-- [OpenAI Terms of Use](https://openai.com/policies/terms-of-use/)
-- [xAI inference API authentication](https://docs.x.ai/developers/rest-api-reference/inference)
-- [xAI rate limits](https://docs.x.ai/developers/rate-limits)
-- [xAI Acceptable Use Policy](https://x.ai/legal/acceptable-use-policy)
+- [Grok Build subscription sign-in and orchestration](https://x.ai/news/grok-build-cli)
+- [Grok Build authentication and system policies](https://docs.x.ai/build/enterprise)
+- [Grok Build headless scripting and ACP](https://docs.x.ai/build/cli/headless-scripting)
+- [Codex App Server authentication](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md#auth-endpoints)

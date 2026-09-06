@@ -44,6 +44,11 @@ import {
   createLocalN8nAssistantPlan,
 } from "../domain/local-n8n-assistant.js";
 import {
+  LOCAL_N8N_SUPERGROK_ENDPOINT,
+  LOCAL_N8N_SUPERGROK_TARGET,
+  createLocalN8nSuperGrokPlan,
+} from "../domain/local-n8n-supergrok.js";
+import {
   LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
   LOCAL_N8N_STACK_REMOVE_CONFIRMATION,
   LOCAL_N8N_STACK_TARGET,
@@ -73,6 +78,11 @@ import {
   prepareLocalN8nAssistantSearxngUpdate,
   removeLocalN8nAssistant,
 } from "../services/local-n8n-assistant-installer.js";
+import {
+  getLocalN8nSuperGrokStatus,
+  installLocalN8nSuperGrok,
+  removeLocalN8nSuperGrok,
+} from "../services/local-n8n-supergrok-installer.js";
 import {
   LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
   LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
@@ -150,19 +160,23 @@ const defaultServices = {
   getLocalDockerStatus,
   getLocalDashboardStatus,
   getLocalN8nStackStatus,
+  getLocalN8nSuperGrokStatus,
   discoverLocalN8nSidecarTargets,
   getProjectMeta,
   installLocalEndpoint,
   installLocalN8nSidecar,
   installLocalN8nAssistant,
+  installLocalN8nSuperGrok,
   editLocalN8nAssistantSearxng,
   installLocalN8nStack,
   prepareLocalN8nAssistantSearxngUpdate,
   prepareLocalN8nAssistantPlan: createLocalN8nAssistantPlan,
   prepareLocalN8nSidecarPlan: createLocalN8nSidecarPlan,
+  prepareLocalN8nSuperGrokPlan: createLocalN8nSuperGrokPlan,
   prepareLocalN8nStackPlan: createLocalN8nStackPlan,
   removeLocalN8nAssistant,
   removeLocalN8nSidecar,
+  removeLocalN8nSuperGrok,
   removeLocalN8nStack,
   refreshLocalN8nSidecarCredential,
   resumeLocalN8nStack,
@@ -1232,7 +1246,6 @@ function createSafeLocalPlan(plan) {
     endpoint: plan.endpoint,
     protocol: plan.protocol,
     upstreamAuth: plan.upstreamAuth,
-    allowedOrigins: [...plan.allowedOrigins],
     browserClients: plan.browserClients,
     experimental: plan.experimental,
     managedPath: plan.managedPath,
@@ -1354,20 +1367,20 @@ const SAFE_LOCAL_N8N_STACK_STATES = new Set([
 ]);
 
 const LOCAL_DASHBOARD_SERVICE_DEFINITIONS = Object.freeze({
-  "openai-api": Object.freeze({
-    label: "OpenAI API",
-    kind: "endpoint",
-    actions: new Set(["setup", "rotate-credential"]),
-  }),
   "codex-chatgpt": Object.freeze({
     label: "Codex (ChatGPT login)",
     kind: "endpoint",
-    actions: new Set(["setup", "sign-in", "rotate-credential"]),
+    actions: new Set(["setup", "sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"]),
   }),
   "codex-chat": Object.freeze({
     label: "Codex Chat adapter",
     kind: "endpoint",
-    actions: new Set(["setup", "sign-in", "rotate-credential"]),
+    actions: new Set(["setup", "sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"]),
+  }),
+  "xai-grok-build": Object.freeze({
+    label: "SuperGrok",
+    kind: "endpoint",
+    actions: new Set(["setup", "sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"]),
   }),
   "local-n8n-stack": Object.freeze({
     label: "n8n + ngrok",
@@ -1383,6 +1396,35 @@ const LOCAL_DASHBOARD_SERVICE_DEFINITIONS = Object.freeze({
     label: "AI Assistant tools",
     kind: "n8n-assistant",
     actions: new Set(["setup", "remove"]),
+  }),
+  "n8n-supergrok-oauth": Object.freeze({
+    label: "SuperGrok for n8n",
+    kind: "n8n-supergrok",
+    actions: new Set([
+      "setup",
+      "sign-in-grok-build",
+      "sign-out-grok-build",
+      "remove-owned-supergrok",
+    ]),
+  }),
+});
+
+const LOCAL_DASHBOARD_PROVIDER_DEFINITIONS = Object.freeze({
+  "codex-chatgpt": Object.freeze({
+    label: "ChatGPT",
+    authentication: "provider-oauth",
+  }),
+  "codex-chat": Object.freeze({
+    label: "ChatGPT",
+    authentication: "provider-oauth",
+  }),
+  "xai-grok-build": Object.freeze({
+    label: "SuperGrok",
+    authentication: "provider-oauth",
+  }),
+  "n8n-supergrok-oauth": Object.freeze({
+    label: "SuperGrok (n8n)",
+    authentication: "provider-oauth",
   }),
 });
 
@@ -1420,9 +1462,8 @@ function requireSafeDashboardUrl(value, kind) {
   }
   const loopback = url.hostname === "127.0.0.1";
   const valid =
-    (kind === "openai-api" && loopback && url.protocol === "http:" && url.pathname === "/v1") ||
     (kind === "codex-chatgpt" && loopback && url.protocol === "ws:" && url.pathname === "/") ||
-    (kind === "codex-chat" && loopback && url.protocol === "http:" && url.pathname === "/") ||
+    (["codex-chat", "xai-grok-build"].includes(kind) && loopback && url.protocol === "http:" && url.pathname === "/") ||
     (kind === "n8n-local" && loopback && url.protocol === "http:" && url.pathname === "/") ||
     (kind === "ngrok-inspector" && loopback && url.protocol === "http:" && url.pathname === "/") ||
     (kind === "ngrok-public" && url.protocol === "https:" && url.pathname === "/");
@@ -1439,7 +1480,7 @@ function createSafeDashboardSnapshot(target, snapshot) {
   if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) {
     throw new TypeError("The local dashboard snapshot is invalid.");
   }
-  if (["openai-api", "codex-chatgpt", "codex-chat"].includes(target)) {
+  if (["codex-chatgpt", "codex-chat", "xai-grok-build"].includes(target)) {
     if (
       snapshot.target !== target ||
       snapshot.auth?.configured !== true ||
@@ -1495,6 +1536,23 @@ function createSafeDashboardSnapshot(target, snapshot) {
       canRemove: true,
     };
   }
+  if (target === LOCAL_N8N_SUPERGROK_TARGET) {
+    if (
+      snapshot.target !== LOCAL_N8N_SUPERGROK_TARGET ||
+      snapshot.endpoint !== LOCAL_N8N_SUPERGROK_ENDPOINT ||
+      snapshot.auth?.configured !== true ||
+      snapshot.auth?.disclosure !== "one-time" ||
+      snapshot.canRemove !== true
+    ) {
+      throw new TypeError("The local dashboard SuperGrok snapshot is invalid.");
+    }
+    return {
+      target: LOCAL_N8N_SUPERGROK_TARGET,
+      endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT,
+      auth: { configured: true, disclosure: "one-time" },
+      canRemove: true,
+    };
+  }
   if (target === "local-n8n-stack") {
     const assistantModes = new Set(["disabled", "sandbox", "sandbox-with-searxng"]);
     if (
@@ -1533,6 +1591,24 @@ function createSafeDashboardSnapshot(target, snapshot) {
   throw new TypeError("The local dashboard snapshot target is invalid.");
 }
 
+function createSafeDashboardProvider(target, provider) {
+  const definition = LOCAL_DASHBOARD_PROVIDER_DEFINITIONS[target];
+  if (
+    !definition ||
+    !provider ||
+    typeof provider !== "object" ||
+    Array.isArray(provider) ||
+    Object.keys(provider).length !== 4 ||
+    provider.target !== target ||
+    provider.label !== definition.label ||
+    provider.authentication !== "provider-oauth" ||
+    provider.readiness !== "runtime-owned"
+  ) {
+    throw new TypeError("The local dashboard provider status is invalid.");
+  }
+  return { target, label: definition.label, authentication: "provider-oauth", readiness: "runtime-owned" };
+}
+
 function expectedDashboardActions({ definition, state, snapshot }) {
   if (state === "absent") return ["setup"];
   if (state === "unavailable" || snapshot === null) return [];
@@ -1550,9 +1626,11 @@ function expectedDashboardActions({ definition, state, snapshot }) {
     snapshot.canRotateCredential === true
   ) {
     if (["codex-chatgpt", "codex-chat"].includes(snapshot.target)) {
-      actions.push("sign-in");
+      actions.push("sign-in-chatgpt", "sign-out-chatgpt");
+    } else if (snapshot.target === "xai-grok-build") {
+      actions.push("sign-in-grok-build", "sign-out-grok-build");
     }
-    actions.push("rotate-credential");
+    actions.push("rotate-local-capability");
   }
   if (
     definition.kind === "n8n-oauth-bridge" &&
@@ -1561,7 +1639,12 @@ function expectedDashboardActions({ definition, state, snapshot }) {
   ) {
     actions.push("refresh-credential");
   }
-  if (snapshot.canRemove === true) actions.push("remove");
+  if (definition.kind === "n8n-supergrok") {
+    if (state === "healthy") {
+      actions.push("sign-in-grok-build", "sign-out-grok-build");
+    }
+    if (snapshot.canRemove === true) actions.push("remove-owned-supergrok");
+  } else if (snapshot.canRemove === true) actions.push("remove");
   return actions;
 }
 
@@ -1590,6 +1673,14 @@ function createSafeLocalDashboardStatus(status, previewMode) {
           actions: ["setup"],
         }),
       ),
+      providers: Object.entries(LOCAL_DASHBOARD_PROVIDER_DEFINITIONS).map(
+        ([target, definition]) => ({
+          target,
+          label: definition.label,
+          authentication: "provider-oauth",
+          readiness: "runtime-owned",
+        }),
+      ),
       previewMode: true,
     };
   }
@@ -1599,10 +1690,18 @@ function createSafeLocalDashboardStatus(status, previewMode) {
     new Date(status.generatedAt).toISOString() !== status.generatedAt ||
     typeof status.docker?.available !== "boolean" ||
     status.auth?.secretsRevealable !== false ||
-    !Array.isArray(status.services)
+    !Array.isArray(status.services) ||
+    !Array.isArray(status.providers)
   ) {
     throw new TypeError("The local dashboard status is invalid.");
   }
+  const expectedProviders = Object.keys(LOCAL_DASHBOARD_PROVIDER_DEFINITIONS);
+  if (status.providers.length !== expectedProviders.length) {
+    throw new TypeError("The local dashboard provider set is invalid.");
+  }
+  const providers = status.providers.map((provider, index) =>
+    createSafeDashboardProvider(expectedProviders[index], provider));
+  const providersByTarget = new Map(providers.map((provider) => [provider.target, provider]));
   const expectedServices = Object.entries(LOCAL_DASHBOARD_SERVICE_DEFINITIONS);
   if (status.services.length !== expectedServices.length) {
     throw new TypeError("The local dashboard service set is invalid.");
@@ -1635,6 +1734,7 @@ function createSafeLocalDashboardStatus(status, previewMode) {
       definition,
       state: service.state,
       snapshot,
+      provider: providersByTarget.get(target),
     });
     if (
       actions.some((action) => !definition.actions.has(action)) ||
@@ -1676,6 +1776,7 @@ function createSafeLocalDashboardStatus(status, previewMode) {
     },
     auth: { secretsRevealable: false },
     services,
+    providers,
   };
 }
 
@@ -1824,6 +1925,53 @@ function createSafeLocalN8nPlan(plan) {
     hostPublication: plan.hostPublication,
     managedPath: plan.managedPath,
     disposableHarnessWarning: plan.disposableHarnessWarning === true,
+  };
+}
+
+function createSafeLocalN8nSuperGrokPlan(plan) {
+  if (
+    plan?.kind !== "n8n-supergrok" ||
+    plan.target !== LOCAL_N8N_SUPERGROK_TARGET ||
+    plan.label !== "SuperGrok for n8n" ||
+    plan.endpoint !== LOCAL_N8N_SUPERGROK_ENDPOINT ||
+    plan.baseUrl !== LOCAL_N8N_SUPERGROK_ENDPOINT ||
+    plan.protocol !== "openai-chat-completions" ||
+    plan.upstreamAuth !== "provider-owned-oauth" ||
+    plan.managedPath !== "~/.relmio/local/n8n-supergrok-oauth" ||
+    plan.hostPublication !== "none" ||
+    plan.experimental !== true ||
+    typeof plan.disposableHarnessWarning !== "boolean"
+  ) {
+    throw Object.assign(
+      new Error("The local n8n SuperGrok plan is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    kind: "n8n-supergrok",
+    target: LOCAL_N8N_SUPERGROK_TARGET,
+    label: "SuperGrok for n8n",
+    endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT,
+    baseUrl: LOCAL_N8N_SUPERGROK_ENDPOINT,
+    protocol: "openai-chat-completions",
+    upstreamAuth: "provider-owned-oauth",
+    n8nContainerId: requireSafeDockerIdentifier(
+      plan.n8nContainerId,
+      "n8n container ID",
+    ),
+    n8nContainerName: requireSafeDockerName(
+      plan.n8nContainerName,
+      "n8n container name",
+    ),
+    dockerNetworkId: requireSafeDockerIdentifier(
+      plan.dockerNetworkId,
+      "Docker network ID",
+    ),
+    networkName: requireSafeDockerName(plan.networkName, "Docker network name"),
+    managedPath: "~/.relmio/local/n8n-supergrok-oauth",
+    hostPublication: "none",
+    experimental: true,
+    disposableHarnessWarning: plan.disposableHarnessWarning,
   };
 }
 
@@ -2350,6 +2498,99 @@ function createSafeLocalN8nInstallResult(result) {
   };
 }
 
+function createSafeLocalN8nSuperGrokInstallResult(result, reviewedPlan) {
+  if (
+    result?.target !== LOCAL_N8N_SUPERGROK_TARGET ||
+    result.endpoint !== LOCAL_N8N_SUPERGROK_ENDPOINT ||
+    result.baseUrl !== LOCAL_N8N_SUPERGROK_ENDPOINT ||
+    result.protocol !== "openai-chat-completions" ||
+    result.networkName !== reviewedPlan?.networkName ||
+    result.n8nContainerName !== reviewedPlan?.n8nContainerName ||
+    result.hostPublication !== "none" ||
+    typeof result.clientKey !== "string" ||
+    !/^[A-Za-z0-9_-]{32,256}$/u.test(result.clientKey) ||
+    result.credentialShownOnce !== true ||
+    result.deploymentMode !== "installed"
+  ) {
+    throw Object.assign(
+      new Error("The local n8n SuperGrok installer returned an invalid result."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: LOCAL_N8N_SUPERGROK_TARGET,
+    endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT,
+    baseUrl: LOCAL_N8N_SUPERGROK_ENDPOINT,
+    protocol: "openai-chat-completions",
+    networkName: requireSafeDockerName(
+      result.networkName,
+      "SuperGrok network name",
+    ),
+    n8nContainerName: requireSafeDockerName(
+      result.n8nContainerName,
+      "n8n container name",
+    ),
+    hostPublication: "none",
+    clientCredential: result.clientKey,
+    credentialShownOnce: true,
+    deploymentMode: "installed",
+    models: ["grok-build"],
+  };
+}
+
+function createSafeLocalN8nSuperGrokStatus(result) {
+  if (
+    result?.target !== LOCAL_N8N_SUPERGROK_TARGET ||
+    typeof result.managed !== "boolean" ||
+    !["absent", "healthy", "unavailable"].includes(result.state) ||
+    (result.state === "healthy" ? result.managed !== true : result.managed !== false)
+  ) {
+    throw Object.assign(
+      new Error("The local n8n SuperGrok status is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  if (result.state !== "healthy") {
+    return {
+      target: LOCAL_N8N_SUPERGROK_TARGET,
+      managed: false,
+      state: result.state,
+      snapshot: null,
+    };
+  }
+  let snapshot;
+  try {
+    snapshot = createSafeDashboardSnapshot(
+      LOCAL_N8N_SUPERGROK_TARGET,
+      result.snapshot,
+    );
+  } catch {
+    throw Object.assign(
+      new Error("The local n8n SuperGrok status is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  return {
+    target: LOCAL_N8N_SUPERGROK_TARGET,
+    managed: true,
+    state: "healthy",
+    snapshot,
+  };
+}
+
+function createSafeLocalN8nSuperGrokRemovalResult(result) {
+  if (
+    result?.target !== LOCAL_N8N_SUPERGROK_TARGET ||
+    result.removed !== true
+  ) {
+    throw Object.assign(
+      new Error("The local n8n SuperGrok removal result is invalid."),
+      { statusCode: 502 },
+    );
+  }
+  return { target: LOCAL_N8N_SUPERGROK_TARGET, removed: true };
+}
+
 function createSafeLocalN8nRemovalResult(result) {
   if (
     result?.target !== LOCAL_N8N_SIDECAR_TARGET ||
@@ -2388,6 +2629,61 @@ function requireCurrentLocalDashboardGeneration(state, generation) {
       { statusCode: 409 },
     );
   }
+}
+
+function requireExactRequestBody(body, names, message) {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(body).length !== names.length ||
+    names.some((name) => !Object.hasOwn(body, name))
+  ) {
+    throw new Error(message);
+  }
+}
+
+function requireOAuthLocalEndpointPlanBody(body) {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(body).some((name) => !["target", "port"].includes(name))
+  ) {
+    throw new Error("The OAuth local endpoint plan request is invalid.");
+  }
+}
+
+function requireExactLocalPlanBody(body, names, message) {
+  requireExactRequestBody(body, names, message);
+}
+
+function requireLocalInstallBody(plan, body) {
+  if (plan?.kind === "local-n8n-stack") {
+    requireExactRequestBody(
+      body,
+      [
+        "planId",
+        "confirmed",
+        "ngrokAuthtoken",
+        "basicAuthUsername",
+        "basicAuthPassword",
+      ],
+      "The local n8n + ngrok install request is invalid.",
+    );
+    return;
+  }
+  requireExactRequestBody(
+    body,
+    ["planId", "confirmed"],
+    plan?.kind === "n8n-sidecar"
+      ? "The local n8n OAuth bridge install request is invalid."
+      : plan?.kind === "n8n-assistant"
+        ? "The local n8n Assistant install request is invalid."
+        : plan?.kind === "n8n-supergrok"
+          ? "The local n8n SuperGrok install request is invalid."
+        : "The OAuth local endpoint install request is invalid.",
+  );
 }
 
 async function requireReadyLocalChatTester(state) {
@@ -2445,16 +2741,33 @@ async function handleApi(request, response, path, state) {
   }
 
   if (request.method === "GET" && path === "/api/local/dashboard") {
+    const localDashboardGeneration = state.localDashboardGeneration;
     const status = state.previewMode
       ? null
       : await state.services.getLocalDashboardStatus({
           inspectLocalN8nStack: state.services.getLocalN8nStackStatus,
+          inspectLocalN8nSuperGrok: state.services.getLocalN8nSuperGrokStatus,
         });
+    requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
     sendJson(
       response,
       200,
       createSafeLocalDashboardStatus(status, state.previewMode),
     );
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/local/supergrok/status") {
+    const localDashboardGeneration = state.localDashboardGeneration;
+    const status = state.previewMode
+      ? {
+          target: LOCAL_N8N_SUPERGROK_TARGET,
+          managed: false,
+          state: "absent",
+        }
+      : await state.services.getLocalN8nSuperGrokStatus();
+    requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
+    sendJson(response, 200, createSafeLocalN8nSuperGrokStatus(status));
     return;
   }
 
@@ -2850,7 +3163,20 @@ async function handleApi(request, response, path, state) {
   if (path === "/api/local/plan") {
     const localDashboardGeneration = state.localDashboardGeneration;
     let plan;
+    let disposableHarnessWarning = false;
     if (body?.target === LOCAL_N8N_STACK_TARGET) {
+      requireExactLocalPlanBody(
+        body,
+        [
+          "target",
+          "ngrokHostname",
+          "n8nPort",
+          "ngrokInspectorPort",
+          "timezone",
+          "assistantMode",
+        ],
+        "The local n8n + ngrok plan request is invalid.",
+      );
       requireLiveLocalAction(state, "Local n8n + ngrok planning");
       if (localOAuthChangeInFlight(state)) {
         throw Object.assign(new Error("A local endpoint change is already in progress."), {
@@ -2871,11 +3197,24 @@ async function handleApi(request, response, path, state) {
       });
     } else if (
       body?.target === LOCAL_N8N_SIDECAR_TARGET ||
-      body?.target === LOCAL_N8N_ASSISTANT_TARGET
+      body?.target === LOCAL_N8N_ASSISTANT_TARGET ||
+      body?.target === LOCAL_N8N_SUPERGROK_TARGET
     ) {
-      requireLiveLocalAction(state, "Local n8n sidecar planning");
       const assistantTarget = body.target === LOCAL_N8N_ASSISTANT_TARGET;
-      if (!assistantTarget && localOAuthChangeInFlight(state)) {
+      const superGrokTarget = body.target === LOCAL_N8N_SUPERGROK_TARGET;
+      requireExactLocalPlanBody(
+        body,
+        assistantTarget
+          ? ["target", "n8nContainerId", "dockerNetworkId", "includeSearxng"]
+          : ["target", "n8nContainerId", "dockerNetworkId"],
+        assistantTarget
+          ? "The local n8n Assistant plan request is invalid."
+          : superGrokTarget
+            ? "The local n8n SuperGrok plan request is invalid."
+            : "The local n8n OAuth bridge plan request is invalid.",
+      );
+      requireLiveLocalAction(state, "Local n8n sidecar planning");
+      if (!assistantTarget && !superGrokTarget && localOAuthChangeInFlight(state)) {
         throw Object.assign(
           new Error("ChatGPT sign-in is already in progress."),
           { statusCode: 409 },
@@ -2912,6 +3251,17 @@ async function handleApi(request, response, path, state) {
           }),
           disposableHarnessWarning: network.disposable === true,
         };
+      } else if (superGrokTarget) {
+        plan = {
+          ...state.services.prepareLocalN8nSuperGrokPlan({
+            dockerHost: discovery.dockerHost,
+            n8nContainerId: container.containerId,
+            n8nContainerName: container.containerName,
+            dockerNetworkId: network.dockerNetworkId,
+            networkName: network.networkName,
+          }),
+          disposableHarnessWarning: network.disposable === true,
+        };
       } else {
         const authStatus = await state.services.getAuthStatus();
         if (
@@ -2934,10 +3284,10 @@ async function handleApi(request, response, path, state) {
         };
       }
     } else {
+      requireOAuthLocalEndpointPlanBody(body);
       plan = createLocalDeploymentPlan({
-        target: body.target,
+        target: body.target ?? "xai-grok-build",
         port: body.port,
-        allowedOrigins: body.allowedOrigins,
       });
     }
     requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
@@ -2952,6 +3302,8 @@ async function handleApi(request, response, path, state) {
           ? createSafeLocalN8nPlan(plan)
           : plan.kind === "n8n-assistant"
             ? createSafeLocalN8nAssistantPlan(plan)
+            : plan.kind === "n8n-supergrok"
+              ? createSafeLocalN8nSuperGrokPlan(plan)
             : createSafeLocalPlan(plan),
     });
     return;
@@ -2980,6 +3332,14 @@ async function handleApi(request, response, path, state) {
       if (!pending || !tokenMatches(body.planId, pending.planId)) {
         throw new Error(
           "Review a fresh local endpoint plan before installing.",
+        );
+      }
+
+      requireLocalInstallBody(pending.plan, body);
+
+      if (pending.plan.kind === "n8n-supergrok" && body.confirmed !== true) {
+        throw new Error(
+          "Confirm the reviewed local n8n SuperGrok plan before installing.",
         );
       }
 
@@ -3029,6 +3389,11 @@ async function handleApi(request, response, path, state) {
           plan: pending.plan,
           confirmed: body.confirmed,
         });
+      } else if (pending.plan.kind === "n8n-supergrok") {
+        result = await state.services.installLocalN8nSuperGrok({
+          plan: pending.plan,
+          confirmed: body.confirmed,
+        });
       } else if (pending.plan.kind === "local-n8n-stack") {
         try {
           result = await state.services.installLocalN8nStack({
@@ -3054,7 +3419,6 @@ async function handleApi(request, response, path, state) {
       } else {
         result = await state.services.installLocalEndpoint({
           plan: pending.plan,
-          apiKey: body.apiKey,
           confirmed: body.confirmed,
         });
       }
@@ -3073,13 +3437,14 @@ async function handleApi(request, response, path, state) {
           ? createSafeLocalN8nInstallResult(result)
           : pending.plan.kind === "n8n-assistant"
             ? createSafeLocalN8nAssistantInstallResult(result, pending.plan)
+            : pending.plan.kind === "n8n-supergrok"
+              ? createSafeLocalN8nSuperGrokInstallResult(result, pending.plan)
             : createSafeLocalInstallResult(result),
       );
     } finally {
       if (acquiredInstallLock) {
         state.localInstallInFlight = false;
       }
-      body.apiKey = undefined;
       body.ngrokAuthtoken = undefined;
       body.basicAuthUsername = undefined;
       body.basicAuthPassword = undefined;
@@ -3252,6 +3617,51 @@ async function handleApi(request, response, path, state) {
         confirmed: true,
       });
       sendJson(response, 200, createSafeLocalN8nRemovalResult(result));
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (path === "/api/local/supergrok/remove") {
+    const localDashboardGeneration = state.localDashboardGeneration;
+    requireLiveLocalAction(state, "Local n8n SuperGrok removal");
+    enforceRateLimit(state, path);
+    requireExactRequestBody(
+      body,
+      ["confirmed"],
+      "The local n8n SuperGrok removal request is invalid.",
+    );
+    if (body.confirmed !== true) {
+      throw new Error("Confirm removal of the managed local n8n SuperGrok sidecar.");
+    }
+    if (
+      state.localInstallInFlight ||
+      state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) ||
+      state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" ||
+      localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(
+        new Error("A local endpoint change is already in progress."),
+        { statusCode: 409 },
+      );
+    }
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    state.localInstalledTarget = null;
+    try {
+      const result = await state.services.removeLocalN8nSuperGrok({
+        confirmed: true,
+      });
+      requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
+      sendJson(
+        response,
+        200,
+        createSafeLocalN8nSuperGrokRemovalResult(result),
+      );
     } finally {
       state.localInstallInFlight = false;
     }

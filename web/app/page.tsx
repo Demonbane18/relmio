@@ -8,6 +8,7 @@ import { VStack } from "@astryxdesign/core/VStack";
 import { Check } from "lucide-react";
 import { ChatConsole } from "./components/ChatConsole";
 import { HashLink } from "./components/HashLink";
+import { DoorwayHero } from "./components/relay/DoorwayHero";
 import { SignalPlotter } from "./components/relay/SignalPlotter";
 import { RepositoryButton } from "./components/RepositoryButton";
 import { SupportButton } from "./components/SupportButton";
@@ -32,7 +33,7 @@ export default function Home() {
         Skip to main content
       </HashLink>
       <header className="editorial-header" id="top">
-        <HStack className="editorial-header-inner" gap={4} justify="between" align="center">
+        <HStack className="editorial-header-inner" gap={4} justify="between" align="center" wrap="wrap">
           <Link className="editorial-brand" href="/" aria-label="Relmio home">
             <HStack gap={2} align="center">
               <Image src="/relmio-icon.png" alt="" width={38} height={38} priority unoptimized />
@@ -54,6 +55,7 @@ export default function Home() {
         </HStack>
       </header>
 
+      <DoorwayHero />
       <SignalPlotter />
 
       <section className="editorial-chat" id="chat-section" aria-labelledby="chat-title">
@@ -79,9 +81,9 @@ export default function Home() {
               This browser encrypts the credentials it stores. Disconnect to remove the local session.
             </Text>
           </VStack>
-          <div className="editorial-chat-console" id="chat">
+          <section className="editorial-chat-console" id="chat" aria-label="Hosted chat demo">
             <ChatConsole />
-          </div>
+          </section>
         </Grid>
       </section>
 
@@ -117,6 +119,7 @@ export default function Home() {
           <HStack gap={3} wrap="wrap">
             <a href="https://www.npmjs.com/package/relmio" target="_blank" rel="noreferrer">npm</a>
             <a href="https://github.com/Demonbane18/relmio" target="_blank" rel="noreferrer">GitHub</a>
+            <Link href="/changelog">Changelog</Link>
             <HashLink targetId="security">Security</HashLink>
             <HashLink targetId="chat">Chat demo</HashLink>
           </HStack>

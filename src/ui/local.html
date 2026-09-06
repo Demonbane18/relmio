@@ -137,7 +137,13 @@
       <section id="local-dashboard" class="local-dashboard" aria-labelledby="dashboard-title">
         <aside class="dashboard-rail">
           <div class="dashboard-rail-heading">
-            <span class="dashboard-rail-mark" aria-hidden="true"></span>
+            <img
+              class="dashboard-rail-mark"
+              src="/relmio-icon.png"
+              alt=""
+              width="32"
+              height="32"
+            />
             <div>
               <strong>Local control</strong>
               <small>Private runtime</small>
@@ -255,10 +261,19 @@
               <span id="dashboard-environment-state" class="dashboard-state-token state-checking">Checking</span>
             </div>
 
-            <dl class="dashboard-summary" aria-label="Connection summary">
-              <div><dt id="dashboard-healthy-count">0</dt><dd>Healthy</dd></div>
-              <div><dt id="dashboard-attention-count">0</dt><dd>Needs attention</dd></div>
-              <div><dt id="dashboard-absent-count">0</dt><dd>Not configured</dd></div>
+            <dl class="dashboard-summary" aria-label="Local dashboard truth summary">
+              <div>
+                <dt id="dashboard-runtime-health">Checking</dt>
+                <dd>Runtime health</dd>
+              </div>
+              <div>
+                <dt id="dashboard-provider-readiness">Checking</dt>
+                <dd>Provider readiness</dd>
+              </div>
+              <div>
+                <dt id="dashboard-inventory-freshness">Checking</dt>
+                <dd>Inventory freshness</dd>
+              </div>
             </dl>
           </section>
 
@@ -307,6 +322,14 @@
                 <h3 id="dashboard-service-detail-title">Choose a service</h3>
                 <p id="dashboard-service-detail-copy">Select a row to inspect its verified state and connection boundary.</p>
                 <dl id="dashboard-service-facts" class="dashboard-service-facts"></dl>
+                <div class="dashboard-relay-wrap">
+                  <p class="dashboard-section-label">Selected service relay</p>
+                  <ol id="dashboard-relay" class="dashboard-relay" aria-label="Selected service relay path">
+                    <li><span class="dashboard-status-dot state-checking" aria-hidden="true"></span><span>Local app</span><small>Checking</small></li>
+                    <li><span class="dashboard-status-dot state-checking" aria-hidden="true"></span><span>Relmio runtime</span><small>Checking</small></li>
+                    <li><span class="dashboard-status-dot state-checking" aria-hidden="true"></span><span>Provider / integration</span><small>Checking</small></li>
+                  </ol>
+                </div>
                 <div id="dashboard-service-actions" class="dashboard-service-actions"></div>
               </section>
             </div>
@@ -355,17 +378,16 @@
       <aside class="rail" aria-label="Local setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
           <p class="local-eyebrow">Local setup</p>
-          <h1 id="page-title">Connect local apps or n8n</h1>
+          <h1 id="page-title">Let’s get you connected</h1>
           <p class="lede">
-            Sign in to ChatGPT/Codex for supported models through a private Docker route,
-            or use a Platform API key for the supported API route.
+            Choose a connection. We’ll walk you through the setup, one step at a time.
           </p>
           <button id="setup-back-to-dashboard" class="button ghost setup-dashboard-return" type="button">
             Back to dashboard
           </button>
         </section>
 
-        <nav class="steps" aria-label="Local setup progress">
+        <nav id="setup-progress" class="steps" aria-label="Local setup progress">
           <ol>
             <li data-step-marker="1" aria-current="step">
               <span>1</span>
@@ -373,11 +395,11 @@
             </li>
             <li data-step-marker="2">
               <span>2</span>
-              <div class="step-copy"><em>Review</em><small>Confirm the boundary</small></div>
+              <div class="step-copy"><em>Review</em><small>Check the plan</small></div>
             </li>
             <li data-step-marker="3">
               <span>3</span>
-              <div class="step-copy"><em>Install</em><small>Add credentials</small></div>
+              <div class="step-copy"><em>Install</em><small>Set up your connection</small></div>
             </li>
             <li data-step-marker="4">
               <span>4</span>
@@ -387,25 +409,26 @@
         </nav>
 
         <div class="toast-stack" aria-label="Local setup notifications">
-          <aside class="toast safety-note" aria-label="Local-only guarantee">
-            <strong id="boundary-title">Loopback-only guarantee</strong>
+          <details class="setup-help" aria-label="Connection privacy">
+            <summary><strong id="boundary-title">Loopback-only guarantee</strong></summary>
             <span id="boundary-detail">
               Relmio publishes the selected port on <code>127.0.0.1</code>, not
               your LAN or the public internet.
             </span>
-          </aside>
+          </details>
 
-          <aside
+          <details
             id="trust-warning"
-            class="toast safety-note backup-note"
+            class="setup-help"
             aria-label="Credential boundary"
           >
-            <strong>Two different credentials</strong>
+            <summary>About sign-in and connection keys</summary>
             <span>
-              ChatGPT/Codex sign-in and an OpenAI Platform API key are different.
-              Relmio never turns one into the other.
+              Sign in with your provider through its official flow. A separate local
+              connection key lets your apps use Relmio. Relmio does not collect
+              upstream API keys or turn a provider sign-in into one.
             </span>
-          </aside>
+          </details>
 
           <div id="global-message" class="toast message" role="status" aria-live="polite">
             <span id="global-message-text">Checking local Docker…</span>
@@ -448,27 +471,28 @@
           </div>
         </div>
 
-        <aside class="policy-note">
+        <details class="setup-help system-requirements">
+          <summary>Computer requirements</summary>
           <strong>Windows, macOS, Linux, or WSL2</strong>
           <p>
             Native Windows uses Docker Desktop's <code>desktop-linux</code>
             engine and a verified owner-only NTFS ACL for Relmio-managed
             credentials. macOS, Linux, and WSL2 use POSIX owner-only modes.
           </p>
-        </aside>
+        </details>
 
         <form id="target-form">
           <fieldset class="target-picker">
-            <legend>Credential and protocol</legend>
+            <legend>Choose your connection</legend>
 
-            <label class="target-card">
-              <input type="radio" name="target" value="openai-api" checked />
+            <label class="target-card warning-card">
+              <input type="radio" name="target" value="xai-grok-build" checked />
               <span class="target-card-copy">
-                <strong>OpenAI API</strong>
-                <span class="target-meta">Stable · apps and web apps</span>
-                <span>
-                  The supported <code>/v1</code> API for apps and web apps.
-                  It uses only your Platform API key; Platform billing is separate from ChatGPT.
+                <strong>SuperGrok</strong>
+                <span class="target-meta">Experimental · trusted local clients only</span>
+                <span class="target-description">
+                  Use official SuperGrok sign-in for local apps and n8n Assistant
+                  through private Chat Completions with tool calls.
                 </span>
               </span>
             </label>
@@ -478,7 +502,7 @@
               <span class="target-card-copy">
                 <strong>Codex App Server</strong>
                 <span class="target-meta">Experimental · trusted native apps only</span>
-                <span>
+                <span class="target-description">
                   Official Codex JSON-RPC over WebSocket, using ChatGPT sign-in.
                   This is not an OpenAI-compatible <code>/v1</code> endpoint and
                   browsers cannot connect directly. Codex App Server WebSocket is experimental and unsupported for production workloads.
@@ -491,7 +515,7 @@
               <span class="target-card-copy">
                 <strong>Codex Chat Adapter</strong>
                 <span class="target-meta">Experimental · trusted local backends or development servers only</span>
-                <span>
+                <span class="target-description">
                   Relmio-specific authenticated <code>POST /chat</code>, backed by
                   official Codex App Server and ChatGPT sign-in. This is not an
                   OpenAI-compatible <code>/v1</code> endpoint and browser bundles
@@ -505,7 +529,7 @@
               <span class="target-card-copy">
                 <strong>Existing n8n model bridge</strong>
                 <span class="target-meta">Unofficial · private · policy-uncertain</span>
-                <span>
+                <span class="target-description">
                   Connects an existing n8n container to supported ChatGPT/Codex models with the
                   unofficial <code>openai-oauth</code> sidecar. It is private to a shared Docker
                   network. There is no host port. Check OpenAI policy before using it.
@@ -518,7 +542,7 @@
               <span class="target-card-copy">
                 <strong>n8n AI Assistant tools</strong>
                 <span class="target-meta">Code Sandbox + optional SearXNG</span>
-                <span>
+                <span class="target-description">
                   Installs the private n8n Code Sandbox support services beside
                   an existing local n8n container. Optionally add SearXNG JSON
                   web search. Relmio never edits or restarts n8n itself.
@@ -531,9 +555,22 @@
               <span class="target-card-copy">
                 <strong>New local n8n + ngrok</strong>
                 <span class="target-meta">Relmio-owned add-on · mandatory Basic Auth</span>
-                <span>
+                <span class="target-description">
                   Creates a separate local n8n stack and an ngrok link protected by Basic Auth.
                   It never changes an existing n8n deployment.
+                </span>
+              </span>
+            </label>
+
+            <label class="target-card warning-card">
+              <input type="radio" name="target" value="n8n-supergrok-oauth" />
+              <span class="target-card-copy">
+                <strong>SuperGrok for n8n</strong>
+                <span class="target-meta">Private Docker network · existing n8n stays operator-owned</span>
+                <span class="target-description">
+                  Adds a private Chat Completions sidecar to a selected existing n8n
+                  network. Sign in only with the official SuperGrok CLI; no API key
+                  or provider token is entered here.
                 </span>
               </span>
             </label>
@@ -552,22 +589,6 @@
                 required
               />
               <small>Published only on <code>127.0.0.1</code>.</small>
-            </label>
-
-            <label id="origins-field" class="field">
-              <span>Allowed browser origins <small>(optional, one per line)</small></span>
-              <textarea
-                id="allowed-origins"
-                name="allowedOrigins"
-                rows="3"
-                maxlength="20480"
-                spellcheck="false"
-                placeholder="http://localhost:3000"
-              ></textarea>
-              <small>
-                Exact origins only, such as <code>http://localhost:3000</code>.
-                Native apps can leave this empty.
-              </small>
             </label>
           </div>
 
@@ -845,12 +866,8 @@
           </section>
 
           <aside id="target-guidance" class="policy-note" aria-live="polite">
-            <strong id="target-guidance-title">Uses an OpenAI Platform API key</strong>
-            <p id="target-guidance-detail">
-              Your key is seeded over stdin into a private Docker volume and
-              is never returned to the browser. A separate local client
-              credential is generated for your apps.
-            </p>
+            <strong id="target-guidance-title">Uses official provider sign-in</strong>
+            <p id="target-guidance-detail">Provider sessions remain runtime-owned. Relmio separately generates local client credentials where a local runtime requires them.</p>
           </aside>
 
           <div class="actions">
@@ -930,7 +947,7 @@
             <h3>Relmio will not</h3>
             <ul id="review-will-not" class="no-list">
               <li>Publish the endpoint to your LAN or internet.</li>
-              <li>Turn ChatGPT credentials into Platform API credentials.</li>
+              <li>Turn a provider sign-in into an upstream API key.</li>
               <li>Modify or restart your n8n container.</li>
               <li>Reuse the existing Hostinger deployment.</li>
             </ul>
@@ -970,30 +987,7 @@
         <div class="panel-heading">
           <p class="panel-kicker">Step 3 of 4 · Install</p>
           <h2 id="install-title" tabindex="-1">Install the local container</h2>
-          <p id="install-intro">
-            Enter the OpenAI Platform API key that this endpoint will use
-            upstream. It is sent only to this local Relmio process.
-          </p>
-        </div>
-
-        <div id="api-key-field" class="field-grid single">
-          <label class="field">
-            <span>OpenAI Platform API key</span>
-            <input
-              id="platform-api-key"
-              name="apiKey"
-              type="password"
-              autocomplete="off"
-              spellcheck="false"
-              maxlength="512"
-              pattern="sk-[A-Za-z0-9_\-]{32,509}"
-              required
-            />
-            <small>
-              The browser field is cleared as soon as installation starts. The
-              Platform key is never displayed in the result.
-            </small>
-          </label>
+          <p id="install-intro">Relmio will install the reviewed local runtime. Official provider sign-in happens afterward in the isolated runtime.</p>
         </div>
 
         <aside id="codex-install-warning" class="high-trust-warning" hidden>
@@ -1057,14 +1051,13 @@
 
       <section class="panel success-panel" data-step="4" aria-labelledby="done-title" hidden>
         <div class="success-heading">
-          <div class="success-mark" aria-hidden="true">✓</div>
+          <div id="success-mark" class="success-mark" aria-hidden="true">✓</div>
           <div class="panel-heading">
-            <p class="panel-kicker">Step 4 of 4 · Ready</p>
+            <p id="done-step-caption" class="panel-kicker">Step 4 of 4 · Ready</p>
             <h2 id="done-title" tabindex="-1">Local endpoint is ready</h2>
             <p id="done-detail">Copy the client settings into your local app.</p>
           </div>
         </div>
-
         <aside id="one-time-note" class="one-time-note">
           <strong id="one-time-note-title">Copy this credential now</strong>
           <p id="one-time-note-detail">
@@ -1074,7 +1067,7 @@
         </aside>
 
         <aside id="credential-rotation-note" class="credential-rotation-note">
-          <strong>Rotate client credential</strong>
+          <strong>Rotate local capability</strong>
           <p>
             Relmio shows the replacement first, then activates and verifies it.
             After successful activation, the previous credential no longer works.
@@ -1085,7 +1078,7 @@
             class="button secondary"
             type="button"
           >
-            Rotate client credential
+            Rotate local capability
           </button>
         </aside>
 
@@ -1107,14 +1100,6 @@
               </button>
             </dd>
           </div>
-          <div id="result-api-key-row" hidden>
-            <dt>API key placeholder</dt>
-            <dd><code id="result-api-key"></code></dd>
-          </div>
-          <div id="result-responses-row" hidden>
-            <dt>Responses API</dt>
-            <dd id="result-responses"></dd>
-          </div>
           <div id="result-n8n-row" hidden>
             <dt>n8n container</dt>
             <dd id="result-n8n"></dd>
@@ -1126,10 +1111,6 @@
           <div id="result-publication-row" hidden>
             <dt>Host publication</dt>
             <dd id="result-publication"></dd>
-          </div>
-          <div id="result-models-row" hidden>
-            <dt>Models</dt>
-            <dd id="result-models"></dd>
           </div>
           <div id="result-deployment-row" hidden>
             <dt>Deployment mode</dt>
@@ -1193,7 +1174,7 @@
             </dd>
           </div>
           <div id="result-credential-row">
-            <dt>Client credential</dt>
+            <dt id="result-credential-label">Client credential</dt>
             <dd class="result-value">
               <code id="result-credential"></code>
               <button
@@ -1220,7 +1201,7 @@
           <p>
             Relmio starts the official Codex device-code flow. The ChatGPT
             credential stays in the isolated Codex Docker volume and is not an
-            OpenAI Platform API key.
+            an upstream API key.
           </p>
           <button id="codex-login-button" class="button primary" type="button">
             Start ChatGPT sign-in
@@ -1411,6 +1392,35 @@
         </section>
 
         <section
+          id="n8n-supergrok-removal"
+          class="n8n-sidecar-removal"
+          aria-labelledby="n8n-supergrok-removal-title"
+          hidden
+        >
+          <h3 id="n8n-supergrok-removal-title">Remove SuperGrok for n8n</h3>
+          <p>
+            Removes only Relmio's managed SuperGrok sidecar, private session
+            volume, and managed files. It never removes or changes n8n or the
+            selected external Docker network.
+          </p>
+          <label class="check-row">
+            <input id="remove-supergrok-confirm" type="checkbox" />
+            <span>
+              I authorize Relmio to remove only this managed SuperGrok sidecar
+              and private files. Keep n8n and the external Docker network untouched.
+            </span>
+          </label>
+          <div class="sidecar-removal-actions">
+            <button id="remove-supergrok-button" class="button secondary" type="button" disabled>
+              Remove SuperGrok for n8n
+            </button>
+            <p id="remove-supergrok-status" role="status" aria-live="polite">
+              The sidecar remains installed until this separate confirmation is checked.
+            </p>
+          </div>
+        </section>
+
+        <section
           id="n8n-assistant-removal"
           class="n8n-sidecar-removal"
           aria-labelledby="n8n-assistant-removal-title"
@@ -1455,8 +1465,9 @@
 
     <footer>
       <p>
-        Relmio keeps the OpenAI Platform API path and ChatGPT/Codex path
-        separate so each uses its intended credential and protocol.
+        Provider sign-in remains owned by the supported runtime. Relmio keeps
+        each local capability separate so it protects only its local connection,
+        without collecting or setting up an upstream API key.
       </p>
     </footer>
   </body>

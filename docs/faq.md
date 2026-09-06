@@ -2,10 +2,16 @@
 
 ## Does a ChatGPT plan include a Platform API key?
 
-No. The local `/v1` gateway uses your OpenAI Platform API key and Platform
-billing. ChatGPT sign-in stays inside the experimental Codex routes. The n8n
-OAuth sidecar is an unofficial, private compatibility bridge. It is not a
-general local `/v1` service and is policy-uncertain.
+No. Relmio's current candidate handles OAuth only. Ordinary API-key
+connections belong directly in n8n or your app. The ChatGPT n8n OAuth bridge
+remains unofficial, private, and policy-uncertain.
+
+## Can I use my SuperGrok subscription?
+
+The unreleased Grok Build adapter uses the official CLI's OAuth. It currently
+exposes Relmio `/chat` to local backends. Both local apps and n8n are intended
+clients, but attended sign-in, tool-policy, and n8n model-node acceptance remain
+open. No xAI API key or separately billed API fallback is used.
 
 ## How long does a ChatGPT/Codex sign-in token last?
 

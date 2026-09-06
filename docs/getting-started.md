@@ -1,11 +1,13 @@
 # Getting started
 
 Relmio installs local AI connections. Pick the one that matches your account
-and client.
+and client. The OAuth-only candidate described here is unreleased. SuperGrok
+live and fresh private-installer acceptance passed; protected release acceptance
+remains open.
 
 | Need | Choose | Credential |
 | --- | --- | --- |
-| A local OpenAI-compatible endpoint | OpenAI API gateway | Your OpenAI Platform API key |
+| SuperGrok for a local backend, unreleased | Grok Build adapter | Official subscription OAuth and a local bearer |
 | A trusted native Codex client | Codex App Server | ChatGPT sign-in and a local capability |
 | A small local backend | Codex Chat Adapter | ChatGPT sign-in and a local bearer |
 | A bridge for local Docker n8n or a VPS | n8n OAuth sidecar | A local ChatGPT sign-in file |

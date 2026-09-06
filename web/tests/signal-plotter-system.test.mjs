@@ -17,7 +17,7 @@ test("persists the product-grounded Signal Plotter design system", async () => {
   assert.match(master, /Signal Plotter/u);
   assert.match(master, /concept seed:[^\n]*`95cdc256`/iu);
   assert.match(master, /n8n with ChatGPT sign-in/u);
-  assert.match(master, /OpenAI API/u);
+  assert.match(master, /Grok Build OAuth/u);
   assert.match(master, /n8n Code Sandbox/u);
   assert.match(master, /Codex Chat Adapter/u);
   assert.match(master, /Codex App Server/u);
@@ -35,7 +35,7 @@ test("embeds the Impeccable direction contract in the root layout", async () => 
   assert.match(layout, /id="impeccable-direction-contract"/u);
   assert.match(layout, /type="text\/plain"/u);
   assert.match(layout, /THESIS[\s\S]*OWN-WORLD[\s\S]*STORY[\s\S]*FIRST VIEWPORT[\s\S]*FORM[\s\S]*FINISH/u);
-  assert.match(layout, /concept seed 95cdc256/u);
+  assert.match(layout, /Doorway Playground direction, governed by DESIGN\.md and Hallmark/u);
   assert.match(
     layout,
     /unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN\.md/u,
@@ -76,12 +76,9 @@ test("gives documentation an editorial field-manual hierarchy", async () => {
   ]);
 
   assert.match(page, /Field manual/u);
-  assert.match(page, /aria-label="Relmio setup guides"/u);
-  assert.match(page, /n8n \+ ChatGPT/u);
-  assert.match(page, /OpenAI API/u);
-  assert.match(page, /Code Sandbox/u);
-  assert.match(page, /Chat Adapter/u);
-  assert.match(page, /App Server/u);
+  assert.match(page, /Practical setup guides for private local tools/u);
+  assert.match(page, /DocumentationSearch/u);
+  assert.doesNotMatch(page, /aria-label="Relmio setup guides"/u);
   assert.match(styles, /\.article pre\s*\{[\s\S]*background:\s*#09100f;/u);
   assert.match(styles, /@media \(max-width: 52rem\)/u);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)/u);

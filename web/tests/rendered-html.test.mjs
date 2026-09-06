@@ -31,19 +31,20 @@ test("server-renders the Relmio product page", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>Relmio \| Connect local AI tools safely<\/title>/i);
-  assert.match(html, /Use your ChatGPT sign-in with the right local tool\./);
-  assert.match(html, /Choose what you are setting up/u);
+  assert.match(html.replace(/<[^>]*>/g, ""), /Bring your AI sign-ins to your tools\./);
+  assert.match(html, /relmio-icon\.png/);
+  assert.match(html, /aria-label="A message travels between a VPS cloud, the Relmio doorway, and a local workshop\."/);
+  assert.match(html, /Choose a connection/u);
   assert.match(html, /aria-label="Setup options"/);
   assert.match(html, /aria-pressed="true"/);
   assert.match(html, /n8n with ChatGPT sign-in/);
-  assert.match(html, /OpenAI API/);
+  assert.match(html, /Grok Build OAuth/);
   assert.match(html, /n8n Code Sandbox/);
   assert.match(html, /Codex Chat Adapter/);
   assert.match(html, /Codex App Server/);
-  assert.match(html, /ChatGPT sign-in and Platform API keys do different jobs\./);
+  assert.match(html, /Choose a route to see what it uses and where it connects\./);
   assert.doesNotMatch(html, /OpenAI-shaped workflows you already use/);
-  assert.match(html, /Open hosted chat/);
-  assert.match(html, /href="\/install"[^>]*>Install Relmio<\/a>/);
+  assert.match(html, /href="\/install"[^>]*>Install Relmio/);
   assert.match(html, /href="\/changelog"[^>]*>Changelog<\/a>/);
   assert.match(html, /data-astryx-theme="relmio"/);
   assert.match(html, /aria-label="Color theme"/);
@@ -58,7 +59,7 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /class="[^"]*\beditorial-home\b/);
   assert.match(html, /aria-label="n8n with ChatGPT sign-in connection map"/);
   assert.match(html, /Before anything changes/);
-  assert.match(html, /What Relmio changes and leaves alone\./);
+  assert.match(html, /What Relmio changes, and what it leaves alone\./);
   assert.match(html, /Connect, then ask\./);
   assert.match(html, /Before you connect: install the browser extension/);
   assert.match(
@@ -73,8 +74,11 @@ test("server-renders the Relmio product page", async () => {
   assert.match(html, /The n8n bridge stays private\./);
   assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
   assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
-  assert.match(html, /class="repository-button"/);
-  assert.match(html, /Open Relmio version 0\.13\.0 on GitHub\./);
+  const header = html.match(/<header\b[\s\S]*?<\/header>/u)?.[0] ?? "";
+  assert.match(header, /class="repository-button"/u);
+  assert.match(header, /Color theme/u);
+  assert.match(header, /href="\/changelog"/u);
+  assert.match(header, />Chat<\/a>/u);
   assert.match(html, /class="support-button"/);
   assert.match(
     html,
@@ -144,11 +148,11 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /https:\/\/ko-fi\.com\/paldogies/);
   assert.match(
     html,
-    /The OpenAI-compatible <code>\/v1<\/code> route uses a Platform API key\./,
+    /The current candidate handles provider OAuth only\./,
   );
   assert.match(
     html,
-    /ChatGPT sign-in is only for the experimental Codex App Server and Chat Adapter paths\./,
+    /SuperGrok support for local apps and n8n has passed disposable live tool-call tests and remains unreleased\./,
   );
   assert.match(
     html,
@@ -276,7 +280,7 @@ test("falls back safely when project metadata is malformed", async (t) => {
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     stars: null,
-    version: "0.13.0",
+    version: JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")).version,
   });
 });
 
@@ -581,4 +585,12 @@ test("returns hosted ChatGPT callbacks to the active deployment origin", async (
 
   assert.doesNotMatch(chatConsole, /callbackPath=/u);
   assert.doesNotMatch(chatConsole, /relmio\.jpfusin\.tech/u);
+});
+
+
+test("keeps the entire scene still when SVG animation controls are unavailable", async () => {
+  const source = await readFile(new URL("../app/components/relay/DoorwayHero.tsx", import.meta.url), "utf8");
+  assert.match(source, /const running = smilSupported &&/);
+  assert.match(source, /useSyncExternalStore\(subscribeSmilSupport, getSmilSupport, \(\) => false\)/);
+  assert.match(source, /disabled=\{!smilSupported \|\| reducedMotion\}/);
 });

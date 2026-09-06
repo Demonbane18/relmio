@@ -4,15 +4,16 @@ import {
 } from "./local-installer.js";
 import { getLocalN8nAssistantStatus } from "./local-n8n-assistant-installer.js";
 import { getLocalN8nSidecarStatus } from "./local-n8n-sidecar-installer.js";
+import { getLocalN8nSuperGrokStatus } from "./local-n8n-supergrok-installer.js";
 
 const SERVICE_DEFINITIONS = Object.freeze([
-  Object.freeze({ target: "openai-api", label: "OpenAI API", kind: "endpoint" }),
   Object.freeze({
     target: "codex-chatgpt",
     label: "Codex (ChatGPT login)",
     kind: "endpoint",
   }),
   Object.freeze({ target: "codex-chat", label: "Codex Chat adapter", kind: "endpoint" }),
+  Object.freeze({ target: "xai-grok-build", label: "SuperGrok", kind: "endpoint" }),
   Object.freeze({ target: "local-n8n-stack", label: "n8n + ngrok", kind: "n8n-stack" }),
   Object.freeze({
     target: "n8n-openai-oauth",
@@ -24,9 +25,28 @@ const SERVICE_DEFINITIONS = Object.freeze([
     label: "AI Assistant tools",
     kind: "n8n-assistant",
   }),
+  Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok for n8n", kind: "n8n-supergrok" }),
 ]);
 const STATES = new Set(["absent", "healthy", "stopped", "partial", "unavailable"]);
 const ASSISTANT_MODES = new Set(["disabled", "sandbox", "sandbox-with-searxng"]);
+const PROVIDER_DEFINITIONS = Object.freeze([
+  Object.freeze({
+    target: "codex-chatgpt",
+    label: "ChatGPT",
+    authentication: "provider-oauth",
+  }),
+  Object.freeze({
+    target: "codex-chat",
+    label: "ChatGPT",
+    authentication: "provider-oauth",
+  }),
+  Object.freeze({
+    target: "xai-grok-build",
+    label: "SuperGrok",
+    authentication: "provider-oauth",
+  }),
+  Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth" }),
+]);
 
 function unavailableService(definition) {
   return {
@@ -64,7 +84,7 @@ function validateLoopbackEndpoint(value, { target }) {
     throw new TypeError();
   }
   const expectedProtocol = target === "codex-chatgpt" ? "ws:" : "http:";
-  const expectedPath = target === "openai-api" ? "/v1" : "/";
+  const expectedPath = "/";
   const port = readExplicitLoopbackPort(value);
   if (
     parsed.protocol !== expectedProtocol ||
@@ -176,6 +196,22 @@ function copySidecarSnapshot(snapshot) {
   };
 }
 
+function copySuperGrokSnapshot(snapshot) {
+  if (
+    snapshot?.target !== "n8n-supergrok-oauth" ||
+    snapshot.endpoint !== "http://n8n-supergrok:14502/v1" ||
+    snapshot.auth?.configured !== true ||
+    snapshot.auth?.disclosure !== "one-time" ||
+    snapshot.canRemove !== true
+  ) throw new TypeError();
+  return {
+    target: "n8n-supergrok-oauth",
+    endpoint: "http://n8n-supergrok:14502/v1",
+    auth: { configured: true, disclosure: "one-time" },
+    canRemove: true,
+  };
+}
+
 function copyAssistantSnapshot(snapshot) {
   if (
     snapshot?.target !== "local-n8n-assistant" ||
@@ -197,6 +233,7 @@ function copySnapshot(definition, snapshot) {
   if (definition.kind === "endpoint") return copyEndpointSnapshot(definition.target, snapshot);
   if (definition.kind === "n8n-stack") return copyStackSnapshot(snapshot);
   if (definition.kind === "n8n-oauth-bridge") return copySidecarSnapshot(snapshot);
+  if (definition.kind === "n8n-supergrok") return copySuperGrokSnapshot(snapshot);
   return copyAssistantSnapshot(snapshot);
 }
 
@@ -211,9 +248,11 @@ function actionsFor(definition, state, snapshot) {
     snapshot?.canRotateCredential === true
   ) {
     if (["codex-chatgpt", "codex-chat"].includes(definition.target)) {
-      actions.push("sign-in");
+      actions.push("sign-in-chatgpt", "sign-out-chatgpt");
+    } else if (definition.target === "xai-grok-build") {
+      actions.push("sign-in-grok-build", "sign-out-grok-build");
     }
-    actions.push("rotate-credential");
+    actions.push("rotate-local-capability");
   }
   if (
     state === "healthy" &&
@@ -222,8 +261,22 @@ function actionsFor(definition, state, snapshot) {
   ) {
     actions.push("refresh-credential");
   }
-  if (snapshot?.canRemove === true) actions.push("remove");
+  if (definition.kind === "n8n-supergrok") {
+    if (state === "healthy") actions.push("sign-in-grok-build", "sign-out-grok-build");
+    if (snapshot?.canRemove === true) actions.push("remove-owned-supergrok");
+  } else if (snapshot?.canRemove === true) actions.push("remove");
   return actions;
+}
+
+function providerRuntimeEntry(definition) {
+  return {
+    ...definition,
+    readiness: "runtime-owned",
+  };
+}
+
+function getProviderReadiness() {
+  return PROVIDER_DEFINITIONS.map(providerRuntimeEntry);
 }
 
 function sanitizeService(definition, result) {
@@ -280,6 +333,8 @@ async function inspectService(definition, inspectors) {
       result = await inspectors.inspectLocalN8nStack();
     } else if (definition.kind === "n8n-oauth-bridge") {
       result = await inspectors.inspectLocalN8nSidecar();
+    } else if (definition.kind === "n8n-supergrok") {
+      result = await inspectors.inspectLocalN8nSuperGrok();
     } else {
       result = await inspectors.inspectLocalN8nAssistant();
     }
@@ -298,6 +353,7 @@ export async function getLocalDashboardStatus({
   inspectLocalN8nStack = unavailableInspector,
   inspectLocalN8nSidecar = getLocalN8nSidecarStatus,
   inspectLocalN8nAssistant = getLocalN8nAssistantStatus,
+  inspectLocalN8nSuperGrok = getLocalN8nSuperGrokStatus,
 } = {}) {
   let generatedAt;
   try {
@@ -316,14 +372,20 @@ export async function getLocalDashboardStatus({
     inspectLocalN8nStack,
     inspectLocalN8nSidecar,
     inspectLocalN8nAssistant,
+    inspectLocalN8nSuperGrok,
   };
+  const [services, providers] = await Promise.all([
+    Promise.all(
+      SERVICE_DEFINITIONS.map((definition) => inspectService(definition, inspectors)),
+    ),
+    getProviderReadiness(),
+  ]);
   return {
     schemaVersion: 1,
     generatedAt,
     docker,
     auth: { secretsRevealable: false },
-    services: await Promise.all(
-      SERVICE_DEFINITIONS.map((definition) => inspectService(definition, inspectors)),
-    ),
+    services,
+    providers,
   };
 }
