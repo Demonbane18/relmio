@@ -1974,9 +1974,11 @@ test("Grok Build install packages its direct OAuth runtime dependencies and veri
   assert.equal(await readFile(join(installRoot, "gateway.js"), "utf8"), "export const runtimeFixture = true;\n");
   assert.equal(await readFile(join(installRoot, "chat.js"), "utf8"), "export const chatFixture = true;\n");
   assert.equal(await readFile(join(installRoot, "session.js"), "utf8"), "export const sessionFixture = true;\n");
-  assert.equal((await stat(join(installRoot, "gateway.js"))).mode & 0o777, 0o600);
-  assert.equal((await stat(join(installRoot, "chat.js"))).mode & 0o777, 0o600);
-  assert.equal((await stat(join(installRoot, "session.js"))).mode & 0o777, 0o600);
+  if (process.platform !== "win32") {
+    assert.equal((await stat(join(installRoot, "gateway.js"))).mode & 0o777, 0o600);
+    assert.equal((await stat(join(installRoot, "chat.js"))).mode & 0o777, 0o600);
+    assert.equal((await stat(join(installRoot, "session.js"))).mode & 0o777, 0o600);
+  }
   const compose = await readFile(join(installRoot, "docker-compose.yml"), "utf8");
   assert.match(compose, /127\.0\.0\.1:14502:14502/);
   assert.match(compose, /grok-home:\/home\/node\/\.grok/);

@@ -223,3 +223,16 @@ added an attested per-project name to credential-action containers to prevent
 an interrupted login racing a replacement after stale process-lock recovery.
 Those recovery checks are synthetic; native Windows Docker acceptance remains
 open. Nothing here establishes a published or production deployment.
+
+
+## Native Windows CI follow-up
+
+The first exact-candidate Windows run caught three fixture portability issues
+(POSIX container paths, POSIX mode assertions, CRLF imports) and one installer
+issue: NTFS file IDs can exceed JavaScript's safe integer range. Fresh-directory
+identity now uses exact bigint stats. A regression forces IDs above that range
+and verifies guarded cleanup. After these fixes the Mac root suite reports
+995 passed, 12 expected skips; all 77 focused Windows-regression cases pass.
+The repeated native Windows CI run and the user's real-PC Docker acceptance
+remain separate gates. A fresh preview document also cleared the temporary
+paused state left by browser fallback testing; playback advanced normally.

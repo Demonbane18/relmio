@@ -122,7 +122,7 @@ test("ready-panel credential and action controls are siblings of its flex headin
 test("the complete local script bootstraps without retired tail initializers", async () => {
   const { runInNewContext } = await import("node:vm");
   const script = (await readFile("src/ui/local.js", "utf8"))
-    .replace(/^import .*?;\n/u, "const readWizardSession = () => null; const bindWizardNavigation = () => {};\n");
+    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => null; const bindWizardNavigation = () => {};\n");
   const makeNode = () => ({
     attributes: new Map(),
     checked: false,
@@ -164,7 +164,7 @@ test("the complete local script bootstraps without retired tail initializers", a
 test("the complete script renders a healthy OAuth inventory instead of falling back to unavailable", async () => {
   const { runInNewContext } = await import("node:vm");
   const script = (await readFile("src/ui/local.js", "utf8"))
-    .replace(/^import .*?;\n/u, "const readWizardSession = () => 'a'.repeat(43); const bindWizardNavigation = () => {};\n");
+    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => 'a'.repeat(43); const bindWizardNavigation = () => {};\n");
   const fixture = {
     schemaVersion: 1, generatedAt: new Date().toISOString(),
     docker: { available: true, version: "29.7.2", composeVersion: "2.39.1" }, auth: { secretsRevealable: false },

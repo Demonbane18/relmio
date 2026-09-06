@@ -78,9 +78,15 @@ async function ensurePrivateDirectory(fileSystem, path, platform, lockDownPath) 
   if (platform === "win32") await lockDownPath(path, { platform });
 }
 async function directoryIdentity(fileSystem, path) {
-  const entry = await lstat(fileSystem, path);
+  let entry;
+  try { entry = await fileSystem.lstat(path, { bigint: true }); }
+  catch (error) { if (missing(error)) entry = null; else throw error; }
   assertDirectory(entry);
-  if (!Number.isSafeInteger(entry.dev) || !Number.isSafeInteger(entry.ino)) throw new Error("Relmio could not attest the fresh local SuperGrok directory.");
+  const exactIdentity = (value) => (
+    (typeof value === "bigint" && value >= 0n) ||
+    (Number.isSafeInteger(value) && value >= 0)
+  );
+  if (!exactIdentity(entry.dev) || !exactIdentity(entry.ino)) throw new Error("Relmio could not attest the fresh local SuperGrok directory.");
   return { dev: entry.dev, ino: entry.ino };
 }
 

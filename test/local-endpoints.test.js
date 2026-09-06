@@ -176,7 +176,7 @@ test("Grok image bootstraps only the pinned platform payload outside credential 
       mkdirSync(file, options) { writes.push({ file, options }); },
       writeFileSync(file, bytes, options) { writes.push({ file, bytes, options }); },
     };
-    const requireFixture = (name) => ({ "node:fs": fs, "node:path": path, "node:zlib": { brotliDecompressSync } })[name];
+    const requireFixture = (name) => ({ "node:fs": fs, "node:path": path.posix, "node:zlib": { brotliDecompressSync } })[name];
     requireFixture.resolve = (name, options) => {
       assert.equal(name, `@xai-official/grok-linux-${arch}/package.json`);
       assert.equal(JSON.stringify(options), JSON.stringify({ paths: ["/usr/local/lib/node_modules/@xai-official/grok"] }));

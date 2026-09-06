@@ -91,6 +91,34 @@ test("bootstrap verification works before provider sign-in without querying its 
   assert.deepEqual(visited.sort(), ["http://127.0.0.1:14502/auth/verify", "http://127.0.0.1:14502/health"]);
 });
 
+test("fresh-directory cleanup uses exact filesystem identities on hosts with 64-bit file IDs", async (t) => {
+  const directory = await home(t);
+  let exactIdentityReads = 0;
+  const fileSystem = {
+    ...fs,
+    async lstat(path, options) {
+      const entry = await fs.lstat(path, options);
+      if (options?.bigint === true) {
+        exactIdentityReads += 1;
+        // NTFS IDs can exceed Number.MAX_SAFE_INTEGER; keep exact high bits.
+        entry.dev += 2n ** 60n;
+        entry.ino += 2n ** 60n;
+      }
+      return entry;
+    },
+  };
+  await assert.rejects(
+    () => installLocalN8nSuperGrok(
+      { plan: plan(), confirmed: true },
+      deps({ fileSystem, homeDirectory: directory, env: {}, runProcess: runner({ configFails: true }) }),
+    ),
+    /Compose validation/u,
+  );
+  const root = await resolveLocalN8nSuperGrokInstallRoot({ homeDirectory: directory, env: {} });
+  await assert.rejects(() => fs.lstat(root), { code: "ENOENT" });
+  assert.ok(exactIdentityReads >= 3);
+});
+
 test("private SuperGrok install, redacted status, attestation and removal remain inside an owned no-port project", async (t) => {
   const directory = await home(t); const runProcess = runner();
   const installed = await installLocalN8nSuperGrok({ plan: plan(), confirmed: true }, deps({ homeDirectory: directory, env: {}, runProcess }));
