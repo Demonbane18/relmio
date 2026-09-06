@@ -208,7 +208,7 @@ test("a symbolic-link local ancestor is rejected before any Docker mutation", as
   const relmioHome = join(directory, ".relmio");
   await fs.mkdir(relmioHome);
   await fs.writeFile(join(relmioHome, ".managed-by-relmio-root.json"), `${JSON.stringify({ schemaVersion: 1, kind: "relmio-local-root" })}\n`);
-  await fs.symlink(tmpdir(), join(relmioHome, "local"));
+  await fs.symlink(tmpdir(), join(relmioHome, "local"), process.platform === "win32" ? "junction" : "dir");
   const runProcess = runner();
   await assert.rejects(() => installLocalN8nSuperGrok({ plan: plan(), confirmed: true }, deps({ homeDirectory: directory, env: {}, runProcess })), /unsafe local managed directory/u);
   assert.equal(runProcess.calls.length, 0);

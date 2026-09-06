@@ -356,12 +356,14 @@ test("Windows default profile parent is a fingerprinted trust anchor, not a POSI
   const setup = await fixture(t);
   const windowsMetadataFileSystem = {
     ...fileSystem,
-    async lstat(path) {
-      const metadata = await fileSystem.lstat(path);
+    async lstat(path, options) {
+      const metadata = await fileSystem.lstat(path, options);
       if (path !== setup.homeDirectory) return metadata;
       return new Proxy(metadata, {
         get(target, property, receiver) {
-          if (property === "mode") return (target.mode & ~0o777) | 0o777;
+          if (property === "mode") return typeof target.mode === "bigint"
+            ? (target.mode & ~0o777n) | 0o777n
+            : (target.mode & ~0o777) | 0o777;
           return Reflect.get(target, property, receiver);
         },
       });
