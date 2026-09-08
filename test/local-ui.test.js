@@ -99,6 +99,10 @@ test("the local wizard remains an accessible four-step page", async () => {
   const html = await readFile("src/ui/local.html", "utf8");
   assert.match(html, /<html lang="en">/u);
   assert.match(html, /<title>Relmio \| Local Endpoint Setup<\/title>/u);
+  assert.match(
+    html,
+    /value="n8n-openai-oauth"[\s\S]*supports Message a Model and GPT Image[\s\S]*generation\/editing[\s\S]*does not support audio, Classify Text for Violations[\s\S]*\(moderation\), file management, stored conversations, or video generation[\s\S]*do not enter its API key into[\s\S]*this\s+bridge/u,
+  );
   assert.match(html, /data-step-marker="1"[\s\S]*data-step-marker="4"/u);
   assert.match(html, /id="global-message"[^>]*role="status"/u);
   assert.match(html, /id="global-error"[\s\S]*role="alert"/u);

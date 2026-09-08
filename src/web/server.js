@@ -72,6 +72,7 @@ import {
   installLocalN8nSidecar,
   removeLocalN8nSidecar,
   refreshLocalN8nSidecarCredential,
+  updateLocalN8nSidecarRuntime,
 } from "../services/local-n8n-sidecar-installer.js";
 import {
   editLocalN8nAssistantSearxng,
@@ -181,6 +182,7 @@ const defaultServices = {
   removeLocalN8nSuperGrok,
   removeLocalN8nStack,
   refreshLocalN8nSidecarCredential,
+  updateLocalN8nSidecarRuntime,
   resumeLocalN8nStack,
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
@@ -2378,6 +2380,25 @@ function createSafeLocalN8nSidecarRefreshResult(result) {
   };
 }
 
+function createSafeLocalN8nSidecarUpdateResult(result) {
+  if (
+    result?.target !== LOCAL_N8N_SIDECAR_TARGET ||
+    result.runtimeUpdated !== true || result.n8nChanged !== false ||
+    result.hostPublication !== "none" ||
+    !Array.isArray(result.models) || result.models.length === 0 ||
+    result.models.some((model) => typeof model !== "string" || model.length > 128 || !/^[A-Za-z0-9_.:-]+$/u.test(model))
+  ) {
+    throw Object.assign(new Error("The local n8n bridge update returned an invalid result."), { statusCode: 502 });
+  }
+  return {
+    target: LOCAL_N8N_SIDECAR_TARGET,
+    runtimeUpdated: true,
+    models: [...result.models],
+    hostPublication: "none",
+    n8nChanged: false,
+  };
+}
+
 function createSafeLocalN8nAssistantSearxngReview(review, reviewId) {
   const plan = review?.plan;
   const installation = review?.installation;
@@ -3493,6 +3514,32 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (path === "/api/local/n8n/sidecar/update") {
+    requireLiveLocalAction(state, "Local n8n bridge runtime update");
+    enforceRateLimit(state, path);
+    requireExactRequestBody(body, ["confirmed"], "The local bridge update request is invalid.");
+    if (body.confirmed !== true) {
+      throw new Error("Confirm updating the existing local bridge runtime.");
+    }
+    if (
+      state.localInstallInFlight || state.localCredentialRotationInFlight ||
+      getPendingLocalCredentialRotation(state) || state.codexLoginStartInFlight ||
+      state.codexLogin?.status === "pending" || localOAuthChangeInFlight(state)
+    ) {
+      throw Object.assign(new Error("A local endpoint change is already in progress."), { statusCode: 409 });
+    }
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localAssistantSearxngReview = null;
+    try {
+      const result = await state.services.updateLocalN8nSidecarRuntime({ confirmed: true });
+      sendJson(response, 200, createSafeLocalN8nSidecarUpdateResult(result));
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
   if (path === "/api/local/n8n/sidecar/refresh") {
     requireLiveLocalAction(state, "Local n8n bridge credential refresh");
     enforceRateLimit(state, path);
@@ -4551,6 +4598,7 @@ async function handlePersistentControl(request, response, path, state) {
 function createRequestHandler(state) {
   return async (request, response) => {
     setSecurityHeaders(response);
+    let path;
 
     try {
       if (state.closing) {
@@ -4558,7 +4606,7 @@ function createRequestHandler(state) {
         return;
       }
       const url = new URL(request.url, state.origin);
-      const path = url.pathname;
+      path = url.pathname;
 
       if (path.startsWith("/__relmio/browser/")) {
         await handleBrowserBootstrap(request, response, path, state);
@@ -4611,6 +4659,11 @@ function createRequestHandler(state) {
             ? "Relmio confirmed that its owned partial local n8n + ngrok stack remains. Use the explicit removal control to retry cleanup safely."
             : safeErrorMessage(error),
           ...(error.retryBlocked === true ? { retryBlocked: true } : {}),
+          ...(path === "/api/install" &&
+            request.method === "POST" &&
+            error.recoveryAction === "refresh-chatgpt-sign-in"
+            ? { recoveryAction: "refresh-chatgpt-sign-in" }
+            : {}),
           ...(error.retryablePlan === true ? { retryablePlan: true } : {}),
           ...(retryableNgrokSetup ? { retryableNgrokSetup: true } : {}),
           ...(managedPartialStack ? { managedPartialStack: true } : {}),

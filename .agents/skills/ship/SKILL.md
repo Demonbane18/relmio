@@ -119,10 +119,14 @@ gate explicitly references their inspection or verification rules.
 
 3. Do not claim that all surfaces changed when a row is not applicable. Record
    the applicability decision and its evidence in the release PR.
-4. Keep provider and credential boundaries precise. For the local endpoint
-   capability, a Platform API key powers the OpenAI-compatible `/v1` service;
-   ChatGPT sign-in powers only the experimental Codex App Server protocol, not
-   a general `/v1` credential.
+4. Keep provider and credential boundaries precise. Retired API-key services
+   use their own Platform API credentials. The current private n8n OAuth bridge
+   is an unofficial, policy-uncertain compatibility path: it uses a ChatGPT/Codex
+   credential file through the pinned third-party `openai-oauth` runtime to
+   serve its selected Docker network's `/v1` interface. The official Codex App
+   Server keeps its distinct protocol. Neither path is a general Platform API
+   credential or evidence of provider authorization, scope approval, Terms
+   compliance, or model/TTS entitlement.
 
 ## 3. Verify before requesting review
 

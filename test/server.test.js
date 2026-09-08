@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
+import { PRECHECK_COMMAND, createVerificationCommands } from "../src/domain/safety.js";
+import { installSidecar } from "../src/services/installer.js";
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "test-session-token-that-is-long-enough-123456";
@@ -1803,6 +1805,47 @@ test("VPS install failures consume the plan, release the shared lock, and preser
   assert.equal(installAttempts, 2);
 });
 
+test("the VPS API preserves safe model-refresh diagnostics from the real installer and closes its connection", async (t) => {
+  const { remote, services } = createServices();
+  const verification = createVerificationCommands();
+  remote.upload = async () => {};
+  remote.exec = async (command) => {
+    if (command === PRECHECK_COMMAND) return { code: 0, stdout: "managed\n" };
+    if (command === verification.runningService) return { code: 0, stdout: "openai-oauth\n" };
+    if (command === verification.publicationState) return { code: 0, stdout: JSON.stringify({ Publishers: [] }) };
+    if (command === verification.models) return {
+      code: 1,
+      stdout: JSON.stringify({ error: {
+        message: 'OpenAI OAuth token request failed with HTTP 400: {"error":{"code":"refresh_token_reused"}}',
+        type: "upstream_error",
+      } }),
+      stderr: "private upstream evidence must never be returned",
+    };
+    return { code: 0, stdout: "" };
+  };
+  services.installSidecar = installSidecar;
+  const wizard = await startWizardServer({
+    sessionToken, services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  const failed = await api(wizard.origin, "/api/install", {
+    method: "POST", headers: setup.originHeader,
+    body: createVpsInstallBody(setup),
+  });
+  assert.equal(failed.status, 400);
+  assert.deepEqual(await failed.json(), {
+    error: "The saved ChatGPT sign-in could not be refreshed. The existing n8n deployment was not changed.",
+    recoveryAction: "refresh-chatgpt-sign-in",
+  });
+  assert.equal(remote.closed, true);
+  const disconnected = await api(wizard.origin, "/api/discover", {
+    method: "POST", headers: setup.originHeader, body: "{}",
+  });
+  assert.notEqual(disconnected.status, 200);
+});
+
 test("a throwing SSH close cannot mask an install failure or preserve either reviewed plan", async (t) => {
   const { remote, services } = createServices();
   let closeCalls = 0;
@@ -1866,6 +1909,37 @@ test("a throwing SSH close cannot mask an install failure or preserve either rev
     assert.equal(stale.status, 400);
     assert.match((await stale.json()).error, /fresh.*plan/i);
   }
+});
+
+test("recovery actions are allowlisted and confined to the VPS OpenAI install endpoint", async (t) => {
+  const { services } = createServices();
+  let recoveryAction = "https://untrusted.example/sign-in";
+  services.installSidecar = async () => {
+    throw Object.assign(new Error("Model check failed."), { recoveryAction });
+  };
+  services.installAssistant = async () => {
+    throw Object.assign(new Error("Companion check failed."), { recoveryAction });
+  };
+  const wizard = await startWizardServer({
+    sessionToken, services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+  let setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  const unknown = await api(wizard.origin, "/api/install", {
+    method: "POST", headers: setup.originHeader, body: createVpsInstallBody(setup),
+  });
+  assert.equal(unknown.status, 400);
+  assert.deepEqual(await unknown.json(), { error: "Model check failed." });
+
+  recoveryAction = "refresh-chatgpt-sign-in";
+  setup = await prepareVpsNetwork(wizard.origin, { assistantPlan: true });
+  const unrelated = await api(wizard.origin, "/api/assistant/install", {
+    method: "POST", headers: setup.originHeader,
+    body: createVpsInstallBody(setup, { assistant: true }),
+  });
+  assert.equal(unrelated.status, 400);
+  assert.deepEqual(await unrelated.json(), { error: "Companion check failed." });
 });
 
 test("assistant web-search selection is an explicit boolean bound to its reviewed plan", async (t) => {

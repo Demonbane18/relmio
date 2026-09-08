@@ -7,6 +7,40 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.15.0] - 2026-09-08
+
+Relmio 0.15.0 adds browser-driven updates for existing OpenAI OAuth bridges
+and repairs n8n OpenAI node compatibility on local Docker and VPS deployments.
+
+### Added
+
+- Update an existing local or VPS OpenAI OAuth bridge from the browser wizard.
+  Local updates preserve the saved sign-in; VPS updates upload the current
+  local sign-in. Both rebuild only the owned sidecar, retain its selected
+  network, leave n8n running, and keep port `10531` private.
+
+### Changed
+
+- Document all 16 n8n OpenAI actions and their current bridge limits. Audio,
+  file management, stored conversations, moderation, video, background jobs,
+  and stored responses return specific unsupported-operation guidance.
+- Make the completion-page Responses API notice dismissible while preserving
+  the required setting in the permanent instructions.
+
+### Fixed
+
+- Allow n8n Message a Model requests with Background Mode off by removing the
+  disabled `background` parameter before forwarding to the OAuth transport.
+  Both sidecar installers bundle the same compatibility adapter.
+- Explain failed VPS model checks and route rejected ChatGPT credentials back
+  to fresh sign-in. Clear the previous plan and approval before another update.
+- Separate the completion notice from the credential heading and report Docker
+  network refresh failures without claiming the install or SSH session stopped.
+
+Existing bridges need a runtime update from the wizard to receive these fixes.
+Relmio's ChatGPT connection remains unofficial and does not provide every
+OpenAI Platform API action.
+
 ## [0.14.0] - 2026-09-06
 
 Relmio 0.14.0 adds experimental SuperGrok OAuth for local apps and existing

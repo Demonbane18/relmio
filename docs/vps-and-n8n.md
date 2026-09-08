@@ -34,6 +34,25 @@ Relmio also closes the authenticated SSH session after 15 minutes of
 inactivity. An active VPS operation holds a bounded lease so discovery or an
 approved install can finish before the idle timer resumes.
 
+## Update an existing OpenAI bridge
+
+Installing a newer Relmio package on your computer does not replace the bridge
+already running on the VPS. Start a Relmio release that contains the bridge
+compatibility update, then use the same browser wizard:
+
+1. Run `relmio vps` and reconnect to the VPS.
+2. Compare and confirm its SSH host fingerprint.
+3. Select the n8n container and Docker network.
+4. Choose **OpenAI-OAuth/Codex bridge**, then select **Manage
+   OpenAI-OAuth/Codex bridge**.
+5. Choose **Review bridge update** and review the exact sidecar-only plan.
+6. Select the confirmation checkbox, then choose **Update the bridge**.
+
+Relmio performs the SSH update from the browser flow, so no separate VPS
+terminal is required. It uploads the current local ChatGPT sign-in, keeps the
+selected network, rebuilds and verifies only the owned sidecar inside
+`/docker/n8n-openai-oauth`, and publishes no host port. n8n remains untouched.
+
 Use `local-only` only for the OpenAI bridge. It is a placeholder, not an OpenAI
 Platform API key. SuperGrok uses the one-time local bearer shown by its wizard.
 

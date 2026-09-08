@@ -18,7 +18,7 @@ Relmio helps self-hosted n8n and local apps use models through your own
 ChatGPT/Codex or SuperGrok sign-in. Each provider keeps its own private OAuth
 session. SuperGrok setup does not require or read ChatGPT credentials.
 
-Relmio 0.14.0 handles provider OAuth only. API-key connections belong directly
+Relmio 0.15.0 handles provider OAuth only. API-key connections belong directly
 in n8n or the client that uses them.
 ChatGPT sign-in is not an OpenAI Platform API key.
 
@@ -30,7 +30,7 @@ described below. VPS Chat success was user-reported after Responses API was turn
 off; VPS Assistant and Calculator remain unverified.
 
 Existing API-key endpoints are left running and retain their data during an
-upgrade; they are no longer shown in the 0.14.0 dashboard. Follow the
+upgrade; they are no longer shown in the 0.15.0 dashboard. Follow the
 [legacy endpoint retirement guide](https://relmio.vercel.app/docs/local-endpoints#retired-api-installations)
 to review and stop an exact owned endpoint.
 
@@ -92,16 +92,39 @@ n8n, ngrok, model endpoints, bridges, Assistant companions, or unrelated
 containers. Hosted launchers remain a foreground, one-shot process when they
 use a verified temporary runtime.
 
-## Upgrade from 0.13.0
+## Upgrade from 0.13.0 and update existing bridges
 
-After installing 0.14.0, run `relmio stop`, then `relmio start` or `relmio
+After installing 0.15.0, run `relmio stop`, then `relmio start` or `relmio
 open`. Relmio never reuses a dashboard from another version. The upgrade leaves
 existing API-key gateway containers and credential volumes untouched, and the
-0.14.0 dashboard does not manage them. It also refuses to adopt an earlier
+0.15.0 dashboard does not manage them. It also refuses to adopt an earlier
 SuperGrok development install that lacks the fresh-session marker; review that
 installation before removal or migration.
 
-**Refresh status** rediscovers the seven services in Relmio 0.14.0:
+Installing a newer Relmio package does not update an OpenAI bridge that is
+already running. After installing a Relmio release that contains the latest
+bridge compatibility fix, open the dashboard and update the owned bridge:
+
+- For a local n8n bridge, refresh status, select **OpenAI OAuth bridge**, choose
+  **Manage bridge**, read the runtime update summary, select its confirmation
+  checkbox, then choose **Update bridge runtime**. This keeps the existing
+  ChatGPT sign-in, Docker network, and bridge identity.
+- For a VPS bridge, run `relmio vps`, reconnect, verify the SSH host fingerprint,
+  and select the n8n container and network. Choose **OpenAI-OAuth/Codex bridge**,
+  then **Manage OpenAI-OAuth/Codex bridge** and **Review bridge update**. Review
+  the plan, select its confirmation checkbox, then choose **Update the bridge**.
+
+Both actions recreate only Relmio's owned sidecar. The local runtime update
+keeps its saved sign-in. The VPS update uploads the current local sign-in. They
+do not edit, restart, or recreate n8n, and they do not publish port `10531`.
+The VPS wizard performs the SSH update from the browser flow, so no separate
+VPS terminal is required. Use **Apply sign-in to owned bridge** only when the
+local bridge needs a newer ChatGPT sign-in; that action does not update the
+bridge runtime. See the
+[maintenance guide](https://github.com/Demonbane18/relmio/blob/main/docs/maintenance.md)
+for the full update and rollback boundaries.
+
+**Refresh status** rediscovers the seven services in Relmio 0.15.0:
 Codex App Server, Codex Chat Adapter, Grok Build, the owned n8n stack, the
 ChatGPT OAuth bridge, AI Assistant tools, and SuperGrok for n8n.
 Refresh status shows only verified connection URLs and state, never stored
@@ -138,8 +161,30 @@ API key: local-only
 Responses API: On
 ```
 
+**Current ChatGPT bridge limits.** OpenAI audio/TTS, transcription, and
+translation are unavailable through Relmio's current ChatGPT sign-in bridge in
+both local and VPS n8n. The OpenAI Audio API requires a separate API-key
+connection. Do not enter that API key into this OAuth bridge; refreshing your
+ChatGPT sign-in will not add audio support.
+
+The current bridge also does not support n8n's **Classify Text for Violations**
+action (Moderation API), file upload/list/delete, stored conversation
+create/get/update/delete, or video generation. See the full
+[n8n capability table](https://github.com/Demonbane18/relmio/blob/main/docs/n8n-configuration.md#3-openai-node-v2-capability-audit).
+
 Relmio does not edit or restart n8n. The bridge is unofficial, private,
 experimental, and policy-uncertain.
+
+**Credential and data path.** The local bridge copies the complete ChatGPT/Codex
+credential JSON into a private named Docker volume for the third-party pinned
+`openai-oauth` package. The VPS bridge transfers the same file by SFTP to the
+deployment's `auth` bind mount. n8n sends supported prompts, messages, tool
+data, and inline inputs through that package to OpenAI. Building the sidecar
+contacts the npm registry to install the pinned package. The one-shot local
+credential-seed helper disables Docker logging; the main sidecar has no
+explicit Docker log-driver setting. Do not treat any of this as a supported
+Sign in with ChatGPT integration, scope grant, Platform API permission, Terms
+approval, or model/TTS entitlement.
 
 For SuperGrok, choose **SuperGrok for n8n**, select
 its container and network, then review the private installation. Copy the
@@ -210,7 +255,7 @@ Relmio uses the official Codex App Server, and Codex owns the ChatGPT OAuth
 flow, storage, and refresh. Each Codex target has one active ChatGPT account;
 switching requires explicit sign-out and sign-in.
 
-Relmio 0.14.0 does not configure upstream API keys, maintain API-key profiles,
+Relmio 0.15.0 does not configure upstream API keys, maintain API-key profiles,
 or fall back to separately billed API access.
 
 The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh

@@ -218,12 +218,26 @@ API key: local-only
 Responses API: On
 ```
 
+If the bridge was installed before an n8n compatibility fix, updating Relmio
+does not change its running container. Open the local dashboard, select the
+verified **OpenAI OAuth bridge**, and choose **Manage bridge**. Read the runtime
+update summary, select the separate confirmation checkbox, then choose **Update
+bridge runtime**. Relmio preserves the existing OAuth credential, bridge
+identity, and selected network while it rebuilds only the owned sidecar. No new
+ChatGPT sign-in is needed.
+
+**Apply sign-in to owned bridge** has a narrower job. It copies the current
+ChatGPT sign-in into the owned credential volume and does not update the bridge
+runtime. Neither action changes n8n or publishes port `10531`.
+
 That URL works only from containers on the selected network. It is not
 available through `127.0.0.1`, the host LAN, or ngrok. This option does not
 install n8n AI Assistant's Code Sandbox or SearXNG, and it does not configure an
 Assistant model-provider credential. Those remain separate, explicit choices.
 
-Relmio refuses an in-place reinstall. A separately confirmed credential refresh
+Relmio refuses to use the fresh-install flow as an in-place reinstall. Its
+separate runtime update and credential actions require their own confirmations.
+A separately confirmed credential refresh
 re-reads the protected host credential, re-attests the exact marker, n8n
 container, network, owned sidecar volume, and sidecar service. It freezes the
 exact owned sidecar while making a validated quiesce snapshot, proves the same
@@ -291,6 +305,13 @@ owned companion project and local managed files; the selected external network
 and n8n container remain untouched.
 
 ## Safe updates and credential rotation
+
+For the private n8n OpenAI bridge, select **Manage bridge** after installing a
+Relmio compatibility release. Read the runtime update summary, select its
+confirmation checkbox, then choose **Update bridge runtime**. This replaces only
+the owned sidecar runtime and keeps its existing OAuth credential, bridge
+identity, and Docker network. Updating the Relmio package alone leaves the
+running sidecar unchanged.
 
 Select the offered local credential rotation action to replace only the
 Relmio bearer used by your local app. Relmio attests the exact installation,

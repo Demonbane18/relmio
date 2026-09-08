@@ -220,6 +220,7 @@
           <h3>Use your local ChatGPT sign-in</h3>
           <p>
             This is a ChatGPT/Codex sign-in, not a Platform API key. It stays on this computer until you approve its encrypted SSH upload to your VPS.
+            The current ChatGPT sign-in bridge supports Message a Model and GPT Image generation/editing. It does not support audio, Classify Text for Violations (moderation), file management, stored conversations, or video generation. Use a separate OpenAI Platform connection for those n8n actions; do not enter its API key into this bridge.
           </p>
         </div>
 
@@ -399,7 +400,7 @@
               <input id="manage-vps-sidecar" name="vps-integration" type="radio" value="sidecar" checked />
               <span>
                 <strong>OpenAI-OAuth/Codex bridge</strong>
-                <small>Refresh the local ChatGPT sign-in, then review the private sidecar update.</small>
+                <small>Refresh the local ChatGPT sign-in, then review the adapter runtime and private sidecar update.</small>
               </span>
             </label>
             <label class="check-row">
@@ -461,11 +462,11 @@
           <section aria-labelledby="will-title">
             <h3 id="will-title">The wizard will</h3>
             <ul id="review-will-list" class="check-list">
-              <li>Create or update <code>/docker/n8n-openai-oauth</code></li>
+              <li>Create <code>/docker/n8n-openai-oauth</code></li>
+              <li>Upload the current Relmio adapter runtime and ChatGPT OAuth file</li>
               <li>Build and start only the <code>openai-oauth</code> sidecar</li>
               <li>Attach the sidecar only to the reviewed Docker network</li>
               <li>Use the reviewed private sidecar hostname</li>
-              <li>Upload the OAuth file with owner-only permissions</li>
             </ul>
           </section>
           <section aria-labelledby="wont-title">
@@ -545,9 +546,23 @@
         </section>
 
         <div id="sidecar-ready-content">
-        <aside class="approval" aria-label="Provider-specific n8n setting">
-          <strong>OpenAI OAuth/Codex: Use Responses API ON</strong>
-          <p>Keep it on for the Chat Model v1.3 recipe. If you switch to SuperGrok, turn it <strong>OFF</strong>; SuperGrok requires Chat Completions. When the OpenAI node has no switch, its default Chat Completions route is supported.</p>
+        <aside
+          id="responses-api-notice"
+          class="approval"
+          aria-label="Provider-specific n8n setting"
+        >
+          <div>
+            <strong>OpenAI OAuth/Codex: Use Responses API ON</strong>
+            <p>Keep it on for the Chat Model v1.3 recipe. If you switch to SuperGrok, turn it <strong>OFF</strong>; SuperGrok requires Chat Completions. When the OpenAI node has no switch, its default Chat Completions route is supported.</p>
+          </div>
+          <button
+            class="toast-close"
+            type="button"
+            data-dismiss-toast="responses-api-notice"
+            aria-label="Dismiss Responses API reminder"
+          >
+            <span aria-hidden="true">×</span>
+          </button>
         </aside>
         <h3>1. OpenAI credential</h3>
         <dl class="result-list">

@@ -4706,3 +4706,51 @@ test("local companion edit routes reject preview mode without calling services",
   }
   assert.deepEqual(calls, []);
 });
+
+test("existing local bridge runtime update needs confirmation, preserves sign-in and serializes mutations", async (t) => {
+  const calls = [];
+  let release;
+  let started;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const begin = new Promise((resolve) => { started = resolve; });
+  t.after(() => release());
+  const wizard = await startLocalWizard(t, {
+    async getAuthStatus() { assert.fail("runtime update must not read or replace the source sign-in"); },
+    async updateLocalN8nSidecarRuntime(input) {
+      calls.push(input);
+      started();
+      await gate;
+      return { target: "n8n-openai-oauth", runtimeUpdated: true, models: ["gpt-6-astra"], hostPublication: "none", n8nChanged: false, privateData: "must-not-leak" };
+    },
+  });
+  for (const body of [{}, { confirmed: false }, { confirmed: true, authPath: "/arbitrary" }]) {
+    assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/update", body)).status, 400);
+  }
+  assert.equal(calls.length, 0);
+  const updating = postJson(wizard, "/api/local/n8n/sidecar/update", { confirmed: true });
+  await begin;
+  assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/update", { confirmed: true })).status, 409);
+  assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/refresh", { confirmed: true })).status, 409);
+  assert.equal((await postJson(wizard, "/api/oauth/login", {})).status, 409);
+  release();
+  const response = await updating;
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { target: "n8n-openai-oauth", runtimeUpdated: true, models: ["gpt-6-astra"], hostPublication: "none", n8nChanged: false });
+  assert.deepEqual(calls, [{ confirmed: true }]);
+});
+
+test("local bridge update rejects preview and invalid results, and releases its mutation slot", async (t) => {
+  const preview = await startLocalWizard(t, { async updateLocalN8nSidecarRuntime() { assert.fail("preview write"); } }, { previewMode: true });
+  assert.equal((await postJson(preview, "/api/local/n8n/sidecar/update", { confirmed: true })).status, 403);
+  let attempts = 0;
+  const wizard = await startLocalWizard(t, {
+    async updateLocalN8nSidecarRuntime() {
+      attempts += 1;
+      if (attempts === 1) throw new Error("Simulated build failure");
+      return { target: "n8n-openai-oauth", runtimeUpdated: true, hostPublication: "none", n8nChanged: false, models: [] };
+    },
+  });
+  assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/update", { confirmed: true })).status, 400);
+  assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/update", { confirmed: true })).status, 502);
+  assert.equal(attempts, 2);
+});

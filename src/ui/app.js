@@ -878,6 +878,13 @@ async function api(path, { method = "GET", body } = {}) {
   if (!response.ok) {
     const error = new Error(result.error ?? "The request failed.");
     error.oauthRetryBlocked = result.retryBlocked === true;
+    if (
+      path === "/api/install" &&
+      method === "POST" &&
+      result.recoveryAction === "refresh-chatgpt-sign-in"
+    ) {
+      error.recoveryAction = "refresh-chatgpt-sign-in";
+    }
     throw error;
   }
   return result;
@@ -1007,9 +1014,13 @@ function renderIntegrationManagement() {
 
 function renderIntegrationReview(plan) {
   const assistant = isAssistantIntegration();
+  const updatingSidecar =
+    !assistant && state.managingDetectedIntegration;
   element("review-intro").textContent = assistant
     ? "Only the separate Assistant companion can be changed. Your n8n container remains operator-managed."
-    : "No existing n8n files or containers will be changed.";
+    : updatingSidecar
+      ? "Only the existing wizard-managed bridge files and sidecar will be updated. Your n8n files and container will not be changed."
+      : "No existing n8n files or containers will be changed.";
   element("review-network").textContent = plan.networkName;
   element("review-endpoint-label").textContent = assistant
     ? "Assistant selection"
@@ -1031,10 +1042,14 @@ function renderIntegrationReview(plan) {
           "Verify companion health without changing the existing n8n container.",
         ]
       : [
-          "Create or update only /docker/n8n-openai-oauth.",
-          "Build and start only the openai-oauth sidecar.",
+          updatingSidecar
+            ? "Update only /docker/n8n-openai-oauth."
+            : "Create or update only /docker/n8n-openai-oauth.",
+          updatingSidecar
+            ? "Upload the current Relmio adapter runtime and current ChatGPT sign-in."
+            : "Upload the current Relmio adapter runtime and ChatGPT sign-in.",
+          `${updatingSidecar ? "Rebuild" : "Build"} and start only the openai-oauth sidecar.`,
           `Attach the sidecar to ${plan.networkName}.`,
-          "Upload the refreshed ChatGPT OAuth file with owner-only permissions.",
         ],
   );
   replaceReviewItems(
@@ -1055,7 +1070,9 @@ function renderIntegrationReview(plan) {
   );
   element("install-confirm-copy").textContent = assistant
     ? "I approve this private Assistant companion installation and understand that n8n configuration and any restart remain my separate action."
-    : "I approve this sidecar-only installation and understand openai-oauth is an unofficial project.";
+    : updatingSidecar
+      ? "I approve this sidecar-only runtime and sign-in update and understand openai-oauth is an unofficial project."
+      : "I approve this sidecar-only installation and understand openai-oauth is an unofficial project.";
   const installButton = element("install-button");
   installButton.textContent = assistant
     ? "Install Assistant companion"
@@ -1534,11 +1551,8 @@ element("container-select").addEventListener("change", async (event) => {
     renderNetworks(networks);
     setMessage("Docker networks refreshed for the selected n8n container.");
   } catch (error) {
-    element("install-confirm").checked = false;
-    element("install-button").disabled = true;
-    showStep(2);
     setMessage(
-      "The install stopped and the VPS connection was closed. Reconnect to inspect the sidecar before retrying.",
+      "The Docker network list did not refresh. Retry the container selection, or disconnect and reconnect if needed.",
     );
     showError(error);
   }
@@ -1589,6 +1603,33 @@ element("install-confirm").addEventListener("change", (event) => {
   );
 });
 
+function clearEndedVpsConnectionState() {
+  state.discovery = null;
+  state.networks = null;
+  state.fingerprint = null;
+  element("fingerprint-box").hidden = true;
+  element("fingerprint-confirm").checked = false;
+  element("password").value = "";
+  element("password").disabled = true;
+  element("connect-button").disabled = true;
+  element("container-select").replaceChildren();
+  element("network-select").replaceChildren();
+  element("detected-vps-integration-management").hidden = true;
+}
+
+function showRejectedChatGptSignInRecovery() {
+  element("auth-indicator").classList.remove("ready");
+  element("auth-title").textContent = "Fresh ChatGPT sign-in needed";
+  element("auth-detail").textContent = state.oauthRetryBlocked
+    ? "The VPS rejected this sign-in. Close the earlier sign-in helper and restart Relmio. Then refresh the sign-in, reconnect to the VPS, and review the bridge update again."
+    : "The VPS rejected this sign-in. Select Refresh ChatGPT sign-in. After it succeeds, reconnect to the VPS and review the bridge update again.";
+  const loginButton = element("login-button");
+  loginButton.textContent = "Refresh ChatGPT sign-in";
+  loginButton.dataset.label = "Refresh ChatGPT sign-in";
+  loginButton.disabled = state.oauthRetryBlocked === true;
+  element("signin-next").disabled = true;
+}
+
 element("install-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
@@ -1601,7 +1642,9 @@ element("install-button").addEventListener("click", async (event) => {
   setMessage(
     assistant
       ? "Installing only the separate Assistant companion. This can take several minutes."
-      : "Installing only the separate OAuth sidecar. This can take several minutes.",
+      : state.managingDetectedIntegration
+        ? "Updating only the separate OAuth sidecar runtime and ChatGPT sign-in. This can take several minutes."
+        : "Installing only the separate OAuth sidecar. This can take several minutes.",
   );
   state.installAttempted = true;
   try {
@@ -1645,7 +1688,9 @@ element("install-button").addEventListener("click", async (event) => {
       ? assistantResult.includeSearxng
         ? `Code Sandbox and private SearXNG were verified. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
         : `Code Sandbox was verified without SearXNG. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
-      : "Use these values in n8n on the same private Docker network.";
+      : result.deploymentMode === "updated"
+        ? "The current adapter runtime and ChatGPT sign-in were updated and verified. Keep using these values in n8n on the same private Docker network."
+        : "Use these values in n8n on the same private Docker network.";
     element("assistant-result").hidden = !assistant;
     element("sidecar-ready-content").hidden = assistant;
     element("assistant-result-detail").textContent = assistant
@@ -1658,11 +1703,30 @@ element("install-button").addEventListener("click", async (event) => {
       assistant
         ? "Assistant companion verified. Your existing n8n was not restarted."
         : result.deploymentMode === "updated"
-        ? "OAuth refreshed on the existing wizard-managed sidecar. n8n was not restarted."
+        ? "Adapter runtime and ChatGPT sign-in file updated on the existing wizard-managed sidecar. n8n was not restarted."
         : "Installation verified. Your existing n8n was not restarted.",
     );
   } catch (error) {
     invalidateReviewedPlan();
+    if (error.recoveryAction === "refresh-chatgpt-sign-in") {
+      clearEndedVpsConnectionState();
+      showStep(1);
+      showRejectedChatGptSignInRecovery();
+      setMessage(
+        state.oauthRetryBlocked
+          ? "The bridge update stopped. Restart Relmio before refreshing ChatGPT sign-in."
+          : "The bridge update stopped. Refresh ChatGPT sign-in before reconnecting to the VPS.",
+      );
+      showError(error);
+      if (!state.oauthRetryBlocked) {
+        element("login-button").focus({ preventScroll: true });
+      }
+      return;
+    }
+    showStep(2);
+    setMessage(
+      "The install or update did not finish, and the VPS connection was closed. Reconnect and inspect the companion before retrying.",
+    );
     showError(error);
   }
 });

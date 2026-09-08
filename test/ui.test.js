@@ -56,6 +56,10 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     /class="rail"[\s\S]*<h1 id="page-title">[\s\S]*aria-label="Setup progress"[\s\S]*class="toast-stack"[\s\S]*<section class="panel" data-step="1"/u,
   );
   assert.match(html, /unofficial, private, and policy-uncertain/u);
+  assert.match(
+    html,
+    /current ChatGPT sign-in bridge supports Message a Model and GPT Image generation\/editing[\s\S]*does not support audio, Classify Text for Violations \(moderation\), file management, stored conversations, or video generation[\s\S]*do not enter its API key into this bridge/u,
+  );
   assert.doesNotMatch(html, /class="(?:eyebrow|step-kicker)"/u);
   assert.doesNotMatch(html, /n8n OAuth Bridge/u);
   assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
@@ -70,12 +74,20 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   assert.match(html, /id="global-error"[\s\S]*role="alert"\s+tabindex="-1"/u);
   assert.equal(
     (html.match(/class="toast-close"/gu) ?? []).length,
-    4,
+    5,
   );
   assert.match(html, /data-dismiss-toast="global-safety"/u);
   assert.match(html, /data-dismiss-toast="global-backup"/u);
   assert.match(html, /data-dismiss-toast="global-message"/u);
   assert.match(html, /data-dismiss-toast="global-error"/u);
+  assert.match(
+    html,
+    /id="responses-api-notice"[\s\S]*OpenAI OAuth\/Codex: Use Responses API ON[\s\S]*data-dismiss-toast="responses-api-notice"[\s\S]*aria-label="Dismiss Responses API reminder"/u,
+  );
+  assert.match(
+    html,
+    /<dt>Responses API<\/dt>[\s\S]*<strong>On<\/strong> for Chat Model node version 1\.3/u,
+  );
   assert.match(
     html,
     /id="auth-updated"[^>]*hidden[\s\S]*<time id="auth-updated-time"><\/time>/,
@@ -207,6 +219,52 @@ test("detected VPS n8n exposes managed bridge and Assistant companion paths", as
   assert.doesNotMatch(script, /\.innerHTML\b/);
 });
 
+test("Responses API completion reminder stays until the user dismisses it", async () => {
+  const [html, script] = await Promise.all([
+    readFile("src/ui/index.html", "utf8"),
+    readFile("src/ui/app.js", "utf8"),
+  ]);
+  const dismissStart = script.indexOf("function dismissToast(toast)");
+  const dismissEnd = script.indexOf("\nfunction resetFingerprint", dismissStart);
+  const listenerStart = script.indexOf('for (const button of document.querySelectorAll("[data-dismiss-toast]")');
+  const listenerEnd = script.indexOf('\nfor (const button of document.querySelectorAll(".back-button")', listenerStart);
+  assert.ok(dismissStart >= 0 && dismissEnd > dismissStart, "missing toast dismissal helper");
+  assert.ok(listenerStart >= 0 && listenerEnd > listenerStart, "missing dismissible notice binding");
+
+  const listeners = new Map();
+  const notice = { hidden: false };
+  const dismissButton = {
+    dataset: { dismissToast: "responses-api-notice" },
+    addEventListener(_event, handler) {
+      listeners.set("dismiss", handler);
+    },
+  };
+  const timers = new WeakMap();
+  vm.runInNewContext(`${script.slice(dismissStart, dismissEnd)}\n${script.slice(listenerStart, listenerEnd)}`, {
+    document: {
+      querySelectorAll(selector) {
+        if (selector === "[data-dismiss-toast]") return [dismissButton];
+        return [];
+      },
+    },
+    element(id) {
+      assert.equal(id, "responses-api-notice");
+      return notice;
+    },
+    window: { clearTimeout() {} },
+    toastTimers: timers,
+    handleCopyClick() {},
+  }, { filename: "responses-api-notice.vm.js", timeout: 1_000 });
+
+  assert.equal(notice.hidden, false);
+  listeners.get("dismiss")({ currentTarget: dismissButton });
+  assert.equal(notice.hidden, true);
+  assert.match(
+    html,
+    /<dt>Responses API<\/dt>[\s\S]*<strong>On<\/strong> for Chat Model node version 1\.3/u,
+  );
+});
+
 test("VPS disconnect clears only browser connection state after an exact server acknowledgement", async () => {
   const script = await readFile("src/ui/app.js", "utf8");
   const start = script.indexOf("async function disconnectVpsSession()");
@@ -277,6 +335,276 @@ test("VPS disconnect clears only browser connection state after an exact server 
   );
 });
 
+test("failed VPS install returns to connection with an inspect-before-retry message", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf('element("install-button").addEventListener');
+  const end = script.indexOf('\nfor (const input of document.querySelectorAll', start);
+  assert.ok(start >= 0 && end > start, "missing VPS install handler");
+
+  const calls = [];
+  const handlers = new Map();
+  const state = {
+    planId: "reviewed-plan",
+    managingDetectedIntegration: true,
+    installAttempted: false,
+  };
+  const elements = new Map([
+    ["install-button", { disabled: false, addEventListener: (_, handler) => handlers.set("install", handler) }],
+    ["install-confirm", { checked: true }],
+    ["container-select", { value: "n8n" }],
+    ["network-select", { value: "n8n_default" }],
+    ["manage-vps-searxng", { checked: false }],
+  ]);
+  const context = {
+    state,
+    element: (id) => elements.get(id),
+    isAssistantIntegration: () => false,
+    clearError: () => calls.push(["clear-error"]),
+    invalidateReviewedPlan() {
+      calls.push(["invalidate-plan"]);
+      state.planId = null;
+      elements.get("install-confirm").checked = false;
+      elements.get("install-button").disabled = true;
+    },
+    setMessage: (message) => calls.push(["message", message]),
+    showError: (error) => calls.push(["error", error.message]),
+    showStep: (step) => calls.push(["step", step]),
+    runOperation: async (_button, _label, work) => work(),
+    api: async (path) => {
+      calls.push(["api", path]);
+      throw new Error("model verification failed");
+    },
+  };
+  vm.runInNewContext(script.slice(start, end), context, {
+    filename: "vps-install-failure.vm.js",
+    timeout: 1_000,
+  });
+
+  await handlers.get("install")({ currentTarget: elements.get("install-button") });
+
+  assert.ok(calls.some(([name, value]) => name === "api" && value === "/api/install"));
+  assert.ok(calls.some(([name, value]) => name === "step" && value === 2));
+  assert.ok(calls.some(([name, value]) =>
+    name === "message" &&
+    value === "The install or update did not finish, and the VPS connection was closed. Reconnect and inspect the companion before retrying."
+  ));
+  assert.ok(calls.some(([name, value]) => name === "error" && value === "model verification failed"));
+  assert.equal(state.planId, null);
+  assert.equal(elements.get("install-confirm").checked, false);
+  assert.equal(elements.get("install-button").disabled, true);
+});
+
+test("rejected VPS bridge credential returns to fresh sign-in without retrying the update", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("function clearEndedVpsConnectionState()");
+  const end = script.indexOf('\nfor (const input of document.querySelectorAll', start);
+  assert.ok(start >= 0 && end > start, "missing VPS credential recovery boundary");
+
+  const calls = [];
+  const handlers = new Map();
+  const state = {
+    planId: "reviewed-plan",
+    fingerprint: "SHA256:reviewed",
+    discovery: { containers: [{ name: "n8n" }] },
+    networks: { networks: ["n8n_default"] },
+    managingDetectedIntegration: true,
+    installAttempted: false,
+    oauthRetryBlocked: false,
+  };
+  const elements = new Map([
+    ["install-button", { disabled: false, addEventListener: (_, handler) => handlers.set("install", handler) }],
+    ["install-confirm", { checked: true }],
+    ["container-select", { value: "n8n", replaceChildren: () => calls.push(["clear", "container-select"]) }],
+    ["network-select", { value: "n8n_default", replaceChildren: () => calls.push(["clear", "network-select"]) }],
+    ["manage-vps-searxng", { checked: false }],
+    ["fingerprint-box", { hidden: false }],
+    ["fingerprint-confirm", { checked: true }],
+    ["password", { value: "secret", disabled: false }],
+    ["connect-button", { disabled: false }],
+    ["detected-vps-integration-management", { hidden: false }],
+    ["auth-indicator", { classList: { remove: (name) => calls.push(["class-remove", name]) } }],
+    ["auth-title", { textContent: "Local credential found" }],
+    ["auth-detail", { textContent: "Continue uses it as-is." }],
+    ["login-button", {
+      disabled: true,
+      textContent: "Sign in with ChatGPT",
+      dataset: {},
+      focus: () => calls.push(["focus", "login-button"]),
+    }],
+    ["signin-next", { disabled: false }],
+  ]);
+  const apiStart = script.indexOf("async function api(");
+  const apiEnd = script.indexOf("\nfunction renderAuthUpdatedAt", apiStart);
+  assert.ok(apiStart >= 0 && apiEnd > apiStart, "missing browser API helper");
+  const api = vm.runInNewContext(`${script.slice(apiStart, apiEnd)}; api`, {
+    token: "setup-token",
+    fetch: async (path) => {
+      calls.push(["api", path]);
+      return {
+        ok: false,
+        async json() {
+          return {
+            error: "The VPS rejected the ChatGPT credential.",
+            recoveryAction: "refresh-chatgpt-sign-in",
+          };
+        },
+      };
+    },
+  }, { filename: "vps-install-api.vm.js", timeout: 1_000 });
+  const context = {
+    state,
+    element: (id) => elements.get(id),
+    isAssistantIntegration: () => false,
+    clearError: () => calls.push(["clear-error"]),
+    invalidateReviewedPlan() {
+      calls.push(["invalidate-plan"]);
+      state.planId = null;
+      elements.get("install-confirm").checked = false;
+      elements.get("install-button").disabled = true;
+    },
+    setMessage: (message) => calls.push(["message", message]),
+    showError: (error) => calls.push(["error", error.message]),
+    showStep: (step) => calls.push(["step", step]),
+    runOperation: async (_button, _label, work) => work(),
+    api,
+  };
+  vm.runInNewContext(script.slice(start, end), context, {
+    filename: "vps-install-auth-recovery.vm.js",
+    timeout: 1_000,
+  });
+
+  await handlers.get("install")({ currentTarget: elements.get("install-button") });
+
+  assert.deepEqual(
+    calls.filter(([name]) => name === "api").map(([, path]) => path),
+    ["/api/install"],
+  );
+  assert.ok(calls.some(([name, value]) => name === "step" && value === 1));
+  assert.equal(state.planId, null);
+  assert.equal(state.fingerprint, null);
+  assert.equal(state.discovery, null);
+  assert.equal(state.networks, null);
+  assert.equal(elements.get("install-confirm").checked, false);
+  assert.equal(elements.get("install-button").disabled, true);
+  assert.equal(elements.get("fingerprint-box").hidden, true);
+  assert.equal(elements.get("fingerprint-confirm").checked, false);
+  assert.equal(elements.get("password").value, "");
+  assert.equal(elements.get("password").disabled, true);
+  assert.equal(elements.get("connect-button").disabled, true);
+  assert.equal(elements.get("detected-vps-integration-management").hidden, true);
+  assert.equal(elements.get("auth-title").textContent, "Fresh ChatGPT sign-in needed");
+  assert.match(elements.get("auth-detail").textContent, /reconnect to the VPS and review the bridge update again/u);
+  assert.equal(elements.get("login-button").textContent, "Refresh ChatGPT sign-in");
+  assert.equal(elements.get("login-button").disabled, false);
+  assert.equal(elements.get("signin-next").disabled, true);
+  assert.ok(calls.some(([name, value]) => name === "focus" && value === "login-button"));
+  assert.equal(calls.some(([name, path]) => name === "api" && path === "/api/oauth/login"), false);
+
+  calls.length = 0;
+  state.planId = "another-reviewed-plan";
+  state.oauthRetryBlocked = true;
+  elements.get("install-confirm").checked = true;
+  elements.get("install-button").disabled = false;
+  elements.get("login-button").disabled = true;
+  await handlers.get("install")({ currentTarget: elements.get("install-button") });
+  assert.equal(elements.get("login-button").disabled, true);
+  assert.equal(calls.some(([name]) => name === "focus"), false);
+  assert.match(elements.get("auth-detail").textContent, /restart Relmio/u);
+});
+
+test("install API preserves only the exact fresh-sign-in recovery action", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("async function api(");
+  const end = script.indexOf("\nfunction renderAuthUpdatedAt", start);
+  assert.ok(start >= 0 && end > start, "missing browser API helper");
+  let responseBody = {
+    error: "request failed",
+    recoveryAction: "refresh-chatgpt-sign-in",
+    redirectUrl: "https://attacker.invalid/redirect",
+  };
+  const api = vm.runInNewContext(`${script.slice(start, end)}; api`, {
+    token: "setup-token",
+    fetch: async () => ({
+      ok: false,
+      async json() {
+        return responseBody;
+      },
+    }),
+  }, { filename: "vps-api-recovery-action.vm.js", timeout: 1_000 });
+
+  const installError = await api("/api/install", { method: "POST", body: {} }).catch((error) => error);
+  assert.equal(installError.recoveryAction, "refresh-chatgpt-sign-in");
+  assert.equal(installError.redirectUrl, undefined);
+
+  const getInstallError = await api("/api/install").catch((error) => error);
+  assert.equal(getInstallError.recoveryAction, undefined);
+
+  responseBody = {
+    error: "refresh-chatgpt-sign-in",
+    recoveryAction: "https://attacker.invalid/redirect",
+  };
+  const arbitraryActionError = await api("/api/install", { method: "POST", body: {} }).catch((error) => error);
+  assert.equal(arbitraryActionError.recoveryAction, undefined);
+
+  responseBody = {
+    error: "request failed",
+    recoveryAction: "refresh-chatgpt-sign-in",
+  };
+  const otherError = await api("/api/status").catch((error) => error);
+  assert.equal(otherError.recoveryAction, undefined);
+});
+
+test("failed Docker network refresh stays on selection without claiming disconnect", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf('element("container-select").addEventListener');
+  const end = script.indexOf('\nelement("review-button")', start);
+  assert.ok(start >= 0 && end > start, "missing container network handler");
+
+  const calls = [];
+  const handlers = new Map();
+  const state = { planId: "old-plan" };
+  const elements = new Map([
+    ["container-select", { value: "n8n", addEventListener: (_, handler) => handlers.set("networks", handler) }],
+    ["install-confirm", { checked: true }],
+    ["install-button", { disabled: false }],
+  ]);
+  const context = {
+    state,
+    element: (id) => elements.get(id),
+    clearError: () => calls.push(["clear-error"]),
+    invalidateReviewedPlan() {
+      calls.push(["invalidate-plan"]);
+      state.planId = null;
+      elements.get("install-confirm").checked = false;
+      elements.get("install-button").disabled = true;
+    },
+    runOperation: async (_select, _label, work) => work(),
+    loadNetworks: async () => {
+      throw new Error("network refresh failed");
+    },
+    renderNetworks: () => assert.fail("failed refresh must not render networks"),
+    setMessage: (message) => calls.push(["message", message]),
+    showError: (error) => calls.push(["error", error.message]),
+    showStep: (step) => calls.push(["step", step]),
+  };
+  vm.runInNewContext(script.slice(start, end), context, {
+    filename: "vps-network-failure.vm.js",
+    timeout: 1_000,
+  });
+
+  await handlers.get("networks")({ currentTarget: elements.get("container-select") });
+
+  assert.equal(calls.some(([name]) => name === "step"), false);
+  assert.ok(calls.some(([name, value]) =>
+    name === "message" &&
+    value === "The Docker network list did not refresh. Retry the container selection, or disconnect and reconnect if needed."
+  ));
+  assert.ok(calls.some(([name, value]) => name === "error" && value === "network refresh failed"));
+  assert.equal(state.planId, null);
+  assert.equal(elements.get("install-confirm").checked, false);
+  assert.equal(elements.get("install-button").disabled, true);
+});
+
 test("VPS integration review can be rendered repeatedly without deleting its summary fields", async () => {
   const [html, script] = await Promise.all([
     readFile("src/ui/index.html", "utf8"),
@@ -335,6 +663,10 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
     endpointHostname: "n8n-openai-oauth",
     networkName: "n8n_default",
   });
+  assert.equal(
+    elements.get("review-will-list").children[0].textContent,
+    "Create or update only /docker/n8n-openai-oauth.",
+  );
   review.state.integrationKind = "assistant";
   review.state.managingDetectedIntegration = true;
   review.renderIntegrationReview({ includeSearxng: true, networkName: "n8n_default" });
@@ -350,6 +682,25 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
   assert.equal(elements.get("review-will-list").children.length, 4);
   assert.equal(elements.get("review-wont-list").children.length, 4);
   assert.equal(elements.get("install-button").textContent, "Update the bridge");
+  assert.deepEqual(
+    elements
+      .get("review-will-list")
+      .children.map((child) => child.textContent),
+    [
+      "Update only /docker/n8n-openai-oauth.",
+      "Upload the current Relmio adapter runtime and current ChatGPT sign-in.",
+      "Rebuild and start only the openai-oauth sidecar.",
+      "Attach the sidecar to n8n_default.",
+    ],
+  );
+  assert.match(
+    elements.get("install-confirm-copy").textContent,
+    /runtime and sign-in update/u,
+  );
+  assert.match(
+    script,
+    /Adapter runtime and ChatGPT sign-in file updated on the existing wizard-managed sidecar\. n8n was not restarted\./u,
+  );
 });
 
 test("VPS Assistant results render validated one-time connection settings", async () => {

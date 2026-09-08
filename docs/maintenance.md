@@ -3,6 +3,39 @@
 Every command on this page targets the separate
 `n8n-openai-oauth` project. None targets the n8n project.
 
+## Update an existing bridge runtime
+
+Updating Relmio on your computer changes the wizard, but it does not replace a
+bridge container that is already running. Use a Relmio release that contains
+the compatibility update, then update the owned sidecar from the browser.
+
+For a bridge beside local n8n:
+
+1. Run `relmio open` and select **Refresh status**.
+2. Select **OpenAI OAuth bridge**.
+3. Choose **Manage bridge** and read the runtime update summary.
+4. Select the confirmation checkbox, then choose **Update bridge runtime**.
+
+This action does not require a new ChatGPT sign-in. It preserves the existing
+OAuth credential, bridge identity, and selected Docker network. Relmio rebuilds
+and verifies only its owned sidecar. Use **Apply sign-in to owned bridge** only
+to copy a newer ChatGPT sign-in; it does not update the runtime.
+
+For a bridge beside VPS n8n:
+
+1. Run `relmio vps` and connect to the same VPS.
+2. Compare and confirm the SSH host fingerprint.
+3. Select the n8n container and Docker network.
+4. Choose **OpenAI-OAuth/Codex bridge**, then select **Manage
+   OpenAI-OAuth/Codex bridge**.
+5. Choose **Review bridge update** and review the exact sidecar-only plan.
+6. Select the confirmation checkbox, then choose **Update the bridge**.
+
+The browser wizard performs the SSH update. You do not need a separate VPS
+terminal. It uploads the current local ChatGPT sign-in to the bridge, stays
+inside `/docker/n8n-openai-oauth`, publishes no host port, and does not edit,
+stop, restart, rebuild, recreate, or change n8n.
+
 ## Refresh an expired ChatGPT login
 
 The easiest method is to open the
@@ -23,11 +56,14 @@ irm https://relmio.vercel.app/install.ps1 | iex
 2. Select **Refresh ChatGPT sign-in**.
 3. Complete the newest browser sign-in page.
 4. Confirm that the **Credential updated** time matches the fresh sign-in.
-5. Connect to the same VPS and select the same n8n network.
-6. Approve the sidecar plan.
+5. For a local bridge, select **OpenAI OAuth bridge**, choose **Manage bridge**,
+   confirm the credential action, then choose **Apply sign-in to owned bridge**.
+6. For a VPS bridge, follow the update sequence above. The update uploads the
+   current local sign-in after you review and confirm the bridge-only plan.
 
 The wizard replaces the sidecar credential and starts only the sidecar service.
-n8n is not restarted. Its local credential is stored separately at
+On a local bridge this is a credential-only action; use **Update bridge runtime**
+separately when needed. n8n is not restarted. The local credential is stored at
 `~/.n8n-openai-oauth/auth.json`.
 
 Manual POSIX-shell method:
@@ -65,6 +101,60 @@ docker compose \
 This does not restart n8n.
 
 ## Safe source-code update
+
+### Recheck OpenAI sources
+
+Every Relmio update or upgrade must include a fresh review of OpenAI's current
+[Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt),
+plus the official [model and media capability documentation](https://developers.openai.com/api/docs/models),
+[Codex authentication documentation](https://learn.chatgpt.com/docs/auth),
+[Terms](https://openai.com/policies/terms-of-use/), and
+[privacy policy](https://openai.com/policies/privacy-policy/) that apply to the
+changed flow.
+
+The Help Center article currently describes identity sign-in for supported
+external applications. It says the external application receives name, email,
+and profile picture, while additional access requires separate approval. It
+also describes authentication, account, application, permission, technical,
+and security information that OpenAI may collect. Do not assume this
+identity-only flow describes Relmio's Codex credential bridge. Verify whether
+the flow, client, and permissions match.
+
+For each update:
+
+1. Fetch the current official sources instead of relying on an earlier copy.
+2. Compare the documented flow and scopes with the exact Relmio behavior.
+3. Record what Relmio reads, stores, transmits, and logs, where the data goes,
+   and what the user sees before approval.
+4. Check identity sign-in, additional permission grants, and model or TTS
+   capability separately.
+5. Record the check date, source links, findings, and unresolved questions in
+   the update evidence.
+
+The article and a successful OAuth login do not prove blanket Terms compliance,
+bridge permission, or model or TTS entitlement. Keep those conclusions limited
+to direct, current evidence.
+
+### Current 2026-09-08 bridge disclosure
+
+The public Sign in with ChatGPT article describes identity sign-in for supported
+external applications. It does not establish that this unofficial n8n bridge is
+supported or that its credential grant authorizes a general Platform `/v1`
+connection. The pinned `openai-oauth@2.0.0` runtime defaults to issuer
+`https://auth.openai.com`, scopes `openid profile email offline_access`, and
+the Codex backend `https://chatgpt.com/backend-api/codex`. Those are package
+defaults, not evidence of the account's actual consent or granted scopes.
+
+Relmio copies the complete credential JSON into a local private named Docker
+volume through a network-disabled credential-seed helper, or uploads it by SFTP
+to `auth/auth.json` under the VPS deployment's bind mount. The third-party
+package reads that file and forwards eligible n8n content to its upstream
+backend. Building the image contacts the npm registry for the pinned package.
+The credential-seed helper disables Docker logging; the main sidecar does not
+set a Docker log driver. Relmio does not set the package's opt-in
+`CODEX_OPENAI_SERVER_LOG_REQUESTS=1` request-metadata logger. Provider-side
+retention, main-sidecar/VPS logging, account entitlement, and policy eligibility
+remain account-owner checks.
 
 On the local computer:
 
