@@ -221,7 +221,7 @@ bypassed.
 | SSH appears to do nothing | The IP may be incomplete, port 22 may be blocked, or SSH is waiting. | Copy the complete IP from Hostinger. Wait up to 15 seconds, then press Control+C and retry. |
 | `No such file or directory` after local `chown` | A VPS path was used in the local Terminal. | SSH into the VPS first, then run `chown` there. |
 | `No auth file was found at /home/node/.codex/auth.json` | The file is missing, copied to the wrong directory, or the parent directory blocks user `node`. | Verify the mount, owner, and modes using the commands below. |
-| `unknown instruction: "--host"` | The Dockerfile `CMD` JSON was split across Dockerfile instructions. | Replace it with the exact one-line `CMD` from the manual guide. |
+| `unknown instruction: "--host"` | An older Dockerfile split the bridge command across Dockerfile instructions. | Update the owned bridge through the current wizard. For a manual install, replace both the Dockerfile and `openai-oauth-sidecar.mjs` with the matching files from the same reviewed Relmio package. |
 | n8n credential says it cannot connect with `127.0.0.1` | `127.0.0.1` inside n8n is the n8n container, not the sidecar. | Use `http://n8n-openai-oauth:10531/v1`. |
 | Logs show `ENOENT` for `/home/node/.local` | An older wizard release used a read-only root filesystem without a writable app-data directory. | Update to the latest wizard and run the approved install again. It safely refreshes a wizard-managed sidecar. |
 | Network command prints `proxy` | That is the network name, not an empty result. | Select or enter `proxy`. |
@@ -229,7 +229,14 @@ bypassed.
 | n8n requires an API key | The n8n credential UI requires a non-empty value even though the bridge does not. | Enter `local-only`; it is a placeholder, not an OpenAI key. |
 | n8n reports `ECONNREFUSED`, `ENOTFOUND`, or “Couldn’t connect” | The Base URL is wrong, the sidecar is unhealthy, or n8n and the sidecar do not share a network. | Use exactly `http://n8n-openai-oauth:10531/v1`, inspect both container networks, and check the sidecar health/logs. |
 | Models do not appear in n8n | Credential test, network, auth, or model compatibility may be failing. | Verify `/v1/models` inside the sidecar, then retry the n8n credential. |
-| Responses API request fails but models work | The n8n node or bridge version may be incompatible. | Confirm the project is pinned to `openai-oauth@2.0.0`. Try a basic `/v1/responses` request; use chat completions only as a compatibility fallback. |
+| The VPS wizard reports `OAuth model check failed` after the sidecar starts | The bridge reached its model verification step, but older wizard code hides the failure detail. Docker `Running` or a successful `/health` response does not verify sign-in or provider access. | Inspect the bridge's model-check result before rebuilding. A failed installation closes the wizard's VPS connection; reconnect and review a fresh plan before retrying. The sidecar may already have been updated. |
+| The wizard returns to ChatGPT sign-in after a failed install or update | The bridge reported a rejected credential or OAuth refresh. A local check with automatic refresh disabled does not prove that the saved session can refresh on the VPS. | Select **Refresh ChatGPT sign-in**, complete the new sign-in, then reconnect to the VPS and review a fresh bridge update before confirming. The old confirmation is cleared. Sign-in and deployment are not retried automatically. Keep automatic credential refresh enabled in the bridge. |
+| The wizard says the saved ChatGPT sign-in could not be refreshed but stays at VPS connection | The refresh failed without evidence that a new sign-in is the appropriate next step, for example a provider rate limit or server error. | Inspect the provider or connection failure before retrying. The wizard does not direct network failures, permission denials, rate limits, or provider server errors into a fresh sign-in loop. |
+| The model service denied the bridge request | The provider refused the request; this message alone does not identify an account, subscription, regional, or VPS-network cause. | Inspect a sanitized provider error before changing the sign-in or deployment. Do not publish the private bridge port to work around the denial. |
+| The bridge endpoint could not be reached, or verification over the VPS connection could not complete | The wizard could not reach the private bridge listener, or lost its SSH verification connection. Neither result establishes that the provider rejected the sign-in. | Reconnect and inspect the existing bridge status and private network before reviewing another update. |
+| `Unsupported parameter: background` while Background Mode is off | n8n sends `background: false`, but the running bridge predates the compatibility fix. | Install the newer Relmio release, then use **Update bridge runtime** locally or **Update the bridge** in the VPS wizard. Updating the package alone does not replace the running sidecar. |
+| Responses API request fails but models work | The n8n node or running bridge may be incompatible. | Update the owned bridge through the Relmio wizard, then retry a basic `/v1/responses` request. Record the n8n version, node version, and sanitized error if it still fails. |
+| Generate Audio, transcription, or translation reports an unsupported operation | The pinned `openai-oauth@2.0.0` transport does not implement n8n's audio routes. | Use a provider connection that supports the required audio route. Do not add an API key to this OAuth bridge as a workaround. |
 | SuperGrok returns `404 not_found` while models work | The n8n connection is sending a Responses API request to the Chat Completions-only companion. | Turn **Use Responses API** off in the workflow OpenAI Chat Model node and in **Settings > Chat > OpenAI > Edit provider** for Chat Hub. This setting is separate from the Assistant custom endpoint. |
 | Wizard refuses the install directory | `/docker/n8n-openai-oauth` exists without the wizard marker. | Nothing was overwritten. Move the old directory to a backup name or finish the manual installation; do not delete it blindly. |
 | A manually created `openai-oauth` container already works | It usually does not block the wizard because the wizard uses a separate project, directory, and collision-resistant hostname. | Keep the working deployment until the new endpoint passes a test. If an exact directory, project, container, or network alias collides, move or rename only the old sidecar after backing it up; never remove n8n. |
@@ -329,3 +336,12 @@ test if:
 
 If chat completions work but Responses does not, record the n8n version, node
 version, bridge logs, and sanitized error before changing anything else.
+
+For a bridge installed before the current compatibility runtime, update the
+owned sidecar first. In the local dashboard use **Manage bridge**, then
+confirm the runtime update before choosing **Update bridge runtime**. For a VPS
+bridge, reconnect through `relmio vps`, verify the host fingerprint, select the
+n8n container and network, choose **OpenAI-OAuth/Codex bridge**, then **Manage
+OpenAI-OAuth/Codex bridge**. Select **Review bridge update**, review and confirm
+the plan, then choose **Update the bridge**. A package or source update by itself
+does not change a running sidecar.

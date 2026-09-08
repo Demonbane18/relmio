@@ -262,8 +262,9 @@ function createSidecarInventoryRunner(marker, {
   };
   const inspect = {
     Id: containerId,
+    Image: `sha256:${"7".repeat(64)}`,
     Name: `/${marker.projectName}-openai-oauth-1`,
-    Config: { Labels: labels },
+    Config: { Image: `${marker.projectName}:local`, Labels: labels },
     State: { Running: running, Paused: paused, Health: { Status: health } },
     NetworkSettings: {
       Networks: {

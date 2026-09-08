@@ -34,6 +34,9 @@ const PROJECT_PREFIX = "relmio-n8n-openai-oauth";
 const SERVICE_NAME = "openai-oauth";
 const MAX_DISCOVERED_CONTAINERS = 100;
 const MAX_DOCKER_METADATA_BYTES = 1024 * 1024;
+const RUNTIME_FILENAME = "openai-oauth-sidecar.mjs";
+const RUNTIME_BACKUP_TAG = "relmio-runtime-backup";
+const DOCKER_IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const DOCKER_SELECTION_VARIABLES = new Set([
   "BUILDKIT_HOST",
   "DOCKER_CERT_PATH",
@@ -115,6 +118,13 @@ const CREDENTIAL_REFRESH_COMMIT_SCRIPT = [
 
 function isMissing(error) {
   return error?.code === "ENOENT";
+}
+
+function validateDockerImageDigest(value) {
+  if (typeof value !== "string" || !DOCKER_IMAGE_DIGEST_PATTERN.test(value)) {
+    throw new TypeError("Local sidecar runtime image identity is invalid.");
+  }
+  return value;
 }
 
 function assertSupportedPlatform(platform) {
@@ -712,6 +722,80 @@ async function writeManagedFile(fileSystem, path, contents, mode) {
       // The temporary file may not have been created.
     }
     throw new Error("Relmio could not write its local n8n sidecar files.");
+  }
+}
+
+async function readManagedFile(fileSystem, path) {
+  const metadata = await lstatIfExists(fileSystem, path);
+  if (!metadata || metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw new Error("The local n8n sidecar generated files are missing or unsafe.");
+  }
+  return fileSystem.readFile(path, "utf8");
+}
+
+function createLegacyLocalN8nSidecarDockerfile({ installId }) {
+  return createLocalN8nSidecarDockerfile({ installId }).replace(
+    'COPY --chown=node:node openai-oauth-sidecar.mjs /app/openai-oauth-sidecar.mjs\n\nENTRYPOINT ["node", "/app/openai-oauth-sidecar.mjs"]',
+    'ENTRYPOINT ["openai-oauth"]\nCMD ["--host", "0.0.0.0", "--port", "10531", "--oauth-file", "/home/node/.codex/auth.json"]',
+  );
+}
+
+async function snapshotGeneratedRuntimeFiles({ fileSystem, installRoot, marker }) {
+  const expectedCompose = createLocalN8nSidecarComposeFile({
+    installId: marker.installId,
+    networkName: marker.networkName,
+  });
+  const compose = await readManagedFile(fileSystem, join(installRoot, COMPOSE_FILENAME));
+  if (compose !== expectedCompose) {
+    throw new Error("The local n8n sidecar Compose file has drifted. Nothing was changed.");
+  }
+  const dockerfile = await readManagedFile(fileSystem, join(installRoot, "Dockerfile"));
+  const dockerignore = await readManagedFile(fileSystem, join(installRoot, ".dockerignore"));
+  const currentDockerfile = createLocalN8nSidecarDockerfile({ installId: marker.installId });
+  const legacyDockerfile = createLegacyLocalN8nSidecarDockerfile({ installId: marker.installId });
+  const currentDockerignore = createLocalN8nSidecarDockerignore();
+  const legacyDockerignore = "**\n!Dockerfile\n";
+  const runtimePath = join(installRoot, RUNTIME_FILENAME);
+  const runtimeMetadata = await lstatIfExists(fileSystem, runtimePath);
+  let runtime = null;
+  if (runtimeMetadata) {
+    if (runtimeMetadata.isSymbolicLink() || !runtimeMetadata.isFile()) {
+      throw new Error("The local n8n sidecar runtime file is unsafe. Nothing was changed.");
+    }
+    runtime = await fileSystem.readFile(runtimePath, "utf8");
+  }
+  const expectedRuntime = await defaultFileSystem.readFile(
+    new URL(`../gateway/${RUNTIME_FILENAME}`, import.meta.url),
+    "utf8",
+  );
+  const isCurrent =
+    dockerfile === currentDockerfile &&
+    dockerignore === currentDockerignore &&
+    runtime === expectedRuntime;
+  const isLegacy =
+    dockerfile === legacyDockerfile &&
+    dockerignore === legacyDockerignore &&
+    runtime === null;
+  if (!isCurrent && !isLegacy) {
+    throw new Error("The local n8n sidecar generated runtime files have drifted. Nothing was changed.");
+  }
+  return { dockerfile, dockerignore, runtime, expectedRuntime };
+}
+
+async function restoreGeneratedRuntimeFiles({ fileSystem, installRoot, snapshot }) {
+  await writeManagedFile(fileSystem, join(installRoot, "Dockerfile"), snapshot.dockerfile, 0o600);
+  await writeManagedFile(fileSystem, join(installRoot, ".dockerignore"), snapshot.dockerignore, 0o600);
+  const runtimePath = join(installRoot, RUNTIME_FILENAME);
+  if (snapshot.runtime === null) {
+    const metadata = await lstatIfExists(fileSystem, runtimePath);
+    if (metadata) {
+      if (metadata.isSymbolicLink() || !metadata.isFile()) {
+        throw new Error("The local n8n sidecar runtime file could not be restored safely.");
+      }
+      await fileSystem.unlink(runtimePath);
+    }
+  } else {
+    await writeManagedFile(fileSystem, runtimePath, snapshot.runtime, 0o600);
   }
 }
 
@@ -1535,8 +1619,15 @@ async function inspectOwnedSidecarRuntime({
   });
   const sidecarNetwork = sidecar.NetworkSettings?.Networks?.[marker.networkName];
   const ports = sidecar.NetworkSettings?.Ports;
+  let imageId;
+  try {
+    imageId = validateDockerImageDigest(sidecar?.Image);
+  } catch {
+    throw new Error("The local sidecar refresh identity could not be verified.");
+  }
   if (
     sidecar?.Id !== containerId ||
+    sidecar?.Config?.Image !== `${marker.projectName}:local` ||
     typeof sidecar?.State?.Running !== "boolean" ||
     typeof sidecar?.State?.Paused !== "boolean" ||
     !labelsMatchOwnedSidecar(sidecar.Config?.Labels, {
@@ -1555,6 +1646,7 @@ async function inspectOwnedSidecarRuntime({
   }
   return Object.freeze({
     containerId,
+    imageId,
     health: sidecar.State.Health?.Status,
     paused: sidecar.State.Paused,
     running: sidecar.State.Running,
@@ -1872,6 +1964,12 @@ export async function installLocalN8nSidecar(
     );
     await writeManagedFile(
       fileSystem,
+      join(installRoot, "openai-oauth-sidecar.mjs"),
+      await defaultFileSystem.readFile(new URL("../gateway/openai-oauth-sidecar.mjs", import.meta.url), "utf8"),
+      0o600,
+    );
+    await writeManagedFile(
+      fileSystem,
       join(installRoot, COMPOSE_FILENAME),
       createLocalN8nSidecarComposeFile({
         installId,
@@ -2028,6 +2126,321 @@ export async function installLocalN8nSidecar(
       }
       throw error;
     }
+    },
+  });
+}
+
+async function retainCurrentRuntimeImage({ runProcess, installRoot, marker, imageId }) {
+  const backupName = `${marker.projectName}:${RUNTIME_BACKUP_TAG}`;
+  const existingBackup = await runOrThrow(
+    runProcess,
+    {
+      file: "docker",
+      args: ["image", "ls", "--filter", `reference=${backupName}`, "--format", "{{json .}}"],
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+    },
+    "Local sidecar runtime backup check",
+  );
+  if (parseJsonLines(existingBackup.stdout, "Local sidecar runtime backup check").length !== 0) {
+    throw new Error("A retained local sidecar runtime backup already exists. Nothing was changed.");
+  }
+  validateDockerImageDigest(imageId);
+  await runOrThrow(
+    runProcess,
+    {
+      file: "docker",
+      args: ["image", "tag", imageId, backupName],
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+    },
+    "Local sidecar runtime image retention",
+  );
+  return backupName;
+}
+
+async function restoreRetainedRuntimeImage({ runProcess, installRoot, marker, backupName }) {
+  await runOrThrow(
+    runProcess,
+    {
+      file: "docker",
+      args: ["image", "tag", backupName, `${marker.projectName}:local`],
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+    },
+    "Local sidecar runtime image rollback",
+  );
+}
+
+async function removeRetainedRuntimeImage({ runProcess, installRoot, marker, backupName }) {
+  await runOrThrow(
+    runProcess,
+    {
+      file: "docker",
+      args: ["image", "rm", backupName],
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+    },
+    "Local sidecar runtime backup cleanup",
+  );
+}
+
+/**
+ * Update only the generated bridge runtime while retaining the existing OAuth
+ * volume and every installed Docker identity.
+ */
+export async function updateLocalN8nSidecarRuntime(
+  { confirmed },
+  {
+    fileSystem = defaultFileSystem,
+    env = process.env,
+    homeDirectory = homedir(),
+    runProcess = runLocalProcess,
+    platform = process.platform,
+    lockDownPath = lockDownLocalPath,
+    getProcessIdentity,
+    lifecycleLockNow = Date.now,
+  } = {},
+) {
+  if (confirmed !== true) {
+    throw new Error("Confirm updating the owned local n8n bridge runtime.");
+  }
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({
+    env,
+    homeDirectory,
+    fileSystem,
+    platform,
+  });
+  const releaseLock = await acquireSidecarLock({
+    fileSystem,
+    getProcessIdentity,
+    installRoot,
+    lockDownPath,
+    now: lifecycleLockNow,
+    platform,
+  });
+  return settleLocalIntegrationLifecycleOperation({
+    completionLabel: "Local n8n OAuth sidecar runtime update",
+    releaseLock,
+    operation: async () => {
+      const managed = await inspectManagedInstall({ fileSystem, installRoot });
+      if (!managed.marker) {
+        throw new Error("The managed local n8n bridge is not installed. Nothing was changed.");
+      }
+      const marker = validateMarker(managed.marker);
+      if (platform === "win32") {
+        await verifyWindowsSidecarStatusPathSecurity({
+          fileSystem,
+          installRoot,
+          platform,
+          lockDownPath,
+        });
+      }
+      const snapshot = await snapshotGeneratedRuntimeFiles({
+        fileSystem,
+        installRoot,
+        marker,
+      });
+      if (platform === "win32") {
+        for (const filename of ["Dockerfile", ".dockerignore", ...(snapshot.runtime === null ? [] : [RUNTIME_FILENAME])]) {
+          await lockDownPath(join(installRoot, filename), {
+            platform,
+            kind: "file",
+            verifyOnly: true,
+            verifyEffectiveOwnerOnly: true,
+          });
+        }
+      }
+      const selectedDockerHost = await resolveLocalDockerHost({
+        runProcess,
+        cwd: installRoot,
+        env,
+        platform,
+      });
+      if (selectedDockerHost !== marker.dockerHost) {
+        throw new Error("The selected Docker context changed. Nothing was changed.");
+      }
+      await attestPlanAndAlias({
+        plan: marker,
+        runProcess,
+        cwd: installRoot,
+        installId: marker.installId,
+        projectName: marker.projectName,
+      });
+      const ownership = await attestProjectOwnership({
+        runProcess,
+        cwd: installRoot,
+        dockerHost: marker.dockerHost,
+        installId: marker.installId,
+        projectName: marker.projectName,
+        returnDetails: true,
+      });
+      const priorRuntime = await inspectOwnedSidecarRuntime({
+        runProcess,
+        installRoot,
+        marker,
+      });
+      if (!ownership.exact || !priorRuntime) {
+        throw new Error("The exact owned local n8n bridge runtime is missing. Nothing was changed.");
+      }
+      await runOrThrow(
+        runProcess,
+        {
+          file: "docker",
+          args: createComposeArgs(marker.projectName, ["config", "--quiet"]),
+          cwd: installRoot,
+          dockerHost: marker.dockerHost,
+        },
+        "Local sidecar current Compose validation",
+      );
+
+      const filesAfterDockerAttestation = await snapshotGeneratedRuntimeFiles({
+        fileSystem,
+        installRoot,
+        marker,
+      });
+      if (
+        filesAfterDockerAttestation.dockerfile !== snapshot.dockerfile ||
+        filesAfterDockerAttestation.dockerignore !== snapshot.dockerignore ||
+        filesAfterDockerAttestation.runtime !== snapshot.runtime
+      ) {
+        throw new Error("The local n8n sidecar generated runtime files changed during attestation. Nothing was changed.");
+      }
+
+      const backupName = await retainCurrentRuntimeImage({
+        runProcess,
+        installRoot,
+        marker,
+        imageId: priorRuntime.imageId,
+      });
+      let recreateAttempted = false;
+      try {
+        await writeManagedFile(
+          fileSystem,
+          join(installRoot, "Dockerfile"),
+          createLocalN8nSidecarDockerfile({ installId: marker.installId }),
+          0o600,
+        );
+        await writeManagedFile(
+          fileSystem,
+          join(installRoot, ".dockerignore"),
+          createLocalN8nSidecarDockerignore(),
+          0o600,
+        );
+        await writeManagedFile(
+          fileSystem,
+          join(installRoot, RUNTIME_FILENAME),
+          snapshot.expectedRuntime,
+          0o600,
+        );
+        await runOrThrow(
+          runProcess,
+          {
+            file: "docker",
+            args: createComposeArgs(marker.projectName, ["config", "--quiet"]),
+            cwd: installRoot,
+            dockerHost: marker.dockerHost,
+          },
+          "Local sidecar updated Compose validation",
+        );
+        await runOrThrow(
+          runProcess,
+          {
+            file: "docker",
+            args: createComposeArgs(marker.projectName, ["build", SERVICE_NAME]),
+            cwd: installRoot,
+            dockerHost: marker.dockerHost,
+          },
+          "Local sidecar runtime image build",
+        );
+        recreateAttempted = true;
+        await recreateOwnedSidecar({
+          runProcess,
+          installRoot,
+          marker,
+          label: "Local sidecar runtime start",
+        });
+        const models = await verifyRunningSidecar({
+          runProcess,
+          installRoot,
+          plan: marker,
+          installId: marker.installId,
+          projectName: marker.projectName,
+        });
+        await removeRetainedRuntimeImage({
+          runProcess,
+          installRoot,
+          marker,
+          backupName,
+        });
+        return {
+          target: LOCAL_N8N_SIDECAR_TARGET,
+          runtimeUpdated: true,
+          models,
+          hostPublication: "none",
+          n8nChanged: false,
+        };
+      } catch (error) {
+        try {
+          await restoreGeneratedRuntimeFiles({ fileSystem, installRoot, snapshot });
+          if (recreateAttempted) {
+            await restoreRetainedRuntimeImage({
+              runProcess,
+              installRoot,
+              marker,
+              backupName,
+            });
+            await recreateOwnedSidecar({
+              runProcess,
+              installRoot,
+              marker,
+              label: "Local sidecar runtime rollback start",
+            });
+            await verifyRunningSidecar({
+              runProcess,
+              installRoot,
+              plan: marker,
+              installId: marker.installId,
+              projectName: marker.projectName,
+              verifyModels: false,
+            });
+            await removeRetainedRuntimeImage({
+              runProcess,
+              installRoot,
+              marker,
+              backupName,
+            });
+            throw new Error(
+              "The local bridge runtime update failed and was rolled back; n8n and the OAuth credential were untouched.",
+              { cause: error },
+            );
+          }
+          await restoreRetainedRuntimeImage({
+            runProcess,
+            installRoot,
+            marker,
+            backupName,
+          });
+          await removeRetainedRuntimeImage({
+            runProcess,
+            installRoot,
+            marker,
+            backupName,
+          });
+          throw new Error(
+            "The local bridge runtime update failed before restart; the previous files and image were restored and the old container was left unchanged.",
+            { cause: error },
+          );
+        } catch (recoveryError) {
+          if (recoveryError?.cause === error) throw recoveryError;
+          throw new Error(
+            "The local bridge runtime update failed and automatic recovery could not be proved. The OAuth volume and n8n were not changed; inspect only the owned Relmio sidecar before retrying.",
+            { cause: recoveryError },
+          );
+        }
+      }
     },
   });
 }

@@ -124,7 +124,8 @@ The design combines four existing interfaces rather than changing n8n:
 
 1. The n8n OpenAI credential accepts a custom Base URL.
 2. The pinned bridge implements OpenAI-compatible model, Responses, and chat
-   completions routes.
+   completions routes. Relmio's wrapper removes n8n's disabled `background`
+   field before a Responses request reaches the pinned transport.
 3. Docker Compose can attach a separate project to an existing external
    network.
 4. Docker DNS resolves the private sidecar hostname from the n8n container.
@@ -132,6 +133,14 @@ The design combines four existing interfaces rather than changing n8n:
 n8n therefore talks to the private sidecar with its normal OpenAI request
 shape. The sidecar handles upstream OAuth authentication with its mounted
 credential. No OpenAI Platform API key is created.
+
+New local and VPS installations package the same wrapper. Existing sidecars do
+not change when the local Relmio source or package changes. The local dashboard's
+**Update bridge runtime** action and the VPS wizard's **Update the bridge** path
+rebuild only the ownership-verified sidecar. The local runtime update preserves
+the saved bridge credential. The VPS path uploads the current local sign-in.
+Both preserve the selected network, leave n8n unchanged, and keep port `10531`
+off the host.
 
 ## VPS mutation boundary
 
@@ -141,6 +150,7 @@ The installer can write only:
 /docker/n8n-openai-oauth/
 ├── .managed-by-n8n-openai-oauth
 ├── Dockerfile
+├── openai-oauth-sidecar.mjs
 ├── docker-compose.yml
 └── auth/
     └── auth.json
@@ -165,6 +175,7 @@ The local wizard writes only its managed target directory:
 ├── .managed-by-relmio.json
 ├── .dockerignore
 ├── Dockerfile
+├── openai-oauth-sidecar.mjs
 └── docker-compose.yml
 ```
 

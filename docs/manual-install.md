@@ -5,6 +5,16 @@ reproduce, debug, or improve the underlying installation method. The wizard is
 safer for routine installation because it validates names, confirms the host
 fingerprint, uploads files with SFTP, and limits the commands it can run.
 
+For an existing wizard-managed bridge, use the browser update instead of this
+manual procedure. Install a Relmio release containing the compatibility fix,
+then choose **Manage bridge**, select the confirmation checkbox, and choose
+**Update bridge runtime** for local n8n. For a VPS bridge, select the n8n
+container and network, choose **OpenAI-OAuth/Codex bridge**, select **Manage
+OpenAI-OAuth/Codex bridge**, then use **Review bridge update** before the
+confirmation checkbox and **Update the bridge**. The VPS wizard performs the
+SSH work, uploads the current local sign-in, changes only the owned sidecar,
+and requires no separate VPS terminal.
+
 This guide never changes the existing n8n Compose file or image. It creates a
 second Compose project.
 
@@ -102,12 +112,18 @@ RUN npm install --global --ignore-scripts openai-oauth@2.0.0 \
 
 USER node
 
-ENTRYPOINT ["openai-oauth"]
-CMD ["--host", "0.0.0.0", "--port", "10531", "--oauth-file", "/home/node/.codex/auth.json"]
+COPY --chown=node:node openai-oauth-sidecar.mjs /app/openai-oauth-sidecar.mjs
+
+ENTRYPOINT ["node", "/app/openai-oauth-sidecar.mjs"]
 ```
 
-The `CMD` must stay on one line. If the JSON array is split incorrectly,
-Docker reports `unknown instruction: "--host"`.
+Copy `src/gateway/openai-oauth-sidecar.mjs` from the same reviewed Relmio
+checkout or package to `/docker/n8n-openai-oauth/openai-oauth-sidecar.mjs`
+alongside the Dockerfile, with mode `0644`. The wizard uploads this file
+automatically. Do not mix a newer Dockerfile with an older runtime file.
+The adapter listens on the container's port `10531` and reads the existing
+`/home/node/.codex/auth.json` mount. It removes n8n's disabled `background`
+option before forwarding Responses requests.
 
 Create `/docker/n8n-openai-oauth/docker-compose.yml` with exactly the following.
 If your network is not named `proxy`, change only the final `name: proxy` line.

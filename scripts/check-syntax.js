@@ -12,7 +12,7 @@ async function collectJavaScriptFiles(directory) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) {
       files.push(...(await collectJavaScriptFiles(path)));
-    } else if (extname(entry.name) === ".js") {
+    } else if ([".js", ".mjs"].includes(extname(entry.name))) {
       files.push(path);
     }
   }

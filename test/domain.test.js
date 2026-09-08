@@ -75,6 +75,13 @@ test("unsafe-port cleanup targets only the named sidecar service", () => {
   assert.doesNotThrow(() => assertSidecarOnlyCommands([cleanup]));
 });
 
+test("model verification emits only response JSON or a fixed unreachable marker", () => {
+  const models = createVerificationCommands().models;
+  assert.match(models, /console\.log\(await response\.text\(\)\)/u);
+  assert.match(models, /RELMIO_MODEL_CHECK_UNREACHABLE/u);
+  assert.doesNotMatch(models, /console\.(?:error|log)\(error/u);
+});
+
 test("the safety policy rejects attempts to mutate n8n", () => {
   const forbidden = [
     "docker restart n8n-n8n-1",
@@ -133,6 +140,6 @@ test("the generated Dockerfile pins openai-oauth and runs as a non-root user", (
   assert.match(dockerfile, /^USER node$/m);
   assert.match(
     dockerfile,
-    /CMD \["--host", "0\.0\.0\.0", "--port", "10531", "--oauth-file", "\/home\/node\/\.codex\/auth\.json"\]/,
+    /ENTRYPOINT \["node", "\/app\/openai-oauth-sidecar\.mjs"\]/,
   );
 });

@@ -9,7 +9,7 @@ export const SIDECAR_MARKER_CONTENT = "Managed by n8n-openai-oauth-setup.\n";
 const COMPOSE_PREFIX =
   "docker compose --project-name n8n-openai-oauth --file /docker/n8n-openai-oauth/docker-compose.yml";
 
-export const PRECHECK_COMMAND = `if [ -e ${INSTALL_ROOT} ]; then if [ -L ${INSTALL_ROOT} ] || [ ! -d ${INSTALL_ROOT} ] || [ -L ${SHARED_ROOT_MARKER_PATH} ] || [ -L ${MANAGED_MARKER_PATH} ]; then exit 43; elif [ -e ${SHARED_ROOT_MARKER_PATH} ]; then if [ ! -f ${SHARED_ROOT_MARKER_PATH} ] || [ "$(cat ${SHARED_ROOT_MARKER_PATH})" != "${SHARED_ROOT_MARKER_CONTENT.trim()}" ]; then exit 42; elif [ -e ${MANAGED_MARKER_PATH} ]; then if [ ! -f ${MANAGED_MARKER_PATH} ] || [ "$(cat ${MANAGED_MARKER_PATH})" != "${SIDECAR_MARKER_CONTENT.trim()}" ]; then exit 42; else printf '%s\\n' managed; fi; else printf '%s\\n' new; fi; elif [ -f ${MANAGED_MARKER_PATH} ] && [ "$(cat ${MANAGED_MARKER_PATH})" = "${SIDECAR_MARKER_CONTENT.trim()}" ]; then printf '%s\\n' managed; else exit 42; fi; else printf '%s\\n' new; fi`;
+export const PRECHECK_COMMAND = `if [ -e ${INSTALL_ROOT} ]; then if [ -L ${INSTALL_ROOT} ] || [ ! -d ${INSTALL_ROOT} ] || [ -L ${SHARED_ROOT_MARKER_PATH} ] || [ -L ${MANAGED_MARKER_PATH} ] || [ -L ${INSTALL_ROOT}/auth ] || { [ -e ${INSTALL_ROOT}/auth ] && [ ! -d ${INSTALL_ROOT}/auth ]; } || [ -L ${INSTALL_ROOT}/Dockerfile ] || { [ -e ${INSTALL_ROOT}/Dockerfile ] && [ ! -f ${INSTALL_ROOT}/Dockerfile ]; } || [ -L ${INSTALL_ROOT}/openai-oauth-sidecar.mjs ] || { [ -e ${INSTALL_ROOT}/openai-oauth-sidecar.mjs ] && [ ! -f ${INSTALL_ROOT}/openai-oauth-sidecar.mjs ]; } || [ -L ${INSTALL_ROOT}/docker-compose.yml ] || { [ -e ${INSTALL_ROOT}/docker-compose.yml ] && [ ! -f ${INSTALL_ROOT}/docker-compose.yml ]; } || [ -L ${INSTALL_ROOT}/auth/auth.json ] || { [ -e ${INSTALL_ROOT}/auth/auth.json ] && [ ! -f ${INSTALL_ROOT}/auth/auth.json ]; }; then exit 43; elif [ -e ${SHARED_ROOT_MARKER_PATH} ]; then if [ ! -f ${SHARED_ROOT_MARKER_PATH} ] || [ "$(cat ${SHARED_ROOT_MARKER_PATH})" != "${SHARED_ROOT_MARKER_CONTENT.trim()}" ]; then exit 42; elif [ -e ${MANAGED_MARKER_PATH} ]; then if [ ! -f ${MANAGED_MARKER_PATH} ] || [ "$(cat ${MANAGED_MARKER_PATH})" != "${SIDECAR_MARKER_CONTENT.trim()}" ]; then exit 42; else printf '%s\\n' managed; fi; else printf '%s\\n' new; fi; elif [ -f ${MANAGED_MARKER_PATH} ] && [ "$(cat ${MANAGED_MARKER_PATH})" = "${SIDECAR_MARKER_CONTENT.trim()}" ]; then printf '%s\\n' managed; else exit 42; fi; else printf '%s\\n' new; fi`;
 
 const DEPLOYMENT_COMMANDS = Object.freeze([
   `install -d -m 0755 ${INSTALL_ROOT}`,
@@ -24,7 +24,7 @@ const DEPLOYMENT_COMMANDS = Object.freeze([
 const VERIFICATION_COMMANDS = Object.freeze({
   runningService: `${COMPOSE_PREFIX} ps --status running --services`,
   publicationState: `${COMPOSE_PREFIX} ps --format json ${SERVICE_NAME}`,
-  models: `${COMPOSE_PREFIX} exec -T ${SERVICE_NAME} node -e 'fetch("http://127.0.0.1:10531/v1/models").then(async (response) => { console.log(await response.text()); process.exit(response.ok ? 0 : 1); }).catch(() => process.exit(1))'`,
+  models: `${COMPOSE_PREFIX} exec -T ${SERVICE_NAME} node -e 'fetch("http://127.0.0.1:10531/v1/models").then(async (response) => { console.log(await response.text()); process.exit(response.ok ? 0 : 1); }).catch(() => { console.log("RELMIO_MODEL_CHECK_UNREACHABLE"); process.exit(1); })'`,
   cleanup: `${COMPOSE_PREFIX} rm --force --stop ${SERVICE_NAME}`,
 });
 

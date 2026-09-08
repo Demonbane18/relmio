@@ -89,7 +89,7 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
       /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
     );
     assert.doesNotMatch(entryPoint, /Press Enter to reopen the same\s+dashboard/u);
-    assert.match(entryPoint, /seven services[\s\S]*Relmio\s+0\.14\.0/iu);
+    assert.match(entryPoint, /seven services[\s\S]*Relmio\s+0\.15\.0/iu);
     assert.doesNotMatch(entryPoint, /eight dashboard services|not a ninth dashboard service/u);
     assert.match(entryPoint, /never stored\s+secrets/u);
     assert.match(entryPoint, /existing four-step setup flow/u);

@@ -3134,6 +3134,10 @@
     width: 100%;
   }
 
+  .managed-companion-edit-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .install-progress-heading,
   .chat-tester-heading {
     flex-direction: column;

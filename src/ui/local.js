@@ -27,6 +27,7 @@ const state = {
   assistantSearxngReviewId: null,
   assistantSearxngReview: null,
   dashboardSnapshot: null,
+  dashboardSnapshotStale: true,
   dashboardSelectedTarget: null,
   dashboardBusy: false,
   dashboardStaleTimer: null,
@@ -1386,7 +1387,7 @@ async function runDashboardAction(service, action) {
   }
   if (action === "refresh-credential") {
     await enterSetupView(wizardTarget);
-    setMessage("Use the existing sign-in and ownership checks before applying a bridge credential refresh.");
+    setMessage("Choose Update bridge runtime to apply bridge fixes, or apply a new sign-in separately. Each action needs its own confirmation.");
     return;
   }
   if (action === "sign-in-chatgpt") {
@@ -1425,7 +1426,7 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
     "sign-in-grok-build": "Grok Build sign-in guidance",
     "sign-out-grok-build": "Grok Build sign-out guidance",
     "rotate-local-capability": compact ? "Rotate" : "Rotate local capability",
-    "refresh-credential": compact ? "Refresh" : "Refresh credential",
+    "refresh-credential": compact ? "Manage" : "Manage bridge",
   };
   const button = document.createElement("button");
   button.type = "button";
@@ -1445,7 +1446,7 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
       "sign-in-grok-build": `Grok Build sign-in guidance for ${service.label}`,
       "sign-out-grok-build": `Grok Build sign-out guidance for ${service.label}`,
       "rotate-local-capability": `Rotate local capability for ${service.label}`,
-      "refresh-credential": `Refresh ${service.label} credential`,
+      "refresh-credential": `Manage ${service.label}`,
     };
     button.setAttribute("aria-label", accessibleLabels[action]);
   }
@@ -1687,6 +1688,7 @@ function renderDashboardChecking() {
   clearDashboardStaleTimer();
   state.dashboardFocusIdentity = captureDashboardFocusIdentity();
   state.dashboardBusy = true;
+  state.dashboardSnapshotStale = true;
   document.body.dataset.dashboardBusy = "true";
   element("dashboard-refresh").disabled = true;
   element("dashboard-services").setAttribute("aria-busy", "true");
@@ -1717,6 +1719,7 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
     state.dashboardFocusIdentity ?? captureDashboardFocusIdentity();
   state.dashboardFocusIdentity = null;
   state.dashboardSnapshot = snapshot;
+  state.dashboardSnapshotStale = stale;
   state.dashboardBusy = false;
   document.body.dataset.dashboardBusy = "false";
   document.body.dataset.dashboardStale = String(stale);
@@ -1842,6 +1845,7 @@ function renderDashboardSnapshot(snapshot, { stale = isDashboardSnapshotStale(sn
 
 function renderDashboardFailure() {
   state.dashboardBusy = false;
+  state.dashboardSnapshotStale = true;
   document.body.dataset.dashboardBusy = "false";
   document.body.dataset.dashboardStale = "false";
   element("dashboard-refresh").disabled = false;
@@ -1971,6 +1975,7 @@ function resetPendingSetupState() {
 
   for (const id of [
     "refresh-bridge-confirm",
+    "update-bridge-confirm",
     "enable-assistant-searxng-confirm",
     "remove-bridge-confirm",
     "remove-supergrok-confirm",
@@ -1982,6 +1987,7 @@ function resetPendingSetupState() {
   }
   for (const id of [
     "refresh-bridge-confirm",
+    "update-bridge-confirm",
     "enable-assistant-searxng-confirm",
     "remove-bridge-confirm",
     "remove-supergrok-confirm",
@@ -1992,6 +1998,7 @@ function resetPendingSetupState() {
   }
   for (const id of [
     "refresh-bridge-button",
+    "update-bridge-button",
     "enable-assistant-searxng-button",
     "remove-bridge-button",
     "remove-supergrok-button",
@@ -2023,8 +2030,11 @@ function resetPendingSetupState() {
     element(id).removeAttribute("href");
   }
   element("n8n-oauth-link").hidden = true;
+  element("n8n-sidecar-update").hidden = true;
   element("refresh-bridge-status").textContent =
     "No sign-in is copied until you complete ChatGPT sign-in and confirm this separate action.";
+  element("update-bridge-status").textContent =
+    "Confirm to update the bridge installed on this computer. No new sign-in is needed.";
   element("assistant-searxng-edit-status").textContent =
     "This is available only for a Relmio-owned Assistant installation without SearXNG.";
 }
@@ -2540,6 +2550,19 @@ function validateManagedBridgeRefreshResult(value) {
   return value;
 }
 
+function validateManagedBridgeUpdateResult(value) {
+  if (
+    !hasExactKeys(value, ["target", "runtimeUpdated", "models", "hostPublication", "n8nChanged"]) ||
+    value.target !== "n8n-openai-oauth" || value.runtimeUpdated !== true ||
+    value.hostPublication !== "none" || value.n8nChanged !== false ||
+    !Array.isArray(value.models) || value.models.length === 0 ||
+    value.models.some((model) => typeof model !== "string" || model.length > 128 || !/^[A-Za-z0-9_.:-]+$/u.test(model))
+  ) {
+    throw new Error("The local wizard returned an unexpected bridge update response.");
+  }
+  return value;
+}
+
 function validateAssistantSearxngReview(value) {
   const expectedNames = [
     "reviewId",
@@ -2784,6 +2807,34 @@ function showStoppedManagedLocalN8nStack() {
   setMessage("A complete owned local n8n + ngrok stack is stopped. Resume it safely or leave it stopped.");
 }
 
+function canUpdateManagedBridgeRuntime() {
+  if (
+    !isN8nSidecar(state.target) ||
+    state.dashboardSnapshotStale ||
+    !state.dashboardSnapshot ||
+    isDashboardSnapshotStale(state.dashboardSnapshot)
+  ) {
+    return false;
+  }
+  const service = state.dashboardSnapshot.services.find(
+    ({ target }) => target === "n8n-openai-oauth",
+  );
+  return service?.kind === "n8n-oauth-bridge" &&
+    service.managed === true &&
+    service.state === "healthy" &&
+    service.actions.includes("refresh-credential");
+}
+
+function updateManagedBridgeRuntimeControls() {
+  const available = canUpdateManagedBridgeRuntime();
+  const confirmation = element("update-bridge-confirm");
+  element("n8n-sidecar-update").hidden = !available;
+  if (!available) confirmation.checked = false;
+  confirmation.disabled = !available;
+  element("update-bridge-button").disabled =
+    !available || !confirmation.checked;
+}
+
 function renderTarget() {
   state.target = selectedTarget();
   invalidatePlan();
@@ -2831,6 +2882,7 @@ function renderTarget() {
   }
   element("n8n-sidecar-oauth").hidden = !sidecar;
   element("n8n-sidecar-refresh").hidden = !sidecar;
+  updateManagedBridgeRuntimeControls();
   element("n8n-sidecar-scope").hidden = !sidecar;
   element("supergrok-n8n-reminder").hidden = !n8nSuperGrok;
   element("n8n-assistant-options").hidden = !assistant;
@@ -3705,6 +3757,45 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
       updateManagedBridgeRefreshControls();
       updateReviewAvailability();
     }
+  }
+});
+
+element("update-bridge-confirm").addEventListener("change", () => {
+  updateManagedBridgeRuntimeControls();
+});
+
+element("update-bridge-button").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const confirmation = element("update-bridge-confirm");
+  clearError();
+  if (!canUpdateManagedBridgeRuntime()) {
+    updateManagedBridgeRuntimeControls();
+    showError(new Error("Refresh the dashboard and reopen its managed bridge action first."));
+    return;
+  }
+  if (!confirmation.checked) {
+    showError(new Error("Confirm updating the existing local bridge first."));
+    return;
+  }
+  if (setBusy(button, true, "Updating bridge…") === false) return;
+  // Any prior new-install review is stale after this existing-runtime action.
+  invalidatePlan();
+  element("update-bridge-status").textContent =
+    "Checking the existing bridge, then building and verifying its update. Your saved sign-in stays in place.";
+  try {
+    const result = validateManagedBridgeUpdateResult(await api("/api/local/n8n/sidecar/update", {
+      method: "POST", body: { confirmed: true },
+    }));
+    confirmation.checked = false;
+    element("update-bridge-status").textContent =
+      `Bridge runtime updated. ${result.models.length} model${result.models.length === 1 ? "" : "s"} verified. Saved sign-in preserved; n8n unchanged.`;
+    setMessage("The existing local bridge now uses this version's runtime. Test your n8n node to confirm the workflow result.");
+  } catch (error) {
+    element("update-bridge-status").textContent = "The bridge update did not complete. Review the error before retrying.";
+    showError(error);
+  } finally {
+    setBusy(button, false);
+    updateManagedBridgeRuntimeControls();
   }
 });
 

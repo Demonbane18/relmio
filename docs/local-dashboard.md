@@ -138,7 +138,7 @@ Relmio 0.14.0 always has these seven rows, even when nothing is installed.
 | **Codex Chat adapter** | Loopback HTTP adapter URL | **Set up** when absent; **Sign in** and **Rotate credential** when healthy |
 | **SuperGrok** | Loopback SuperGrok Chat Completions URL | **Set up** when absent; sign-in/sign-out guidance and local capability rotation when offered |
 | **n8n + ngrok** | Local n8n, authenticated ngrok, and loopback inspector URLs | **Set up** when absent; **Resume** or **Review removal** only after exact ownership attestation |
-| **OpenAI OAuth bridge** | Private `http://n8n-openai-oauth:10531/v1` | **Set up**, **Refresh credential**, or **Review removal** only when offered |
+| **OpenAI OAuth bridge** | Private `http://n8n-openai-oauth:10531/v1` | **Set up**, **Manage bridge**, or **Review removal** only when offered |
 | **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` | **Set up**, official sign-in/sign-out guidance, or **Review removal** only when offered |
 | **AI Assistant tools** | Installed component state; no saved sandbox key | **Set up** or **Review removal** only when offered |
 
@@ -165,6 +165,17 @@ Refreshing inventory and refreshing a bridge credential are different actions.
 **Refresh status** only reads. **Refresh credential** opens the bridge's
 existing sign-in, ownership, review, and confirmation flow before it changes
 the owned sidecar credential.
+
+**Manage bridge** opens the two bridge maintenance controls. **Update bridge
+runtime** is separate from credential refresh. Use it after installing a Relmio
+release with a bridge compatibility fix, because changing the local package
+does not update the running container. The action preserves the existing OAuth
+credential, bridge identity, and selected Docker network. It rebuilds and
+verifies only the owned sidecar. Read the summary, select the separate
+confirmation checkbox, then choose **Update bridge runtime**. The button remains
+disabled until confirmation. The update does not require another ChatGPT
+sign-in. **Apply sign-in to owned bridge** remains a credential-only action and
+does not install a newer runtime.
 
 ## Keep credentials separate
 
@@ -234,10 +245,10 @@ identity, network membership, and health before reporting the companion as
 healthy. It does not edit n8n configuration, execute inside n8n, or stop,
 restart, rebuild, recreate, or change the network membership of n8n.
 
-Bridge refresh and companion removal target only the separately owned Relmio
-project after another review and confirmation. The **n8n + ngrok** row is a
-different option: that whole disposable stack is Relmio-owned and has its own
-resume and removal checks.
+Bridge runtime updates, credential refreshes, and companion removal target only
+the separately owned Relmio project after another review and confirmation. The
+**n8n + ngrok** row is a different option: that whole disposable stack is
+Relmio-owned and has its own resume and removal checks.
 
 On native Windows, inventory verifies the existing owner-only ACLs without
 repairing them. Before a managed action changes Docker state, Relmio checks the

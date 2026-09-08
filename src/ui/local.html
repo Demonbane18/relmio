@@ -538,7 +538,11 @@
                 <span class="target-description">
                   Connects an existing n8n container to supported ChatGPT/Codex models with the
                   unofficial <code>openai-oauth</code> sidecar. It is private to a shared Docker
-                  network. There is no host port. Check OpenAI policy before using it.
+                  network. There is no host port. It supports Message a Model and GPT Image
+                  generation/editing. It does not support audio, Classify Text for Violations
+                  (moderation), file management, stored conversations, or video generation. Use a separate OpenAI
+                  Platform connection for those n8n actions; do not enter its API key into this
+                  bridge. Check OpenAI policy before using it.
                 </span>
               </span>
             </label>
@@ -703,6 +707,21 @@
               </div>
             </div>
 
+            <section id="n8n-sidecar-update" class="managed-companion-edit" aria-labelledby="n8n-sidecar-update-title">
+              <div>
+                <h3 id="n8n-sidecar-update-title">Update an existing bridge</h3>
+                <p>Apply the bridge fixes included in this version of Relmio to your existing local OpenAI OAuth bridge. Your saved sign-in stays in place. Only the bridge is rebuilt; n8n stays running.</p>
+              </div>
+              <label class="check-row">
+                <input id="update-bridge-confirm" type="checkbox" />
+                <span>I approve updating my existing Relmio bridge. Keep its saved sign-in and leave n8n unchanged.</span>
+              </label>
+              <div class="managed-companion-edit-actions">
+                <button id="update-bridge-button" class="button secondary" type="button" disabled>Update bridge runtime</button>
+                <p id="update-bridge-status" role="status" aria-live="polite">Confirm to update the bridge installed on this computer. No new sign-in is needed.</p>
+              </div>
+            </section>
+
             <section
               id="n8n-sidecar-refresh"
               class="managed-companion-edit"
@@ -715,7 +734,8 @@
                   <code>openai-oauth</code> bridge. It re-attests that exact
                   owned sidecar before changing its private credential volume;
                   it never changes n8n. Completing ChatGPT sign-in above does
-                  not apply it automatically.
+                  not apply it automatically. This action only updates the sign-in;
+                  use Update bridge runtime above to apply bridge fixes.
                 </p>
               </div>
               <label class="check-row">

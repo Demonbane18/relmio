@@ -10,8 +10,9 @@ RUN npm install --global --ignore-scripts openai-oauth@2.0.0 \\
 
 USER node
 
-ENTRYPOINT ["openai-oauth"]
-CMD ["--host", "0.0.0.0", "--port", "10531", "--oauth-file", "/home/node/.codex/auth.json"]
+COPY --chown=node:node openai-oauth-sidecar.mjs /app/openai-oauth-sidecar.mjs
+
+ENTRYPOINT ["node", "/app/openai-oauth-sidecar.mjs"]
 `;
 }
 

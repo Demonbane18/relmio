@@ -1,6 +1,6 @@
 {
   "name": "relmio",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Connect provider OAuth sign-in to private local apps and self-hosted n8n.",
   "keywords": [
     "relmio",
@@ -57,5 +57,8 @@
   },
   "dependencies": {
     "ssh2": "1.17.0"
+  },
+  "devDependencies": {
+    "openai-oauth": "2.0.0"
   }
 }
