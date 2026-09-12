@@ -734,6 +734,13 @@ h3 {
   margin: 0 0 1rem;
 }
 
+.provider-route-choice {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 .provider-route {
   display: grid;
   align-content: start;
@@ -749,6 +756,7 @@ h3 {
   text-align: left;
   text-decoration: none;
   font: inherit;
+  width: 100%;
   transition: border-color 160ms var(--ease), background 160ms var(--ease), transform 160ms var(--ease), box-shadow 160ms var(--ease);
 }
 
@@ -802,6 +810,32 @@ h3 {
 .provider-route .route-status {
   padding-top: 0.25rem;
   border-top: 1px solid var(--accent-border);
+}
+
+.provider-route-details {
+  margin: 0 0.25rem;
+  padding: 0.25rem 0.75rem 0.75rem;
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.provider-route-details summary {
+  min-height: 2.5rem;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.provider-route-details summary:focus-visible {
+  outline: 3px solid #f2a94a;
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.provider-route-details p {
+  margin: 0.25rem 0 0;
 }
 
 .provider-route-heading .route-warning {

@@ -71,6 +71,9 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     html,
     /id="local-endpoint-link"[\s\S]*class="route-icon"[\s\S]*Set up on this computer/u,
   );
+  assert.equal((html.match(/class="provider-route-details"/gu) ?? []).length, 3);
+  assert.equal((html.match(/<summary aria-label="More details about [^"]+">More details<\/summary>/gu) ?? []).length, 3);
+  assert.match(html, /ChatGPT on my server[\s\S]*Connect n8n on your server with your ChatGPT sign-in\.[\s\S]*<summary aria-label="More details about ChatGPT on my server">More details<\/summary>/u);
   assert.match(html, /<summary>More details about this connection<\/summary>/u);
   assert.match(html, /<summary>More details about the server check<\/summary>/u);
   assert.match(html, /<span>Connection port<\/span>[\s\S]*Technical name: SSH port/u);

@@ -222,7 +222,7 @@ test("the local start screen leads with four everyday goals and keeps specialist
   }
   const advancedChoices = html.slice(
     html.indexOf('<details id="more-connections-and-tools"'),
-    html.indexOf('</details>', html.indexOf('<details id="more-connections-and-tools"')),
+    html.indexOf('<details class="setup-help connection-details">'),
   );
   assert.match(advancedChoices, /<summary>More connections and tools<\/summary>/u);
   for (const target of ["codex-chatgpt", "codex-chat", "n8n-ai-assistant"]) {
@@ -235,6 +235,10 @@ test("the local start screen leads with four everyday goals and keeps specialist
   assert.match(script, /element\("more-connections-and-tools"\)\.open = true;/u);
   assert.match(css, /\.main-connection-choices,[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);
   assert.match(css, /\.target-card-icon[\s\S]*stroke: currentColor/u);
-  assert.match(css, /\.main-choice:not\(:has\(input:checked\)\) \.target-description/u);
-  assert.doesNotMatch(css, /\.target-card:not\(:has\(input:checked\)\) \.target-description/u);
+  assert.equal((mainChoices.match(/class="target-option-details"/gu) ?? []).length, 4);
+  assert.equal((advancedChoices.match(/class="target-option-details"/gu) ?? []).length, 3);
+  assert.equal((html.match(/<summary aria-label="More details about [^"]+">More details<\/summary>/gu) ?? []).length, 7);
+  assert.match(mainChoices, /<span class="target-purpose">Use ChatGPT and image models in an n8n workflow\.<\/span>/u);
+  assert.match(css, /\.target-option-details summary[\s\S]*cursor: pointer/u);
+  assert.doesNotMatch(css, /\.main-choice:not\(:has\(input:checked\)\) \.target-description/u);
 });

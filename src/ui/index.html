@@ -192,25 +192,43 @@
         </div>
 
         <div class="provider-route-grid" aria-label="Provider and destination choices">
-          <button id="openai-vps-route" class="provider-route provider-route--selected" type="button" aria-describedby="openai-vps-route-detail">
-            <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
-            <span class="provider-route__eyebrow">ChatGPT · your VPS</span>
-            <strong>ChatGPT on my server</strong>
-            <span id="openai-vps-route-detail">Sign in on this computer, then review a private connection to your server.</span>
-            <span class="route-status">Unofficial · private connection</span>
-          </button>
-          <a id="vps-supergrok-start" class="provider-route" aria-describedby="supergrok-vps-route-detail">
-            <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/><path d="M16.5 5.5 19 3m-7 2.5V2"/></svg>
-            <span class="provider-route__eyebrow">Grok · your VPS</span>
-            <strong>Grok on my server</strong>
-            <span id="supergrok-vps-route-detail">Use the official Grok sign-in on your server. ChatGPT is not needed.</span>
-          </a>
-          <a id="local-endpoint-link" class="provider-route" aria-describedby="local-route-detail">
-            <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
-            <span class="provider-route__eyebrow">This computer</span>
-            <strong>Set up on this computer</strong>
-            <span id="local-route-detail">Create a local-only connection or a private n8n companion here.</span>
-          </a>
+          <div class="provider-route-choice">
+            <button id="openai-vps-route" class="provider-route provider-route--selected" type="button" aria-describedby="openai-vps-route-detail">
+              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
+              <span class="provider-route__eyebrow">ChatGPT · your VPS</span>
+              <strong>ChatGPT on my server</strong>
+              <span id="openai-vps-route-detail">Connect n8n on your server with your ChatGPT sign-in.</span>
+              <span class="route-status">Unofficial · private connection</span>
+            </button>
+            <details class="provider-route-details">
+              <summary aria-label="More details about ChatGPT on my server">More details</summary>
+              <p>Sign in on this computer first, then review the private server plan before any write.</p>
+            </details>
+          </div>
+          <div class="provider-route-choice">
+            <a id="vps-supergrok-start" class="provider-route" aria-describedby="supergrok-vps-route-detail">
+              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/><path d="M16.5 5.5 19 3m-7 2.5V2"/></svg>
+              <span class="provider-route__eyebrow">Grok · your VPS</span>
+              <strong>Grok on my server</strong>
+              <span id="supergrok-vps-route-detail">Connect n8n on your server with official Grok sign-in.</span>
+            </a>
+            <details class="provider-route-details">
+              <summary aria-label="More details about Grok on my server">More details</summary>
+              <p>Grok signs in on your server directly; a ChatGPT sign-in is not used.</p>
+            </details>
+          </div>
+          <div class="provider-route-choice">
+            <a id="local-endpoint-link" class="provider-route" aria-describedby="local-route-detail">
+              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
+              <span class="provider-route__eyebrow">This computer</span>
+              <strong>Set up on this computer</strong>
+              <span id="local-route-detail">Create a private connection on this computer.</span>
+            </a>
+            <details class="provider-route-details">
+              <summary aria-label="More details about setup on this computer">More details</summary>
+              <p>Choose a local-only endpoint, an existing n8n companion, or a separate protected n8n stack.</p>
+            </details>
+          </div>
         </div>
 
         <aside class="route-safety" aria-label="Route safety boundary">
