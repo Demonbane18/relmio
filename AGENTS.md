@@ -27,6 +27,21 @@
 - Render untrusted status text with `textContent`, never `innerHTML`.
 - Prefer named exports.
 
+## Local development and completion
+
+For requested local development, continue through implementation, relevant
+checks, and fixes for regressions caused by the change. For browser behavior,
+inspect the result in Opera GX at relevant widths and with keyboard navigation.
+Use synthetic fixtures and owned disposable resources. Do not submit SSH,
+OAuth, deployment, or provider actions without the applicable authorization.
+Honor explicit guided-mode, preview-only, or user-review pauses.
+
+Use checks appropriate to the changed behavior. Instruction-only edits need
+metadata, links, consistency, and diff checks rather than app builds or tests.
+Required CI and release gates still apply to the requested merge or release.
+Finish when the requested behavior and acceptance checks are verified, or
+report the specific blocker after completing independent authorized work.
+
 ## Safety boundaries
 
 - Never edit the existing n8n Compose file or image.
@@ -37,12 +52,22 @@
 - Require SSH host-key confirmation before authenticated connection.
 - Require a final human confirmation before remote writes.
 
-## OpenAI source check for every update
+Carry explicit approval for the same named target and action across turns
+until it is completed, revoked, or its scope changes. A final human confirmation
+already given for that concrete remote write need not be requested again.
+A missing approval blocks that action, not independent local preparation.
 
-Before accepting any Relmio update or upgrade, fetch the current official
+## OpenAI source checks for changed flows
+
+For changes to authentication, credential handling, data recipients, storage,
+logging, provider capabilities, or related user disclosures, fetch the current
+official
 [Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt)
 and the official capability, authentication, Terms, and privacy documents that
 apply to the changed flow. Compare them with the code and user disclosures.
+At release review, check that the assessment covers the relevant release diff
+and refresh sources for changed flows or new evidence. Reuse a dated assessment
+for unchanged work in the same task; do not repeat it for unrelated edits.
 
 Record the check date, source links, findings, and unknowns. State what Relmio
 reads, stores, transmits, and logs, including OAuth scopes and every party that
@@ -56,5 +81,6 @@ not match Relmio's flow; verify that match instead of assuming it.
 
 Keep personal Obsidian notes and Graphify exports in a separate private
 repository. Never include that vault in public Relmio commits, pushes, or npm
-artifacts. When private ingestion is configured, refresh it after project
-updates; ingestion does not substitute for the official-source review above.
+artifacts. Refresh configured private ingestion only at authorized milestones
+that affect indexed content. Skip unchanged content and read-only audits;
+ingestion does not substitute for the official-source review above.

@@ -1,30 +1,32 @@
 <!-- ASTRYX:START -->
 Astryx v0.2.0 · 90+ components
-CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
+CLI: run commands as `npx astryx <cmd>`.
 
-SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
+SETUP (once, in the app entry) — required for styled Astryx components:
   import "@astryxdesign/core/reset.css";
   import "@astryxdesign/core/astryx.css";
-
-WORKFLOW — discover, don't guess. Before writing UI:
-1. `astryx build "<idea>"` — START HERE: returns a kit (closest [page] + [block]s + [component]s). No args = full playbook.
-2. `astryx template <name> [--skeleton]` — scaffold the [page]/[block]s it named, or study their layout. Templates are reference code.
-3. `astryx component <Name>` — props + examples for every component you use.
-
-RULES:
-- No <div> — components do all layout/spacing. Full page → AppShell; sidebar nav → SideNav.
-- Frame first: pick the shell (AppShell / Layout+LayoutPanel) and budget regions in px BEFORE writing content (`astryx docs layout`).
-- Dense data = rows (Table, List/Item) edge-to-edge — never Card-wrapped list items. Card = dashboard widgets, galleries, settings groups only.
-- Status → StatusDot/Token; Badge only for counts and enumerated states, never decoration.
-- Custom styling: component props first; else style/className with tokens — var(--color-*|--spacing-*|--radius-*). No raw hex/px. (No StyleX/Tailwind compiler here — don't use xstyle/utility classes.)
-- Tokens for every value (`astryx docs tokens`). Brand/accent via `astryx theme` — never override --color-* in :root.
-- SELF-CHECK before you finish: re-read the file and replace any raw <div>/<span> layout, imported .css/@apply, or hardcoded value (#hex, 16px) with the component or a token (var(--color-*|--spacing-*|…)). If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
-
-MORE CLI:
-  search "<query>"   find any component / hook / doc / template / block
-  component --list   90+ components by category
-  template --list    page + block recipes
-  docs <topic>       color, elevation, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
-  swizzle <Name>     eject component source for deep customization
-  upgrade --apply    run after any @astryxdesign/core bump
 <!-- ASTRYX:END -->
+
+## Project UI guidance
+
+- Use existing Astryx components and project tokens for matching UI work.
+  For a local fix, inspect the affected component and preserve surrounding
+  conventions; do not scaffold a page or rewrite unrelated markup.
+- For an unfamiliar component or changed API usage, consult
+  `npx astryx component <Name>` or `npx astryx search "<thing>"`.
+- For a new page or substantial layout, use `npx astryx build "<idea>"` and
+  `npx astryx template <name>` as references. Choose the shell and regions
+  before filling the layout; consult `npx astryx docs layout` if needed.
+- Prefer component props, then token-based style/className. Add semantic HTML
+  or scoped styling when accessibility or behavior requires it. Do not replace
+  unrelated div/span markup, CSS, or values merely to satisfy a cosmetic rule.
+- Use rows for dense data, StatusDot/Token for status, and Badge for counts or
+  enumerated states. Keep brand/accent changes in `npx astryx theme` rather
+  than overriding `--color-*` in `:root`. Consult `npx astryx docs tokens` for
+  unfamiliar tokens; do not assume a StyleX/Tailwind compiler is configured.
+- For an authorized Astryx core upgrade, follow `npx astryx upgrade --apply`.
+  Preserve these project-specific rules when generated instructions refresh.
+- Verify changed browser behavior in Opera GX at relevant widths, including
+  keyboard navigation and accessible names. Continue fixes within the requested
+  scope; follow root authorization boundaries for SSH/OAuth/provider/deployment
+  actions and any explicit guided-mode or user-review pause.

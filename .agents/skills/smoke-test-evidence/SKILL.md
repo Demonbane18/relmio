@@ -1,16 +1,21 @@
 ---
 name: smoke-test-evidence
-description: Guide or run browser smoke tests, capture cropped screenshots of successes and failures, and write an evidence report with verified Google Drive storage. Use for manual or agent-operated test sessions and screenshot documentation.
+description: Capture and report Relmio browser-test evidence when screenshots or a test report are requested.
 ---
 
 # Smoke test evidence
 
-Use this workflow for Relmio browser tests or similar explicitly requested test documentation. Follow the current project's browser and mutation boundaries. For Relmio use Opera GX and communicate in English.
+Use this workflow for requested Relmio screenshot or test-report evidence. Follow the current project's browser and mutation boundaries. For Relmio use Opera GX and communicate in English.
+
+For ordinary browser QA, report observed results inline. Save or upload evidence
+only when requested or required by the acceptance criteria; do not infer a Drive
+destination from a request for a local report.
 
 ## Establish the run
 
 - Identify the dedicated test workflow, environment, candidate version if known, and actions to check. Distinguish VPS, local Docker, and automated code tests.
 - Follow the user's current operating mode. In guided mode, the user clicks and executes; the assistant reads results and captures evidence. A request to capture or report does not restore earlier permission to run tests autonomously.
+- In agent-operated QA, continue authorized checks, fixes, and affected reruns until acceptance criteria pass or an external/user decision is required. Honor explicit pauses; reporting alone does not authorize new executions or fixes.
 - Reuse verified results, stating their provenance. Do not rerun costly requests solely to create an attractive report. If a fresh run is needed, label it as new.
 - Use public or synthetic fixtures matching the input type. A JPEG is not an audio fixture. Confirm the actual downloaded filename, MIME type, size, and binary field before testing the downstream node.
 - Use synthetic IDs for destructive-operation boundary tests. Never substitute an existing real resource to get past client validation.
@@ -47,4 +52,4 @@ Upload only relevant cropped evidence and the report. Preserve sharing permissio
 
 Write a concise Markdown report with date/environment, one row per requested action, input/expected/actual result, screenshot reference or explicit gap, and remaining tests. Include fixture sources. Separate local checks from live acceptance and environment-specific results. Keep private evidence and account-specific reports outside public repository and npm artifacts.
 
-Finish with verified artifact links and the next unresolved check. Never claim every action passed when some are blocked or untested. If paused, preserve the latest result, evidence destination, upload state, and next safe action without executing more tests.
+Finish with verified artifact links when artifacts were requested, and any unresolved checks. If all requested checks are complete, state completion without inventing a follow-up. Never claim every action passed when some are blocked or untested. If paused, preserve the latest result, evidence destination, upload state, and next safe action without executing more tests.
