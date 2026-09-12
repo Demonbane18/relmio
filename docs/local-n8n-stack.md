@@ -49,7 +49,7 @@ Traffic Policy Basic Auth, not the deprecated command-line flag. See ngrok's
 2. Use the dashboard that Relmio opens through its owner-only browser handoff.
    If it does not open, press Enter in the active foreground terminal or run
    `relmio open` from a persistent install.
-3. Choose **Local endpoints**, then **New local n8n + ngrok**.
+3. Choose **Add connection**, then **Set up new n8n**.
 4. Enter the reserved ngrok hostname, authtoken, Basic Auth username and
    password, local n8n port, ngrok inspector port, and timezone.
 5. Choose an Assistant mode:

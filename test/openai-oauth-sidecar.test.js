@@ -128,6 +128,10 @@ test("every unsupported n8n action family returns a specific OAuth error before 
     ["DELETE", "/v1/conversations/conv_123", "conversations"],
     ["POST", "/v1/moderations", "moderations"],
     ["POST", "/v1/videos", "videos"],
+    ["POST", "/v1/live", "live"],
+    ["POST", "/v1/live/sessions", "live"],
+    ["POST", "/v1/realtime", "realtime"],
+    ["POST", "/v1/realtime/sessions", "realtime"],
     ["POST", "/v1/responses/resp_123", null],
   ];
   for (const [method, path, param] of unsupported) {
@@ -137,16 +141,126 @@ test("every unsupported n8n action family returns a specific OAuth error before 
     assert.equal(body.error.code, "unsupported_oauth_feature");
     assert.equal(body.error.param, param);
     assert.match(body.error.message, /ChatGPT OAuth|stored responses/u);
+    if (param === "live") {
+      assert.match(body.error.message, /This ChatGPT OAuth bridge does not support OpenAI Live sessions[\s\S]*OpenAI Platform Live connection/u);
+    }
+    if (param === "realtime") {
+      assert.match(body.error.message, /This ChatGPT OAuth bridge does not support OpenAI Realtime sessions[\s\S]*OpenAI Platform Realtime connection/u);
+    }
   }
   assert.deepEqual(calls, []);
 });
 
 test("unsupported route boundaries do not capture similarly named paths", async (t) => {
   const { handler } = await runtime(t);
-  for (const path of ["/v1/videosomething", "/v1/moderations-old", "/v1/filesystem", "/v1/audiofile", "/v1/conversations-old"]) {
+  for (const path of ["/v1/videosomething", "/v1/moderations-old", "/v1/filesystem", "/v1/audiofile", "/v1/conversations-old", "/v1/liveness", "/v1/live-preview", "/v1/realtimes", "/v1/realtime-preview"]) {
     const response = await handler(request({}, path));
     assert.equal(response.status, 404, path);
     assert.notEqual((await response.json()).error.code, "unsupported_oauth_feature");
+  }
+});
+
+test("model discovery retains dynamic models, adds verified images once, and omits Live families", async () => {
+  const existingFlare = {
+    id: "gpt-image-2.5-flare",
+    object: "model",
+    created: 123,
+    owned_by: "account-catalog",
+    account_metadata: { retained: true },
+  };
+  const upstreamBody = {
+    object: "list",
+    has_more: false,
+    data: [
+      { id: "gpt-6-astra", object: "model", created: 1, owned_by: "codex-oauth" },
+      { id: "gpt-image-2", object: "model", created: 2, owned_by: "codex-oauth" },
+      existingFlare,
+      { id: "gpt-live-1", object: "model" },
+      { id: "gpt-realtime", object: "model" },
+      { id: "gpt-realtime-preview", object: "model" },
+      { id: "gpt-liveness", object: "model", created: 3, owned_by: "codex-oauth" },
+    ],
+  };
+  const handler = createSidecarHandler(async () => new Response(
+    JSON.stringify(upstreamBody),
+    {
+      headers: {
+        "content-encoding": "gzip",
+        "content-digest": "sha-256=:stale:",
+        "content-length": "999",
+        "content-type": "application/json",
+        digest: "sha-256=stale",
+        etag: '"stale"',
+        "last-modified": "Thu, 10 Sep 2026 00:00:00 GMT",
+        "repr-digest": "sha-256=:stale:",
+        "content-md5": "stale",
+        "x-upstream": "retained",
+      },
+    },
+  ));
+
+  const response = await handler(request({}, "/v1/models", "GET"));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-encoding"), null);
+  assert.equal(response.headers.get("content-digest"), null);
+  assert.equal(response.headers.get("content-length"), null);
+  assert.equal(response.headers.get("content-md5"), null);
+  assert.equal(response.headers.get("digest"), null);
+  assert.equal(response.headers.get("etag"), null);
+  assert.equal(response.headers.get("last-modified"), null);
+  assert.equal(response.headers.get("repr-digest"), null);
+  assert.match(response.headers.get("content-type"), /^application\/json\b/u);
+  assert.equal(response.headers.get("x-upstream"), "retained");
+
+  const body = await response.json();
+  assert.equal(body.has_more, false);
+  assert.deepEqual(body.data.map(({ id }) => id), [
+    "gpt-6-astra",
+    "gpt-image-2",
+    "gpt-image-2.5-flare",
+    "gpt-liveness",
+    "gpt-image-2.5-sunburst",
+  ]);
+  assert.deepEqual(body.data.find(({ id }) => id === existingFlare.id), existingFlare);
+  assert.equal(body.data.filter(({ id }) => id === "gpt-image-2.5-flare").length, 1);
+  assert.equal(body.data.filter(({ id }) => id === "gpt-image-2.5-sunburst").length, 1);
+  assert.deepEqual(body.data.at(-1), {
+    id: "gpt-image-2.5-sunburst",
+    object: "model",
+    created: 0,
+    owned_by: "codex-oauth",
+  });
+});
+
+test("model discovery leaves failed and malformed upstream responses untouched", async () => {
+  const fixtures = [
+    new Response("not-json", {
+      headers: { "content-type": "application/json", "x-fixture": "invalid-json" },
+    }),
+    Response.json({ object: "list", data: "not-an-array" }, {
+      headers: { "x-fixture": "invalid-shape" },
+    }),
+    Response.json({ error: { message: "catalog degraded" }, data: [] }, {
+      headers: { "x-fixture": "missing-list-discriminator" },
+    }),
+    Response.json({ object: "list", data: [{ id: 42 }] }, {
+      headers: { "x-fixture": "invalid-model" },
+    }),
+    Response.json({ object: "list", data: [{ id: "" }] }, {
+      headers: { "x-fixture": "empty-model" },
+    }),
+    Response.json({ object: "list", data: [{ id: "gpt-live-1" }] }, {
+      status: 502,
+      headers: { "content-encoding": "gzip", "content-length": "88", "x-fixture": "failed" },
+    }),
+  ];
+
+  for (const upstreamResponse of fixtures) {
+    const expectedBody = await upstreamResponse.clone().text();
+    const handler = createSidecarHandler(async () => upstreamResponse);
+    const response = await handler(request({}, "/v1/models", "GET"));
+    assert.equal(response, upstreamResponse);
+    assert.equal(await response.text(), expectedBody);
   }
 });
 

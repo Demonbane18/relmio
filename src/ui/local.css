@@ -1509,11 +1509,8 @@
   background: var(--accent-soft);
 }
 
-/* Large, selectable rows keep the choice easy without seven competing panels. */
+/* Four everyday goals lead; specialist connections stay one deliberate disclosure away. */
 .target-picker {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.5rem;
   min-width: 0;
   margin: 0 0 1.75rem;
   padding: 0;
@@ -1528,34 +1525,51 @@
   font-weight: 700;
 }
 
+.main-connection-choices,
+.advanced-connection-choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.target-choice {
+  display: grid;
+  align-content: start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 .target-card {
   position: relative;
   display: grid;
   grid-template-columns: 1.35rem minmax(0, 1fr);
   align-items: start;
-  gap: 1rem;
+  gap: 0.875rem;
   min-width: 0;
-  min-height: 5rem;
-  padding: 1rem 1.25rem;
+  min-height: 5.25rem;
+  padding: 1rem 1.125rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  background: transparent;
+  background: var(--surface-raised);
   box-shadow: none;
   cursor: pointer;
-  transition: border-color var(--motion-fast) var(--ease), background var(--motion-fast) var(--ease);
+  width: 100%;
+  height: 100%;
+  transition: border-color var(--motion-fast) var(--ease), background var(--motion-fast) var(--ease), box-shadow var(--motion-fast) var(--ease);
 }
 
 .target-card:hover {
   border-color: var(--accent);
   background: var(--surface-muted);
+  box-shadow: 0 2px 8px rgb(18 39 32 / 7%);
   transform: none;
 }
 
 .target-card:has(input:checked) {
   border-color: var(--accent);
   background: var(--accent-soft);
-  box-shadow: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .target-card:has(input:focus-visible) {
@@ -1570,6 +1584,23 @@
   accent-color: var(--accent);
 }
 
+.main-choice {
+  grid-template-columns: 1.35rem 2.25rem minmax(0, 1fr);
+}
+
+.target-card-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  margin-top: 0.05rem;
+  padding: 0.45rem;
+  border-radius: 50%;
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  stroke: currentColor;
+  stroke-width: 1.6;
+  fill: none;
+}
+
 .target-card-copy {
   display: grid;
   gap: 0.25rem;
@@ -1577,7 +1608,7 @@
   color: var(--text-muted);
   font-size: var(--type-body);
   font-weight: 450;
-  line-height: 1.55;
+  line-height: 1.5;
 }
 
 .target-card-copy strong {
@@ -1589,16 +1620,65 @@
 .target-card-copy .target-meta {
   color: var(--text-muted);
   font-size: var(--type-supporting);
-  font-weight: 450;
+  font-weight: 500;
   line-height: 1.4;
 }
 
-.target-card .target-description {
-  margin-top: 0.5rem;
+.target-option-details {
+  margin: 0 0.25rem;
+  padding: 0.25rem 0.75rem 0.75rem;
+  border-left: 2px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--type-supporting);
+  line-height: 1.5;
 }
 
-.target-card:not(:has(input:checked)) .target-description {
-  display: none;
+.target-option-details summary {
+  min-height: 2.5rem;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.target-option-details summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.target-option-details p {
+  margin: 0.25rem 0 0;
+}
+
+.more-connections {
+  margin-top: 1rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid var(--border);
+}
+
+.more-connections summary {
+  min-height: var(--control-size);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.more-connections > p {
+  max-width: 42rem;
+  margin: 0.5rem 0 0.875rem;
+  color: var(--text-muted);
+  font-size: var(--type-supporting);
+  line-height: 1.5;
+}
+
+.more-connections .advanced-connection-choices {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.more-connections summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+  border-radius: var(--radius-sm);
 }
 
 /* Supplemental detail stays one tap away; errors and approval remain visible. */
@@ -3106,7 +3186,8 @@
     font-size: 1.875rem;
   }
 
-  .target-picker,
+  .main-connection-choices,
+  .advanced-connection-choices,
   .local-route-context,
   .local-fields,
   .sidecar-selects,

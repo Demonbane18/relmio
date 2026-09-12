@@ -25,6 +25,7 @@ const expectedPackedFiles = new Set([
   "docs/ai-assistant.md",
   "docs/architecture.md",
   "docs/brand.md",
+  "docs/experimental-images25-live1.md",
   "docs/faq.md",
   "docs/getting-started.md",
   "docs/local-endpoints-spec.md",

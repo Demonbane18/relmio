@@ -43,6 +43,10 @@ const NETWORK_ID = "b".repeat(64);
 const SIDECAR_ID = "c".repeat(64);
 const AUTH_GENERATION = "2026-08-31T04:05:06.000Z";
 const AUTH_CONTENTS = Buffer.from(JSON.stringify({ access_token: "fixture-secret" }));
+const PUBLISHED_V0_15_0_RUNTIME = new URL(
+  "./fixtures/openai-oauth-sidecar-v0.15.0.mjs",
+  import.meta.url,
+);
 
 function createPlan(overrides = {}) {
   return createLocalN8nSidecarPlan({
@@ -67,6 +71,14 @@ async function makeInstalledRuntimeLegacy(installRoot, installId = "d".repeat(32
   await writeFile(join(installRoot, "Dockerfile"), createLegacyDockerfile(installId), { mode: 0o600 });
   await writeFile(join(installRoot, ".dockerignore"), "**\n!Dockerfile\n", { mode: 0o600 });
   await unlink(join(installRoot, "openai-oauth-sidecar.mjs"));
+}
+
+async function makeInstalledRuntimeV0_15_0(installRoot) {
+  await writeFile(
+    join(installRoot, "openai-oauth-sidecar.mjs"),
+    await readFile(PUBLISHED_V0_15_0_RUNTIME),
+    { mode: 0o600 },
+  );
 }
 
 function n8nInspect(
@@ -917,7 +929,13 @@ test("installation seeds auth over stdin, starts only the sidecar, and returns s
   );
   assert.equal(JSON.stringify(runner.calls).includes("fixture-secret"), false);
   const runtimePath = join(homeDirectory, ".relmio", "local", "n8n-openai-oauth", "openai-oauth-sidecar.mjs");
-  assert.deepEqual(await readFile(runtimePath), await readFile(new URL("../src/gateway/openai-oauth-sidecar.mjs", import.meta.url)));
+  const installedRuntime = await readFile(runtimePath, "utf8");
+  assert.equal(
+    installedRuntime,
+    await readFile(new URL("../src/gateway/openai-oauth-sidecar.mjs", import.meta.url), "utf8"),
+  );
+  assert.match(installedRuntime, /gpt-image-2\.5-flare/u);
+  assert.match(installedRuntime, /gpt-image-2\.5-sunburst/u);
   if (process.platform !== "win32") assert.equal((await stat(runtimePath)).mode & 0o777, 0o600);
   assert.deepEqual(await readFile(authPath), AUTH_CONTENTS);
   const lifecycleLockCalls = authAclCalls.filter(({ path }) =>
@@ -993,6 +1011,52 @@ test("runtime update replaces only generated bridge files and preserves auth", a
   assert.ok(recreate?.args.includes("--no-deps"));
 });
 
+test("runtime update accepts the exact published v0.15.0 bridge and installs image model discovery", async (t) => {
+  const homeDirectory = await createTestHome(t);
+  const authPath = await createAuthFixture(homeDirectory);
+  const runner = createRunner({
+    verifierOutput: JSON.stringify({
+      data: [
+        { id: "gpt-5.6-terra" },
+        { id: "gpt-image-2.5-flare" },
+        { id: "gpt-image-2.5-sunburst" },
+      ],
+    }),
+  });
+  await installLocalN8nSidecar(
+    { plan: createPlan(), authPath, confirmed: true },
+    { homeDirectory, env: {}, runProcess: runner, randomBytes: () => Buffer.alloc(32, 0xdd) },
+  );
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({ homeDirectory, env: {} });
+  const runtimePath = join(installRoot, "openai-oauth-sidecar.mjs");
+  const authBefore = await readFile(authPath);
+  await makeInstalledRuntimeV0_15_0(installRoot);
+  const before = runner.calls.length;
+
+  const result = await updateLocalN8nSidecarRuntime(
+    { confirmed: true },
+    { homeDirectory, env: {}, runProcess: runner },
+  );
+
+  assert.deepEqual(result.models, [
+    "gpt-5.6-terra",
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+  ]);
+  const currentRuntime = await readFile(
+    new URL("../src/gateway/openai-oauth-sidecar.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.equal(await readFile(runtimePath, "utf8"), currentRuntime);
+  assert.match(currentRuntime, /gpt-image-2\.5-flare/u);
+  assert.match(currentRuntime, /gpt-image-2\.5-sunburst/u);
+  assert.deepEqual(await readFile(authPath), authBefore);
+  const updateCalls = runner.calls.slice(before);
+  assert.equal(updateCalls.some((call) => call.args.includes("credential-seed")), false);
+  assert.equal(updateCalls.some((call) => call.args.includes("build")), true);
+  assert.equal(updateCalls.some((call) => call.args.includes("--force-recreate")), true);
+});
+
 test("runtime update requires confirmation and an exact owned installation", async (t) => {
   const homeDirectory = await createTestHome(t);
   const runner = createRunner();
@@ -1053,6 +1117,42 @@ test("runtime update rejects generated-file and Docker identity drift before mut
   }
 });
 
+test("runtime update rejects a modified published runtime before any mutation", async (t) => {
+  const homeDirectory = await createTestHome(t);
+  const authPath = await createAuthFixture(homeDirectory);
+  const runner = createRunner();
+  await installLocalN8nSidecar(
+    { plan: createPlan(), authPath, confirmed: true },
+    { homeDirectory, env: {}, runProcess: runner, randomBytes: () => Buffer.alloc(32, 0xdd) },
+  );
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({ homeDirectory, env: {} });
+  const runtimePath = join(installRoot, "openai-oauth-sidecar.mjs");
+  await makeInstalledRuntimeV0_15_0(installRoot);
+  const publishedRuntime = await readFile(runtimePath, "utf8");
+  await writeFile(runtimePath, `${publishedRuntime}\n// changed locally\n`, { mode: 0o600 });
+  const dockerfileBefore = await readFile(join(installRoot, "Dockerfile"));
+  const dockerignoreBefore = await readFile(join(installRoot, ".dockerignore"));
+  const authBefore = await readFile(authPath);
+  const before = runner.calls.length;
+
+  await assert.rejects(
+    () => updateLocalN8nSidecarRuntime(
+      { confirmed: true },
+      { homeDirectory, env: {}, runProcess: runner },
+    ),
+    /drifted/u,
+  );
+
+  assert.equal(await readFile(runtimePath, "utf8"), `${publishedRuntime}\n// changed locally\n`);
+  assert.deepEqual(await readFile(join(installRoot, "Dockerfile")), dockerfileBefore);
+  assert.deepEqual(await readFile(join(installRoot, ".dockerignore")), dockerignoreBefore);
+  assert.deepEqual(await readFile(authPath), authBefore);
+  const updateCalls = runner.calls.slice(before);
+  assert.equal(updateCalls.some((call) => call.args.includes("build")), false);
+  assert.equal(updateCalls.some((call) => call.args.includes("--force-recreate")), false);
+  assert.equal(updateCalls.some((call) => call.args[0] === "image" && call.args[1] === "tag"), false);
+});
+
 test("runtime update restores files and image on build failure so retry succeeds", async (t) => {
   const homeDirectory = await createTestHome(t);
   const authPath = await createAuthFixture(homeDirectory);
@@ -1094,38 +1194,57 @@ test("runtime update restores files and image on build failure so retry succeeds
 });
 
 test("runtime update rolls back the prior image and files after start or verification failure", async (t) => {
-  for (const failure of ["start", "verify"]) {
-    await t.test(failure, async (subtest) => {
-      const homeDirectory = await createTestHome(subtest);
-      const authPath = await createAuthFixture(homeDirectory);
-      const runner = createRunner();
-      await installLocalN8nSidecar(
-        { plan: createPlan(), authPath, confirmed: true },
-        { homeDirectory, env: {}, runProcess: runner, randomBytes: () => Buffer.alloc(32, 0xdd) },
-      );
-      const installRoot = await resolveLocalN8nSidecarInstallRoot({ homeDirectory, env: {} });
-      const runtimePath = join(installRoot, "openai-oauth-sidecar.mjs");
-      await makeInstalledRuntimeLegacy(installRoot);
-      if (failure === "start") runner.failNextStart();
-      else runner.setVerifierCode(1);
-      const before = runner.calls.length;
+  for (const runtimeVariant of ["wrapperless legacy", "published v0.15.0"]) {
+    for (const failure of ["start", "verify"]) {
+      await t.test(`${runtimeVariant}: ${failure}`, async (subtest) => {
+        const homeDirectory = await createTestHome(subtest);
+        const authPath = await createAuthFixture(homeDirectory);
+        const runner = createRunner();
+        await installLocalN8nSidecar(
+          { plan: createPlan(), authPath, confirmed: true },
+          { homeDirectory, env: {}, runProcess: runner, randomBytes: () => Buffer.alloc(32, 0xdd) },
+        );
+        const installRoot = await resolveLocalN8nSidecarInstallRoot({ homeDirectory, env: {} });
+        const runtimePath = join(installRoot, "openai-oauth-sidecar.mjs");
+        if (runtimeVariant === "wrapperless legacy") {
+          await makeInstalledRuntimeLegacy(installRoot);
+        } else {
+          await makeInstalledRuntimeV0_15_0(installRoot);
+        }
+        const runtimeBefore = runtimeVariant === "wrapperless legacy"
+          ? null
+          : await readFile(runtimePath);
+        const dockerfileBefore = await readFile(join(installRoot, "Dockerfile"));
+        const dockerignoreBefore = await readFile(join(installRoot, ".dockerignore"));
+        const authBefore = await readFile(authPath);
+        if (failure === "start") runner.failNextStart();
+        else runner.setVerifierCode(1);
+        const before = runner.calls.length;
 
-      await assert.rejects(
-        () => updateLocalN8nSidecarRuntime(
-          { confirmed: true },
-          { homeDirectory, env: {}, runProcess: runner },
-        ),
-        /rolled back|restored|recovery/iu,
-      );
+        await assert.rejects(
+          () => updateLocalN8nSidecarRuntime(
+            { confirmed: true },
+            { homeDirectory, env: {}, runProcess: runner },
+          ),
+          /rolled back|restored|recovery/iu,
+        );
 
-      await assert.rejects(() => stat(runtimePath), /ENOENT/u);
-      assert.equal(await readFile(join(installRoot, "Dockerfile"), "utf8"), createLegacyDockerfile("d".repeat(32)));
-      const updateCalls = runner.calls.slice(before);
-      assert.ok(updateCalls.filter((call) => call.args.includes("--force-recreate")).length >= 2);
-      assert.ok(updateCalls.some((call) => call.args[0] === "image" && call.args[1] === "tag"));
-      assert.equal(updateCalls.some((call) => call.args.includes("down")), false);
-      assert.equal(updateCalls.some((call) => call.args.includes("credential-seed")), false);
-    });
+        if (runtimeBefore === null) {
+          await assert.rejects(() => stat(runtimePath), /ENOENT/u);
+        } else {
+          assert.deepEqual(await readFile(runtimePath), runtimeBefore);
+        }
+        assert.deepEqual(await readFile(authPath), authBefore);
+        assert.deepEqual(await readFile(join(installRoot, "Dockerfile")), dockerfileBefore);
+        assert.deepEqual(await readFile(join(installRoot, ".dockerignore")), dockerignoreBefore);
+        const updateCalls = runner.calls.slice(before);
+        assert.ok(updateCalls.filter((call) => call.args.includes("--force-recreate")).length >= 2);
+        assert.ok(updateCalls.some((call) => call.args[0] === "image" && call.args[1] === "tag"));
+        assert.equal(runner.hasRuntimeBackup(), false);
+        assert.equal(updateCalls.some((call) => call.args.includes("down")), false);
+        assert.equal(updateCalls.some((call) => call.args.includes("credential-seed")), false);
+      });
+    }
   }
 });
 

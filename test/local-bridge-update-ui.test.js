@@ -15,7 +15,8 @@ async function harness(response) {
   const busy = [];
   let invalidated = 0;
   const between = (start, end) => script.slice(script.indexOf(start), script.indexOf(end, script.indexOf(start) + start.length));
-  const code = between("function validateManagedBridgeUpdateResult", "\nfunction validateAssistantSearxngReview") + between('element("update-bridge-confirm").addEventListener', '\nelement("refresh-bridge-confirm").addEventListener');
+  const imageModels = between("const IMAGE_MODELS_FOR_N8N", "\nfunction renderInstallResult");
+  const code = imageModels + between("function validateManagedBridgeUpdateResult", "\nfunction validateAssistantSearxngReview") + between('element("update-bridge-confirm").addEventListener', '\nelement("refresh-bridge-confirm").addEventListener');
   runInNewContext(code, {
     element,
     hasExactKeys: (v, keys) => Boolean(v) && Object.keys(v).length === keys.length && keys.every((k) => Object.hasOwn(v, k)),
@@ -32,7 +33,7 @@ async function harness(response) {
   return { element, calls, errors, busy, invalidated: () => invalidated,
     click: () => element("update-bridge-button").handlers.click({ currentTarget: element("update-bridge-button") }) };
 }
-const valid = { target: "n8n-openai-oauth", runtimeUpdated: true, models: ["gpt-6-astra"], hostPublication: "none", n8nChanged: false };
+const valid = { target: "n8n-openai-oauth", runtimeUpdated: true, models: ["gpt-6-astra", "gpt-image-2.5-flare"], hostPublication: "none", n8nChanged: false };
 
 test("bridge runtime controls require a current managed dashboard action without requiring source sign-in", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
@@ -112,6 +113,8 @@ test("existing bridge update requires its own confirmation and no new sign-in", 
   assert.equal(h.element("update-bridge-confirm").checked, false);
   assert.equal(h.element("update-bridge-button").disabled, true);
   assert.match(h.element("update-bridge-status").textContent, /runtime updated.*Saved sign-in preserved; n8n unchanged/u);
+  assert.equal(h.element("update-image-models").hidden, false);
+  assert.equal(h.element("update-image-model-flare").textContent, "gpt-image-2.5-flare");
 });
 
 test("bridge update failures and malformed success do not claim completion", async () => {

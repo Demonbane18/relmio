@@ -47,7 +47,7 @@ test("the local wizard offers only OAuth-owned provider runtimes", async () => {
   ]);
 
   assert.match(html, /name="target" value="xai-grok-build" checked/u);
-  assert.ok(html.includes("<strong>SuperGrok</strong>") && html.includes("official SuperGrok sign-in") && html.includes("Chat Completions with tool calls"));
+  assert.ok(html.includes("<strong>Grok on this computer</strong>") && html.includes("official SuperGrok sign-in") && html.includes("Chat Completions"));
   for (const target of ["codex-chatgpt", "codex-chat", "n8n-openai-oauth", "n8n-supergrok-oauth", "n8n-ai-assistant", "local-n8n-stack"]) {
     assert.match(html, new RegExp(`name="target" value="${target}"`, "u"));
   }
@@ -101,7 +101,7 @@ test("the local wizard remains an accessible four-step page", async () => {
   assert.match(html, /<title>Relmio \| Local Endpoint Setup<\/title>/u);
   assert.match(
     html,
-    /value="n8n-openai-oauth"[\s\S]*supports Message a Model and GPT Image[\s\S]*generation\/editing[\s\S]*does not support audio, Classify Text for Violations[\s\S]*\(moderation\), file management, stored conversations, or video generation[\s\S]*do not enter its API key into[\s\S]*this\s+bridge/u,
+    /ChatGPT for n8n[\s\S]*Unofficial · private connection[\s\S]*Connection details and limits[\s\S]*supports Message a Model and GPT Image generation or editing[\s\S]*Audio, moderation, file management, stored conversations, and video generation are unavailable[\s\S]*never enter that API key into this bridge/u,
   );
   assert.match(html, /data-step-marker="1"[\s\S]*data-step-marker="4"/u);
   assert.match(html, /id="global-message"[^>]*role="status"/u);
@@ -199,4 +199,46 @@ test("the complete script renders a healthy OAuth inventory instead of falling b
   assert.equal(element("dashboard-runtime-health").textContent, "Healthy");
   assert.equal(element("dashboard-provider-readiness").textContent, "Provider-managed · not inspected");
   assert.notEqual(element("dashboard-last-checked").textContent, "Unavailable");
+});
+
+test("the local start screen leads with four everyday goals and keeps specialist routes available", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  const mainChoices = html.slice(
+    html.indexOf('<div class="main-connection-choices">'),
+    html.indexOf('<details id="more-connections-and-tools"'),
+  );
+  for (const [label, target] of [
+    ["ChatGPT for n8n", "n8n-openai-oauth"],
+    ["Grok for n8n", "n8n-supergrok-oauth"],
+    ["Set up new n8n", "local-n8n-stack"],
+    ["Grok on this computer", "xai-grok-build"],
+  ]) {
+    assert.match(mainChoices, new RegExp(`<strong>${label}</strong>[\\s\\S]*?value="${target}"|value="${target}"[\\s\\S]*?<strong>${label}</strong>`, "u"));
+  }
+  const advancedChoices = html.slice(
+    html.indexOf('<details id="more-connections-and-tools"'),
+    html.indexOf('<details class="setup-help connection-details">'),
+  );
+  assert.match(advancedChoices, /<summary>More connections and tools<\/summary>/u);
+  for (const target of ["codex-chatgpt", "codex-chat", "n8n-ai-assistant"]) {
+    assert.match(advancedChoices, new RegExp(`name="target" value="${target}"`, "u"));
+  }
+  assert.match(html, /<details class="setup-help connection-details">[\s\S]*Connection details and limits[\s\S]*ChatGPT for n8n/u);
+  assert.match(html, /Technical name: local port/u);
+  assert.match(html, /Technical name: Docker container/u);
+  assert.match(script, /const advancedTarget = codexChat \|\| state\.target === "codex-chatgpt" \|\| assistant;/u);
+  assert.match(script, /element\("more-connections-and-tools"\)\.open = true;/u);
+  assert.match(css, /\.main-connection-choices,[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);
+  assert.match(css, /\.target-card-icon[\s\S]*stroke: currentColor/u);
+  assert.equal((mainChoices.match(/class="target-option-details"/gu) ?? []).length, 4);
+  assert.equal((advancedChoices.match(/class="target-option-details"/gu) ?? []).length, 3);
+  assert.equal((html.match(/<summary aria-label="More details about [^"]+">More details<\/summary>/gu) ?? []).length, 7);
+  assert.match(mainChoices, /<span class="target-purpose">Use ChatGPT and image models in an n8n workflow\.<\/span>/u);
+  assert.match(css, /\.target-option-details summary[\s\S]*cursor: pointer/u);
+  assert.doesNotMatch(css, /\.main-choice:not\(:has\(input:checked\)\) \.target-description/u);
 });

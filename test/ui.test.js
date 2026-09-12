@@ -56,6 +56,29 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
     /class="rail"[\s\S]*<h1 id="page-title">[\s\S]*aria-label="Setup progress"[\s\S]*class="toast-stack"[\s\S]*<section class="panel" data-step="1"/u,
   );
   assert.match(html, /unofficial, private, and policy-uncertain/u);
+  assert.match(html, /Unofficial · private connection/u);
+  assert.match(html, /<h2 id="signin-title" tabindex="-1">Choose your setup<\/h2>/u);
+  assert.match(html, /<h1 id="page-title">Set up a private n8n connection<\/h1>/u);
+  assert.match(
+    html,
+    /id="openai-vps-route"[\s\S]*class="route-icon"[\s\S]*ChatGPT on my server/u,
+  );
+  assert.match(
+    html,
+    /id="vps-supergrok-start"[\s\S]*class="route-icon"[\s\S]*Grok on my server/u,
+  );
+  assert.match(
+    html,
+    /id="local-endpoint-link"[\s\S]*class="route-icon"[\s\S]*Set up on this computer/u,
+  );
+  assert.equal((html.match(/class="provider-route-details"/gu) ?? []).length, 3);
+  assert.equal((html.match(/<summary aria-label="More details about [^"]+">More details<\/summary>/gu) ?? []).length, 3);
+  assert.match(html, /ChatGPT on my server[\s\S]*Connect n8n on your server with your ChatGPT sign-in\.[\s\S]*<summary aria-label="More details about ChatGPT on my server">More details<\/summary>/u);
+  assert.match(html, /<summary>More details about this connection<\/summary>/u);
+  assert.match(html, /<summary>More details about the server check<\/summary>/u);
+  assert.match(html, /<span>Connection port<\/span>[\s\S]*Technical name: SSH port/u);
+  assert.match(html, /<h2 id="done-title" tabindex="-1">Connect n8n in three steps<\/h2>/u);
+  assert.match(html, /<h3 id="result-image-models-title">3\. Choose an image model<\/h3>/u);
   assert.match(
     html,
     /current ChatGPT sign-in bridge supports Message a Model and GPT Image generation\/editing[\s\S]*does not support audio, Classify Text for Violations \(moderation\), file management, stored conversations, or video generation[\s\S]*do not enter its API key into this bridge/u,
@@ -126,11 +149,11 @@ test("wizard HTML has accessible landmarks, labels, and no inline scripts", asyn
   );
   assert.match(
     html,
-    /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*AI Agent or Basic LLM Chain/u,
+    /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*OpenAI Chat Model[\s\S]*More details/u,
   );
   assert.match(
     html,
-    /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*HTTP Request node/u,
+    /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*More details: HTTP Request node/u,
   );
   assert.match(html, /<dt>Method<\/dt>[\s\S]*<code>POST<\/code>/u);
   assert.match(html, /Generic Auth Type[\s\S]*Bearer Auth/u);
@@ -374,6 +397,9 @@ test("failed VPS install returns to connection with an inspect-before-retry mess
       calls.push(["api", path]);
       throw new Error("model verification failed");
     },
+    renderImageModelsForN8n(models) {
+      calls.push(["image-models", models]);
+    },
   };
   vm.runInNewContext(script.slice(start, end), context, {
     filename: "vps-install-failure.vm.js",
@@ -467,6 +493,9 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
     showStep: (step) => calls.push(["step", step]),
     runOperation: async (_button, _label, work) => work(),
     api,
+    renderImageModelsForN8n(models) {
+      calls.push(["image-models", models]);
+    },
   };
   vm.runInNewContext(script.slice(start, end), context, {
     filename: "vps-install-auth-recovery.vm.js",

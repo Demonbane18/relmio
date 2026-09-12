@@ -1,1 +1,2 @@
 web/public/install.cmd text eol=crlf
+test/fixtures/openai-oauth-sidecar-v0.15.0.mjs text eol=lf

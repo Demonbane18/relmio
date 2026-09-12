@@ -18,7 +18,7 @@ Relmio helps self-hosted n8n and local apps use models through your own
 ChatGPT/Codex or SuperGrok sign-in. Each provider keeps its own private OAuth
 session. SuperGrok setup does not require or read ChatGPT credentials.
 
-Relmio 0.15.0 handles provider OAuth only. API-key connections belong directly
+Relmio handles provider OAuth only. API-key connections belong directly
 in n8n or the client that uses them.
 ChatGPT sign-in is not an OpenAI Platform API key.
 
@@ -144,6 +144,9 @@ provider change is required.
 
 ### Existing n8n model bridge
 
+Choose **ChatGPT for n8n** or **Grok for n8n** in the local wizard. Specialist
+Codex and Assistant tools remain under **More connections and tools**.
+
 Pick the connection that matches the provider account. The Responses API switch
 is provider-specific:
 
@@ -160,6 +163,17 @@ Base URL: http://n8n-openai-oauth:10531/v1
 API key: local-only
 Responses API: On
 ```
+
+**GPT Image 2.5.** New bridge installations include Flare and Sunburst in model
+discovery. For an existing owned bridge, use its browser **Update bridge runtime**
+action (local) or **Review bridge update** action (VPS) to receive the new catalog.
+In n8n's OpenAI node, choose **Image**, then **Generate an Image** or **Edit Image**.
+Select `gpt-image-2.5-flare` or `gpt-image-2.5-sunburst` from the model list; use
+**By ID** if your n8n version does not list it. `gpt-image-2` remains available.
+The generic `gpt-image-2.5` name is not a request ID. Start with low quality;
+exact output dimensions and every image option are not verified. Model discovery
+does not guarantee access for every account. Image models are separate from
+text chat, GPT-Live, Realtime, and audio support.
 
 **Current ChatGPT bridge limits.** OpenAI audio/TTS, transcription, and
 translation are unavailable through Relmio's current ChatGPT sign-in bridge in
@@ -207,6 +221,8 @@ path. Sign out with `relmio grok logout --n8n`. This
 companion publishes no host port.
 
 ### New local n8n + ngrok
+
+Choose **Set up new n8n** in the local wizard.
 
 Create a separate n8n stack when you do not have one yet. The wizard explains
 the ngrok domain, token, and Basic Auth fields. Only the new n8n route is
