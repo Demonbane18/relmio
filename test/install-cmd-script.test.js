@@ -188,7 +188,7 @@ async function createInstalledNodeEnvironment({ npxExitCode = 0 } = {}) {
 
 async function createPortableRuntime(
   root,
-  { hostileManifest = false, validChecksum = true } = {},
+  { hostileManifest = false, validChecksum = true, holdRuntime = false } = {},
 ) {
   const version = "v22.23.2";
   const archiveName = `node-${version}-win-x64.zip`;
@@ -205,7 +205,7 @@ async function createPortableRuntime(
   await writeFile(
     join(npmDirectory, "npx-cli.js"),
     `const { appendFileSync, writeFileSync } = require("node:fs");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 const log = process.env.RELMIO_TEST_LOG;
 writeFileSync(log, [process.argv[1], ...process.argv.slice(2)].join("\\n") + "\\n");
@@ -213,6 +213,7 @@ const child = spawnSync("node", ["--version"], { encoding: "utf8" });
 if (child.status !== 0) process.exit(child.status || 1);
 appendFileSync(log, "child-node-ok\\n");
 appendFileSync(log, "foreground=" + (process.env.RELMIO_FOREGROUND_WIZARD || "unset") + "\\n");
+${holdRuntime ? 'const held = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1500)"], { detached: true, stdio: "ignore" }); held.unref();' : ''}
 `,
     "utf8",
   );
@@ -244,7 +245,7 @@ appendFileSync(log, "foreground=" + (process.env.RELMIO_FOREGROUND_WIZARD || "un
 }
 
 async function createPortableEnvironment(
-  { hostileManifest = false, validChecksum = true } = {},
+  { hostileManifest = false, validChecksum = true, holdRuntime = false } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "relmio-install-cmd-portable-test-"));
   const system32 = join(root, "System32");
@@ -253,6 +254,7 @@ async function createPortableEnvironment(
   const fixture = await createPortableRuntime(root, {
     hostileManifest,
     validChecksum,
+    holdRuntime,
   });
   const wrapper = await buildNativeToolWrapper(root);
   const oldNode = join(root, "installed-node.exe");
@@ -493,6 +495,18 @@ test(
     assert.deepEqual(tools.slice(0, 2), ["curl", "certutil"]);
     assert.equal(tools.length, 3);
     assert.match(tools[2], /^tar -xf .*node-v22\.23\.2-win-x64\.zip -C /u);
+    assert.deepEqual(await readdir(setup.temporaryDirectory), []);
+  },
+);
+
+test(
+  "CMD installer removes the temporary runtime after a short-lived descendant exits",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const setup = await createPortableEnvironment({ holdRuntime: true });
+    t.after(() => rm(setup.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 }));
+
+    await runCmdInstaller(setup.env, setup.fixtureInstallScript);
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
   },
 );
