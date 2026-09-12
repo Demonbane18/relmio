@@ -278,6 +278,8 @@ async function createPortableEnvironment(
     productionInstallScript
       .replace(/\r?\n/gu, "\r\n")
       .replace(system32Assignment, `set "RELMIO_SYSTEM32=${system32}"`)
+      .replace('rmdir /s /q "%RELMIO_TEMPORARY_DIRECTORY%" >nul 2>&1',
+        'rmdir /s /q "%RELMIO_TEMPORARY_DIRECTORY%"')
       .replace(
         findstrAssignment,
         `set "RELMIO_FINDSTR=${join(process.env.SystemRoot, "System32", "findstr.exe")}"`,
@@ -472,7 +474,7 @@ test(
     const setup = await createPortableEnvironment();
     t.after(() => rm(setup.root, { recursive: true, force: true }));
 
-    const { stdout } = await runCmdInstaller(
+    const { stdout, stderr } = await runCmdInstaller(
       setup.env,
       setup.fixtureInstallScript,
     );
@@ -493,7 +495,14 @@ test(
     assert.deepEqual(tools.slice(0, 2), ["curl", "certutil"]);
     assert.equal(tools.length, 3);
     assert.match(tools[2], /^tar -xf .*node-v22\.23\.2-win-x64\.zip -C /u);
-    assert.deepEqual(await readdir(setup.temporaryDirectory), []);
+    const leftovers = await readdir(setup.temporaryDirectory);
+    if (leftovers.length > 0) {
+      t.diagnostic(JSON.stringify({
+        cleanupStderr: stderr,
+        remainingPaths: await readdir(setup.temporaryDirectory, { recursive: true }),
+      }));
+    }
+    assert.deepEqual(leftovers, []);
   },
 );
 
