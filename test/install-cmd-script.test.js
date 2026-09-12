@@ -278,8 +278,6 @@ async function createPortableEnvironment(
     productionInstallScript
       .replace(/\r?\n/gu, "\r\n")
       .replace(system32Assignment, `set "RELMIO_SYSTEM32=${system32}"`)
-      .replace('rmdir /s /q "%RELMIO_TEMPORARY_DIRECTORY%" >nul 2>&1',
-        'rmdir /s /q "%RELMIO_TEMPORARY_DIRECTORY%"')
       .replace(
         findstrAssignment,
         `set "RELMIO_FINDSTR=${join(process.env.SystemRoot, "System32", "findstr.exe")}"`,
@@ -497,10 +495,17 @@ test(
     assert.match(tools[2], /^tar -xf .*node-v22\.23\.2-win-x64\.zip -C /u);
     const leftovers = await readdir(setup.temporaryDirectory);
     if (leftovers.length > 0) {
-      t.diagnostic(JSON.stringify({
-        cleanupStderr: stderr,
-        remainingPaths: await readdir(setup.temporaryDirectory, { recursive: true }),
-      }));
+      const remainingPaths = await readdir(setup.temporaryDirectory, { recursive: true });
+      let retry;
+      try {
+        await execFileAsync(process.env.ComSpec || "cmd.exe", [
+          "/d", "/c", `rmdir /s /q "${setup.temporaryDirectory}"`,
+        ]);
+        retry = { result: "removed after original cleanup failed" };
+      } catch (error) {
+        retry = { code: error.code, stderr: error.stderr };
+      }
+      t.diagnostic(JSON.stringify({ cleanupStderr: stderr, remainingPaths, retry }));
     }
     assert.deepEqual(leftovers, []);
   },
