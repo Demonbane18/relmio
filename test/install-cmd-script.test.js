@@ -188,7 +188,7 @@ async function createInstalledNodeEnvironment({ npxExitCode = 0 } = {}) {
 
 async function createPortableRuntime(
   root,
-  { hostileManifest = false, validChecksum = true, holdRuntime = false } = {},
+  { hostileManifest = false, validChecksum = true, runtimeHoldMs = 0, runtimeExitCode = 0 } = {},
 ) {
   const version = "v22.23.2";
   const archiveName = `node-${version}-win-x64.zip`;
@@ -213,7 +213,8 @@ const child = spawnSync("node", ["--version"], { encoding: "utf8" });
 if (child.status !== 0) process.exit(child.status || 1);
 appendFileSync(log, "child-node-ok\\n");
 appendFileSync(log, "foreground=" + (process.env.RELMIO_FOREGROUND_WIZARD || "unset") + "\\n");
-${holdRuntime ? 'const held = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1500)"], { detached: true, stdio: "ignore" }); held.unref();' : ''}
+${runtimeHoldMs ? `const held = spawn(process.execPath, ["-e", "${runtimeHoldMs < 0 ? 'setInterval(() => {}, 1000)' : `setTimeout(() => {}, ${runtimeHoldMs})`}"], { detached: true, stdio: "ignore" }); writeFileSync(log + ".pid", String(held.pid)); held.unref();` : ''}
+process.exitCode = ${runtimeExitCode};
 `,
     "utf8",
   );
@@ -245,7 +246,7 @@ ${holdRuntime ? 'const held = spawn(process.execPath, ["-e", "setTimeout(() => {
 }
 
 async function createPortableEnvironment(
-  { hostileManifest = false, validChecksum = true, holdRuntime = false } = {},
+  { hostileManifest = false, validChecksum = true, runtimeHoldMs = 0, runtimeExitCode = 0 } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "relmio-install-cmd-portable-test-"));
   const system32 = join(root, "System32");
@@ -254,7 +255,8 @@ async function createPortableEnvironment(
   const fixture = await createPortableRuntime(root, {
     hostileManifest,
     validChecksum,
-    holdRuntime,
+    runtimeHoldMs,
+    runtimeExitCode,
   });
   const wrapper = await buildNativeToolWrapper(root);
   const oldNode = join(root, "installed-node.exe");
@@ -503,13 +505,36 @@ test(
   "CMD installer removes the temporary runtime after a short-lived descendant exits",
   { skip: process.platform !== "win32" },
   async (t) => {
-    const setup = await createPortableEnvironment({ holdRuntime: true });
+    const setup = await createPortableEnvironment({ runtimeHoldMs: 1500 });
     t.after(() => rm(setup.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 }));
 
     await runCmdInstaller(setup.env, setup.fixtureInstallScript);
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
   },
 );
+
+for (const runtimeExitCode of [0, 7]) {
+  test(
+    `CMD installer reports persistent cleanup failure and preserves child status ${runtimeExitCode}`,
+    { skip: process.platform !== "win32" },
+    async (t) => {
+      const setup = await createPortableEnvironment({ runtimeHoldMs: -1, runtimeExitCode });
+      t.after(async () => {
+        const heldPid = Number(await readFile(setup.fixture.log + ".pid", "utf8"));
+        assert.ok(Number.isInteger(heldPid) && heldPid > 0);
+        process.kill(heldPid);
+        await rm(setup.root, { recursive: true, force: true, maxRetries: 20, retryDelay: 200 });
+      });
+
+      await assert.rejects(runCmdInstaller(setup.env, setup.fixtureInstallScript), (error) => {
+        assert.equal(error.code, runtimeExitCode || 1);
+        assert.match(error.stderr, /Could not remove the temporary Node\.js runtime/u);
+        return true;
+      });
+      assert.notDeepEqual(await readdir(setup.temporaryDirectory), []);
+    },
+  );
+}
 
 test(
   "CMD installer rejects a bad checksum before extraction or Relmio execution",

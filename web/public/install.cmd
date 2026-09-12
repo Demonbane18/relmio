@@ -6,13 +6,26 @@ call :main
 set "RELMIO_EXIT_CODE=%errorlevel%"
 
 :cleanup
-if defined RELMIO_TEMPORARY_DIRECTORY if exist "%RELMIO_TEMPORARY_DIRECTORY%\" (
-  rmdir /s /q "%RELMIO_TEMPORARY_DIRECTORY%" >nul 2>&1
-)
+if defined RELMIO_TEMPORARY_DIRECTORY if exist "%RELMIO_TEMPORARY_DIRECTORY%\" call :cleanup_runtime
 if defined RELMIO_SELF_DELETE if /i "%RELMIO_SELF_DELETE%"=="%~f0" (
   start "" /b "%ComSpec%" /d /q /c ""%SystemRoot%\System32\ping.exe" 127.0.0.1 -n 2 >nul 2>&1 & del /q ^"%~f0^" >nul 2>&1"
 )
 endlocal & exit /b %RELMIO_EXIT_CODE%
+
+rem A just-exited process can briefly keep its executable image in use on Windows.
+:cleanup_runtime
+set "RELMIO_CLEANUP_ATTEMPTS=0"
+:cleanup_runtime_retry
+rmdir /s /q "%RELMIO_TEMPORARY_DIRECTORY%" >nul 2>&1
+if not exist "%RELMIO_TEMPORARY_DIRECTORY%\" exit /b 0
+set /a RELMIO_CLEANUP_ATTEMPTS+=1 >nul
+if "%RELMIO_CLEANUP_ATTEMPTS%"=="5" (
+  call :failure "Could not remove the temporary Node.js runtime. Close processes using it and clean up the temporary directory."
+  if "%RELMIO_EXIT_CODE%"=="0" set "RELMIO_EXIT_CODE=1"
+  exit /b 1
+)
+"%SystemRoot%\System32\ping.exe" 127.0.0.1 -n 2 >nul 2>&1
+goto :cleanup_runtime_retry
 
 :main
 set "RELMIO_MINIMUM_NODE_MAJOR=22"
