@@ -293,6 +293,24 @@ the sizes and hashes. The requests specified 1024x1024, so the returned dimensio
 did not match the requested size; this experiment does not establish size-option
 conformance. The GUI picker and browser-driven execution remain unverified.
 
+A follow-up size trace used the actual installed n8n generation and edit
+`execute` functions with an HTTP capture stub. All four calls, covering both
+2.5 variants, forwarded `1024x1024` unchanged. A separate injected-fetch check
+of the pinned bridge preserved that size in six generation/edit calls covering
+Image 2 and both 2.5 variants. The bridge also returned the supplied base64
+unchanged. The installed n8n operations decode the returned base64 into binary
+data and do not resize or enforce dimensions. These checks made no provider
+requests. Their records are `size-forwarding-native.json` and
+`size-forwarding-bridge.json` in the native evidence directory above.
+
+The experimental discovery change does not modify this existing image request
+or byte-return path. The local source and injected checks therefore show no
+size rewriting by n8n or this adapter. They are not captures of the successful
+live requests on the wire. The cause of the live 1254x1254 result remains
+unknown, so it cannot be conclusively attributed to a particular upstream
+component. Exact-size support remains unverified; generation and editing
+feasibility should not be read as full image-option conformance.
+
 Universal account entitlement, provider retention, the actual OAuth grant, and
 policy eligibility remain unknown. They do not undo the bounded current-account
 route acceptance, but they limit any broader support or compliance claim.
