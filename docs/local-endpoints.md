@@ -1,6 +1,6 @@
 # Local Docker endpoints
 
-Relmio 0.14.0 installs isolated provider runtimes for local apps and private
+Relmio installs isolated provider runtimes for local apps and private
 companions for n8n. SuperGrok is a first-class local and VPS option with its own
 official device sign-in. It does not require or read ChatGPT credentials. The
 adapter remains experimental. Its seven dashboard services keep the three local
@@ -8,13 +8,13 @@ OAuth endpoints separate from the four n8n and support options.
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|
-| **Codex with ChatGPT: agent clients** | Official Codex App Server JSON-RPC over WebSocket | ChatGPT sign-in through Codex | A trusted native Codex/App Server client owned by the same person |
-| **Codex Chat Adapter: development backends** | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in through Codex | A trusted local backend or development server owned by the same person |
-| **SuperGrok: development backends** | Loopback `/v1/chat/completions` and simple `POST /chat` | Fresh OAuth/device sign-in through the official Grok CLI | A trusted local backend or development server owned by the same person |
-| **Self-hosted n8n bridge** | Private `http://n8n-openai-oauth:10531/v1` on one existing Docker network | Local ChatGPT OAuth copied into a private sidecar volume | Only the selected self-hosted n8n deployment |
-| **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` on one existing Docker network | Separate fresh Grok OAuth session and one-time local bearer | Only the selected local or VPS n8n deployment |
+| **Codex App Server** | Official Codex App Server JSON-RPC over WebSocket | ChatGPT sign-in through Codex | A trusted native Codex/App Server client owned by the same person |
+| **Codex Chat Adapter** | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in through Codex | A trusted local backend or development server owned by the same person |
+| **Grok on this computer** | Loopback `/v1/chat/completions` and simple `POST /chat` | Fresh OAuth/device sign-in through the official Grok CLI | A trusted local backend or development server owned by the same person |
+| **ChatGPT for n8n** | Private `http://n8n-openai-oauth:10531/v1` on one existing Docker network | Local ChatGPT OAuth copied into a private sidecar volume | Only the selected self-hosted n8n deployment |
+| **Grok for n8n** | Private `http://n8n-supergrok:14502/v1` on one existing Docker network | Separate fresh Grok OAuth session and one-time local bearer | Only the selected local or VPS n8n deployment |
 | **n8n AI Assistant tools** | Private Code Sandbox plus optional SearXNG JSON search on one existing Docker network | A generated sandbox key shown once; model-provider credentials stay in n8n | Only the selected self-hosted n8n deployment |
-| **New local n8n + ngrok** | A new owned n8n stack with loopback access and a Basic-Auth-protected public ngrok route | n8n credentials stay in its owned data volume; ngrok uses an operator-supplied token | A new disposable local n8n installation and its webhooks |
+| **Set up new n8n** | A new owned n8n stack with loopback access and a Basic-Auth-protected public ngrok route | n8n credentials stay in its owned data volume; ngrok uses an operator-supplied token | A new disposable local n8n installation and its webhooks |
 
 Relmio does not exchange or translate a ChatGPT OAuth/session credential into
 an OpenAI-compatible `/v1` bearer credential. The native Codex option keeps
@@ -117,8 +117,10 @@ project on the local computer.
 2. Relmio opens the local dashboard through an owner-only, single-use browser
    handoff. If it does not open, press Enter in the active foreground terminal
    or run `relmio open` from a persistent install. Then select **Add connection**.
-3. Choose a Codex endpoint, **SuperGrok**, **Self-hosted
-   n8n bridge**, **n8n AI Assistant tools**, or **New local n8n + ngrok**.
+3. Choose **ChatGPT for n8n**, **Grok for n8n**, **Set up new n8n**, or
+   **Grok on this computer**. Open **More connections and tools** for Codex
+   endpoints and **n8n AI Assistant tools**. Expand **Connection details and
+   limits** when you need the technical explanation.
 4. For a local endpoint, choose an unused loopback port. For the ChatGPT n8n
    bridge, sign in locally and select the running n8n container and its Docker
    network. Assistant tools include Code Sandbox and optional SearXNG, off by
@@ -729,7 +731,7 @@ an explicit sign-out and fresh sign-in.
 
 ## Private SuperGrok companion for existing n8n
 
-The experimental **SuperGrok for n8n** connection installs a separate owned
+The experimental **Grok for n8n** connection installs a separate owned
 companion on one selected n8n Docker network. It publishes no host port and
 keeps its fresh official login in its own volume. The plan does not read or
 import a ChatGPT session.
@@ -784,3 +786,23 @@ The command starts official device sign-in in the companion's managed
 runtime. Use `relmio grok logout --n8n` for explicit sign-out. A healthy runtime
 alone does not prove that its account is signed in. Removal requires its own
 confirmation and affects only the attested companion resources.
+
+## GPT Image 2.5 in n8n
+
+A new OpenAI OAuth bridge includes `gpt-image-2.5-flare` and
+`gpt-image-2.5-sunburst` in model discovery. For an existing managed bridge,
+use its reviewed browser runtime-update action to install the current adapter;
+upgrading only the Relmio dashboard does not update an already running bridge.
+The local update preserves its saved sign-in. A VPS update follows its separate
+reviewed sign-in upload flow. Both paths leave n8n unchanged.
+
+The completion screen shows image IDs from the verified model response. In
+n8n's OpenAI node, select **Image**, then **Generate an Image** or **Edit Image**,
+and pick the exact model from the list. Use **By ID** when needed by your n8n
+version. Existing `gpt-image-2` remains available. Do not use the generic
+`gpt-image-2.5` as a model ID or select an image model for a text-chat recipe.
+
+Both variants passed bounded generation and editing tests. Exact output
+size and all options remain unverified; begin with low quality. Discovery is
+not a promise of account entitlement. Live, Realtime and audio are separate
+capabilities and remain unsupported through this bridge.

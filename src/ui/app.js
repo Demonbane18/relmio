@@ -201,6 +201,33 @@ function renderHttpRequestBody(model) {
   );
 }
 
+const IMAGE_MODELS_FOR_N8N = Object.freeze([
+  Object.freeze({
+    id: "gpt-image-2",
+    key: "2",
+  }),
+  Object.freeze({
+    id: "gpt-image-2.5-flare",
+    key: "flare",
+  }),
+  Object.freeze({
+    id: "gpt-image-2.5-sunburst",
+    key: "sunburst",
+  }),
+]);
+
+function renderImageModelsForN8n(models) {
+  const modelIds = new Set(Array.isArray(models) ? models : []);
+  let hasImageModel = false;
+  for (const { id, key } of IMAGE_MODELS_FOR_N8N) {
+    const available = modelIds.has(id);
+    element(`result-image-model-${key}`).textContent = available ? id : "";
+    element(`result-image-model-${key}-row`).hidden = !available;
+    hasImageModel ||= available;
+  }
+  element("result-image-models").hidden = !hasImageModel;
+}
+
 function copyCredentialSettings() {
   return [
     `Base URL: ${element("result-url").textContent}`,
@@ -1673,12 +1700,15 @@ element("install-button").addEventListener("click", async (event) => {
     if (!assistant) {
       element("result-url").textContent = result.baseUrl;
       element("result-key").textContent = result.apiKeyPlaceholder;
-      const firstModel = result.models[0] ?? "Not detected";
-      element("result-model").textContent = firstModel;
+      const firstTextModel = result.models.find(
+        (model) => !model.startsWith("gpt-image"),
+      ) ?? "Not detected";
+      element("result-model").textContent = firstTextModel;
       element("result-models").textContent = result.models.join(", ");
       element("result-http-url").textContent =
         `${result.baseUrl.replace(/\/$/u, "")}/chat/completions`;
-      renderHttpRequestBody(firstModel);
+      renderHttpRequestBody(firstTextModel);
+      renderImageModelsForN8n(result.models);
     }
     const assistantResult = assistant ? renderAssistantResult(result) : null;
     element("done-title").textContent = assistant
@@ -1708,6 +1738,7 @@ element("install-button").addEventListener("click", async (event) => {
     );
   } catch (error) {
     invalidateReviewedPlan();
+    if (!assistant) renderImageModelsForN8n([]);
     if (error.recoveryAction === "refresh-chatgpt-sign-in") {
       clearEndedVpsConnectionState();
       showStep(1);

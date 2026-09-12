@@ -489,106 +489,100 @@
 
         <form id="target-form">
           <fieldset class="target-picker">
-            <legend>Choose your connection</legend>
+            <legend>What would you like to do?</legend>
 
-            <label class="target-card warning-card">
-              <input type="radio" name="target" value="xai-grok-build" checked />
-              <span class="target-card-copy">
-                <strong>SuperGrok</strong>
-                <span class="target-meta">Experimental · trusted local clients only</span>
-                <span class="target-description">
-                  Use official SuperGrok sign-in for local apps and n8n Assistant
-                  through private Chat Completions with tool calls.
+            <div class="main-connection-choices">
+              <label class="target-card main-choice warning-card">
+                <input type="radio" name="target" value="n8n-openai-oauth" />
+                <svg class="target-card-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 6.5h14v9H9l-4 3v-12Z"></path><path d="M8 10h8m-8 3h5"></path></svg>
+                <span class="target-card-copy">
+                  <strong>ChatGPT for n8n</strong>
+                  <span class="target-meta">Unofficial · private connection</span>
+                  <span class="target-purpose">Use ChatGPT and supported image models in an n8n workflow</span>
+                  <span class="target-description">Connect an existing n8n container through a private Relmio bridge.</span>
                 </span>
-              </span>
-            </label>
+              </label>
 
-            <label class="target-card warning-card">
-              <input type="radio" name="target" value="codex-chatgpt" />
-              <span class="target-card-copy">
-                <strong>Codex App Server</strong>
-                <span class="target-meta">Experimental · trusted native apps only</span>
-                <span class="target-description">
-                  Official Codex JSON-RPC over WebSocket, using ChatGPT sign-in.
-                  This is not an OpenAI-compatible <code>/v1</code> endpoint and
-                  browsers cannot connect directly. Codex App Server WebSocket is experimental and unsupported for production workloads.
+              <label class="target-card main-choice warning-card">
+                <input type="radio" name="target" value="n8n-supergrok-oauth" />
+                <svg class="target-card-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="7" cy="12" r="2"></circle><circle cx="17" cy="7" r="2"></circle><circle cx="17" cy="17" r="2"></circle><path d="m8.8 11 6.4-3m-6.4 5 6.4 3"></path></svg>
+                <span class="target-card-copy">
+                  <strong>Grok for n8n</strong>
+                  <span class="target-meta">Private connection · official sign-in</span>
+                  <span class="target-purpose">Use your SuperGrok sign-in in an n8n workflow</span>
+                  <span class="target-description">Add a private companion beside an existing n8n container.</span>
                 </span>
-              </span>
-            </label>
+              </label>
 
-            <label class="target-card warning-card">
-              <input type="radio" name="target" value="codex-chat" />
-              <span class="target-card-copy">
-                <strong>Codex Chat Adapter</strong>
-                <span class="target-meta">Experimental · trusted local backends or development servers only</span>
-                <span class="target-description">
-                  Relmio-specific authenticated <code>POST /chat</code>, backed by
-                  official Codex App Server and ChatGPT sign-in. This is not an
-                  OpenAI-compatible <code>/v1</code> endpoint and browser bundles
-                  must never connect to it.
+              <label class="target-card main-choice warning-card">
+                <input type="radio" name="target" value="local-n8n-stack" />
+                <svg class="target-card-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M8 9h8M8 13h3m5 0h.01"></path></svg>
+                <span class="target-card-copy">
+                  <strong>Set up new n8n</strong>
+                  <span class="target-meta">New private stack · protected public link</span>
+                  <span class="target-purpose">Create a separate local n8n with a protected ngrok link</span>
+                  <span class="target-description">Relmio creates its own stack and leaves existing n8n installations alone.</span>
                 </span>
-              </span>
-            </label>
+              </label>
 
-            <label class="target-card warning-card">
-              <input type="radio" name="target" value="n8n-openai-oauth" />
-              <span class="target-card-copy">
-                <strong>Existing n8n model bridge</strong>
-                <span class="target-meta">Unofficial · private · policy-uncertain</span>
-                <span class="target-description">
-                  Connects an existing n8n container to supported ChatGPT/Codex models with the
-                  unofficial <code>openai-oauth</code> sidecar. It is private to a shared Docker
-                  network. There is no host port. It supports Message a Model and GPT Image
-                  generation/editing. It does not support audio, Classify Text for Violations
-                  (moderation), file management, stored conversations, or video generation. Use a separate OpenAI
-                  Platform connection for those n8n actions; do not enter its API key into this
-                  bridge. Check OpenAI policy before using it.
+              <label class="target-card main-choice warning-card">
+                <input type="radio" name="target" value="xai-grok-build" checked />
+                <svg class="target-card-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="4" width="14" height="16" rx="2"></rect><path d="M9 8h6M9 12h6M9 16h3"></path></svg>
+                <span class="target-card-copy">
+                  <strong>Grok on this computer</strong>
+                  <span class="target-meta">Experimental · trusted local apps</span>
+                  <span class="target-purpose">Use your SuperGrok sign-in for a local endpoint</span>
+                  <span class="target-description">Use official SuperGrok sign-in for a local endpoint and n8n Assistant tool calls.</span>
                 </span>
-              </span>
-            </label>
+              </label>
+            </div>
 
-            <label class="target-card warning-card">
-              <input type="radio" name="target" value="n8n-ai-assistant" />
-              <span class="target-card-copy">
-                <strong>n8n AI Assistant tools</strong>
-                <span class="target-meta">Code Sandbox + optional SearXNG</span>
-                <span class="target-description">
-                  Installs the private n8n Code Sandbox support services beside
-                  an existing local n8n container. Optionally add SearXNG JSON
-                  web search. Relmio never edits or restarts n8n itself.
-                </span>
-              </span>
-            </label>
+            <details id="more-connections-and-tools" class="more-connections">
+              <summary>More connections and tools</summary>
+              <p>These options are for a specific technical setup. They use the same careful review before anything changes.</p>
+              <div class="advanced-connection-choices">
+                <label class="target-card warning-card">
+                  <input type="radio" name="target" value="codex-chatgpt" />
+                  <span class="target-card-copy">
+                    <strong>Codex App Server</strong>
+                    <span class="target-meta">Experimental · for trusted native apps</span>
+                    <span class="target-description">Connect a native app through your ChatGPT sign-in.</span>
+                  </span>
+                </label>
 
-            <label class="target-card warning-card">
-              <input type="radio" name="target" value="local-n8n-stack" />
-              <span class="target-card-copy">
-                <strong>New local n8n + ngrok</strong>
-                <span class="target-meta">Relmio-owned add-on · mandatory Basic Auth</span>
-                <span class="target-description">
-                  Creates a separate local n8n stack and an ngrok link protected by Basic Auth.
-                  It never changes an existing n8n deployment.
-                </span>
-              </span>
-            </label>
+                <label class="target-card warning-card">
+                  <input type="radio" name="target" value="codex-chat" />
+                  <span class="target-card-copy">
+                    <strong>Codex Chat Adapter</strong>
+                    <span class="target-meta">Experimental · for trusted local backends</span>
+                    <span class="target-description">Connect a local backend through your ChatGPT sign-in.</span>
+                  </span>
+                </label>
 
-            <label class="target-card warning-card">
-              <input type="radio" name="target" value="n8n-supergrok-oauth" />
-              <span class="target-card-copy">
-                <strong>SuperGrok for n8n</strong>
-                <span class="target-meta">Private Docker network · existing n8n stays operator-owned</span>
-                <span class="target-description">
-                  Adds a private Chat Completions sidecar to a selected existing n8n
-                  network. Sign in only with the official SuperGrok CLI; no API key
-                  or provider token is entered here.
-                </span>
-              </span>
-            </label>
+                <label class="target-card warning-card">
+                  <input type="radio" name="target" value="n8n-ai-assistant" />
+                  <span class="target-card-copy">
+                    <strong>n8n AI Assistant tools</strong>
+                    <span class="target-meta">Code Sandbox, with optional SearXNG search</span>
+                    <span class="target-description">Add Relmio support tools beside an existing local n8n container.</span>
+                  </span>
+                </label>
+              </div>
+            </details>
           </fieldset>
+
+          <details class="setup-help connection-details">
+            <summary>Connection details and limits</summary>
+            <p><strong>ChatGPT for n8n</strong> is unofficial, private, and policy-uncertain. It uses an <code>openai-oauth</code> sidecar on the shared Docker network, with no host port. It supports Message a Model and GPT Image generation or editing. Audio, moderation, file management, stored conversations, and video generation are unavailable. Use a separate OpenAI Platform connection for those actions; never enter that API key into this bridge.</p>
+            <p><strong>Grok for n8n</strong> uses only official SuperGrok CLI sign-in. It adds a private Chat Completions companion to the selected n8n network; no provider token or API key is entered here.</p>
+            <p><strong>Codex App Server</strong> is a ChatGPT-signed-in JSON-RPC WebSocket for trusted native apps. It is experimental, is not an OpenAI-compatible <code>/v1</code> endpoint, and browsers cannot connect directly.</p>
+            <p><strong>Codex Chat Adapter</strong> is a Relmio-specific authenticated <code>POST /chat</code> endpoint for a trusted local backend or development server. It is experimental, is not <code>/v1</code>, and browser bundles must never connect directly.</p>
+            <p><strong>n8n AI Assistant tools</strong> install private Code Sandbox support services beside existing local n8n and can add SearXNG JSON web search. Relmio never edits or restarts n8n itself.</p>
+          </details>
 
           <div id="endpoint-fields" class="field-grid local-fields">
             <label class="field compact">
-              <span>Local port</span>
+              <span>Port for this local connection</span>
               <input
                 id="local-port"
                 name="port"
@@ -598,7 +592,7 @@
                 value="12435"
                 required
               />
-              <small>Published only on <code>127.0.0.1</code>.</small>
+              <small>Technical name: local port. Published only on <code>127.0.0.1</code>.</small>
             </label>
           </div>
 
@@ -609,7 +603,7 @@
             hidden
           >
             <div class="section-heading">
-              <h3 id="n8n-sidecar-fields-title">Choose the existing n8n boundary</h3>
+              <h3 id="n8n-sidecar-fields-title">Choose your n8n connection</h3>
               <p>
                 Discovery is read-only. Relmio will not edit, exec into, rebuild,
                 restart, stop, recreate, or change network membership on the
@@ -619,7 +613,7 @@
 
             <div class="field-grid sidecar-selects">
               <label class="field" for="n8n-container">
-                <span>Running n8n container</span>
+                <span>n8n container</span>
                 <select
                   id="n8n-container"
                   name="n8nContainerId"
@@ -627,12 +621,12 @@
                   disabled
                 ></select>
                 <small id="n8n-container-help">
-                  Only running containers identified as n8n are listed.
+                  Technical name: Docker container. Only running containers identified as n8n are listed.
                 </small>
               </label>
 
               <label class="field" for="n8n-network">
-                <span>Shared private Docker network</span>
+                <span>Private Docker network</span>
                 <select
                   id="n8n-network"
                   name="dockerNetworkId"
@@ -640,7 +634,7 @@
                   disabled
                 ></select>
                 <small id="n8n-network-help">
-                  The sidecar joins this existing network without changing n8n.
+                  Technical name: Docker network. The companion joins it without changing n8n.
                 </small>
               </label>
             </div>
@@ -720,6 +714,24 @@
                 <button id="update-bridge-button" class="button secondary" type="button" disabled>Update bridge runtime</button>
                 <p id="update-bridge-status" role="status" aria-live="polite">Confirm to update the bridge installed on this computer. No new sign-in is needed.</p>
               </div>
+              <section id="update-image-models" class="model-box" aria-labelledby="update-image-models-title" hidden>
+                <h4 id="update-image-models-title">Image models for n8n</h4>
+                <p>In n8n Image Generate or Edit, choose From list. If a current n8n picker does not show one, choose By ID and paste its exact ID.</p>
+                <dl class="result-list">
+                  <div id="update-image-model-2-row" hidden>
+                    <dt>GPT Image 2</dt>
+                    <dd class="result-value"><code id="update-image-model-2"></code><button class="button secondary copy-value" type="button" data-copy-target="update-image-model-2" data-copy-label="GPT Image 2 model ID" aria-label="Copy GPT Image 2 model ID" title="Copy GPT Image 2 model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+                  </div>
+                  <div id="update-image-model-flare-row" hidden>
+                    <dt>GPT Image 2.5 Flare</dt>
+                    <dd class="result-value"><code id="update-image-model-flare"></code><button class="button secondary copy-value" type="button" data-copy-target="update-image-model-flare" data-copy-label="GPT Image 2.5 Flare model ID" aria-label="Copy GPT Image 2.5 Flare model ID" title="Copy GPT Image 2.5 Flare model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+                  </div>
+                  <div id="update-image-model-sunburst-row" hidden>
+                    <dt>GPT Image 2.5 Sunburst</dt>
+                    <dd class="result-value"><code id="update-image-model-sunburst"></code><button class="button secondary copy-value" type="button" data-copy-target="update-image-model-sunburst" data-copy-label="GPT Image 2.5 Sunburst model ID" aria-label="Copy GPT Image 2.5 Sunburst model ID" title="Copy GPT Image 2.5 Sunburst model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+                  </div>
+                </dl>
+              </section>
             </section>
 
             <section
@@ -1225,6 +1237,25 @@
             </dd>
           </div>
         </dl>
+
+        <section id="result-image-models" class="model-box" aria-labelledby="result-image-models-title" hidden>
+          <h3 id="result-image-models-title">Image models for n8n</h3>
+          <p>In n8n Image Generate or Edit, choose From list. If a current n8n picker does not show one, choose By ID and paste its exact ID.</p>
+          <dl class="result-list">
+            <div id="result-image-model-2-row" hidden>
+              <dt>GPT Image 2</dt>
+              <dd class="result-value"><code id="result-image-model-2"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-2" data-copy-label="GPT Image 2 model ID" aria-label="Copy GPT Image 2 model ID" title="Copy GPT Image 2 model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+            </div>
+            <div id="result-image-model-flare-row" hidden>
+              <dt>GPT Image 2.5 Flare</dt>
+              <dd class="result-value"><code id="result-image-model-flare"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-flare" data-copy-label="GPT Image 2.5 Flare model ID" aria-label="Copy GPT Image 2.5 Flare model ID" title="Copy GPT Image 2.5 Flare model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+            </div>
+            <div id="result-image-model-sunburst-row" hidden>
+              <dt>GPT Image 2.5 Sunburst</dt>
+              <dd class="result-value"><code id="result-image-model-sunburst"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-sunburst" data-copy-label="GPT Image 2.5 Sunburst model ID" aria-label="Copy GPT Image 2.5 Sunburst model ID" title="Copy GPT Image 2.5 Sunburst model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+            </div>
+          </dl>
+        </section>
 
         <aside id="codex-production-warning" class="high-trust-warning" hidden>
           <strong id="codex-production-warning-title">Experimental Codex integration</strong>

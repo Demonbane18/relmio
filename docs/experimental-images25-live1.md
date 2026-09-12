@@ -12,8 +12,8 @@ change, API-key fallback, or legal-compliance conclusion.
 
 | Capability | Official name and ID | Documented access path | Relmio evidence | Status |
 | --- | --- | --- | --- | --- |
-| Fast image generation and editing | GPT-Image-2.5 Flare, `gpt-image-2.5-flare` | Image API or the Responses API image-generation tool | The pinned adapter forwards a non-empty model ID without aliasing. Direct OAuth generation and native n8n generation and edit executions succeeded. | Current-account route and native n8n execution passed; GUI picker remains unverified. |
-| Precision-focused image generation and editing | GPT-Image-2.5 Sunburst, `gpt-image-2.5-sunburst` | Image API or the Responses API image-generation tool | The pinned adapter preserves the exact ID. Direct OAuth generation and native n8n generation and edit executions succeeded. | Current-account route and native n8n execution passed; GUI picker remains unverified. |
+| Fast image generation and editing | GPT-Image-2.5 Flare, `gpt-image-2.5-flare` | Image API or the Responses API image-generation tool | The pinned adapter forwards a non-empty model ID without aliasing. Direct OAuth generation and native n8n generation and edit executions succeeded. | Current-account route and native n8n execution passed; Browser execution and native From-list selection passed; post-install acceptance remains separate. |
+| Precision-focused image generation and editing | GPT-Image-2.5 Sunburst, `gpt-image-2.5-sunburst` | Image API or the Responses API image-generation tool | The pinned adapter preserves the exact ID. Direct OAuth generation and native n8n generation and edit executions succeeded. | Current-account route and native n8n execution passed; Browser execution and native From-list selection passed; post-install acceptance remains separate. |
 | Full-duplex voice conversation | GPT-Live 1, `gpt-live-1` | Live API session created by a trusted server using an OpenAI project API key | The integrated ChatGPT OAuth bridge filters Live and Realtime models from discovery and returns a specific 501 for those route families. Existing audio routes remain unsupported. | Explicitly unsupported through the current bridge. |
 | Desktop voice for Codex tasks | ChatGPT Voice, powered by GPT-Live | ChatGPT desktop app, subject to plan, rollout, and workspace settings | Product UI capability only; it does not expose an n8n endpoint. | Separate from Relmio's bridge. |
 
@@ -291,7 +291,7 @@ valid 1254x1254 PNG. Visual inspection confirmed blue squares for generation and
 a centered white circle added by both edits. `artifact-summary.json` records
 the sizes and hashes. The requests specified 1024x1024, so the returned dimensions
 did not match the requested size; this experiment does not establish size-option
-conformance. The GUI picker and browser-driven execution remain unverified.
+conformance. Browser-driven execution subsequently passed as recorded below; the GUI picker remains unverified.
 
 A follow-up size trace used the actual installed n8n generation and edit
 `execute` functions with an HTTP capture stub. All four calls, covering both
@@ -319,3 +319,62 @@ No production or VPS deployment, merge, push, publication, remote write, or
 release occurred as part of this evidence review. Existing n8n resources and
 container configuration were not modified; only the separate inactive local
 test workflow, dummy credential, and isolated sidecar were added and retained.
+
+## Browser acceptance and installer release follow-up
+
+On 2026-09-12, the owner manually ran the preserved experimental workflow in
+Opera GX after its isolated image service was started. The UI reported all
+nine steps successful in about 80 seconds. Both native edit-node binary
+previews displayed valid PNGs with a blue square and the requested white
+circle. The owner's existing n8n session and workflows remained intact.
+The unsupported Audio response was inspected and contained the expected
+501 result; successful negative-test nodes do not establish voice support.
+No additional image request was made during output inspection.
+
+The browser node exposes **From list** and **By ID** modes. The successful
+image run used the exact Flare/Sunburst IDs. In a separate, inactive workflow
+copy, Opera GX subsequently loaded the native image-model lists and selected
+Flare and Sunburst in both Generate an Image and Edit Image: all four nodes
+displayed the selected model name in **From list** mode. GPT Image 2 remained
+in both catalogs. The original workflow was not edited, and the copied
+workflow was not executed during this picker check. This verifies selection
+against the experimental companion, not a newly installed release companion.
+
+The local completion UI was also inspected in Opera GX at desktop and
+390-pixel widths using production HTML, CSS, and render functions with a
+synthetic catalog. All three image choices remained readable; mouse copying
+returned the exact Flare ID, keyboard navigation reached the Sunburst copy
+button, and keyboard activation reported success. The update preview showed
+only the returned Flare entry; clearing an error state removed all stale
+image choices. This renderer-only check did not install or update a companion.
+The owner subsequently requested a simpler local and VPS wizard, so these
+screens require another visual check after that refinement. The owner will
+perform the separate live VPS smoke test; local success does not establish
+VPS acceptance.
+
+For the installer feature release, the known v0.15.0 runtime must be accepted
+as a compatible predecessor while arbitrary modifications continue to fail
+closed. Fresh installations and runtime updates use the same bundled adapter.
+Only actual returned model IDs belong in the completion screen, and image
+choices must remain separate from text-chat recipes. Unit lifecycle evidence
+is distinct from a real installed-runtime/browser acceptance run.
+
+The official-source review was refreshed on 2026-09-12 using the linked
+Sign in with ChatGPT, authentication, Image 2.5 model, API authentication,
+Terms, Services Agreement, and Privacy documents above. The model pages
+confirm the two exact IDs and text/image input with image output. Identity
+sign-in, separately granted permissions, and model capability remain distinct.
+The current Codex authentication page directs general OpenAI API calls to
+Platform API keys; the successful compatibility experiment does not resolve
+policy eligibility for this third-party route. The Terms link currently
+redirects to Europe Terms; applicable account/jurisdiction terms must be
+reviewed separately and no global legal conclusion is inferred from that page.
+
+No authentication flow, scope, provider, or data recipient is added by the
+installer image-discovery changes. The source/data-flow and credential-storage
+sections above remain applicable: the complete local session file is copied
+on fresh installation, the local runtime-only update preserves the installed
+credential volume, the VPS update retains its separately reviewed SFTP flow,
+and prompts/reference images go through the pinned package to OpenAI. Actual
+OAuth grants and provider retention remain unverified. Runtime request logging
+stays disabled by default; execution images may be retained by n8n.

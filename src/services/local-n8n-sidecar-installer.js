@@ -1,4 +1,4 @@
-import { randomBytes as createRandomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes as createRandomBytes, randomUUID } from "node:crypto";
 import * as defaultFileSystem from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -36,6 +36,12 @@ const MAX_DISCOVERED_CONTAINERS = 100;
 const MAX_DOCKER_METADATA_BYTES = 1024 * 1024;
 const RUNTIME_FILENAME = "openai-oauth-sidecar.mjs";
 const RUNTIME_BACKUP_TAG = "relmio-runtime-backup";
+// Exact SHA-256 of src/gateway/openai-oauth-sidecar.mjs in the published
+// v0.15.0 tag (4d69e963a0ac0d87ca2bfb382645b5d94a1b1ad7). This permits a
+// reviewed upgrade path without accepting arbitrary locally changed code.
+const COMPATIBLE_PUBLISHED_RUNTIME_SHA256 = new Set([
+  "e5328ca534eaa830b4222a33fa69d4e03f31bd539651e38d353cc9932d1e551a",
+]);
 const DOCKER_IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const DOCKER_SELECTION_VARIABLES = new Set([
   "BUILDKIT_HOST",
@@ -740,6 +746,13 @@ function createLegacyLocalN8nSidecarDockerfile({ installId }) {
   );
 }
 
+function isCompatiblePublishedRuntime(runtime) {
+  if (typeof runtime !== "string") return false;
+  return COMPATIBLE_PUBLISHED_RUNTIME_SHA256.has(
+    createHash("sha256").update(runtime, "utf8").digest("hex"),
+  );
+}
+
 async function snapshotGeneratedRuntimeFiles({ fileSystem, installRoot, marker }) {
   const expectedCompose = createLocalN8nSidecarComposeFile({
     installId: marker.installId,
@@ -771,7 +784,7 @@ async function snapshotGeneratedRuntimeFiles({ fileSystem, installRoot, marker }
   const isCurrent =
     dockerfile === currentDockerfile &&
     dockerignore === currentDockerignore &&
-    runtime === expectedRuntime;
+    (runtime === expectedRuntime || isCompatiblePublishedRuntime(runtime));
   const isLegacy =
     dockerfile === legacyDockerfile &&
     dockerignore === legacyDockerignore &&

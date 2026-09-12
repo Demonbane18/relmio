@@ -87,11 +87,10 @@
     <main id="main-content" class="shell" tabindex="-1" aria-busy="false">
       <aside class="rail" aria-label="Setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
-          <h1 id="page-title">Connect n8n to a private model bridge</h1>
+          <h1 id="page-title">Set up a private n8n connection</h1>
           <p class="lede">
-            Choose the provider and destination first. Each route keeps your existing
-            n8n image, Compose file, container, and workflows untouched. The OpenAI
-            bridge remains unofficial, private, and policy-uncertain.
+            Choose where you want to use it. You will check your server, review the
+            plan, and approve every write before setup begins.
           </p>
         </section>
 
@@ -188,41 +187,55 @@
       <section class="panel" data-step="1" aria-labelledby="signin-title">
         <div class="panel-heading">
           <p class="panel-kicker">Choose a route</p>
-          <h2 id="signin-title" tabindex="-1">Which provider and destination?</h2>
-          <p>Start the route that matches the account and n8n location you already use.</p>
+          <h2 id="signin-title" tabindex="-1">Choose your setup</h2>
+          <p>Choose where you want to connect n8n.</p>
         </div>
 
         <div class="provider-route-grid" aria-label="Provider and destination choices">
           <button id="openai-vps-route" class="provider-route provider-route--selected" type="button" aria-describedby="openai-vps-route-detail">
-            <span class="provider-route__eyebrow">OpenAI OAuth · VPS</span>
-            <strong>ChatGPT/Codex bridge</strong>
-            <span id="openai-vps-route-detail">Use your local ChatGPT sign-in, then review a private VPS sidecar.</span>
+            <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
+            <span class="provider-route__eyebrow">ChatGPT · your VPS</span>
+            <strong>ChatGPT on my server</strong>
+            <span id="openai-vps-route-detail">Sign in on this computer, then review a private connection to your server.</span>
+            <span class="route-status">Unofficial · private connection</span>
           </button>
           <a id="vps-supergrok-start" class="provider-route" aria-describedby="supergrok-vps-route-detail">
-            <span class="provider-route__eyebrow">SuperGrok · VPS</span>
-            <strong>Private Grok companion</strong>
-            <span id="supergrok-vps-route-detail">Use an official Grok device sign-in on the VPS. ChatGPT is not required.</span>
+            <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/><path d="M16.5 5.5 19 3m-7 2.5V2"/></svg>
+            <span class="provider-route__eyebrow">Grok · your VPS</span>
+            <strong>Grok on my server</strong>
+            <span id="supergrok-vps-route-detail">Use the official Grok sign-in on your server. ChatGPT is not needed.</span>
           </a>
           <a id="local-endpoint-link" class="provider-route" aria-describedby="local-route-detail">
-            <span class="provider-route__eyebrow">OpenAI OAuth or SuperGrok · local</span>
-            <strong>Endpoint on this computer</strong>
-            <span id="local-route-detail">Create a loopback-only local connection or a private local n8n companion.</span>
+            <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
+            <span class="provider-route__eyebrow">This computer</span>
+            <strong>Set up on this computer</strong>
+            <span id="local-route-detail">Create a local-only connection or a private n8n companion here.</span>
           </a>
         </div>
 
         <aside class="route-safety" aria-label="Route safety boundary">
-          <strong>Every route stays explicit.</strong>
-          <span>Server identity comes before a VPS password; a reviewed plan and your confirmation come before any write.</span>
+          <strong>You stay in control.</strong>
+          <span>Check the server identity before its password. Review the plan and approve it before setup writes anything.</span>
         </aside>
 
         <div class="panel-heading provider-route-heading">
-          <p class="panel-kicker">OpenAI OAuth · VPS</p>
-          <h3>Use your local ChatGPT sign-in</h3>
+          <p class="panel-kicker">ChatGPT on my server</p>
+          <h3>Next: sign in with ChatGPT</h3>
           <p>
-            This is a ChatGPT/Codex sign-in, not a Platform API key. It stays on this computer until you approve its encrypted SSH upload to your VPS.
-            The current ChatGPT sign-in bridge supports Message a Model and GPT Image generation/editing. It does not support audio, Classify Text for Violations (moderation), file management, stored conversations, or video generation. Use a separate OpenAI Platform connection for those n8n actions; do not enter its API key into this bridge.
+            Sign in here first. You will review and approve the encrypted upload to
+            your server before it happens.
           </p>
+          <p class="route-warning">Unofficial · private connection</p>
         </div>
+
+        <details class="technical-details">
+          <summary>More details about this connection</summary>
+          <div>
+            <p>This is a ChatGPT/Codex sign-in, not a Platform API key. It stays on this computer until you approve its encrypted SSH upload to your VPS.</p>
+            <p>The current ChatGPT sign-in bridge supports Message a Model and GPT Image generation/editing. It does not support audio, Classify Text for Violations (moderation), file management, stored conversations, or video generation. Use a separate OpenAI Platform connection for those n8n actions; do not enter its API key into this bridge.</p>
+            <p>The OpenAI bridge remains unofficial, private, and policy-uncertain.</p>
+          </div>
+        </details>
 
         <div class="status-row">
           <span id="auth-indicator" class="status-dot" aria-hidden="true"></span>
@@ -261,17 +274,17 @@
 
       <section class="panel" data-step="2" aria-labelledby="vps-title" hidden>
         <div class="panel-heading">
-          <h2 id="vps-title" tabindex="-1">Connect to your VPS</h2>
+          <h2 id="vps-title" tabindex="-1">Connect to your server</h2>
           <p>
-            Use the address from Hostinger. Your password is used only for this
-            SSH connection and is never saved.
+            Enter the details from your hosting provider. First check the server
+            identity, then enter its password.
           </p>
         </div>
 
         <form id="vps-form">
           <div class="field-grid">
             <label class="field">
-              <span>VPS address</span>
+              <span>Server address</span>
               <input
                 id="host"
                 name="host"
@@ -280,11 +293,11 @@
                 placeholder="your-vps-ip-or-hostname"
                 required
               />
-              <small>Use the full IP address. Do not add <code>ssh root@</code>.</small>
+              <small>Use the full IP address or hostname. Do not add <code>ssh root@</code>.</small>
             </label>
 
             <label class="field compact">
-              <span>SSH port</span>
+              <span>Connection port</span>
               <input
                 id="port"
                 name="port"
@@ -294,10 +307,11 @@
                 value="22"
                 required
               />
+              <small>Technical name: SSH port. Usually 22.</small>
             </label>
 
             <label class="field compact">
-              <span>Username</span>
+              <span>Sign-in name</span>
               <input
                 id="username"
                 name="username"
@@ -306,12 +320,12 @@
                 required
               />
               <small>
-                The current guided setup expects the VPS root account.
+                Technical name: SSH username. This guided setup expects the VPS root account.
               </small>
             </label>
 
             <label class="field">
-              <span>VPS password</span>
+              <span>Server password</span>
               <input
                 id="password"
                 name="password"
@@ -321,14 +335,14 @@
                 required
               />
               <small>
-                This unlocks after you confirm the server identity, then clears
-                immediately after connecting.
+                Used only for this SSH connection. It unlocks after you check the
+                server identity and clears immediately after connecting.
               </small>
             </label>
           </div>
 
           <button id="fingerprint-button" class="button secondary" type="button">
-            Check server identity
+            Check this server
           </button>
 
           <div id="fingerprint-box" class="fingerprint" hidden>
@@ -348,7 +362,7 @@
               Back
             </button>
             <button id="connect-button" class="button primary" type="submit" disabled>
-              Connect and inspect Docker
+              Connect and find n8n
             </button>
           </div>
         </form>
@@ -356,10 +370,9 @@
 
       <section class="panel" data-step="3" aria-labelledby="n8n-title" hidden>
         <div class="panel-heading">
-          <h2 id="n8n-title" tabindex="-1">Choose the detected n8n</h2>
+          <h2 id="n8n-title" tabindex="-1">Choose your n8n</h2>
           <p>
-            Discovery uses read-only Docker commands. It does not execute
-            anything inside n8n.
+            Choose the n8n you want to connect. This step only looks; it changes nothing.
           </p>
         </div>
 
@@ -370,16 +383,21 @@
 
         <div class="field-grid single">
           <label class="field">
-            <span>Running n8n container</span>
+            <span>Your n8n</span>
             <select id="container-select"></select>
           </label>
 
           <label class="field">
-            <span>Shared Docker network</span>
+            <span>Private connection network</span>
             <select id="network-select"></select>
-            <small>The sidecar joins this network; n8n itself is not changed.</small>
+            <small>The connection joins this network. Your n8n stays unchanged.</small>
           </label>
         </div>
+
+        <details class="technical-details">
+          <summary>More details about the server check</summary>
+          <div><p>Relmio uses read-only Docker commands here. It does not run commands inside n8n, change its image, or restart its container.</p></div>
+        </details>
 
         <section
           id="detected-vps-integration-management"
@@ -436,15 +454,15 @@
             Disconnect from VPS
           </button>
           <button id="review-button" class="button primary" type="button">
-            Review the exact plan
+            Review setup plan
           </button>
         </div>
       </section>
 
       <section class="panel" data-step="4" aria-labelledby="review-title" hidden>
         <div class="panel-heading">
-          <h2 id="review-title" tabindex="-1">Review before installing</h2>
-          <p id="review-intro">No existing n8n files or containers will be changed.</p>
+          <h2 id="review-title" tabindex="-1">Review your setup</h2>
+          <p id="review-intro">Nothing is written until you approve this plan.</p>
         </div>
 
         <dl class="result-list review-details">
@@ -483,7 +501,7 @@
         <label class="check-row approval">
           <input id="install-confirm" type="checkbox" />
           <span id="install-confirm-copy">I approve this sidecar-only installation and understand
-          <code>openai-oauth</code> is an unofficial project.</span>
+          <code>openai-oauth</code> is an unofficial private connection.</span>
         </label>
 
         <div class="actions">
@@ -491,7 +509,7 @@
             Back
           </button>
           <button id="install-button" class="button primary" type="button" disabled>
-            Install the sidecar
+            Approve and set up
           </button>
         </div>
       </section>
@@ -500,7 +518,7 @@
         <div class="success-heading">
           <div class="success-mark" aria-hidden="true">✓</div>
           <div class="panel-heading">
-            <h2 id="done-title" tabindex="-1">The private bridge is ready</h2>
+            <h2 id="done-title" tabindex="-1">Connect n8n in three steps</h2>
             <p id="done-detail">Use these values in n8n on the same private Docker network.</p>
           </div>
         </div>
@@ -564,7 +582,7 @@
             <span aria-hidden="true">×</span>
           </button>
         </aside>
-        <h3>1. OpenAI credential</h3>
+        <h3>1. Add the OpenAI credential</h3>
         <dl class="result-list">
           <div>
             <dt>Base URL</dt>
@@ -622,7 +640,7 @@
 
         <details class="recipe-disclosure">
           <summary>
-            <span>2. OpenAI Chat Model for AI Agent or Basic LLM Chain</span>
+            <span>2. OpenAI Chat Model for AI Agent or Basic LLM Chain — More details</span>
           </summary>
           <div class="model-box recipe-content">
             <dl class="result-list">
@@ -655,8 +673,27 @@
           </div>
         </details>
 
+        <section id="result-image-models" class="model-box" aria-labelledby="result-image-models-title" hidden>
+          <h3 id="result-image-models-title">3. Choose an image model</h3>
+          <p>In n8n Image Generate or Edit, choose From list. If it is not shown, choose By ID and paste its exact ID below.</p>
+          <dl class="result-list">
+            <div id="result-image-model-2-row" hidden>
+              <dt>GPT Image 2</dt>
+              <dd class="result-value"><code id="result-image-model-2"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-2" data-copy-label="GPT Image 2 model ID" aria-label="Copy GPT Image 2 model ID" title="Copy GPT Image 2 model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+            </div>
+            <div id="result-image-model-flare-row" hidden>
+              <dt>GPT Image 2.5 Flare</dt>
+              <dd class="result-value"><code id="result-image-model-flare"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-flare" data-copy-label="GPT Image 2.5 Flare model ID" aria-label="Copy GPT Image 2.5 Flare model ID" title="Copy GPT Image 2.5 Flare model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+            </div>
+            <div id="result-image-model-sunburst-row" hidden>
+              <dt>GPT Image 2.5 Sunburst</dt>
+              <dd class="result-value"><code id="result-image-model-sunburst"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-sunburst" data-copy-label="GPT Image 2.5 Sunburst model ID" aria-label="Copy GPT Image 2.5 Sunburst model ID" title="Copy GPT Image 2.5 Sunburst model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
+            </div>
+          </dl>
+        </section>
+
         <details class="recipe-disclosure">
-          <summary><span>3. HTTP Request node</span></summary>
+          <summary><span>More details: HTTP Request node</span></summary>
           <div class="model-box recipe-content">
             <dl class="result-list">
               <div>

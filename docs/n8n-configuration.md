@@ -167,8 +167,11 @@ the n8n container and network, then choose **OpenAI-OAuth/Codex bridge** and
 **Manage OpenAI-OAuth/Codex bridge**. Select **Review bridge update**, review the
 plan, select its confirmation checkbox, then choose **Update the bridge**.
 
-For **Image > Generate an Image**, use **By ID** and enter `gpt-image-2` if
-the image model picker does not show it. Begin with a prompt and **Quality: Low**.
+For **Image > Generate an Image** and **Image > Edit an Image**, choose a
+discovered image model **From list**. If the current n8n picker does not show a
+discovered model, choose **By ID** and enter its exact ID: `gpt-image-2`,
+`gpt-image-2.5-flare`, or `gpt-image-2.5-sunburst`. Do not enter the generic
+`gpt-image-2.5`: it is not a request ID. Begin with a prompt and **Quality: Low**.
 Keep URL output off. GPT Image returns base64 data that n8n converts into its
 binary output. Do not use the node's DALL-E default or substitute a text model.
 The existing OAuth transport also accepts multipart image editing, up to five

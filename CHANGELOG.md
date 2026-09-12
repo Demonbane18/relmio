@@ -7,6 +7,44 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.16.0] - 2026-09-12
+
+Relmio 0.16.0 brings GPT Image 2.5 discovery and selection guidance to the
+browser installer for new and existing OpenAI OAuth bridges.
+
+### Added
+
+- Discover the exact Flare and Sunburst image model IDs alongside existing
+  models, including GPT Image 2. Both 2.5 variants were tested with n8n's native
+  image generation and editing nodes on the current account.
+- Show discovered image choices and copyable IDs after bridge installation or
+  update, with instructions for n8n's image model selector.
+
+### Fixed
+
+- Recognize the unchanged runtime from Relmio 0.15.0 during a local bridge
+  update instead of rejecting it as file drift. Modified or unowned files
+  still fail closed; updates retain the saved sign-in and leave n8n untouched.
+
+### Changed
+
+- Simplify local and VPS setup with clearer visual choices and plain-language
+  labels. Keep specialist local tools and technical explanations behind
+  expandable details while retaining every setup option and approval step.
+- Keep GPT-Live and Realtime models out of this bridge's discovery response
+  and return explicit unsupported-operation guidance for their session routes.
+  Audio remains a separate unsupported capability through this OAuth bridge.
+
+### Security
+
+- Update the hosted web framework, image-processing dependency, and YAML parser
+  to versions that address the newly reported Next.js, sharp, and js-yaml advisories.
+
+Existing bridges need a reviewed runtime update to receive the new catalog.
+Exact output dimensions, all image options, and universal account access remain
+unverified. The bridge remains unofficial and policy-uncertain; this release
+adds no Platform API-key fallback or new credential permissions.
+
 ## [0.15.0] - 2026-09-08
 
 Relmio 0.15.0 adds browser-driven updates for existing OpenAI OAuth bridges
@@ -953,3 +991,5 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.1.2]: https://github.com/Demonbane18/relmio/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
+
+[0.16.0]: https://github.com/Demonbane18/relmio/compare/v0.15.0...v0.16.0

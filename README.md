@@ -18,7 +18,7 @@ Relmio helps self-hosted n8n and local apps use models through your own
 ChatGPT/Codex or SuperGrok sign-in. Each provider keeps its own private OAuth
 session. SuperGrok setup does not require or read ChatGPT credentials.
 
-Relmio 0.15.0 handles provider OAuth only. API-key connections belong directly
+Relmio handles provider OAuth only. API-key connections belong directly
 in n8n or the client that uses them.
 ChatGPT sign-in is not an OpenAI Platform API key.
 
@@ -156,13 +156,24 @@ is provider-specific:
 | OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in the Relmio OpenAI Chat Model v1.3 recipe |
 | SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
 
-Choose **Existing n8n model bridge**.
+Choose **ChatGPT for n8n**. Other local tools are available under **More connections and tools**.
 
 1. Sign in with your own ChatGPT/Codex account.
 2. Select the running n8n container and its private Docker network.
 3. Review and install the sidecar.
 4. In n8n, use `http://n8n-openai-oauth:10531/v1` with the placeholder API key
    `local-only`.
+
+**GPT Image 2.5.** New bridge installations include Flare and Sunburst in model
+discovery. For an existing owned bridge, use its browser **Update bridge runtime**
+action (local) or **Review bridge update** action (VPS) to receive the new catalog.
+In n8n's OpenAI node, choose **Image**, then **Generate an Image** or **Edit Image**.
+Select `gpt-image-2.5-flare` or `gpt-image-2.5-sunburst` from the model list; use
+**By ID** if your n8n version does not list it. `gpt-image-2` remains available.
+The generic `gpt-image-2.5` name is not a request ID. Start with low quality;
+exact output dimensions and every image option are not verified. Model discovery
+does not guarantee access for every account. Image models are separate from
+text chat, GPT-Live, Realtime, and audio support.
 
 **Current ChatGPT bridge limits.** OpenAI audio/TTS, transcription, and
 translation are unavailable through Relmio's current ChatGPT sign-in bridge in
@@ -214,7 +225,7 @@ companion publishes no host port.
 
 ### I do not have n8n yet
 
-Choose **New local n8n + ngrok**. Relmio creates a separate n8n stack and walks
+Choose **Set up new n8n**. Relmio creates a separate n8n stack and walks
 you through the ngrok domain, token, and Basic Auth fields. Only the new n8n
 route is public. Its model bridge, Code Sandbox, and optional SearXNG stay off
 the host network.

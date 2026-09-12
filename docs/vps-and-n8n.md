@@ -63,3 +63,23 @@ Platform API key. SuperGrok uses the one-time local bearer shown by its wizard.
 - [AI Assistant companion](./ai-assistant.md)
 - [Manual installation](./manual-install.md)
 - [Troubleshooting](./troubleshooting.md)
+
+## GPT Image 2.5 in n8n
+
+A new OpenAI OAuth bridge includes `gpt-image-2.5-flare` and
+`gpt-image-2.5-sunburst` in model discovery. For an existing managed bridge,
+use its reviewed browser runtime-update action to install the current adapter;
+upgrading only the Relmio dashboard does not update an already running bridge.
+The local update preserves its saved sign-in. A VPS update follows its separate
+reviewed sign-in upload flow. Both paths leave n8n unchanged.
+
+The completion screen shows image IDs from the verified model response. In
+n8n's OpenAI node, select **Image**, then **Generate an Image** or **Edit Image**,
+and pick the exact model from the list. Use **By ID** when needed by your n8n
+version. Existing `gpt-image-2` remains available. Do not use the generic
+`gpt-image-2.5` as a model ID or select an image model for a text-chat recipe.
+
+Both variants passed bounded generation and editing tests. Exact output
+size and all options remain unverified; begin with low quality. Discovery is
+not a promise of account entitlement. Live, Realtime and audio are separate
+capabilities and remain unsupported through this bridge.

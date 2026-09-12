@@ -180,7 +180,7 @@ shared, or production service.
   `Internal: false` network state before writing. This proves the selected
   network is not Docker-internal while retaining the independent no-host-port
   verification.
-- The separate **New local n8n + ngrok** option creates only a new randomly
+- The separate **Set up new n8n** option creates only a new randomly
   identified Relmio-owned Compose project. It never adopts or changes an
   existing n8n. Its explicit public exception is limited to the new n8n route,
   protected by an ngrok Traffic Policy Basic Auth challenge; local n8n and the

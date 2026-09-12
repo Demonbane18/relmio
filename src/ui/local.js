@@ -2846,6 +2846,8 @@ function renderTarget() {
   const assistant = isN8nAssistant(state.target);
   const stack = isN8nStack(state.target);
   const n8nTarget = isN8nDockerTarget(state.target);
+  const advancedTarget = codexChat || state.target === "codex-chatgpt" || assistant;
+  if (advancedTarget) element("more-connections-and-tools").open = true;
   const routeLabel = n8nSuperGrok
     ? "SuperGrok · local n8n companion"
     : grokBuild
@@ -3045,6 +3047,33 @@ function hasExactAssistantSettings(value, expectedSettings) {
   );
 }
 
+const IMAGE_MODELS_FOR_N8N = Object.freeze([
+  Object.freeze({
+    id: "gpt-image-2",
+    key: "2",
+  }),
+  Object.freeze({
+    id: "gpt-image-2.5-flare",
+    key: "flare",
+  }),
+  Object.freeze({
+    id: "gpt-image-2.5-sunburst",
+    key: "sunburst",
+  }),
+]);
+
+function renderImageModelsForN8n(prefix, models) {
+  const modelIds = new Set(Array.isArray(models) ? models : []);
+  let hasImageModel = false;
+  for (const { id, key } of IMAGE_MODELS_FOR_N8N) {
+    const available = modelIds.has(id);
+    element(`${prefix}-image-model-${key}`).textContent = available ? id : "";
+    element(`${prefix}-image-model-${key}-row`).hidden = !available;
+    hasImageModel ||= available;
+  }
+  element(`${prefix}-image-models`).hidden = !hasImageModel;
+}
+
 function renderInstallResult(result) {
   const sidecar = isN8nSidecar(result.target);
   const n8nSuperGrok = isN8nSuperGrok(result.target);
@@ -3188,6 +3217,7 @@ function renderInstallResult(result) {
     ? "Sandbox Service URL"
     : "Endpoint";
   element("result-endpoint").textContent = endpoint;
+  renderImageModelsForN8n("result", sidecar ? result.models : []);
   element("one-time-note").hidden = sidecar || stack;
   element("one-time-note-title").textContent = assistant
     ? "Copy this sandbox key now"
@@ -3780,6 +3810,7 @@ element("update-bridge-button").addEventListener("click", async (event) => {
   if (setBusy(button, true, "Updating bridge…") === false) return;
   // Any prior new-install review is stale after this existing-runtime action.
   invalidatePlan();
+  renderImageModelsForN8n("update", []);
   element("update-bridge-status").textContent =
     "Checking the existing bridge, then building and verifying its update. Your saved sign-in stays in place.";
   try {
@@ -3787,10 +3818,12 @@ element("update-bridge-button").addEventListener("click", async (event) => {
       method: "POST", body: { confirmed: true },
     }));
     confirmation.checked = false;
+    renderImageModelsForN8n("update", result.models);
     element("update-bridge-status").textContent =
       `Bridge runtime updated. ${result.models.length} model${result.models.length === 1 ? "" : "s"} verified. Saved sign-in preserved; n8n unchanged.`;
     setMessage("The existing local bridge now uses this version's runtime. Test your n8n node to confirm the workflow result.");
   } catch (error) {
+    renderImageModelsForN8n("update", []);
     element("update-bridge-status").textContent = "The bridge update did not complete. Review the error before retrying.";
     showError(error);
   } finally {
