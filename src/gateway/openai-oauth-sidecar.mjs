@@ -3,6 +3,14 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
 
+// These exact image IDs work through this bridge's existing image translation.
+// Catalog support does not prove that every account is entitled to use them.
+const compatibilityImageModels = Object.freeze([
+  "gpt-image-2.5-flare",
+  "gpt-image-2.5-sunburst",
+]);
+const incompatibleModelPattern = /^gpt-(?:live|realtime)(?:-|$)/u;
+
 function requestError(message, param, status = 400) {
   return Response.json({
     error: { message, type: "invalid_request_error", code: "unsupported_oauth_feature", param },
@@ -35,10 +43,68 @@ const unsupportedRoutes = [
     param: "videos",
     message: "Video generation is unavailable with ChatGPT OAuth. Use a separately configured OpenAI Platform connection for n8n's Generate a Video action.",
   },
+  {
+    pattern: /^\/v1\/live(?:\/|$)/u,
+    param: "live",
+    message: "This ChatGPT OAuth bridge does not support OpenAI Live sessions. Use a separately configured OpenAI Platform Live connection.",
+  },
+  {
+    pattern: /^\/v1\/realtime(?:\/|$)/u,
+    param: "realtime",
+    message: "This ChatGPT OAuth bridge does not support OpenAI Realtime sessions. Use a separately configured OpenAI Platform Realtime connection.",
+  },
 ];
 
-// Keep OAuth, model discovery, image transport and SSE decoding in the pinned
-// openai-oauth package. Only adapt the n8n contract at its public HTTP boundary.
+async function adaptModelsResponse(response) {
+  if (!response.ok) return response;
+
+  let body;
+  try {
+    body = await response.clone().json();
+  } catch {
+    return response;
+  }
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    body.object !== "list" ||
+    !Array.isArray(body.data) ||
+    !body.data.every((model) =>
+      model && typeof model === "object" && !Array.isArray(model) &&
+      typeof model.id === "string" && model.id.length > 0)
+  ) {
+    return response;
+  }
+
+  const data = body.data.filter(({ id }) => !incompatibleModelPattern.test(id));
+  const modelIds = new Set(data.map(({ id }) => id));
+  for (const id of compatibilityImageModels) {
+    if (!modelIds.has(id)) {
+      data.push({ id, object: "model", created: 0, owned_by: "codex-oauth" });
+      modelIds.add(id);
+    }
+  }
+
+  const headers = new Headers(response.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-digest");
+  headers.delete("content-length");
+  headers.delete("content-md5");
+  headers.delete("digest");
+  headers.delete("etag");
+  headers.delete("last-modified");
+  headers.delete("repr-digest");
+  headers.set("content-type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify({ ...body, data }), {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+// Keep OAuth, upstream catalog discovery, image transport and SSE decoding in
+// the pinned package. Supplement media compatibility at the public boundary.
 export function createSidecarHandler(upstream) {
   return async (request) => {
     const { pathname } = new URL(request.url);
@@ -74,7 +140,11 @@ export function createSidecarHandler(upstream) {
         method: "POST", headers, body: JSON.stringify(body), signal: request.signal,
       });
     }
-    return upstream(request);
+    const response = await upstream(request);
+    if (request.method === "GET" && pathname === "/v1/models") {
+      return adaptModelsResponse(response);
+    }
+    return response;
   };
 }
 
