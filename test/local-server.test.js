@@ -503,6 +503,14 @@ test("default wizard assets include the local endpoint flow", async (t) => {
     /^text\/javascript/u,
   );
 
+  const feedbackScript = await fetch(`${wizard.origin}/chat-tester-feedback.js`);
+  assert.equal(feedbackScript.status, 200);
+  assert.match(
+    feedbackScript.headers.get("content-type") ?? "",
+    /^text\/javascript/u,
+  );
+  assert.match(await feedbackScript.text(), /nextChatTesterFeedback/u);
+
   const styles = await fetch(`${wizard.origin}/local.css`);
   assert.equal(styles.status, 200);
   assert.match(styles.headers.get("content-type") ?? "", /^text\/css/u);

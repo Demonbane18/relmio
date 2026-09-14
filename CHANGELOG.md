@@ -7,6 +7,28 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.17.1] - 2026-09-14
+
+Relmio 0.17.1 makes streamed replies calmer and clearer in both the hosted
+chat and the browser wizard's Test AI Chat console.
+
+### Changed
+
+- Distinguish sending, connecting, waiting for first text, active streaming,
+  completion, interruption, and failure without announcing every text chunk to
+  assistive technology. Reduced-motion mode keeps equivalent static cues.
+- Keep partial text primary and visible when a response is stopped or fails,
+  with stable message sizing and explicit retry-ready terminal states.
+
+### Fixed
+
+- Ignore empty stream deltas as non-visible output and keep pre-token progress
+  monotonic, preventing blank replies or backward status changes.
+
+The Codex Chat Adapter `POST /chat` protocol and external clients such as n8n
+are unchanged. Node.js 24+ and the hosted chat's exact `gpt-5.6-luna` request
+remain in place.
+
 ## [0.17.0] - 2026-09-14
 
 Relmio 0.17.0 is a pre-1.0 compatibility milestone that moves supported setup
@@ -1017,5 +1039,6 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
 
+[0.17.1]: https://github.com/Demonbane18/relmio/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/Demonbane18/relmio/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/Demonbane18/relmio/compare/v0.15.0...v0.16.0

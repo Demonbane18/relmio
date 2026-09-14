@@ -474,8 +474,13 @@ encryption at rest or end-to-end encryption, and it cannot protect against a
 compromised browser, extension, or local machine. The tester rejects redirects,
 non-loopback URLs, malformed or oversized data, concurrent key use, and
 adapter failures with redacted messages. Assistant text appears incrementally
-while the adapter is working; the tester reports success only after the
-completed terminal event arrives.
+while the adapter is working. The tester distinguishes connecting, waiting for
+the first text, active streaming, completion, interruption, and failure without
+announcing every text chunk. **Stop response** aborts the existing secured
+wizard relay and keeps partial text visible; reduced-motion mode shows the same
+states without animation. The tester reports success only after the completed
+terminal event arrives. These presentation states do not change the adapter's
+`POST /chat` SSE contract or any external client behavior.
 
 ## SuperGrok: development backends
 

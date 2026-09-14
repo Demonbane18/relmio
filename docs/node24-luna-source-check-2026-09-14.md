@@ -90,12 +90,15 @@ The changed Node.js requirement does not add a credential, provider, or data
 recipient. The local and VPS OAuth bridge flows, their default scopes, and n8n
 configuration are unchanged by this update.
 
-The later hosted-chat feedback refinement reviewed these same official sources
-again on 2026-09-14. It changes only browser presentation and accessibility
-state for an existing stream: connecting, waiting for first text, streaming,
-completion, interruption, and failure. It does not change the model, endpoint,
-request body, OAuth headers or scopes, retention, logging, data recipients, or
-the unresolved permission and entitlement boundaries recorded here.
+The later hosted-chat and browser-wizard Test AI Chat feedback refinement
+reviewed these same official sources again on 2026-09-14. It changes only
+browser presentation and accessibility state for existing streams: connecting,
+waiting for first text, streaming, completion, interruption, and failure. It
+does not change the hosted model, endpoint, request body, OAuth headers or
+scopes, retention, logging, data recipients, or the unresolved permission and
+entitlement boundaries recorded here. The local tester continues to relay the
+existing authenticated Chat Adapter `POST /chat` SSE contract; external clients
+such as n8n do not receive the new presentation lifecycle.
 
 ## Terms and unresolved questions
 

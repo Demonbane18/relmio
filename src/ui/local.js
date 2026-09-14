@@ -1,4 +1,8 @@
 import { bindWizardNavigation, readWizardSession } from "./session.js";
+import {
+  INITIAL_CHAT_TESTER_FEEDBACK,
+  nextChatTesterFeedback,
+} from "./chat-tester-feedback.js";
 
 const token = readWizardSession();
 
@@ -33,12 +37,14 @@ const state = {
   dashboardStaleTimer: null,
   dashboardFocusIdentity: null,
   chatTester: {
+    activeController: null,
     conversationId: null,
     encryptedCredential: null,
     endpointBaseUrl: null,
     expiresAt: null,
     generation: 0,
     keyId: null,
+    feedback: { ...INITIAL_CHAT_TESTER_FEEDBACK },
   },
 };
 
@@ -189,7 +195,7 @@ function resetBasicAuthPasswordVisibility() {
 const OPERATION_INTERACTIVE_SELECTOR =
   'button, input, select, textarea, a[href], [contenteditable]';
 const OPERATION_ALLOWED_SELECTOR =
-  '[data-operation-allow="auth"], [data-operation-allow="copy"]';
+  '[data-operation-allow="auth"], [data-operation-allow="copy"], [data-operation-allow="stop"]';
 const OPERATION_BLOCKED_EVENTS = [
   "click",
   "pointerdown",
@@ -311,6 +317,7 @@ function updateOperationProgress() {
 
 function startOperation(button, label, {
   progressNote = "Duration varies by operation. Keep this page open; Relmio will unlock every control when the current operation finishes or stops.",
+  showProgress = true,
 } = {}) {
   if (state.operationBusy) return false;
   state.operationBusy = true;
@@ -336,11 +343,13 @@ function startOperation(button, label, {
 
   const progress = element("operation-progress");
   const compatibilityProgress = element("install-progress");
-  element("install-progress-duration-note").textContent = progressNote;
-  progress.hidden = false;
-  compatibilityProgress.hidden = false;
-  updateOperationProgress();
-  compatibilityProgress.focus?.({ preventScroll: true });
+  if (showProgress) {
+    element("install-progress-duration-note").textContent = progressNote;
+    progress.hidden = false;
+    compatibilityProgress.hidden = false;
+    updateOperationProgress();
+    compatibilityProgress.focus?.({ preventScroll: true });
+  }
 
   if (
     typeof MutationObserver !== "undefined" &&
@@ -365,10 +374,12 @@ function startOperation(button, label, {
       subtree: true,
     });
   }
-  state.operationProgressTimer = window.setInterval(
-    updateOperationProgress,
-    1_000,
-  );
+  if (showProgress) {
+    state.operationProgressTimer = window.setInterval(
+      updateOperationProgress,
+      1_000,
+    );
+  }
   return true;
 }
 
@@ -2174,7 +2185,7 @@ function parseRelmioStreamEvent(block) {
   return { event, data };
 }
 
-async function streamChatTesterMessage(body, onEvent) {
+async function streamChatTesterMessage(body, onEvent, { signal } = {}) {
   if (!token) {
     throw new Error(
       "This wizard link is incomplete. Close this tab. For a persistent install, run relmio open. For an NPX run, use npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff.",
@@ -2190,8 +2201,10 @@ async function streamChatTesterMessage(body, onEvent) {
         "X-Setup-Token": token,
       },
       body: JSON.stringify(body),
+      signal,
     });
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
     throw new Error("The local Relmio wizard is not reachable. For a persistent install, run relmio status, then relmio open. For NPX, use npx --yes --ignore-scripts relmio@latest status, then npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, keep its terminal open and restart that launcher if needed.");
   }
   if (
@@ -2202,6 +2215,7 @@ async function streamChatTesterMessage(body, onEvent) {
   ) {
     throw new Error("The local wizard could not start a safe response stream.");
   }
+  onEvent("accepted", {});
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -3356,6 +3370,18 @@ function setChatTesterStatus(text) {
   element("chat-tester-status").textContent = text;
 }
 
+function chatTesterStatusMessage(phase) {
+  if (phase === "Sending") return "Sending the message to the local adapter.";
+  if (phase === "Connecting") return "Connecting to the local adapter.";
+  if (phase === "Waiting") return "The local adapter is preparing a response.";
+  if (phase === "Streaming") return "The local adapter is responding.";
+  if (phase === "Complete") return "Response complete. Continue this conversation or forget the tester.";
+  if (phase === "Stopping") return "Stopping the local adapter response.";
+  if (phase === "Stopped") return "Response stopped. Text already received remains visible.";
+  if (phase === "Failed") return "Response failed. Review the error and retry when ready.";
+  return "Secure the local client credential to begin.";
+}
+
 function clearChatTesterError() {
   element("chat-tester-error").textContent = "";
   element("chat-tester-error").hidden = true;
@@ -3379,18 +3405,56 @@ function appendChatTesterTurn(kind, text) {
   return content;
 }
 
+function setChatTesterTurnState(content, status) {
+  const item = content?.parentElement;
+  if (!item) return;
+  item.dataset.status = status;
+  item.classList.toggle("chat-tester-turn-waiting", status === "waiting");
+  item.classList.toggle(
+    "chat-tester-turn-incomplete",
+    ["incomplete", "stopped", "failed"].includes(status),
+  );
+  content.classList.toggle("chat-tester-stream-cursor", status === "streaming");
+  if (status === "waiting") content.setAttribute("aria-hidden", "true");
+  else content.removeAttribute("aria-hidden");
+  const heading = item.querySelector("strong");
+  if (heading) {
+    heading.textContent = ["incomplete", "stopped", "failed"].includes(status)
+      ? `Local adapter · ${status}`
+      : "Local adapter";
+  }
+}
+
+function updateChatTesterFeedback(event, assistantContent) {
+  const previous = state.chatTester.feedback;
+  const feedback = nextChatTesterFeedback(previous, event);
+  state.chatTester.feedback = feedback;
+  if (assistantContent) {
+    setChatTesterTurnState(assistantContent, feedback.turnStatus);
+  }
+  if (feedback.phase !== previous.phase) {
+    setChatTesterStatus(chatTesterStatusMessage(feedback.phase));
+  }
+  return feedback;
+}
+
 function clearChatTesterState() {
+  state.chatTester.activeController?.abort();
+  state.chatTester.activeController = null;
   state.chatTester.conversationId = null;
   state.chatTester.encryptedCredential = null;
   state.chatTester.endpointBaseUrl = null;
   state.chatTester.expiresAt = null;
   state.chatTester.keyId = null;
+  state.chatTester.feedback = { ...INITIAL_CHAT_TESTER_FEEDBACK };
   state.chatTester.generation += 1;
   element("chat-tester-credential").value = "";
   element("chat-tester-endpoint").value = "";
   element("chat-tester-input").value = "";
   element("chat-tester-secure-form").hidden = false;
   element("chat-tester-message-form").hidden = true;
+  element("chat-tester-send").hidden = false;
+  element("chat-tester-stop").hidden = true;
   element("chat-tester-transcript").replaceChildren();
   clearChatTesterError();
 }
@@ -4527,15 +4591,24 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
     return;
   }
 
-  if (setBusy(button, true, "Streaming response…") === false) return;
+  const controller = new AbortController();
+  if (
+    startOperation(button, "Waiting for response…", { showProgress: false }) ===
+    false
+  ) {
+    return;
+  }
+  state.chatTester.activeController = controller;
   clearChatTesterError();
   const text = input.value;
   const generation = state.chatTester.generation;
   input.value = "";
   appendChatTesterTurn("user", text);
-  const assistantContent = appendChatTesterTurn("assistant", "");
+  const assistantContent = appendChatTesterTurn("assistant", "Preparing response");
+  updateChatTesterFeedback({ type: "send" }, assistantContent);
+  button.hidden = true;
+  element("chat-tester-stop").hidden = false;
   resetButton.disabled = true;
-  setChatTesterStatus("Connecting to the loopback adapter through the secured local wizard…");
   try {
     const result = await streamChatTesterMessage(
       {
@@ -4549,40 +4622,66 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
       },
       (event, data) => {
         if (state.chatTester.generation !== generation) return;
-        if (event === "progress") {
-          setChatTesterStatus("The adapter is working on the response…");
+        if (event === "accepted") {
+          updateChatTesterFeedback({ type: "accepted" }, assistantContent);
+        } else if (event === "progress") {
+          updateChatTesterFeedback(
+            { type: "progress", upstreamPhase: data.phase },
+            assistantContent,
+          );
         } else if (event === "delta" && typeof data.text === "string") {
+          const hadText = state.chatTester.feedback.receivedText;
+          const feedback = updateChatTesterFeedback(
+            { type: "delta", text: data.text },
+            assistantContent,
+          );
+          if (data.text.length === 0) return;
+          if (!hadText) assistantContent.textContent = "";
           assistantContent.textContent += data.text;
-          setChatTesterStatus("Streaming the adapter response…");
+          setChatTesterTurnState(assistantContent, feedback.turnStatus);
         }
       },
+      { signal: controller.signal },
     );
     if (state.chatTester.generation !== generation) {
       return;
     }
     state.chatTester.conversationId = result.conversationId;
-    if (!assistantContent.textContent) {
+    if (!state.chatTester.feedback.receivedText) {
       throw new Error("The local adapter completed without a visible response.");
     }
-    setChatTesterStatus("Response received. Continue this conversation or forget the tester.");
+    updateChatTesterFeedback({ type: "complete" }, assistantContent);
   } catch (error) {
     if (state.chatTester.generation === generation) {
-      if (!assistantContent.textContent) {
-        assistantContent.parentElement?.remove();
-        setChatTesterStatus("No completed adapter response was added. You can retry or forget this tester.");
+      if (controller.signal.aborted) {
+        if (!state.chatTester.feedback.receivedText) {
+          assistantContent.textContent = "Stopped before output was returned.";
+        }
+        updateChatTesterFeedback({ type: "stopped" }, assistantContent);
       } else {
-        const assistantTurn = assistantContent.parentElement;
-        assistantTurn?.classList.add("chat-tester-turn-incomplete");
-        const heading = assistantTurn?.querySelector("strong");
-        if (heading) heading.textContent = "Local adapter · incomplete";
-        setChatTesterStatus("The response stopped before completion. Partial text is marked incomplete and was not accepted.");
+        if (!state.chatTester.feedback.receivedText) {
+          assistantContent.textContent = "No response was returned.";
+        }
+        updateChatTesterFeedback({ type: "failed" }, assistantContent);
+        showChatTesterError(error);
       }
-      showChatTesterError(error);
     }
   } finally {
+    if (state.chatTester.activeController === controller) {
+      state.chatTester.activeController = null;
+    }
     resetButton.disabled = false;
-    setBusy(button, false);
+    element("chat-tester-stop").hidden = true;
+    button.hidden = false;
+    stopOperation(button);
   }
+});
+
+element("chat-tester-stop").addEventListener("click", () => {
+  const controller = state.chatTester.activeController;
+  if (!controller || controller.signal.aborted) return;
+  updateChatTesterFeedback({ type: "stopping" });
+  controller.abort();
 });
 
 element("chat-tester-reset").addEventListener("click", async (event) => {
