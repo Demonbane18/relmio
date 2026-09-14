@@ -123,11 +123,20 @@ test("Test AI Chat exposes a quiet accessible streaming lifecycle", async () => 
   );
   assert.match(
     html,
-    /id="chat-tester-transcript"[\s\S]*role="log"[\s\S]*aria-relevant="additions"/u,
+    /id="chat-tester-transcript"[\s\S]*role="log"[\s\S]*aria-busy="false"[\s\S]*aria-relevant="additions"/u,
   );
   assert.match(script, /nextChatTesterFeedback/u);
   assert.match(script, /new AbortController\(\)/u);
   assert.match(script, /signal: controller\.signal/u);
+  assert.match(script, /markMainBusy: false/u);
+  assert.match(
+    script,
+    /chat-tester-transcript"\)\.setAttribute\("aria-busy", "true"\)/u,
+  );
+  assert.match(
+    script,
+    /chat-tester-transcript"\)\.setAttribute\("aria-busy", "false"\)/u,
+  );
   assert.match(script, /type: "stopping"/u);
   assert.match(script, /type: "stopped"/u);
   assert.match(script, /data\.text\.length === 0/u);

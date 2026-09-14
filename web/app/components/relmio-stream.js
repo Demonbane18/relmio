@@ -85,7 +85,10 @@ export function nextStreamFeedback(current, event) {
   if (event.type === "stopping") {
     return { ...current, assistantStatus: "stopped", phase: "Stopping" };
   }
-  return { ...current, assistantStatus: "stopped", phase: "Stopped" };
+  if (event.type === "stopped") {
+    return { ...current, assistantStatus: "stopped", phase: "Stopped" };
+  }
+  return { ...current };
 }
 
 /**

@@ -128,4 +128,8 @@ test("ignores empty delta frames as non-visible output", () => {
   const failed = nextStreamFeedback(afterEmptyDelta, { type: "failed" });
   assert.equal(failed.assistantStatus, "failed");
   assert.equal(failed.receivedText, false);
+  assert.deepEqual(
+    nextStreamFeedback(afterEmptyDelta, { type: "unexpected" }),
+    afterEmptyDelta,
+  );
 });

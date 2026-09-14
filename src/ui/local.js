@@ -316,6 +316,7 @@ function updateOperationProgress() {
 }
 
 function startOperation(button, label, {
+  markMainBusy = true,
   progressNote = "Duration varies by operation. Keep this page open; Relmio will unlock every control when the current operation finishes or stops.",
   showProgress = true,
 } = {}) {
@@ -338,7 +339,9 @@ function startOperation(button, label, {
   }
   if (typeof document !== "undefined") {
     document.body.dataset.operationBusy = "true";
-    element("main-content").setAttribute("aria-busy", "true");
+    if (markMainBusy) {
+      element("main-content").setAttribute("aria-busy", "true");
+    }
   }
 
   const progress = element("operation-progress");
@@ -4593,7 +4596,10 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
 
   const controller = new AbortController();
   if (
-    startOperation(button, "Waiting for response…", { showProgress: false }) ===
+    startOperation(button, "Waiting for response…", {
+      markMainBusy: false,
+      showProgress: false,
+    }) ===
     false
   ) {
     return;
@@ -4606,6 +4612,7 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
   appendChatTesterTurn("user", text);
   const assistantContent = appendChatTesterTurn("assistant", "Preparing response");
   updateChatTesterFeedback({ type: "send" }, assistantContent);
+  element("chat-tester-transcript").setAttribute("aria-busy", "true");
   button.hidden = true;
   element("chat-tester-stop").hidden = false;
   resetButton.disabled = true;
@@ -4673,6 +4680,7 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
     resetButton.disabled = false;
     element("chat-tester-stop").hidden = true;
     button.hidden = false;
+    element("chat-tester-transcript").setAttribute("aria-busy", "false");
     stopOperation(button);
   }
 });
