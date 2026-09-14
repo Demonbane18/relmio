@@ -545,7 +545,7 @@ export function ChatConsole({
                     </HStack>
                     <Text
                       as="p"
-                      type={turn.status === "waiting" ? "supporting" : "body"}
+                      type="body"
                       className={
                         turn.status === "waiting"
                           ? styles.waitingIndicator

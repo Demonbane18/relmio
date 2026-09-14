@@ -409,7 +409,7 @@ test("keeps Focus Mode speaker labels out of legacy message bubbles", async () =
   );
   assert.match(
     chatConsole,
-    /<Text[\s\S]*?as="p"[\s\S]*?type=\{turn\.status === "waiting" \? "supporting" : "body"\}[\s\S]*?: completion \|\| fallback\}/u,
+    /<Text[\s\S]*?as="p"[\s\S]*?type="body"[\s\S]*?: completion \|\| fallback\}/u,
   );
 });
 

@@ -129,7 +129,15 @@ test("distinguishes waiting for first text from active streaming without a spinn
   assert.doesNotMatch(styles, /@keyframes spin/u);
   assert.match(
     styles,
-    /\.waitingIndicator\s*\{[^}]*min-height:[^}]*display:\s*inline-flex;/su,
+    /\.message p\s*\{[^}]*min-height:\s*calc\(var\(--text-body-size\)\s*\*\s*var\(--text-body-leading\)\)/su,
+  );
+  assert.match(
+    source,
+    /as="p"\s*type="body"[\s\S]*styles\.waitingIndicator/u,
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.waitingIndicator\s*\{[^}]*text-supporting|\.waitingIndicator\s*\{[^}]*min-height/su,
   );
   assert.match(
     styles,

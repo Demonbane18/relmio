@@ -248,9 +248,6 @@
 }
 
 .message .waitingIndicator {
-  min-height: calc(
-    var(--text-supporting-size) * var(--text-supporting-leading)
-  );
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2);
