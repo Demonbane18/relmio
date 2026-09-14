@@ -113,7 +113,7 @@ global safety control. The WinGet command stays hidden until Microsoft accepts
 its catalog pull request and the catalog updates. Until then, use Homebrew or
 one of the direct bootstrap commands on this page.
 
-If you choose the existing-Node fallback, confirm Node is version 22 or newer
+If you choose the existing-Node fallback, confirm Node is version 24 or newer
 and check the published package version first:
 
 ```bash

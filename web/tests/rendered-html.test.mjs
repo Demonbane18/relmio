@@ -398,6 +398,7 @@ test("identifies a ChatGPT challenge against the hosting network", async (t) => 
 });
 
 test("forwards incremental model text as separate chat stream events", async (t) => {
+  let upstreamRequestBody;
   const upstreamEvents = [
     {
       type: "response.created",
@@ -439,16 +440,20 @@ test("forwards incremental model text as separate chat stream events", async (t)
     .map((event) => `data: ${JSON.stringify(event)}\n\n`)
     .join("")}data: [DONE]\n\n`;
 
-  t.mock.method(globalThis, "fetch", async (input) =>
-    String(input).includes("/responses")
-      ? new Response(upstreamStream, {
-          headers: { "content-type": "text/event-stream" },
-        })
-      : Response.json(
-          { error: { message: "Model catalog unavailable in this test." } },
-          { status: 503 },
-        ),
-  );
+  t.mock.method(globalThis, "fetch", async (input, init) => {
+    if (String(input).includes("/responses")) {
+      const body =
+        init?.body ?? (input instanceof Request ? await input.clone().text() : "");
+      upstreamRequestBody = JSON.parse(String(body));
+      return new Response(upstreamStream, {
+        headers: { "content-type": "text/event-stream" },
+      });
+    }
+    return Response.json(
+      { error: { message: "Model catalog unavailable in this test." } },
+      { status: 503 },
+    );
+  });
 
   const response = await requestApp("/api/chat", {
     method: "POST",
@@ -462,6 +467,7 @@ test("forwards incremental model text as separate chat stream events", async (t)
 
   assert.equal(response.status, 200);
   const stream = await response.text();
+  assert.equal(upstreamRequestBody.model, "gpt-5.6-luna");
   assert.match(stream, /event: delta\ndata: \{"text":"Hello"\}/u);
   assert.match(stream, /event: delta\ndata: \{"text":" world"\}/u);
   assert.ok(stream.indexOf('"text":"Hello"') < stream.indexOf('"text":" world"'));

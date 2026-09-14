@@ -454,6 +454,25 @@ test("troubleshooting retains the Windows probe, browser relaunch, and blank OAu
   assert.match(troubleshooting, /white `about:blank` tab/u);
 });
 
+test("troubleshooting requires Node.js 24 for every current local fallback", async () => {
+  const [troubleshooting, generatedDocumentation] = await Promise.all([
+    readFile("docs/troubleshooting.md", "utf8"),
+    readFile("web/app/docs/generated-content.ts", "utf8"),
+  ]);
+
+  for (const content of [troubleshooting, generatedDocumentation]) {
+    assert.match(
+      content,
+      /existing-Node fallback, confirm Node is version 24 or newer/u,
+    );
+    assert.match(content, /Node is older than 24/u);
+    assert.doesNotMatch(
+      content,
+      /existing-Node fallback, confirm Node is version 22 or newer|Node is older than 22/u,
+    );
+  }
+});
+
 test("troubleshooting explains the Windows WSL Docker Desktop resource failure", async () => {
   const troubleshooting = await readFile("docs/troubleshooting.md", "utf8");
   assert.match(troubleshooting, /0x800705aa/u);

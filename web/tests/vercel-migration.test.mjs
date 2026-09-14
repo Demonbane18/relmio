@@ -15,6 +15,7 @@ test("builds the hosted app as a Node.js 24 Next.js project on Vercel", async ()
   const vercelConfig = JSON.parse(vercelConfigSource);
 
   assert.equal(packageJson.engines.node, "24.x");
+  assert.match(packageJson.devDependencies["@types/node"], /^24\./u);
   assert.equal(packageJson.scripts["build:vercel"], "next build");
   assert.equal(vercelConfig.framework, "nextjs");
   assert.equal(vercelConfig.buildCommand, "npm run build:vercel");
