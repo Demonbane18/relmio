@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  INITIAL_STREAM_FEEDBACK,
   MAX_OUTPUT_BYTES,
+  nextPreTextPhase,
+  nextStreamFeedback,
   readRelmioEvents,
 } from "../app/components/relmio-stream.js";
 
@@ -51,4 +54,78 @@ test("rejects decoded hosted output above the display limit", async () => {
     },
     /safe display limit/u,
   );
+});
+
+test("keeps pre-text progress monotonic once upstream work begins", () => {
+  assert.equal(nextPreTextPhase("Connecting", "connecting"), "Connecting");
+  assert.equal(nextPreTextPhase("Connecting", "working"), "Waiting");
+  assert.equal(nextPreTextPhase("Waiting", "connecting"), "Waiting");
+  assert.equal(nextPreTextPhase("Waiting", "working"), "Waiting");
+});
+
+test("models the complete waiting-to-streaming lifecycle", () => {
+  let feedback = nextStreamFeedback(INITIAL_STREAM_FEEDBACK, { type: "send" });
+  assert.deepEqual(feedback, {
+    assistantStatus: "waiting",
+    phase: "Sending",
+    receivedText: false,
+  });
+
+  feedback = nextStreamFeedback(feedback, { type: "accepted" });
+  feedback = nextStreamFeedback(feedback, {
+    type: "progress",
+    upstreamPhase: "working",
+  });
+  feedback = nextStreamFeedback(feedback, {
+    type: "progress",
+    upstreamPhase: "connecting",
+  });
+  assert.equal(feedback.phase, "Waiting");
+
+  feedback = nextStreamFeedback(feedback, { type: "delta", text: "Relmio" });
+  assert.deepEqual(feedback, {
+    assistantStatus: "streaming",
+    phase: "Streaming",
+    receivedText: true,
+  });
+
+  feedback = nextStreamFeedback(feedback, { type: "complete" });
+  assert.equal(feedback.phase, "Complete");
+  assert.equal(feedback.assistantStatus, "complete");
+});
+
+test("preserves partial-output status across failure and interruption", () => {
+  const beforeText = nextStreamFeedback(
+    nextStreamFeedback(INITIAL_STREAM_FEEDBACK, { type: "send" }),
+    { type: "failed" },
+  );
+  assert.equal(beforeText.assistantStatus, "failed");
+
+  let afterText = nextStreamFeedback(INITIAL_STREAM_FEEDBACK, { type: "send" });
+  afterText = nextStreamFeedback(afterText, { type: "delta", text: "Relmio" });
+  afterText = nextStreamFeedback(afterText, { type: "failed" });
+  assert.equal(afterText.assistantStatus, "incomplete");
+
+  const stopping = nextStreamFeedback(afterText, { type: "stopping" });
+  assert.equal(stopping.phase, "Stopping");
+  assert.equal(stopping.assistantStatus, "stopped");
+  const stopped = nextStreamFeedback(stopping, { type: "stopped" });
+  assert.equal(stopped.phase, "Stopped");
+  assert.equal(stopped.receivedText, true);
+});
+
+test("ignores empty delta frames as non-visible output", () => {
+  const waiting = nextStreamFeedback(
+    nextStreamFeedback(INITIAL_STREAM_FEEDBACK, { type: "send" }),
+    { type: "progress", upstreamPhase: "working" },
+  );
+  const afterEmptyDelta = nextStreamFeedback(waiting, {
+    type: "delta",
+    text: "",
+  });
+
+  assert.deepEqual(afterEmptyDelta, waiting);
+  const failed = nextStreamFeedback(afterEmptyDelta, { type: "failed" });
+  assert.equal(failed.assistantStatus, "failed");
+  assert.equal(failed.receivedText, false);
 });

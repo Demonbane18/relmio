@@ -3,6 +3,92 @@ const MAX_STREAM_WIRE_BYTES = 4 * 1024 * 1024;
 const textEncoder = new TextEncoder();
 
 /**
+ * Keep the pre-text status moving forward even if upstream progress frames
+ * arrive late or repeat out of order.
+ *
+ * @param {"Connecting" | "Waiting"} currentPhase
+ * @param {unknown} upstreamPhase
+ * @returns {"Connecting" | "Waiting"}
+ */
+export function nextPreTextPhase(currentPhase, upstreamPhase) {
+  return currentPhase === "Waiting" || upstreamPhase === "working"
+    ? "Waiting"
+    : "Connecting";
+}
+
+/**
+ * @typedef {object} StreamFeedback
+ * @property {"waiting" | "streaming" | "complete" | "incomplete" | "stopped" | "failed"} assistantStatus
+ * @property {"Ready" | "Sending" | "Connecting" | "Waiting" | "Streaming" | "Complete" | "Stopping" | "Stopped" | "Failed"} phase
+ * @property {boolean} receivedText
+ */
+
+/** @type {Readonly<StreamFeedback>} */
+export const INITIAL_STREAM_FEEDBACK = Object.freeze({
+  assistantStatus: "waiting",
+  phase: "Ready",
+  receivedText: false,
+});
+
+/**
+ * @typedef {
+ *   | {type: "send" | "accepted" | "complete" | "failed" | "stopping" | "stopped"}
+ *   | {type: "delta", text: string}
+ *   | {type: "progress", upstreamPhase: unknown}
+ * } StreamFeedbackEvent
+ */
+
+/**
+ * @param {Readonly<StreamFeedback>} current
+ * @param {StreamFeedbackEvent} event
+ * @returns {StreamFeedback}
+ */
+export function nextStreamFeedback(current, event) {
+  if (event.type === "send") {
+    return {
+      assistantStatus: "waiting",
+      phase: "Sending",
+      receivedText: false,
+    };
+  }
+  if (event.type === "accepted") {
+    return { ...current, phase: "Connecting" };
+  }
+  if (event.type === "progress") {
+    if (current.receivedText) return { ...current };
+    return {
+      ...current,
+      phase: nextPreTextPhase(
+        current.phase === "Waiting" ? "Waiting" : "Connecting",
+        event.upstreamPhase,
+      ),
+    };
+  }
+  if (event.type === "delta") {
+    if (event.text.length === 0) return { ...current };
+    return {
+      assistantStatus: "streaming",
+      phase: "Streaming",
+      receivedText: true,
+    };
+  }
+  if (event.type === "complete") {
+    return { ...current, assistantStatus: "complete", phase: "Complete" };
+  }
+  if (event.type === "failed") {
+    return {
+      ...current,
+      assistantStatus: current.receivedText ? "incomplete" : "failed",
+      phase: "Failed",
+    };
+  }
+  if (event.type === "stopping") {
+    return { ...current, assistantStatus: "stopped", phase: "Stopping" };
+  }
+  return { ...current, assistantStatus: "stopped", phase: "Stopped" };
+}
+
+/**
  * @typedef {object} RelmioEvent
  * @property {Record<string, unknown>} data
  * @property {string} event
