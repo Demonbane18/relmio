@@ -7,6 +7,31 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.17.0] - 2026-09-14
+
+Relmio 0.17.0 is a pre-1.0 compatibility milestone that moves supported setup
+paths to Node.js 24 and updates the hosted web chat to GPT-5.6 Luna.
+
+### Added
+
+- Add a dated official-source review for the Node.js 24 runtime and hosted
+  Luna request, including authentication, data-flow, policy, entitlement, and
+  native-platform limits.
+
+### Changed
+
+- Require Node.js 24 or newer across the browser wizard, hosted launchers,
+  package metadata, CI, release validation, and current setup guidance. Portable
+  launchers now select a checksum-verified Node.js 24 runtime; the native CMD
+  launcher pins the reviewed official Node.js 24.21.0 archives.
+- Use the exact `gpt-5.6-luna` model ID for the hosted web chat request and its
+  visible model label. This does not change n8n, image, audio, console,
+  provider, or local endpoint defaults.
+
+Hosted Luna access still depends on the signed-in account and compatibility
+transport. This release does not establish broader model entitlement or Terms
+approval.
+
 ## [0.16.0] - 2026-09-12
 
 Relmio 0.16.0 brings GPT Image 2.5 discovery and selection guidance to the
@@ -992,4 +1017,5 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
 
+[0.17.0]: https://github.com/Demonbane18/relmio/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/Demonbane18/relmio/compare/v0.15.0...v0.16.0

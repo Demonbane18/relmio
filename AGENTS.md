@@ -2,7 +2,7 @@
 
 ## Runtime
 
-- Node.js 22 or newer
+- Node.js 24 or newer
 - npm 10.9.8
 - ECMAScript modules
 - Node's built-in HTTP server and test runner

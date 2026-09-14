@@ -92,7 +92,7 @@ for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") 
 ```
 
 These commands do not require Node.js to be installed. The Windows options do
-not require Git Bash. Each bootstrap reuses Node.js 22 or newer when available,
+not require Git Bash. Each bootstrap reuses Node.js 24 or newer when available,
 or shows staged **Please wait** messages while it downloads an official
 temporary runtime and verifies its SHA-256 checksum before execution. The
 Command Prompt bootstrap itself does not call PowerShell, request elevation, or
@@ -113,7 +113,7 @@ global safety control. The WinGet command stays hidden until Microsoft accepts
 its catalog pull request and the catalog updates. Until then, use Homebrew or
 one of the direct bootstrap commands on this page.
 
-If you choose the existing-Node fallback, confirm Node is version 22 or newer
+If you choose the existing-Node fallback, confirm Node is version 24 or newer
 and check the published package version first:
 
 ```bash
@@ -182,13 +182,13 @@ bypassed.
 
 | Symptom | Meaning | Fix |
 |---|---|---|
-| `node: command not found`, `node is not recognized`, or Node is older than 22 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
+| `node: command not found`, `node is not recognized`, or Node is older than 24 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
 | `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell or the collision-safe temporary-file command shown above in Command Prompt. Git Bash is not required. If Command Prompt does not have `curl`, update Windows or use the PowerShell route. |
 | Git Bash 2.38.1 reports that stdin is not a TTY | Its default mintty setup does not give Relmio's native portable-runtime child the required TTY. | Prefix this process with `MSYS=enable_pcon`, or use the native PowerShell or Command Prompt installer. Do not add a global Git setting. No upgraded Git Bash version was verified in the 0.14.0 acceptance run. |
 | Windows cannot locate its built-in security tool or apply owner-only protection | The bootstrap may have started successfully, but the running wizard could not use the inbox Windows PowerShell security API to protect and verify its local files. | Setup stops before saving secrets. Ask the Windows administrator to allow the inbox security API, then retry. PowerShell, Command Prompt, `npx`, and other Windows launch methods all use this same check and do not bypass it. |
-| The bootstrap stays on a `Please wait` stage | Node.js is missing or older than 22, so the bootstrap is downloading, checking, or extracting a temporary Node.js 22 runtime. | Keep the terminal open while the deterministic stage messages advance. The runtime is verified before it runs, is removed after the wizard exits, and is not installed system-wide. |
-| A bootstrap reports a checksum mismatch | The Node.js download did not match its reviewed official SHA-256 checksum, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 22+ installation and report the sanitized error. |
-| Windows PowerShell shows `[eval]:1` before the wizard starts | An older bootstrap passed a JavaScript expression through `node -p`; PowerShell native-argument handling can alter that expression. | Update to the latest `relmio@latest` and rerun the same PowerShell or Command Prompt command. The current bootstrap parses the literal `node --version` output and reuses Node.js 22 or newer. |
+| The bootstrap stays on a `Please wait` stage | Node.js is missing or older than 24, so the bootstrap is downloading, checking, or extracting a temporary Node.js 24 runtime. | Keep the terminal open while the deterministic stage messages advance. The runtime is verified before it runs, is removed after the wizard exits, and is not installed system-wide. |
+| A bootstrap reports a checksum mismatch | The Node.js download did not match its reviewed official SHA-256 checksum, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 24+ installation and report the sanitized error. |
+| Windows PowerShell shows `[eval]:1` before the wizard starts | An older bootstrap passed a JavaScript expression through `node -p`; PowerShell native-argument handling can alter that expression. | Update to the latest `relmio@latest` and rerun the same PowerShell or Command Prompt command. The current bootstrap parses the literal `node --version` output and reuses Node.js 24 or newer. |
 | Windows reports `spawn EINVAL` when starting ChatGPT sign-in | An older wizard tried to execute `npx.cmd` directly; Windows requires the current Node runtime to launch npm's JavaScript CLI. | Update to the latest `relmio@latest` release and restart the setup command. The current wizard keeps the macOS/Linux/WSL/Git Bash `npx` path unchanged. |
 | A local n8n action says it completed but Relmio could not release its operation lock | The owned Docker action finished, but the private local lifecycle lock could not be cleaned up safely. Relmio leaves the lock or its quarantine evidence instead of guessing. | Close and restart Relmio before another local n8n stack install/removal, then reopen the wizard and verify the detected owned stack. Do not manually delete lock or Docker resources. |
 | A bridge refresh says it could not freeze the owned sidecar or prove a quiesce snapshot | The Docker Linux-container freezer is unavailable, the exact owned container changed, or the credential writer was caught with an incomplete file. Relmio does not fall back to `docker stop`, promote a stale snapshot, or touch n8n. | Keep the evidence in place. On Docker Desktop, confirm the `desktop-linux` engine is running, wait for the existing sidecar writer to finish, reopen the current wizard, and retry once. If Relmio says the exact sidecar state was preserved for inspection, inspect that owned project before retrying; do not delete journal files manually. |

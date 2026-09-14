@@ -36,7 +36,7 @@ to review and stop an exact owned endpoint.
 
 ## Quick install
 
-With Node.js 22 or newer on macOS, Linux, WSL, Git Bash, Windows PowerShell,
+With Node.js 24 or newer on macOS, Linux, WSL, Git Bash, Windows PowerShell,
 or Command Prompt:
 
 ```bash
@@ -67,7 +67,7 @@ launchers open the foreground wizard with the same platform security checks.
 
 ## Keep the local dashboard available
 
-For a persistent command, install Relmio with Node.js 22 or newer, then manage
+For a persistent command, install Relmio with Node.js 24 or newer, then manage
 its owner-scoped loopback dashboard explicitly:
 
 ```bash

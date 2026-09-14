@@ -105,10 +105,10 @@ export default function InstallPage() {
               <h3>Where it runs</h3>
               <p>
                 Run Relmio on your own computer, not inside the n8n container.
-                Direct installers reuse Node.js 22+ when available or download
+                Direct installers reuse Node.js 24+ when available or download
                 and verify a temporary official runtime. They run a foreground,
                 one-shot wizard and remove any downloaded runtime afterward.
-                NPX requires Node.js 22+.
+                NPX requires Node.js 24+.
               </p>
             </section>
             <section>

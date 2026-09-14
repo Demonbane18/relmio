@@ -648,7 +648,7 @@ test("startOAuthLogin hides synchronous process-launch errors", async () => {
     (error) => {
       assert.equal(
         error.message,
-        "The local sign-in command could not start. Update Relmio and retry with Node.js 22 or newer.",
+        "The local sign-in command could not start. Update Relmio and retry with Node.js 24 or newer.",
       );
       assert.equal(error.code, undefined);
       return true;

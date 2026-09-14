@@ -15,7 +15,7 @@ reports, documentation fixes, and careful security feedback are welcome.
 
 ## Local development
 
-Use Node.js 22 or newer and the pinned npm version from `package.json`:
+Use Node.js 24 or newer and the pinned npm version from `package.json`:
 
 ```bash
 npm ci --ignore-scripts

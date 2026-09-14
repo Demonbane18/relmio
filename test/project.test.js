@@ -50,7 +50,7 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
   ]);
   const packageJson = JSON.parse(packageContents);
 
-  assert.equal(packageJson.engines.node, ">=22");
+  assert.equal(packageJson.engines.node, ">=24");
   assert.equal(packageJson.packageManager, "npm@10.9.8");
   assert.equal(packageJson.dependencies.ssh2, "1.17.0");
   assert.equal(packageJson.name, "relmio");
@@ -86,7 +86,7 @@ test("double-click launchers only install local dependencies and start the wizar
 
   for (const launcher of launchers) {
     assert.match(launcher, /versions\.node|node -p/);
-    assert.match(launcher, />= 22|GEQ 22/);
+    assert.match(launcher, />= 24|GEQ 24/);
     assert.match(launcher, /npm ci --ignore-scripts/);
     assert.match(launcher, /npm start/);
     assert.doesNotMatch(
@@ -128,6 +128,7 @@ test("CI pins reviewed actions and the repository npm version", async () => {
   );
   assert.match(workflow, /npm install --global --ignore-scripts npm@10\.9\.8/u);
   assert.match(workflow, /test "\$\(npm --version\)" = "10\.9\.8"/u);
+  assert.equal((workflow.match(/node-version: "24"/gu) ?? []).length, 3);
 });
 
 test("trusted publishing uses short-lived GitHub OIDC credentials", async () => {
@@ -140,7 +141,7 @@ test("trusted publishing uses short-lived GitHub OIDC credentials", async () => 
   assert.match(workflow, /contents: read/u);
   assert.match(workflow, /id-token: write/u);
   assert.match(workflow, /environment: npm/u);
-  assert.match(workflow, /node-version: "22\.14\.0"/u);
+  assert.match(workflow, /node-version: "24\.21\.0"/u);
   assert.match(workflow, /npm@11\.13\.0/u);
   assert.match(workflow, /npm run package:build -- \.release/u);
   assert.match(workflow, /npm publish/u);

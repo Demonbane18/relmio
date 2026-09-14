@@ -2,7 +2,7 @@
 
 set -eu
 
-minimum_node_major=22
+minimum_node_major=24
 node_dist_url="https://nodejs.org/download/release"
 temporary_directory=""
 terminal_input="/dev/tty"
@@ -103,9 +103,9 @@ temporary_directory="$(
 trap cleanup EXIT HUP INT TERM
 
 manifest_path="$temporary_directory/SHASUMS256.txt"
-manifest_url="$node_dist_url/latest-v22.x/SHASUMS256.txt"
+manifest_url="$node_dist_url/latest-v24.x/SHASUMS256.txt"
 
-say "[1/4] Installing a temporary Node.js 22 runtime. Please wait; this does not install Node.js system-wide."
+say "[1/4] Installing a temporary Node.js 24 runtime. Please wait; this does not install Node.js system-wide."
 say "[2/4] Downloading the official Node.js checksum manifest and runtime. Please wait..."
 download "$manifest_url" "$manifest_path" \
   || fail "Could not download the official Node.js checksum manifest."
@@ -121,7 +121,7 @@ archive_name="$(
 )"
 
 case "$archive_name" in
-  node-v22.*"$archive_suffix") ;;
+  node-v24.*"$archive_suffix") ;;
   *)
     fail "The Node.js manifest did not contain a supported runtime."
     ;;
@@ -147,7 +147,7 @@ esac
 version_and_platform="${archive_name#node-}"
 node_version="${version_and_platform%%-*}"
 case "$node_version" in
-  v22.*) ;;
+  v24.*) ;;
   *)
     fail "The Node.js manifest returned an unexpected version."
     ;;
@@ -175,7 +175,7 @@ fi
 [ "$actual_checksum" = "$expected_checksum" ] \
   || fail "Node.js download checksum did not match; nothing was executed."
 say "Verified Node.js download."
-say "[4/4] Extracting the verified temporary Node.js 22 runtime. Please wait..."
+say "[4/4] Extracting the verified temporary Node.js 24 runtime. Please wait..."
 if [ "$archive_extension" = "zip" ]; then
   unzip -q "$archive_path" -d "$temporary_directory"
   archive_root="${archive_name%.zip}"

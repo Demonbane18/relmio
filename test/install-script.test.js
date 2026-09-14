@@ -189,7 +189,7 @@ async function createPortableNodeFixture(
 ) {
   const platform = process.platform === "darwin" ? "darwin" : "linux";
   const architecture = process.arch === "arm64" ? "arm64" : "x64";
-  const version = "v22.23.2";
+  const version = "v24.21.0";
   const basename = `node-${version}-${platform}-${architecture}`;
   const fixtureRoot = join(root, "fixture");
   const archiveRoot = join(fixtureRoot, basename);
@@ -228,7 +228,7 @@ printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_
 }
 
 async function createWindowsNodeFixture(root) {
-  const version = "v22.23.2";
+  const version = "v24.21.0";
   const basename = `node-${version}-win-x64`;
   const fixtureRoot = join(root, "windows-fixture", basename);
   const npmCli = join(fixtureRoot, "node_modules", "npm", "bin");
@@ -338,10 +338,10 @@ case "$url" in
     printf "installer-script-piped\\n" > "$RELMIO_TEST_PIPE_LOG"
     cat "$RELMIO_TEST_INSTALLER"
     ;;
-  https://nodejs.org/download/release/latest-v22.x/SHASUMS256.txt)
+  https://nodejs.org/download/release/latest-v24.x/SHASUMS256.txt)
     cp "$RELMIO_TEST_MANIFEST" "$output"
     ;;
-  https://nodejs.org/download/release/v22.23.2/node-v22.23.2-win-x64.zip)
+  https://nodejs.org/download/release/v24.21.0/node-v24.21.0-win-x64.zip)
     cp "$RELMIO_TEST_ARCHIVE" "$output"
     ;;
   *)
@@ -443,10 +443,10 @@ case "$url" in
   https://relmio.vercel.app/install.sh)
     cat "$RELMIO_TEST_INSTALLER"
     ;;
-  https://nodejs.org/download/release/latest-v22.x/SHASUMS256.txt)
+  https://nodejs.org/download/release/latest-v24.x/SHASUMS256.txt)
     cp "$RELMIO_TEST_MANIFEST" "$output"
     ;;
-  https://nodejs.org/download/release/v22.23.2/node-v22.23.2-*.tar.gz)
+  https://nodejs.org/download/release/v24.21.0/node-v24.21.0-*.tar.gz)
     cp "$RELMIO_TEST_ARCHIVE" "$output"
     ;;
   *)
@@ -488,7 +488,7 @@ test("curl installer scopes foreground wizard mode to both Relmio child paths", 
 });
 
 test(
-  "curl installer reuses an installed Node 22 runtime",
+  "curl installer reuses an installed Node 24 runtime",
   { skip: process.platform === "win32" },
   async (t) => {
     const root = await mkdtemp(join(tmpdir(), "relmio-installed-node-test-"));
@@ -500,7 +500,7 @@ test(
     await mkdir(fakeBin);
     await writeExecutable(
       join(fakeBin, "node"),
-      '#!/bin/sh\nprintf "22\\n"\n',
+      '#!/bin/sh\nprintf "24\\n"\n',
     );
     await writeExecutable(
       join(fakeBin, "npx"),
@@ -522,7 +522,7 @@ printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_
       RELMIO_FOREGROUND_WIZARD: "caller-value",
     });
 
-    assert.match(stdout, /Using installed Node\.js 22/u);
+    assert.match(stdout, /Using installed Node\.js 24/u);
     assert.deepEqual((await readFile(log, "utf8")).trim().split("\n"), [
       "--yes",
       "--ignore-scripts",
@@ -545,7 +545,7 @@ test(
     await mkdir(fakeBin);
     await writeExecutable(
       join(fakeBin, "node"),
-      '#!/bin/sh\nprintf "22\\n"\n',
+      '#!/bin/sh\nprintf "24\\n"\n',
     );
     await writeExecutable(
       join(fakeBin, "npx"),
@@ -576,7 +576,7 @@ test(
     await mkdir(fakeBin);
     await writeExecutable(
       join(fakeBin, "node"),
-      '#!/bin/sh\nprintf "22\\n"\n',
+      '#!/bin/sh\nprintf "24\\n"\n',
     );
     await writeExecutable(
       join(fakeBin, "npx"),
@@ -633,9 +633,9 @@ test(
     const { stdout } = await runCommandInPseudoTerminal(installScript, setup.env);
     const invocation = (await readFile(setup.log, "utf8")).trim().split("\n");
 
-    assert.match(stdout, /Installing a temporary Node\.js 22 runtime\. Please wait/u);
+    assert.match(stdout, /Installing a temporary Node\.js 24 runtime\. Please wait/u);
     assert.match(stdout, /Verifying the Node\.js SHA-256 checksum\. Please wait/u);
-    assert.match(stdout, /Extracting the verified temporary Node\.js 22 runtime\. Please wait/u);
+    assert.match(stdout, /Extracting the verified temporary Node\.js 24 runtime\. Please wait/u);
     assert.match(stdout, /Verified Node\.js download/u);
     assert.match(
       invocation[0],

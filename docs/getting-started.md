@@ -40,7 +40,7 @@ native PowerShell or Command Prompt. No upgraded Git Bash version was tested.
 
 ## Keep the dashboard available
 
-Install a persistent command with Node.js 22 or newer, then use its explicit
+Install a persistent command with Node.js 24 or newer, then use its explicit
 lifecycle commands:
 
 ```bash

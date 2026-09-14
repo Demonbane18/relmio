@@ -36,7 +36,7 @@ to review and stop an exact owned endpoint.
 
 ## Quick install
 
-With Node.js 22 or newer on macOS, Linux, WSL, Git Bash, Windows PowerShell,
+With Node.js 24 or newer on macOS, Linux, WSL, Git Bash, Windows PowerShell,
 or Command Prompt:
 
 ```bash

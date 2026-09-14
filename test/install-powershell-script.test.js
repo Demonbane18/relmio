@@ -50,9 +50,9 @@ test("PowerShell installer validates the official Windows runtime before executi
 
   assert.match(
     script,
-    /https:\/\/nodejs\.org\/download\/release\/latest-v22\.x\/SHASUMS256\.txt/u,
+    /https:\/\/nodejs\.org\/download\/release\/latest-v24\.x\/SHASUMS256\.txt/u,
   );
-  assert.match(script, /node-\(\?<version>v22\\\.\\d\+\\\.\\d\+\)-win-/u);
+  assert.match(script, /node-\(\?<version>v24\\\.\\d\+\\\.\\d\+\)-win-/u);
   assert.match(script, /\(\?<architecture>x64\|arm64\)\\\.zip/u);
   assert.match(script, /Get-FileHash[^\n]+-Algorithm SHA256/u);
   assert.match(script, /Node\.js download checksum did not match/u);
@@ -61,9 +61,9 @@ test("PowerShell installer validates the official Windows runtime before executi
   assert.match(script, /Expand-Archive/u);
   assert.match(script, /--ignore-scripts/u);
   assert.match(script, /relmio@latest/u);
-  assert.match(script, /Installing a temporary Node\.js 22 runtime\. Please wait/u);
+  assert.match(script, /Installing a temporary Node\.js 24 runtime\. Please wait/u);
   assert.match(script, /Verifying the Node\.js SHA-256 checksum\. Please wait/u);
-  assert.match(script, /Extracting the verified temporary Node\.js 22 runtime\. Please wait/u);
+  assert.match(script, /Extracting the verified temporary Node\.js 24 runtime\. Please wait/u);
   assert.equal(
     script.match(/SetEnvironmentVariable\("RELMIO_FOREGROUND_WIZARD", "1", "Process"\)/gu)?.length,
     2,
@@ -95,7 +95,7 @@ test("PowerShell installer avoids the Node eval probe that surfaces [eval]:1 on 
 });
 
 test(
-  "PowerShell installer reuses an installed Node 22 runtime",
+  "PowerShell installer reuses an installed Node 24 runtime",
   async (t) => {
     const powershell = await findPowerShell();
     if (!powershell) {
@@ -116,7 +116,7 @@ test(
         [
           "@echo off",
           'if "%~1"=="--version" (',
-          "  echo v22.16.0",
+          "  echo v24.16.0",
           "  exit /b 0",
           ")",
           "echo [eval]:1 1>&2",
@@ -143,7 +143,7 @@ test(
         [
           "#!/bin/sh",
           'if [ "$1" = "--version" ]; then',
-          '  printf "v22.16.0\\n"',
+          '  printf "v24.16.0\\n"',
           "  exit 0",
           "fi",
           'printf "[eval]:1\\n" >&2',
@@ -211,7 +211,7 @@ printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_
           { env },
         );
 
-        assert.match(stdout, /Using installed Node\.js 22 runtime/u);
+        assert.match(stdout, /Using installed Node\.js 24 runtime/u);
         assert.match(stdout, /PREFERENCES:Continue\/Continue/u);
         assert.match(stdout, new RegExp(`FOREGROUND:${scenario.expectedRestoration}`, "u"));
         assert.deepEqual(
@@ -242,7 +242,7 @@ test(
         const restorationLog = join(root, "environment-restoration.txt");
         const temporaryPathLog = join(root, "temporary-path.txt");
         const wrapper = join(root, "invoke-portable-installer.ps1");
-        const filename = `node-v22.99.0-win-${nodeArchitecture}.zip`;
+        const filename = `node-v24.99.0-win-${nodeArchitecture}.zip`;
         const archiveContents = Buffer.from("relmio verified portable fixture\n");
         await writeFile(archive, archiveContents);
         const digest = createHash("sha256").update(archiveContents).digest("hex");
@@ -323,7 +323,7 @@ test(
           const invocation = JSON.parse(await readFile(invocationLog, "utf8"));
           assert.deepEqual(invocation.args, ["--yes", "--ignore-scripts", "relmio@latest"]);
           assert.equal(invocation.foregroundWizard, "1");
-          assert.match(invocation.execPath, /relmio-[a-f0-9]+[\\/]node-v22\.99\.0-win-(?:x64|arm64)[\\/]node\.exe$/iu);
+          assert.match(invocation.execPath, /relmio-[a-f0-9]+[\\/]node-v24\.99\.0-win-(?:x64|arm64)[\\/]node\.exe$/iu);
           assert.equal((await readFile(restorationLog, "utf8")).trim(), "True:caller-portable");
         } else {
           await assert.rejects(

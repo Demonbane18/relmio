@@ -10,7 +10,7 @@ The project is personal and experimental. It must explain that ChatGPT and OpenA
 
 ## Tech stack
 
-- Node.js `>=22`
+- Node.js `>=24`
 - npm `10.9.8`
 - ECMAScript modules
 - Node built-in HTTP server, test runner, crypto, child process, and file APIs

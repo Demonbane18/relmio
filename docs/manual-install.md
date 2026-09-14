@@ -22,8 +22,8 @@ second Compose project.
 
 The commands in this fallback use a POSIX shell. You need:
 
-- a local macOS or Linux computer with Node.js 22 or newer, or Windows with
-  WSL/Git Bash and Node.js 22 or newer;
+- a local macOS or Linux computer with Node.js 24 or newer, or Windows with
+  WSL/Git Bash and Node.js 24 or newer;
 - your VPS IP address;
 - the VPS root password;
 - the name of the running n8n container;
