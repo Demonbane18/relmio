@@ -119,6 +119,7 @@ const expectedPackedFiles = new Set([
   "src/ui/assistant.css",
   "src/ui/assistant.html",
   "src/ui/assistant.js",
+  "src/ui/chat-tester-feedback.js",
   "src/ui/icons/moon.svg",
   "src/ui/icons/monitor.svg",
   "src/ui/icons/sun.svg",

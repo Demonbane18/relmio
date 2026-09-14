@@ -22,6 +22,14 @@ Relmio handles provider OAuth only. API-key connections belong directly
 in n8n or the client that uses them.
 ChatGPT sign-in is not an OpenAI Platform API key.
 
+The hosted chat and the browser wizard's **Test AI Chat** console keep partial
+response text visible while it streams. Their status distinguishes connection
+setup, waiting for the first words, active streaming, completion, interruption,
+and failure without announcing every token to assistive technology. **Stop
+response** preserves text already received, and reduced-motion preferences keep
+the same state cues without animation. This presentation does not change the
+Chat Adapter protocol or external clients such as n8n.
+
 SuperGrok is a first-class local and VPS setup option in 0.14.0, but the adapter
 remains experimental. Live Windows checks covered fresh sign-in, model discovery,
 n8n Chat, Assistant node search, and a Calculator workflow. The full Windows gate

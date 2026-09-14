@@ -206,6 +206,7 @@
 }
 
 .message p {
+  min-height: calc(var(--text-body-size) * var(--text-body-leading));
   margin: 0;
   color: var(--chat-ink);
   line-height: 1.65;
@@ -246,11 +247,34 @@
   color: var(--color-text-orange);
 }
 
-.typingIndicator {
-  width: var(--spacing-5);
-  height: var(--spacing-5);
-  color: var(--chat-teal);
-  animation: spin var(--duration-slow) linear infinite;
+.message .waitingIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  color: var(--chat-muted);
+}
+
+.waitingIndicator::before {
+  content: "";
+  width: var(--spacing-6);
+  height: var(--spacing-0-5);
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  background: var(--color-background-teal);
+  animation: waiting-signal var(--duration-slow-max) var(--ease-standard)
+    infinite;
+}
+
+.streamingCursor {
+  width: var(--spacing-0-5);
+  height: var(--text-body-size);
+  display: inline-block;
+  margin-inline-start: var(--spacing-1);
+  border-radius: var(--radius-full);
+  background: var(--color-background-teal);
+  vertical-align: text-bottom;
+  animation: streaming-presence var(--duration-slow-max) var(--ease-standard)
+    infinite;
 }
 
 .jumpToLatest {
@@ -407,9 +431,15 @@
   }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(1turn);
+@keyframes waiting-signal {
+  50% {
+    background: var(--chat-teal);
+  }
+}
+
+@keyframes streaming-presence {
+  50% {
+    background: var(--chat-teal);
   }
 }
 
@@ -456,8 +486,17 @@
 
 @media (prefers-reduced-motion: reduce) {
   .message,
-  .typingIndicator {
+  .waitingIndicator::before,
+  .streamingCursor {
     animation: none;
+  }
+
+  .waitingIndicator::before {
+    background: var(--chat-teal);
+  }
+
+  .streamingCursor {
+    background: var(--chat-teal);
   }
 
   .connectButton,

@@ -273,6 +273,14 @@ and key ID in page memory. The matching private key remains only in the local
 server's in-memory, time-limited, bounded session map and can be invalidated
 explicitly. Prompts and transcript are not persisted server-side.
 
+The Test AI Chat interface distinguishes connection setup, waiting for the
+first text, active streaming, completion, interruption, and failure. Its atomic
+status announcement changes only when the phase changes, while the transcript
+keeps partial text visible without announcing each streamed chunk. Stopping the
+test uses the relay's existing abort path and preserves text already received.
+This UI behavior does not change the adapter's authenticated `POST /chat` SSE
+contract or the behavior seen by external clients such as n8n.
+
 This is not encryption at rest or end-to-end encryption. It reduces accidental
 credential transit and storage exposure, but cannot protect a compromised
 browser, extension, or local machine.

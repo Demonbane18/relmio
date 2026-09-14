@@ -1441,12 +1441,24 @@
                 required
               ></textarea>
             </label>
-            <button id="chat-tester-send" class="button primary" type="submit">
-              Send test message
-            </button>
+            <div class="chat-tester-message-actions">
+              <button id="chat-tester-send" class="button primary" type="submit">
+                Send test message
+              </button>
+              <button
+                id="chat-tester-stop"
+                class="button secondary"
+                type="button"
+                data-operation-allow="stop"
+                aria-label="Stop response"
+                hidden
+              >
+                Stop response
+              </button>
+            </div>
           </form>
 
-          <p id="chat-tester-status" class="chat-tester-status" role="status" aria-live="polite">
+          <p id="chat-tester-status" class="chat-tester-status" role="status" aria-live="polite" aria-atomic="true">
             Secure the local client credential to begin.
           </p>
           <p id="chat-tester-error" class="chat-tester-error" role="alert" hidden></p>
@@ -1455,6 +1467,8 @@
             class="chat-tester-transcript"
             role="log"
             aria-live="polite"
+            aria-busy="false"
+            aria-relevant="additions"
             aria-label="Local adapter test transcript"
           ></ol>
         </section>

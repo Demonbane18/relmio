@@ -11,7 +11,6 @@ import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import {
   ArrowDown,
-  LoaderCircle,
   LockKeyhole,
   SendHorizontal,
   Square,
@@ -24,7 +23,11 @@ import {
   type KeyboardEvent,
 } from "react";
 import styles from "./ChatConsole.module.css";
-import { readRelmioEvents } from "./relmio-stream.js";
+import {
+  INITIAL_STREAM_FEEDBACK,
+  nextStreamFeedback,
+  readRelmioEvents,
+} from "./relmio-stream.js";
 
 const suggestions = [
   "What is a robot?",
@@ -45,11 +48,23 @@ const COMPOSER_MIN_HEIGHT = 64;
 const COMPOSER_MAX_HEIGHT = 192;
 
 type AssistantTurnStatus =
+  | "waiting"
   | "streaming"
   | "complete"
   | "incomplete"
   | "stopped"
   | "failed";
+
+type StreamPhase =
+  | "Ready"
+  | "Sending"
+  | "Connecting"
+  | "Waiting"
+  | "Streaming"
+  | "Complete"
+  | "Stopping"
+  | "Stopped"
+  | "Failed";
 
 type ChatTurn = {
   content: string;
@@ -64,20 +79,52 @@ type ActiveRequest = {
   requestId: string;
 };
 
+type ChatRequest = (prompt: string, signal: AbortSignal) => Promise<Response>;
+
+type ChatConsoleProps = {
+  requestChat?: ChatRequest;
+};
+
 function assistantFallback(status: AssistantTurnStatus) {
   if (status === "stopped") return "Stopped before output was returned.";
   if (status === "failed") return "No response was returned.";
   return "";
 }
 
-export function ChatConsole() {
+function responsePhaseAnnouncement(phase: StreamPhase) {
+  if (phase === "Sending") return "Sending message to Relmio.";
+  if (phase === "Connecting") return "Connecting to Relmio.";
+  if (phase === "Waiting") return "Relmio is waiting for the first words.";
+  if (phase === "Streaming") return "Relmio is responding.";
+  if (phase === "Complete") return "Response complete.";
+  if (phase === "Stopping") return "Stopping the response.";
+  if (phase === "Stopped") return "Response stopped.";
+  if (phase === "Failed") return "Response failed.";
+  return "Ready for a message.";
+}
+
+async function requestHostedChat(prompt: string, signal: AbortSignal) {
+  return fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      ...(await openaiAuthHeaders()),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ prompt }),
+    signal,
+  });
+}
+
+export function ChatConsole({
+  requestChat = requestHostedChat,
+}: ChatConsoleProps = {}) {
   const [authStatus, setAuthStatus] =
     useState<SignInWithChatGPTState["status"]>("checking");
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [localError, setLocalError] = useState("");
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-  const [streamPhase, setStreamPhase] = useState("Ready");
+  const [streamPhase, setStreamPhase] = useState<StreamPhase>("Ready");
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const activeRequestRef = useRef<ActiveRequest | null>(null);
   const composingRef = useRef(false);
@@ -86,6 +133,20 @@ export function ChatConsole() {
   const requestSequenceRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLElement>(null);
+  const streamFeedbackRef = useRef<ReturnType<typeof nextStreamFeedback>>({
+    ...INITIAL_STREAM_FEEDBACK,
+  });
+
+  function updateStreamFeedback(
+    event: Parameters<typeof nextStreamFeedback>[1],
+    requestId?: string,
+  ) {
+    const feedback = nextStreamFeedback(streamFeedbackRef.current, event);
+    streamFeedbackRef.current = feedback;
+    setStreamPhase(feedback.phase);
+    if (requestId) setAssistantStatus(requestId, feedback.assistantStatus);
+    return feedback;
+  }
 
   const latestTurn = turns.at(-1);
   const latestTurnSignature = latestTurn
@@ -171,7 +232,7 @@ export function ChatConsole() {
     setInput("");
     setIsLoading(true);
     setLocalError("");
-    setStreamPhase("Connecting");
+    const submittedFeedback = updateStreamFeedback({ type: "send" });
     setTurns((current) =>
       [
         ...current,
@@ -187,23 +248,14 @@ export function ChatConsole() {
           id: `${requestId}-assistant`,
           requestId,
           role: "assistant" as const,
-          status: "streaming" as const,
+          status: submittedFeedback.assistantStatus,
         },
       ].slice(-MAX_VISIBLE_TURNS),
     );
 
-    let receivedText = false;
     let pendingError = "";
     try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          ...(await openaiAuthHeaders()),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ prompt: message }),
-        signal: controller.signal,
-      });
+      const response = await requestChat(message, controller.signal);
       if (!isCurrentRequest(requestId)) return;
       if (!response.ok) {
         throw new Error("The request was rejected before streaming began.");
@@ -215,6 +267,7 @@ export function ChatConsole() {
       ) {
         throw new Error("Relmio returned an unexpected response.");
       }
+      updateStreamFeedback({ type: "accepted" });
 
       let terminal = false;
       let completed = false;
@@ -222,18 +275,23 @@ export function ChatConsole() {
         if (!isCurrentRequest(requestId)) return;
 
         if (item.event === "progress") {
-          setStreamPhase(
-            item.data.phase === "working" ? "Thinking" : "Connecting",
-          );
+          updateStreamFeedback({
+            type: "progress",
+            upstreamPhase: item.data.phase,
+          });
         } else if (item.event === "delta") {
           if (typeof item.data.text !== "string") {
             throw new Error("Relmio returned an invalid response chunk.");
           }
-          receivedText = true;
-          setStreamPhase("Streaming");
+          const feedback = updateStreamFeedback({
+            type: "delta",
+            text: item.data.text,
+          });
+          if (item.data.text.length === 0) continue;
           updateAssistantTurn(requestId, (turn) => ({
             ...turn,
             content: turn.content + item.data.text,
+            status: feedback.assistantStatus,
           }));
         } else if (item.event === "error") {
           const code =
@@ -245,12 +303,8 @@ export function ChatConsole() {
           terminal = true;
           if (item.data.outcome !== "completed") {
             setLocalError(pendingError || streamErrors.upstream_failed);
-            setStreamPhase("Failed");
-            setAssistantStatus(
-              requestId,
-              receivedText ? "incomplete" : "failed",
-            );
-          } else if (!receivedText) {
+            updateStreamFeedback({ type: "failed" }, requestId);
+          } else if (!streamFeedbackRef.current.receivedText) {
             throw new Error("Relmio completed without a visible response.");
           } else {
             completed = true;
@@ -259,27 +313,21 @@ export function ChatConsole() {
       }
       if (!terminal) throw new Error("The response ended before completion.");
       if (completed && isCurrentRequest(requestId)) {
-        setAssistantStatus(requestId, "complete");
-        setStreamPhase("Ready");
+        updateStreamFeedback({ type: "complete" }, requestId);
       }
     } catch (error) {
       if (!isCurrentRequest(requestId)) return;
 
       if (controller.signal.aborted) {
         setLocalError("");
-        setStreamPhase("Stopped");
-        setAssistantStatus(requestId, "stopped");
+        updateStreamFeedback({ type: "stopped" }, requestId);
       } else {
         setLocalError(
           error instanceof Error
             ? error.message
             : "Connect ChatGPT before sending a message.",
         );
-        setStreamPhase("Failed");
-        setAssistantStatus(
-          requestId,
-          receivedText ? "incomplete" : "failed",
-        );
+        updateStreamFeedback({ type: "failed" }, requestId);
       }
     } finally {
       if (isCurrentRequest(requestId)) {
@@ -294,7 +342,7 @@ export function ChatConsole() {
     const activeRequest = activeRequestRef.current;
     if (!activeRequest) return;
 
-    setStreamPhase("Stopping");
+    updateStreamFeedback({ type: "stopping" }, activeRequest.requestId);
     activeRequest.controller.abort();
   }
 
@@ -348,7 +396,7 @@ export function ChatConsole() {
       ? "error"
       : streamPhase === "Stopped"
         ? "warning"
-        : streamPhase === "Ready"
+        : streamPhase === "Ready" || streamPhase === "Complete"
           ? "success"
           : "accent";
   const phaseColor =
@@ -381,7 +429,11 @@ export function ChatConsole() {
                 <StatusDot
                   variant={phaseVariant}
                   label={`Response state: ${streamPhase}`}
-                  isPulsing={isLoading}
+                  isPulsing={
+                    streamPhase === "Sending" ||
+                    streamPhase === "Connecting" ||
+                    streamPhase === "Waiting"
+                  }
                 />
               }
             />
@@ -485,19 +537,34 @@ export function ChatConsole() {
                   >
                     <HStack className={styles.messageMeta} gap={2} align="center">
                       <Text as="span" type="code" color="accent">{isIncomplete ? "Relmio · incomplete" : "Relmio"}</Text>
-                      {turn.status !== "complete" && turn.status !== "streaming" ? (
+                      {turn.status === "stopped" || turn.status === "failed" ? (
                         <Text as="span" type="supporting">
                           {turn.status}
                         </Text>
                       ) : null}
                     </HStack>
-                    <Text as="p" type="body">
-                      {completion || fallback || (
-                        <LoaderCircle
-                          className={styles.typingIndicator}
+                    <Text
+                      as="p"
+                      type="body"
+                      className={
+                        turn.status === "waiting"
+                          ? styles.waitingIndicator
+                          : undefined
+                      }
+                      aria-hidden={turn.status === "waiting" ? "true" : undefined}
+                    >
+                      {turn.status === "waiting"
+                        ? "Preparing response"
+                        : completion || fallback}
+                      {turn.status === "streaming" ? (
+                        <Text
+                          as="span"
+                          className={styles.streamingCursor}
                           aria-hidden="true"
-                        />
-                      )}
+                        >
+                          {" "}
+                        </Text>
+                      ) : null}
                     </Text>
                   </article>
                 );
@@ -586,7 +653,7 @@ export function ChatConsole() {
         aria-live="polite"
         aria-atomic="true"
       >
-        Response state: {streamPhase}.
+        {responsePhaseAnnouncement(streamPhase)}
       </Text>
     </section>
   );

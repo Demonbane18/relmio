@@ -109,6 +109,53 @@ test("the local wizard remains an accessible four-step page", async () => {
   assert.doesNotMatch(html, /\sonclick=/iu);
 });
 
+test("Test AI Chat exposes a quiet accessible streaming lifecycle", async () => {
+  const [html, script, css] = await Promise.all([
+    readFile("src/ui/local.html", "utf8"),
+    readFile("src/ui/local.js", "utf8"),
+    readFile("src/ui/local.css", "utf8"),
+  ]);
+
+  assert.match(html, /id="chat-tester-stop"[\s\S]*aria-label="Stop response"/u);
+  assert.match(
+    html,
+    /id="chat-tester-status"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/u,
+  );
+  assert.match(
+    html,
+    /id="chat-tester-transcript"[\s\S]*role="log"[\s\S]*aria-busy="false"[\s\S]*aria-relevant="additions"/u,
+  );
+  assert.match(script, /nextChatTesterFeedback/u);
+  assert.match(script, /new AbortController\(\)/u);
+  assert.match(script, /signal: controller\.signal/u);
+  assert.match(script, /markMainBusy: false/u);
+  assert.match(
+    script,
+    /chat-tester-transcript"\)\.setAttribute\("aria-busy", "true"\)/u,
+  );
+  assert.match(
+    script,
+    /chat-tester-transcript"\)\.setAttribute\("aria-busy", "false"\)/u,
+  );
+  assert.match(script, /type: "stopping"/u);
+  assert.match(script, /type: "stopped"/u);
+  assert.match(script, /data\.text\.length === 0/u);
+  assert.match(
+    script,
+    /if \(feedback\.phase !== previous\.phase\) \{\s*setChatTesterStatus/u,
+  );
+  assert.match(css, /chat-tester-turn-waiting/u);
+  assert.match(css, /chat-tester-stream-cursor/u);
+
+  const reducedMotion = css.slice(
+    css.indexOf("@media (prefers-reduced-motion: reduce)"),
+  );
+  assert.match(
+    reducedMotion,
+    /chat-tester-turn-waiting[\s\S]*chat-tester-stream-cursor[\s\S]*animation:\s*none/u,
+  );
+});
+
 test("ready-panel credential and action controls are siblings of its flex heading", async () => {
   const html = await readFile("src/ui/local.html", "utf8");
   const { actions, parents } = readyPanelParents(html);
@@ -126,7 +173,8 @@ test("ready-panel credential and action controls are siblings of its flex headin
 test("the complete local script bootstraps without retired tail initializers", async () => {
   const { runInNewContext } = await import("node:vm");
   const script = (await readFile("src/ui/local.js", "utf8"))
-    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => null; const bindWizardNavigation = () => {};\n");
+    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => null; const bindWizardNavigation = () => {};\n")
+    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n");
   const makeNode = () => ({
     attributes: new Map(),
     checked: false,
@@ -168,7 +216,8 @@ test("the complete local script bootstraps without retired tail initializers", a
 test("the complete script renders a healthy OAuth inventory instead of falling back to unavailable", async () => {
   const { runInNewContext } = await import("node:vm");
   const script = (await readFile("src/ui/local.js", "utf8"))
-    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => 'a'.repeat(43); const bindWizardNavigation = () => {};\n");
+    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => 'a'.repeat(43); const bindWizardNavigation = () => {};\n")
+    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n");
   const fixture = {
     schemaVersion: 1, generatedAt: new Date().toISOString(),
     docker: { available: true, version: "29.7.2", composeVersion: "2.39.1" }, auth: { secretsRevealable: false },
