@@ -7,6 +7,16 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- Require Node.js 24 or newer across the browser wizard, hosted launchers,
+  package metadata, CI, release validation, and current setup guidance. Portable
+  launchers now select a checksum-verified Node.js 24 runtime; the native CMD
+  launcher pins the reviewed official Node.js 24.21.0 archives.
+- Use the exact `gpt-5.6-luna` model ID for the hosted web chat request and its
+  visible model label. This does not change n8n, image, audio, console,
+  provider, or local endpoint defaults.
+
 ## [0.16.0] - 2026-09-12
 
 Relmio 0.16.0 brings GPT Image 2.5 discovery and selection guidance to the

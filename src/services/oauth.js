@@ -258,7 +258,7 @@ export async function startOAuthLogin({
     );
   } catch (error) {
     throw new Error(
-      "The local sign-in command could not start. Update Relmio and retry with Node.js 22 or newer.",
+      "The local sign-in command could not start. Update Relmio and retry with Node.js 24 or newer.",
       { cause: error },
     );
   }
@@ -335,7 +335,7 @@ export async function startOAuthLogin({
 
   child.once("error", () => {
     const error = new Error(
-      "The local sign-in command could not start. Install Node.js 22 and try again.",
+      "The local sign-in command could not start. Install Node.js 24 and try again.",
     );
     settleAuthorizationUrl(error);
     settleProcessClose(error);

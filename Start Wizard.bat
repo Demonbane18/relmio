@@ -4,15 +4,15 @@ cd /d "%~dp0"
 
 where node >nul 2>nul
 if errorlevel 1 (
-  echo Node.js 22 or newer is required.
+  echo Node.js 24 or newer is required.
   echo Install it from https://nodejs.org/ and double-click this file again.
   pause
   exit /b 1
 )
 
 for /f "delims=" %%V in ('node -p "parseInt(process.versions.node)"') do set "NODE_MAJOR=%%V"
-if %NODE_MAJOR% GEQ 22 goto node_ready
-echo Your Node.js version is too old. Version 22 or newer is required.
+if %NODE_MAJOR% GEQ 24 goto node_ready
+echo Your Node.js version is too old. Version 24 or newer is required.
 echo Update it from https://nodejs.org/ and double-click this file again.
 pause
 exit /b 1

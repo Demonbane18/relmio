@@ -182,7 +182,7 @@ function streamResponse(request: Request, prompt: string): Response {
           body: JSON.stringify({
             input: prompt,
             instructions: SYSTEM_INSTRUCTIONS,
-            model: "gpt-5.4-mini",
+            model: "gpt-5.6-luna",
             reasoning: { effort: "low" },
             stream: true,
             text: { verbosity: "low" },

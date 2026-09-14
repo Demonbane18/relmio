@@ -696,7 +696,7 @@ test("fixture documentation states its proof and cleanup boundaries", async () =
   assert.match(guide, /per-checkout[\s\S]*ownership marker/iu);
   assert.match(guide, /local Unix socket[\s\S]*pinned/iu);
   assert.match(guide, /90 seconds[\s\S]*n8n healthy/iu);
-  assert.match(guide, /Node\.js 22[\s\S]*Windows hosts[\s\S]*unsupported/iu);
+  assert.match(guide, /Node\.js 24[\s\S]*Windows hosts[\s\S]*unsupported/iu);
   assert.match(guide, /Docker Compose v2\.17\.0[\s\S]*docker compose version/iu);
   assert.match(guide, /mode-`0700`[\s\S]*mode `0644`[\s\S]*non-root/iu);
   assert.match(guide, /private `Z` relabel[\s\S]*SELinux-enforcing/iu);

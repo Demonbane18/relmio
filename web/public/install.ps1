@@ -3,7 +3,7 @@
   $ProgressPreference = "SilentlyContinue"
   Set-StrictMode -Version 3.0
 
-  $minimumNodeMajor = 22
+  $minimumNodeMajor = 24
   $nodeDistributionUrl = "https://nodejs.org/download/release"
   $temporaryDirectory = $null
   $previousSecurityProtocol = $null
@@ -101,13 +101,13 @@
     [IO.Directory]::CreateDirectory($temporaryDirectory) | Out-Null
 
     $manifestPath = Join-Path $temporaryDirectory "SHASUMS256.txt"
-    $manifestUrl = "https://nodejs.org/download/release/latest-v22.x/SHASUMS256.txt"
+    $manifestUrl = "https://nodejs.org/download/release/latest-v24.x/SHASUMS256.txt"
 
-    Write-RelmioInstallerMessage "[1/4] Installing a temporary Node.js 22 runtime. Please wait; this does not install Node.js system-wide."
+    Write-RelmioInstallerMessage "[1/4] Installing a temporary Node.js 24 runtime. Please wait; this does not install Node.js system-wide."
     Write-RelmioInstallerMessage "[2/4] Downloading the official Node.js checksum manifest and runtime. Please wait..."
     Save-RelmioHttpsFile -Uri $manifestUrl -Destination $manifestPath
 
-    $manifestPattern = '^(?<checksum>[0-9A-Fa-f]{64})\s+(?<filename>node-(?<version>v22\.\d+\.\d+)-win-(?<architecture>x64|arm64)\.zip)$'
+    $manifestPattern = '^(?<checksum>[0-9A-Fa-f]{64})\s+(?<filename>node-(?<version>v24\.\d+\.\d+)-win-(?<architecture>x64|arm64)\.zip)$'
     $runtimeEntries = @(
       foreach ($line in Get-Content -LiteralPath $manifestPath) {
         if ($line -match $manifestPattern -and $Matches["architecture"] -eq $nodeArchitecture) {
@@ -136,7 +136,7 @@
     }
     Write-RelmioInstallerMessage "Verified Node.js download."
 
-    Write-RelmioInstallerMessage "[4/4] Extracting the verified temporary Node.js 22 runtime. Please wait..."
+    Write-RelmioInstallerMessage "[4/4] Extracting the verified temporary Node.js 24 runtime. Please wait..."
     Expand-Archive -LiteralPath $archivePath -DestinationPath $temporaryDirectory -Force
     $archiveRoot = [IO.Path]::GetFileNameWithoutExtension($runtime.Filename)
     $nodeBinary = Join-Path $temporaryDirectory "$archiveRoot\node.exe"

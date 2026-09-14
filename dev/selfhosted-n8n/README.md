@@ -4,7 +4,7 @@ This maintainer-only harness runs a new, disposable n8n instance and publishes o
 
 ## Prerequisites
 
-- Node.js 22 or newer.
+- Node.js 24 or newer.
 - A Linux-container Docker engine, using [Docker Desktop](https://docs.docker.com/desktop/) on macOS or Docker Desktop/Docker Engine on Linux. Windows hosts, including Docker Desktop with its named-pipe context, are deliberately unsupported by this Unix-socket harness.
 - Docker Compose v2.17.0 or newer. Confirm the separately installed Linux plugin with `docker compose version`.
 - An ngrok [reserved development domain](https://ngrok.com/docs/gateway/domains) such as `your-name.ngrok.app`.

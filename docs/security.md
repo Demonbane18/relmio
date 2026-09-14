@@ -391,13 +391,13 @@ is engineering guidance, not legal advice or an OpenAI approval.
 
 The current release pins:
 
-- Node.js 22+
+- Node.js 24+
 - `ssh2` `1.17.0`
 - `openai-oauth` `2.0.0`
 - `@openai/codex` `0.147.0` in the local Codex image
 
 The POSIX and native Windows PowerShell bootstraps reuse a compatible local
-Node.js runtime or download the matching current official Node.js 22 archive
+Node.js runtime or download the matching current official Node.js 24 archive
 to a private temporary directory. Each validates the archive against Node.js's
 SHA-256 manifest before execution and removes it when the wizard closes. The
 PowerShell bootstrap accepts only strict Windows x64 or ARM64 archive names,

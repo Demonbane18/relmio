@@ -15,7 +15,7 @@ if defined RELMIO_SELF_DELETE if /i "%RELMIO_SELF_DELETE%"=="%~f0" (
 endlocal & exit /b %RELMIO_EXIT_CODE%
 
 :main
-set "RELMIO_MINIMUM_NODE_MAJOR=22"
+set "RELMIO_MINIMUM_NODE_MAJOR=24"
 set "RELMIO_SYSTEM32=%SystemRoot%\System32"
 set "RELMIO_CURL=%RELMIO_SYSTEM32%\curl.exe"
 set "RELMIO_CERTUTIL=%RELMIO_SYSTEM32%\certutil.exe"
@@ -61,18 +61,18 @@ if errorlevel 1 (
   exit /b 1
 )
 
-set "RELMIO_NODE_VERSION=v22.23.2"
+set "RELMIO_NODE_VERSION=v24.21.0"
 set "RELMIO_ARCHIVE_NAME=node-%RELMIO_NODE_VERSION%-win-%RELMIO_NODE_ARCHITECTURE%.zip"
 set "RELMIO_EXPECTED_CHECKSUM="
-if /i "%RELMIO_NODE_ARCHITECTURE%"=="x64" set "RELMIO_EXPECTED_CHECKSUM=1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97"
-if /i "%RELMIO_NODE_ARCHITECTURE%"=="arm64" set "RELMIO_EXPECTED_CHECKSUM=fec025a6da31757e3b6af84c5a1628e9d38442ca99a2161091d78f2fcfa35ef3"
+if /i "%RELMIO_NODE_ARCHITECTURE%"=="x64" set "RELMIO_EXPECTED_CHECKSUM=158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541"
+if /i "%RELMIO_NODE_ARCHITECTURE%"=="arm64" set "RELMIO_EXPECTED_CHECKSUM=8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921"
 if not defined RELMIO_EXPECTED_CHECKSUM (
   call :failure "No reviewed Node.js checksum is available for this architecture."
   exit /b 1
 )
 set "RELMIO_ARCHIVE_PATH=%RELMIO_TEMPORARY_DIRECTORY%\%RELMIO_ARCHIVE_NAME%"
 set "RELMIO_ARCHIVE_URL=https://nodejs.org/download/release/%RELMIO_NODE_VERSION%/%RELMIO_ARCHIVE_NAME%"
-call :message "[1/4] Installing a temporary Node.js 22 runtime. Please wait; this does not install Node.js system-wide."
+call :message "[1/4] Installing a temporary Node.js 24 runtime. Please wait; this does not install Node.js system-wide."
 call :message "[2/4] Downloading the reviewed official Node.js runtime. Please wait..."
 call :download "%RELMIO_ARCHIVE_URL%" "%RELMIO_ARCHIVE_PATH%"
 if errorlevel 1 (
@@ -111,7 +111,7 @@ if /i not "%RELMIO_ACTUAL_CHECKSUM%"=="%RELMIO_EXPECTED_CHECKSUM%" (
 )
 
 call :message "Verified Node.js download."
-call :message "[4/4] Extracting the verified temporary Node.js 22 runtime. Please wait..."
+call :message "[4/4] Extracting the verified temporary Node.js 24 runtime. Please wait..."
 "%RELMIO_TAR%" -xf "%RELMIO_ARCHIVE_PATH%" -C "%RELMIO_TEMPORARY_DIRECTORY%"
 if errorlevel 1 (
   call :failure "tar.exe could not extract the verified Node.js runtime."
@@ -191,7 +191,7 @@ endlocal & exit /b 0
 setlocal DisableDelayedExpansion
 set "RELMIO_CANDIDATE_ARCHIVE=%~1"
 set "RELMIO_CANDIDATE_ARCHITECTURE=%~2"
-echo(%RELMIO_CANDIDATE_ARCHIVE%| "%RELMIO_FINDSTR%" /r /x "node-v22\.[0-9][0-9]*\.[0-9][0-9]*-win-%RELMIO_CANDIDATE_ARCHITECTURE%\.zip" >nul
+echo(%RELMIO_CANDIDATE_ARCHIVE%| "%RELMIO_FINDSTR%" /r /x "node-v24\.[0-9][0-9]*\.[0-9][0-9]*-win-%RELMIO_CANDIDATE_ARCHITECTURE%\.zip" >nul
 if errorlevel 1 endlocal & exit /b 1
 endlocal & exit /b 0
 

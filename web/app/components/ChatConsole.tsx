@@ -369,7 +369,7 @@ export function ChatConsole() {
               Hosted test lane
             </Text>
             <Text as="p" className={styles.model} type="code">
-              gpt-5.4-mini
+              gpt-5.6-luna
             </Text>
           </HStack>
           <HStack className="console-statuses" gap={2} wrap="wrap">

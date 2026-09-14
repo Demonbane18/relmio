@@ -58,8 +58,8 @@ Explain that:
 
 - no preinstalled Node.js runtime is required;
 - native Windows does not require Git Bash and also has a Command Prompt option;
-- the bootstrap reuses Node.js 22+ or downloads and checksum-verifies a
-  temporary official Node.js 22 runtime;
+- the bootstrap reuses Node.js 24+ or downloads and checksum-verifies a
+  temporary official Node.js 24 runtime;
 - npm lifecycle scripts stay disabled when it starts the published package;
 - the wizard binds to `127.0.0.1`;
 - automatic browser opening uses an owner-only, single-use handoff file and

@@ -9,7 +9,7 @@ It does not install an operating-system login service or start at login.
 
 ## Start the dashboard
 
-Install the published command with Node.js 22 or newer:
+Install the published command with Node.js 24 or newer:
 
 ```bash
 npm install --global --ignore-scripts relmio@latest

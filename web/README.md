@@ -6,7 +6,7 @@ supported ChatGPT account before making a request.
 
 ## Local development
 
-Requires Node.js 22.13 or newer.
+Requires Node.js 24.x.
 
 ```bash
 npm install
