@@ -62,9 +62,11 @@ MSYS=enable_pcon npx --yes --ignore-scripts relmio@latest
 This does not change global Git configuration. An upgraded Git Bash version
 has not been verified by the 0.14.0 acceptance run.
 
-The command opens a private dashboard on `127.0.0.1` and rediscovers services
-Relmio already manages. Select **Add connection** to open the four-step wizard,
-review exactly what it will create, then confirm the install.
+The command opens a foreground setup wizard on `127.0.0.1` without creating
+persistent Relmio state. It also works on a first-run machine with no `.relmio`
+directory and no local n8n stack; missing prerequisites appear as actionable
+steps in the browser instead of ending the launcher before the page opens.
+Review exactly what the wizard will create, then confirm the install.
 
 No Node.js yet? The [hosted install guide](https://relmio.vercel.app/install)
 has native curl, Homebrew, PowerShell, and Command Prompt options. Homebrew

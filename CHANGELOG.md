@@ -7,6 +7,24 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- Open bare `relmio`, NPX, and hosted installer launches as a foreground
+  browser wizard without creating persistent Relmio state. A clean first-run
+  machine may have no `.relmio` directory and no local n8n stack; prerequisite
+  guidance now remains inside the wizard.
+- Run the complete release gate plus focused PowerShell, CMD, browser handoff,
+  ACL, and Codex login checks on native Windows CI.
+
+### Fixed
+
+- Keep a successfully dispatched Windows browser handoff alive even when
+  `explorer.exe` later returns a nonzero status, preventing the temporary page
+  from disappearing with `ERR_FILE_NOT_FOUND`.
+- Use native Windows Node/npm process boundaries, owner-only temporary browser
+  handoffs, and isolated official Codex login attempts with validated atomic
+  credential promotion and actionable cancellation errors.
+
 ## [0.17.1] - 2026-09-14
 
 Relmio 0.17.1 makes streamed replies calmer and clearer in both the hosted

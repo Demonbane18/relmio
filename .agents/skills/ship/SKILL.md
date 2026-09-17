@@ -50,28 +50,30 @@ version bump merely to merge a compatible change.
 
 ## Distribution audit contract
 
-Explicitly invoke `release-relmio-everywhere` before and after publication.
-Read `/Users/demonbane/.codex/skills/release-relmio-everywhere/SKILL.md`
-completely, then use its deterministic audit as follows:
+Explicitly invoke the repository-local `release-relmio-everywhere` skill before
+and after publication. Read
+`.agents/skills/release-relmio-everywhere/SKILL.md` completely from the
+repository root. Never substitute a user-specific path from another computer.
+Use its cross-platform audit matrix as follows:
 
 1. Before release edits, audit the currently published baseline version and
    require every applicable required check to pass:
 
-   ```sh
-   node /Users/demonbane/.codex/skills/release-relmio-everywhere/scripts/audit-distribution.mjs \
-     --repo "$PWD" --version "<published-version>" --json
-   ```
+   Record the repository metadata, npm version and immutable tarball, live
+   installer bytes, hosted install commands, GitHub release assets, Homebrew
+   formula version/hash, and conditional WinGet status.
 
-2. Immediately before the first authorized external publication, run the same
-   audit with `<target-version>`. Require all local metadata, installer, and
+2. Immediately before the first authorized external publication, repeat the
+   matrix with `<target-version>`. Require all local metadata, installer, and
    behavior checks to pass. Record failures for not-yet-published npm, GitHub,
    Vercel-hosted, Homebrew, or catalog surfaces as the explicit publication
    delta; any other failure blocks publication. Never describe this expected
    nonzero pre-publication result as a green audit.
-3. After all authorized, applicable publication and distribution writes, run
-   the target-version audit again. Require `ok: true` and every required check
-   to report `PASS`; WinGet may report `NOT-PUBLIC` only when no public Relmio
-   documentation advertises it. A nonzero result blocks release completion.
+3. After all authorized, applicable publication and distribution writes,
+   repeat the target-version matrix. Require every applicable check to report
+   `PASS`; WinGet may report `NOT-PUBLIC` only when no public Relmio
+   documentation advertises it. Any required failure blocks release
+   completion.
 4. Include both pre-publication and post-publication audit matrices in the final
    evidence record, with every changed external system and unresolved surface.
 

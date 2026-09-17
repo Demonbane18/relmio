@@ -100,11 +100,12 @@ the recorded process identity, and uses its
 separately authenticated loopback control endpoint. It has no PID-only kill
 fallback.
 
-Running `relmio` or `relmio local` starts the dashboard when needed and opens
-it. `relmio vps` and `relmio assistant` open their respective wizard route on
-the same private dashboard process. If automatic browser opening fails, fix
-the operating system's default-browser launcher and run `relmio open` again;
-Relmio does not print the private session value from a persistent process.
+Running bare `relmio` opens the foreground first-run wizard. Running `relmio
+local` opts into the persistent dashboard, while `relmio vps` and `relmio
+assistant` open their respective wizard route on that private dashboard
+process. If automatic browser opening fails for a persistent process, fix the
+operating system's default-browser launcher and run `relmio open` again;
+Relmio does not print its private session value.
 
 A same-tab reload keeps the temporary wizard capability only in the current
 tab's clean GET history entry while that Relmio process remains open. The value
