@@ -159,7 +159,7 @@ async function runGitBashInstallerInTerminal(
     throw error;
   }
   if (exitCode !== "0") {
-    let diagnostics = "No fixture stderr was captured.";
+    let diagnostics = "";
     try {
       diagnostics = await readFile(
         env.RELMIO_TEST_DIAGNOSTIC_LOG_NATIVE,
@@ -168,6 +168,14 @@ async function runGitBashInstallerInTerminal(
     } catch (error) {
       if (error?.code !== "ENOENT") throw error;
     }
+    if (!diagnostics.trim()) {
+      try {
+        diagnostics = await readFile(env.RELMIO_TEST_LOG, "utf8");
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    if (!diagnostics.trim()) diagnostics = "No fixture diagnostics were captured.";
     throw new Error(
       `Git Bash installer fixture exited with ${exitCode}: ${diagnostics.trim()}`,
     );
@@ -286,10 +294,15 @@ const runtimeProbe = spawnSync("node", ["-p", "process.execPath"], {
   encoding: "utf8",
   windowsHide: true,
 });
+const runtimeProbePath = runtimeProbe.stdout.trim();
+appendFileSync(log, "runtime-self=" + process.execPath + "\\n");
+appendFileSync(log, "runtime-probe=" + (runtimeProbePath || "missing") + "\\n");
+appendFileSync(log, "runtime-probe-status=" + String(runtimeProbe.status) + "\\n");
+appendFileSync(log, "runtime-probe-error=" + (runtimeProbe.error?.code || "none") + "\\n");
 if (
   runtimeProbe.error ||
   runtimeProbe.status !== 0 ||
-  realpathSync(runtimeProbe.stdout.trim()) !== realpathSync(process.execPath)
+  realpathSync(runtimeProbePath) !== realpathSync(process.execPath)
 ) {
   console.error('\"node\" is not recognized as an internal or external command.');
   process.exit(127);
