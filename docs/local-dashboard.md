@@ -28,9 +28,12 @@ You can also run the published package without a global install:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-That command starts the same persistent owner-scoped dashboard and opens it.
-Because it does not place `relmio` on your PATH, repeat the full NPX command
-for later lifecycle actions:
+That command opens a foreground setup wizard without creating persistent
+dashboard state. It is safe to use on a first-run machine with no Relmio files
+and no local n8n stack; prerequisite checks and actionable errors appear inside
+the browser wizard. Because NPX does not place `relmio` on your PATH, repeat the
+full command and add an explicit lifecycle action when you want a persistent
+dashboard:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest start
@@ -44,6 +47,10 @@ From a repository checkout with dependencies installed, run:
 ```bash
 npm start
 ```
+
+This uses the same foreground, first-run wizard behavior as the bare NPX
+command. It does not initialize the persistent local dashboard before opening
+the browser.
 
 Use the [hosted install page](https://relmio.vercel.app/install) when you need
 the native macOS, Linux, PowerShell, or Command Prompt launcher. A hosted
@@ -93,11 +100,12 @@ the recorded process identity, and uses its
 separately authenticated loopback control endpoint. It has no PID-only kill
 fallback.
 
-Running `relmio` or `relmio local` starts the dashboard when needed and opens
-it. `relmio vps` and `relmio assistant` open their respective wizard route on
-the same private dashboard process. If automatic browser opening fails, fix
-the operating system's default-browser launcher and run `relmio open` again;
-Relmio does not print the private session value from a persistent process.
+Running bare `relmio` opens the foreground first-run wizard. Running `relmio
+local` opts into the persistent dashboard, while `relmio vps` and `relmio
+assistant` open their respective wizard route on that private dashboard
+process. If automatic browser opening fails for a persistent process, fix the
+operating system's default-browser launcher and run `relmio open` again;
+Relmio does not print its private session value.
 
 A same-tab reload keeps the temporary wizard capability only in the current
 tab's clean GET history entry while that Relmio process remains open. The value

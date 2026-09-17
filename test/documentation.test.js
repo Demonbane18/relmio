@@ -52,8 +52,19 @@ test("README surfaces are concise product entry points linked to canonical docs"
     assert.match(guide, /Local image build failed/u);
     assert.match(guide, /npx --yes --ignore-scripts relmio@latest/u);
     assert.match(guide, /SuperGrok setup does not require or read ChatGPT credentials/u);
-    assert.match(guide, /full Windows gate[\s\S]*conditional[\s\S]*Git Bash 2\.38\.1/iu);
-    assert.match(guide, /VPS Chat success was user-reported[\s\S]*VPS Assistant and Calculator remain unverified/iu);
+    assert.match(
+      guide,
+      /Native Windows CI[\s\S]*hosted Git Bash launcher[\s\S]*terminal handles/iu,
+    );
+    assert.match(
+      guide,
+      /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/u,
+    );
+    assert.match(guide, /bundled `winpty`/u);
+    assert.match(
+      guide,
+      /VPS Chat success was\s+user-reported[\s\S]*VPS Assistant and Calculator\s+remain unverified/iu,
+    );
     assert.match(guide, /OpenAI OAuth[^\n]*\*\*On\*\*/iu);
     assert.match(guide, /SuperGrok OAuth[^\n]*\*\*Off\*\*/iu);
     assert.match(guide, /MSYS=enable_pcon/u);
@@ -487,7 +498,10 @@ test("troubleshooting distinguishes the CMD bootstrap from the shared Windows AC
   assert.match(troubleshooting, /--remove-on-error/u);
   assert.match(troubleshooting, /RELMIO_SELF_DELETE=%~F/u);
   assert.doesNotMatch(troubleshooting, /-o install\.cmd/u);
-  assert.match(troubleshooting, /Command Prompt bootstrap itself does not call PowerShell/u);
+  assert.match(
+    troubleshooting,
+    /Command Prompt bootstrap itself does not call\s+PowerShell/u,
+  );
   assert.match(
     troubleshooting,
     /Every native Windows launcher shares this[\s\S]*setup stops\s+before saving secrets/u,

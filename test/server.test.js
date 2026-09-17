@@ -62,8 +62,7 @@ function createServices() {
       },
       async startOAuthLogin() {
         return {
-          authorizationUrl:
-            "https://auth.openai.com/oauth/authorize?fixture=true",
+          launchMode: "system-browser",
           completion: Promise.resolve({ success: true }),
           cancel() {},
         };
@@ -294,7 +293,7 @@ test("wizard server rejects cross-origin writes", async (t) => {
   assert.equal(response.status, 403);
 });
 
-test("wizard returns the exact fresh OAuth link and reports completion", async (t) => {
+test("wizard reports official system-browser OAuth launch and completion", async (t) => {
   const { services } = createServices();
   const wizard = await startWizardServer({
     sessionToken,
@@ -310,10 +309,8 @@ test("wizard returns the exact fresh OAuth link and reports completion", async (
   });
   assert.equal(loginResponse.status, 200);
   const login = await loginResponse.json();
-  assert.equal(
-    login.authorizationUrl,
-    "https://auth.openai.com/oauth/authorize?fixture=true",
-  );
+  assert.equal(login.launchMode, "system-browser");
+  assert.equal(Object.hasOwn(login, "authorizationUrl"), false);
   assert.match(login.attemptId, /^[0-9a-f-]+$/u);
 
   await new Promise((resolve) => setImmediate(resolve));
@@ -323,6 +320,33 @@ test("wizard returns the exact fresh OAuth link and reports completion", async (
   assert.match(status.attemptId, /^[0-9a-f-]+$/u);
 });
 
+test("wizard rejects and cancels an invalid OAuth helper contract", async (t) => {
+  const { services } = createServices();
+  let cancelled = 0;
+  services.startOAuthLogin = async () => ({
+    launchMode: "popup",
+    completion: Promise.resolve({ success: true }),
+    async cancel() {
+      cancelled += 1;
+    },
+  });
+  const wizard = await startWizardServer({
+    sessionToken,
+    services,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
+  });
+  t.after(() => wizard.close());
+
+  const response = await api(wizard.origin, "/api/oauth/login", {
+    method: "POST",
+    headers: { Origin: wizard.origin },
+    body: "{}",
+  });
+  assert.equal(response.status, 500);
+  assert.match((await response.json()).error, /invalid result/u);
+  assert.equal(cancelled, 1);
+});
+
 test("wizard replaces OAuth attempts without waiting forever for superseded completion", async (t) => {
   const { services } = createServices();
   let starts = 0;
@@ -330,7 +354,7 @@ test("wizard replaces OAuth attempts without waiting forever for superseded comp
   services.startOAuthLogin = async () => {
     starts += 1;
     return {
-      authorizationUrl: `https://auth.openai.com/oauth/authorize?attempt=${starts}`,
+      launchMode: "system-browser",
       completion:
         starts === 1 ? new Promise(() => {}) : Promise.resolve({ success: true }),
       async cancel() {
@@ -382,7 +406,7 @@ test("wizard retires a cancelled OAuth attempt when replacement startup is retry
       );
     }
     return {
-      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      launchMode: "system-browser",
       completion: new Promise(() => {}),
       cancel() {},
     };
@@ -437,7 +461,7 @@ test("wizard retires a cancelled OAuth attempt when replacement startup fails no
       throw new Error("The ChatGPT sign-in could not be started.");
     }
     return {
-      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      launchMode: "system-browser",
       completion: new Promise(() => {}),
       cancel() {},
     };
@@ -479,7 +503,7 @@ test("wizard retires a manually cancelled OAuth attempt before a failed replacem
       throw new Error("The ChatGPT sign-in could not be started.");
     }
     return {
-      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      launchMode: "system-browser",
       completion: new Promise(() => {}),
       cancel() {},
     };
@@ -531,7 +555,7 @@ test("wizard blocks retry after a manually cancelled OAuth attempt's replacement
       );
     }
     return {
-      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      launchMode: "system-browser",
       completion: new Promise(() => {}),
       cancel() {},
     };
@@ -595,7 +619,7 @@ test("wizard rejects a concurrent OAuth login while the first helper is starting
     markStartEntered = resolvePromise;
   });
   const attempt = {
-    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    launchMode: "system-browser",
     completion: new Promise(() => {}),
     cancel() {},
   };
@@ -653,7 +677,7 @@ test("wizard close waits for an OAuth helper that is still starting and cancels 
     markStartEntered();
     await started;
     return {
-      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      launchMode: "system-browser",
       completion: new Promise(() => {}),
       cancel() {
         cancelled += 1;
@@ -690,7 +714,7 @@ test("wizard cancels only the current OAuth attempt through its protected same-o
   const { services } = createServices();
   let cancelled = 0;
   services.startOAuthLogin = async () => ({
-    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    launchMode: "system-browser",
     completion: new Promise(() => {}),
     async cancel() {
       cancelled += 1;
@@ -737,7 +761,7 @@ test("wizard blocks another OAuth start when cancellation cannot confirm termina
   services.startOAuthLogin = async () => {
     starts += 1;
     return {
-      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      launchMode: "system-browser",
       completion: new Promise(() => {}),
       async cancel() {
         throw new Error("unconfirmed helper termination");
@@ -876,7 +900,7 @@ test("wizard close is bounded when OAuth startup never settles and cancels a lat
   await startEntered;
 
   const lateAttempt = {
-    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    launchMode: "system-browser",
     completion: new Promise(() => {}),
     cancel() {
       cancelled += 1;
@@ -913,7 +937,7 @@ test("wizard persists a retry-blocked completion failure and refuses another hel
   services.startOAuthLogin = async () => {
     starts += 1;
     return {
-      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      launchMode: "system-browser",
       completion,
       cancel() {},
     };
@@ -981,7 +1005,7 @@ test("wizard close waits for cancellation of a pending OAuth attempt", async () 
     releaseCancel = resolve;
   });
   services.startOAuthLogin = async () => ({
-    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    launchMode: "system-browser",
     completion: new Promise(() => {}),
     cancel() {
       return cancellation;
@@ -1014,7 +1038,7 @@ test("OAuth completion queued before shutdown cannot commit server state after c
   const completion = deferred();
   let cancelCalls = 0;
   services.startOAuthLogin = async () => ({
-    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    launchMode: "system-browser",
     completion: completion.promise,
     async cancel() {
       cancelCalls += 1;
@@ -1351,7 +1375,7 @@ test("pending and committing OAuth work excludes multi-tab VPS plans and mutatio
     updatedAt: authUpdatedAt,
   });
   services.startOAuthLogin = async () => ({
-    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    launchMode: "system-browser",
     completion: oauthCompletion.promise,
     async cancel() {},
   });
@@ -1444,7 +1468,7 @@ test("an active VPS mutation excludes OAuth start and releases ownership after f
   services.startOAuthLogin = async () => {
     oauthStarts += 1;
     return {
-      authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+      launchMode: "system-browser",
       completion: Promise.resolve({ success: true }),
       async cancel() {},
     };
@@ -1584,7 +1608,7 @@ test("OAuth refresh invalidates a previously reviewed VPS credential plan", asyn
     updatedAt: authUpdatedAt,
   });
   services.startOAuthLogin = async () => ({
-    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    launchMode: "system-browser",
     completion: oauthCompletion.promise,
     async cancel() {},
   });
@@ -1706,7 +1730,7 @@ test("safe OAuth cancellation releases the VPS credential gate", async (t) => {
   const { services } = createServices();
   let cancellations = 0;
   services.startOAuthLogin = async () => ({
-    authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+    launchMode: "system-browser",
     completion: new Promise(() => {}),
     async cancel() {
       cancellations += 1;

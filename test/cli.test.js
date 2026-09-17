@@ -86,7 +86,8 @@ test("help mode prints the supported routes without starting the wizard", async 
   assert.equal(serverStarted, false);
   assert.deepEqual(output, [
     "Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]",
-    "  local      Open the persistent local services dashboard (default)",
+    "  (no command) Open a foreground setup wizard without persistent local state",
+    "  local      Open the persistent local services dashboard",
     "  vps        Open the separate VPS setup wizard",
     "  assistant  Open the dedicated AI Assistant companion wizard",
     "  start      Start the local dashboard without opening a browser",
@@ -222,7 +223,10 @@ test("foreground Assistant opens only a private handoff and wires fresh reopen p
     env: { RELMIO_FOREGROUND_WIZARD: "1" },
     isInteractive: () => true,
     log: () => {},
-    ensureBrowserLaunchRoot: async () => "/private/relmio/browser-launches",
+    createBrowserLaunchRoot: async () => ({
+      path: "/private/relmio/browser-launches",
+      async dispose() {},
+    }),
     startServer: async (options) => {
       assert.equal(options.browserHandoffRoot, "/private/relmio/browser-launches");
       return {
@@ -248,16 +252,22 @@ test("foreground Assistant opens only a private handoff and wires fresh reopen p
   assert.deepEqual(preparedRoutes, ["/assistant", "/assistant"]);
 });
 
-test("foreground default launch keeps its bearer out of output and browser arguments", async () => {
+test("bare default launch opens the foreground wizard without persistent local state", async () => {
   const opened = [];
   const output = [];
   const preparedRoutes = [];
   await runCli({
     argumentsList: [],
-    env: { RELMIO_FOREGROUND_WIZARD: "1" },
+    env: {},
     isInteractive: () => true,
     log: (line) => output.push(line),
-    ensureBrowserLaunchRoot: async () => "/private/relmio/browser-launches",
+    startControlPlane: async () => {
+      throw new Error("bare default launch must not initialize persistent local state");
+    },
+    createBrowserLaunchRoot: async () => ({
+      path: "/private/relmio/browser-launches",
+      async dispose() {},
+    }),
     startServer: async () => ({
       origin: "http://127.0.0.1:4567",
       async prepareBrowserLaunch(route) {
@@ -288,7 +298,10 @@ test("explicit VPS CLI mode preserves the original remote setup URL", async () =
     env: { RELMIO_FOREGROUND_WIZARD: "1" },
     isInteractive: () => true,
     log: () => {},
-    ensureBrowserLaunchRoot: async () => "/private/relmio/browser-launches",
+    createBrowserLaunchRoot: async () => ({
+      path: "/private/relmio/browser-launches",
+      async dispose() {},
+    }),
     startServer: async () => ({
       origin: "http://127.0.0.1:4567",
       async prepareBrowserLaunch(route) {
@@ -305,33 +318,101 @@ test("explicit VPS CLI mode preserves the original remote setup URL", async () =
   assert.deepEqual(preparedRoutes, ["/"]);
 });
 
+test("foreground startup releases its temporary browser root when the server cannot start", async () => {
+  let disposed = 0;
+  await assert.rejects(
+    runCli({
+      argumentsList: [],
+      env: { RELMIO_FOREGROUND_WIZARD: "1" },
+      isInteractive: () => true,
+      log: () => {},
+      createBrowserLaunchRoot: async () => ({
+        path: "/private/relmio/browser-launches",
+        async dispose() {
+          disposed += 1;
+        },
+      }),
+      startServer: async () => {
+        throw new Error("port unavailable");
+      },
+    }),
+    /port unavailable/u,
+  );
+  assert.equal(disposed, 1);
+});
+
+test("foreground startup fails actionably and cleans up when Windows cannot open the browser", async () => {
+  let serverClosed = 0;
+  let rootDisposed = 0;
+  await assert.rejects(
+    runCli({
+      argumentsList: [],
+      env: { RELMIO_FOREGROUND_WIZARD: "1" },
+      isInteractive: () => true,
+      log: () => {},
+      createBrowserLaunchRoot: async () => ({
+        path: "/private/relmio/browser-launches",
+        async dispose() {
+          rootDisposed += 1;
+        },
+      }),
+      startServer: async () => ({
+        async prepareBrowserLaunch() {
+          return privateLaunchUrl;
+        },
+        async close() {
+          serverClosed += 1;
+        },
+      }),
+      open: () => false,
+      attachReopen: () => {
+        throw new Error("reopen handling must not attach after browser failure");
+      },
+    }),
+    /check the Windows default browser/iu,
+  );
+  assert.equal(serverClosed, 1);
+  assert.equal(rootDisposed, 1);
+});
+
 test("legacy executable aliases keep their historical default VPS route", async (t) => {
   for (const commandName of ["n8n-openai-oauth-setup", "planrelay"]) {
     await t.test(commandName, async () => {
       const opened = [];
+      const preparedRoutes = [];
       await runCli({
         argumentsList: [],
         commandName,
         isInteractive: () => true,
         log: () => {},
-        startControlPlane: async () => ({ state: "existing" }),
-        readBrowserUrl: async ({ route }) => {
-          assert.equal(route, "/");
-          return privateLaunchUrl;
+        startControlPlane: async () => {
+          throw new Error("legacy aliases must not initialize persistent local state");
         },
+        createBrowserLaunchRoot: async () => ({
+          path: "/private/relmio/browser-launches",
+          async dispose() {},
+        }),
+        startServer: async () => ({
+          async prepareBrowserLaunch(route) {
+            preparedRoutes.push(route);
+            return privateLaunchUrl;
+          },
+          async close() {},
+        }),
         open: (url) => {
           opened.push(url);
           return true;
         },
+        attachReopen: () => () => {},
       });
       assert.deepEqual(opened, [privateLaunchUrl]);
+      assert.deepEqual(preparedRoutes, ["/"]);
     });
   }
 });
 
 test("persistent dashboard routes reuse one daemon and open only a route-bound handoff", async (t) => {
   for (const scenario of [
-    { name: "default", argumentsList: [], pathname: "/local" },
     { name: "local", argumentsList: ["local"], pathname: "/local" },
     { name: "open", argumentsList: ["open"], pathname: "/local" },
     { name: "gui", argumentsList: ["gui"], pathname: "/local" },

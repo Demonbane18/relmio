@@ -1,5 +1,6 @@
 import { randomBytes as createRandomBytes } from "node:crypto";
 import * as defaultFileSystem from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -121,6 +122,90 @@ async function cleanupExact({ fileSystem, filePath, fileFingerprint, directoryPa
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Creates the short-lived protected parent used by an installer-launched
+ * foreground wizard. It intentionally does not depend on the persistent
+ * Relmio control root, so stale or migrated profile ACLs cannot prevent the
+ * browser from opening before the dashboard can explain how to repair them.
+ */
+export async function createPrivateBrowserHandoffRoot({
+  temporaryDirectory = tmpdir(),
+  fileSystem = defaultFileSystem,
+  platform = process.platform,
+  lockDownPath = lockDownLocalPath,
+  getUid = process.getuid?.bind(process),
+} = {}) {
+  if (
+    typeof temporaryDirectory !== "string" || !isAbsolute(temporaryDirectory) ||
+    temporaryDirectory.includes("\0") || !fileSystem ||
+    typeof fileSystem.realpath !== "function" ||
+    typeof fileSystem.mkdtemp !== "function" ||
+    typeof fileSystem.chmod !== "function" ||
+    typeof fileSystem.lstat !== "function" ||
+    typeof fileSystem.readdir !== "function" ||
+    typeof fileSystem.rmdir !== "function" ||
+    typeof lockDownPath !== "function"
+  ) {
+    throw new TypeError("Relmio browser handoff root adapter is invalid.");
+  }
+  const expectedUid = platform === "win32" ? null : getUid?.();
+  if (platform !== "win32" && (!Number.isSafeInteger(expectedUid) || expectedUid < 0)) {
+    throw new TypeError("Relmio browser handoff account is invalid.");
+  }
+
+  const canonicalTemporaryDirectory = await fileSystem.realpath(
+    resolve(temporaryDirectory),
+  );
+  if (!isAbsolute(canonicalTemporaryDirectory)) {
+    throw fail("refuses an unsafe temporary browser handoff directory");
+  }
+
+  const path = await fileSystem.mkdtemp(
+    join(canonicalTemporaryDirectory, "relmio-browser-launches-"),
+  );
+  let fingerprint = null;
+  try {
+    if (dirname(path) !== canonicalTemporaryDirectory) throw fail();
+    await fileSystem.chmod(path, 0o700);
+    await lockDownPath(path, { platform, kind: "directory" });
+    const metadata = await inspectPrivatePath({
+      fileSystem,
+      path,
+      kind: "directory",
+      platform,
+      expectedUid,
+      lockDownPath,
+      maxBytes: 0,
+    });
+    fingerprint = pathFingerprint(metadata);
+    return Object.freeze({
+      path,
+      async dispose() {
+        try {
+          const current = await fileSystem.lstat(path);
+          if (!samePathFingerprint(fingerprint, pathFingerprint(current))) return false;
+          if ((await fileSystem.readdir(path)).length !== 0) return false;
+          await fileSystem.rmdir(path);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+    });
+  } catch (error) {
+    try {
+      const current = await fileSystem.lstat(path);
+      if (
+        (fingerprint === null || samePathFingerprint(fingerprint, pathFingerprint(current))) &&
+        (await fileSystem.readdir(path)).length === 0
+      ) {
+        await fileSystem.rmdir(path);
+      }
+    } catch { /* Preserve the creation failure. */ }
+    throw error?.message?.startsWith("Relmio ") ? error : fail();
   }
 }
 

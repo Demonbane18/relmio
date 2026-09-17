@@ -7,7 +7,6 @@ import { lockDownLocalPath } from "../infrastructure/local-process.js";
 
 const MAX_AUTH_FILE_BYTES = 128 * 1024;
 const MAX_LOGIN_OUTPUT_BYTES = 32 * 1024;
-const LOGIN_URL_TIMEOUT_MS = 15_000;
 const LOGIN_TIMEOUT_MS = 300_000;
 const PROCESS_TIMEOUT_MS = LOGIN_TIMEOUT_MS + 15_000;
 const CREDENTIAL_POLL_INTERVAL_MS = 100;
@@ -15,13 +14,7 @@ const PROCESS_TERMINATION_GRACE_MS = 1_000;
 const PROCESS_TERMINATION_FORCE_WAIT_MS = 1_000;
 const TERMINATION_UNCONFIRMED_MESSAGE =
   "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
-const LOGIN_URL_PREFIX = "OpenAI OAuth login URL: ";
-const OPENAI_AUTH_ORIGIN = "https://auth.openai.com";
-const SUPPORTED_LOOPBACK_REDIRECT_HOSTNAMES = new Set([
-  "localhost",
-  "127.0.0.1",
-  "[::1]",
-]);
+const CODEX_LOGIN_PACKAGE = "@openai/codex@0.154.0";
 
 const wait = (milliseconds) =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -114,7 +107,19 @@ export async function readAuthContents({
 
   try {
     const parsed = JSON.parse(contents.toString("utf8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const tokens = parsed?.tokens;
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed) ||
+      parsed.auth_mode !== "chatgpt" ||
+      !tokens ||
+      typeof tokens !== "object" ||
+      Array.isArray(tokens) ||
+      ![tokens.access_token, tokens.id_token, tokens.refresh_token].every(
+        (token) => typeof token === "string" && token.length > 0,
+      )
+    ) {
       throw new TypeError();
     }
   } catch {
@@ -124,52 +129,6 @@ export async function readAuthContents({
   return contents;
 }
 
-function validateAuthorizationUrl(value) {
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("The sign-in command returned an invalid authorization URL.");
-  }
-
-  if (
-    url.origin !== OPENAI_AUTH_ORIGIN ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.hash !== "" ||
-    url.href.includes("#") ||
-    url.pathname !== "/oauth/authorize" ||
-    url.searchParams.get("response_type") !== "code" ||
-    !url.searchParams.get("state") ||
-    !url.searchParams.get("code_challenge")
-  ) {
-    throw new Error("The sign-in command returned an unexpected destination.");
-  }
-
-  let redirect;
-  try {
-    redirect = new URL(url.searchParams.get("redirect_uri") ?? "");
-  } catch {
-    throw new Error("The sign-in command returned an invalid callback.");
-  }
-  if (
-    redirect.protocol !== "http:" ||
-    redirect.username !== "" ||
-    redirect.password !== "" ||
-    redirect.search !== "" ||
-    redirect.hash !== "" ||
-    redirect.href.includes("?") ||
-    redirect.href.includes("#") ||
-    !SUPPORTED_LOOPBACK_REDIRECT_HOSTNAMES.has(redirect.hostname) ||
-    redirect.port !== "1455" ||
-    redirect.pathname !== "/auth/callback"
-  ) {
-    throw new Error("The sign-in command returned an unexpected callback.");
-  }
-
-  return url.toString();
-}
-
 function stripTerminalControlSequences(value) {
   return value
     .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/gu, "")
@@ -177,29 +136,19 @@ function stripTerminalControlSequences(value) {
     .replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/gu, "");
 }
 
-function extractAuthorizationUrl(output, { includeFinalLine = false } = {}) {
-  const lines = stripTerminalControlSequences(output).split("\n");
-  const lineCount = includeFinalLine ? lines.length : lines.length - 1;
-  for (const line of lines.slice(0, lineCount)) {
-    const markerIndex = line.indexOf(LOGIN_URL_PREFIX);
-    if (markerIndex >= 0) {
-      return validateAuthorizationUrl(
-        line.slice(markerIndex + LOGIN_URL_PREFIX.length).trim(),
-      );
-    }
-  }
-  return null;
-}
-
-function loginStartupError(stderr) {
-  const callbackPortConflict =
-    "OpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use.";
-  if (stripTerminalControlSequences(stderr).includes(callbackPortConflict)) {
+function loginProcessError(stderr) {
+  const sanitized = stripTerminalControlSequences(stderr);
+  if (
+    /port\s+\d+[^\n]*(?:already\s+in\s+use|address\s+in\s+use)/iu.test(sanitized) ||
+    /address\s+already\s+in\s+use/iu.test(sanitized)
+  ) {
     return new Error(
-      `${callbackPortConflict} Stop the process using that port and try again.`,
+      "ChatGPT sign-in could not open its local callback port. Close other sign-in helpers and try again.",
     );
   }
-  return new Error("The sign-in command did not return an authorization URL.");
+  return new Error(
+    "ChatGPT sign-in did not finish. Start a fresh login. If no browser opened, check the Windows default browser and try again.",
+  );
 }
 
 export async function startOAuthLogin({
@@ -221,27 +170,39 @@ export async function startOAuthLogin({
   const npxInvocation = createNpxInvocation({ platform, env, execPath });
   const authPath = resolveAuthPath({ env, homeDirectory });
   const authDirectory = dirname(authPath);
-  const pendingAuthPath = `${authPath}.pending-${createPendingId()}`;
+  const pendingId = createPendingId();
+  if (
+    typeof pendingId !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/u.test(pendingId)
+  ) {
+    throw new Error("The local sign-in attempt identifier is invalid.");
+  }
+  const pendingCodexHome = resolve(authDirectory, `.codex-login-${pendingId}`);
+  if (dirname(pendingCodexHome) !== authDirectory) {
+    throw new Error("The local sign-in credential directory is invalid.");
+  }
+  const pendingAuthPath = resolve(pendingCodexHome, "auth.json");
+  const loginEnv = Object.fromEntries(
+    Object.entries(env ?? {}).filter(([name]) => name.toLowerCase() !== "codex_home"),
+  );
+  loginEnv.CODEX_HOME = pendingCodexHome;
   const args = [
     "--yes",
     "--ignore-scripts",
-    "--legacy-peer-deps=false",
-    "--include=peer",
-    "--package=openai-oauth@2.0.0",
-    "--package=zod@4.1.8",
+    `--package=${CODEX_LOGIN_PACKAGE}`,
     "--",
-    "openai-oauth",
+    "codex",
+    "-c",
+    'cli_auth_credentials_store="file"',
     "login",
-    "--no-open",
-    "--login-timeout-ms",
-    String(LOGIN_TIMEOUT_MS),
-    "--oauth-file",
-    pendingAuthPath,
   ];
 
   await fileSystem.mkdir(authDirectory, { recursive: true, mode: 0o700 });
   await fileSystem.chmod(authDirectory, 0o700);
   await lockDownPath(authDirectory, { platform, kind: "directory" });
+  await fileSystem.mkdir(pendingCodexHome, { mode: 0o700 });
+  await fileSystem.chmod(pendingCodexHome, 0o700);
+  await lockDownPath(pendingCodexHome, { platform, kind: "directory" });
 
   let child;
   try {
@@ -249,7 +210,7 @@ export async function startOAuthLogin({
       npxInvocation.command,
       [...npxInvocation.prefixArgs, ...args],
       {
-        env,
+        env: loginEnv,
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
@@ -257,6 +218,11 @@ export async function startOAuthLogin({
       },
     );
   } catch (error) {
+    try {
+      await fileSystem.rm(pendingCodexHome, { recursive: true, force: true });
+    } catch {
+      // Preserve the sanitized process-launch error.
+    }
     throw new Error(
       "The local sign-in command could not start. Update Relmio and retry with Node.js 24 or newer.",
       { cause: error },
@@ -265,50 +231,17 @@ export async function startOAuthLogin({
   const loginOutput = { stdout: "", stderr: "" };
   let loginOutputBytes = 0;
   let cancelAttempt = () => Promise.resolve();
-  let resolveAuthorizationUrl;
-  let rejectAuthorizationUrl;
-  let authorizationUrlSettled = false;
-  const authorizationUrlPromise = new Promise((resolvePromise, rejectPromise) => {
-    resolveAuthorizationUrl = resolvePromise;
-    rejectAuthorizationUrl = rejectPromise;
-  });
-  const settleAuthorizationUrl = (error, authorizationUrl) => {
-    if (authorizationUrlSettled) {
-      return;
-    }
-    authorizationUrlSettled = true;
-    if (error) {
-      rejectAuthorizationUrl(error);
-    } else {
-      resolveAuthorizationUrl(authorizationUrl);
-    }
-  };
 
   const captureLoginOutput = (stream, chunk) => {
-    if (authorizationUrlSettled) {
-      return;
-    }
     const output = Buffer.from(chunk).toString("utf8");
     loginOutputBytes += Buffer.byteLength(output);
     if (loginOutputBytes > MAX_LOGIN_OUTPUT_BYTES) {
-      settleAuthorizationUrl(
-        new Error("The sign-in command returned too much output."),
-      );
       void requestCancellation("The sign-in command returned too much output.").catch(
         () => {},
       );
       return;
     }
     loginOutput[stream] += output;
-    try {
-      const authorizationUrl = extractAuthorizationUrl(loginOutput[stream]);
-      if (authorizationUrl) {
-        settleAuthorizationUrl(null, authorizationUrl);
-      }
-    } catch (error) {
-      settleAuthorizationUrl(error);
-      void requestCancellation(error.message).catch(() => {});
-    }
   };
 
   child.stdout?.on?.("data", (chunk) => captureLoginOutput("stdout", chunk));
@@ -337,38 +270,11 @@ export async function startOAuthLogin({
     const error = new Error(
       "The local sign-in command could not start. Install Node.js 24 and try again.",
     );
-    settleAuthorizationUrl(error);
     settleProcessClose(error);
   });
   child.once("close", (code) => {
-    if (!authorizationUrlSettled) {
-      try {
-        const authorizationUrl =
-          extractAuthorizationUrl(loginOutput.stdout, {
-            includeFinalLine: true,
-          }) ??
-          extractAuthorizationUrl(loginOutput.stderr, {
-            includeFinalLine: true,
-          });
-        if (authorizationUrl) {
-          settleAuthorizationUrl(null, authorizationUrl);
-        } else {
-          settleAuthorizationUrl(loginStartupError(loginOutput.stderr));
-        }
-      } catch (error) {
-        settleAuthorizationUrl(error);
-      }
-    }
     settleProcessClose(null, code);
   });
-
-  const loginUrlTimeout = createTimer(() => {
-    const error = new Error(
-      "The sign-in command did not provide a fresh login link.",
-    );
-    settleAuthorizationUrl(error);
-    void requestCancellation(error.message).catch(() => {});
-  }, LOGIN_URL_TIMEOUT_MS);
 
   let keepPollingForCredential = true;
   let cancellationRequested = false;
@@ -632,7 +538,6 @@ export async function startOAuthLogin({
   };
 
   const pendingCredentialPromise = (async () => {
-    await authorizationUrlPromise;
     while (keepPollingForCredential) {
       try {
         await readAuthContents({
@@ -643,24 +548,22 @@ export async function startOAuthLogin({
         await waitForCredentialPoll(CREDENTIAL_POLL_INTERVAL_MS);
         continue;
       }
-      await savePendingCredential();
       return { success: true };
     }
     throw new Error("ChatGPT sign-in did not finish. Start a fresh login.");
   })();
+  pendingCredentialPromise.catch(() => {});
 
   const completion = (async () => {
     let processTimeout;
     let completedSuccessfully = false;
     try {
       const result = await Promise.race([
-        pendingCredentialPromise,
         processClosePromise.then(async (code) => {
           if (code !== 0) {
-            throw new Error(
-              "ChatGPT sign-in did not finish. Start a fresh login.",
-            );
+            throw loginProcessError(loginOutput.stderr);
           }
+          await pendingCredentialPromise;
           await savePendingCredential();
           return { success: true };
         }),
@@ -680,7 +583,6 @@ export async function startOAuthLogin({
     } finally {
       keepPollingForCredential = false;
       clearTimer(processTimeout);
-      clearTimer(loginUrlTimeout);
       try {
         await credentialPromotion;
       } catch {
@@ -697,12 +599,13 @@ export async function startOAuthLogin({
       }
       const committedBeforeFailure =
         !completedSuccessfully && promotionPhase === "committed";
-      if (!completedSuccessfully || !processCloseSettled) {
+      if (!processCloseSettled) {
         await terminateProcessTree();
       }
       try {
         await fileSystem.rm(pendingAuthPath, { force: true });
         await fileSystem.rm(promotionAuthPath, { force: true });
+        await fileSystem.rm(pendingCodexHome, { recursive: true, force: true });
       } catch {
         // A failed cleanup must not hide the actionable sign-in result.
       }
@@ -712,45 +615,11 @@ export async function startOAuthLogin({
     }
   })();
   completion.catch(() => {});
-
-  try {
-    const authorizationUrl = await Promise.race([
-      authorizationUrlPromise,
-      completion.then(
-        () => {
-          throw new Error(
-            "The sign-in command finished without a fresh login link.",
-          );
-        },
-        (error) => {
-          throw error;
-        },
-      ),
-    ]);
-    clearTimer(loginUrlTimeout);
-    return {
-      authorizationUrl,
-      completion,
-      cancel() {
-        return requestCancellation();
-      },
-    };
-  } catch (error) {
-    clearTimer(loginUrlTimeout);
-    let retryBlocked = false;
-    try {
-      await requestCancellation(error.message);
-    } catch {
-      retryBlocked = true;
-    }
-    try {
-      await waitForBoundedResult(completion, promotionCancellationWaitMs);
-    } catch {
-      // Preserve the more specific authorization-link error.
-    }
-    if (retryBlocked) {
-      error.retryBlocked = true;
-    }
-    throw error;
-  }
+  return Object.freeze({
+    launchMode: "system-browser",
+    completion,
+    cancel() {
+      return requestCancellation();
+    },
+  });
 }

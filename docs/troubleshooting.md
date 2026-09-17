@@ -91,12 +91,13 @@ Windows Command Prompt:
 for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.vercel.app/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"
 ```
 
-These commands do not require Node.js to be installed. The Windows options do
-not require Git Bash. Each bootstrap reuses Node.js 24 or newer when available,
-or shows staged **Please wait** messages while it downloads an official
-temporary runtime and verifies its SHA-256 checksum before execution. The
-Command Prompt bootstrap itself does not call PowerShell, request elevation, or
-change Windows security policy.
+These commands do not require Node.js to be installed. The native Windows
+options do not require Git Bash and reuse Node.js 24 or newer when available.
+Git Bash always uses a verified temporary runtime through its bundled `winpty`
+bridge so the native Node child receives terminal handles. Every portable path
+shows staged **Please wait** messages while it downloads, verifies, and extracts
+the official runtime. The Command Prompt bootstrap itself does not call
+PowerShell, request elevation, or change Windows security policy.
 
 After either Windows bootstrap starts Relmio, the running wizard uses the inbox
 Windows PowerShell security API to apply and verify owner-only NTFS protection
@@ -184,7 +185,7 @@ bypassed.
 |---|---|---|
 | `node: command not found`, `node is not recognized`, or Node is older than 24 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
 | `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell or the collision-safe temporary-file command shown above in Command Prompt. Git Bash is not required. If Command Prompt does not have `curl`, update Windows or use the PowerShell route. |
-| Git Bash 2.38.1 reports that stdin is not a TTY | Its default mintty setup does not give Relmio's native portable-runtime child the required TTY. | Prefix this process with `MSYS=enable_pcon`, or use the native PowerShell or Command Prompt installer. Do not add a global Git setting. No upgraded Git Bash version was verified in the 0.14.0 acceptance run. |
+| Git Bash reports that stdin or stdout is not a TTY | Direct NPX on older Git Bash can pass mintty pipes to native Node.js. | Use `curl -fsSL https://relmio.vercel.app/install.sh \| sh`; the hosted launcher uses the bundled `winpty` bridge. For direct NPX on Git Bash 2.38.1 only, prefix the process with `MSYS=enable_pcon`. Do not add a global Git setting. |
 | Windows cannot locate its built-in security tool or apply owner-only protection | The bootstrap may have started successfully, but the running wizard could not use the inbox Windows PowerShell security API to protect and verify its local files. | Setup stops before saving secrets. Ask the Windows administrator to allow the inbox security API, then retry. PowerShell, Command Prompt, `npx`, and other Windows launch methods all use this same check and do not bypass it. |
 | The bootstrap stays on a `Please wait` stage | Node.js is missing or older than 24, so the bootstrap is downloading, checking, or extracting a temporary Node.js 24 runtime. | Keep the terminal open while the deterministic stage messages advance. The runtime is verified before it runs, is removed after the wizard exits, and is not installed system-wide. |
 | A bootstrap reports a checksum mismatch | The Node.js download did not match its reviewed official SHA-256 checksum, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 24+ installation and report the sanitized error. |

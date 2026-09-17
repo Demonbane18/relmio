@@ -26,7 +26,12 @@ test("CMD installer keeps a native checksum-verified portable Windows runtime pa
   assert.doesNotMatch(script, /SHASUMS256|MANIFEST_MATCH/u);
   assert.match(script, /:checksum/u);
   assert.match(script, /Node\.js download checksum did not match; nothing was executed/u);
-  assert.match(script, /rmdir \/s \/q "%RELMIO_TEMPORARY_DIRECTORY%"/u);
+  assert.match(
+    script,
+    /call :remove_temporary_directory "%RELMIO_TEMPORARY_DIRECTORY%"/u,
+  );
+  assert.match(script, /rmdir \/s \/q "%~1"/u);
+  assert.match(script, /if %RELMIO_REMOVE_ATTEMPTS% GEQ 3/u);
   assert.match(script, /--yes --ignore-scripts relmio@latest/u);
   assert.equal(script.match(/set "RELMIO_FOREGROUND_WIZARD=1"/gu)?.length, 2);
   assert.equal(script.match(/set "RELMIO_FOREGROUND_WIZARD="/gu)?.length, 2);
@@ -205,7 +210,7 @@ async function createPortableRuntime(
   await writeFile(
     join(npmDirectory, "npx-cli.js"),
     `const { appendFileSync, writeFileSync } = require("node:fs");
-const { spawnSync } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
 
 const log = process.env.RELMIO_TEST_LOG;
 writeFileSync(log, [process.argv[1], ...process.argv.slice(2)].join("\\n") + "\\n");
@@ -213,6 +218,15 @@ const child = spawnSync("node", ["--version"], { encoding: "utf8" });
 if (child.status !== 0) process.exit(child.status || 1);
 appendFileSync(log, "child-node-ok\\n");
 appendFileSync(log, "foreground=" + (process.env.RELMIO_FOREGROUND_WIZARD || "unset") + "\\n");
+const runtimeHoldMs = Number(process.env.RELMIO_TEST_RUNTIME_HOLD_MS || 0);
+if (Number.isSafeInteger(runtimeHoldMs) && runtimeHoldMs > 0) {
+  const runtimeHolder = spawn(process.execPath, ["-e", "setTimeout(() => {}, " + runtimeHoldMs + ")"], {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  runtimeHolder.unref();
+}
 `,
     "utf8",
   );
@@ -244,7 +258,7 @@ appendFileSync(log, "foreground=" + (process.env.RELMIO_FOREGROUND_WIZARD || "un
 }
 
 async function createPortableEnvironment(
-  { hostileManifest = false, validChecksum = true } = {},
+  { hostileManifest = false, runtimeHoldMs = 0, validChecksum = true } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "relmio-install-cmd-portable-test-"));
   const system32 = join(root, "System32");
@@ -310,6 +324,7 @@ async function createPortableEnvironment(
       RELMIO_TEST_PORTABLE_OLD_NODE: oldNode,
       RELMIO_TEST_PORTABLE_NPX: "",
       RELMIO_TEST_RUNTIME_DIRECTORY: fixture.runtimeParent,
+      RELMIO_TEST_RUNTIME_HOLD_MS: String(runtimeHoldMs),
       RELMIO_FOREGROUND_WIZARD: "caller-value",
       TEMP: temporaryDirectory,
       TMP: temporaryDirectory,
@@ -494,6 +509,39 @@ test(
     assert.equal(tools.length, 3);
     assert.match(tools[2], /^tar -xf .*node-v24\.21\.0-win-x64\.zip -C /u);
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
+  },
+);
+
+test(
+  "CMD installer retries cleanup while the temporary runtime is still locked",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const setup = await createPortableEnvironment({ runtimeHoldMs: 750 });
+    t.after(async () => {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+      await rm(setup.root, { recursive: true, force: true });
+    });
+
+    await runCmdInstaller(setup.env, setup.fixtureInstallScript);
+
+    assert.deepEqual(await readdir(setup.temporaryDirectory), []);
+  },
+);
+
+test(
+  "CMD installer reports when a temporary runtime cannot be removed",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const setup = await createPortableEnvironment({ runtimeHoldMs: 2_500 });
+    t.after(async () => {
+      await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+      await rm(setup.root, { recursive: true, force: true });
+    });
+
+    await assert.rejects(
+      runCmdInstaller(setup.env, setup.fixtureInstallScript),
+      /Could not remove the temporary Node\.js runtime/u,
+    );
   },
 );
 

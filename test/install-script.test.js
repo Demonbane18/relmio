@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   access,
@@ -10,6 +10,7 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -112,31 +113,69 @@ async function runGitBashInstallerInTerminal(
     return runCommandInPseudoTerminal(pipedInstallerCommand, env, shell);
   }
 
-  const gitRoot = resolve(shell, "..", "..");
-  const terminal = join(gitRoot, "usr", "bin", "mintty.exe");
-  await access(terminal);
-
-  await new Promise((resolveSpawn, rejectSpawn) => {
-    const child = spawn(
-      terminal,
-      ["--hold=never", "--exec", shell, env.RELMIO_TEST_LAUNCHER],
+  const powershell = join(
+    process.env.SystemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  const launchCommand = [
+    '$argument = \'"\' + $env:RELMIO_TEST_LAUNCHER + \'"\'',
+    "$process = Start-Process -FilePath $env:RELMIO_TEST_POSIX_SHELL_PATH -ArgumentList $argument -WindowStyle Hidden -PassThru",
+    "$process.WaitForExit()",
+    "exit $process.ExitCode",
+  ].join("; ");
+  let launcherError = null;
+  try {
+    await execFileAsync(
+      powershell,
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        launchCommand,
+      ],
       {
-        detached: true,
-        env,
-        stdio: "ignore",
-        windowsHide: false,
+        env: {
+          ...env,
+          RELMIO_TEST_POSIX_SHELL_PATH: shell,
+        },
       },
     );
-    child.once("error", rejectSpawn);
-    child.once("spawn", () => {
-      child.unref();
-      resolveSpawn();
-    });
-  });
+  } catch (error) {
+    launcherError = error;
+  }
 
-  const exitCode = (await waitForCompletion(completionLog)).trim();
+  let exitCode;
+  try {
+    exitCode = (await waitForCompletion(
+      completionLog,
+      launcherError ? 1_000 : 60_000,
+    )).trim();
+  } catch (error) {
+    if (launcherError) throw launcherError;
+    throw error;
+  }
   if (exitCode !== "0") {
-    const diagnostics = await readFile(env.RELMIO_TEST_DIAGNOSTIC_LOG, "utf8");
+    let diagnostics = "";
+    try {
+      diagnostics = await readFile(
+        env.RELMIO_TEST_DIAGNOSTIC_LOG_NATIVE,
+        "utf8",
+      );
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    if (!diagnostics.trim()) {
+      try {
+        diagnostics = await readFile(env.RELMIO_TEST_LOG, "utf8");
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+      }
+    }
+    if (!diagnostics.trim()) diagnostics = "No fixture diagnostics were captured.";
     throw new Error(
       `Git Bash installer fixture exited with ${exitCode}: ${diagnostics.trim()}`,
     );
@@ -239,17 +278,32 @@ async function createWindowsNodeFixture(root) {
   const nodePath = join(fixtureRoot, "node.exe");
   await copyFile(process.execPath, nodePath);
   await chmod(nodePath, 0o755);
+  if (process.platform !== "win32") {
+    const posixNodePath = join(fixtureRoot, "node");
+    await symlink("node.exe", posixNodePath);
+  }
   await writeFile(
     join(npmCli, "npx-cli.js"),
-    `const { appendFileSync, realpathSync, writeFileSync } = require("node:fs");
-const { delimiter, dirname } = require("node:path");
+    `const { spawnSync } = require("node:child_process");
+const { appendFileSync, realpathSync, writeFileSync } = require("node:fs");
 
 const log = process.env.RELMIO_TEST_LOG;
 writeFileSync(log, [process.argv[1], ...process.argv.slice(2)].join("\\n") + "\\n");
 
-const runtimeDirectory = dirname(process.execPath);
-const firstPathEntry = (process.env.PATH || "").split(delimiter)[0];
-if (realpathSync(firstPathEntry) !== realpathSync(runtimeDirectory)) {
+const runtimeProbe = spawnSync("node", ["-p", "process.execPath"], {
+  encoding: "utf8",
+  windowsHide: true,
+});
+const runtimeProbePath = runtimeProbe.stdout?.trim() || "";
+appendFileSync(log, "runtime-self=" + process.execPath + "\\n");
+appendFileSync(log, "runtime-probe=" + (runtimeProbePath || "missing") + "\\n");
+appendFileSync(log, "runtime-probe-status=" + String(runtimeProbe.status) + "\\n");
+appendFileSync(log, "runtime-probe-error=" + (runtimeProbe.error?.code || "none") + "\\n");
+if (
+  runtimeProbe.error ||
+  runtimeProbe.status !== 0 ||
+  realpathSync(runtimeProbePath) !== realpathSync(process.execPath)
+) {
   console.error('\"node\" is not recognized as an internal or external command.');
   process.exit(127);
 }
@@ -290,11 +344,21 @@ async function createGitBashBootstrapEnvironment() {
       "utf8",
     );
   }
-  await writeExecutable(join(fakeBin, "node"), '#!/bin/sh\nprintf "18\\n"\n');
+  await writeExecutable(join(fakeBin, "node"), '#!/bin/sh\nprintf "24\\n"\n');
+  if (process.platform !== "win32") {
+    await writeExecutable(
+      join(fakeBin, "winpty"),
+      '#!/bin/sh\nexec "$@"\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "cygpath"),
+      '#!/bin/sh\n[ "$1" = "--windows" ] && [ "$2" = "--path" ] || exit 97\nprintf "%s\\n" "$3"\n',
+    );
+  }
   await writeExecutable(
     launcher,
     `#!/bin/sh
-${pipedInstallerCommand} > "$RELMIO_TEST_DIAGNOSTIC_LOG" 2>&1
+${pipedInstallerCommand} 2> "$RELMIO_TEST_DIAGNOSTIC_LOG"
 status=$?
 echo "$status" > "$RELMIO_TEST_COMPLETION_LOG"
 exit "$status"
@@ -386,6 +450,7 @@ cp -R "$RELMIO_TEST_WINDOWS_ROOT" "$destination/"
       RELMIO_TEST_ARCHIVE: fixture.archive,
       RELMIO_TEST_COMPLETION_LOG: toGitBashPath(completionLog),
       RELMIO_TEST_DIAGNOSTIC_LOG: toGitBashPath(diagnosticLog),
+      RELMIO_TEST_DIAGNOSTIC_LOG_NATIVE: diagnosticLog,
       RELMIO_TEST_LOG: log,
       RELMIO_TEST_LAUNCHER: toGitBashPath(launcher),
       RELMIO_TEST_MANIFEST: fixture.manifest,
@@ -483,6 +548,14 @@ test("curl installer scopes foreground wizard mode to both Relmio child paths", 
   assert.match(
     script,
     /RELMIO_FOREGROUND_WIZARD=1\s+\\?\s*PATH=[^\n]+\\\s+"\$node_binary" "\$npx_cli" --yes --ignore-scripts relmio@latest/u,
+  );
+  assert.match(
+    script,
+    /RELMIO_FOREGROUND_WIZARD=1\s+\\?\s*MSYS2_ENV_CONV_EXCL=[^\n]+\\\s+PATH="\$windows_path" \\\s+"\$winpty_binary" "\$node_binary" --require "\$node_path_preload" "\$npx_cli" --yes --ignore-scripts relmio@latest/u,
+  );
+  assert.match(
+    script,
+    /process\.env\.PATH = `\$\{dirname\(process\.execPath\)\}\$\{delimiter\}\$\{inheritedPath\}`/u,
   );
   assert.doesNotMatch(script, /^export RELMIO_FOREGROUND_WIZARD=/mu);
 });
@@ -652,7 +725,7 @@ test(
 );
 
 test(
-  "curl installer exposes its temporary Windows Node runtime to Git Bash child shims",
+  "curl installer gives Git Bash a temporary Windows Node runtime even with installed Node 24",
   { skip: !gitBashShell },
   async (t) => {
     const setup = await createGitBashBootstrapEnvironment();

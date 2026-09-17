@@ -42,7 +42,14 @@ const N8N_ID = "a".repeat(64);
 const NETWORK_ID = "b".repeat(64);
 const SIDECAR_ID = "c".repeat(64);
 const AUTH_GENERATION = "2026-08-31T04:05:06.000Z";
-const AUTH_CONTENTS = Buffer.from(JSON.stringify({ access_token: "fixture-secret" }));
+const AUTH_CONTENTS = Buffer.from(JSON.stringify({
+  auth_mode: "chatgpt",
+  tokens: {
+    access_token: "fixture-secret",
+    id_token: "fixture-id-token",
+    refresh_token: "fixture-refresh-token",
+  },
+}));
 const PUBLISHED_V0_15_0_RUNTIME = new URL(
   "./fixtures/openai-oauth-sidecar-v0.15.0.mjs",
   import.meta.url,
@@ -1351,7 +1358,14 @@ test("installation re-reads the OAuth source immediately before Docker mutation"
         authReadCount += 1;
         return authReadCount === 1
           ? AUTH_CONTENTS
-          : Buffer.from(JSON.stringify({ access_token: "changed-secret" }));
+          : Buffer.from(JSON.stringify({
+              auth_mode: "chatgpt",
+              tokens: {
+                access_token: "changed-secret",
+                id_token: "changed-id-token",
+                refresh_token: "changed-refresh-token",
+              },
+            }));
       }
       return nodeFileSystem.readFile(path, ...args);
     },

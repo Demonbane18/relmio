@@ -32,10 +32,11 @@ Chat Adapter protocol or external clients such as n8n.
 
 SuperGrok is a first-class local and VPS setup option in 0.14.0, but the adapter
 remains experimental. Live Windows checks covered fresh sign-in, model discovery,
-n8n Chat, Assistant node search, and a Calculator workflow. The full Windows gate
-remains conditional because Git Bash 2.38.1 needs the per-process terminal setting
-described below. VPS Chat success was user-reported after Responses API was turned
-off; VPS Assistant and Calculator remain unverified.
+n8n Chat, Assistant node search, and a Calculator workflow. Native Windows CI also
+exercises the hosted Git Bash launcher through a real hidden console and verifies
+that its portable Node child receives terminal handles. VPS Chat success was
+user-reported after Responses API was turned off; VPS Assistant and Calculator
+remain unverified.
 
 Existing API-key endpoints are left running and retain their data during an
 upgrade; they are no longer shown in the 0.15.0 dashboard. Follow the
@@ -44,27 +45,29 @@ to review and stop an exact owned endpoint.
 
 ## Quick install
 
-With Node.js 24 or newer on macOS, Linux, WSL, Git Bash, Windows PowerShell,
-or Command Prompt:
+With Node.js 24 or newer on macOS, Linux, WSL, Windows PowerShell, or Command
+Prompt:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
 
-Git Bash 2.38.1 does not give the portable launcher the native child TTY it
-needs under its default mintty setup. Use `MSYS=enable_pcon` for this process,
-or run the native PowerShell or Command Prompt installer instead:
+On Git Bash, use the hosted launcher. It uses Git for Windows' bundled `winpty`
+bridge and a checksum-verified temporary Node.js runtime, even when Node.js 24
+is already installed:
 
 ```bash
-MSYS=enable_pcon npx --yes --ignore-scripts relmio@latest
+curl -fsSL https://relmio.vercel.app/install.sh | sh
 ```
 
-This does not change global Git configuration. An upgraded Git Bash version
-has not been verified by the 0.14.0 acceptance run.
+If you deliberately run NPX directly from Git Bash 2.38.1, prefix that one
+process with `MSYS=enable_pcon`. This does not change global Git configuration.
 
-The command opens a private dashboard on `127.0.0.1` and rediscovers services
-Relmio already manages. Select **Add connection** to open the four-step wizard,
-review exactly what it will create, then confirm the install.
+The command opens a foreground setup wizard on `127.0.0.1` without creating
+persistent Relmio state. It also works on a first-run machine with no `.relmio`
+directory and no local n8n stack; missing prerequisites appear as actionable
+steps in the browser instead of ending the launcher before the page opens.
+Review exactly what the wizard will create, then confirm the install.
 
 No Node.js yet? The hosted guide has native curl, Homebrew, PowerShell, and
 Command Prompt options. Homebrew installs the persistent `relmio` command; it
@@ -327,9 +330,9 @@ until you rotate it.
 - **Authentication fails.** Close old sign-in tabs, run `relmio open`, and use
   the private page opened by the active dashboard process.
 - **Local image build failed.** Check Docker, disk space, and registry access.
-- **Old Git Bash says stdin is not a TTY.** Rerun that process with
-  `MSYS=enable_pcon`, or use native PowerShell or Command Prompt. Do not add a
-  global Git setting.
+- **Git Bash says stdin or stdout is not a TTY.** Use the hosted curl launcher,
+  which applies the bundled `winpty` bridge. For direct NPX on Git Bash 2.38.1,
+  prefix that process with `MSYS=enable_pcon`. Do not add a global Git setting.
 
 [Open troubleshooting](https://relmio.vercel.app/docs/troubleshooting)
 

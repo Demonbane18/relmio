@@ -109,7 +109,11 @@ export async function openBrowser(
       child.removeListener("exit", onExit);
       resolveLaunch(result);
     };
-    const onSpawn = () => { spawned = true; };
+    const onSpawn = () => {
+      spawned = true;
+      // Explorer dispatches to the shell; its exit code does not report browser loading.
+      if (platform === "win32") settle(true);
+    };
     const onError = () => settle(false);
     const onExit = (code, signal) => settle(signal === null && code === 0);
     child.once("spawn", onSpawn);

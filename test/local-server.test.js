@@ -345,7 +345,7 @@ test("persistent shutdown still refuses an active OAuth attempt", async (t) => {
   const wizard = await startLocalWizard(t, {
     async startOAuthLogin() {
       return {
-        authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+        launchMode: "system-browser",
         completion: new Promise(() => {}),
         cancel() {},
       };
@@ -388,7 +388,7 @@ test("persistent shutdown refuses OAuth startup and cancellation work", async (t
         notifyStart();
         await startGate;
         return {
-          authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+          launchMode: "system-browser",
           completion: Promise.resolve({ success: true }),
           cancel() {},
         };
@@ -429,7 +429,7 @@ test("persistent shutdown refuses OAuth startup and cancellation work", async (t
     const wizard = await startLocalWizard(subtest, {
       async startOAuthLogin() {
         return {
-          authorizationUrl: "https://auth.openai.com/oauth/authorize?fixture=true",
+          launchMode: "system-browser",
           completion: new Promise(() => {}),
           async cancel() {
             notifyCancel();
@@ -3066,7 +3066,7 @@ test("pending ChatGPT OAuth blocks sidecar planning, installation, and removal w
     },
     async startOAuthLogin() {
       return {
-        authorizationUrl: "https://auth.openai.com/oauth/authorize",
+        launchMode: "system-browser",
         completion: oauthCompletion,
         async cancel() {
           finishOAuth();
@@ -3557,7 +3557,7 @@ test("dashboard discard leaves a running ChatGPT login helper attached", async (
   const wizard = await startLocalWizard(t, {
     async startOAuthLogin() {
       return {
-        authorizationUrl: "https://auth.openai.com/oauth/authorize",
+        launchMode: "system-browser",
         completion,
         async cancel() {
           cancelCalls += 1;

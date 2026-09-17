@@ -7,8 +7,8 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { attachBrowserReopenOnEnter, openBrowser } from "./browser.js";
+import { createPrivateBrowserHandoffRoot } from "./services/browser-handoff.js";
 import {
-  ensureLocalDashboardBrowserLaunchRoot,
   inspectLocalDashboardControlPlane,
   readLocalDashboardBrowserUrl,
   runLocalDashboardDaemon,
@@ -92,11 +92,26 @@ async function runForegroundWizard({
   startServer,
   open,
   attachReopen,
-  ensureBrowserLaunchRoot,
+  createBrowserLaunchRoot,
 }) {
   const sessionToken = randomBytes(32).toString("base64url");
-  const browserHandoffRoot = await ensureBrowserLaunchRoot({ env });
-  const wizard = await startServer({ sessionToken, browserHandoffRoot });
+  const browserLaunchRoot = await createBrowserLaunchRoot({ env });
+  if (
+    !browserLaunchRoot || typeof browserLaunchRoot.path !== "string" ||
+    typeof browserLaunchRoot.dispose !== "function"
+  ) {
+    throw new Error("Relmio could not create its private browser launch directory.");
+  }
+  let wizard;
+  try {
+    wizard = await startServer({
+      sessionToken,
+      browserHandoffRoot: browserLaunchRoot.path,
+    });
+  } catch (error) {
+    try { await browserLaunchRoot.dispose(); } catch { /* Preserve the startup failure. */ }
+    throw error;
+  }
   const prepareLaunch = async () =>
     await wizard.prepareBrowserLaunch(dashboardPath(mode));
 
@@ -120,9 +135,7 @@ async function runForegroundWizard({
   log("Press Control+C to stop.");
   log("");
 
-  await open(await prepareLaunch());
-  const detachBrowserReopen = attachReopen({ prepareLaunch, open });
-
+  let detachBrowserReopen = () => {};
   let closing = false;
   async function close() {
     if (closing) {
@@ -130,7 +143,30 @@ async function runForegroundWizard({
     }
     closing = true;
     detachBrowserReopen();
-    await wizard.close();
+    try {
+      await wizard.close();
+    } finally {
+      await browserLaunchRoot.dispose();
+    }
+  }
+
+  let browserOpened = false;
+  try {
+    browserOpened = Boolean(await open(await prepareLaunch()));
+  } catch {
+    // The actionable default-browser error below is safe to show to users.
+  }
+  if (!browserOpened) {
+    await close();
+    throw new Error(
+      "Relmio could not open the private setup page. Check the Windows default browser, then run the installer again.",
+    );
+  }
+  try {
+    detachBrowserReopen = attachReopen({ prepareLaunch, open });
+  } catch (error) {
+    await close();
+    throw error;
   }
 
   process.once("SIGINT", async () => {
@@ -164,7 +200,7 @@ export async function runCli({
   stopControlPlane = stopLocalDashboardControlPlane,
   readBrowserUrl = readLocalDashboardBrowserUrl,
   runDaemon = runLocalDashboardDaemon,
-  ensureBrowserLaunchRoot = ensureLocalDashboardBrowserLaunchRoot,
+  createBrowserLaunchRoot = createPrivateBrowserHandoffRoot,
   runGrokLogin = runGrokBuildLogin,
   resolveInstallRoot = resolveLocalInstallRoot,
   resolveN8nSuperGrokInstallRoot = resolveLocalN8nSuperGrokInstallRoot,
@@ -180,7 +216,8 @@ export async function runCli({
   }
   if (mode === "help") {
     log("Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]");
-    log("  local      Open the persistent local services dashboard (default)");
+    log("  (no command) Open a foreground setup wizard without persistent local state");
+    log("  local      Open the persistent local services dashboard");
     log("  vps        Open the separate VPS setup wizard");
     log("  assistant  Open the dedicated AI Assistant companion wizard");
     log("  start      Start the local dashboard without opening a browser");
@@ -282,8 +319,10 @@ export async function runCli({
     return packageManagerProbe ? 0 : 1;
   }
 
+  const foregroundWizard =
+    argumentsList.length === 0 || env?.RELMIO_FOREGROUND_WIZARD === "1";
   if (
-    env?.RELMIO_FOREGROUND_WIZARD === "1" &&
+    foregroundWizard &&
     (mode === "local" || mode === "wizard" || mode === "assistant")
   ) {
     return await runForegroundWizard({
@@ -293,7 +332,7 @@ export async function runCli({
       startServer,
       open,
       attachReopen,
-      ensureBrowserLaunchRoot,
+      createBrowserLaunchRoot,
     });
   }
 
