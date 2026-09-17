@@ -39,9 +39,10 @@ Acceptance evidence and remaining work:
   These passed in the disposable runtime on 2026-09-05.
 - Explicit logout and generic signed-out refusal passed on the disposable
   Windows setup without recording provider credentials.
-- Native Windows and Opera GX live paths passed, but the original full gate is
-  conditional. Git Bash 2.38.1 requires per-process `MSYS=enable_pcon`; its
-  default mintty setup failed the TTY check, and no upgraded version was tested.
+- Native Windows and Opera GX live paths passed. Native Windows CI now runs the
+  hosted Git Bash launcher in a real hidden console and verifies its `winpty`
+  handoff. Direct NPX on Git Bash 2.38.1 still requires per-process
+  `MSYS=enable_pcon`; the hosted launcher does not.
 - The user reported VPS Chat success after turning Responses API off. That run
   was not independently captured, and VPS Assistant and Calculator remain open.
 

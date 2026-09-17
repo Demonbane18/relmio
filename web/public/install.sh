@@ -16,6 +16,13 @@ fail() {
   exit 1
 }
 
+platform_name="$(uname -s)" \
+  || fail "Could not identify the operating system."
+git_bash_windows=0
+case "$platform_name" in
+  MINGW* | MSYS* | CYGWIN*) git_bash_windows=1 ;;
+esac
+
 if ! ( : < "$terminal_input" ) 2>/dev/null; then
   fail "An interactive terminal is required to start Relmio. Run this command from a local terminal."
 fi
@@ -47,7 +54,8 @@ fi
 case "$installed_node_major" in
   '' | *[!0-9]*) ;;
   *)
-    if [ "$installed_node_major" -ge "$minimum_node_major" ] \
+    if [ "$git_bash_windows" -eq 0 ] \
+      && [ "$installed_node_major" -ge "$minimum_node_major" ] \
       && command -v npx >/dev/null 2>&1; then
       say "Using installed Node.js ${installed_node_major} runtime."
       RELMIO_FOREGROUND_WIZARD=1 \
@@ -64,7 +72,7 @@ command -v tar >/dev/null 2>&1 \
 command -v awk >/dev/null 2>&1 \
   || fail "awk is required to select the portable runtime."
 
-case "$(uname -s)" in
+case "$platform_name" in
   Darwin)
     node_platform="darwin"
     archive_extension="tar.gz"
@@ -78,6 +86,8 @@ case "$(uname -s)" in
     archive_extension="zip"
     command -v unzip >/dev/null 2>&1 \
       || fail "unzip is required when running from Git Bash."
+    command -v winpty >/dev/null 2>&1 \
+      || fail "winpty is required when running from Git Bash."
     ;;
   *)
     fail "Unsupported operating system. Use macOS, Linux, WSL, or Git Bash."
@@ -195,6 +205,12 @@ fi
 
 say "Starting the newest Relmio wizard."
 node_directory="${node_binary%/*}"
-RELMIO_FOREGROUND_WIZARD=1 \
-  PATH="$node_directory${PATH:+:$PATH}" \
-  "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"
+if [ "$git_bash_windows" -eq 1 ]; then
+  RELMIO_FOREGROUND_WIZARD=1 \
+    PATH="$node_directory${PATH:+:$PATH}" \
+    winpty "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"
+else
+  RELMIO_FOREGROUND_WIZARD=1 \
+    PATH="$node_directory${PATH:+:$PATH}" \
+    "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"
+fi

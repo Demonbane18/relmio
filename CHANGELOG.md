@@ -21,6 +21,12 @@ checks the registry separately after publication.
 - Keep a successfully dispatched Windows browser handoff alive even when
   `explorer.exe` later returns a nonzero status, preventing the temporary page
   from disappearing with `ERR_FILE_NOT_FOUND`.
+- Retry native Command Prompt temporary-runtime cleanup when Windows briefly
+  holds an executable open, and report an actionable nonzero failure if cleanup
+  remains blocked.
+- Give the hosted Git Bash launcher a real native child terminal through its
+  bundled `winpty` bridge, while replacing GUI-dependent Windows CI coverage
+  with a headless native-console test.
 - Use native Windows Node/npm process boundaries, owner-only temporary browser
   handoffs, and isolated official Codex login attempts with validated atomic
   credential promotion and actionable cancellation errors.
