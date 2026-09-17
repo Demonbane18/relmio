@@ -17,6 +17,8 @@ Treat installer failures as release blockers. Preserve user work and secrets whi
 
 ## Reproduce Windows behavior faithfully
 
+- Start from a clean-user fixture with no `.relmio` directory and no local n8n Docker stack. Missing prerequisites must be reported inside the browser wizard, not terminate the CLI before the browser opens.
+- Verify bare `relmio`, bare NPX, and repository `npm start` launches use the foreground wizard without initializing persistent local state. Exercise `start`, `status`, `open`, and `stop` separately when testing the opt-in persistent dashboard.
 - Exercise both `install.cmd` and `install.ps1` with installed Node 24 and the checksum-verified portable fallback.
 - Keep `RELMIO_FOREGROUND_WIZARD=1` scoped to the child invocation and verify restoration afterward.
 - Invoke npm on Windows through the current Node runtime or `npx.cmd`; never rely on shell execution of a POSIX shim.

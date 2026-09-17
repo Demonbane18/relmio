@@ -28,9 +28,12 @@ You can also run the published package without a global install:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-That command starts the same persistent owner-scoped dashboard and opens it.
-Because it does not place `relmio` on your PATH, repeat the full NPX command
-for later lifecycle actions:
+That command opens a foreground setup wizard without creating persistent
+dashboard state. It is safe to use on a first-run machine with no Relmio files
+and no local n8n stack; prerequisite checks and actionable errors appear inside
+the browser wizard. Because NPX does not place `relmio` on your PATH, repeat the
+full command and add an explicit lifecycle action when you want a persistent
+dashboard:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest start
@@ -44,6 +47,10 @@ From a repository checkout with dependencies installed, run:
 ```bash
 npm start
 ```
+
+This uses the same foreground, first-run wizard behavior as the bare NPX
+command. It does not initialize the persistent local dashboard before opening
+the browser.
 
 Use the [hosted install page](https://relmio.vercel.app/install) when you need
 the native macOS, Linux, PowerShell, or Command Prompt launcher. A hosted

@@ -216,7 +216,8 @@ export async function runCli({
   }
   if (mode === "help") {
     log("Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]");
-    log("  local      Open the persistent local services dashboard (default)");
+    log("  (no command) Open a foreground setup wizard without persistent local state");
+    log("  local      Open the persistent local services dashboard");
     log("  vps        Open the separate VPS setup wizard");
     log("  assistant  Open the dedicated AI Assistant companion wizard");
     log("  start      Start the local dashboard without opening a browser");
@@ -318,8 +319,10 @@ export async function runCli({
     return packageManagerProbe ? 0 : 1;
   }
 
+  const foregroundWizard =
+    argumentsList.length === 0 || env?.RELMIO_FOREGROUND_WIZARD === "1";
   if (
-    env?.RELMIO_FOREGROUND_WIZARD === "1" &&
+    foregroundWizard &&
     (mode === "local" || mode === "wizard" || mode === "assistant")
   ) {
     return await runForegroundWizard({
