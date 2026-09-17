@@ -7,7 +7,11 @@ set "RELMIO_EXIT_CODE=%errorlevel%"
 
 :cleanup
 if defined RELMIO_TEMPORARY_DIRECTORY if exist "%RELMIO_TEMPORARY_DIRECTORY%\" (
-  rmdir /s /q "%RELMIO_TEMPORARY_DIRECTORY%" >nul 2>&1
+  call :remove_temporary_directory "%RELMIO_TEMPORARY_DIRECTORY%"
+  if errorlevel 1 (
+    call :failure "Could not remove the temporary Node.js runtime. Close programs scanning temporary files and remove the Relmio folder from your temporary-files directory."
+    if "%RELMIO_EXIT_CODE%"=="0" set "RELMIO_EXIT_CODE=1"
+  )
 )
 if defined RELMIO_SELF_DELETE if /i "%RELMIO_SELF_DELETE%"=="%~f0" (
   start "" /b "%ComSpec%" /d /q /c ""%SystemRoot%\System32\ping.exe" 127.0.0.1 -n 2 >nul 2>&1 & del /q ^"%~f0^" >nul 2>&1"
@@ -199,6 +203,17 @@ endlocal & exit /b 0
 if exist "%~1" exit /b 0
 call :failure "%~2"
 exit /b 1
+
+:remove_temporary_directory
+setlocal
+set "RELMIO_REMOVE_ATTEMPTS=0"
+:remove_temporary_directory_retry
+rmdir /s /q "%~1" >nul 2>&1
+if not exist "%~1\" endlocal & exit /b 0
+set /a RELMIO_REMOVE_ATTEMPTS+=1 >nul
+if %RELMIO_REMOVE_ATTEMPTS% GEQ 3 endlocal & exit /b 1
+"%SystemRoot%\System32\ping.exe" 127.0.0.1 -n 2 -w 1000 >nul 2>&1
+goto :remove_temporary_directory_retry
 
 :download
 "%RELMIO_CURL%" --fail --silent --show-error --proto "=https" --proto-redir "=https" --max-redirs 0 --connect-timeout 15 --max-time 600 --retry 2 --retry-delay 1 "%~1" -o "%~2"
