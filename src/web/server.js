@@ -303,10 +303,16 @@ function digestBrowserBootstrapSecret(secret) {
 }
 
 function disposeBrowserBootstrap(state, record) {
-  if (!record || record.disposed) return;
+  if (!record) return Promise.resolve(false);
+  if (record.disposed) return record.disposal ?? Promise.resolve(false);
   record.disposed = true;
   state.clearBrowserBootstrapTimer(record.timer);
-  void Promise.resolve(record.handoff.dispose()).catch(() => {});
+  try {
+    record.disposal = Promise.resolve(record.handoff.dispose()).catch(() => false);
+  } catch {
+    record.disposal = Promise.resolve(false);
+  }
+  return record.disposal;
 }
 
 function retireBrowserBootstrap(state, ticketId, record) {
@@ -2994,6 +3000,21 @@ async function handleApi(request, response, path, state) {
       startPromise = Promise.resolve(state.services.startOAuthLogin());
       state.oauthLoginStartPromise = startPromise;
       const attempt = await startPromise;
+      if (
+        attempt?.launchMode !== "system-browser" ||
+        typeof attempt?.completion?.then !== "function" ||
+        typeof attempt?.cancel !== "function"
+      ) {
+        try {
+          await attempt?.cancel?.();
+        } catch {
+          // The invalid helper result is already unusable; keep its details private.
+        }
+        throw Object.assign(
+          new Error("The ChatGPT sign-in helper returned an invalid result."),
+          { statusCode: 500 },
+        );
+      }
       const login = {
         attempt,
         attemptId: randomUUID(),
@@ -3052,7 +3073,7 @@ async function handleApi(request, response, path, state) {
         });
       }
       sendJson(response, 200, {
-        authorizationUrl: attempt.authorizationUrl,
+        launchMode: attempt.launchMode,
         attemptId: login.attemptId,
       });
       return;
@@ -4833,14 +4854,20 @@ export async function startWizardServer({
       // block clear the shared state. This exact promise determines whether
       // HTTP close must remain unbounded for this shutdown attempt.
       const vpsMutationCompletion = state.vpsMutationCompletion;
+      const browserHandoffDisposals = [];
       for (const [ticketId, record] of state.browserBootstraps) {
         retireBrowserBootstrap(state, ticketId, record);
+        browserHandoffDisposals.push(record.disposal);
       }
       for (const [transferId, record] of state.browserTransfers) {
         retireBrowserTransfer(state, transferId, record);
       }
       const serverClose = new Promise((resolve) => server.close(resolve));
       state.localChatTest.dispose?.();
+      await waitForBoundedResult(
+        Promise.all(browserHandoffDisposals),
+        state.oauthShutdownWaitMs,
+      );
       await waitForBoundedResult(
         state.oauthLoginStartPromise,
         state.oauthShutdownWaitMs,

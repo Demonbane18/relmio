@@ -12,6 +12,17 @@ import {
 
 const noOpLockDownPath = async () => {};
 
+function credentialContents(label = "fixture") {
+  return JSON.stringify({
+    auth_mode: "chatgpt",
+    tokens: {
+      access_token: `access-${label}`,
+      id_token: `id-${label}`,
+      refresh_token: `refresh-${label}`,
+    },
+  });
+}
+
 function createMemoryFileSystem(files) {
   return {
     async access(path) {
@@ -70,6 +81,10 @@ function createAuthorizationUrl({
   return authorizationUrl;
 }
 
+function pendingAuthPathFromOptions(options) {
+  return resolve(options.env.CODEX_HOME, "auth.json");
+}
+
 test("resolveAuthPath uses wizard-only storage without exposing file contents", () => {
   const configuredHomeDirectory = resolve("oauth-configured-home");
   const defaultHomeDirectory = resolve("oauth-default-home");
@@ -110,7 +125,7 @@ test("getAuthStatus reports the credential update time without its contents", as
   assert.equal(JSON.stringify(status).includes("fixture"), false);
 });
 
-test("readAuthContents rejects invalid or oversized credential files", async () => {
+test("readAuthContents accepts only complete ChatGPT credential files", async () => {
   const invalidFileSystem = createMemoryFileSystem({
     "/home/user/.n8n-openai-oauth/auth.json": "not-json",
   });
@@ -123,9 +138,92 @@ test("readAuthContents rejects invalid or oversized credential files", async () 
       }),
     /credential/i,
   );
+
+  invalidFileSystem.readFile = async () =>
+    Buffer.from('{"auth_mode":"chatgpt","tokens":{"access_token":"partial"}}');
+  await assert.rejects(
+    () =>
+      readAuthContents({
+        fileSystem: invalidFileSystem,
+        authPath: "/home/user/.n8n-openai-oauth/auth.json",
+      }),
+    /credential/i,
+  );
+
+  const expected = credentialContents("complete");
+  invalidFileSystem.readFile = async () => Buffer.from(expected);
+  assert.deepEqual(
+    await readAuthContents({
+      fileSystem: invalidFileSystem,
+      authPath: "/home/user/.n8n-openai-oauth/auth.json",
+    }),
+    Buffer.from(expected),
+  );
 });
 
-test("startOAuthLogin returns one validated link and stores the credential after completion", async () => {
+test("startOAuthLogin uses the pinned official Codex browser login in an isolated home", async () => {
+  const calls = [];
+  const files = {};
+  const homeDirectory = resolve("oauth-official-login-home");
+  const fileSystem = createMemoryFileSystem(files);
+  const spawnProcess = (command, args, options) => {
+    calls.push({ command, args, options });
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.stderr.resume = () => {};
+    child.kill = () => {};
+    queueMicrotask(() => {
+      if (typeof options.env.CODEX_HOME === "string") {
+        files[resolve(options.env.CODEX_HOME, "auth.json")] =
+          credentialContents("official");
+      } else {
+        const oauthFileIndex = args.indexOf("--oauth-file");
+        if (oauthFileIndex >= 0) {
+          files[args[oauthFileIndex + 1]] = '{"fixture":true}';
+          child.stdout.emit(
+            "data",
+            Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
+          );
+        }
+      }
+      finishChild(child, 0);
+    });
+    return child;
+  };
+
+  const login = await startOAuthLogin({
+    fileSystem,
+    env: { CODEX_HOME: "C:\\must-not-be-reused" },
+    homeDirectory,
+    platform: "win32",
+    execPath: "C:\\portable\\node.exe",
+    spawnProcess,
+    createPendingId: () => "official-fixture",
+    lockDownPath: noOpLockDownPath,
+  });
+
+  assert.equal(login.launchMode, "system-browser");
+  assert.equal(Object.hasOwn(login, "authorizationUrl"), false);
+  assert.deepEqual(await login.completion, { success: true });
+  assert.deepEqual(calls[0].args.slice(1), [
+    "--yes",
+    "--ignore-scripts",
+    "--package=@openai/codex@0.154.0",
+    "--",
+    "codex",
+    "-c",
+    'cli_auth_credentials_store="file"',
+    "login",
+  ]);
+  assert.notEqual(calls[0].options.env.CODEX_HOME, "C:\\must-not-be-reused");
+  assert.equal(
+    files[resolve(homeDirectory, ".n8n-openai-oauth", "auth.json")],
+    credentialContents("official"),
+  );
+});
+
+test("startOAuthLogin stores the official Codex credential after process completion", async () => {
   const calls = [];
   const files = {};
   const homeDirectory = resolve("oauth-login-home");
@@ -139,22 +237,7 @@ test("startOAuthLogin returns one validated link and stores the credential after
     child.stderr = { resume() {} };
     child.kill = () => {};
     queueMicrotask(() => {
-      const authorizationUrl = new URL(
-        "https://auth.openai.com/oauth/authorize",
-      );
-      authorizationUrl.searchParams.set("response_type", "code");
-      authorizationUrl.searchParams.set(
-        "redirect_uri",
-        "http://localhost:1455/auth/callback",
-      );
-      authorizationUrl.searchParams.set("state", "fixture-state");
-      authorizationUrl.searchParams.set("code_challenge", "fixture-challenge");
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}\n`),
-      );
-      const oauthFileIndex = args.indexOf("--oauth-file");
-      files[args[oauthFileIndex + 1]] = '{"fixture":true}';
+      files[pendingAuthPathFromOptions(options)] = credentialContents("stored");
       finishChild(child, 0);
     });
     return child;
@@ -169,276 +252,78 @@ test("startOAuthLogin returns one validated link and stores the credential after
     createPendingId: () => "fixture",
   });
 
-  assert.match(
-    login.authorizationUrl,
-    /^https:\/\/auth\.openai\.com\/oauth\/authorize\?/,
-  );
+  assert.equal(login.launchMode, "system-browser");
   assert.deepEqual(await login.completion, { success: true });
   assert.equal(calls[0].command, "npx");
   assert.deepEqual(calls[0].args, [
     "--yes",
     "--ignore-scripts",
-    "--legacy-peer-deps=false",
-    "--include=peer",
-    "--package=openai-oauth@2.0.0",
-    "--package=zod@4.1.8",
+    "--package=@openai/codex@0.154.0",
     "--",
-    "openai-oauth",
+    "codex",
+    "-c",
+    'cli_auth_credentials_store="file"',
     "login",
-    "--no-open",
-    "--login-timeout-ms",
-    "300000",
-    "--oauth-file",
-    `${authPath}.pending-fixture`,
   ]);
   assert.equal(calls[0].options.shell, false);
   assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
   assert.equal(
     files[authPath],
-    '{"fixture":true}',
+    credentialContents("stored"),
   );
-  assert.equal(
-    `${authPath}.pending-fixture` in files,
-    false,
-  );
+  assert.equal(Object.keys(files).some((path) => path.includes(".codex-login-")), false);
 });
 
-test("startOAuthLogin reads the supported CLI login line across ANSI, CRLF, and chunks", async () => {
+test("startOAuthLogin does not expose captured helper output to the browser UI", async () => {
   const files = {};
-  const fileSystem = createMemoryFileSystem(files);
-  const spawnProcess = (_command, args) => {
+  const spawnProcess = (_command, _args, options) => {
     const child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.stderr.resume = () => {};
     child.kill = () => {};
     queueMicrotask(() => {
-      const authorizationUrl = new URL(
-        "https://auth.openai.com/oauth/authorize",
-      );
-      authorizationUrl.searchParams.set("response_type", "code");
-      authorizationUrl.searchParams.set(
-        "redirect_uri",
-        "http://localhost:1455/auth/callback",
-      );
-      authorizationUrl.searchParams.set("state", "windows-state");
-      authorizationUrl.searchParams.set("code_challenge", "windows-challenge");
-      child.stderr.emit("data", Buffer.from("\u001B[90mnpm notice\u001B[0m\r\n"));
-      child.stdout.emit("data", Buffer.from("\u001B[2"));
       child.stdout.emit(
         "data",
-        Buffer.from(`KOpenAI OAuth login URL: ${authorizationUrl}\r`),
+        Buffer.from("Opening browser for ChatGPT sign-in. token=must-not-leak\n"),
       );
-      child.stdout.emit("data", Buffer.from("\n"));
-      const oauthFileIndex = args.indexOf("--oauth-file");
-      files[args[oauthFileIndex + 1]] = '{"windows":true}';
+      files[pendingAuthPathFromOptions(options)] = credentialContents("captured");
       finishChild(child, 0);
     });
     return child;
   };
 
   const login = await startOAuthLogin({
-    fileSystem,
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    execPath: "C:\\portable\\node.exe",
-    spawnProcess,
-    createPendingId: () => "windows-output",
-    lockDownPath: noOpLockDownPath,
-  });
-
-  assert.match(
-    login.authorizationUrl,
-    /^https:\/\/auth\.openai\.com\/oauth\/authorize\?/u,
-  );
-  assert.deepEqual(await login.completion, { success: true });
-});
-
-test("startOAuthLogin reads the supported Windows login line from stderr", async () => {
-  const files = {};
-  const fileSystem = createMemoryFileSystem(files);
-  const authorizationUrl = createAuthorizationUrl();
-  const spawnProcess = (_command, args) => {
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => {};
-    queueMicrotask(() => {
-      child.stderr.emit("data", Buffer.from("\u001B[2"));
-      child.stderr.emit(
-        "data",
-        Buffer.from(`KOpenAI OAuth login URL: ${authorizationUrl}\r`),
-      );
-      child.stderr.emit("data", Buffer.from("\n"));
-      const oauthFileIndex = args.indexOf("--oauth-file");
-      files[args[oauthFileIndex + 1]] = '{"stderr":true}';
-      finishChild(child, 0);
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    fileSystem,
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    execPath: "C:\\portable\\node.exe",
-    spawnProcess,
-    createPendingId: () => "windows-stderr",
-    lockDownPath: noOpLockDownPath,
-  });
-
-  assert.equal(login.authorizationUrl, authorizationUrl.toString());
-  assert.deepEqual(await login.completion, { success: true });
-});
-
-test("startOAuthLogin waits for every byte boundary of the supported CRLF login line", async () => {
-  const authorizationUrl = new URL("https://auth.openai.com/oauth/authorize");
-  authorizationUrl.searchParams.set("response_type", "code");
-  authorizationUrl.searchParams.set(
-    "redirect_uri",
-    "http://localhost:1455/auth/callback",
-  );
-  authorizationUrl.searchParams.set("state", "split-state");
-  authorizationUrl.searchParams.set("code_challenge", "split-challenge");
-  const loginLine = Buffer.from(
-    `OpenAI OAuth login URL: ${authorizationUrl}\r\n`,
-  );
-
-  for (let splitAt = 1; splitAt < loginLine.length; splitAt += 1) {
-    const files = {};
-    let child;
-    let pendingAuthPath;
-    const spawnProcess = (_command, args) => {
-      child = new EventEmitter();
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-      child.stderr.resume = () => {};
-      child.kill = () => finishChild(child, 1);
-      pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
-      queueMicrotask(() => {
-        child.stdout.emit("data", loginLine.subarray(0, splitAt));
-      });
-      return child;
-    };
-
-    const loginPromise = startOAuthLogin({
-      fileSystem: createMemoryFileSystem(files),
-      env: {},
-      homeDirectory: "/home/user",
-      platform: "win32",
-      execPath: "C:\\portable\\node.exe",
-      spawnProcess,
-      createPendingId: () => `split-${splitAt}`,
-      lockDownPath: noOpLockDownPath,
-    });
-    let earlyOutcome;
-    loginPromise.then(
-      () => {
-        earlyOutcome = "resolved";
-      },
-      () => {
-        earlyOutcome = "rejected";
-      },
-    );
-    await new Promise((resolvePromise) => setImmediate(resolvePromise));
-
-    assert.equal(
-      earlyOutcome,
-      undefined,
-      `split at byte ${splitAt} settled before the complete CRLF line`,
-    );
-
-    child.stdout.emit("data", loginLine.subarray(splitAt));
-    files[pendingAuthPath] = '{"split":true}';
-    finishChild(child, 0);
-
-    const login = await loginPromise;
-    assert.equal(login.authorizationUrl, authorizationUrl.toString());
-    assert.deepEqual(await login.completion, { success: true });
-  }
-});
-
-test("startOAuthLogin accepts a complete supported login line without a final newline on exit", async () => {
-  const files = {};
-  let child;
-  let pendingAuthPath;
-  const authorizationUrl = new URL("https://auth.openai.com/oauth/authorize");
-  authorizationUrl.searchParams.set("response_type", "code");
-  authorizationUrl.searchParams.set(
-    "redirect_uri",
-    "http://localhost:1455/auth/callback",
-  );
-  authorizationUrl.searchParams.set("state", "unterminated-state");
-  authorizationUrl.searchParams.set("code_challenge", "unterminated-challenge");
-  const loginLine = `OpenAI OAuth login URL: ${authorizationUrl}`;
-  const spawnProcess = (_command, args) => {
-    child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.stderr.resume = () => {};
-    child.kill = () => finishChild(child, 1);
-    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
-    queueMicrotask(() => {
-      child.stdout.emit("data", Buffer.from(loginLine));
-    });
-    return child;
-  };
-
-  const loginPromise = startOAuthLogin({
     fileSystem: createMemoryFileSystem(files),
     env: {},
     homeDirectory: "/home/user",
     platform: "win32",
     execPath: "C:\\portable\\node.exe",
     spawnProcess,
-    createPendingId: () => "unterminated",
+    createPendingId: () => "captured-output",
     lockDownPath: noOpLockDownPath,
   });
-  let earlyOutcome;
-  loginPromise.then(
-    () => {
-      earlyOutcome = "resolved";
-    },
-    () => {
-      earlyOutcome = "rejected";
-    },
-  );
-  await new Promise((resolvePromise) => setImmediate(resolvePromise));
 
-  assert.equal(earlyOutcome, undefined);
-
-  files[pendingAuthPath] = '{"unterminated":true}';
-  finishChild(child, 0);
-
-  const login = await loginPromise;
-  assert.equal(login.authorizationUrl, authorizationUrl.toString());
+  assert.equal(login.launchMode, "system-browser");
+  assert.equal(Object.hasOwn(login, "authorizationUrl"), false);
+  assert.doesNotMatch(JSON.stringify(login), /must-not-leak|token=/u);
   assert.deepEqual(await login.completion, { success: true });
 });
 
-test("startOAuthLogin waits for close after exit before finalizing stdout", async () => {
+test("startOAuthLogin waits for close after exit before committing success", async () => {
   const files = {};
   let child;
-  let pendingAuthPath;
-  const authorizationUrl = createAuthorizationUrl({
-    redirectUri: "http://localhost:1455/auth/callback",
-  });
-  const spawnProcess = (_command, args) => {
+  let codexAuthPath;
+  const spawnProcess = (_command, _args, options) => {
     child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.stderr.resume = () => {};
     child.kill = () => {};
-    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    codexAuthPath = pendingAuthPathFromOptions(options);
     queueMicrotask(() => {
       child.emit("exit", 0);
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}`),
-      );
-      files[pendingAuthPath] = '{"drained":true}';
-      child.emit("close", 0);
+      files[codexAuthPath] = credentialContents("drained");
     });
     return child;
   };
@@ -454,7 +339,13 @@ test("startOAuthLogin waits for close after exit before finalizing stdout", asyn
     lockDownPath: noOpLockDownPath,
   });
 
-  assert.equal(login.authorizationUrl, authorizationUrl.toString());
+  let completionSettled = false;
+  login.completion.finally(() => {
+    completionSettled = true;
+  });
+  await new Promise((resolvePromise) => setImmediate(resolvePromise));
+  assert.equal(completionSettled, false);
+  child.emit("close", 0);
   assert.deepEqual(await login.completion, { success: true });
 });
 
@@ -484,34 +375,31 @@ test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", 
     return child;
   };
 
+  const login = await startOAuthLogin({
+    fileSystem: createMemoryFileSystem({}),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    execPath: "C:\\portable\\node.exe",
+    spawnProcess,
+    createPendingId: () => "port-conflict",
+    terminationGraceMs: 0,
+    terminationForceWaitMs: 0,
+    lockDownPath: noOpLockDownPath,
+  });
   await assert.rejects(
-    () =>
-      startOAuthLogin({
-        fileSystem: createMemoryFileSystem({}),
-        env: {},
-        homeDirectory: "/home/user",
-        platform: "win32",
-        execPath: "C:\\portable\\node.exe",
-        spawnProcess,
-        createPendingId: () => "port-conflict",
-        terminationGraceMs: 0,
-        terminationForceWaitMs: 0,
-        lockDownPath: noOpLockDownPath,
-      }),
+    login.completion,
     (error) => {
       assert.equal(
         error.message,
-        "OpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use. Stop the process using that port and try again.",
+        "ChatGPT sign-in could not open its local callback port. Close other sign-in helpers and try again.",
       );
       assert.doesNotMatch(error.message, /not-for-users|token=/u);
-      assert.equal(error.retryBlocked, true);
+      assert.equal(error.retryBlocked, undefined);
       return true;
     },
   );
-  assert.deepEqual(calls.slice(1), [
-    { command: "taskkill", args: ["/pid", "5150", "/t"] },
-    { command: "taskkill", args: ["/pid", "5150", "/t", "/f"] },
-  ]);
+  assert.deepEqual(calls.slice(1), []);
 });
 
 test("startOAuthLogin uses the current Node runtime and commits only a pre-secured Windows credential", async () => {
@@ -548,22 +436,7 @@ test("startOAuthLogin uses the current Node runtime and commits only a pre-secur
     child.stderr = { resume() {} };
     child.kill = () => {};
     queueMicrotask(() => {
-      const authorizationUrl = new URL(
-        "https://auth.openai.com/oauth/authorize",
-      );
-      authorizationUrl.searchParams.set("response_type", "code");
-      authorizationUrl.searchParams.set(
-        "redirect_uri",
-        "http://localhost:1455/auth/callback",
-      );
-      authorizationUrl.searchParams.set("state", "windows-state");
-      authorizationUrl.searchParams.set("code_challenge", "windows-challenge");
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}\n`),
-      );
-      const oauthFileIndex = args.indexOf("--oauth-file");
-      files[args[oauthFileIndex + 1]] = '{"windows":true}';
+      files[pendingAuthPathFromOptions(options)] = credentialContents("windows");
       finishChild(child, 0);
     });
     return child;
@@ -594,18 +467,12 @@ test("startOAuthLogin uses the current Node runtime and commits only a pre-secur
   assert.deepEqual(calls[0].args.slice(1), [
     "--yes",
     "--ignore-scripts",
-    "--legacy-peer-deps=false",
-    "--include=peer",
-    "--package=openai-oauth@2.0.0",
-    "--package=zod@4.1.8",
+    "--package=@openai/codex@0.154.0",
     "--",
-    "openai-oauth",
+    "codex",
+    "-c",
+    'cli_auth_credentials_store="file"',
     "login",
-    "--no-open",
-    "--login-timeout-ms",
-    "300000",
-    "--oauth-file",
-    `${authPath}.pending-windows-fixture`,
   ]);
   assert.equal(calls[0].options.shell, false);
   assert.equal(calls[0].options.env.NPM_CONFIG_LEGACY_PEER_DEPS, "true");
@@ -613,19 +480,30 @@ test("startOAuthLogin uses the current Node runtime and commits only a pre-secur
   assert.deepEqual(await login.completion, { success: true });
   assert.equal(
     files[authPath],
-    '{"windows":true}',
+    credentialContents("windows"),
   );
   assert.equal(credentialCommitted, true);
-  const pendingAuthPath = `${authPath}.pending-windows-fixture`;
+  const codexHome = calls[0].options.env.CODEX_HOME;
+  const codexAuthPath = resolve(codexHome, "auth.json");
   assert.deepEqual(aclCalls, [
     { path: dirname(authPath), options: { platform: "win32", kind: "directory" } },
-    { path: pendingAuthPath, options: { platform: "win32", kind: "file" } },
-    { path: `${pendingAuthPath}.ready`, options: { platform: "win32", kind: "file" } },
+    { path: codexHome, options: { platform: "win32", kind: "directory" } },
+    { path: codexAuthPath, options: { platform: "win32", kind: "file" } },
+    { path: `${codexAuthPath}.ready`, options: { platform: "win32", kind: "file" } },
   ]);
 });
 
 test("startOAuthLogin hides synchronous process-launch errors", async () => {
   let invocation;
+  const removed = [];
+  const memoryFileSystem = createMemoryFileSystem({});
+  const fileSystem = {
+    ...memoryFileSystem,
+    async rm(path, options) {
+      removed.push({ path, options });
+      await memoryFileSystem.rm(path, options);
+    },
+  };
   const spawnProcess = (command, args) => {
     invocation = { command, args };
     const error = new Error("spawn EINVAL");
@@ -636,7 +514,7 @@ test("startOAuthLogin hides synchronous process-launch errors", async () => {
   await assert.rejects(
     () =>
       startOAuthLogin({
-        fileSystem: createMemoryFileSystem({}),
+        fileSystem,
         env: {},
         homeDirectory: resolve("oauth-sync-error-home"),
         platform: "win32",
@@ -665,37 +543,31 @@ test("startOAuthLogin hides synchronous process-launch errors", async () => {
       "npx-cli.js",
     ),
   );
+  assert.deepEqual(removed, [
+    {
+      path: resolve(
+        "oauth-sync-error-home",
+        ".n8n-openai-oauth",
+        ".codex-login-sync-error",
+      ),
+      options: { recursive: true, force: true },
+    },
+  ]);
 });
 
-test("startOAuthLogin saves a valid pending credential before the helper exits", async () => {
+test("startOAuthLogin waits for the official helper to close before promoting a valid credential", async () => {
   const files = {};
   let child;
   let pendingAuthPath;
   let pollCount = 0;
   const homeDirectory = resolve("oauth-fresh-home");
   const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  const spawnProcess = (_command, args) => {
+  const spawnProcess = (_command, _args, options) => {
     child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = { resume() {} };
     child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
-    queueMicrotask(() => {
-      const authorizationUrl = new URL(
-        "https://auth.openai.com/oauth/authorize",
-      );
-      authorizationUrl.searchParams.set("response_type", "code");
-      authorizationUrl.searchParams.set(
-        "redirect_uri",
-        "http://localhost:1455/auth/callback",
-      );
-      authorizationUrl.searchParams.set("state", "fixture-state");
-      authorizationUrl.searchParams.set("code_challenge", "fixture-challenge");
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}\n`),
-      );
-    });
+    pendingAuthPath = pendingAuthPathFromOptions(options);
     return child;
   };
 
@@ -711,127 +583,44 @@ test("startOAuthLogin saves a valid pending credential before the helper exits",
     waitForCredentialPoll: async () => {
       pollCount += 1;
       files[pendingAuthPath] =
-        pollCount === 1 ? "partially-written" : '{"fresh":true}';
+        pollCount === 1 ? "partially-written" : credentialContents("fresh");
     },
   });
 
-  try {
-    const result = await Promise.race([
-      login.completion,
-      new Promise((_, reject) => {
-        setTimeout(
-          () => reject(new Error("credential detection was too slow")),
-          50,
-        );
-      }),
-    ]);
-    assert.deepEqual(result, { success: true });
-    assert.equal(pollCount, 2);
-    assert.equal(
-      files[authPath],
-      '{"fresh":true}',
-    );
-  } finally {
-    finishChild(child, 1);
-  }
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+  assert.equal(pollCount, 2);
+  assert.equal(Object.hasOwn(files, authPath), false);
+  let completionSettled = false;
+  login.completion.finally(() => {
+    completionSettled = true;
+  });
+  await new Promise((resolvePromise) => setImmediate(resolvePromise));
+  assert.equal(completionSettled, false);
+  finishChild(child, 0);
+  assert.deepEqual(await login.completion, { success: true });
+  assert.equal(files[authPath], credentialContents("fresh"));
 });
 
-test("startOAuthLogin rejects an unexpected authorization destination", async () => {
-  const fileSystem = createMemoryFileSystem({});
-  const spawnProcess = () => {
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = { resume() {} };
-    child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(
-          "OpenAI OAuth login URL: https://example.test/oauth/authorize\n",
-        ),
-      );
-    });
-    return child;
-  };
-
+test("startOAuthLogin rejects an unsafe attempt identifier before filesystem or process effects", async () => {
+  let effects = 0;
   await assert.rejects(
-    () =>
-      startOAuthLogin({
-        fileSystem,
-        env: {},
-        homeDirectory: "/home/user",
-        platform: "darwin",
-        spawnProcess,
-        createPendingId: () => "fixture",
-      }),
-    /unexpected destination/i,
-  );
-});
-
-test("startOAuthLogin only accepts exact supported authorization and callback URLs", async () => {
-  const startWithAuthorizationUrl = (authorizationUrl) => {
-    const files = {};
-    const spawnProcess = (_command, args) => {
-      const child = new EventEmitter();
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-      child.stderr.resume = () => {};
-      child.kill = () => {};
-      queueMicrotask(() => {
-        child.stdout.emit(
-          "data",
-          Buffer.from(`OpenAI OAuth login URL: ${authorizationUrl}\n`),
-        );
-        files[args[args.indexOf("--oauth-file") + 1]] = '{"valid":true}';
-        finishChild(child, 0);
-      });
-      return child;
-    };
-
-    return startOAuthLogin({
-      fileSystem: createMemoryFileSystem(files),
+    () => startOAuthLogin({
+      fileSystem: {
+        ...createMemoryFileSystem({}),
+        async mkdir() {
+          effects += 1;
+        },
+      },
       env: {},
       homeDirectory: "/home/user",
-      platform: "win32",
-      execPath: "C:\\portable\\node.exe",
-      spawnProcess,
-      createPendingId: () => "exact-url-shape",
-      lockDownPath: noOpLockDownPath,
-    });
-  };
-
-  for (const redirectUri of [
-    "https://localhost:1455/auth/callback",
-    "http://user@localhost:1455/auth/callback",
-    "http://localhost:1455/auth/callback?unexpected=value",
-    "http://localhost:1455/auth/callback#unexpected",
-  ]) {
-    await assert.rejects(
-      () => startWithAuthorizationUrl(createAuthorizationUrl({ redirectUri })),
-      /unexpected callback/i,
-    );
-  }
-
-  const authorizationUrlWithCredentials = createAuthorizationUrl();
-  authorizationUrlWithCredentials.username = "unexpected";
-  await assert.rejects(
-    () => startWithAuthorizationUrl(authorizationUrlWithCredentials),
-    /unexpected destination/i,
+      spawnProcess() {
+        effects += 1;
+      },
+      createPendingId: () => "../unsafe",
+    }),
+    /attempt identifier is invalid/u,
   );
-
-  const authorizationUrlWithFragment = createAuthorizationUrl();
-  authorizationUrlWithFragment.hash = "unexpected";
-  await assert.rejects(
-    () => startWithAuthorizationUrl(authorizationUrlWithFragment),
-    /unexpected destination/i,
-  );
-
-  const ipv6AuthorizationUrl = createAuthorizationUrl({
-    redirectUri: "http://[::1]:1455/auth/callback",
-  });
-  const ipv6Login = await startWithAuthorizationUrl(ipv6AuthorizationUrl);
-  assert.equal(ipv6Login.authorizationUrl, ipv6AuthorizationUrl.toString());
-  assert.deepEqual(await ipv6Login.completion, { success: true });
+  assert.equal(effects, 0);
 });
 
 test("startOAuthLogin cancels the detached helper process group with a bounded forceful fallback", async () => {
@@ -896,8 +685,9 @@ test("startOAuthLogin cancellation waits for a delayed promotion and keeps the o
   const files = {};
   const homeDirectory = resolve("oauth-cancel-promotion-home");
   const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  files[authPath] = '{"older":true}';
+  files[authPath] = credentialContents("older");
   const memoryFileSystem = createMemoryFileSystem(files);
+  let child;
   let pendingAuthPath;
   let releaseCopy;
   const copyRelease = new Promise((resolvePromise) => {
@@ -915,12 +705,12 @@ test("startOAuthLogin cancellation waits for a delayed promotion and keeps the o
       files[destination] = files[source];
     },
   };
-  const spawnProcess = (_command, args) => {
-    const child = new EventEmitter();
+  const spawnProcess = (_command, _args, options) => {
+    child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    pendingAuthPath = pendingAuthPathFromOptions(options);
     queueMicrotask(() => {
       child.stdout.emit(
         "data",
@@ -940,7 +730,8 @@ test("startOAuthLogin cancellation waits for a delayed promotion and keeps the o
     terminationGraceMs: 50,
     terminationForceWaitMs: 50,
     waitForCredentialPoll: async () => {
-      files[pendingAuthPath] = '{"newer":true}';
+      files[pendingAuthPath] = credentialContents("newer");
+      finishChild(child, 0);
     },
   });
 
@@ -955,7 +746,7 @@ test("startOAuthLogin cancellation waits for a delayed promotion and keeps the o
   releaseCopy();
   await cancellation;
   await assert.rejects(login.completion, /stopped|fresh login/i);
-  assert.equal(files[authPath], '{"older":true}');
+  assert.equal(files[authPath], credentialContents("older"));
 });
 
 test("startOAuthLogin rejects cancellation when the detached process group survives both signals", async () => {
@@ -1103,8 +894,9 @@ test("startOAuthLogin reports cancellation as indeterminate after final credenti
   const files = {};
   const homeDirectory = resolve("oauth-rename-barrier-home");
   const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  files[authPath] = '{"older":true}';
+  files[authPath] = credentialContents("older");
   const memoryFileSystem = createMemoryFileSystem(files);
+  let child;
   let pendingAuthPath;
   let releaseRename;
   const renameRelease = new Promise((resolvePromise) => {
@@ -1123,12 +915,12 @@ test("startOAuthLogin reports cancellation as indeterminate after final credenti
       delete files[source];
     },
   };
-  const spawnProcess = (_command, args) => {
-    const child = new EventEmitter();
+  const spawnProcess = (_command, _args, options) => {
+    child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    pendingAuthPath = pendingAuthPathFromOptions(options);
     queueMicrotask(() => {
       child.stdout.emit(
         "data",
@@ -1148,7 +940,8 @@ test("startOAuthLogin reports cancellation as indeterminate after final credenti
     terminationGraceMs: 50,
     terminationForceWaitMs: 50,
     waitForCredentialPoll: async () => {
-      files[pendingAuthPath] = '{"newer":true}';
+      files[pendingAuthPath] = credentialContents("newer");
+      finishChild(child, 0);
     },
   });
 
@@ -1162,15 +955,16 @@ test("startOAuthLogin reports cancellation as indeterminate after final credenti
 
   releaseRename();
   await assert.rejects(cancellation, /could not be stopped safely/i);
-  assert.equal(files[authPath], '{"newer":true}');
+  assert.equal(files[authPath], credentialContents("newer"));
 });
 
 test("startOAuthLogin bounds a never-settling staged promotion and blocks its later final write", async () => {
   const files = {};
   const homeDirectory = resolve("oauth-never-settling-promotion-home");
   const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  files[authPath] = '{"older":true}';
+  files[authPath] = credentialContents("older");
   const memoryFileSystem = createMemoryFileSystem(files);
+  let child;
   let pendingAuthPath;
   let releaseCopy;
   const copyRelease = new Promise((resolvePromise) => {
@@ -1188,12 +982,12 @@ test("startOAuthLogin bounds a never-settling staged promotion and blocks its la
       files[destination] = files[source];
     },
   };
-  const spawnProcess = (_command, args) => {
-    const child = new EventEmitter();
+  const spawnProcess = (_command, _args, options) => {
+    child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    pendingAuthPath = pendingAuthPathFromOptions(options);
     queueMicrotask(() => {
       child.stdout.emit(
         "data",
@@ -1213,7 +1007,8 @@ test("startOAuthLogin bounds a never-settling staged promotion and blocks its la
     terminationGraceMs: 0,
     terminationForceWaitMs: 0,
     waitForCredentialPoll: async () => {
-      files[pendingAuthPath] = '{"newer":true}';
+      files[pendingAuthPath] = credentialContents("newer");
+      finishChild(child, 0);
     },
   });
 
@@ -1233,15 +1028,16 @@ test("startOAuthLogin bounds a never-settling staged promotion and blocks its la
     releaseCopy();
   }
   await new Promise((resolvePromise) => setImmediate(resolvePromise));
-  assert.equal(files[authPath], '{"older":true}');
+  assert.equal(files[authPath], credentialContents("older"));
 });
 
 test("startOAuthLogin marks a timeout retry-blocked when final credential commit has started", async () => {
   const files = {};
   const homeDirectory = resolve("oauth-timeout-rename-home");
   const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  files[authPath] = '{"older":true}';
+  files[authPath] = credentialContents("older");
   const memoryFileSystem = createMemoryFileSystem(files);
+  let child;
   let pendingAuthPath;
   let releaseRename;
   const renameRelease = new Promise((resolvePromise) => {
@@ -1271,12 +1067,12 @@ test("startOAuthLogin marks a timeout retry-blocked when final credential commit
     }
     return { milliseconds };
   };
-  const spawnProcess = (_command, args) => {
-    const child = new EventEmitter();
+  const spawnProcess = (_command, _args, options) => {
+    child = new EventEmitter();
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
     child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = args[args.indexOf("--oauth-file") + 1];
+    pendingAuthPath = pendingAuthPathFromOptions(options);
     queueMicrotask(() => {
       child.stdout.emit(
         "data",
@@ -1298,7 +1094,8 @@ test("startOAuthLogin marks a timeout retry-blocked when final credential commit
     terminationGraceMs: 50,
     terminationForceWaitMs: 50,
     waitForCredentialPoll: async () => {
-      files[pendingAuthPath] = '{"newer":true}';
+      files[pendingAuthPath] = credentialContents("newer");
+      finishChild(child, 0);
     },
   });
 
@@ -1310,10 +1107,10 @@ test("startOAuthLogin marks a timeout retry-blocked when final credential commit
     assert.match(error.message, /could not be stopped safely/i);
     return true;
   });
-  assert.equal(files[authPath], '{"newer":true}');
+  assert.equal(files[authPath], credentialContents("newer"));
 });
 
-test("startOAuthLogin marks unconfirmed cleanup retry-blocked after returning a URL", async () => {
+test("startOAuthLogin does not signal an already-closed failed helper", async () => {
   const signals = [];
   let child;
   const spawnProcess = () => {
@@ -1349,16 +1146,9 @@ test("startOAuthLogin marks unconfirmed cleanup retry-blocked after returning a 
 
   finishChild(child, 1);
   await assert.rejects(login.completion, (error) => {
-    assert.equal(error.retryBlocked, true);
-    assert.match(error.message, /could not be stopped safely/i);
+    assert.equal(error.retryBlocked, undefined);
+    assert.match(error.message, /did not finish/u);
     return true;
   });
-  assert.deepEqual(signals, [
-    [-6262, "SIGTERM"],
-    [-6262, 0],
-    [-6262, 0],
-    [-6262, "SIGKILL"],
-    [-6262, 0],
-    [-6262, 0],
-  ]);
+  assert.deepEqual(signals, []);
 });

@@ -1,5 +1,4 @@
 import { formatAuthUpdatedAt } from "./time.js";
-import { prepareOAuthPopup } from "./oauth-popup.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
 
 const token = readWizardSession();
@@ -308,17 +307,6 @@ bindWizardNavigation(element("setup-another-vps"), "/", token);
 
 const delay = (milliseconds) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-
-function validateAuthorizationUrl(value) {
-  const url = new URL(value);
-  if (
-    url.origin !== "https://auth.openai.com" ||
-    url.pathname !== "/oauth/authorize"
-  ) {
-    throw new Error("The wizard refused an unexpected sign-in destination.");
-  }
-  return url.toString();
-}
 
 function validateOAuthAttemptId(value) {
   if (typeof value !== "string" || !/^[0-9a-f-]{8,128}$/iu.test(value)) {
@@ -1272,10 +1260,6 @@ element("login-button").addEventListener("click", async (event) => {
   const loginGeneration = state.oauthLoginGeneration + 1;
   state.oauthLoginGeneration = loginGeneration;
   state.oauthAttemptId = null;
-  const loginWindow = window.open("about:blank", "_blank");
-  state.oauthLoginWindow = loginWindow;
-  let loginWindowNavigated = false;
-  prepareOAuthPopup(loginWindow);
   clearError();
   loginLink.hidden = true;
   loginLink.removeAttribute("href");
@@ -1292,22 +1276,20 @@ element("login-button").addEventListener("click", async (event) => {
           method: "POST",
           body: {},
         });
-        const authorizationUrl = validateAuthorizationUrl(
-          result.authorizationUrl,
-        );
+        if (result.launchMode !== "system-browser") {
+          throw new Error(
+            "The wizard returned an unexpected sign-in launch mode. Update Relmio and try again.",
+          );
+        }
         const attemptId = validateOAuthAttemptId(result.attemptId);
         if (state.oauthLoginGeneration !== loginGeneration) {
           return undefined;
         }
         state.oauthAttemptId = attemptId;
         setOAuthStopControlVisible(true);
-        loginLink.href = authorizationUrl;
-        loginLink.hidden = false;
-        if (loginWindow) {
-          loginWindow.location.replace(authorizationUrl);
-          loginWindowNavigated = true;
-          loginWindow.opener = null;
-        }
+        setMessage(
+          "Finish sign-in in the official ChatGPT sign-in window opened by Relmio. If no window opened, check the Windows default browser, use Stop, and try again.",
+        );
         await waitForOAuthCompletion(attemptId);
         if (state.oauthLoginGeneration !== loginGeneration) {
           return undefined;
@@ -1317,7 +1299,7 @@ element("login-button").addEventListener("click", async (event) => {
       {
         allowedSelector: OPERATION_ALLOWED_SELECTOR,
         progressNote:
-          "Finish the newly opened ChatGPT sign-in. This can take several minutes and no fixed finish time is promised. Keep this page open. Use the sign-in link or Stop control if needed.",
+          "Finish the official ChatGPT sign-in window. This can take several minutes and no fixed finish time is promised. Keep this page open or use Stop to cancel safely.",
       },
     );
     if (!status || state.oauthLoginGeneration !== loginGeneration) {
@@ -1327,9 +1309,6 @@ element("login-button").addEventListener("click", async (event) => {
     loginLink.removeAttribute("href");
     renderAuthStatus(status, { fresh: true });
   } catch (error) {
-    if (loginWindow && !loginWindowNavigated) {
-      loginWindow.close();
-    }
     if (state.oauthLoginGeneration === loginGeneration) {
       if (error.oauthRetryBlocked === true) {
         blockOAuthRetry();

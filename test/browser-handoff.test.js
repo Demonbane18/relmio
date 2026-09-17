@@ -6,7 +6,10 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { createPrivateBrowserHandoff } from "../src/services/browser-handoff.js";
+import {
+  createPrivateBrowserHandoff,
+  createPrivateBrowserHandoffRoot,
+} from "../src/services/browser-handoff.js";
 
 const origin = "http://127.0.0.1:4567";
 const ticketId = "i".repeat(43);
@@ -17,6 +20,48 @@ async function privateTemp(t) {
   t.after(async () => rm(directory, { recursive: true, force: true }));
   return await realpath(directory);
 }
+
+test("foreground browser handoff roots are protected temporary directories", async (t) => {
+  const temporaryDirectory = await privateTemp(t);
+  const protectedPaths = [];
+  const root = await createPrivateBrowserHandoffRoot({
+    temporaryDirectory,
+    platform: "win32",
+    getUid: undefined,
+    async lockDownPath(path, options) {
+      protectedPaths.push({ path, options });
+    },
+  });
+
+  assert.equal(dirname(root.path), temporaryDirectory);
+  assert.match(basename(root.path), /^relmio-browser-launches-[A-Za-z0-9_-]{6,64}$/u);
+  assert.deepEqual(protectedPaths, [
+    { path: root.path, options: { platform: "win32", kind: "directory" } },
+    {
+      path: root.path,
+      options: { platform: "win32", kind: "directory", verifyOnly: true },
+    },
+  ]);
+  assert.equal(await root.dispose(), true);
+  await assert.rejects(() => stat(root.path), /ENOENT/u);
+});
+
+test(
+  "native Windows creates and verifies an owner-only foreground browser root",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const root = await createPrivateBrowserHandoffRoot();
+    try {
+      assert.equal(dirname(root.path), await realpath(tmpdir()));
+      assert.match(
+        basename(root.path),
+        /^relmio-browser-launches-[A-Za-z0-9_-]{6,64}$/u,
+      );
+    } finally {
+      assert.equal(await root.dispose(), true);
+    }
+  },
+);
 
 test("private browser handoff stores its one-time secret only in an owner-only file", async (t) => {
   const privateRoot = await privateTemp(t);

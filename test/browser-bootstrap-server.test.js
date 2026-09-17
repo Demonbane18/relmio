@@ -14,6 +14,14 @@ const launchUrl = pathToFileURL(join(
   "launch-0123456789abcdef01234567.html",
 )).href;
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function formBody({ ticketId, secret, route }) {
   return new URLSearchParams({ ticketId, secret, route }).toString();
 }
@@ -264,6 +272,34 @@ test("expired handoffs fail generically and pending handoffs are disposed on clo
   const pending = fixture.handoffs.at(-1);
   await fixture.wizard.close();
   assert.equal(fixture.disposed.includes(pending.ticketId), true);
+});
+
+test("wizard close waits for pending handoff disposal before releasing its temporary root", async (t) => {
+  const disposalStarted = deferred();
+  const disposalRelease = deferred();
+  const fixture = await startFixture(t, {
+    createBrowserHandoff: async () => ({
+      launchUrl,
+      async dispose() {
+        disposalStarted.resolve();
+        await disposalRelease.promise;
+        return true;
+      },
+    }),
+  });
+  assert.equal((await prepare(fixture, "/local")).status, 201);
+
+  let closeSettled = false;
+  const closing = fixture.wizard.close().then(() => {
+    closeSettled = true;
+  });
+  await disposalStarted.promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(closeSettled, false);
+
+  disposalRelease.resolve();
+  await closing;
+  assert.equal(closeSettled, true);
 });
 
 test("pending browser bootstrap capacity is bounded", async (t) => {

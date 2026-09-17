@@ -1471,28 +1471,17 @@ test("copy success survives the browser clearing event.currentTarget", async () 
   ]);
 });
 
-test("local OAuth prepares and navigates its popup before severing opener access", async () => {
+test("local OAuth delegates browser launch to the official helper without popup secrets", async () => {
   const [app, html] = await Promise.all([
     readFile("src/ui/app.js", "utf8"),
     readFile("src/ui/index.html", "utf8"),
   ]);
 
   assert.match(app, /Preparing a fresh ChatGPT sign-in/u);
-  assert.match(app, /prepareOAuthPopup\(loginWindow\);/u);
-  assert.match(
-    app,
-    /loginWindow\.location\.replace\(authorizationUrl\);[\s\S]*loginWindowNavigated = true;[\s\S]*loginWindow\.opener = null;/u,
-  );
-  assert.match(
-    app,
-    /loginWindow\.location\.replace\(authorizationUrl\);[\s\S]*loginWindow\.opener = null;/u,
-  );
-  assert.doesNotMatch(
-    app,
-    /const loginWindow = window\.open\("about:blank", "_blank"\);[\s\S]{0,120}loginWindow\.opener = null;/u,
-  );
-  assert.match(app, /loginLink\.href = authorizationUrl;/u);
-  assert.match(app, /loginWindow\.close\(\);/u);
+  assert.match(app, /result\.launchMode !== "system-browser"/u);
+  assert.doesNotMatch(app, /window\.open\("about:blank", "_blank"\)/u);
+  assert.doesNotMatch(app, /loginLink\.href = authorizationUrl;/u);
+  assert.match(app, /official ChatGPT sign-in window/u);
   assert.match(html, /id="login-link"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/u);
 });
 

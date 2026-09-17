@@ -7,8 +7,8 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { attachBrowserReopenOnEnter, openBrowser } from "./browser.js";
+import { createPrivateBrowserHandoffRoot } from "./services/browser-handoff.js";
 import {
-  ensureLocalDashboardBrowserLaunchRoot,
   inspectLocalDashboardControlPlane,
   readLocalDashboardBrowserUrl,
   runLocalDashboardDaemon,
@@ -92,11 +92,26 @@ async function runForegroundWizard({
   startServer,
   open,
   attachReopen,
-  ensureBrowserLaunchRoot,
+  createBrowserLaunchRoot,
 }) {
   const sessionToken = randomBytes(32).toString("base64url");
-  const browserHandoffRoot = await ensureBrowserLaunchRoot({ env });
-  const wizard = await startServer({ sessionToken, browserHandoffRoot });
+  const browserLaunchRoot = await createBrowserLaunchRoot({ env });
+  if (
+    !browserLaunchRoot || typeof browserLaunchRoot.path !== "string" ||
+    typeof browserLaunchRoot.dispose !== "function"
+  ) {
+    throw new Error("Relmio could not create its private browser launch directory.");
+  }
+  let wizard;
+  try {
+    wizard = await startServer({
+      sessionToken,
+      browserHandoffRoot: browserLaunchRoot.path,
+    });
+  } catch (error) {
+    try { await browserLaunchRoot.dispose(); } catch { /* Preserve the startup failure. */ }
+    throw error;
+  }
   const prepareLaunch = async () =>
     await wizard.prepareBrowserLaunch(dashboardPath(mode));
 
@@ -120,9 +135,7 @@ async function runForegroundWizard({
   log("Press Control+C to stop.");
   log("");
 
-  await open(await prepareLaunch());
-  const detachBrowserReopen = attachReopen({ prepareLaunch, open });
-
+  let detachBrowserReopen = () => {};
   let closing = false;
   async function close() {
     if (closing) {
@@ -130,7 +143,30 @@ async function runForegroundWizard({
     }
     closing = true;
     detachBrowserReopen();
-    await wizard.close();
+    try {
+      await wizard.close();
+    } finally {
+      await browserLaunchRoot.dispose();
+    }
+  }
+
+  let browserOpened = false;
+  try {
+    browserOpened = Boolean(await open(await prepareLaunch()));
+  } catch {
+    // The actionable default-browser error below is safe to show to users.
+  }
+  if (!browserOpened) {
+    await close();
+    throw new Error(
+      "Relmio could not open the private setup page. Check the Windows default browser, then run the installer again.",
+    );
+  }
+  try {
+    detachBrowserReopen = attachReopen({ prepareLaunch, open });
+  } catch (error) {
+    await close();
+    throw error;
   }
 
   process.once("SIGINT", async () => {
@@ -164,7 +200,7 @@ export async function runCli({
   stopControlPlane = stopLocalDashboardControlPlane,
   readBrowserUrl = readLocalDashboardBrowserUrl,
   runDaemon = runLocalDashboardDaemon,
-  ensureBrowserLaunchRoot = ensureLocalDashboardBrowserLaunchRoot,
+  createBrowserLaunchRoot = createPrivateBrowserHandoffRoot,
   runGrokLogin = runGrokBuildLogin,
   resolveInstallRoot = resolveLocalInstallRoot,
   resolveN8nSuperGrokInstallRoot = resolveLocalN8nSuperGrokInstallRoot,
@@ -293,7 +329,7 @@ export async function runCli({
       startServer,
       open,
       attachReopen,
-      ensureBrowserLaunchRoot,
+      createBrowserLaunchRoot,
     });
   }
 

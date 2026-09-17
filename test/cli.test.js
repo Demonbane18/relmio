@@ -222,7 +222,10 @@ test("foreground Assistant opens only a private handoff and wires fresh reopen p
     env: { RELMIO_FOREGROUND_WIZARD: "1" },
     isInteractive: () => true,
     log: () => {},
-    ensureBrowserLaunchRoot: async () => "/private/relmio/browser-launches",
+    createBrowserLaunchRoot: async () => ({
+      path: "/private/relmio/browser-launches",
+      async dispose() {},
+    }),
     startServer: async (options) => {
       assert.equal(options.browserHandoffRoot, "/private/relmio/browser-launches");
       return {
@@ -257,7 +260,10 @@ test("foreground default launch keeps its bearer out of output and browser argum
     env: { RELMIO_FOREGROUND_WIZARD: "1" },
     isInteractive: () => true,
     log: (line) => output.push(line),
-    ensureBrowserLaunchRoot: async () => "/private/relmio/browser-launches",
+    createBrowserLaunchRoot: async () => ({
+      path: "/private/relmio/browser-launches",
+      async dispose() {},
+    }),
     startServer: async () => ({
       origin: "http://127.0.0.1:4567",
       async prepareBrowserLaunch(route) {
@@ -288,7 +294,10 @@ test("explicit VPS CLI mode preserves the original remote setup URL", async () =
     env: { RELMIO_FOREGROUND_WIZARD: "1" },
     isInteractive: () => true,
     log: () => {},
-    ensureBrowserLaunchRoot: async () => "/private/relmio/browser-launches",
+    createBrowserLaunchRoot: async () => ({
+      path: "/private/relmio/browser-launches",
+      async dispose() {},
+    }),
     startServer: async () => ({
       origin: "http://127.0.0.1:4567",
       async prepareBrowserLaunch(route) {
@@ -303,6 +312,63 @@ test("explicit VPS CLI mode preserves the original remote setup URL", async () =
 
   assert.deepEqual(opened, [privateLaunchUrl]);
   assert.deepEqual(preparedRoutes, ["/"]);
+});
+
+test("foreground startup releases its temporary browser root when the server cannot start", async () => {
+  let disposed = 0;
+  await assert.rejects(
+    runCli({
+      argumentsList: [],
+      env: { RELMIO_FOREGROUND_WIZARD: "1" },
+      isInteractive: () => true,
+      log: () => {},
+      createBrowserLaunchRoot: async () => ({
+        path: "/private/relmio/browser-launches",
+        async dispose() {
+          disposed += 1;
+        },
+      }),
+      startServer: async () => {
+        throw new Error("port unavailable");
+      },
+    }),
+    /port unavailable/u,
+  );
+  assert.equal(disposed, 1);
+});
+
+test("foreground startup fails actionably and cleans up when Windows cannot open the browser", async () => {
+  let serverClosed = 0;
+  let rootDisposed = 0;
+  await assert.rejects(
+    runCli({
+      argumentsList: [],
+      env: { RELMIO_FOREGROUND_WIZARD: "1" },
+      isInteractive: () => true,
+      log: () => {},
+      createBrowserLaunchRoot: async () => ({
+        path: "/private/relmio/browser-launches",
+        async dispose() {
+          rootDisposed += 1;
+        },
+      }),
+      startServer: async () => ({
+        async prepareBrowserLaunch() {
+          return privateLaunchUrl;
+        },
+        async close() {
+          serverClosed += 1;
+        },
+      }),
+      open: () => false,
+      attachReopen: () => {
+        throw new Error("reopen handling must not attach after browser failure");
+      },
+    }),
+    /check the Windows default browser/iu,
+  );
+  assert.equal(serverClosed, 1);
+  assert.equal(rootDisposed, 1);
 });
 
 test("legacy executable aliases keep their historical default VPS route", async (t) => {
