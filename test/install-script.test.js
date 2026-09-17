@@ -321,6 +321,12 @@ async function createGitBashBootstrapEnvironment() {
     );
   }
   await writeExecutable(join(fakeBin, "node"), '#!/bin/sh\nprintf "24\\n"\n');
+  if (process.platform !== "win32") {
+    await writeExecutable(
+      join(fakeBin, "winpty"),
+      '#!/bin/sh\nexec "$@"\n',
+    );
+  }
   await writeExecutable(
     launcher,
     `#!/bin/sh
