@@ -120,7 +120,7 @@ test("browser launching rejects legacy bearer URLs and unsafe launcher inputs", 
   );
 });
 
-test("browser launching reports asynchronous launcher errors and nonzero exits", async (t) => {
+test("browser launching reports asynchronous launcher errors and direct-launcher nonzero exits", async (t) => {
   await t.test("error", async () => {
     const child = new EventEmitter();
     child.unref = () => {};
@@ -130,10 +130,21 @@ test("browser launching reports asynchronous launcher errors and nonzero exits",
 
   await t.test("nonzero exit", async () => {
     assert.equal(
-      await openBrowser(launchUrl, { spawnProcess: () => launcherChild(1) }),
+      await openBrowser(launchUrl, {
+        platform: "linux",
+        spawnProcess: () => launcherChild(1),
+      }),
       false,
     );
   });
+});
+
+test("Windows keeps a successfully dispatched Explorer handoff alive despite its exit code", async () => {
+  assert.equal(await openBrowser(windowsLaunchUrl, {
+    platform: "win32",
+    systemRoot: "C:\\Windows",
+    spawnProcess: () => launcherChild(1),
+  }), true);
 });
 
 test("interactive Enter prepares a fresh handoff before every reopen", async () => {

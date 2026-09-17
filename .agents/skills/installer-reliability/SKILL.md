@@ -23,6 +23,7 @@ Treat installer failures as release blockers. Preserve user work and secrets whi
 - Keep `RELMIO_FOREGROUND_WIZARD=1` scoped to the child invocation and verify restoration afterward.
 - Invoke npm on Windows through the current Node runtime or `npx.cmd`; never rely on shell execution of a POSIX shim.
 - Test with inherited or extra profile ACL entries. Foreground browser handoff must use a fresh, owner-only temporary root and must not require the persistent `.relmio` root to be healthy.
+- Treat a successful Windows `explorer.exe` spawn as the browser-dispatch boundary. Its later exit status does not prove the browser failed and must not trigger deletion of the handoff file; keep direct-launcher nonzero-exit checks for macOS and Linux.
 - Verify false and thrown default-browser launches produce an actionable, secret-free error and close the server plus temporary handoff root.
 - Run real Windows ACL read-back tests on native Windows, not only mocked platform branches.
 
