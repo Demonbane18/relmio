@@ -271,15 +271,21 @@ async function createWindowsNodeFixture(root) {
   await chmod(nodePath, 0o755);
   await writeFile(
     join(npmCli, "npx-cli.js"),
-    `const { appendFileSync, realpathSync, writeFileSync } = require("node:fs");
-const { delimiter, dirname } = require("node:path");
+    `const { spawnSync } = require("node:child_process");
+const { appendFileSync, realpathSync, writeFileSync } = require("node:fs");
 
 const log = process.env.RELMIO_TEST_LOG;
 writeFileSync(log, [process.argv[1], ...process.argv.slice(2)].join("\\n") + "\\n");
 
-const runtimeDirectory = dirname(process.execPath);
-const firstPathEntry = (process.env.PATH || "").split(delimiter)[0];
-if (realpathSync(firstPathEntry) !== realpathSync(runtimeDirectory)) {
+const runtimeProbe = spawnSync("node", ["-p", "process.execPath"], {
+  encoding: "utf8",
+  windowsHide: true,
+});
+if (
+  runtimeProbe.error ||
+  runtimeProbe.status !== 0 ||
+  realpathSync(runtimeProbe.stdout.trim()) !== realpathSync(process.execPath)
+) {
   console.error('\"node\" is not recognized as an internal or external command.');
   process.exit(127);
 }
