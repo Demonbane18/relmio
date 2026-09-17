@@ -10,6 +10,7 @@ import {
   readFile,
   readdir,
   rm,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -269,6 +270,10 @@ async function createWindowsNodeFixture(root) {
   const nodePath = join(fixtureRoot, "node.exe");
   await copyFile(process.execPath, nodePath);
   await chmod(nodePath, 0o755);
+  if (process.platform !== "win32") {
+    const posixNodePath = join(fixtureRoot, "node");
+    await symlink("node.exe", posixNodePath);
+  }
   await writeFile(
     join(npmCli, "npx-cli.js"),
     `const { spawnSync } = require("node:child_process");
@@ -331,6 +336,10 @@ async function createGitBashBootstrapEnvironment() {
     await writeExecutable(
       join(fakeBin, "winpty"),
       '#!/bin/sh\nexec "$@"\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "cygpath"),
+      '#!/bin/sh\n[ "$1" = "--windows" ] && [ "$2" = "--path" ] || exit 97\nprintf "%s\\n" "$3"\n',
     );
   }
   await writeExecutable(
@@ -529,7 +538,7 @@ test("curl installer scopes foreground wizard mode to both Relmio child paths", 
   );
   assert.match(
     script,
-    /RELMIO_FOREGROUND_WIZARD=1\s+\\?\s*PATH=[^\n]+\\\s+winpty "\$node_binary" "\$npx_cli" --yes --ignore-scripts relmio@latest/u,
+    /RELMIO_FOREGROUND_WIZARD=1\s+\\?\s*MSYS2_ENV_CONV_EXCL=[^\n]+\\\s+PATH="\$windows_path" \\\s+"\$winpty_binary" "\$node_binary" "\$npx_cli" --yes --ignore-scripts relmio@latest/u,
   );
   assert.doesNotMatch(script, /^export RELMIO_FOREGROUND_WIZARD=/mu);
 });

@@ -24,9 +24,10 @@ checks the registry separately after publication.
 - Retry native Command Prompt temporary-runtime cleanup when Windows briefly
   holds an executable open, and report an actionable nonzero failure if cleanup
   remains blocked.
-- Give the hosted Git Bash launcher a real native child terminal through its
-  bundled `winpty` bridge, while replacing GUI-dependent Windows CI coverage
-  with a headless native-console test.
+- Give the hosted Git Bash launcher a real native child terminal and normalized
+  Windows runtime path through its bundled `winpty` and `cygpath` tools, while
+  replacing GUI-dependent Windows CI coverage with a headless native-console
+  test.
 - Use native Windows Node/npm process boundaries, owner-only temporary browser
   handoffs, and isolated official Codex login attempts with validated atomic
   credential promotion and actionable cancellation errors.

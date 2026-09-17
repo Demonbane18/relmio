@@ -86,8 +86,10 @@ case "$platform_name" in
     archive_extension="zip"
     command -v unzip >/dev/null 2>&1 \
       || fail "unzip is required when running from Git Bash."
-    command -v winpty >/dev/null 2>&1 \
+    winpty_binary="$(command -v winpty)" \
       || fail "winpty is required when running from Git Bash."
+    command -v cygpath >/dev/null 2>&1 \
+      || fail "cygpath is required when running from Git Bash."
     ;;
   *)
     fail "Unsupported operating system. Use macOS, Linux, WSL, or Git Bash."
@@ -206,9 +208,13 @@ fi
 say "Starting the newest Relmio wizard."
 node_directory="${node_binary%/*}"
 if [ "$git_bash_windows" -eq 1 ]; then
+  portable_path="$node_directory${PATH:+:$PATH}"
+  windows_path="$(cygpath --windows --path "$portable_path")" \
+    || fail "Could not prepare the temporary Node.js runtime path for Git Bash."
   RELMIO_FOREGROUND_WIZARD=1 \
-    PATH="$node_directory${PATH:+:$PATH}" \
-    winpty "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"
+    MSYS2_ENV_CONV_EXCL="PATH${MSYS2_ENV_CONV_EXCL:+;$MSYS2_ENV_CONV_EXCL}" \
+    PATH="$windows_path" \
+    "$winpty_binary" "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"
 else
   RELMIO_FOREGROUND_WIZARD=1 \
     PATH="$node_directory${PATH:+:$PATH}" \
