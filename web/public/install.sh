@@ -208,13 +208,22 @@ fi
 say "Starting the newest Relmio wizard."
 node_directory="${node_binary%/*}"
 if [ "$git_bash_windows" -eq 1 ]; then
+  node_path_preload="$temporary_directory/relmio-path.cjs"
+  printf '%s\n' \
+    '"use strict";' \
+    'const { delimiter, dirname } = require("node:path");' \
+    'const pathKey = Object.keys(process.env).find((name) => name.toLowerCase() === "path");' \
+    'const inheritedPath = pathKey ? process.env[pathKey] : "";' \
+    'process.env.PATH = `${dirname(process.execPath)}${delimiter}${inheritedPath}`;' \
+    > "$node_path_preload" \
+    || fail "Could not prepare the temporary Node.js runtime environment for Git Bash."
   portable_path="$node_directory${PATH:+:$PATH}"
   windows_path="$(cygpath --windows --path "$portable_path")" \
     || fail "Could not prepare the temporary Node.js runtime path for Git Bash."
   RELMIO_FOREGROUND_WIZARD=1 \
     MSYS2_ENV_CONV_EXCL="PATH${MSYS2_ENV_CONV_EXCL:+;$MSYS2_ENV_CONV_EXCL}" \
     PATH="$windows_path" \
-    "$winpty_binary" "$node_binary" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"
+    "$winpty_binary" "$node_binary" --require "$node_path_preload" "$npx_cli" --yes --ignore-scripts relmio@latest < "$terminal_input"
 else
   RELMIO_FOREGROUND_WIZARD=1 \
     PATH="$node_directory${PATH:+:$PATH}" \

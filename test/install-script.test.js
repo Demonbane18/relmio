@@ -294,7 +294,7 @@ const runtimeProbe = spawnSync("node", ["-p", "process.execPath"], {
   encoding: "utf8",
   windowsHide: true,
 });
-const runtimeProbePath = runtimeProbe.stdout.trim();
+const runtimeProbePath = runtimeProbe.stdout?.trim() || "";
 appendFileSync(log, "runtime-self=" + process.execPath + "\\n");
 appendFileSync(log, "runtime-probe=" + (runtimeProbePath || "missing") + "\\n");
 appendFileSync(log, "runtime-probe-status=" + String(runtimeProbe.status) + "\\n");
@@ -551,7 +551,11 @@ test("curl installer scopes foreground wizard mode to both Relmio child paths", 
   );
   assert.match(
     script,
-    /RELMIO_FOREGROUND_WIZARD=1\s+\\?\s*MSYS2_ENV_CONV_EXCL=[^\n]+\\\s+PATH="\$windows_path" \\\s+"\$winpty_binary" "\$node_binary" "\$npx_cli" --yes --ignore-scripts relmio@latest/u,
+    /RELMIO_FOREGROUND_WIZARD=1\s+\\?\s*MSYS2_ENV_CONV_EXCL=[^\n]+\\\s+PATH="\$windows_path" \\\s+"\$winpty_binary" "\$node_binary" --require "\$node_path_preload" "\$npx_cli" --yes --ignore-scripts relmio@latest/u,
+  );
+  assert.match(
+    script,
+    /process\.env\.PATH = `\$\{dirname\(process\.execPath\)\}\$\{delimiter\}\$\{inheritedPath\}`/u,
   );
   assert.doesNotMatch(script, /^export RELMIO_FOREGROUND_WIZARD=/mu);
 });
