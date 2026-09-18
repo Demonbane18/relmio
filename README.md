@@ -63,11 +63,13 @@ curl -fsSL https://relmio.vercel.app/install.sh | sh
 If you deliberately run NPX directly from Git Bash 2.38.1, prefix that one
 process with `MSYS=enable_pcon`. This does not change global Git configuration.
 
-The command opens a foreground setup wizard on `127.0.0.1` without creating
-persistent Relmio state. It also works on a first-run machine with no `.relmio`
-directory and no local n8n stack; missing prerequisites appear as actionable
-steps in the browser instead of ending the launcher before the page opens.
-Review exactly what the wizard will create, then confirm the install.
+The command opens the **ChatGPT on my server** route in a foreground setup
+wizard on `127.0.0.1` without creating persistent Relmio state. It also works
+on a first-run machine with no `.relmio` directory and no local n8n stack;
+missing prerequisites appear as actionable steps in the browser instead of
+ending the launcher before the page opens. Review exactly what the wizard will
+create, then confirm the install. Use `relmio local` only when you explicitly
+want the setup route for this computer.
 
 No Node.js yet? The hosted guide has native curl, Homebrew, PowerShell, and
 Command Prompt options. Homebrew installs the persistent `relmio` command; it
@@ -145,7 +147,8 @@ Codex App Server, Codex Chat Adapter, Grok Build, the owned n8n stack, the
 ChatGPT OAuth bridge, AI Assistant tools, and SuperGrok for n8n.
 Refresh status shows only verified connection URLs and state, never stored
 secrets. Select **Add connection** to use the existing four-step setup flow.
-Use `relmio vps` when you want to open the separate VPS setup directly.
+Bare `relmio` and `relmio vps` open the VPS setup directly. Use `relmio local`
+for the setup route on this computer.
 
 Choose **Set up SuperGrok for n8n** in the VPS wizard to add
 the same private Grok OAuth companion to an existing remote n8n. Review the exact

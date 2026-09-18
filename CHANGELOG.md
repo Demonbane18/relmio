@@ -7,6 +7,11 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- Lead bare `relmio`, NPX, and hosted installer launches with **ChatGPT on my
+  server** while keeping `relmio local` as the explicit computer-only route.
+
 ## [0.17.2] - 2026-09-18
 
 ### Changed

@@ -26,12 +26,13 @@ On macOS, Linux, or WSL with Node.js 24 or newer:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The command opens a foreground browser wizard without creating persistent
-Relmio state. It works when there is no `.relmio` directory and no local n8n
-stack. Relmio checks prerequisites in the browser, shows the plan, and asks
-before it writes files or starts Docker. Local endpoints use
-`127.0.0.1`. The n8n bridge and Assistant tools use one selected Docker
-network and publish no host port. SearXNG is off by default.
+The command opens the **ChatGPT on my server** route in a foreground browser
+wizard without creating persistent Relmio state. It works when there is no
+`.relmio` directory and no local n8n stack. Use `relmio local` only when you
+explicitly want the setup route for this computer. Relmio checks prerequisites
+in the browser, shows the plan, and asks before it writes files or starts
+Docker. Local endpoints use `127.0.0.1`. The n8n bridge and Assistant tools use
+one selected Docker network and publish no host port. SearXNG is off by default.
 
 On Git Bash, use the hosted launcher. It downloads a checksum-verified temporary
 Node.js runtime and uses Git for Windows' bundled `winpty` bridge so the wizard
