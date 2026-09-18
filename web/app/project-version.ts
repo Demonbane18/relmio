@@ -1,1 +1,1 @@
-export const preparedReleaseVersion = "0.17.1";
+export const preparedReleaseVersion = "0.17.2";
