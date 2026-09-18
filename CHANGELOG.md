@@ -7,6 +7,8 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.17.3] - 2026-09-18
+
 ### Changed
 
 - Lead bare `relmio`, NPX, and hosted installer launches with **ChatGPT on my
@@ -1071,6 +1073,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
 
+[0.17.3]: https://github.com/Demonbane18/relmio/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/Demonbane18/relmio/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/Demonbane18/relmio/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/Demonbane18/relmio/compare/v0.16.0...v0.17.0
