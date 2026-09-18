@@ -36,9 +36,7 @@ export function isCliEntryPath(entryPath, realpath = realpathSync) {
 
 export function cliMode(argumentsList, { commandName = "relmio" } = {}) {
   if (argumentsList.length === 0) {
-    return ["n8n-openai-oauth-setup", "planrelay"].includes(commandName)
-      ? "wizard"
-      : "local";
+    return "wizard";
   }
   if (
     (argumentsList.length === 2 || (argumentsList.length === 3 && argumentsList[2] === "--n8n")) &&
@@ -118,7 +116,12 @@ async function runForegroundWizard({
   log("");
   log("Relmio");
   log("---------");
-  log("Local wizard: private browser handoff ready");
+  const wizardLabel = mode === "local"
+    ? "Local wizard"
+    : mode === "assistant"
+      ? "Assistant wizard"
+      : "VPS wizard";
+  log(`${wizardLabel}: private browser handoff ready`);
   log("");
   if (mode === "assistant") {
     log(
@@ -216,7 +219,7 @@ export async function runCli({
   }
   if (mode === "help") {
     log("Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]");
-    log("  (no command) Open a foreground setup wizard without persistent local state");
+    log("  (no command) Open the ChatGPT-on-VPS setup wizard without persistent local state");
     log("  local      Open the persistent local services dashboard");
     log("  vps        Open the separate VPS setup wizard");
     log("  assistant  Open the dedicated AI Assistant companion wizard");
@@ -312,7 +315,7 @@ export async function runCli({
 
   if (!isInteractive()) {
     log(
-      "Relmio needs an interactive terminal to open the local wizard. Run relmio from Command Prompt, PowerShell, or another terminal.",
+      "Relmio needs an interactive terminal to open the setup wizard. Run relmio from Command Prompt, PowerShell, or another terminal.",
     );
     const packageManagerProbe =
       argumentsList.length === 0 && env?.RELMIO_FOREGROUND_WIZARD !== "1";

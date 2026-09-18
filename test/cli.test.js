@@ -22,7 +22,7 @@ test("CLI recognizes version and explicit wizard routes", () => {
   assert.equal(cliMode(["-v"]), "version");
   assert.equal(cliMode(["--help"]), "help");
   assert.equal(cliMode(["-h"]), "help");
-  assert.equal(cliMode([]), "local");
+  assert.equal(cliMode([]), "wizard");
   assert.equal(
     cliMode([], { commandName: "n8n-openai-oauth-setup" }),
     "wizard",
@@ -86,7 +86,7 @@ test("help mode prints the supported routes without starting the wizard", async 
   assert.equal(serverStarted, false);
   assert.deepEqual(output, [
     "Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]",
-    "  (no command) Open a foreground setup wizard without persistent local state",
+    "  (no command) Open the ChatGPT-on-VPS setup wizard without persistent local state",
     "  local      Open the persistent local services dashboard",
     "  vps        Open the separate VPS setup wizard",
     "  assistant  Open the dedicated AI Assistant companion wizard",
@@ -188,7 +188,7 @@ test("non-interactive default launch exits without starting the wizard", async (
   });
   assert.equal(exitCode, 0);
   assert.deepEqual(output, [
-    "Relmio needs an interactive terminal to open the local wizard. Run relmio from Command Prompt, PowerShell, or another terminal.",
+    "Relmio needs an interactive terminal to open the setup wizard. Run relmio from Command Prompt, PowerShell, or another terminal.",
   ]);
 });
 
@@ -252,7 +252,7 @@ test("foreground Assistant opens only a private handoff and wires fresh reopen p
   assert.deepEqual(preparedRoutes, ["/assistant", "/assistant"]);
 });
 
-test("bare default launch opens the foreground wizard without persistent local state", async () => {
+test("bare default launch opens the ChatGPT VPS wizard without persistent local state", async () => {
   const opened = [];
   const output = [];
   const preparedRoutes = [];
@@ -281,13 +281,11 @@ test("bare default launch opens the foreground wizard without persistent local s
   });
 
   assert.deepEqual(opened, [privateLaunchUrl]);
-  assert.deepEqual(preparedRoutes, ["/local"]);
+  assert.deepEqual(preparedRoutes, ["/"]);
   assert.doesNotMatch(output.join("\n"), /session=|[A-Za-z0-9_-]{43}/u);
-  assert.ok(
-    output.includes(
-      "The dashboard reads local service status without changing anything until you choose and confirm an action.",
-    ),
-  );
+  assert.ok(output.includes("VPS wizard: private browser handoff ready"));
+  assert.ok(output.includes("This creates a separate sidecar and never restarts n8n."));
+  assert.doesNotMatch(output.join("\n"), /Local wizard|dashboard reads local service status/u);
 });
 
 test("explicit VPS CLI mode preserves the original remote setup URL", async () => {

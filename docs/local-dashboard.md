@@ -28,12 +28,12 @@ You can also run the published package without a global install:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-That command opens a foreground setup wizard without creating persistent
-dashboard state. It is safe to use on a first-run machine with no Relmio files
-and no local n8n stack; prerequisite checks and actionable errors appear inside
-the browser wizard. Because NPX does not place `relmio` on your PATH, repeat the
-full command and add an explicit lifecycle action when you want a persistent
-dashboard:
+That command opens the **ChatGPT on my server** route in a foreground setup
+wizard without creating persistent dashboard state. It is safe to use on a
+first-run machine with no Relmio files and no local n8n stack; prerequisite
+checks and actionable errors appear inside the browser wizard. Because NPX does
+not place `relmio` on your PATH, repeat the full command and add an explicit
+lifecycle action when you want a persistent dashboard:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest start
@@ -59,8 +59,8 @@ Relmio as a foreground, one-shot process and removes that runtime afterward.
 It does not install a persistent command. Do not run `relmio assistant` for
 this page. That command opens the separate Assistant-only wizard.
 
-Run `relmio vps` to open the separate VPS setup directly. You can also reach
-it from **Set up the VPS version** in the local flow.
+Bare `relmio` and `relmio vps` open the VPS setup directly. Run `relmio local`
+to open the setup route for this computer.
 
 Relmio binds the dashboard only to `127.0.0.1`. To open it, Relmio creates an
 owner-only, short-lived handoff file and exchanges its one-time capability for
