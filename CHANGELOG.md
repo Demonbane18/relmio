@@ -7,6 +7,21 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.17.4] - 2026-09-21
+
+### Added
+
+- Add a dated official-source review confirming that the canonical-domain
+  change does not alter Relmio's authentication, permissions, model request,
+  data handling, logging, or recipients.
+
+### Changed
+
+- Make [relmio.jpfusin.tech](https://relmio.jpfusin.tech/) the canonical
+  website, documentation, package homepage, and hosted-installer origin.
+- Permanently redirect requests from `relmio.vercel.app` to the matching path
+  on the new canonical domain so existing links keep working.
+
 ## [0.17.3] - 2026-09-18
 
 ### Changed
@@ -1073,6 +1088,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
 
+[0.17.4]: https://github.com/Demonbane18/relmio/compare/v0.17.3...v0.17.4
 [0.17.3]: https://github.com/Demonbane18/relmio/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/Demonbane18/relmio/compare/v0.17.1...v0.17.2
 [0.17.1]: https://github.com/Demonbane18/relmio/compare/v0.17.0...v0.17.1

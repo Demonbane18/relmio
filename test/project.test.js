@@ -75,7 +75,20 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
     packageJson.bugs.url,
     "https://github.com/Demonbane18/relmio/issues",
   );
-  assert.equal(packageJson.homepage, "https://relmio.vercel.app/");
+  assert.equal(packageJson.homepage, "https://relmio.jpfusin.tech/");
+});
+
+test("hosted web keeps the former Vercel hostname as a permanent redirect", async () => {
+  const vercelConfig = JSON.parse(await readFile("web/vercel.json", "utf8"));
+
+  assert.deepEqual(vercelConfig.redirects, [
+    {
+      source: "/:path*",
+      has: [{ type: "host", value: "relmio.vercel.app" }],
+      destination: "https://relmio.jpfusin.tech/:path*",
+      permanent: true,
+    },
+  ]);
 });
 
 test("double-click launchers only install local dependencies and start the wizard", async () => {
@@ -231,9 +244,9 @@ test("public README is a concise entry point to hosted canonical docs", async ()
   assert.match(readme, /npx --yes --ignore-scripts relmio@latest/u);
   assert.match(readme, /## Pick a path/u);
   assert.match(readme, /## Legal/u);
-  assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/getting-started/u);
-  assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/reference/u);
-  assert.doesNotMatch(readme, /```mermaid|relmio\.jpfusin\.tech/u);
+  assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\/docs\/getting-started/u);
+  assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\/docs\/reference/u);
+  assert.doesNotMatch(readme, /```mermaid|relmio\.vercel\.app/u);
   assert.match(gettingStarted, /ChatGPT sign-in is never converted/u);
   assert.match(reference, /--remote-auth-token-env/u);
   assert.match(reference, /conversationId/u);

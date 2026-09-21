@@ -39,17 +39,17 @@ stop, restart, rebuild, recreate, or change n8n.
 ## Refresh an expired ChatGPT login
 
 The easiest method is to open the
-[hosted install page](https://relmio.vercel.app/install) and choose the local
+[hosted install page](https://relmio.jpfusin.tech/install) and choose the local
 terminal you already have. For macOS, Linux, WSL, or Git Bash:
 
 ```bash
-curl -fsSL https://relmio.vercel.app/install.sh | sh
+curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
 ```
 
 For Windows PowerShell, with no Git Bash or preinstalled Node.js required:
 
 ```powershell
-irm https://relmio.vercel.app/install.ps1 | iex
+irm https://relmio.jpfusin.tech/install.ps1 | iex
 ```
 
 1. Start the local wizard again.

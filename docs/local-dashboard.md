@@ -52,7 +52,7 @@ This uses the same foreground, first-run wizard behavior as the bare NPX
 command. It does not initialize the persistent local dashboard before opening
 the browser.
 
-Use the [hosted install page](https://relmio.vercel.app/install) when you need
+Use the [hosted install page](https://relmio.jpfusin.tech/install) when you need
 the native macOS, Linux, PowerShell, or Command Prompt launcher. A hosted
 launcher can use a verified temporary Node.js runtime, so it deliberately runs
 Relmio as a foreground, one-shot process and removes that runtime afterward.

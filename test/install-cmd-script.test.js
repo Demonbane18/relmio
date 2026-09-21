@@ -441,7 +441,7 @@ test(
 test("canonical troubleshooting exposes the tested CMD bootstrap command", async () => {
   const command = await documentedCmdInstallCommand();
   assert.match(command, /^for \/f "delims=" %F in /u);
-  assert.match(command, /https:\/\/relmio\.vercel\.app\/install\.cmd/u);
+  assert.match(command, /https:\/\/relmio\.jpfusin\.tech\/install\.cmd/u);
 });
 
 test(

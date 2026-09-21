@@ -47,11 +47,11 @@ Open the hosted install page and choose the terminal already on the local
 computer. Show both the macOS/Linux and native Windows choices:
 
 ```bash
-curl -fsSL https://relmio.vercel.app/install.sh | sh
+curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
 ```
 
 ```powershell
-irm https://relmio.vercel.app/install.ps1 | iex
+irm https://relmio.jpfusin.tech/install.ps1 | iex
 ```
 
 Explain that:

@@ -32,7 +32,7 @@ const pseudoTerminal =
     ? "python3"
     : null;
 const pipedInstallerCommand =
-  "curl -fsSL https://relmio.vercel.app/install.sh | sh";
+  "curl -fsSL https://relmio.jpfusin.tech/install.sh | sh";
 const pseudoTerminalProgram = String.raw`
 import errno
 import os
@@ -398,7 +398,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
-  https://relmio.vercel.app/install.sh)
+  https://relmio.jpfusin.tech/install.sh)
     printf "installer-script-piped\\n" > "$RELMIO_TEST_PIPE_LOG"
     cat "$RELMIO_TEST_INSTALLER"
     ;;
@@ -505,7 +505,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 case "$url" in
-  https://relmio.vercel.app/install.sh)
+  https://relmio.jpfusin.tech/install.sh)
     cat "$RELMIO_TEST_INSTALLER"
     ;;
   https://nodejs.org/download/release/latest-v24.x/SHASUMS256.txt)

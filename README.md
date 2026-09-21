@@ -40,7 +40,7 @@ remain unverified.
 
 Existing API-key endpoints are left running and retain their data during an
 upgrade; they are no longer shown in the 0.15.0 dashboard. Follow the
-[legacy endpoint retirement guide](https://relmio.vercel.app/docs/local-endpoints#retired-api-installations)
+[legacy endpoint retirement guide](https://relmio.jpfusin.tech/docs/local-endpoints#retired-api-installations)
 to review and stop an exact owned endpoint.
 
 ## Quick install
@@ -57,7 +57,7 @@ bridge and a checksum-verified temporary Node.js runtime, even when Node.js 24
 is already installed:
 
 ```bash
-curl -fsSL https://relmio.vercel.app/install.sh | sh
+curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
 ```
 
 If you deliberately run NPX directly from Git Bash 2.38.1, prefix that one
@@ -76,7 +76,7 @@ Command Prompt options. Homebrew installs the persistent `relmio` command; it
 does not launch the browser. The curl, PowerShell, and Command Prompt
 launchers open the foreground wizard with the same platform security checks.
 
-[Open the hosted install guide](https://relmio.vercel.app/install)
+[Open the hosted install guide](https://relmio.jpfusin.tech/install)
 
 ## Keep the local dashboard available
 
@@ -215,7 +215,7 @@ explicit Docker log-driver setting. Do not treat any of this as a supported
 Sign in with ChatGPT integration, scope grant, Platform API permission, Terms
 approval, or model/TTS entitlement.
 
-[Read the existing n8n guide](https://relmio.vercel.app/docs/local-endpoints#self-hosted-n8n-bridge)
+[Read the existing n8n guide](https://relmio.jpfusin.tech/docs/local-endpoints#self-hosted-n8n-bridge)
 
 For SuperGrok, choose **SuperGrok for n8n**, select
 its container and network, then review the private installation. Copy the
@@ -244,7 +244,7 @@ you through the ngrok domain, token, and Basic Auth fields. Only the new n8n
 route is public. Its model bridge, Code Sandbox, and optional SearXNG stay off
 the host network.
 
-[Read the new n8n guide](https://relmio.vercel.app/docs/local-n8n-stack)
+[Read the new n8n guide](https://relmio.jpfusin.tech/docs/local-n8n-stack)
 
 ### I want to use SuperGrok
 
@@ -266,7 +266,7 @@ relmio grok login
 Approve the displayed code on the official provider page. To sign out later,
 run `relmio grok logout`. These commands act only on the attested Relmio runtime.
 
-[Read the SuperGrok guide](https://relmio.vercel.app/docs/local-endpoints#supergrok-development-backends)
+[Read the SuperGrok guide](https://relmio.jpfusin.tech/docs/local-endpoints#supergrok-development-backends)
 
 ## n8n AI Assistant tools
 
@@ -278,7 +278,7 @@ change or restart n8n.
 Configure the Assistant's supported model connection directly in n8n. The privileged local runner is for
 development and testing; n8n recommends Daytona for production.
 
-[Read the AI Assistant guide](https://relmio.vercel.app/docs/ai-assistant)
+[Read the AI Assistant guide](https://relmio.jpfusin.tech/docs/ai-assistant)
 
 ## Codex device sign-in
 
@@ -337,19 +337,19 @@ until you rotate it.
   which applies the bundled `winpty` bridge. For direct NPX on Git Bash 2.38.1,
   prefix that process with `MSYS=enable_pcon`. Do not add a global Git setting.
 
-[Open troubleshooting](https://relmio.vercel.app/docs/troubleshooting)
+[Open troubleshooting](https://relmio.jpfusin.tech/docs/troubleshooting)
 
 ## Guides
 
-- [Getting started](https://relmio.vercel.app/docs/getting-started)
-- [Local endpoints and n8n bridge](https://relmio.vercel.app/docs/local-endpoints)
-- [New local n8n + ngrok](https://relmio.vercel.app/docs/local-n8n-stack)
-- [VPS and n8n](https://relmio.vercel.app/docs/vps-and-n8n)
-- [SuperGrok on a VPS](https://relmio.vercel.app/docs/vps-supergrok)
-- [n8n AI Assistant](https://relmio.vercel.app/docs/ai-assistant)
-- [Security and policy notes](https://relmio.vercel.app/docs/security)
-- [Reference](https://relmio.vercel.app/docs/reference)
-- [Changelog](https://relmio.vercel.app/changelog)
+- [Getting started](https://relmio.jpfusin.tech/docs/getting-started)
+- [Local endpoints and n8n bridge](https://relmio.jpfusin.tech/docs/local-endpoints)
+- [New local n8n + ngrok](https://relmio.jpfusin.tech/docs/local-n8n-stack)
+- [VPS and n8n](https://relmio.jpfusin.tech/docs/vps-and-n8n)
+- [SuperGrok on a VPS](https://relmio.jpfusin.tech/docs/vps-supergrok)
+- [n8n AI Assistant](https://relmio.jpfusin.tech/docs/ai-assistant)
+- [Security and policy notes](https://relmio.jpfusin.tech/docs/security)
+- [Reference](https://relmio.jpfusin.tech/docs/reference)
+- [Changelog](https://relmio.jpfusin.tech/changelog)
 
 ## Support
 

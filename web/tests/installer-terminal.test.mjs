@@ -9,10 +9,10 @@ test("keeps every supported installer method and exact public command", async ()
   const picker = await appFile("components/CopyCommand.tsx");
 
   for (const [id, label, command] of [
-    ["posix", "macOS / Linux", "curl -fsSL https://relmio.vercel.app/install.sh | sh"],
+    ["posix", "macOS / Linux", "curl -fsSL https://relmio.jpfusin.tech/install.sh | sh"],
     ["homebrew", "Homebrew", "brew tap Demonbane18/relmio && brew trust --formula Demonbane18/relmio/relmio && brew install relmio"],
-    ["powershell", "PowerShell", "irm https://relmio.vercel.app/install.ps1 | iex"],
-    ["cmd", "CMD", "https://relmio.vercel.app/install.cmd"],
+    ["powershell", "PowerShell", "irm https://relmio.jpfusin.tech/install.ps1 | iex"],
+    ["cmd", "CMD", "https://relmio.jpfusin.tech/install.cmd"],
     ["npx", "NPX", "npx --yes --ignore-scripts relmio@latest"],
   ]) {
     assert.match(picker, new RegExp(`id: "${id}"`, "u"));

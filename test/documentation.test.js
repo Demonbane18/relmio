@@ -58,7 +58,7 @@ test("README surfaces are concise product entry points linked to canonical docs"
     );
     assert.match(
       guide,
-      /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/u,
+      /curl -fsSL https:\/\/relmio\.jpfusin\.tech\/install\.sh \| sh/u,
     );
     assert.match(guide, /bundled `winpty`/u);
     assert.match(
@@ -77,9 +77,9 @@ test("README surfaces are concise product entry points linked to canonical docs"
     assert.doesNotMatch(guide, /```mermaid/u);
   }
   assert.match(readme, /docs\/images\/brand\/relmio-banner-animated\.svg/u);
-  assert.match(readme, /https:\/\/relmio\.vercel\.app\/docs\/reference/u);
-  assert.match(readme, /https:\/\/relmio\.vercel\.app\/changelog/u);
-  assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\/docs\/security/u);
+  assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\/docs\/reference/u);
+  assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\/changelog/u);
+  assert.match(npmReadme, /https:\/\/relmio\.jpfusin\.tech\/docs\/security/u);
   assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
 });
 
@@ -432,7 +432,7 @@ test("public guides link to canonical standalone client credential rotation deta
   ]);
 
   for (const guide of [readme, npmReadme]) {
-    assert.match(guide, /https:\/\/relmio\.vercel\.app\/docs\/local-endpoints/u);
+    assert.match(guide, /https:\/\/relmio\.jpfusin\.tech\/docs\/local-endpoints/u);
   }
 
   assert.match(localGuide, /provider's OAuth session remains/u);

@@ -40,7 +40,7 @@ remain unverified.
 
 Existing API-key endpoints are left running and retain their data during an
 upgrade; they are no longer shown in the 0.15.0 dashboard. Follow the
-[legacy endpoint retirement guide](https://relmio.vercel.app/docs/local-endpoints#retired-api-installations)
+[legacy endpoint retirement guide](https://relmio.jpfusin.tech/docs/local-endpoints#retired-api-installations)
 to review and stop an exact owned endpoint.
 
 ## Quick install
@@ -57,7 +57,7 @@ bridge and a checksum-verified temporary Node.js runtime, even when Node.js 24
 is already installed:
 
 ```bash
-curl -fsSL https://relmio.vercel.app/install.sh | sh
+curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
 ```
 
 If you deliberately run NPX directly from Git Bash 2.38.1, prefix that one
@@ -71,7 +71,7 @@ ending the launcher before the page opens. Review exactly what the wizard will
 create, then confirm the install. Use `relmio local` only when you explicitly
 want the setup route for this computer.
 
-No Node.js yet? The [hosted install guide](https://relmio.vercel.app/install)
+No Node.js yet? The [hosted install guide](https://relmio.jpfusin.tech/install)
 has native curl, Homebrew, PowerShell, and Command Prompt options. Homebrew
 installs the persistent `relmio` command; it does not launch the browser. The
 curl, PowerShell, and Command Prompt launchers open the foreground wizard with
@@ -148,7 +148,7 @@ for the setup route on this computer.
 Choose **Set up SuperGrok for n8n** in the VPS wizard to add the same private
 Grok OAuth companion to an existing remote n8n. Review the exact plan before
 installation, then complete official device sign-in in your browser. See
-[SuperGrok on a VPS](https://relmio.vercel.app/docs/vps-supergrok) for Chat
+[SuperGrok on a VPS](https://relmio.jpfusin.tech/docs/vps-supergrok) for Chat
 Completions settings and ownership-safe management. No existing n8n restart or
 provider change is required.
 
@@ -262,7 +262,7 @@ relmio grok login
 Approve the displayed code on the official provider page. To sign out later,
 run `relmio grok logout`. These commands act only on the attested Relmio runtime.
 
-[Read the SuperGrok guide](https://relmio.vercel.app/docs/local-endpoints#supergrok-development-backends)
+[Read the SuperGrok guide](https://relmio.jpfusin.tech/docs/local-endpoints#supergrok-development-backends)
 
 ## n8n AI Assistant tools
 
@@ -328,15 +328,15 @@ until you rotate it.
 
 ## Guides
 
-- https://relmio.vercel.app/install
-- https://relmio.vercel.app/docs/getting-started
-- https://relmio.vercel.app/docs/local-endpoints
-- https://relmio.vercel.app/docs/local-n8n-stack
-- https://relmio.vercel.app/docs/vps-supergrok
-- https://relmio.vercel.app/docs/ai-assistant
-- https://relmio.vercel.app/docs/troubleshooting
-- https://relmio.vercel.app/docs/security
-- https://relmio.vercel.app/changelog
+- https://relmio.jpfusin.tech/install
+- https://relmio.jpfusin.tech/docs/getting-started
+- https://relmio.jpfusin.tech/docs/local-endpoints
+- https://relmio.jpfusin.tech/docs/local-n8n-stack
+- https://relmio.jpfusin.tech/docs/vps-supergrok
+- https://relmio.jpfusin.tech/docs/ai-assistant
+- https://relmio.jpfusin.tech/docs/troubleshooting
+- https://relmio.jpfusin.tech/docs/security
+- https://relmio.jpfusin.tech/changelog
 
 ## Support
 
