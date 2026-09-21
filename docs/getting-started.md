@@ -39,7 +39,7 @@ Node.js runtime and uses Git for Windows' bundled `winpty` bridge so the wizard
 keeps its interactive terminal:
 
 ```bash
-curl -fsSL https://relmio.vercel.app/install.sh | sh
+curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
 ```
 
 Direct NPX on Git Bash 2.38.1 still needs `MSYS=enable_pcon` for that one

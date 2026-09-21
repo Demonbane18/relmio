@@ -25,6 +25,7 @@ const expectedPackedFiles = new Set([
   "docs/ai-assistant.md",
   "docs/architecture.md",
   "docs/brand.md",
+  "docs/canonical-domain-source-check-2026-09-21.md",
   "docs/experimental-images25-live1.md",
   "docs/faq.md",
   "docs/getting-started.md",
@@ -288,8 +289,8 @@ test("npm package substitutes the concise registry-safe package README", async (
   assert.doesNotMatch(npmReadme, /```mermaid/u);
   assert.match(npmReadme, /npx --yes --ignore-scripts relmio@latest/u);
   assert.match(npmReadme, /## Pick a path/u);
-  assert.match(npmReadme, /https:\/\/relmio\.vercel\.app\/docs\/local-endpoints/u);
-  assert.doesNotMatch(npmReadme, /relmio\.jpfusin\.tech/u);
+  assert.match(npmReadme, /https:\/\/relmio\.jpfusin\.tech\/docs\/local-endpoints/u);
+  assert.doesNotMatch(npmReadme, /relmio\.vercel\.app/u);
   assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
 });
 

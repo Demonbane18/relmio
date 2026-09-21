@@ -962,7 +962,7 @@ test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse bou
   assert.match(guide, /URLs are stable generated result values; only the sandbox API key is\s+one-time-displayed/i);
   assert.doesNotMatch(guide, /generated one-time result URL/i);
   for (const contents of [readme, npmReadme]) {
-    assert.match(contents, /https:\/\/relmio\.vercel\.app\/docs\/ai-assistant/u);
+    assert.match(contents, /https:\/\/relmio\.jpfusin\.tech\/docs\/ai-assistant/u);
   }
 });
 

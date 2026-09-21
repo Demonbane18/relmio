@@ -1,6 +1,6 @@
 {
   "name": "relmio",
-  "version": "0.17.3",
+  "version": "0.17.4",
   "description": "Connect provider OAuth sign-in to private local apps and self-hosted n8n.",
   "keywords": [
     "relmio",
@@ -23,7 +23,7 @@
   "bugs": {
     "url": "https://github.com/Demonbane18/relmio/issues"
   },
-  "homepage": "https://relmio.vercel.app/",
+  "homepage": "https://relmio.jpfusin.tech/",
   "engines": {
     "node": ">=24"
   },

@@ -13,7 +13,7 @@ const installMethods = [
   {
     id: "posix",
     label: "macOS / Linux",
-    command: "curl -fsSL https://relmio.vercel.app/install.sh | sh",
+    command: "curl -fsSL https://relmio.jpfusin.tech/install.sh | sh",
     note: "For macOS, Linux, WSL, or Git Bash. Runs a foreground one-shot wizard; no preinstalled Node.js required.",
     prompt: "$",
   },
@@ -27,7 +27,7 @@ const installMethods = [
   {
     id: "powershell",
     label: "PowerShell",
-    command: "irm https://relmio.vercel.app/install.ps1 | iex",
+    command: "irm https://relmio.jpfusin.tech/install.ps1 | iex",
     note: "For Windows PowerShell or PowerShell 7. Runs a foreground one-shot wizard; no Git Bash or preinstalled Node.js required.",
     prompt: "PS>",
   },
@@ -35,7 +35,7 @@ const installMethods = [
     id: "cmd",
     label: "CMD",
     command:
-      'for /f "delims=" %F in ("%TEMP%\\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.vercel.app/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"',
+      'for /f "delims=" %F in ("%TEMP%\\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.jpfusin.tech/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"',
     note: "For Command Prompt, not PowerShell. This non-admin bootstrap verifies a temporary runtime when Node.js 24+ is unavailable and runs as a foreground one-shot wizard.",
     prompt: ">",
   },

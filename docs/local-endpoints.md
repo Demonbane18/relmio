@@ -107,7 +107,7 @@ project on the local computer.
 ## Install with the browser wizard
 
 1. Start Relmio on the computer that will run the endpoint. Use one of the
-   commands on the [hosted install page](https://relmio.vercel.app/install),
+   commands on the [hosted install page](https://relmio.jpfusin.tech/install),
    or run:
 
    ```bash

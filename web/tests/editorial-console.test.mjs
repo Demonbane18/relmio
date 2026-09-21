@@ -104,10 +104,10 @@ test("makes the real installer command the first interactive toolbox", async () 
   assert.match(copyCommand, /document\.execCommand\("copy"\)/u);
 
   for (const command of [
-    "curl -fsSL https://relmio.vercel.app/install.sh | sh",
+    "curl -fsSL https://relmio.jpfusin.tech/install.sh | sh",
     "brew tap Demonbane18/relmio && brew trust --formula Demonbane18/relmio/relmio && brew install relmio",
-    "irm https://relmio.vercel.app/install.ps1 | iex",
-    "https://relmio.vercel.app/install.cmd",
+    "irm https://relmio.jpfusin.tech/install.ps1 | iex",
+    "https://relmio.jpfusin.tech/install.cmd",
     "npx --yes --ignore-scripts relmio@latest",
   ]) {
     assert.ok(copyCommand.includes(command), `missing install command: ${command}`);

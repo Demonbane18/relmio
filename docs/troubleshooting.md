@@ -44,7 +44,7 @@ managed endpoint or rebuild unrelated containers as a workaround.
 
 ## Hosted chat browser extension
 
-The hosted demo at [relmio.vercel.app](https://relmio.vercel.app/) needs the
+The hosted demo at [relmio.jpfusin.tech](https://relmio.jpfusin.tech/) needs the
 open-source **Sign in with ChatGPT** extension to complete the OAuth handoff:
 
 - [Install for Chrome](https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna)
@@ -70,7 +70,7 @@ you already have.
 macOS, Linux, WSL, or Git Bash:
 
 ```bash
-curl -fsSL https://relmio.vercel.app/install.sh | sh
+curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
 ```
 
 Homebrew (macOS or Linux):
@@ -82,13 +82,13 @@ brew tap Demonbane18/relmio && brew trust --formula Demonbane18/relmio/relmio &&
 Windows PowerShell:
 
 ```powershell
-irm https://relmio.vercel.app/install.ps1 | iex
+irm https://relmio.jpfusin.tech/install.ps1 | iex
 ```
 
 Windows Command Prompt:
 
 ```bat
-for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.vercel.app/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"
+for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.jpfusin.tech/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"
 ```
 
 These commands do not require Node.js to be installed. The native Windows
@@ -185,7 +185,7 @@ bypassed.
 |---|---|---|
 | `node: command not found`, `node is not recognized`, or Node is older than 24 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
 | `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell or the collision-safe temporary-file command shown above in Command Prompt. Git Bash is not required. If Command Prompt does not have `curl`, update Windows or use the PowerShell route. |
-| Git Bash reports that stdin or stdout is not a TTY | Direct NPX on older Git Bash can pass mintty pipes to native Node.js. | Use `curl -fsSL https://relmio.vercel.app/install.sh \| sh`; the hosted launcher uses the bundled `winpty` bridge. For direct NPX on Git Bash 2.38.1 only, prefix the process with `MSYS=enable_pcon`. Do not add a global Git setting. |
+| Git Bash reports that stdin or stdout is not a TTY | Direct NPX on older Git Bash can pass mintty pipes to native Node.js. | Use `curl -fsSL https://relmio.jpfusin.tech/install.sh \| sh`; the hosted launcher uses the bundled `winpty` bridge. For direct NPX on Git Bash 2.38.1 only, prefix the process with `MSYS=enable_pcon`. Do not add a global Git setting. |
 | Windows cannot locate its built-in security tool or apply owner-only protection | The bootstrap may have started successfully, but the running wizard could not use the inbox Windows PowerShell security API to protect and verify its local files. | Setup stops before saving secrets. Ask the Windows administrator to allow the inbox security API, then retry. PowerShell, Command Prompt, `npx`, and other Windows launch methods all use this same check and do not bypass it. |
 | The bootstrap stays on a `Please wait` stage | Node.js is missing or older than 24, so the bootstrap is downloading, checking, or extracting a temporary Node.js 24 runtime. | Keep the terminal open while the deterministic stage messages advance. The runtime is verified before it runs, is removed after the wizard exits, and is not installed system-wide. |
 | A bootstrap reports a checksum mismatch | The Node.js download did not match its reviewed official SHA-256 checksum, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 24+ installation and report the sanitized error. |

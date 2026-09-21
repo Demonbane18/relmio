@@ -166,7 +166,7 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /OpenAI publishes no fixed 10-day lifetime\./);
   assert.match(
     html,
-    /curl -fsSL https:\/\/relmio\.vercel\.app\/install\.sh \| sh/,
+    /curl -fsSL https:\/\/relmio\.jpfusin\.tech\/install\.sh \| sh/,
   );
   assert.match(
     html,
@@ -178,7 +178,7 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /trusts only the Relmio formula/);
   assert.match(
     html,
-    /irm https:\/\/relmio\.vercel\.app\/install\.ps1 \| iex/,
+    /irm https:\/\/relmio\.jpfusin\.tech\/install\.ps1 \| iex/,
   );
   assert.match(
     html,

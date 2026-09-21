@@ -2,5 +2,18 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "buildCommand": "npm run build:vercel",
-  "installCommand": "npm ci --ignore-scripts"
+  "installCommand": "npm ci --ignore-scripts",
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "relmio.vercel.app"
+        }
+      ],
+      "destination": "https://relmio.jpfusin.tech/:path*",
+      "permanent": true
+    }
+  ]
 }
