@@ -83,6 +83,12 @@ test("hosted web keeps the former Vercel hostname as a permanent redirect", asyn
 
   assert.deepEqual(vercelConfig.redirects, [
     {
+      source: "/",
+      has: [{ type: "host", value: "relmio.vercel.app" }],
+      destination: "https://relmio.jpfusin.tech/",
+      permanent: true,
+    },
+    {
       source: "/:path*",
       has: [{ type: "host", value: "relmio.vercel.app" }],
       destination: "https://relmio.jpfusin.tech/:path*",

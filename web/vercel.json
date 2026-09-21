@@ -5,6 +5,17 @@
   "installCommand": "npm ci --ignore-scripts",
   "redirects": [
     {
+      "source": "/",
+      "has": [
+        {
+          "type": "host",
+          "value": "relmio.vercel.app"
+        }
+      ],
+      "destination": "https://relmio.jpfusin.tech/",
+      "permanent": true
+    },
+    {
       "source": "/:path*",
       "has": [
         {
