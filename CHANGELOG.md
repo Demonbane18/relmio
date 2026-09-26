@@ -7,6 +7,30 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.17.5] - 2026-09-26
+
+### Added
+
+- Add a dated official-source review confirming that the callback-port check
+  does not alter Relmio's authentication, permissions, data handling, logging,
+  or recipients.
+
+### Fixed
+
+- Stop ChatGPT sign-in for local and VPS OpenAI OAuth bridges from silently
+  timing out when another app, IDE, or extension already listens on the
+  `localhost:1455` callback port. That includes listeners on IPv6 `localhost`
+  only, which the official Codex login does not detect. The wizard now reports
+  the conflict before it starts the login. Previously the other app received
+  the callback and showed `This sign-in request expired`.
+
+### Changed
+
+- Explain the **OpenAI OAuth** "Signed in to ChatGPT / This sign-in request
+  expired" page, add Windows PowerShell commands that inspect port `1455`
+  without stopping anything, and state that an MCP `Transport closed` error
+  comes from the AI client's MCP server, not from Relmio.
+
 ## [0.17.4] - 2026-09-21
 
 ### Added
@@ -1088,6 +1112,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
 
+[0.17.5]: https://github.com/Demonbane18/relmio/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/Demonbane18/relmio/compare/v0.17.3...v0.17.4
 [0.17.3]: https://github.com/Demonbane18/relmio/compare/v0.17.2...v0.17.3
 [0.17.2]: https://github.com/Demonbane18/relmio/compare/v0.17.1...v0.17.2

@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { connect, createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 
 import {
   getAuthStatus,
+  isOAuthCallbackPortInUse,
   readAuthContents,
   resolveAuthPath,
   startOAuthLogin,
 } from "../src/services/oauth.js";
 
 const noOpLockDownPath = async () => {};
+const freeCallbackPort = async () => false;
 
 function credentialContents(label = "fixture") {
   return JSON.stringify({
@@ -193,6 +196,7 @@ test("startOAuthLogin uses the pinned official Codex browser login in an isolate
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem,
     env: { CODEX_HOME: "C:\\must-not-be-reused" },
     homeDirectory,
@@ -244,6 +248,7 @@ test("startOAuthLogin stores the official Codex credential after process complet
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem,
     env: {},
     homeDirectory,
@@ -294,6 +299,7 @@ test("startOAuthLogin does not expose captured helper output to the browser UI",
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem(files),
     env: {},
     homeDirectory: "/home/user",
@@ -329,6 +335,7 @@ test("startOAuthLogin waits for close after exit before committing success", asy
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem(files),
     env: {},
     homeDirectory: "/home/user",
@@ -376,6 +383,7 @@ test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", 
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem({}),
     env: {},
     homeDirectory: "/home/user",
@@ -443,6 +451,7 @@ test("startOAuthLogin uses the current Node runtime and commits only a pre-secur
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem,
     env: {
       npm_execpath: npmExecPath,
@@ -514,6 +523,7 @@ test("startOAuthLogin hides synchronous process-launch errors", async () => {
   await assert.rejects(
     () =>
       startOAuthLogin({
+        probeCallbackPort: freeCallbackPort,
         fileSystem,
         env: {},
         homeDirectory: resolve("oauth-sync-error-home"),
@@ -572,6 +582,7 @@ test("startOAuthLogin waits for the official helper to close before promoting a 
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem(files),
     env: {},
     homeDirectory,
@@ -605,6 +616,7 @@ test("startOAuthLogin rejects an unsafe attempt identifier before filesystem or 
   let effects = 0;
   await assert.rejects(
     () => startOAuthLogin({
+      probeCallbackPort: freeCallbackPort,
       fileSystem: {
         ...createMemoryFileSystem({}),
         async mkdir() {
@@ -648,6 +660,7 @@ test("startOAuthLogin cancels the detached helper process group with a bounded f
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem({}),
     env: {},
     homeDirectory: "/home/user",
@@ -721,6 +734,7 @@ test("startOAuthLogin cancellation waits for a delayed promotion and keeps the o
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem,
     env: {},
     homeDirectory,
@@ -769,6 +783,7 @@ test("startOAuthLogin rejects cancellation when the detached process group survi
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem({}),
     env: {},
     homeDirectory: "/home/user",
@@ -822,6 +837,7 @@ test("startOAuthLogin rejects cancellation when Windows taskkill cannot confirm 
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem({}),
     env: {},
     homeDirectory: "/home/user",
@@ -868,6 +884,7 @@ test("startOAuthLogin bounds a hung Windows taskkill and reports unconfirmed ter
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem({}),
     env: {},
     homeDirectory: "/home/user",
@@ -931,6 +948,7 @@ test("startOAuthLogin reports cancellation as indeterminate after final credenti
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem,
     env: {},
     homeDirectory,
@@ -998,6 +1016,7 @@ test("startOAuthLogin bounds a never-settling staged promotion and blocks its la
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem,
     env: {},
     homeDirectory,
@@ -1083,6 +1102,7 @@ test("startOAuthLogin marks a timeout retry-blocked when final credential commit
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem,
     env: {},
     homeDirectory,
@@ -1131,6 +1151,7 @@ test("startOAuthLogin does not signal an already-closed failed helper", async ()
   };
 
   const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
     fileSystem: createMemoryFileSystem({}),
     env: {},
     homeDirectory: "/home/user",
@@ -1151,4 +1172,76 @@ test("startOAuthLogin does not signal an already-closed failed helper", async ()
     return true;
   });
   assert.deepEqual(signals, []);
+});
+
+test("startOAuthLogin refuses to launch when another app owns the callback port", async () => {
+  let spawned = false;
+  const directories = [];
+  await assert.rejects(
+    () =>
+      startOAuthLogin({
+        probeCallbackPort: async () => true,
+        fileSystem: {
+          ...createMemoryFileSystem({}),
+          async mkdir(path) {
+            directories.push(path);
+          },
+        },
+        env: {},
+        homeDirectory: "/home/user",
+        platform: "win32",
+        execPath: "C:\\portable\\node.exe",
+        spawnProcess() {
+          spawned = true;
+          throw new Error("must not launch codex login");
+        },
+        lockDownPath: noOpLockDownPath,
+      }),
+    /localhost:1455/u,
+  );
+  assert.equal(spawned, false);
+  assert.deepEqual(directories, []);
+});
+
+async function listenOnLoopback(host) {
+  const server = createServer((socket) => socket.destroy());
+  await new Promise((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.listen(0, host, resolvePromise);
+  });
+  return server;
+}
+
+test("isOAuthCallbackPortInUse detects a listener reachable only over IPv6 localhost", async (t) => {
+  let server;
+  try {
+    server = await listenOnLoopback("::1");
+  } catch {
+    t.skip("IPv6 loopback is unavailable on this host");
+    return;
+  }
+  t.after(() => server.close());
+  const { port } = server.address();
+  const probedHosts = [];
+  // Route the fixed callback port to the ephemeral fixture so only [::1] listens.
+  const connectSocket = ({ host }) => {
+    probedHosts.push(host);
+    return connect({ host, port });
+  };
+
+  assert.equal(await isOAuthCallbackPortInUse({ connectSocket }), true);
+  assert.deepEqual(probedHosts.sort(), ["127.0.0.1", "::1"]);
+});
+
+test("isOAuthCallbackPortInUse reports a free port when nothing accepts", async () => {
+  const server = await listenOnLoopback("127.0.0.1");
+  const { port } = server.address();
+  await new Promise((resolvePromise) => server.close(resolvePromise));
+
+  assert.equal(
+    await isOAuthCallbackPortInUse({
+      connectSocket: ({ host }) => connect({ host, port }),
+    }),
+    false,
+  );
 });

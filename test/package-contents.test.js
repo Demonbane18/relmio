@@ -58,6 +58,7 @@ const expectedPackedFiles = new Set([
   "docs/images/setup/05-bridge-ready.png",
   "docs/maintenance.md",
   "docs/manual-install.md",
+  "docs/oauth-callback-port-source-check-2026-09-26.md",
   "docs/node24-luna-source-check-2026-09-14.md",
   "docs/n8n-configuration.md",
   "docs/npm-publish.md",

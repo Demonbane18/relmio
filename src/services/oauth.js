@@ -1,5 +1,6 @@
 import * as defaultFileSystem from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { connect } from "node:net";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -15,6 +16,12 @@ const PROCESS_TERMINATION_FORCE_WAIT_MS = 1_000;
 const TERMINATION_UNCONFIRMED_MESSAGE =
   "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
 const CODEX_LOGIN_PACKAGE = "@openai/codex@0.154.0";
+// The official Codex login registers only this loopback redirect port.
+const OAUTH_CALLBACK_PORT = 1455;
+const OAUTH_CALLBACK_HOSTS = Object.freeze(["127.0.0.1", "::1"]);
+const CALLBACK_PORT_PROBE_TIMEOUT_MS = 500;
+const CALLBACK_PORT_IN_USE_MESSAGE =
+  "Another app is already using localhost:1455, the ChatGPT sign-in callback, and would take this sign-in. Close other ChatGPT or Codex apps, sign-in pages, and extensions, then retry.";
 
 const wait = (milliseconds) =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -48,6 +55,53 @@ function createNpxInvocation({ platform, env, execPath }) {
     // Windows cannot execute npx.cmd directly with shell:false.
     prefixArgs: [resolveWindowsNpxCli({ env, execPath })],
   };
+}
+
+function probeLoopbackListener(host, port, { connectSocket, timeoutMs }) {
+  return new Promise((resolvePromise) => {
+    let socket;
+    let timer;
+    let settled = false;
+    const finish = (listening) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      socket?.destroy();
+      resolvePromise(listening);
+    };
+    try {
+      socket = connectSocket({ host, port });
+    } catch {
+      finish(false);
+      return;
+    }
+    // A missing IPv6 loopback or refused connection both mean no listener.
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+    timer = setTimeout(() => finish(false), timeoutMs);
+  });
+}
+
+/**
+ * Reports whether any loopback listener already owns the Codex callback port.
+ * Codex binds 127.0.0.1 only, so a listener on [::1] (or one sharing the port)
+ * can receive the browser redirect for `localhost` without a bind error.
+ */
+export async function isOAuthCallbackPortInUse({
+  connectSocket = connect,
+  timeoutMs = CALLBACK_PORT_PROBE_TIMEOUT_MS,
+} = {}) {
+  const results = await Promise.all(
+    OAUTH_CALLBACK_HOSTS.map((host) =>
+      probeLoopbackListener(host, OAUTH_CALLBACK_PORT, {
+        connectSocket,
+        timeoutMs,
+      }),
+    ),
+  );
+  return results.includes(true);
 }
 
 export function resolveAuthPath({
@@ -166,6 +220,7 @@ export async function startOAuthLogin({
   createTimer = setTimeout,
   clearTimer = clearTimeout,
   lockDownPath = lockDownLocalPath,
+  probeCallbackPort = isOAuthCallbackPortInUse,
 } = {}) {
   const npxInvocation = createNpxInvocation({ platform, env, execPath });
   const authPath = resolveAuthPath({ env, homeDirectory });
@@ -180,6 +235,9 @@ export async function startOAuthLogin({
   const pendingCodexHome = resolve(authDirectory, `.codex-login-${pendingId}`);
   if (dirname(pendingCodexHome) !== authDirectory) {
     throw new Error("The local sign-in credential directory is invalid.");
+  }
+  if (await probeCallbackPort()) {
+    throw new Error(CALLBACK_PORT_IN_USE_MESSAGE);
   }
   const pendingAuthPath = resolve(pendingCodexHome, "auth.json");
   const loginEnv = Object.fromEntries(
