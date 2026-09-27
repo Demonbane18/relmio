@@ -44,6 +44,23 @@ export function validateReleaseMetadata({
   return { version };
 }
 
+export function npmReleaseTag({ version, tag, prerelease }) {
+  if (typeof version !== "string" || !SEMVER.test(version)) {
+    throw new Error("package.json must contain a valid semantic version.");
+  }
+  if (tag !== `v${version}`) {
+    throw new Error(`release tag ${tag ?? "missing"} does not match v${version}.`);
+  }
+  if (typeof prerelease !== "boolean") {
+    throw new Error("GitHub release prerelease flag must be a boolean.");
+  }
+  const versionIsPrerelease = version.split("+", 1)[0].includes("-");
+  if (prerelease !== versionIsPrerelease) {
+    throw new Error("GitHub release prerelease flag does not match the package version.");
+  }
+  return prerelease ? "experimental" : "latest";
+}
+
 async function readOptionalFile(path) {
   try {
     return await readFile(path, "utf8");
@@ -75,8 +92,10 @@ async function main() {
       readFile("CHANGELOG.md", "utf8"),
       pathExists(".git"),
     ]);
-  const tag =
-    process.env.GITHUB_REF_TYPE === "tag"
+  const selectingNpmTag = process.argv[2] === "--npm-dist-tag";
+  const tag = selectingNpmTag
+    ? process.env.RELEASE_TAG
+    : process.env.GITHUB_REF_TYPE === "tag"
       ? process.env.GITHUB_REF_NAME
       : undefined;
   const result = validateReleaseMetadata({
@@ -89,6 +108,18 @@ async function main() {
     tag,
     requirePackageLock: isGitCheckout,
   });
+  if (selectingNpmTag) {
+    const flag = process.env.RELEASE_PRERELEASE;
+    if (flag !== "true" && flag !== "false") {
+      throw new Error("GitHub release prerelease flag must be true or false.");
+    }
+    console.log(npmReleaseTag({
+      version: result.version,
+      tag,
+      prerelease: flag === "true",
+    }));
+    return;
+  }
   console.log(`Release metadata is synchronized at v${result.version}.`);
 }
 

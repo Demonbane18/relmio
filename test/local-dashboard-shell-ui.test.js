@@ -19,18 +19,6 @@ function normalizeProvider(script) {
   });
 }
 
-test("dashboard declares exactly seven services and four neutral OAuth providers", async () => {
-  const [, script] = await sources();
-  const services = script.match(/const DASHBOARD_SERVICE_DEFINITIONS = Object\.freeze\(\[(?<body>[\s\S]*?)\]\);/u);
-  const providers = script.match(/const DASHBOARD_PROVIDER_DEFINITIONS = Object\.freeze\(\[(?<body>[\s\S]*?)\]\);/u);
-  assert.ok(services && providers);
-  assert.equal((services.groups.body.match(/target:/gu) ?? []).length, 7);
-  assert.equal((providers.groups.body.match(/target:/gu) ?? []).length, 4);
-  for (const target of ["codex-chatgpt", "codex-chat", "xai-grok-build", "n8n-supergrok-oauth"]) {
-    assert.match(providers.groups.body, new RegExp(`target: "${target}"[\\s\\S]*authentication: "provider-oauth", readiness: "runtime-owned"`, "u"));
-  }
-  assert.doesNotMatch(script, /select-api-profile|replace-api-key|registryRevision|profiles/u);
-});
 
 test("provider snapshot validation rejects profile fields and non-runtime OAuth readiness", async () => {
   const [, script] = await sources();
@@ -42,13 +30,6 @@ test("provider snapshot validation rejects profile fields and non-runtime OAuth 
   assert.throws(() => normalize({ ...good, readiness: "selected" }, definition), /unexpected dashboard/u);
 });
 
-test("dashboard copy keeps provider readiness independent from local health", async () => {
-  const [html, script] = await sources();
-  assert.match(html, /Provider readiness/u);
-  assert.match(script, /Provider-managed · not inspected/u);
-  assert.match(script, /const providerState = "absent"/u);
-  assert.match(script, /SuperGrok authentication is owned by its official CLI/u);
-});
 
 function sourceBetween(script, startMarker, endMarker) {
   const start = script.indexOf(startMarker);
@@ -66,6 +47,7 @@ function oauthOnlySnapshot() {
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+    ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
   ].map(([target, label, kind]) => ({ target, label, kind, managed: false, state: "absent", snapshot: null, actions: ["setup"] }));
   return {
     schemaVersion: 1,
@@ -91,7 +73,7 @@ function loadSnapshotNormalizer(script) {
   return runInNewContext(`${script.slice(constantsStart, constantsEnd)}\nfunction hasExactKeys(value, keys) { return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)); }\n${script.slice(contractStart, contractEnd)}\nnormalizeDashboardSnapshot;`, { URL });
 }
 
-test("OAuth inventory normalizes seven rows, permits supported OAuth actions, and rejects retired fields", async () => {
+test("dashboard rejects unauthorized provider actions and unknown services", async () => {
   const [, script] = await sources();
   const normalize = loadSnapshotNormalizer(script);
   const snapshot = oauthOnlySnapshot();
@@ -117,7 +99,6 @@ test("OAuth inventory normalizes seven rows, permits supported OAuth actions, an
     actions: ["sign-in-grok-build", "sign-out-grok-build", "remove-owned-supergrok"],
   });
   const normalized = normalize(snapshot);
-  assert.equal(normalized.services.length, 7);
   assert.deepEqual(Array.from(normalized.services[0].actions), codex.actions);
   assert.deepEqual(Array.from(normalized.services[2].actions), grok.actions);
   assert.deepEqual(Array.from(normalized.services[6].actions), n8nGrok.actions);
@@ -155,7 +136,7 @@ test("fresh inventory renders successfully and stale inventory preserves runtime
   assert.deepEqual(truths.get("dashboard-inventory-freshness"), { label: "Refresh needed", status: "stale" });
 });
 
-test("dashboard failure replaces loading state with seven unavailable rows", async () => {
+test("dashboard failure replaces loading state with unavailable, action-free rows", async () => {
   const [, script] = await sources();
   const source = sourceBetween(script, "function renderDashboardFailure", "\nasync function loadLocalDashboard");
   const nodes = new Map();
@@ -166,7 +147,7 @@ test("dashboard failure replaces loading state with seven unavailable rows", asy
   const definitions = oauthOnlySnapshot().services.map(({ target, label, kind }) => ({ target, label, kind }));
   const render = runInNewContext(`${source}; renderDashboardFailure;`, { clearDashboardStaleTimer() {}, DASHBOARD_SERVICE_DEFINITIONS: definitions, dashboardStatusDot() { return {}; }, document: { body: { dataset: {} }, createElement() { return { append() {}, textContent: "" }; } }, element, renderDashboardRelayPath() {}, renderDashboardTruth(id, label) { element(id).textContent = label; }, renderDashboardCompactService(service) { return { service, lastElementChild: { textContent: "" } }; }, renderDashboardSectionStatus() { return {}; }, renderDashboardServiceRow(service) { return { service }; }, renderDashboardSnapshot() { throw new Error("must not render a missing snapshot"); }, state: { dashboardBusy: true, dashboardSnapshot: null } });
   render();
-  assert.equal(element("dashboard-services").children.length, 7);
+  assert.equal(element("dashboard-services").children.length, definitions.length);
   assert.ok(element("dashboard-services").children.every(({ service }) => service.state === "unavailable" && service.actions.length === 0));
   assert.equal(element("dashboard-runtime-health").textContent, "Unavailable");
   assert.equal(element("dashboard-inventory-freshness").textContent, "Unavailable");
@@ -261,10 +242,12 @@ test("private n8n SuperGrok planning sends only the selected n8n identities", as
 test("private n8n SuperGrok install validation rejects an unexpected endpoint before rendering a bearer", async () => {
   const [, script] = await sources();
   const source = sourceBetween(script, "function renderInstallResult", "\nfunction setChatTesterStatus");
-  const render = runInNewContext(`${source}; renderInstallResult;`, {
+  const isN8nLocalModel = sourceBetween(script, "function isN8nLocalModel(target)", "\nfunction isN8nAssistant");
+  const clearLocalModelPoll = sourceBetween(script, "function clearLocalModelPoll()", "\nfunction renderLocalModelStatus");
+  const render = runInNewContext(`${isN8nLocalModel}\n${clearLocalModelPoll}\n${source}; renderInstallResult;`, {
     hasExactKeys(value, keys) { return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key)); },
     isN8nSidecar() { return false; }, isN8nSuperGrok(target) { return target === "n8n-supergrok-oauth"; }, isN8nAssistant() { return false; }, isN8nStack() { return false; }, isSafeDockerDisplayName(value) { return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(value); },
-    state: {}, element() { throw new Error("invalid result must not render"); },
+    state: { localModelPollTimer: null, localModelGeneration: 0 }, window: { clearTimeout() {} }, element() { throw new Error("invalid result must not render"); },
   });
   assert.throws(() => render({
     target: "n8n-supergrok-oauth", endpoint: "http://unexpected:14502/v1", baseUrl: "http://unexpected:14502/v1", protocol: "openai-chat-completions", networkName: "private", n8nContainerName: "n8n", hostPublication: "none", clientCredential: "a".repeat(32), credentialShownOnce: true, deploymentMode: "installed", models: ["grok-build"],

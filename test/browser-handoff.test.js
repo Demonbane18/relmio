@@ -67,7 +67,7 @@ test("private browser handoff stores its one-time secret only in an owner-only f
   const privateRoot = await privateTemp(t);
   const handoff = await createPrivateBrowserHandoff({
     origin,
-    route: "/local",
+    route: "/hosting",
     ticketId,
     secret,
     privateRoot,
@@ -86,6 +86,7 @@ test("private browser handoff stores its one-time secret only in an owner-only f
   assert.match(contents, new RegExp(secret, "u"));
   assert.match(contents, /method="post"/u);
   assert.match(contents, /action="http:\/\/127\.0\.0\.1:4567\/__relmio\/browser\/bootstrap"/u);
+  assert.match(contents, /name="route" value="\/hosting"/u);
   assert.doesNotMatch(contents, /src=|href=|session=/iu);
   if (process.platform !== "win32") {
     assert.equal((await stat(directory)).mode & 0o777, 0o700);

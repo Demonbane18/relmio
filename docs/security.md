@@ -125,8 +125,17 @@ shared, or production service.
   unnecessary permissions.
 - Request bodies and remote command output have size limits.
 - Login, fingerprint, and connection attempts are rate-limited.
-- The password field unlocks only after the SSH fingerprint is confirmed.
-- The server binds that confirmation to the exact normalized host and port.
+- Both password and local-agent authentication require confirmed SSH host-key
+  trust first; the server binds that trust to the exact normalized host and port.
+- SSH authentication is an explicit choice, not an agent-to-password fallback.
+  Private keys and passphrases stay with the local agent/key store. The SSH
+  library uses public identities and authentication signatures; it does not
+  export the private key or forward the agent to the VPS. Agent access itself
+  remains security-sensitive.
+- Safe connection identity includes the account, authentication method and
+  verified administrative context. A changed connection invalidates prior plans.
+  Capability status does not disclose agent paths or enumerate keys in the browser;
+  configured/untested status is not proof of successful authentication.
 - Passwords are request-scoped, never saved, never logged, and cleared from
   the page immediately after the connection attempt.
 - The VPS flow exposes **Disconnect from VPS** and also closes an authenticated
@@ -138,9 +147,72 @@ shared, or production service.
   Windows, Relmio applies and reads back the current-account-only NTFS DACL on
   the directory plus every pending, staged, and final credential file. The Codex
   app credential at `~/.codex/auth.json` is not reused or overwritten.
-- OAuth JSON is validated and transferred through SFTP, never interpolated
-  into a shell command.
-- Remote paths are restricted to `/docker/n8n-openai-oauth`.
+- On verified direct-root VPS sessions, OAuth JSON is validated and transferred
+  through SFTP, never interpolated into a shell command.
+- **Passwordless sudo -n (model only)** is restricted to local-model operations
+  and shared read-only discovery. OAuth bridge, Assistant and SuperGrok VPS
+  operations are denied in that context; selecting effective UID 0 via sudo does
+  not grant the direct-root route scope.
+- Sudo model uploads stream bounded runtime assets and non-secret deployment
+  metadata, not provider credentials. Metadata still identifies resources and
+  should not be published casually. Remote sudo/sshd auditing can record I/O;
+  Relmio does not control administrator logging. This restriction is not a
+  blanket “nothing is logged” guarantee.
+- Sudo and rootful Docker access are root-equivalent authority, not a general
+  OS sandbox. Relmio does not request a sudo password, change sudoers or group
+  membership, enable root/password SSH, or silently switch to another daemon.
+- Builds must stay on the validated local Docker daemon. The existing context
+  must be `default` at `unix:///var/run/docker.sock`. Model preparation reads
+  only bounded `$HOME/.docker/buildx/current` and `defaults` selectors and
+  checks that `instances/default` does not shadow the built-in builder. A
+  changed/mismatched HOME/config location or saved custom/ambiguous builder
+  fails closed. On Windows, read-only ACL checks allow inherited access for the
+  current user, SYSTEM, and Administrators, reject untrusted owners or
+  write-capable untrusted ACEs, and never change ACLs. The workflow rejects
+  inherited `BUILDX_BUILDER`, `BUILDX_CONFIG`, and conflicting Docker/Compose
+  selectors; it does not alter saved config. It does not print selectors, read
+  `config.json`/nodegroup TLS secrets, or invoke Buildx CLI. `docker buildx
+  inspect` is not used as a probe: it can write state or expose secrets. Review
+  and build/retry re-attest the selection. Explicit helper-image build calls
+  pass `--builder default`; Compose `run` calls that can trigger an implicit
+  build use the same attested command-scoped config and `BUILDX_BUILDER=default`
+  environment, without unsupported Compose flags. No running-builder
+  prerequisite or automatic context change is implied.
+- `DOCKER_BUILDKIT=0` or another nonempty value other than `1` is rejected;
+  classic-builder fallback is not used. Confirmed build-capable actions use
+  temporary mode-`0700` Buildx client state inside the owned operation lock,
+  with command-local configuration and the built-in default builder. Model
+  install/retry, SuperGrok install/sign-in/sign-out and OAuth bridge builds
+  disclose their exact [state paths](reference.md#vps-authentication-and-privilege).
+  Nonbuilding actions do not create that state.
+- Build-state cleanup verifies ownership and inode identity and rejects link,
+  mount or ownership ambiguity. An interrupted build or unknown SSH exit
+  status retains all state and its lock without cleanup because the writer
+  may still be active. Interrupted or uncertain cleanup can leave partial
+  state and the lock for administrator inspection. Neither case authorizes
+  deletion of n8n or model caches. Registry credentials are not copied, moved
+  or printed by this state-management path.
+- The root OAuth bridge build context uses a guarded `Dockerfile.dockerignore`
+  allowlist for `Dockerfile` and `openai-oauth-sidecar.mjs`. Credentials,
+  sibling companions and temporary state are excluded. An existing unknown
+  ignore file is not overwritten. Confirmed build confinement is distinct
+  from pre-confirmation selection attestation; neither is a host-root sandbox.
+- Managed remote file writes are restricted to `/docker/n8n-openai-oauth`.
+  `/docker` must already be root-owned, non-symlink and not group/other writable.
+  Docker also writes its own approved resource state under its data root.
+- VPS local-model assets are reviewed under the selected model lock. The
+  `.managed-by-relmio.json` marker and its staged `.next` entry are checked as
+  root-owned mode-`0600` regular files with a single hard link; the marker is
+  re-attested before and after transfer and promoted only after its content and
+  parent identity match. Runtime files are checked against recorded hashes.
+- Across VPS OAuth bridge, local-model and SuperGrok operations, a classified
+  unknown SSH command result or interrupted SFTP write prevents automatic
+  cleanup/release of the operation lock and any Buildx state. This includes an
+  unconfirmed OAuth post-install publication/model check; a later responsive
+  SSH session does not prove the earlier call's outcome. A partial uploaded
+  file may remain. Verified nonzero exits and SFTP setup failures before writing
+  starts remain known outcomes and follow normal cleanup. Errors are sanitized;
+  raw remote command output is not included.
 - Docker names are allowlisted before they can enter a command.
 - Generated mutation commands come from a closed static allowlist.
 - The sidecar runs as user `node`, drops all Linux capabilities, uses
@@ -200,8 +272,16 @@ shared, or production service.
 - Relmio accepts no upstream API-key setup or API-key profile operations.
   Retired API installations and saved data remain untouched.
 
-- ChatGPT sign-in is accepted only through the official Codex App Server
-  account flow. Relmio never returns or converts the resulting tokens.
+- Raw Codex and Chat Adapter targets use the official Codex App Server inside
+  their isolated runtime. The separate n8n OpenAI OAuth bridge starts the
+  official Codex CLI browser login on the host and, after the user's explicit
+  confirmation, copies the complete `auth.json` into the user's private,
+  managed sidecar volume or uploads it to the selected VPS. The credential is
+  not returned to the browser. This confirmation authorizes the user's
+  deployment operation; it is not an OpenAI delegated grant or proof that the
+  account Terms permit this compatibility transport. Relmio does not inspect
+  requested or granted OAuth scopes, and their actual values and applicable
+  provider permission remain unknown.
 
 
 - The Chat Adapter rejects every request carrying an `Origin` header, emits no
@@ -237,6 +317,47 @@ shared, or production service.
   network, port, or logs; runs with a read-only root filesystem and strict
   resource limits; and uses root plus only `CHOWN` long enough to atomically
   make the stdin-seeded volume entry readable by the non-root gateway.
+
+### Local model companion
+
+The provider-free local-model service is separate from the OAuth bridge and n8n
+AI Assistant sandbox. Its OpenAI-compatible API has no authentication: any
+container on the selected Docker network can make model and management requests.
+Treat that network and its containers as trusted. The service has no published
+host port or reverse-proxy route.
+
+The managed model network must be an eligible existing user-defined local
+bridge, with container communication and Docker DNS, and cannot be `internal`
+because acquisition needs egress. For active IP families the default/NAT and
+`routed` gateway modes can retain filtering of unpublished ports; `nat-unprotected`,
+unknown and isolated modes are rejected. Direct routing is not universally
+forbidden: the absence of published ports and the declared supported filtering
+configuration are the checked boundary. This is not an audit of every host
+firewall rule, nor isolation from the host/root administrator or trusted peers.
+
+The manual Render alternative has a different boundary: same-workspace/region
+private services and their allowed environment connectivity. It is not managed
+by this SSH installer. The ignored key placeholder still is not authentication.
+See [Hosting compatibility](hosting-compatibility.md#render-manual-private-model-service).
+
+Ollama cloud features are disabled, but this does not make setup offline. Docker
+must download the pinned runtime image and the model weights from their
+registries. No provider key or OAuth credential is used by this model flow.
+
+The model cache is kept in its owned volume across runtime restart/retry;
+Ollama startup pruning is disabled so partial pull data is not removed merely
+because the runtime restarts. This does not guarantee that an interrupted
+transfer resumes from its previous byte, and retained data uses disk space.
+Cache deletion requires a separate reviewed confirmation; ordinary retry does
+not clear it. The runtime uses a read-only root filesystem, drops Linux
+capabilities, and has bounded memory, CPU, process, temporary-storage, and log
+limits.
+
+The catalog records each model's reviewed registry manifest SHA-256 digest and
+quantization. The acquisition helper verifies both before inference and
+model-ready status, including on first install; if an upstream mutable tag
+points to different content, the operation fails instead of accepting or
+automatically substituting the new content.
 
 ### AI Assistant companion image integrity
 
@@ -369,7 +490,7 @@ for the current agreements governing an account, or legal advice.
 | Maintainer acceptance (private OpenAI email, August 2026) and the [Codex for Open Source Program Terms](https://learn.chatgpt.com/docs/codex-for-oss-terms) | Relmio's maintainer was accepted into the program for this project and received a limited-duration ChatGPT Pro benefit covering Codex access. The program is designed to support maintainers of important open-source software. | Program acceptance supports the maintainer and open-source work. It is not an OpenAI security review, product endorsement, or protocol-by-protocol compliance certification. The acceptance email is not published because it contains personal account information. |
 | OpenAI's [Advanced Configuration, OSS mode and local providers](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers) | Codex supports custom model-provider configuration and an OSS mode with local providers such as Ollama or LM Studio. | It does not authorize turning a ChatGPT subscription credential into a general API credential or bypassing provider restrictions. |
 | [Thibault “Tibo” Sottiaux](https://openai.com/index/openai-to-acquire-astral/), Codex Lead at OpenAI: [open-model statement](https://x.com/thsottiaux/status/2067399435009622521) | The Codex App, CLI, and SDK can run with open-source models rather than only OpenAI models. | Model-provider flexibility does not change authentication, billing, account, or usage-policy requirements. |
-| Tibo: [account-use statement](https://x.com/thsottiaux/status/2090675027670978569) | Using one's own subscription through **Sign in with ChatGPT**, including compatible open-source clients, was distinguished from unsupported conversion of subscription access into API traffic. | It does not approve resale, pooling, forwarding credentials, sharing across users, or subscription-to-API conversion. A social post is not a contractual amendment. |
+| Tibo: [account-use statement](https://x.com/thsottiaux/status/2090675027670978569) | This public statement is not an agreement or a source-check finding for Relmio. | It does not establish permission for this bridge, cross-user sharing, resale, pooling, or subscription-to-API conversion. A social post is not a contractual amendment. |
 | OpenAI CEO Sam Altman: [OpenClaw statement](https://x.com/sama/status/2050357911915028689) | OpenClaw was publicly announced as supporting ChatGPT-account sign-in and subscription use. | Approval of one named integration does not automatically approve unrelated protocols, adapters, deployments, or credential handling. |
 
 Relmio applies these distinctions as engineering controls:
@@ -383,8 +504,11 @@ Relmio applies these distinctions as engineering controls:
 - The legacy n8n OAuth sidecar remains explicitly
   experimental/private/policy-uncertain and is not described as approved by
   the sources above.
-- Relmio prohibits account sharing, pooling, resale, subscription-to-API
-  conversion, rate-limit or safeguard bypass, and credential forwarding.
+- Relmio prohibits account sharing across users, pooling, resale,
+  subscription-to-API conversion, rate-limit or safeguard bypass, and
+  credential forwarding beyond the explicitly confirmed same-owner bridge
+  copy described above. That implementation does not establish provider
+  permission for the bridge.
 
 This repository does not claim that every possible use of the bridge is
 permitted. The account owner is responsible for reviewing the current
@@ -421,3 +545,217 @@ checklist in [maintenance.md](maintenance.md).
 Do not open a public issue containing a token, password, private IP, hostname,
 workflow data, or unredacted log. Revoke exposed credentials first, then share
 only a sanitized reproduction with the repository owner.
+
+## 2026-09-26 OpenAI source check
+
+**Scope and method.** Official OpenAI authentication, capability, Terms and
+privacy pages were reviewed on 2026-09-26 against the existing OpenAI OAuth
+bridge implementation and its user disclosures. This was source and local
+code inspection only: no sign-in, credential access, provider API request,
+host inspection, deployment or runtime capability test. Findings below
+describe the code path, not OpenAI approval. The review is distinct from
+identity authentication, separately authorized permissions, model/TTS
+capability, deployment consent and hosting-provider approval.
+
+### Identity, permissions, and capability findings
+
+OpenAI's [Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt)
+describes partner identity sharing as the user's name, email and optional
+profile picture. It says additional access requires separate authorization.
+Relmio's n8n bridge is not that identity-only flow: after the user starts
+official host-side Codex CLI sign-in, Relmio reads and copies the complete
+Codex `auth.json`, including access/refresh credential fields. The article
+does not grant that full-credential copy, transport, scope or API permission.
+The official [Codex authentication documentation](https://learn.chatgpt.com/docs/auth)
+documents file-based `auth.json` and copying a Codex cache to headless
+machines/containers, while recommending API keys for automation; it does not
+specifically authorize Relmio's third-party n8n-compatible transport.
+
+OpenAI's [API authentication documentation](https://developers.openai.com/api/reference/overview#authentication)
+describes Platform API keys or short-lived workload identity for API
+authentication. This bridge is neither: ChatGPT/Codex sign-in is not an
+OpenAI Platform API key, does not create API credits, and does not bypass
+account limits. The existing n8n recipe only exposes capabilities implemented
+by the pinned third-party OAuth runtime. Model listing is not account
+entitlement or successful completion. Flare/Sunburst model IDs are discovery
+entries, not proof of access. Audio/TTS, transcription, translation, Live and
+Realtime are not implemented through this bridge. The
+[Audio speech documentation](https://developers.openai.com/api/docs/guides/text-to-speech)
+and [image-generation documentation](https://developers.openai.com/api/docs/guides/image-generation)
+describe Platform API capabilities; they do not establish subscription-bridge
+entitlement. OpenAI's [video API deprecation notice](https://developers.openai.com/api/docs/deprecations#2026-03-24-sora-2-video-generation-models-and-videos-api)
+records that Sora 2 and the Videos API shut down on 2026-09-24 with no
+replacement; do not treat a separate Platform connection as a currently
+available video workaround.
+
+The reviewed [Terms of Use](https://openai.com/policies/terms-of-use/),
+[EU Terms](https://openai.com/policies/eu-terms-of-use/),
+[Services Agreement](https://openai.com/policies/services-agreement/),
+[Service Terms](https://openai.com/policies/service-terms/) and
+[Usage Policies](https://openai.com/policies/usage-policies/) include
+restrictions concerning sharing account access, programmatic extraction and
+circumventing limits or safeguards. The Services Agreement permits API
+integration only subject to that agreement and separately restricts sharing
+individual account credentials and bypassing usage limits. Service Terms also
+contain service-specific rules; ChatGPT Voice restrictions are distinct from
+API text-to-speech. Regional Terms apply according to the user's residence,
+not merely the VPS location. These findings do not constitute a blanket
+compliance or violation determination for this implementation; applicability,
+account/workspace permission and permission for this exact compatibility
+transport remain unresolved. Provider hosting capability and a wizard's final
+deployment confirmation are not OpenAI permission.
+The official [API data-control documentation](https://developers.openai.com/api/docs/guides/your-data)
+says API content is not used for training by default unless the customer opts
+in; default abuse-monitoring retention may be up to 30 days, with endpoint and
+legal/security exceptions, and Zero Data Retention or Modified Abuse
+Monitoring requires approval. These are API endpoint controls and must not be
+applied automatically to this ChatGPT/Codex subscription bridge.
+The [Services Communications Privacy Policy](https://openai.com/policies/services-communications-privacy-policy/)
+and [EU Privacy Policy](https://openai.com/policies/eu-privacy-policy/) describe
+account/content/log data, recipient categories, retention and international
+processing. They do not establish account-specific onward disclosures or
+where this bridge's requests are processed. Region eligibility remains
+separately conditional on the official [ChatGPT supported countries](https://help.openai.com/en/articles/7947663-chatgpt-supported-countries)
+and [API supported countries](https://help.openai.com/en/articles/5347006-openai-api-supported-countries-and-territories).
+
+### Observed reads, storage, transmission, and logs
+
+These are the observed paths in the reviewed implementation; platform
+administrators, retention and actual runtime logs are not fully observable
+from source inspection.
+
+| Stage | Observed behavior and parties |
+|---|---|
+| Read | Host-side official Codex login writes to an attempt-specific `CODEX_HOME`; Relmio reads the full JSON from `N8N_OPENAI_OAUTH_HOME/auth.json` or `~/.n8n-openai-oauth/auth.json`. This includes access and refresh tokens and account metadata, not merely identity fields. The sidecar and third-party runtime read token/account claims, refresh metadata and incoming n8n request bodies. |
+| Store | Host credential directories are mode 0700; staged/promoted files mode 0600. Local setup keeps the source credential on the host and seeds a private `oauth-auth` Docker volume at `/home/node/.codex/auth.json`. The VPS path SFTPs the complete JSON to `/docker/n8n-openai-oauth/auth/auth.json` mode 0600 and bind-mounts it to the sidecar. The third-party runtime can refresh and rewrite its copy; secret read-only injection alone is insufficient. Refresh can retain rollback/quiesce snapshots; cleanup is best-effort. |
+| Transmit | The user initiates browser/Codex authentication with OpenAI services; the host Codex login produces the full credential read by Relmio. After explicit local/VPS review, credential bytes go to the local Docker daemon/volume or to the selected VPS SSH/SFTP endpoint and its sidecar. Supported n8n prompts, messages, tool data and inline inputs travel from n8n through the sidecar/dependency to `chatgpt.com/backend-api/codex` with access-token bearer and account ID; refresh requests go to `auth.openai.com/oauth/token`. Responses return to the sidecar and n8n/client. |
+| Other network recipients | Building the sidecar installs the pinned package via npm/Node/package-image infrastructure. Model discovery also requests `registry.npmjs.org/@openai/codex/latest`; reviewed code adds no OpenAI bearer to that lookup. These are separate from model inference. |
+| Logs | Host Codex stdout/stderr is bounded and captured in memory; login failures map to fixed messages. Current Codex documentation describes `codex-login.log` for direct `codex login` runs, but applicability to the pinned `@openai/codex` 0.154.0 and log retention are unknown. The one-shot local credential-seed helper disables Docker logging. The main sidecar does not set an explicit Docker log driver. The dependency can log request summaries/timings/usage/errors if logging is enabled; Relmio does not enable its request logger. Actual n8n, Docker, SSH, provider, backup and OpenAI retention/log behavior was not inspected, so do not claim that nothing is logged or retained. Dependency errors may include upstream text. |
+| Additional access boundary | **[INFERENCE]** Destination root/platform administrators, storage, backups and log services are additional potential access boundaries. Source inspection does not show that any particular employee or package author received credentials; provider-specific retention and operator access are unknown. |
+
+The host invocation did not supply OAuth scopes, and Relmio does not inspect
+requested/granted scopes. The dependency's own default `openid profile email
+offline_access` is not proof of the official Codex login's requested or
+granted scopes. Actual scopes, account/workspace constraints, credential
+retention, runtime package bytes, model access and provider-side log retention
+remain unknown. Direct API data-retention guarantees must not be assumed for
+this bridge. Keep the bridge private, same-owner and experimental; never pool
+or share credentials, bypass limits, or place them in a planner artifact.
+
+### 2026-09-27 OpenAI and hosting source review
+
+**Scope and method.** On 2026-09-27, current official OpenAI material and local
+source were reviewed for the existing ChatGPT/Codex n8n bridge, the noncredential
+hosting planner, manual model/search/Daytona handoffs, and restricted
+Chat-Completions relays. This is a public-source and code review, not legal
+advice, OpenAI approval, account-entitlement verification, or provider-runtime
+acceptance. No new provider, model, relay, search, Daytona, or TTS runtime was
+tested. Source links and findings follow; page dates are given as shown by each
+source where available.
+
+#### Official sources checked
+
+- [Sign in with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt)
+  (Help Center displayed “Updated: 4 hours ago” on 2026-09-27): describes
+  supported-partner identity fields (name, email, optional profile picture);
+  additional access requires separate authorization. It does not establish
+  that Relmio's host-side Codex credential-copy bridge is that identity flow.
+- [Codex authentication](https://learn.chatgpt.com/docs/auth) and
+  [Codex models](https://learn.chatgpt.com/docs/models) (no page date shown):
+  document Codex credential/cache handling, recommend API keys as the default
+  for automation, and describe model availability as dependent on rollout,
+  sign-in method, client, plan, and workspace. The authentication guide also
+  documents `codex-login.log` for direct `codex login` runs. It does not grant
+  blanket permission to use a Codex subscription credential through this
+  bridge or establish logging behavior for the pinned `@openai/codex` 0.154.0.
+- [API authentication](https://developers.openai.com/api/reference/overview#authentication),
+  [API data controls](https://developers.openai.com/api/docs/guides/your-data),
+  [Text to speech](https://developers.openai.com/api/docs/guides/text-to-speech),
+  and [Image generation](https://developers.openai.com/api/docs/guides/image-generation)
+  (no page dates shown): describe API-key/workload-identity authentication,
+  API-specific data controls, and separate Audio/Image API capabilities. Those
+  controls or capabilities cannot be assumed for this subscription bridge.
+  The API data-controls guide says API content is not used for model training by
+  default absent customer opt-in; default abuse-monitoring logs can contain
+  prompts/responses for up to 30 days, subject to stated exceptions, while
+  Zero Data Retention and Modified Abuse Monitoring require approval. These
+  API-specific terms do not automatically govern the subscription bridge,
+  intervening hosting relays, or their logs.
+- [API deprecations](https://developers.openai.com/api/docs/deprecations#2026-03-24-sora-2-video-generation-models-and-videos-api)
+  (notice dated 2026-03-24): Sora 2 and the Videos API shut down on 2026-09-24
+  with no replacement listed; a separate Platform connection is not a current
+  video workaround.
+- [Terms of Use](https://openai.com/policies/terms-of-use/),
+  [Europe Terms](https://openai.com/policies/eu-terms-of-use/),
+  [Services Agreement](https://openai.com/policies/services-agreement/),
+  [Service Terms](https://openai.com/policies/service-terms/), and
+  [Usage Policies](https://openai.com/policies/usage-policies/) (Terms effective
+  2026-01-01; Services Agreement updated 2025-12-01/effective 2026-01-01;
+  Service Terms updated 2026-09-21; Usage Policies effective 2025-10-29):
+  restrictions on account/credential sharing, programmatic extraction, and
+  bypassing limits or safeguards remain material. The exact permissibility of
+  this bridge is unresolved; a deployment confirmation or experimental label
+  does not answer it.
+- [Services Communications Privacy Policy](https://openai.com/policies/services-communications-privacy-policy/)
+  and [Europe Privacy Policy](https://openai.com/policies/eu-privacy-policy/)
+  (updated 2026-07-30 and 2026-08-24, respectively), plus
+  [ChatGPT supported countries](https://help.openai.com/en/articles/7947663-chatgpt-supported-countries)
+  and [API supported countries](https://help.openai.com/en/articles/5347006-openai-api-supported-countries-and-territories/)
+  (Help Center displayed “Updated: 2 months ago” and “Updated: last month”):
+  describe regional privacy/eligibility boundaries but do not establish an
+  account's actual processing location or eligibility.
+
+#### Findings by flow
+
+- **Identity and grants:** The Help Center's supported-partner flow is
+  identity-sharing, whereas the existing bridge starts Codex login on the
+  operator's host and copies the complete `auth.json` to a selected local
+  Docker volume or VPS over Docker stdin/SFTP. The wizard confirmation approves
+  that deployment action, not a provider grant. Relmio does not pass or inspect
+  the actual requested/granted scopes. The Codex documentation's cache-copy
+  pattern is not blanket approval for this separate third-party transport.
+- **Planner generation:** The browser submits provider/component identifiers,
+  deployment/profile metadata, and an authenticated same-origin session to
+  Relmio's local `/api/hosting/plan`. The server renders artifacts without
+  contacting provider accounts or persisting a plan. The browser keeps the
+  current plan and downloads files/ZIPs to the operator's computer. At
+  generation time the identifiable processing parties are the local browser
+  and Relmio server; clicking source links is a separate browser request.
+- **Operator-deployed relay:** The generated relay accepts a bounded JSON body
+  with minimal `model`/`messages` checks but forwards the entire accepted body.
+  It reads caller and upstream bearer secrets from server-side runtime secret
+  storage, sends the upstream bearer plus request body only to the fixed
+  configured HTTPS `/v1/chat/completions` origin, and returns successful
+  JSON/SSE content to the caller. It does not introspect the upstream
+  credential's type, provenance, or permission, or enforce `store=false`,
+  text-only payloads, tool permissions, or provider-model limits. Do not
+  configure it with ChatGPT/Codex/SuperGrok session credentials; use an
+  independently authorized upstream API credential.
+- **Cloudflare and search telemetry:** Generated Cloudflare relay artifacts
+  enable observability logs with `head_sampling_rate: 0.1` and traces with
+  `head_sampling_rate: 0.01`. The Cloudflare search route carries `q` in its
+  URL and also enables logs/traces. These settings mean queries and request
+  processing must not be described as “no logs” or “all data stays local.”
+  Exact fields captured, downstream log recipients, and retention are unknown.
+- **Models and runtime recipients:** Manual local-model profiles use Ollama
+  with `OLLAMA_NO_CLOUD=1`; this disables Ollama cloud inference, not runtime
+  image/model downloads or network use by n8n tools. Prompts go to the selected
+  model runtime; n8n may retain executions. Search queries may be sent to
+  configured search engines. Later deployed recipients include n8n/callers,
+  selected hosting and storage services, runtime/image/model registries, and
+  configured model/search providers. Planner generation itself makes none of
+  those deployment or inference calls.
+  For an operator-configured Daytona handoff, the later sandbox and separately
+  configured model provider receive the workflow/tool inputs; the operator
+  supplies those credentials in n8n's runtime secret store. Plan generation
+  does not contact either service.
+
+No new OpenAI scope or credential-copy path is added by the planner or
+generated relay. A deliberately OpenAI-API-backed relay must still use a
+separately authorized API credential and follow the user's applicable terms;
+this is not blanket permission for all upstreams. New provider deployments,
+model output, throughput, search, Daytona, provider entitlement, and TTS remain
+**NOT-RUN**. Actual platform log contents/retention, n8n execution retention,
+account-specific data controls, onward disclosures, scopes, and permission for
+the existing subscription bridge remain unknown. See
+[Hosting compatibility](hosting-compatibility.md) for operational boundaries.

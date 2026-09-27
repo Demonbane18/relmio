@@ -5,6 +5,20 @@ formula, upload a GitHub Release asset, create a WinGet pull request, or make
 external catalog decisions. Those actions happen in the separate tap and
 catalog repositories.
 
+## Stable and experimental channels
+
+The prerelease `0.18.0-experimental.1` is published to npm's `experimental`
+dist-tag; stable `0.17.5` remains `latest`, and hosted installers continue to
+use `relmio@latest`. Prerelease Windows x64 and arm64 ZIPs may be attached to
+the matching GitHub prerelease. They are versioned review artifacts, not a
+WinGet catalog release.
+
+Do not generate or submit a Homebrew formula or WinGet manifests for a
+prerelease. The candidate generator rejects prerelease versions for those
+catalogs. Generate the Homebrew candidate only for a stable release from the
+exact published npm tarball. WinGet remains unavailable until an upstream
+manifest pull request is merged and the catalog propagates it.
+
 ## Homebrew
 
 `scripts/generate-package-manager-manifests.js` produces a formula candidate

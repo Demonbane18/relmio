@@ -7,9 +7,6 @@ import { startWizardServer } from "../src/web/server.js";
 
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 
-const remote = {
-  close() {},
-};
 const previewCredentialUpdatedAt = new Date().toISOString();
 
 const services = {
@@ -26,8 +23,16 @@ const services = {
   async scanHostFingerprint() {
     return "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
   },
-  async connectVerified() {
-    return remote;
+  async connectVerified(request) {
+    return {
+      close() {},
+      identity: Object.freeze({
+        host: request.host, port: Number(request.port), fingerprint: request.expectedFingerprint,
+        username: request.username, authentication: request.useAgent ? "agent" : "password",
+        privilege: request.privilege, loginUid: request.privilege === "root" ? 0 : 1000, effectiveUid: 0,
+      }),
+      scope: request.privilege === "root" ? "vps" : "local-model-only",
+    };
   },
   async discoverN8n() {
     return {

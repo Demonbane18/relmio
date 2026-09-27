@@ -1,17 +1,20 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 
 import {
+  attestLocalDockerBuilder,
   createLocalDockerEnvironment,
   lockDownLocalPath,
   runWindowsAclCommand,
   runLocalProcess,
+  verifyWindowsDockerConfigPath,
   validateLocalDockerHost,
 } from "../src/infrastructure/local-process.js";
 
@@ -30,7 +33,9 @@ function inspectWindowsAcl(path) {
       "powershell.exe",
     );
     const script = [
-      "$path=[Console]::In.ReadToEnd()",
+      "$utf8=[System.Text.UTF8Encoding]::new($false,$true)",
+      "$reader=[System.IO.StreamReader]::new([Console]::OpenStandardInput(),$utf8,$false)",
+      "$path=$reader.ReadToEnd()",
       "$sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User",
       "$item=Get-Item -LiteralPath $path",
       "if($item.PSIsContainer){$acl=[System.IO.DirectoryInfo]::new($path).GetAccessControl()}else{$acl=[System.IO.FileInfo]::new($path).GetAccessControl()}",
@@ -46,7 +51,7 @@ function inspectWindowsAcl(path) {
     );
     let stdout = "";
     child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-    child.stdin.end(path);
+    child.stdin.end(path, "utf8");
     child.once("error", () => reject(new Error("Independent Windows ACL inspection could not start.")));
     child.once("close", (code) => {
       if (code !== 0) {
@@ -76,6 +81,57 @@ function assertExactOwnerOnlyAcl(actual, expectedInheritance) {
     inherited: false,
   });
 }
+
+function windowsPowerShellPath() {
+  return join(
+    process.env.SystemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+}
+
+function runConsoleCodePageCommand(script) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      windowsPowerShellPath(),
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+      { shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+    );
+    const chunks = [];
+    child.stdout.on("data", (chunk) => chunks.push(chunk));
+    child.once("error", () => reject(new Error("Console code page command could not start.")));
+    child.once("close", (code) => {
+      const text = Buffer.concat(chunks).toString("utf8").replaceAll("\0", "").trim();
+      if (code !== 0) reject(new Error("Console code page command failed."));
+      else resolve(text);
+    });
+  });
+}
+
+async function useLegacyConsoleCodePage(t) {
+  let previous = null;
+  try {
+    const output = await runConsoleCodePageCommand([
+      "try{$before=[Console]::InputEncoding.CodePage}catch{exit 2}",
+      "if($before -eq 0){exit 2}",
+      "[Console]::InputEncoding=[System.Text.Encoding]::GetEncoding(437)",
+      "[Console]::OutputEncoding=[System.Text.Encoding]::GetEncoding(437)",
+      "[Console]::Out.Write($before)",
+    ].join(";"));
+    previous = Number.parseInt(output, 10);
+  } catch {
+    previous = null;
+  }
+  if (Number.isInteger(previous)) {
+    t.after(() => runConsoleCodePageCommand([
+      `[Console]::InputEncoding=[System.Text.Encoding]::GetEncoding(${previous})`,
+      `[Console]::OutputEncoding=[System.Text.Encoding]::GetEncoding(${previous})`,
+    ].join(";")).catch(() => {}));
+  }
+}
+
 
 function createFakeChild(onSpawn = () => {}, { closeOnKill = true } = {}) {
   const child = new EventEmitter();
@@ -208,6 +264,8 @@ test("local process runner pins Docker to the validated local host and sanitizes
         DOCKER_TLS_VERIFY: "1",
         DOCKER_CERT_PATH: "/tmp/remote-certificates",
         BUILDKIT_HOST: "tcp://attacker.example.test:1234",
+        BUILDX_BUILDER: "remote-ci",
+        BUILDX_CONFIG: "/tmp/remote-builder-state",
         NGROK_AUTHTOKEN: "stale-shell-token",
         compose_file: "/tmp/unreviewed-compose.yml",
       },
@@ -238,6 +296,93 @@ test("local process runner pins Docker to the validated local host and sanitizes
     stdio: ["pipe", "pipe", "pipe"],
     windowsHide: true,
   });
+});
+
+test("a model build pins its reviewed default builder despite inherited process selectors", async () => {
+  let invocation;
+  const cwd = join(tmpdir(), "synthetic-model-home"), config = join(cwd, ".docker");
+  await runLocalProcess({
+    file: "docker",
+    args: ["compose", "--project-name", "reviewed", "build", "--builder", "default", "acquisition"],
+    cwd, dockerHost: RUNNER_DOCKER_HOST, attestedDockerConfig: config,
+  }, {
+    environment: { PATH: "/usr/bin", BUILDX_BUILDER: "remote-ci", BUILDX_CONFIG: "/tmp/remote",
+      DOCKER_CONFIG: "/tmp/foreign", DOCKER_BUILDKIT: "0", COMPOSE_BAKE: "true" },
+    spawnProcess(file, args, options) {
+      invocation = { file, args, options };
+      return createFakeChild(child => closeChild(child, 0));
+    },
+  });
+  assert.deepEqual(invocation.args.slice(0, 2), ["--host", RUNNER_DOCKER_HOST]);
+  assert.deepEqual(invocation.options.env, { PATH: "/usr/bin", DOCKER_BUILDKIT: "1",
+    DOCKER_CONFIG: config, BUILDX_BUILDER: "default", COMPOSE_BAKE: "false" });
+  await runLocalProcess({
+    file: "docker", args: ["compose", "--profile", "acquisition", "run", "-d", "acquisition"],
+    cwd, dockerHost: RUNNER_DOCKER_HOST, attestedDockerConfig: config,
+  }, {
+    environment: { BUILDX_BUILDER: "remote-ci", BUILDX_CONFIG: "/synthetic/remote" },
+    spawnProcess(file, args, options) {
+      invocation = { file, args, options };
+      return createFakeChild(child => closeChild(child, 0));
+    },
+  });
+  assert.deepEqual(invocation.options.env, { DOCKER_CONFIG: config, BUILDX_BUILDER: "default",
+    DOCKER_BUILDKIT: "1", COMPOSE_BAKE: "false" });
+  await assert.rejects(() => runLocalProcess({
+    file: "docker", args: ["compose", "build", "acquisition"],
+    cwd, dockerHost: RUNNER_DOCKER_HOST, attestedDockerConfig: config,
+  }, { spawnProcess() { throw new Error("Unexpected build"); } }), /attested default Docker builder/u);
+});
+
+test("saved Buildx selectors and shadowed default reject without touching saved config", async t => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "relmio-builder-test-")));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const directory = join(home, ".docker", "buildx");
+  await mkdir(join(directory, "defaults"), { recursive: true });
+  await mkdir(join(directory, "instances"));
+  const key = createHash("sha256").update(RUNNER_DOCKER_HOST).digest("hex").slice(0, 20);
+  const current = join(directory, "current"), fallback = join(directory, "defaults", key);
+  const options = { fileSystem: await import("node:fs/promises"), environment: {}, homeDirectory: home,
+    verifyDockerAcl: async () => {} };
+  assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
+  await writeFile(current, JSON.stringify({ Key: RUNNER_DOCKER_HOST, Name: "remote-ci", Global: false }));
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), /default Docker builder/u);
+  assert.match(await readFile(current, "utf8"), /remote-ci/u);
+  await writeFile(current, JSON.stringify({ Key: RUNNER_DOCKER_HOST, Name: "default", Global: false }));
+  await writeFile(fallback, "remote-ci");
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), /default Docker builder/u);
+  await writeFile(fallback, "default");
+  assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
+  await writeFile(join(directory, "instances", "default"), "{}");
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), /default Docker builder/u);
+  await rm(join(directory, "instances", "default"));
+  await rm(current);
+  if (process.platform !== "win32") {
+    await symlink(fallback, current);
+    await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), /default Docker builder/u);
+  }
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST,
+    { ...options, environment: { [process.platform === "win32" ? "USERPROFILE" : "HOME"]: join(tmpdir(), "different-home") } }), /configuration location changed/u);
+});
+
+test("existing Windows Docker ACL accepts inherited trusted owners but rejects untrusted modification", async () => {
+  const user = "S-1-5-21-100-200-300-1001";
+  const base = { owner: user, current: user, rules: [
+    { sid: user, rights: 2032127, type: 0 },
+    { sid: "S-1-5-18", rights: 2032127, type: 0 },
+    { sid: "S-1-5-32-544", rights: 2032127, type: 0 },
+    { sid: "S-1-1-0", rights: 131209, type: 0 },
+  ] };
+  const verify = acl => verifyWindowsDockerConfigPath("C:\\Users\\fixture\\.docker", {
+    systemRoot: "C:\\Windows",
+    runAclCommand: async () => ({ stdout: JSON.stringify(acl) }),
+  });
+  await verify(base);
+  await assert.rejects(() => verify({ ...base, rules: [...base.rules,
+    { sid: "S-1-1-0", rights: 278, type: 0 }] }), /ACL permits an untrusted builder change/u);
+  await assert.rejects(() => verify({ ...base, owner: "S-1-5-21-400-500-600-1002" }),
+    /ACL permits an untrusted builder change/u);
+  await assert.rejects(() => verify({ ...base, rules: [] }), /ACL permits an untrusted builder change/u);
 });
 
 test("local Docker environments remove managed interpolation and Compose controls case-insensitively", () => {
@@ -590,6 +735,75 @@ test(
     );
   },
 );
+
+test(
+  "Windows ACL lockdown protects the exact non-ASCII path supplied on stdin",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    await useLegacyConsoleCodePage(t);
+    const directory = await mkdtemp(join(tmpdir(), "relmio-acl-utf8-"));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const unicodeDirectory = join(directory, "caf\u00e9_\u6771\u4eac_\u{1F600}");
+    await mkdir(unicodeDirectory);
+    const credentialPath = join(
+      unicodeDirectory,
+      "Jos\u00e9_\u65e5\u672c_\u{1D11E}_$';[]().json",
+    );
+    await writeFile(credentialPath, "{}", "utf8");
+    const before = await inspectWindowsAcl(credentialPath);
+    assert.equal(before.accessRulesProtected, false, JSON.stringify(before));
+
+    await lockDownLocalPath(credentialPath, { platform: "win32", kind: "file" });
+    await lockDownLocalPath(credentialPath, {
+      platform: "win32",
+      kind: "file",
+      verifyOnly: true,
+    });
+    await lockDownLocalPath(credentialPath, {
+      platform: "win32",
+      kind: "file",
+      verifyOnly: true,
+      verifyEffectiveOwnerOnly: true,
+    });
+    assertExactOwnerOnlyAcl(await inspectWindowsAcl(credentialPath), 0);
+
+    await lockDownLocalPath(unicodeDirectory, { platform: "win32" });
+    await lockDownLocalPath(unicodeDirectory, {
+      platform: "win32",
+      verifyOnly: true,
+    });
+    assertExactOwnerOnlyAcl(await inspectWindowsAcl(unicodeDirectory), 3);
+
+    const inheritedPath = join(
+      unicodeDirectory,
+      "Jos\u00e9_\u65e5\u672c_\u{1F600}_$';[]().json",
+    );
+    await writeFile(inheritedPath, "{}", "utf8");
+    await assert.rejects(
+      () => lockDownLocalPath(inheritedPath, {
+        platform: "win32",
+        kind: "file",
+        verifyOnly: true,
+      }),
+      /owner-only protection/u,
+    );
+    await lockDownLocalPath(inheritedPath, {
+      platform: "win32",
+      kind: "file",
+      verifyOnly: true,
+      verifyEffectiveOwnerOnly: true,
+    });
+    const inherited = await inspectWindowsAcl(inheritedPath);
+    const inheritedDiagnostic = JSON.stringify(inherited);
+    assert.equal(inherited.accessRulesProtected, false, inheritedDiagnostic);
+    assert.equal(inherited.rules.length, 1, inheritedDiagnostic);
+    assert.equal(inherited.rules[0].identity, "current-user", inheritedDiagnostic);
+    assert.equal(inherited.rules[0].accessType, 0, inheritedDiagnostic);
+    assert.equal(inherited.rules[0].rights, 2_032_127, inheritedDiagnostic);
+    assert.equal(inherited.rules[0].inherited, true, inheritedDiagnostic);
+  },
+);
+
 
 test("local process runner rejects executable, argument, and Docker host injection", async () => {
   for (const input of [

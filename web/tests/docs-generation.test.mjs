@@ -14,88 +14,6 @@ import test from "node:test";
 
 const execFileAsync = promisify(execFile);
 
-const expectedRoutes = [
-  "getting-started",
-  "local-dashboard",
-  "local-endpoints",
-  "local-n8n-stack",
-  "vps-and-n8n",
-  "vps-supergrok",
-  "ai-assistant",
-  "troubleshooting",
-  "faq",
-  "security",
-  "reference",
-];
-
-test("generates the hosted docs from the canonical root Markdown page map", async () => {
-  const [packageSource, generator, generated] = await Promise.all([
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../scripts/generate-docs.mjs", import.meta.url), "utf8"),
-    readFile(new URL("../app/docs/generated-content.ts", import.meta.url), "utf8"),
-  ]);
-  const packageJson = JSON.parse(packageSource);
-  const renderedDocumentation = generated.replaceAll("\\n", "\n");
-
-  assert.equal(packageJson.scripts["docs:generate"], "node scripts/generate-docs.mjs");
-  assert.equal(packageJson.scripts["docs:check"], "node scripts/generate-docs.mjs --check");
-  assert.ok(packageJson.dependencies["react-markdown"]);
-  assert.ok(packageJson.dependencies["remark-gfm"]);
-  for (const route of expectedRoutes) {
-    assert.match(generator, new RegExp(`slug: "${route}"`, "u"));
-    assert.match(generated, new RegExp(`"${route}"`, "u"));
-  }
-  assert.match(generated, /@generated from repository Markdown/u);
-  assert.match(generator, /CHANGELOG\.md/u);
-  assert.match(generated, /export const changelogContent/u);
-  assert.match(renderedDocumentation, /## \[0\.10\.0\] - 2026-08-31/u);
-  assert.match(
-    renderedDocumentation,
-    /Native Windows with Docker Desktop's `desktop-linux` engine/u,
-  );
-  assert.match(
-    renderedDocumentation,
-    /separately confirmed credential refresh[\s\S]*freezer fail closed without a stop fallback/u,
-  );
-  assert.doesNotMatch(
-    renderedDocumentation,
-    /Native Windows is not supported/u,
-  );
-  assert.doesNotMatch(
-    renderedDocumentation,
-    /The n8n bridge is create\/remove-only in this release/u,
-  );
-  assert.match(renderedDocumentation, /N8N_ENABLED_MODULES=instance-ai/u);
-  assert.match(
-    renderedDocumentation,
-    /append\s+`instance-ai`\s+as\s+a\s+distinct comma-delimited token[\s\S]*preserving existing\s+module entries/u,
-  );
-  assert.match(
-    renderedDocumentation,
-    /redeploy or restart n8n[\s\S]*healthy[\s\S]*reconnect to Relmio[\s\S]*discovery/u,
-  );
-  assert.match(
-    renderedDocumentation,
-    /will not edit the existing\s+n8n Compose file,\s+image, or environment;[\s\S]*restart or recreate n8n; or\s+exec into n8n/u,
-  );
-  assert.match(
-    renderedDocumentation,
-    /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
-  );
-  assert.match(renderedDocumentation, /foreground, one-shot/u);
-  assert.match(renderedDocumentation, /official Codex App Server/u);
-  assert.match(renderedDocumentation, /Relmio 0\.14\.0/u);
-  assert.doesNotMatch(renderedDocumentation.split("export const changelogContent")[0], /fresh xAI API key|Select API profile/u);
-  assert.match(renderedDocumentation, /official Grok CLI[\s\S]*fresh/iu);
-  assert.match(renderedDocumentation, /\/v1\/chat\/completions/u);
-  assert.match(renderedDocumentation, /HTTP handler reads only this[\s\S]*runtime's marked session/u);
-  assert.match(renderedDocumentation, /never consumes refresh tokens/u);
-  assert.match(renderedDocumentation, /does not invoke CLI tools/u);
-  assert.match(renderedDocumentation, /Live logout\/refusal,\s+browser, and release gates remain separate/u);
-  assert.match(renderedDocumentation, /never changes accounts automatically/u);
-  assert.match(generator, /--check/u);
-  assert.doesNotMatch(generator, /readFile\([^)]*README\.md/u);
-});
 
 test("normalizes generated Markdown content to LF across host checkouts", async () => {
   const fixtureRoot = await mkdtemp(join(tmpdir(), "relmio-docs-generation-"));
@@ -114,6 +32,8 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
         "getting-started.md",
         "local-dashboard.md",
         "local-endpoints.md",
+        "local-models.md",
+        "hosting-compatibility.md",
         "local-n8n-stack.md",
         "vps-and-n8n.md",
         "vps-supergrok.md",

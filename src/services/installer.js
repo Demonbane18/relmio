@@ -7,6 +7,9 @@ import {
   SHARED_ROOT_MARKER_CONTENT,
   SHARED_ROOT_MARKER_PATH,
   SIDECAR_MARKER_CONTENT,
+  SIDECAR_BUILD_IGNORE_PATH,
+  SIDECAR_BUILD_IGNORE_CONTENT,
+  SIDECAR_BUILD_IGNORE_GUARD,
   assertSidecarOnlyCommands,
   createDeploymentCommands,
   createVerificationCommands,
@@ -17,6 +20,8 @@ import {
   createDockerfile,
 } from "../domain/templates.js";
 
+import { VPS_OPERATION_LOCKS } from "../domain/vps-build-state.js";
+import { withVpsOperationLock } from "./vps-operation-lock.js";
 const MAX_AUTH_FILE_BYTES = 128 * 1024;
 function validateAuthContents(contents) {
   if (!Buffer.isBuffer(contents)) {
@@ -189,10 +194,11 @@ function hasPublishedHostPort(output) {
 
 async function failPublicationSafetyCheck(remote, cleanupCommand, reason) {
   let cleanupSucceeded = false;
+  let outcomeUnknown = false;
   try {
     cleanupSucceeded = (await remote.exec(cleanupCommand)).code === 0;
-  } catch {
-    cleanupSucceeded = false;
+  } catch (error) {
+    outcomeUnknown = error?.remoteOutcomeUnknown === true;
   }
   if (!cleanupSucceeded) {
     throw Object.assign(
@@ -202,6 +208,7 @@ async function failPublicationSafetyCheck(remote, cleanupCommand, reason) {
       {
         safeMessage:
           "Automatic cleanup could not be confirmed. Do not use the sidecar until an administrator confirms its removal.",
+        ...(outcomeUnknown ? { remoteOutcomeUnknown: true } : {}),
       },
     );
   }
@@ -231,6 +238,7 @@ export async function installSidecar({
 
   assertSidecarOnlyCommands([
     PRECHECK_COMMAND,
+    SIDECAR_BUILD_IGNORE_GUARD,
     ...deploymentCommands,
     ...Object.values(verification),
   ]);
@@ -252,10 +260,21 @@ export async function installSidecar({
     precheckState === "managed" ? "updated" : "installed";
 
   await runOrThrow(remote, deploymentCommands[0], "Sidecar directory creation");
-  await runOrThrow(remote, deploymentCommands[1], "Auth directory creation");
+  await runOrThrow(remote, `[ ! -L ${SHARED_ROOT_MARKER_PATH} ] && if [ ! -e ${SHARED_ROOT_MARKER_PATH} ]; then (umask 077; set -C; printf '%s\\n' '${SHARED_ROOT_MARKER_CONTENT.trim()}' > ${SHARED_ROOT_MARKER_PATH}); fi`, "Shared root marker creation");
+  return withVpsOperationLock(remote, VPS_OPERATION_LOCKS.oauth, build => deploySidecar({
+    remote, build, deploymentCommands, verification, dockerfile, sidecarRuntime,
+    composeFile, safeAuthContents, deploymentMode,
+  }));
+}
 
-  await remote.upload(SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT, 0o600);
+async function deploySidecar({
+  remote, build, deploymentCommands, verification, dockerfile, sidecarRuntime,
+  composeFile, safeAuthContents, deploymentMode,
+}) {
+  await runOrThrow(remote, SIDECAR_BUILD_IGNORE_GUARD, "Sidecar build-context ownership check");
+  await runOrThrow(remote, deploymentCommands[1], "Auth directory creation");
   await remote.upload(MANAGED_MARKER_PATH, SIDECAR_MARKER_CONTENT, 0o644);
+  await remote.upload(SIDECAR_BUILD_IGNORE_PATH, SIDECAR_BUILD_IGNORE_CONTENT, 0o644);
   await remote.upload(`${INSTALL_ROOT}/Dockerfile`, dockerfile, 0o644);
   await remote.upload(`${INSTALL_ROOT}/openai-oauth-sidecar.mjs`, sidecarRuntime, 0o644);
   await remote.upload(
@@ -270,7 +289,8 @@ export async function installSidecar({
   );
 
   for (const command of deploymentCommands.slice(2)) {
-    await runOrThrow(remote, command, "Sidecar deployment");
+    if (command === deploymentCommands[5]) await build(command);
+    else await runOrThrow(remote, command, "Sidecar deployment");
   }
 
   const running = await runOrThrow(
@@ -285,7 +305,11 @@ export async function installSidecar({
   let publication;
   try {
     publication = await remote.exec(verification.publicationState);
-  } catch {
+  } catch (error) {
+    if (error?.remoteOutcomeUnknown === true) {
+      const message = "The published-port safety check could not be completed over the VPS connection.";
+      throw Object.assign(new Error(message), { safeMessage: message, remoteOutcomeUnknown: true });
+    }
     await failPublicationSafetyCheck(
       remote,
       verification.cleanup,
@@ -320,9 +344,12 @@ export async function installSidecar({
   let models;
   try {
     models = await remote.exec(verification.models);
-  } catch {
+  } catch (error) {
     const message = "Relmio could not complete model verification over the VPS connection. The existing n8n deployment was not changed.";
-    throw Object.assign(new Error(message), { safeMessage: message });
+    throw Object.assign(new Error(message), {
+      safeMessage: message,
+      ...(error?.remoteOutcomeUnknown === true ? { remoteOutcomeUnknown: true } : {}),
+    });
   }
   if (models.code !== 0) throw modelCheckFailure(models);
 

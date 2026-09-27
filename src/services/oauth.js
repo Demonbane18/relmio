@@ -2,6 +2,7 @@ import * as defaultFileSystem from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { connect } from "node:net";
 import { homedir } from "node:os";
+import { performance } from "node:perf_hooks";
 import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { lockDownLocalPath } from "../infrastructure/local-process.js";
@@ -16,12 +17,14 @@ const PROCESS_TERMINATION_FORCE_WAIT_MS = 1_000;
 const TERMINATION_UNCONFIRMED_MESSAGE =
   "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
 const CODEX_LOGIN_PACKAGE = "@openai/codex@0.154.0";
-// The official Codex login registers only this loopback redirect port.
+// The pinned Codex login defaults to 1455 and can fall back to registered port 1457.
 const OAUTH_CALLBACK_PORT = 1455;
 const OAUTH_CALLBACK_HOSTS = Object.freeze(["127.0.0.1", "::1"]);
 const CALLBACK_PORT_PROBE_TIMEOUT_MS = 500;
 const CALLBACK_PORT_IN_USE_MESSAGE =
-  "Another app is already using localhost:1455, the ChatGPT sign-in callback, and would take this sign-in. Close other ChatGPT or Codex apps, sign-in pages, and extensions, then retry.";
+  "Another app is already using localhost:1455, the ChatGPT sign-in callback, and could interfere with this sign-in. Close other ChatGPT or Codex apps, sign-in pages, and extensions, then retry.";
+const CALLBACK_PORT_UNKNOWN_MESSAGE =
+  "ChatGPT sign-in could not verify its local callback port. Check local security or network settings, then retry.";
 
 const wait = (milliseconds) =>
   new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -62,25 +65,32 @@ function probeLoopbackListener(host, port, { connectSocket, timeoutMs }) {
     let socket;
     let timer;
     let settled = false;
-    const finish = (listening) => {
+    const finish = (result) => {
       if (settled) {
         return;
       }
       settled = true;
       clearTimeout(timer);
       socket?.destroy();
-      resolvePromise(listening);
+      resolvePromise(result);
     };
     try {
       socket = connectSocket({ host, port });
+      socket.once("connect", () => finish("occupied"));
+      socket.once("error", (error) => {
+        if (error?.code === "ECONNREFUSED") {
+          finish("free");
+        } else if (host === "::1" && error?.code === "EAFNOSUPPORT") {
+          // An unsupported IPv6 address family cannot receive localhost traffic.
+          finish("unavailable");
+        } else {
+          finish("unknown");
+        }
+      });
+      timer = setTimeout(() => finish("unknown"), timeoutMs);
     } catch {
-      finish(false);
-      return;
+      finish("unknown");
     }
-    // A missing IPv6 loopback or refused connection both mean no listener.
-    socket.once("connect", () => finish(true));
-    socket.once("error", () => finish(false));
-    timer = setTimeout(() => finish(false), timeoutMs);
   });
 }
 
@@ -101,7 +111,13 @@ export async function isOAuthCallbackPortInUse({
       }),
     ),
   );
-  return results.includes(true);
+  if (results.includes("occupied")) {
+    return true;
+  }
+  if (results.includes("unknown")) {
+    throw new Error(CALLBACK_PORT_UNKNOWN_MESSAGE);
+  }
+  return false;
 }
 
 export function resolveAuthPath({
@@ -308,6 +324,11 @@ export async function startOAuthLogin({
   let resolveProcessClose;
   let rejectProcessClose;
   let processCloseSettled = false;
+  let processActuallyClosed = false;
+  let resolveActualClose;
+  const actualClosePromise = new Promise((resolvePromise) => {
+    resolveActualClose = resolvePromise;
+  });
   const processClosePromise = new Promise((resolvePromise, rejectPromise) => {
     resolveProcessClose = resolvePromise;
     rejectProcessClose = rejectPromise;
@@ -331,6 +352,8 @@ export async function startOAuthLogin({
     settleProcessClose(error);
   });
   child.once("close", (code) => {
+    processActuallyClosed = true;
+    resolveActualClose();
     settleProcessClose(null, code);
   });
 
@@ -470,11 +493,26 @@ export async function startOAuthLogin({
             return false;
           }
         };
+        const terminationStartedAt = performance.now();
         if (
           (await runTaskkill(false, terminationGraceMs)) ||
           (await runTaskkill(true, terminationForceWaitMs))
         ) {
-          return;
+          // A successful taskkill alone does not confirm that the original child closed.
+          if (
+            processActuallyClosed ||
+            (await waitForBoundedResult(
+              actualClosePromise,
+              Math.max(
+                0,
+                terminationGraceMs +
+                  terminationForceWaitMs -
+                  (performance.now() - terminationStartedAt),
+              ),
+            ))
+          ) {
+            return;
+          }
         }
       } else if (hasChildPid) {
         const processGroupIsGone = () => {
@@ -515,9 +553,9 @@ export async function startOAuthLogin({
           // The process may have already exited before cancellation.
         }
         if (
-          processCloseSettled ||
+          processActuallyClosed ||
           (await waitForBoundedResult(
-            processClosePromise,
+            actualClosePromise,
             terminationGraceMs,
           ))
         ) {
@@ -529,9 +567,9 @@ export async function startOAuthLogin({
           // The direct child is only a last resort when no PID is available.
         }
         if (
-          processCloseSettled ||
+          processActuallyClosed ||
           (await waitForBoundedResult(
-            processClosePromise,
+            actualClosePromise,
             terminationForceWaitMs,
           ))
         ) {
@@ -657,7 +695,7 @@ export async function startOAuthLogin({
       }
       const committedBeforeFailure =
         !completedSuccessfully && promotionPhase === "committed";
-      if (!processCloseSettled) {
+      if (!processActuallyClosed) {
         await terminateProcessTree();
       }
       try {

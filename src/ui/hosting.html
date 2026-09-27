@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Choose hosting, review a manual plan, and download files without deploying anything." />
+    <title>Relmio | Hosting options</title>
+    <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/hosting.css" />
+    <script src="/session-bootstrap.js"></script>
+    <script src="/theme.js" type="module"></script>
+    <script src="/hosting.js" type="module"></script>
+  </head>
+  <body class="hosting-page">
+    <a class="skip-link" href="#main-content">Skip to hosting options</a>
+    <header class="site-header">
+      <div class="brand"><img class="brand-mark" src="/relmio-icon.png" alt="" width="28" height="28" /><span>Relmio</span></div>
+      <div class="header-actions">
+        <a id="back-link" class="button ghost">All n8n connections</a>
+        <fieldset class="theme-picker">
+          <legend class="visually-hidden">Color theme</legend>
+          <label title="Use system appearance"><input type="radio" name="color-theme" value="system" checked /><span class="theme-icon theme-icon-system" aria-hidden="true"></span><span class="visually-hidden">System</span></label>
+          <label title="Use light appearance"><input type="radio" name="color-theme" value="light" /><span class="theme-icon theme-icon-light" aria-hidden="true"></span><span class="visually-hidden">Light</span></label>
+          <label title="Use dark appearance"><input type="radio" name="color-theme" value="dark" /><span class="theme-icon theme-icon-dark" aria-hidden="true"></span><span class="visually-hidden">Dark</span></label>
+        </fieldset>
+      </div>
+    </header>
+    <main id="main-content" class="hosting-layout" tabindex="-1">
+      <section class="hosting-intro panel" aria-labelledby="page-title">
+        <p class="panel-kicker">Hosting</p>
+        <h1 id="page-title">Hosting options</h1>
+        <aside class="experimental-notice" aria-labelledby="hosting-experimental-title">
+          <strong id="hosting-experimental-title">Experimental release · 0.18.0-experimental.1</strong>
+          <p>New hosting options and local models haven't been tested on live setups. Try them on a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
+        </aside>
+        <p>See which setups Relmio can guide you through, and which need manual files or another service. Creating a plan checks no server or Docker state and makes no remote changes.</p>
+        <p>Choose a hosting provider and component below.</p>
+        <p id="hosting-status" role="status" aria-live="polite">Loading hosting options…</p>
+        <p id="hosting-error" class="hosting-error" role="alert" tabindex="-1" hidden></p>
+      </section>
+
+      <section class="panel" aria-labelledby="matrix-title">
+        <div class="panel-heading"><h2 id="matrix-title">What is available?</h2><p>Managed opens a Relmio setup with checks and a final confirmation before installation. Manual gives you files to apply yourself; external needs another service. Availability depends on your account and setup.</p></div>
+        <div class="hosting-table-wrap"><table class="hosting-matrix"><thead><tr><th scope="col">Hosting</th><th scope="col">Model</th><th scope="col">OpenAI</th><th scope="col">Assistant</th><th scope="col">SearXNG</th><th scope="col">SuperGrok</th><th scope="col">Endpoint</th></tr></thead><tbody id="hosting-matrix"></tbody></table></div>
+      </section>
+
+      <section class="panel" aria-labelledby="selection-title">
+        <div class="panel-heading"><h2 id="selection-title">Choose hosting</h2><p>Do not enter passwords, API keys, tokens, or private keys.</p></div>
+        <form id="hosting-form">
+          <div class="hosting-fields">
+            <label class="field"><span>Hosting provider</span><select id="hosting-provider" required disabled></select></label>
+            <label class="field"><span>What to set up</span><select id="hosting-component" required disabled></select></label>
+          </div>
+          <p id="hosting-hint" class="hosting-hint"></p>
+          <p id="hosting-capability" class="hosting-hint"></p>
+          <div id="hosting-sources" class="hosting-sources" aria-label="Official provider sources"></div>
+          <div id="hosting-model-wrap" class="hosting-fields" hidden><label class="field"><span>Allowlisted model</span><select id="hosting-model" disabled></select><small>Model downloads, storage, memory, entitlement and live inference must be checked separately.</small></label></div>
+          <div id="hosting-inputs" class="hosting-fields"></div>
+          <p id="hosting-limits" class="hosting-hint"></p>
+          <div class="actions"><a id="hosting-managed-link" class="button secondary" hidden>Open managed setup</a><button id="hosting-generate" class="button primary" type="submit" disabled>Review the plan</button></div>
+        </form>
+      </section>
+
+      <section id="hosting-review" class="panel hosting-review" aria-labelledby="review-title" hidden>
+        <div class="panel-heading"><p class="panel-kicker">Manual files · not live tested</p><h2 id="review-title" tabindex="-1">Review the plan</h2><p id="hosting-summary"></p></div>
+        <p class="hosting-boundary">Relmio does not apply these files. Read the requirements, settings, limitations, and steps before using them in your provider account. Do not apply them to your existing n8n definition.</p>
+        <dl id="hosting-review-facts" class="hosting-facts"></dl>
+        <div class="hosting-review-grid">
+          <section><h3>Requirements</h3><ul id="hosting-requirements"></ul></section>
+          <section><h3>Limitations</h3><ul id="hosting-limitations"></ul></section>
+          <section><h3>Ordered steps</h3><ol id="hosting-steps"></ol></section>
+          <section><h3>Provider settings</h3><dl id="hosting-settings" class="hosting-facts"></dl></section>
+        </div>
+        <section><h3>Connection details</h3><pre id="hosting-connection" class="hosting-code"></pre></section>
+        <section><h3>Reviewed sources</h3><div id="hosting-plan-sources" class="hosting-sources"></div></section>
+        <section aria-labelledby="hosting-files-title">
+          <h3 id="hosting-files-title">Download files</h3>
+          <p>Download the complete ZIP to keep folders such as <code>api/</code>, <code>src/</code>, and <code>netlify/functions/</code> with hidden configuration files.</p>
+          <button id="hosting-download-bundle" class="button primary" type="button">Download files (ZIP)</button>
+          <p>Individual downloads replace each path separator with <code>__</code> in the filename. Restore the displayed relative path before using a file; use the ZIP to keep folders intact.</p>
+          <div id="hosting-files" class="hosting-files"></div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>

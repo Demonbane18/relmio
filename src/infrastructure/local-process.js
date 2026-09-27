@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { isAbsolute, win32 as windowsPath } from "node:path";
+import { createHash } from "node:crypto";
+import * as defaultFileSystem from "node:fs/promises";
+import { dirname, isAbsolute, join, resolve, win32 as windowsPath } from "node:path";
 
 const DEFAULT_TIMEOUT_MS = 180_000;
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000;
@@ -16,6 +18,8 @@ const WINDOWS_PATH_PROTECTION_ERROR =
 const WINDOWS_DOCKER_DESKTOP_LINUX_ENGINE =
   "npipe:////./pipe/dockerDesktopLinuxEngine";
 const DOCKER_SELECTION_ENVIRONMENT_VARIABLES = new Set([
+  "BUILDX_BUILDER",
+  "BUILDX_CONFIG",
   "BUILDKIT_HOST",
   "DOCKER_CERT_PATH",
   "DOCKER_CONFIG",
@@ -110,6 +114,122 @@ export function createLocalDockerEnvironment(environment = process.env) {
     }
   }
   return sanitized;
+}
+
+// Existing Windows Docker profiles normally inherit SYSTEM/Administrators ACLs.
+// Inspect them without changing ownership or ACLs; only untrusted write access
+// (including an untrusted owner) makes a saved builder selector unsafe.
+export async function verifyWindowsDockerConfigPath(location, {
+  kind = "directory",
+  runAclCommand = runWindowsAclCommand,
+  systemRoot = process.env.SystemRoot,
+} = {}) {
+  validateWindowsPath(location);
+  if (!["directory", "file"].includes(kind)) throw new TypeError("Invalid Docker configuration path kind.");
+  const powershell = resolveWindowsPowerShell(systemRoot);
+  const script = [
+    "$utf8=[System.Text.UTF8Encoding]::new($false,$true)",
+    "$reader=[System.IO.StreamReader]::new([Console]::OpenStandardInput(),$utf8,$false)",
+    "$path=$reader.ReadToEnd()",
+    "$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()",
+    "$current=$identity.User.Value",
+    `$item=[System.IO.${kind === "directory" ? "DirectoryInfo" : "FileInfo"}]::new($path)`,
+    "if($item.PSObject.Methods.Name -contains 'GetAccessControl'){$acl=$item.GetAccessControl()}else{$acl=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
+    "$rules=@($acl.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier])|ForEach-Object{[ordered]@{sid=$_.IdentityReference.Value;rights=[int]$_.FileSystemRights;type=[int]$_.AccessControlType}})",
+    "$owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value",
+    "[ordered]@{owner=$owner;current=$current;rules=$rules}|ConvertTo-Json -Compress -Depth 4",
+  ].join(";");
+  let acl;
+  try {
+    const result = await runAclCommand(powershell,
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { input: location });
+    acl = JSON.parse(result.stdout);
+  } catch {
+    throw new Error("The existing Docker configuration ACL cannot be verified.");
+  }
+  const trusted = new Set([acl?.current, "S-1-5-18", "S-1-5-32-544"]);
+  const writeRights = 278 | 64 | 65536 | 262144 | 524288;
+  if (!/^S-1-[0-9-]+$/u.test(acl?.current) || !trusted.has(acl?.owner) ||
+      !Array.isArray(acl.rules) || acl.rules.length === 0 || acl.rules.length > 256 ||
+      acl.rules.some(rule => !/^S-1-[0-9-]+$/u.test(rule?.sid) ||
+        !Number.isInteger(rule.rights) || ![0, 1].includes(rule.type) ||
+        (rule.type === 0 && !trusted.has(rule.sid) && ((rule.rights >>> 0) & writeRights) !== 0))) {
+    throw new Error("The existing Docker configuration ACL permits an untrusted builder change.");
+  }
+}
+
+// Buildx inspect initializes state and may expose nodegroup credentials.
+// Only read its bounded selectors; never change the user's saved selection.
+export async function attestLocalDockerBuilder(dockerHost, {
+  fileSystem = defaultFileSystem,
+  environment = process.env,
+  homeDirectory,
+  platform = process.platform,
+  verifyDockerAcl = verifyWindowsDockerConfigPath,
+} = {}) {
+  validateLocalDockerHost(dockerHost, { platform });
+  const path = platform === "win32" ? windowsPath : { dirname, isAbsolute, join, resolve };
+  if (typeof homeDirectory !== "string" || !path.isAbsolute(homeDirectory) ||
+      homeDirectory.includes("\0") || path.resolve(homeDirectory) !== homeDirectory) {
+    throw new Error("The Docker configuration location is not safe for a model build.");
+  }
+  const configuredHome = platform === "win32" ? environment.USERPROFILE : environment.HOME;
+  if (configuredHome && (platform === "win32"
+    ? path.resolve(configuredHome).toLowerCase() !== homeDirectory.toLowerCase()
+    : path.resolve(configuredHome) !== homeDirectory)) {
+    throw new Error("The Docker configuration location changed. Review again.");
+  }
+  const unsafe = () => new Error("The built-in default Docker builder cannot be attested; no model build was started.");
+  const uid = platform === "win32" ? null : process.getuid();
+  async function entry(location) {
+    try { return await fileSystem.lstat(location); }
+    catch (error) { if (error?.code === "ENOENT") return null; throw unsafe(); }
+  }
+  async function safeDirectory(location, { owned = true } = {}) {
+    const item = await entry(location);
+    if (!item) return false;
+    if (!item.isDirectory() || item.isSymbolicLink() ||
+        (uid !== null && (((item.mode & 0o022) !== 0 &&
+          !(owned === false && item.uid === 0 && (item.mode & 0o1000) !== 0)) ||
+          (owned && item.uid !== uid)))) throw unsafe();
+    if (platform === "win32" && owned) {
+      try { await verifyDockerAcl(location); } catch { throw unsafe(); }
+    }
+    return true;
+  }
+  let ancestor = homeDirectory;
+  while (true) {
+    if (!await safeDirectory(ancestor, { owned: ancestor === homeDirectory })) throw unsafe();
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) break;
+    ancestor = parent;
+  }
+  const config = path.join(homeDirectory, ".docker");
+  const buildx = path.join(config, "buildx");
+  const defaults = path.join(buildx, "defaults");
+  const instances = path.join(buildx, "instances");
+  for (const location of [config, buildx, defaults, instances]) await safeDirectory(location);
+  if (await entry(path.join(instances, "default"))) throw unsafe();
+  async function selector(location) {
+    const item = await entry(location);
+    if (!item) return null;
+    if (!item.isFile() || item.isSymbolicLink() || item.size > 4096 || item.nlink !== 1 ||
+        (uid !== null && (item.uid !== uid || (item.mode & 0o022) !== 0))) throw unsafe();
+    if (platform === "win32") {
+      try { await verifyDockerAcl(location, { kind: "file" }); } catch { throw unsafe(); }
+    }
+    try { return await fileSystem.readFile(location); } catch { throw unsafe(); }
+  }
+  const current = await selector(path.join(buildx, "current"));
+  if (current !== null) {
+    const allowed = ["", "default"].flatMap(Name => [false, true].map(Global =>
+      JSON.stringify({ Key: dockerHost, Name, Global })));
+    if (!allowed.includes(current.toString("utf8"))) throw unsafe();
+  }
+  const key = createHash("sha256").update(dockerHost).digest("hex").slice(0, 20);
+  const fallback = await selector(path.join(defaults, key));
+  if (fallback !== null && !fallback.equals(Buffer.from("default"))) throw unsafe();
+  return config;
 }
 
 function validateWindowsPath(value) {
@@ -216,7 +336,7 @@ export function runWindowsAclCommand(
     child.stdin.once("error", () => {
       terminate(new Error("Windows ACL verification could not receive its path."));
     });
-    try { child.stdin.end(input); } catch {
+    try { child.stdin.end(input, "utf8"); } catch {
       terminate(new Error("Windows ACL verification could not receive its path."));
     }
     child.once("error", () => {
@@ -245,6 +365,7 @@ export function runWindowsAclCommand(
  * directory with the strict protected ACL contract.
  * A directory rule is inheritable, so managed children receive the same protection.
  * Call this before writing secrets into a newly created managed directory or file.
+ * The path is stdin data, decoded as strict UTF-8, and is never interpolated into the script.
  */
 export async function lockDownLocalPath(
   path,
@@ -276,7 +397,9 @@ export async function lockDownLocalPath(
     throw new TypeError("Windows ACL effective owner-only verification mode is invalid.");
   }
   const script = [
-    "$path=[Console]::In.ReadToEnd()",
+    "$utf8=[System.Text.UTF8Encoding]::new($false,$true)",
+    "$reader=[System.IO.StreamReader]::new([Console]::OpenStandardInput(),$utf8,$false)",
+    "$path=$reader.ReadToEnd()",
     "$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()",
     "$sid=$identity.User",
     `$item=[System.IO.${kind === "directory" ? "DirectoryInfo" : "FileInfo"}]::new($path)`,
@@ -336,6 +459,7 @@ function validateProcessSpec({
   cwd,
   input,
   dockerHost,
+  attestedDockerConfig,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
 }) {
@@ -388,6 +512,14 @@ function validateProcessSpec({
   ) {
     throw new TypeError("Local Docker process input is invalid.");
   }
+  if (attestedDockerConfig !== undefined &&
+      (dockerHost === undefined || typeof attestedDockerConfig !== "string" ||
+        !isAbsolute(attestedDockerConfig) || resolve(attestedDockerConfig) !== attestedDockerConfig ||
+        attestedDockerConfig.includes("\0") || args[0] !== "compose" ||
+        !(args.includes("run") || (args.includes("build") &&
+          args.some((value, index) => value === "--builder" && args[index + 1] === "default"))))) {
+    throw new TypeError("A model build requires an attested default Docker builder.");
+  }
 
   return {
     file,
@@ -397,6 +529,7 @@ function validateProcessSpec({
         dockerHost === undefined
           ? null
           : validateLocalDockerHost(dockerHost, { platform: process.platform }),
+    attestedDockerConfig,
     input: inputBuffer,
     timeoutMs,
     maxOutputBytes,
@@ -429,6 +562,12 @@ export function runLocalProcess(
     validated = validateProcessSpec(spec);
     validateTerminationGrace(terminationGraceMs);
     childEnvironment = createLocalDockerEnvironment(environment);
+    if (validated.attestedDockerConfig !== undefined) {
+      childEnvironment.DOCKER_CONFIG = validated.attestedDockerConfig;
+      childEnvironment.BUILDX_BUILDER = "default";
+      childEnvironment.DOCKER_BUILDKIT = "1";
+      childEnvironment.COMPOSE_BAKE = "false";
+    }
   } catch (error) {
     return Promise.reject(error);
   }

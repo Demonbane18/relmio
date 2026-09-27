@@ -18,6 +18,9 @@ jobs:
       contents: read
       id-token: write
 
+    outputs:
+      release_channel: ${{ steps.channel.outputs.dist_tag }}
+
     steps:
       - name: Check out the release tag
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -30,6 +33,16 @@ jobs:
         with:
           node-version: "24.21.0"
           package-manager-cache: false
+
+      - name: Verify GitHub release channel and exact tag
+        id: channel
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          tag="$(node scripts/check-release-metadata.js --npm-dist-tag)"
+          echo "dist_tag=${tag}" >> "$GITHUB_OUTPUT"
 
       - name: Install and verify an OIDC-capable npm CLI
         shell: bash
@@ -62,7 +75,7 @@ jobs:
 
       - name: Publish with npm trusted publishing
         if: steps.registry.outputs.published != 'true'
-        run: npm publish ".release/relmio-${{ steps.registry.outputs.version }}.tgz" --ignore-scripts --access public
+        run: npm publish ".release/relmio-${{ steps.registry.outputs.version }}.tgz" --ignore-scripts --access public --tag "${{ steps.channel.outputs.dist_tag }}"
 
       - name: Report an already-published release
         if: steps.registry.outputs.published == 'true'
@@ -77,3 +90,4 @@ jobs:
     uses: ./.github/workflows/package-manager-candidates.yml
     with:
       release_tag: ${{ github.event.release.tag_name }}
+      release_channel: ${{ needs.publish.outputs.release_channel }}

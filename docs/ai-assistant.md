@@ -16,11 +16,17 @@ under WSL2. Relmio records the selected n8n container, network, and SearXNG
 choice, then creates only
 `~/.relmio/local/n8n-ai-assistant` after you confirm.
 
-For an SSH-reachable host, run `relmio assistant`. After SSH host-key
+For an SSH-reachable host, run `relmio assistant`. Use an already-approved
+direct-root account with **Local SSH agent** or password authentication.
+The separate **Passwordless sudo -n (model only)** session cannot install or
+manage the Assistant, whose configuration contains generated secrets; do not
+enable root/password SSH to work around that limit. After SSH host-key
 confirmation, read-only n8n discovery, a selected existing Docker network, and
 final confirmation exactly set to true, Relmio may first create
-`/docker/n8n-openai-oauth` and write its shared mode-0600 Relmio root marker. It
-then creates only the `assistant-sandbox` child there. The SSH path does not write existing n8n project files.
+`/docker/n8n-openai-oauth` and write its shared mode-0600 Relmio root marker.
+The root-owned, non-symlink `/docker` parent must already exist without
+group/other write permission. Relmio then creates only the `assistant-sandbox`
+child there. The SSH path does not write existing n8n project files.
 Both paths use an independent Compose project
 identity recorded in a strict, mode-0600 Assistant marker and keep n8n
 configuration operator-owned.
@@ -163,6 +169,39 @@ through that same separately confirmed managed update; never pull a moving tag
 or mutate n8n directly. The maintainer procedure is in
 [maintenance.md](maintenance.md#updating-or-rolling-back-ai-assistant-companion-images).
 
+
+### Operator-managed Daytona handoff
+
+The authenticated hosting planner offers a separate n8n-native Daytona
+configuration handoff for 15 self-hosted platform targets. It is not the
+managed privileged runner described above and does not install a sandbox,
+provision a Daytona account, or apply/restart existing n8n. The operator
+preserves all existing `N8N_ENABLED_MODULES` entries and includes `instance-ai`,
+then applies the listed settings through their normal n8n maintenance process:
+
+```text
+N8N_INSTANCE_AI_SANDBOX_ENABLED=true
+N8N_INSTANCE_AI_SANDBOX_PROVIDER=daytona
+N8N_INSTANCE_AI_SANDBOX_IMAGE=daytonaio/sandbox:0.5.3-slim
+DAYTONA_API_URL=https://app.daytona.io/api
+```
+
+Put the actual `DAYTONA_API_KEY` into the existing n8n secret store at runtime;
+the planner neither requests nor emits its value. Configure
+`N8N_INSTANCE_AI_MODEL` and any required `N8N_INSTANCE_AI_MODEL_API_KEY`
+independently. An optional search provider is likewise configured separately
+through a reachable `N8N_INSTANCE_AI_SEARXNG_URL` or an operator-owned Brave
+credential. Verify that a harmless workflow really performs a Daytona
+sandbox operation; account access, capacity, model choice, search reachability
+and runtime behavior are not validated by generating the handoff.
+
+The 15 profiles cover Render, Railway, Fly.io, DigitalOcean App Platform, ECS
+EC2/Fargate, EKS EC2/Fargate, GKE Standard/Autopilot, AKS, Cloud Run, Azure
+Container Apps, Azure Container Instances and Lightsail Containers. They
+replace only the sandbox provider; they do not provide an OpenAI bridge,
+model, SearXNG service, or Relmio-managed Assistant runner. n8n documents
+Daytona as its production sandbox alternative in [Set up AI Assistant](https://docs.n8n.io/deploy/host-n8n/configure-n8n/set-up-n8n-assistant/).
+
 ## Model routes
 
 ### Direct OpenAI provider
@@ -183,6 +222,12 @@ choose another supported model.
 
 ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. Relmio
 does not offer it as a compliant model provider for AI Assistant.
+
+A Relmio-managed local model for an n8n workflow is a separate **Chat Model**
+endpoint. Installing it does not install or enable n8n's Assistant sandbox, and
+its unauthenticated model API is not an AI Assistant credential. The model's
+tool-call behavior must be tested separately; local-model capacity does not
+replace the Assistant's sandbox requirements or production guidance.
 
 ### Optional: custom OpenAI-compatible endpoint
 

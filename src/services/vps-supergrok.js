@@ -5,6 +5,7 @@ import { validateDockerObjectId } from "../domain/local-n8n-sidecar.js";
 import { validateInstallId } from "../domain/local-endpoints.js";
 import { INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
 import { createLocalN8nSuperGrokComposeFile, createLocalN8nSuperGrokDockerfile, createLocalN8nSuperGrokDockerignore, LOCAL_N8N_SUPERGROK_ENDPOINT } from "../domain/local-n8n-supergrok.js";
+import { withVpsOperationLock } from "./vps-operation-lock.js";
 
 export const VPS_SUPERGROK_ROOT = `${INSTALL_ROOT}/supergrok`;
 const ROOT = VPS_SUPERGROK_ROOT;
@@ -126,14 +127,8 @@ function attestRunning(container, marker) {
       !Array.isArray(mounts) || mounts.length !== 1 || mounts[0].Name !== n.volume || mounts[0].Destination !== "/home/node/.grok" || mounts[0].RW !== true) throw fail();
 }
 
-async function withLock(remote, operation) {
-  // Exclusive, fail-closed remote lease. Never guess that a previous SSH operation died.
-  const acquired = await remote.exec(`${parentGuard} && umask 077 && mkdir ${LOCK} && stat -c '%d:%i' ${LOCK}`);
-  if (acquired.code !== 0) throw new Error("The SuperGrok operation lock could not be acquired. Another operation may still be running; an interrupted SSH connection requires an administrator to inspect /docker/n8n-openai-oauth/.supergrok-operation.lock before retrying.");
-  const identity = acquired.stdout.trim();
-  if (!/^\d+:\d+$/u.test(identity)) throw fail();
-  try { return await operation(); }
-  finally { await run(remote, `[ ! -L ${LOCK} ] && [ "$(stat -c '%d:%i' ${LOCK})" = ${quote(identity)} ] && rmdir ${LOCK}`); }
+function withLock(remote, operation) {
+  return withVpsOperationLock(remote, LOCK, operation);
 }
 
 export async function inspectVpsSuperGrok({ remote, containerName, networkName }) {
@@ -158,7 +153,7 @@ export async function reviewVpsSuperGrok({ remote, containerName, networkName, a
   if ((action === "install" && status.state !== "absent") || (action !== "install" && status.state === "absent") ||
       (["sign-in", "sign-out"].includes(action) && status.state !== "healthy") ||
       (action === "cancel-sign-in" ? !status.credentialActionRunning : status.credentialActionRunning)) throw new Error("SuperGrok is not ready for that action. Refresh its status first.");
-  return { action, containerName, networkName, containerId: status.containerId, networkId: status.networkId, installId: status.installId, installDirectory: ROOT, endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT, publishedPorts: [], existingN8nChanges: [], existingN8nRestarts: 0 };
+  return { action, containerName, networkName, containerId: status.containerId, networkId: status.networkId, installId: status.installId, installDirectory: ROOT, operationLockPath: LOCK, temporaryBuildStatePath: ["install", "sign-in", "sign-out"].includes(action) ? `${LOCK}/buildx` : null, endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT, publishedPorts: [], existingN8nChanges: [], existingN8nRestarts: 0 };
 }
 
 const defaultReadAssets = async () => Object.fromEntries(await Promise.all([["gateway.js", "runtime.js"], ["chat.js", "chat.js"], ["session.js", "session.js"]].map(async ([name, file]) => [name, await readFile(new URL(`../supergrok/${file}`, import.meta.url), "utf8")])));
@@ -168,7 +163,7 @@ export async function installVpsSuperGrok({ remote, plan, confirmed }, { readAss
   const precheck = await remote.exec(PRECHECK_COMMAND);
   if (precheck.code !== 0 || !["new", "managed"].includes(precheck.stdout.trim())) throw fail();
   await run(remote, `${parentGuard} && install -d -m 0755 ${INSTALL_ROOT} && if [ ! -e ${SHARED_ROOT_MARKER_PATH} ]; then (set -C; printf '%s\n' ${quote(SHARED_ROOT_MARKER_CONTENT.trim())} > ${SHARED_ROOT_MARKER_PATH}); fi`);
-  return withLock(remote, async () => {
+  return withLock(remote, async build => {
     if (await readMarker(remote)) throw new Error("SuperGrok is already installed. Use its management actions.");
     const selection = await boundary(remote, plan.containerName, plan.networkName);
     if (selection.containerId !== plan.containerId || selection.networkId !== plan.networkId) throw fail();
@@ -187,13 +182,13 @@ export async function installVpsSuperGrok({ remote, plan, confirmed }, { readAss
     await attestFiles(remote, marker);
     const compose = composePrefix(marker);
     await run(remote, `${compose} config --quiet`);
-    await run(remote, `${compose} build supergrok-oauth`);
+    await build(`${compose} build supergrok-oauth`);
     const image = parse(await run(remote, `docker image inspect ${names(marker).image} --format '{{json .}}'`));
     if (!owned(image.Config?.Labels, marker) || !/^sha256:[a-f0-9]{64}$/u.test(image.Id)) throw fail();
     marker.imageId = image.Id;
     await remote.upload(MARKER, JSON.stringify(marker), 0o600);
     await boundary(remote, plan.containerName, plan.networkName, marker);
-    await run(remote, `${compose} up -d --wait --wait-timeout 90 --no-deps supergrok-oauth`);
+    await run(remote, `${compose} up -d --wait --wait-timeout 90 --no-build --no-deps supergrok-oauth`);
     attestRunning((await attestResources(remote, marker)).container, marker);
     return { state: "healthy", installId, endpoint: LOCAL_N8N_SUPERGROK_ENDPOINT, clientKey, credentialShownOnce: true, protocol: "openai-chat-completions" };
   });
@@ -206,7 +201,7 @@ function composePrefix(marker) {
 
 export async function changeVpsSuperGrok({ remote, plan, confirmed }) {
   if (confirmed !== true || !["sign-in", "sign-out", "remove", "cancel-sign-in"].includes(plan.action)) throw new Error("Confirm the reviewed SuperGrok action first.");
-  return withLock(remote, async () => {
+  return withLock(remote, async build => {
     const marker = await readMarker(remote);
     if (!marker || marker.installId !== plan.installId || marker.containerId !== plan.containerId || marker.networkId !== plan.networkId || marker.containerName !== plan.containerName || marker.networkName !== plan.networkName) throw fail();
     await boundary(remote, plan.containerName, plan.networkName, marker);
@@ -230,7 +225,7 @@ export async function changeVpsSuperGrok({ remote, plan, confirmed }) {
     if (resources.credential) await run(remote, `docker rm ${validateDockerObjectId(resources.credential.Id, "credential action")}`);
     const operation = plan.action === "sign-in" ? "login --device-auth" : "logout";
     // The deterministic Docker name excludes overlapping actions across SSH sessions.
-    await run(remote, `${composePrefix(marker)} run -d --name ${n.credential} --no-deps --pull never --entrypoint /bin/sh supergrok-oauth -c ${quote(`umask 077; exec /usr/bin/timeout --signal=TERM --kill-after=2s ${plan.action === "sign-in" ? 900 : 60}s grok --no-auto-update ${operation}`)}`);
+    await build(`${composePrefix(marker)} run -d --name ${n.credential} --no-deps --pull never --entrypoint /bin/sh supergrok-oauth -c ${quote(`umask 077; exec /usr/bin/timeout --signal=TERM --kill-after=2s ${plan.action === "sign-in" ? 900 : 60}s grok --no-auto-update ${operation}`)}`);
     return { state: "pending", installId: marker.installId };
   });
 }

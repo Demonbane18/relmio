@@ -26,7 +26,7 @@ flowchart LR
 
 The local installer is a separate path in the same browser wizard. It uses the
 local Docker Engine and never opens SSH or writes to a VPS. Three options create
-loopback endpoints; three create private companion projects beside an existing
+loopback endpoints; four create private companion projects beside an existing
 local n8n container without changing n8n itself.
 
 ```mermaid
@@ -39,9 +39,11 @@ flowchart LR
   D --> N["Existing local n8n<br>unchanged"]
   D --> S["openai-oauth sidecar<br>no host port"]
   D --> X["Code Sandbox + optional SearXNG<br>no host ports"]
+  D --> Q["SuperGrok companion<br>no host port"]
+  D --> M["Ollama local model<br>no host port"]
   N -->|"selected private Docker network<br>n8n-openai-oauth:10531"| S
   N -->|"selected private Docker network<br>generated aliases"| X
-  D --> Q["SuperGrok companion<br>no host port"]
+  N -->|"selected private Docker network<br>n8n-local-model:11434"| M
   N -->|"private Docker network<br>Chat Completions"| Q
   G -->|"Grok CLI OAuth session / Chat Completions"| P["SuperGrok"]
   Q -->|"Separate Grok CLI OAuth session"| P
@@ -60,14 +62,17 @@ These connections have different protocols:
 | `codex-chat` | Relmio-specific HTTP `POST /chat` | ChatGPT sign-in managed by Codex |
 | `n8n-openai-oauth` | Private OpenAI-compatible HTTP `/v1` for n8n only | Local ChatGPT OAuth copied into a private sidecar volume |
 | `n8n-ai-assistant` | n8n Instance AI Code Sandbox plus optional SearXNG JSON search | Generated sandbox key; model-provider credential configured directly in n8n |
+| `n8n-local-model` | Private OpenAI-compatible Chat Completions `/v1` for n8n | No provider credential; Ollama API is unauthenticated |
 
-Relmio 0.14.0 handles provider OAuth only. API-key gateways and profiles are
-retired without modifying existing installations or saved data. The Grok
-adapter reads only its marked, same-runtime fresh CLI session and renews OAuth
-through the official flow. It forwards client-owned tool calls and results through
-Chat Completions; it does not execute model-requested tools itself or import an
-existing host login. The retired ACP adapter is not packaged. The native Codex
-service keeps the initialization, thread, turn, approval, and event protocol. The
+Relmio's 0.14.0 dashboard's managed provider-authentication connections use
+provider OAuth. The later hosting planner is separate: it renders operator-
+applied deployment artifacts from nonsecret inputs and does not perform provider
+authentication or deployments. The Grok adapter reads only its marked,
+same-runtime fresh CLI session and renews OAuth through the official flow. It
+forwards client-owned tool calls and results through Chat Completions; it does
+not execute model-requested tools itself or import an existing host login. The
+retired ACP adapter is not packaged. The native Codex service keeps the
+initialization, thread, turn, approval, and event protocol.
 adapter invokes that same official lifecycle behind a bounded, read-only
 conversational contract without claiming OpenAI API compatibility. Its model
 sandbox denies network access and uses a root-deny filesystem policy with only
@@ -80,16 +85,17 @@ as supported or policy-approved.
 Each of the three endpoint projects publishes exactly one literal `127.0.0.1`
 binding and requires a generated bearer capability. The n8n sidecar publishes
 no host port; only containers on its selected existing network can resolve its
-private hostname. Their managed roots are
-`~/.relmio/local/xai-grok-build`, `~/.relmio/local/codex-chatgpt`, and
-`~/.relmio/local/codex-chat`, with the sidecar under
-`~/.relmio/local/n8n-openai-oauth` and Assistant tools under
-`~/.relmio/local/n8n-ai-assistant`. The Codex credentials and workspaces use
-target-specific private named Docker volumes; no long-running loopback endpoint
-mounts the Docker socket. The Assistant runner is the explicit exception: it is
-a privileged Docker-in-Docker service on its own internal Compose network for
-local testing. See [Local Docker endpoints](local-endpoints.md) for setup and
-trust limitations.
+private hostname. The managed local-model runtime also publishes no host port;
+only containers on its selected network can reach the unauthenticated Ollama
+API. Managed roots include `~/.relmio/local/n8n-openai-oauth`,
+`~/.relmio/local/n8n-ai-assistant`, and
+`~/.relmio/local/n8n-local-model`, alongside the loopback endpoints. Codex
+credentials and workspaces use target-specific private named Docker volumes;
+no long-running loopback endpoint mounts the Docker socket. The Assistant
+runner is the explicit privileged Docker-in-Docker exception on its own internal
+Compose network for local
+testing. See [Local Docker endpoints](local-endpoints.md) for setup and trust
+limitations.
 
 Before installation, Relmio resolves the selected Docker context to a local
 Unix socket and pins that exact socket on every later Docker command. Remote
@@ -111,6 +117,13 @@ network identities plus the explicit SearXNG boolean. Relmio creates only its
 ownership-labeled sandbox project, verifies the exact running service set and
 zero host publication, and returns the n8n environment block without applying
 it. n8n lifecycle and configuration remain operator-owned.
+
+For `n8n-local-model`, the reviewed plan binds one allowlisted Qwen model to the
+exact measured Docker memory, CPU, disk, n8n container, and selected network.
+Relmio attaches a private Ollama service and an isolated acquisition helper to
+that network. It disables Ollama cloud features, publishes no host port, and
+does not change n8n. The local API has no authentication; network membership is
+the trust boundary. See [Private local models](local-models.md).
 
 The local endpoint installer supports native Windows with Docker Desktop,
 macOS, Linux, and Linux under WSL2. Windows accepts only the attested

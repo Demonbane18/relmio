@@ -15,6 +15,12 @@ const supportedArchitectures = new Set(["x64", "arm64"]);
 const semver =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:(?:0|[1-9]\d*)|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:(?:0|[1-9]\d*)|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 
+function assertStableCatalogVersion(version) {
+  if (version.split("+", 1)[0].includes("-")) {
+    throw new Error("Homebrew and WinGet catalog candidates require a stable version.");
+  }
+}
+
 function assertString(value, label) {
   if (typeof value !== "string" || value.trim() === "") {
     throw new Error(`${label} must be a non-empty string.`);
@@ -66,6 +72,7 @@ export function wingetInstallerUrl({ architecture, version }) {
 export function createHomebrewFormula({ sha256, version }) {
   const digest = assertSha256(sha256, "Homebrew tarball SHA-256");
   const tarballUrl = registryTarballUrl(version);
+  assertStableCatalogVersion(version);
 
   return `class Relmio < Formula
   desc "Set up a private OpenAI-compatible endpoint for self-hosted n8n"
@@ -105,6 +112,7 @@ export function createWingetManifestFiles({ installers, version }) {
   if (typeof version !== "string" || !semver.test(version)) {
     throw new Error("A valid semantic version is required for WinGet manifests.");
   }
+  assertStableCatalogVersion(version);
   if (!Array.isArray(installers) || installers.length === 0) {
     throw new Error("At least one WinGet installer is required.");
   }
@@ -215,6 +223,7 @@ export async function createPackageManagerCandidates({
   wingetInstallers = [],
 }) {
   const { version } = validateReleasePackage(packageJson);
+  assertStableCatalogVersion(version);
   const resolvedOutputDirectory = resolve(outputDirectory);
   if (npmTarballPath === undefined && wingetInstallers.length === 0) {
     throw new Error("A published npm tarball or at least one WinGet installer is required.");

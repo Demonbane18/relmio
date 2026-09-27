@@ -1,3 +1,4 @@
+import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, parseGrokDevicePrompt, discoverVpsGrokModels } from "../src/services/vps-supergrok.js";
@@ -59,10 +60,12 @@ async function serverFixture(t, configureServices = () => {}) {
   const services = {
     getAuthStatus: async () => { throw new Error("SuperGrok must not request local ChatGPT credentials"); },
     scanHostFingerprint: async () => "SHA256:" + "a".repeat(43),
-    connectVerified: async () => ({ close() {} }),
+    connectVerified: async (request) => verifiedSshFixture(request),
     discoverN8n: async () => ({ containers: [{ id: containerId, name: selected.containerName, image: "n8nio/n8n", state: "running" }] }),
     discoverNetworks: async () => ({ networks: [selected.networkName], instanceAi: { status: "missing" } }),
-    reviewVpsSuperGrok: async args => ({ ...selected, action: args.action, containerId: freshId, networkId, installId: null, publishedPorts: [] }),
+    reviewVpsSuperGrok: async args => ({ ...selected, action: args.action, containerId: freshId, networkId, installId: null, publishedPorts: [],
+      operationLockPath: "/docker/n8n-openai-oauth/.supergrok-operation.lock",
+      temporaryBuildStatePath: ["install", "sign-in", "sign-out"].includes(args.action) ? "/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx" : null }),
     installVpsSuperGrok: async () => { installed++; return { state: "healthy", clientKey: "c".repeat(64) }; },
   };
   configureServices(services);
@@ -70,7 +73,7 @@ async function serverFixture(t, configureServices = () => {}) {
   t.after(() => server.close());
   const post = async (path, body = {}, authenticated = true) => fetch(server.origin + path, { method: "POST", headers: { Origin: server.origin, "Content-Type": "application/json", ...(authenticated ? { "X-Setup-Token": token } : {}) }, body: JSON.stringify(body) });
   const scan = await (await post("/api/ssh/fingerprint", { host: "fixture.example", port: 22 })).json();
-  assert.equal((await post("/api/ssh/connect", { host: "fixture.example", port: 22, username: "root", password: "fixture-only", expectedFingerprint: scan.fingerprint })).status, 200);
+  assert.equal((await post("/api/ssh/connect", { host: "fixture.example", port: 22, username: "root", useAgent: false, privilege: "root", password: "fixture-only", expectedFingerprint: scan.fingerprint })).status, 200);
   assert.equal((await post("/api/discover")).status, 200);
   assert.equal((await post("/api/networks", { containerName: selected.containerName })).status, 200);
   return { post, count: () => installed, changeContainer: () => { freshId = "d".repeat(64); } };
@@ -120,7 +123,9 @@ test("a newer SuperGrok review rejects a late prior review instead of replacing 
         firstStarted.resolve();
         return await firstReview.promise;
       }
-      return { ...selected, action: args.action, containerId, networkId, installId: null, publishedPorts: [] };
+      return { ...selected, action: args.action, containerId, networkId, installId: null, publishedPorts: [],
+        operationLockPath: "/docker/n8n-openai-oauth/.supergrok-operation.lock",
+        temporaryBuildStatePath: ["install", "sign-in", "sign-out"].includes(args.action) ? "/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx" : null };
     };
   });
 
@@ -130,7 +135,9 @@ test("a newer SuperGrok review rejects a late prior review instead of replacing 
   assert.equal(currentReview.status, 200);
   const currentPlan = await currentReview.json();
 
-  firstReview.resolve({ ...selected, action: "install", containerId, networkId, installId: null, publishedPorts: [] });
+  firstReview.resolve({ ...selected, action: "install", containerId, networkId, installId: null, publishedPorts: [],
+    operationLockPath: "/docker/n8n-openai-oauth/.supergrok-operation.lock",
+    temporaryBuildStatePath: "/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx" });
   const stale = await staleReview;
   assert.equal(stale.status, 409);
   assert.match((await stale.json()).error, /newer SuperGrok review/u);
@@ -146,7 +153,9 @@ test("a completed discovery cannot let an earlier SuperGrok review repopulate a 
     services.reviewVpsSuperGrok = async (args) => {
       reviewStarted.resolve();
       await review.promise;
-      return { ...selected, action: args.action, containerId, networkId, installId: null, publishedPorts: [] };
+      return { ...selected, action: args.action, containerId, networkId, installId: null, publishedPorts: [],
+        operationLockPath: "/docker/n8n-openai-oauth/.supergrok-operation.lock",
+        temporaryBuildStatePath: ["install", "sign-in", "sign-out"].includes(args.action) ? "/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx" : null };
     };
   });
 
@@ -251,4 +260,23 @@ test("only the latest started discovery can replace the current VPS context", as
   assert.equal((await older).status, 409);
   secondDiscovery.resolve({ containers: [{ id: containerId, name: selected.containerName, image: "n8nio/n8n", state: "running" }] });
   assert.equal((await newer).status, 200);
+});
+
+test("SuperGrok review rejects a missing or escaped build-state disclosure before installation", async t => {
+  let temporaryBuildStatePath;
+  const f = await serverFixture(t, services => {
+    const review = services.reviewVpsSuperGrok;
+    services.reviewVpsSuperGrok = async args => ({ ...await review(args), temporaryBuildStatePath });
+  });
+  for (const invalid of [undefined, "/root/.docker/buildx", "/docker/n8n-openai-oauth/.local-model-operation.lock/buildx"]) {
+    temporaryBuildStatePath = invalid;
+    assert.equal((await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" })).status, 502);
+    assert.equal(f.count(), 0);
+  }
+  temporaryBuildStatePath = "/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx";
+  const reviewed = await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" });
+  assert.equal(reviewed.status, 200);
+  const plan = await reviewed.json();
+  assert.equal((await f.post("/api/vps/supergrok/apply", { ...plan, confirmed: false })).status, 400);
+  assert.equal(f.count(), 0);
 });

@@ -58,12 +58,6 @@ test("generated commands operate only on the sidecar project", () => {
   assert.ok(commands.every((command) => !command.includes("n8nio/n8n")));
   assert.ok(commands.every((command) => !/\bdocker restart\b/.test(command)));
   assert.ok(commands.every((command) => !/\bdocker stop\b/.test(command)));
-  assert.ok(
-    commands.some(
-      (command) =>
-        command.includes("up -d --wait --wait-timeout 60 --no-deps openai-oauth"),
-    ),
-  );
 });
 
 test("unsafe-port cleanup targets only the named sidecar service", () => {

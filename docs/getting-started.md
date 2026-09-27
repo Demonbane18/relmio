@@ -1,9 +1,9 @@
 # Getting started
 
-Relmio 0.14.0 installs OAuth-backed AI connections. Pick the provider, location,
-and client that match your setup. SuperGrok is available for local apps and
-existing n8n deployments on the same computer or a VPS. It uses its own official
-device sign-in and never requires or reads ChatGPT credentials.
+Relmio provides provider sign-in connections, private n8n companions, and an
+optional self-hosted local-model workflow. SuperGrok is available for local apps
+and existing n8n deployments on the same computer or a VPS. It uses its own
+official device sign-in and never requires or reads ChatGPT credentials.
 
 | Need | Choose | Credential |
 | --- | --- | --- |
@@ -13,10 +13,13 @@ device sign-in and never requires or reads ChatGPT credentials.
 | A small local backend | Codex Chat Adapter | ChatGPT sign-in and a local bearer |
 | A bridge for local Docker n8n or a VPS | n8n OAuth sidecar | A local ChatGPT sign-in file |
 | n8n AI Assistant tools | Code Sandbox, with optional SearXNG | A generated sandbox key and a model credential entered in n8n |
+| A provider-free model for a self-hosted n8n workflow | Local model for n8n | No provider sign-in; Ollama's required API-key field is ignored |
 
 ChatGPT sign-in is never converted into an OpenAI Platform API key. The Codex
 routes are experimental and are not general `/v1` services. The n8n OAuth
-sidecar is unofficial, private, and policy-uncertain.
+sidecar is unofficial, private, and policy-uncertain. The local-model companion
+is a separate unauthenticated Ollama API on a trusted private Docker network; it
+uses no OAuth credential or provider key.
 
 ## Install
 
@@ -33,6 +36,9 @@ explicitly want the setup route for this computer. Relmio checks prerequisites
 in the browser, shows the plan, and asks before it writes files or starts
 Docker. Local endpoints use `127.0.0.1`. The n8n bridge and Assistant tools use
 one selected Docker network and publish no host port. SearXNG is off by default.
+For server setup, follow **Choose setup**, **Check server**, **Choose n8n**,
+**Review**, and **Ready**. Expand **More details** for optional explanations;
+the required choices and plan review stay in the main flow.
 
 On Git Bash, use the hosted launcher. It downloads a checksum-verified temporary
 Node.js runtime and uses Git for Windows' bundled `winpty` bridge so the wizard
@@ -44,6 +50,28 @@ curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
 
 Direct NPX on Git Bash 2.38.1 still needs `MSYS=enable_pcon` for that one
 process. Native PowerShell and Command Prompt installers are also available.
+
+## Existing cloud n8n and SSH access
+
+For a provider-free model on an existing Linux VM, choose **Local model · your
+VPS**. Hosting guidance covers Hetzner, Contabo, AWS EC2/Lightsail, DigitalOcean
+Droplets and OCI Compute. Enter the actual image/administrator username, use a
+key already loaded into a local SSH agent or an approved password, verify the
+host fingerprint, and review the final plan. Relmio does not collect private
+keys or change SSH policy.
+
+The host needs rootful Docker Engine, Compose v2 and Buildx targeting that same
+local daemon, a running official n8n container on an eligible existing bridge,
+sufficient measured resources and a safe preexisting root-owned `/docker`.
+The model route can use verified
+**Passwordless sudo -n (model only)**; OAuth bridge, AI Assistant and SuperGrok
+VPS routes still require existing approved direct-root access. Agent setup
+does not grant sudo or expand those routes.
+
+Render's service SSH is not host administration. A separate paid Render private
+model service is possible with manual setup, its own persistent disk and
+internal DNS; it is not a Relmio-managed deployment. Read
+[Hosting compatibility](hosting-compatibility.md) before choosing a route.
 
 ## Keep the dashboard available
 
@@ -80,6 +108,10 @@ so install Relmio persistently before relying on these lifecycle commands.
 - [AI Assistant companion](./ai-assistant.md) for Assistant setup and its
   limits.
 - [VPS and n8n](./vps-and-n8n.md) for the remote sidecar route.
+- [Private local models](./local-models.md) for measured capacity, model
+  choices, local/VPS installation, network trust, and explicit cache removal.
+- [Hosting compatibility](./hosting-compatibility.md) for VM, PaaS, and
+  container-platform boundaries.
 - [SuperGrok on a VPS](./vps-supergrok.md) for the provider-specific VPS flow.
 - [Troubleshooting](./troubleshooting.md) when setup stops.
 - [Security](./security.md) for account, network, and credential rules.

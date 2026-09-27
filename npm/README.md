@@ -14,13 +14,26 @@
   <a href="https://github.com/Demonbane18/relmio/blob/main/LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-0f8f83"></a>
 </p>
 
-Relmio helps self-hosted n8n and local apps use models through your own
-ChatGPT/Codex or SuperGrok sign-in. Each provider keeps its own private OAuth
-session. SuperGrok setup does not require or read ChatGPT credentials.
+Managed provider OAuth stays in its private runtime, except for the existing
+n8n OpenAI bridge: it starts Codex sign-in on the host and copies the complete
+credential JSON into its selected private sidecar after confirmation. API-key
+connections and operator-generated hosting artifacts are configured separately
+in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
+SuperGrok setup does not require or read ChatGPT/Codex credentials.
 
-Relmio handles provider OAuth only. API-key connections belong directly
-in n8n or the client that uses them.
-ChatGPT sign-in is not an OpenAI Platform API key.
+> **Relmio 0.18.0-experimental.1 is an opt-in prerelease.** New hosting provider
+> deployments and local-model workflows have not been live-tested. Offline
+> planner/profile checks do not certify runtime compatibility, model output,
+> provider access, or throughput. Stable `0.17.5` remains npm `latest` and the
+> hosted installers' default. Opt in explicitly:
+>
+> ```bash
+> npx --yes --ignore-scripts relmio@experimental
+> # Or pin the exact prerelease:
+> npx --yes --ignore-scripts relmio@0.18.0-experimental.1
+> ```
+
+See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md) and [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
 
 The hosted chat and the browser wizard's **Test AI Chat** console keep partial
 response text visible while it streams. Their status distinguishes connection
@@ -51,6 +64,9 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
+This command follows the stable `0.17.5` channel. It does not select the
+experimental prerelease; use one of the explicit opt-in commands near the top
+of this page. Hosted installers remain on the stable default.
 
 On Git Bash, use the hosted launcher. It uses Git for Windows' bundled `winpty`
 bridge and a checksum-verified temporary Node.js runtime, even when Node.js 24
@@ -137,13 +153,12 @@ bridge runtime. See the
 [maintenance guide](https://github.com/Demonbane18/relmio/blob/main/docs/maintenance.md)
 for the full update and rollback boundaries.
 
-**Refresh status** rediscovers the seven services in Relmio 0.15.0:
-Codex App Server, Codex Chat Adapter, Grok Build, the owned n8n stack, the
-ChatGPT OAuth bridge, AI Assistant tools, and SuperGrok for n8n.
-Refresh status shows only verified connection URLs and state, never stored
-secrets. Select **Add connection** to use the existing four-step setup flow.
-Bare `relmio` and `relmio vps` open the VPS setup directly. Use `relmio local`
-for the setup route on this computer.
+**Refresh status** rediscovers eight services: Codex App Server, Codex Chat
+Adapter, Grok Build, the owned n8n stack, the ChatGPT OAuth bridge, AI Assistant
+tools, SuperGrok for n8n, and the local model for n8n. It shows only verified
+connection URLs and state, never stored secrets. Select **Add connection** for
+the existing four-step setup flow. Bare `relmio` and `relmio vps` open VPS setup;
+use `relmio local` for this computer's setup route.
 
 Choose **Set up SuperGrok for n8n** in the VPS wizard to add the same private
 Grok OAuth companion to an existing remote n8n. Review the exact plan before
@@ -156,18 +171,85 @@ provider change is required.
 
 ## Pick a path
 
+### Review hosting and integration plans
+
+Use **Hosting options** in the authenticated wizard to compare existing managed
+local/VM setup with operator-applied artifacts. The catalog includes 15 Linux
+VM presets plus local Docker, manual private platform recipes, 15 self-hosted
+n8n Daytona configuration handoffs, authenticated endpoint handoffs and
+restricted edge relays. Review the validated settings, steps, requirements,
+limits and source links; download the complete ZIP to preserve nested paths or
+individual files.
+
+Plan generation contacts no provider account or host, provisions nothing, and
+does not apply files or edit/restart n8n. Do not enter secrets; supply them
+separately through provider secret facilities. New provider runtime acceptance
+is **NOT-RUN**; a manual artifact is not a managed SSH installation. Read the
+[full hosting compatibility guide](https://relmio.jpfusin.tech/docs/hosting-compatibility)
+and [AI Assistant guide](https://relmio.jpfusin.tech/docs/ai-assistant).
+
+The endpoint routes for n8n Cloud, Vercel, Netlify and Cloudflare Workers are
+authenticated HTTP integrations, not general URL relays or native n8n
+adapters. Cloudflare Container SearXNG requires an authenticated Worker and an
+n8n HTTP Request tool; its custom bearer is not a native Assistant SearXNG
+integration. Vercel/Railway/Cloudflare Sandbox SDKs are not native n8n sandbox
+providers.
+
+The experimental OpenAI bridge is only in existing managed local/VM routes.
+OpenAI's Sign in with ChatGPT documentation describes identity-only sign-in;
+it neither describes this full credential-copy bridge nor grants its
+permissions. See the
+[dated source-check, data flow and unknowns](https://relmio.jpfusin.tech/docs/security#2026-09-26-openai-source-check).
+
 ### Existing n8n model bridge
 
 Choose **ChatGPT for n8n** or **Grok for n8n** in the local wizard. Specialist
 Codex and Assistant tools remain under **More connections and tools**.
 
-Pick the connection that matches the provider account. The Responses API switch
-is provider-specific:
+Choose the provider connection or local model that fits your workflow. The
+Responses API switch is specific to each integration:
 
-| Connection | Base URL | Value for n8n's API-key field | Use Responses API |
+| Connection | Base URL | n8n API-key field | Use Responses API |
 | --- | --- | --- | --- |
 | OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in the Relmio OpenAI Chat Model v1.3 recipe |
 | SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
+| Local Ollama model for n8n | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for Chat Completions |
+
+First use does not require an existing `.relmio` directory. To opt in to the
+untested local-model workflow, open the dashboard with
+`npx --yes --ignore-scripts relmio@0.18.0-experimental.1 local`; it initializes
+dashboard state as needed. The local-model option requires an existing running
+n8n container and does not install n8n. If you do not yet run local n8n, set up
+n8n separately before selecting a model.
+
+For a provider-free model, choose **Local model for n8n** and review the
+measured Docker resources and expected download. The unauthenticated model API
+is private to the selected trusted Docker network and has no published host
+port. Ollama cloud features are disabled, but image/model downloads need
+internet access. See the
+[local-model guide](https://github.com/Demonbane18/relmio/blob/main/docs/local-models.md)
+for local/VPS setup, capacity estimates, n8n settings, retry, and explicit
+cache removal. This workflow Chat Model is separate from Assistant sandbox
+setup and does not establish reliable tool calling.
+
+The **Local model · your VPS** route provides guidance for 15 Linux VM presets.
+Use your actual SSH account with an existing local agent or approved password,
+verify the host fingerprint, then review the plan. It requires rootful Docker
+Engine, Compose v2 and Buildx build tooling with its existing `default` context
+targeting the local n8n daemon, an eligible bridge, measured capacity and a safe
+preexisting root-owned `/docker`. Relmio does not provision the host, install
+Docker/n8n or change SSH policy. Review includes temporary root-only Buildx state
+inside the owned operation lock. Verified cleanup removes only that state;
+uncertainty retains the lock for administrator inspection, never automatic
+n8n/cache deletion.
+
+Verified **Passwordless sudo -n (model only)** does not extend to OAuth bridge,
+AI Assistant or SuperGrok VPS operations; those require existing approved
+direct-root access. Keep keys local and launch the dashboard from its agent
+environment. Render service SSH is unsupported by the managed installer; a
+separate paid private model service with its own disk/internal DNS is a manual
+option. See [Hosting compatibility](https://relmio.jpfusin.tech/docs/hosting-compatibility)
+for managed and manual routes, login hints, agent setup, and provider limits.
 
 Sign in with your own ChatGPT/Codex account, select the running n8n container
 and Docker network, then install the sidecar. Configure n8n with:
@@ -333,6 +415,8 @@ until you rotate it.
 - https://relmio.jpfusin.tech/docs/local-endpoints
 - https://relmio.jpfusin.tech/docs/local-n8n-stack
 - https://relmio.jpfusin.tech/docs/vps-supergrok
+- https://relmio.jpfusin.tech/docs/local-models
+- https://relmio.jpfusin.tech/docs/hosting-compatibility
 - https://relmio.jpfusin.tech/docs/ai-assistant
 - https://relmio.jpfusin.tech/docs/troubleshooting
 - https://relmio.jpfusin.tech/docs/security

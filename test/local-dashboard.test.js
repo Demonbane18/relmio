@@ -831,22 +831,38 @@ test("Assistant inventory fails closed when its private environment is malformed
 });
 
 
-test("OAuth dashboard contract has exactly seven services and four runtime-owned providers", async () => {
-  const status = await getLocalDashboardStatus({
-    inspectLocalEndpoint: async ({ target }) => ({ managed: false, state: "absent", snapshot: null }),
-    inspectLocalN8nStack: async () => ({ managed: false, state: "absent", snapshot: null }),
-    inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent", snapshot: null }),
-    inspectLocalN8nAssistant: async () => ({ managed: false, state: "absent", snapshot: null }),
-    inspectLocalN8nSuperGrok: async () => ({ managed: false, state: "absent", snapshot: null }),
-  });
-  assert.deepEqual(status.services.map(({ target }) => target), ["codex-chatgpt", "codex-chat", "xai-grok-build", "local-n8n-stack", "n8n-openai-oauth", "local-n8n-assistant", "n8n-supergrok-oauth"]);
-  assert.deepEqual(status.providers, [
-    { target: "codex-chatgpt", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
-    { target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
-    { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" },
-    { target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
-  ]);
-  assert.equal(JSON.stringify(status).includes("api-key"), false);
+test("private model inventory exposes only reviewed actions at each lifecycle boundary", async () => {
+  const base = {
+    getDockerStatus: async () => ({ dockerAvailable: true, dockerVersion: "29.7.2", composeVersion: "2.39.1" }),
+    inspectLocalEndpoint: async () => ({ managed: false, state: "absent" }),
+    inspectLocalN8nStack: async () => ({ managed: false, state: "absent" }),
+    inspectLocalN8nSidecar: async () => ({ managed: false, state: "absent" }),
+    inspectLocalN8nAssistant: async () => ({ managed: false, state: "absent" }),
+    inspectLocalN8nSuperGrok: async () => ({ managed: false, state: "absent" }),
+  };
+  const inspect = async (status) => {
+    const inventory = await getLocalDashboardStatus({ ...base, inspectLocalN8nModel: async () => status });
+    return inventory.services.find(service => service.target === "n8n-local-model");
+  };
+  const identity = {
+    target: "n8n-local-model", managed: true, modelId: "qwen3:0.6b",
+    endpoint: "http://n8n-local-model:11434/v1", modelDigest: null,
+    secret: "must-not-escape",
+  };
+  const missing = await inspect({ ...identity, status: "runtime-ready" });
+  assert.deepEqual(missing.actions, ["retry-model", "remove"]);
+  assert.equal(JSON.stringify(missing).includes("must-not-escape"), false);
+  const downloading = await inspect({ ...identity, status: "downloading" });
+  assert.deepEqual(downloading.actions, []);
+  const verified = await inspect({ ...identity, status: "model-ready", modelDigest: "a".repeat(64) });
+  assert.deepEqual(verified.actions, ["remove"]);
+  assert.equal(verified.snapshot.model.digest, "a".repeat(64));
+  const incomplete = await inspect({ ...identity, status: "partial" });
+  assert.deepEqual(incomplete.actions, ["remove"]);
+  assert.equal(incomplete.snapshot.model.state, "partial");
+  const invalid = await inspect({ ...identity, status: "model-ready" });
+  assert.equal(invalid.state, "unavailable");
+  assert.deepEqual(invalid.actions, []);
 });
 
 test("private SuperGrok inventory keeps provider readiness neutral and strips secret fields", async () => {

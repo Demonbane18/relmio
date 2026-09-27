@@ -23,6 +23,7 @@ export function withTestLocalSecurity(dependencies = {}) {
   return {
     ...dependencies,
     lockDownPath: dependencies.lockDownPath ?? noOpLocalPathLockDown,
+    verifyDockerAcl: dependencies.verifyDockerAcl ?? (async () => {}),
     ...(processIdentity === undefined ? {} : {
       getProcessIdentity: dependencies.getProcessIdentity ?? processIdentity,
       processIdentity,

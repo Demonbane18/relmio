@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 
-import { validateReleaseMetadata } from "../scripts/check-release-metadata.js";
+import { npmReleaseTag, validateReleaseMetadata } from "../scripts/check-release-metadata.js";
 
 const execFileAsync = promisify(execFile);
 const releaseCheckPath = fileURLToPath(
@@ -144,6 +144,95 @@ test("release metadata rejects every mismatched version source", () => {
       }),
     /release tag v0\.1\.4 does not match v0\.1\.5/u,
   );
+});
+
+test("npm release channel requires an exact tag and matching GitHub prerelease flag", () => {
+  assert.equal(
+    npmReleaseTag({ version: "0.17.5", tag: "v0.17.5", prerelease: false }),
+    "latest",
+  );
+  assert.equal(
+    npmReleaseTag({
+      version: "0.18.0-experimental.1",
+      tag: "v0.18.0-experimental.1",
+      prerelease: true,
+    }),
+    "experimental",
+  );
+  assert.equal(
+    npmReleaseTag({
+      version: "0.17.5+build-with-dash",
+      tag: "v0.17.5+build-with-dash",
+      prerelease: false,
+    }),
+    "latest",
+  );
+
+  for (const [version, tag, prerelease] of [
+    ["0.17.5", "v0.17.5", true],
+    ["0.18.0-experimental.1", "v0.18.0-experimental.1", false],
+    ["0.18.0-experimental.1", "v0.17.5", true],
+    ["0.17.5", undefined, false],
+  ]) {
+    assert.throws(
+      () => npmReleaseTag({ version, tag, prerelease }),
+      /release tag|prerelease flag/u,
+    );
+  }
+  assert.throws(
+    () =>
+      npmReleaseTag({
+        version: "0.18.0-experimental.01",
+        tag: "v0.18.0-experimental.01",
+        prerelease: true,
+      }),
+    /valid semantic version/u,
+  );
+});
+
+test("npm dist-tag CLI rejects release mismatch before publication", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "release-channel-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const version = "0.18.0-experimental.1";
+  await Promise.all([
+    writeFile(
+      join(directory, "package.json"),
+      JSON.stringify({ ...packageJson, version }),
+    ),
+    writeFile(
+      join(directory, "package-lock.json"),
+      JSON.stringify({
+        ...packageLock,
+        version,
+        packages: { "": { ...packageLock.packages[""], version } },
+      }),
+    ),
+    writeFile(join(directory, "CHANGELOG.md"), changelog.replaceAll("0.1.5", version)),
+  ]);
+
+  const env = releaseCheckEnvironment({
+    RELEASE_TAG: `v${version}`,
+    RELEASE_PRERELEASE: "true",
+  });
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [releaseCheckPath, "--npm-dist-tag"],
+    { cwd: directory, env },
+  );
+  assert.equal(stdout.trim(), "experimental");
+  for (const overrides of [
+    { RELEASE_TAG: "v0.17.5" },
+    { RELEASE_PRERELEASE: "false" },
+    { RELEASE_PRERELEASE: "" },
+  ]) {
+    await assert.rejects(
+      execFileAsync(process.execPath, [releaseCheckPath, "--npm-dist-tag"], {
+        cwd: directory,
+        env: { ...env, ...overrides },
+      }),
+      /release tag|prerelease flag/u,
+    );
+  }
 });
 
 test("release metadata CLI accepts a packed install without a package lock", async (t) => {

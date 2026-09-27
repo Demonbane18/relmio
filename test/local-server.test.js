@@ -1,3 +1,4 @@
+import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -249,10 +250,10 @@ test("persistent shutdown refuses to interrupt an active authenticated VPS reque
   const remote = { close() {} };
   const wizard = await startLocalWizard(t, {
     async scanHostFingerprint() {
-      return "SHA256:verified-test-fingerprint";
+      return `SHA256:${"a".repeat(43)}`;
     },
-    async connectVerified() {
-      return remote;
+    async connectVerified(request) {
+      return verifiedSshFixture(request, remote);
     },
     async discoverN8n() {
       notifyDiscoveryStarted();
@@ -276,6 +277,7 @@ test("persistent shutdown refuses to interrupt an active authenticated VPS reque
     host: "192.0.2.10",
     port: 22,
     username: "root",
+    useAgent: false, privilege: "root",
     password: "x".repeat(32),
     expectedFingerprint,
   });
@@ -514,6 +516,111 @@ test("default wizard assets include the local endpoint flow", async (t) => {
   const styles = await fetch(`${wizard.origin}/local.css`);
   assert.equal(styles.status, 200);
   assert.match(styles.headers.get("content-type") ?? "", /^text\/css/u);
+});
+
+test("hosting catalog and static review assets are available without provider or host reads", async (t) => {
+  let hostReads = 0;
+  const wizard = await startWizardServer({
+    sessionToken,
+    services: {
+      async getLocalDockerStatus() { hostReads++; throw new Error("must not inspect Docker"); },
+      async discoverN8n() { hostReads++; throw new Error("must not inspect n8n"); },
+      async getSshCapabilities() { hostReads++; throw new Error("must not inspect SSH"); },
+    },
+  });
+  t.after(() => wizard.close());
+  for (const [path, type] of [
+    ["/hosting", "text/html"],
+    ["/hosting.js", "text/javascript"],
+    ["/hosting-archive.js", "text/javascript"],
+    ["/hosting.css", "text/css"],
+    ["/domain/hosting-providers.js", "text/javascript"],
+  ]) {
+    const response = await fetch(`${wizard.origin}${path}`);
+    assert.equal(response.status, 200);
+    assert.ok(response.headers.get("content-type")?.startsWith(type));
+  }
+  const denied = await fetch(`${wizard.origin}/api/hosting/providers`);
+  assert.equal(denied.status, 401);
+  const response = await fetch(`${wizard.origin}/api/hosting/providers`, {
+    headers: { "X-Setup-Token": sessionToken },
+  });
+  assert.equal(response.status, 200);
+  const catalog = await response.json();
+  assert.ok(catalog.providers.some((provider) => provider.id === "render" && provider.components.model.mode === "manual"));
+  assert.ok(catalog.profiles.some((profile) => profile.providerId === "render" && profile.component === "model"));
+  assert.ok(catalog.models.some((model) => model.id === "qwen3:0.6b"));
+  assert.equal(hostReads, 0);
+});
+
+test("hosting plan API rejects unauthenticated, cross-origin, unsafe and unknown requests without provider reads or input echo", async (t) => {
+  let hostReads = 0;
+  const wizard = await startLocalWizard(t, {
+    async getLocalDockerStatus() { hostReads++; throw new Error("must not inspect Docker"); },
+    async discoverN8n() { hostReads++; throw new Error("must not inspect n8n"); },
+    async getSshCapabilities() { hostReads++; throw new Error("must not inspect SSH"); },
+  });
+  const base = {
+    providerId: "render", component: "model", deploymentId: "a1b2c3d4e5f6",
+    modelId: "qwen3:0.6b", inputs: { region: "frankfurt", plan: "2c-4g", diskGB: 20 },
+  };
+  const unauthenticated = await fetch(`${wizard.origin}/api/hosting/plan`, {
+    method: "POST",
+    headers: { Origin: wizard.origin, "Content-Type": "application/json" },
+    body: JSON.stringify(base),
+  });
+  assert.equal(unauthenticated.status, 401);
+  const crossOrigin = await api(wizard, "/api/hosting/plan", {
+    method: "POST",
+    headers: { Origin: "http://localhost:3000" },
+    body: JSON.stringify(base),
+  });
+  assert.equal(crossOrigin.status, 403);
+  for (const invalid of [
+    { ...base, deploymentId: "A1B2C3D4E5F6" },
+    { ...base, providerId: "not-a-provider" },
+    { ...base, modelId: "unapproved:latest" },
+    { ...base, apiKey: "sk-should-not-appear-in-response" },
+    { ...base, inputs: { ...base.inputs, apiKey: "sk-should-not-appear-in-response" } },
+  ]) {
+    const response = await postJson(wizard, "/api/hosting/plan", invalid);
+    assert.equal(response.status, 400);
+    assert.doesNotMatch(JSON.stringify(await response.json()), /sk-should-not-appear-in-response/u);
+  }
+  const oversized = await api(wizard, "/api/hosting/plan", {
+    method: "POST",
+    body: JSON.stringify({ ...base, inputs: { region: "x".repeat(33_000) } }),
+  });
+  assert.equal(oversized.status, 413);
+  const accepted = await postJson(wizard, "/api/hosting/plan", base);
+  assert.equal(accepted.status, 200);
+  const plan = await accepted.json();
+  assert.equal(plan.resourceName, "relmio-model-a1b2c3d4e5f6");
+  assert.ok(plan.files.some((file) => file.name === "INSTRUCTIONS.md"));
+  assert.equal(hostReads, 0);
+});
+
+test("hosting plans remain pure and downloadable in preview mode without SSH or Docker", async (t) => {
+  let hostReads = 0;
+  const wizard = await startLocalWizard(t, {
+    async getLocalDockerStatus() { hostReads++; throw new Error("must not inspect Docker"); },
+    async discoverN8n() { hostReads++; throw new Error("must not inspect n8n"); },
+    async getSshCapabilities() { hostReads++; throw new Error("must not inspect SSH"); },
+  }, { previewMode: true });
+  const response = await postJson(wizard, "/api/hosting/plan", {
+    providerId: "render",
+    component: "searxng",
+    deploymentId: "a1b2c3d4e5f6",
+    inputs: { region: "frankfurt", plan: "1c-2g" },
+  });
+  assert.equal(response.status, 200);
+  const plan = await response.json();
+  assert.equal(plan.kind, "manual");
+  assert.equal(plan.verification, "not-live-tested");
+  assert.equal(plan.resourceName, "relmio-searxng-a1b2c3d4e5f6");
+  assert.ok(plan.files.some((file) => file.name === "INSTRUCTIONS.md" && file.content.includes("NOT-RUN")));
+  assert.ok(plan.files.some((file) => file.name === "render.yaml" && file.content.includes("type: pserv")));
+  assert.equal(hostReads, 0);
 });
 
 test("local Docker status exposes the native Windows support boundary", async (t) => {
@@ -1348,6 +1455,7 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
               "remove-owned-supergrok",
             ],
           },
+          absent("n8n-local-model", "Local model for n8n", "n8n-local-model"),
         ],
         providers: dashboardProviders(),
         rawError: canary,
@@ -1431,6 +1539,7 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
           "remove-owned-supergrok",
         ],
       },
+      absent("n8n-local-model", "Local model for n8n", "n8n-local-model"),
     ],
     providers: dashboardProviders(),
   });
@@ -1493,6 +1602,7 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
       absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
       absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
       absent("n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"),
+      absent("n8n-local-model", "Local model for n8n", "n8n-local-model"),
     ],
     providers: dashboardProviders(),
   };
@@ -1607,7 +1717,6 @@ test("local dashboard preview never runs live discovery", async (t) => {
   assert.equal(calls, 0);
   assert.equal(body.previewMode, true);
   assert.equal(body.auth.secretsRevealable, false);
-  assert.equal(body.services.length, 7);
   assert.equal(body.providers.length, 4);
   assert.deepEqual(
     body.providers,
@@ -1659,6 +1768,7 @@ test("local dashboard keeps unattested partial services review-only", async (t) 
           absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
           absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
           absent("n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"),
+          absent("n8n-local-model", "Local model for n8n", "n8n-local-model"),
         ],
         providers: dashboardProviders(),
       };
@@ -1684,6 +1794,7 @@ test("local dashboard rejects an incomplete or reordered fixed service set", asy
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+    ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
   ];
   const serviceSet = definitions.map(([target, label, kind]) => ({
     target,
@@ -1724,6 +1835,7 @@ test("local dashboard derives actions and rejects unsafe Docker versions", async
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+    ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
   ];
   const baseStatus = {
     schemaVersion: 1,
@@ -3447,6 +3559,7 @@ test("dashboard discard rejects an inventory read that finishes after the discar
       ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
       ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
       ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+      ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
     ].map(([target, label, kind]) => ({
       target, label, kind, managed: false, state: "absent", snapshot: null,
       actions: ["setup"],
@@ -3474,7 +3587,6 @@ test("dashboard discard rejects an inventory read that finishes after the discar
   assert.equal(Object.hasOwn(rejected, "services"), false);
   const refreshed = await api(wizard, "/api/local/dashboard");
   assert.equal(refreshed.status, 200);
-  assert.equal((await refreshed.json()).services.length, 7);
 });
 
 test("dashboard discard rejects a local plan that finishes discovery after the discard", async (t) => {

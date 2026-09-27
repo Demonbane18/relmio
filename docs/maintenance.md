@@ -277,6 +277,194 @@ After an n8n upgrade:
 If the network name changed, rerun the wizard and select the new shared
 network. Do not edit or rebuild n8n merely to repair the sidecar.
 
+## VPS build state and operation-lock recovery
+
+After final confirmation, builds can create temporary root-only mode-`0700`
+Buildx client state at these reviewed paths:
+
+- Model install/retry:
+  `/docker/n8n-openai-oauth/.local-model-operation.lock/buildx`.
+- SuperGrok install/sign-in/sign-out:
+  `/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx`.
+- OpenAI bridge install/update:
+  `/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx`.
+
+State is created lazily only for a build-capable call; an already-cached retry
+needing no build, status and removal do not create it. Compose `up` is generated
+with `--no-build`. SuperGrok credential-action `run` can still build, which is
+why its reviewed sign-in/sign-out actions also need confinement.
+
+Successful cleanup removes verified owned temporary state before releasing
+the matching lock. If an SSH command or SFTP upload has started but its
+completion cannot be confirmed (for example, the connection drops before a
+verified exit status), the remote outcome is unknown. Relmio skips cleanup and
+retains the operation lock and any Buildx state for administrator inspection,
+even if a later SSH connection responds. A partial managed model file may
+remain after an interrupted SFTP transfer. A verified nonzero exit is a known
+failure and follows the ordinary reviewed cleanup path.
+
+A lost response while acquiring the lock also requires inspection rather than
+assuming no lock exists. Do not treat the error as proof that the remote action
+did not run, and do not automatically retry, remove the lock, or clear state.
+
+Cleanup rejects symlinks, hard links, ownership, inode or mount ambiguity.
+Interruption during cleanup or an uncertain cleanup result can leave the lock
+and a partially cleaned state tree. If the main action also failed, that
+original failure is preserved; do not assume every cleanup error means the
+main action never ran.
+
+Do **not** delete a lock blindly, recursively clear its directory, run Compose
+`down`, prune Docker resources or clear model weights as an automatic repair.
+An administrator must first establish that no operation still uses the lock,
+inspect the exact recorded ownership and remaining state, and decide any
+target-specific recovery separately. A similarly named or replaced tree is
+not permission to remove it. Relmio's build-state cleanup never removes n8n
+or model-cache data and does not copy, move or print registry credentials.
+
+The managed OAuth bridge also owns a guarded `Dockerfile.dockerignore` that
+allows only its Dockerfile and runtime source into the build context. A
+preexisting unknown ignore file is a refusal, not an automatic overwrite.
+Do not delete that file or include `auth`/sibling installations in the build
+context to make a failed build proceed.
+
+## Linux local-model acceptance harness
+
+`dev/local-model-linux/harness.mjs` is an interactive maintainer tool for a
+**separate disposable n8n fixture**, not an installer for your existing n8n.
+Use a fresh dedicated checkout on a human-approved real Linux host with Node.js
+24+, local rootful Docker Engine, Docker Compose 2.17+, the production model
+resource budget and outbound image/model-registry access. It refuses Darwin,
+remote Docker overrides/contexts and unsupported engines; it never starts
+Docker Desktop or uses a production n8n instance.
+
+### A. Ready-runtime recovery
+
+Run from the repository root, **one command at a time**, reading the result and
+any exact-target confirmation before continuing:
+
+```sh
+node dev/local-model-linux/harness.mjs preflight
+node dev/local-model-linux/harness.mjs fixture
+node dev/local-model-linux/harness.mjs review
+node dev/local-model-linux/harness.mjs install
+node dev/local-model-linux/harness.mjs wait
+node dev/local-model-linux/harness.mjs reconnect
+node dev/local-model-linux/harness.mjs workflow
+node dev/local-model-linux/harness.mjs fault
+node dev/local-model-linux/harness.mjs retry
+node dev/local-model-linux/harness.mjs workflow
+```
+
+The fixture step creates its own n8n container/data volume and permits normal
+n8n database initialization only after target-specific approval. The model
+step uses the real production local-model service with `qwen3:0.6b`, isolated
+Relmio home/state, a fresh installation ID and a private bridge with registry
+egress. Nothing publishes a host port or mounts the Docker socket. The harness
+does not request OAuth/API credentials or fabricate an n8n API key.
+
+Resource review is not advertised as mutation-free: the production disk-space
+probe runs a named read-only, no-network, no-mount helper and removes that
+helper only after the exact **RUN-AND-REMOVE-READONLY-DISK-PROBE** approval.
+Install, retry, the first workflow import and every workflow execution have
+their own target-specific confirmations.
+
+Each command is a fresh process. `reconnect` must reconstruct status without
+repair/restart. The workflow imports and runs only a fixed Manual Trigger →
+HTTP Request workflow in the disposable fixture through its documented n8n
+CLI. It validates the actual Chat Completions result, not merely CLI exit
+status. This CLI activity is a fixture-only exception: the managed installer
+still never executes inside or changes your existing n8n.
+
+The single `fault` stops only the owned model runtime after exact confirmation.
+The following reviewed `retry` must preserve the cache file hashes, model
+digest, cache-volume creation identity and runtime identity; it creates a new
+acquisition operation. The second workflow demonstrates post-recovery
+inference. Fixture n8n container/image/start/restart identities and its
+network/data-volume identity must remain unchanged throughout. Cache
+retention does not establish byte-offset download resumption.
+
+### B. Interrupted cold download
+
+Use a **different fresh checkout and fixture** from scenario A. Do not delete
+an installed model merely to manufacture a cold cache:
+
+```sh
+node dev/local-model-linux/harness.mjs preflight
+node dev/local-model-linux/harness.mjs fixture
+node dev/local-model-linux/harness.mjs install-midpull
+node dev/local-model-linux/harness.mjs reconnect
+node dev/local-model-linux/harness.mjs retry
+node dev/local-model-linux/harness.mjs workflow
+```
+
+`install-midpull` starts the real cold install, waits for observed positive
+partial acquisition progress, and displays the exact runtime, operation and
+cache identities for human approval. It rechecks that the download is still
+partial after approval before stopping only that model runtime. If it
+finishes too quickly or the stopped cache is already complete, the result is
+**NOT-RUN**, not an interrupted-download success. Cache remains intact; there
+is no automatic redownload or destructive retry to force the scenario.
+
+The harness separately asks to create and start an exact owner-labelled,
+no-network, read-only cache inspector. It requires real nonempty partial
+blobs without a completed model manifest, records SHA-256 inventories, and
+retains the inspector. Before the first production retry restarts the writer,
+it asks again to start that inspector and requires the partial inventory and
+cache/runtime identities to be unchanged. Production retry must then acquire
+the catalog-approved model and pass the actual n8n workflow.
+
+If the original partial-observation command was interrupted, the separate
+`node dev/local-model-linux/harness.mjs interrupt-pull` command can reconnect
+to that stage; it does not inject a second fault after a recorded interruption.
+Do not use it to relabel ready-runtime recovery as a cold-download test.
+Inspector lifecycle has no separate CLI command: its exact-target prompts
+are part of `install-midpull`/`interrupt-pull`, `retry` and `remove-model`.
+
+### Evidence and deliberate removal
+
+Removal is **not automatic**. Only when you have reviewed the exact owned
+targets and deliberately want to delete them, run these individually and
+answer their separate interactive prompts:
+
+```sh
+node dev/local-model-linux/harness.mjs remove-model
+node dev/local-model-linux/harness.mjs teardown
+```
+
+The first separately confirms/removes any retained cache inspector before
+independently reviewing and deleting the attested model/cache. The second
+deletes only the attested disposable fixture resources, including its n8n data.
+Neither is an automatic recommendation to clean up a failed run.
+Neither is a generic `docker compose down`, prune command, failure handler or cleanup trap.
+There is no `--yes` or CI/environment approval bypass. Headless invocations
+must hand off to a human TTY. Failure or interruption preserves resources and
+evidence; an uncertain lock requires inspection, not automatic removal.
+
+Owner-only evidence is recorded in
+`dev/local-model-linux/.runtime/evidence.jsonl` with bounded output and file
+size. It contains resource identities, progress and the fixed-prompt result;
+review it before sharing. After approved teardown, evidence, owner marker,
+isolated home and shared downloaded images intentionally remain. Use a
+separate checkout for another cold run rather than deleting evidence or
+reusing the marker as if the run were new.
+
+Scenario A records `readyRuntimeRecoveryComplete`. Scenario B can record
+`interruptedColdDownloadVerified:true` only after genuine partial observation,
+retention before restart, reconnect, successful production retry/workflow and
+separately approved removal. Its `byteOffsetResumeClaimed:false` is deliberate:
+preserving partial bytes plus successful recovery does not measure resumed
+network byte offsets. A failed/NOT-RUN scenario can be cleaned up after its own
+approval but must not be reported as acceptance success.
+
+**Evidence limits:** implementation-time checks observed CLI help, the
+real-Linux preflight refusal on Darwin, injected guard/payload behavior and a
+bounded cache-inventory process over synthetic local files. They did not run
+a live Linux Docker model download, n8n workflow, interrupted pull,
+SSH/provider deployment or Windows agent session. No hosted CI workflow
+claims this proof: an early dispatch flag cannot approve resource identities
+generated later. Full acceptance requires the separately authorized
+interactive Linux runs and their recorded results.
+
 ## Roll back or disable the bridge
 
 Stop and remove only the sidecar container:

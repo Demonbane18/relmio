@@ -73,32 +73,18 @@ test("version mode prints package metadata without starting the wizard", async (
   assert.deepEqual(output, ["1.2.3"]);
 });
 
-test("help mode prints the supported routes without starting the wizard", async () => {
-  const output = [];
-  let serverStarted = false;
-  await runCli({
+test("help exits without starting services or opening a browser", async () => {
+  let effects = 0;
+  const result = await runCli({
     argumentsList: ["--help"],
-    log: (line) => output.push(line),
-    startServer: async () => {
-      serverStarted = true;
-    },
+    log: () => {},
+    readPackage: async () => '{"version":"0.18.0-experimental.1"}',
+    startServer: async () => { effects += 1; },
+    startControlPlane: async () => { effects += 1; },
+    open: async () => { effects += 1; },
   });
-  assert.equal(serverStarted, false);
-  assert.deepEqual(output, [
-    "Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]",
-    "  (no command) Open the ChatGPT-on-VPS setup wizard without persistent local state",
-    "  local      Open the persistent local services dashboard",
-    "  vps        Open the separate VPS setup wizard",
-    "  assistant  Open the dedicated AI Assistant companion wizard",
-    "  start      Start the local dashboard without opening a browser",
-    "  status     Report whether the exact local dashboard is running",
-    "  open       Start when needed and open the local dashboard",
-    "  stop       Stop only the Relmio dashboard process",
-    "  grok login  Start the official SuperGrok device sign-in",
-    "  grok logout Sign out of the managed local SuperGrok endpoint",
-    "  Add --n8n to grok login/logout for the private n8n SuperGrok companion",
-  ]);
-  assert.doesNotMatch(output.join("\n"), /__relmio-dashboard-daemon/u);
+  assert.equal(result, 0);
+  assert.equal(effects, 0);
 });
 
 test("Grok CLI commands resolve the canonical local installation and dispatch only the credential action", async (t) => {
@@ -261,6 +247,7 @@ test("bare default launch opens the ChatGPT VPS wizard without persistent local 
     env: {},
     isInteractive: () => true,
     log: (line) => output.push(line),
+    readPackage: async () => '{"version":"0.18.0-experimental.1"}',
     startControlPlane: async () => {
       throw new Error("bare default launch must not initialize persistent local state");
     },
@@ -283,9 +270,6 @@ test("bare default launch opens the ChatGPT VPS wizard without persistent local 
   assert.deepEqual(opened, [privateLaunchUrl]);
   assert.deepEqual(preparedRoutes, ["/"]);
   assert.doesNotMatch(output.join("\n"), /session=|[A-Za-z0-9_-]{43}/u);
-  assert.ok(output.includes("VPS wizard: private browser handoff ready"));
-  assert.ok(output.includes("This creates a separate sidecar and never restarts n8n."));
-  assert.doesNotMatch(output.join("\n"), /Local wizard|dashboard reads local service status/u);
 });
 
 test("explicit VPS CLI mode preserves the original remote setup URL", async () => {

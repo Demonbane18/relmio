@@ -7,6 +7,71 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.0-experimental.1] - 2026-09-27
+
+### Added
+
+- Add provider-free local and dedicated VPS Ollama model setup for n8n Chat
+  Models, with reviewed network attachment, measured Docker capacity, an
+  allowlisted catalog, and bounded inference-readiness checks.
+- Add local SSH-agent and editable image-qualified Linux usernames, plus a
+  verified noninteractive sudo mode limited to model management.
+- Add the authenticated hosting catalog and manual-plan generator for provider
+  profiles, model/search artifacts, Daytona handoffs, and restricted relays.
+  Plans do not contact providers, provision resources, modify n8n, or prove
+  runtime compatibility.
+- Add an interactive Linux model-acceptance harness for disposable n8n
+  scenarios; live Linux/provider acceptance remains separate and unclaimed.
+
+### Changed
+
+- Keep `0.17.5` as the stable npm `latest` and hosted-installer default. The
+  experimental wizard is opt-in through `relmio@experimental` or its exact
+  prerelease version.
+- Clarify callback recovery, the system-browser Codex login boundary, Windows
+  launcher path limits, and the distinction between planner generation and
+  operator-deployed runtime behavior.
+- Record the 2026-09-27 OpenAI source review. It distinguishes partner identity
+  sign-in from the bridge's complete host-side Codex credential copy and records
+  unresolved scopes, permissions, model entitlement, runtime data recipients,
+  logs, and retention.
+- Document SSH host-key, privilege, temporary Buildx state, and recovery
+  requirements without enabling root/password SSH or changing n8n.
+- Shorten the experimental server wizard to five steps, with optional setup
+  guidance in expandable details and the required plan review kept in view.
+
+### Fixed
+
+- Track the matching Codex login attempt and require confirmed helper shutdown
+  before another sign-in; inconclusive callback-port probes are not treated as
+  proof that the port is free.
+- Preserve the owned Ollama cache across restarts and retries, verify catalog
+  manifest digest and quantization before readiness, and retain bounded pull
+  streaming, parsing, and inference deadlines.
+- Decode managed Windows paths as strict UTF-8 before applying existing
+  owner-only ACL checks.
+- Preserve the private setup session when opening hosting options directly.
+- Pin model-specific setup commands to this prerelease so they do not open
+  the stable wizard, which does not include the new model setup.
+
+### Security
+
+- Keep model-only passwordless sudo separate from OAuth bridge, Assistant, and
+  SuperGrok VPS access. Constrain temporary Buildx state to reviewed operation
+  locks and attest the default builder without changing the user's saved config.
+- Require the VPS model ownership marker to remain root-owned, mode `0600`, and
+  single-link through pre/post-upload checks. Across OAuth/model/Grok VPS
+  operations, unknown SSH/SFTP outcomes retain the operation lock and Buildx
+  state for inspection; verified failures use normal cleanup.
+- Document that generated relay runtimes process request bodies and send the
+  separately configured upstream bearer to the fixed upstream. Cloudflare
+  observability is enabled in generated artifacts; actual field-level logging
+  and retention remain unknown.
+
+New provider deployments, local-model inference, throughput, and provider
+entitlements were not live-tested for this prerelease. Offline planner/profile
+checks are not runtime certification.
+
 ## [0.17.5] - 2026-09-26
 
 ### Added
@@ -17,12 +82,10 @@ checks the registry separately after publication.
 
 ### Fixed
 
-- Stop ChatGPT sign-in for local and VPS OpenAI OAuth bridges from silently
-  timing out when another app, IDE, or extension already listens on the
-  `localhost:1455` callback port. That includes listeners on IPv6 `localhost`
-  only, which the official Codex login does not detect. The wizard now reports
-  the conflict before it starts the login. Previously the other app received
-  the callback and showed `This sign-in request expired`.
+- Probe the default callback port on both IPv4 and IPv6 loopback before local
+  and VPS OpenAI OAuth sign-in, and report that an existing listener could
+  interfere. The page reported by the original sign-in failure did not establish
+  which application displayed it or received a callback.
 
 ### Changed
 
@@ -1111,6 +1174,8 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.1.2]: https://github.com/Demonbane18/relmio/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
+
+[0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1
 
 [0.17.5]: https://github.com/Demonbane18/relmio/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/Demonbane18/relmio/compare/v0.17.3...v0.17.4

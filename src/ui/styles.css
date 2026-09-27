@@ -625,6 +625,32 @@ h3 {
   color: var(--warning);
 }
 
+.experimental-notice {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid var(--warning-border);
+  border-inline-start: 4px solid var(--warning);
+  border-radius: var(--radius);
+  color: var(--text);
+  background: var(--warning-soft);
+  overflow-wrap: anywhere;
+}
+
+.experimental-notice strong {
+  display: block;
+  color: var(--warning);
+  font-size: 1rem;
+}
+
+.experimental-notice p {
+  margin: 0.5rem 0 0;
+  line-height: 1.5;
+}
+
+.experimental-notice code {
+  overflow-wrap: anywhere;
+}
+
 .toast-close {
   display: inline-grid;
   width: 1.625rem;

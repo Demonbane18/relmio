@@ -5,6 +5,7 @@ import {
 import { getLocalN8nAssistantStatus } from "./local-n8n-assistant-installer.js";
 import { getLocalN8nSidecarStatus } from "./local-n8n-sidecar-installer.js";
 import { getLocalN8nSuperGrokStatus } from "./local-n8n-supergrok-installer.js";
+import { getLocalN8nModelStatus } from "./local-n8n-model-installer.js";
 
 const SERVICE_DEFINITIONS = Object.freeze([
   Object.freeze({
@@ -26,6 +27,7 @@ const SERVICE_DEFINITIONS = Object.freeze([
     kind: "n8n-assistant",
   }),
   Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok for n8n", kind: "n8n-supergrok" }),
+  Object.freeze({ target: "n8n-local-model", label: "Local model for n8n", kind: "n8n-local-model" }),
 ]);
 const STATES = new Set(["absent", "healthy", "stopped", "partial", "unavailable"]);
 const ASSISTANT_MODES = new Set(["disabled", "sandbox", "sandbox-with-searxng"]);
@@ -212,6 +214,34 @@ function copySuperGrokSnapshot(snapshot) {
   };
 }
 
+const MODEL_STATES = new Set(["missing", "downloading", "ready", "failed", "partial"]);
+const MODEL_IDS = new Set(["qwen3:0.6b", "qwen3:1.7b", "qwen3.5:2b", "qwen3.5:4b", "qwen3.5:9b"]);
+
+function copyModelSnapshot(snapshot) {
+  if (
+    snapshot?.target !== "n8n-local-model" ||
+    snapshot.endpoint !== "http://n8n-local-model:11434/v1" ||
+    !MODEL_STATES.has(snapshot.model?.state) ||
+    !MODEL_IDS.has(snapshot.model?.id) ||
+    typeof snapshot.canRetry !== "boolean" ||
+    snapshot.canRetry !== ["missing", "failed"].includes(snapshot.model.state) ||
+    snapshot.canRemove !== (snapshot.model.state !== "downloading") ||
+    (snapshot.model.digest !== null && !/^[a-f0-9]{64}$/u.test(snapshot.model.digest)) ||
+    (snapshot.model.state === "ready" && snapshot.model.digest === null)
+  ) throw new TypeError();
+  return {
+    target: "n8n-local-model",
+    endpoint: snapshot.endpoint,
+    model: {
+      state: snapshot.model.state,
+      id: snapshot.model.id,
+      digest: snapshot.model.digest,
+    },
+    canRetry: snapshot.canRetry,
+    canRemove: snapshot.canRemove,
+  };
+}
+
 function copyAssistantSnapshot(snapshot) {
   if (
     snapshot?.target !== "local-n8n-assistant" ||
@@ -234,6 +264,7 @@ function copySnapshot(definition, snapshot) {
   if (definition.kind === "n8n-stack") return copyStackSnapshot(snapshot);
   if (definition.kind === "n8n-oauth-bridge") return copySidecarSnapshot(snapshot);
   if (definition.kind === "n8n-supergrok") return copySuperGrokSnapshot(snapshot);
+  if (definition.kind === "n8n-local-model") return copyModelSnapshot(snapshot);
   return copyAssistantSnapshot(snapshot);
 }
 
@@ -260,6 +291,9 @@ function actionsFor(definition, state, snapshot) {
     snapshot?.canRefreshCredential === true
   ) {
     actions.push("refresh-credential");
+  }
+  if (definition.kind === "n8n-local-model" && snapshot?.canRetry === true) {
+    actions.push("retry-model");
   }
   if (definition.kind === "n8n-supergrok") {
     if (state === "healthy") actions.push("sign-in-grok-build", "sign-out-grok-build");
@@ -324,6 +358,46 @@ function sanitizeDocker(result) {
   return { available: true, version, composeVersion };
 }
 
+function dashboardModelStatus(result) {
+  if (result?.status === "absent") return { managed: false, state: "absent", snapshot: null };
+  if (result?.status === "unavailable") return { managed: false, state: "unavailable", snapshot: null };
+  if (result?.status === "partial") {
+    if (result.managed !== true || !MODEL_IDS.has(result.modelId) ||
+      result.endpoint !== "http://n8n-local-model:11434/v1") throw new TypeError();
+    return {
+      managed: true, state: "partial",
+      snapshot: {
+        target: "n8n-local-model", endpoint: result.endpoint,
+        model: { state: "partial", id: result.modelId, digest: null },
+        canRetry: false, canRemove: true,
+      },
+    };
+  }
+  const modelStates = {
+    "runtime-ready": "missing",
+    downloading: "downloading",
+    "model-ready": "ready",
+    "model-error": "failed",
+  };
+  const modelState = modelStates[result?.status];
+  if (
+    result?.managed !== true || !modelState ||
+    !MODEL_IDS.has(result.modelId) ||
+    result.endpoint !== "http://n8n-local-model:11434/v1"
+  ) throw new TypeError();
+  return {
+    managed: true,
+    state: "healthy",
+    snapshot: {
+      target: "n8n-local-model",
+      endpoint: result.endpoint,
+      model: { state: modelState, id: result.modelId, digest: result.modelDigest ?? null },
+      canRetry: ["missing", "failed"].includes(modelState),
+      canRemove: modelState !== "downloading",
+    },
+  };
+}
+
 async function inspectService(definition, inspectors) {
   try {
     let result;
@@ -335,6 +409,8 @@ async function inspectService(definition, inspectors) {
       result = await inspectors.inspectLocalN8nSidecar();
     } else if (definition.kind === "n8n-supergrok") {
       result = await inspectors.inspectLocalN8nSuperGrok();
+    } else if (definition.kind === "n8n-local-model") {
+      result = dashboardModelStatus(await inspectors.inspectLocalN8nModel());
     } else {
       result = await inspectors.inspectLocalN8nAssistant();
     }
@@ -354,6 +430,7 @@ export async function getLocalDashboardStatus({
   inspectLocalN8nSidecar = getLocalN8nSidecarStatus,
   inspectLocalN8nAssistant = getLocalN8nAssistantStatus,
   inspectLocalN8nSuperGrok = getLocalN8nSuperGrokStatus,
+  inspectLocalN8nModel = getLocalN8nModelStatus,
 } = {}) {
   let generatedAt;
   try {
@@ -373,6 +450,7 @@ export async function getLocalDashboardStatus({
     inspectLocalN8nSidecar,
     inspectLocalN8nAssistant,
     inspectLocalN8nSuperGrok,
+    inspectLocalN8nModel,
   };
   const [services, providers] = await Promise.all([
     Promise.all(

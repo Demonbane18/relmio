@@ -11,6 +11,7 @@ import packageManifest from "../../package.json" with { type: "json" };
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
 import { installSidecar } from "../services/installer.js";
 import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels } from "../services/vps-supergrok.js";
+import { inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus } from "../services/vps-local-model.js";
 import { installAssistant } from "../services/assistant-installer.js";
 import {
   getAuthStatus,
@@ -20,10 +21,12 @@ import {
 import {
   connectVerified,
   scanHostFingerprint,
+  getSshCapabilities,
 } from "../infrastructure/ssh.js";
 import {
   validateHostname,
   validatePort,
+  validateUsername,
 } from "../domain/validation.js";
 import { SIDECAR_HOSTNAME } from "../domain/templates.js";
 import {
@@ -49,6 +52,10 @@ import {
   LOCAL_N8N_SUPERGROK_TARGET,
   createLocalN8nSuperGrokPlan,
 } from "../domain/local-n8n-supergrok.js";
+import { LOCAL_N8N_MODEL_TARGET, LOCAL_N8N_MODEL_ENDPOINT, LOCAL_MODEL_CATALOG, LOCAL_MODEL_RUNTIME_IMAGE, getLocalModelDefinition, createLocalN8nModelPlan } from "../domain/local-n8n-model.js";
+import { LOCAL_MODEL_CATALOG_REVISION } from "../local-model/catalog.mjs";
+import { HOSTING_PROVIDERS } from "../domain/hosting-providers.js";
+import { createHostingDeploymentPlan, getHostingDeploymentProfiles } from "../domain/hosting-deployment.js";
 import {
   LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
   LOCAL_N8N_STACK_REMOVE_CONFIRMATION,
@@ -85,6 +92,7 @@ import {
   installLocalN8nSuperGrok,
   removeLocalN8nSuperGrok,
 } from "../services/local-n8n-supergrok-installer.js";
+import { getLocalN8nModelStatus, installLocalN8nModel, reviewLocalN8nModelAction, applyLocalN8nModelAction, inspectLocalN8nModelResources } from "../services/local-n8n-model-installer.js";
 import {
   LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
   LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
@@ -113,7 +121,7 @@ const MAX_PENDING_BROWSER_TRANSFERS = 8;
 const BROWSER_PREPARE_PATH = "/__relmio/browser/prepare";
 const BROWSER_BOOTSTRAP_PATH = "/__relmio/browser/bootstrap";
 const BROWSER_TRANSFER_PATH = "/__relmio/browser/transfer";
-const BROWSER_BOOTSTRAP_ROUTES = new Set(["/", "/assistant", "/local", "/supergrok-vps"]);
+const BROWSER_BOOTSTRAP_ROUTES = new Set(["/", "/assistant", "/local", "/supergrok-vps", "/local-model-vps", "/hosting"]);
 const BROWSER_BOOTSTRAP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const PACKAGE_VERSION = packageManifest.version;
 const OAUTH_VPS_CONFLICT_MESSAGE =
@@ -153,10 +161,12 @@ const defaultServices = {
   startOAuthLogin,
   scanHostFingerprint,
   connectVerified,
+  getSshCapabilities,
   discoverN8n,
   discoverNetworks,
   installSidecar,
   inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels,
+  inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus,
   installAssistant,
   attestLocalCodexInstallation,
   getManagedLocalEndpointStatus,
@@ -165,21 +175,28 @@ const defaultServices = {
   getLocalN8nStackStatus,
   getLocalN8nSuperGrokStatus,
   discoverLocalN8nSidecarTargets,
+  getLocalN8nModelStatus,
+  inspectLocalN8nModelResources,
   getProjectMeta,
   installLocalEndpoint,
   installLocalN8nSidecar,
   installLocalN8nAssistant,
   installLocalN8nSuperGrok,
   editLocalN8nAssistantSearxng,
+  installLocalN8nModel,
   installLocalN8nStack,
   prepareLocalN8nAssistantSearxngUpdate,
   prepareLocalN8nAssistantPlan: createLocalN8nAssistantPlan,
   prepareLocalN8nSidecarPlan: createLocalN8nSidecarPlan,
   prepareLocalN8nSuperGrokPlan: createLocalN8nSuperGrokPlan,
+  prepareLocalN8nModelPlan: createLocalN8nModelPlan,
   prepareLocalN8nStackPlan: createLocalN8nStackPlan,
+  prepareHostingDeploymentPlan: createHostingDeploymentPlan,
   removeLocalN8nAssistant,
   removeLocalN8nSidecar,
   removeLocalN8nSuperGrok,
+  reviewLocalN8nModelAction,
+  applyLocalN8nModelAction,
   removeLocalN8nStack,
   refreshLocalN8nSidecarCredential,
   updateLocalN8nSidecarRuntime,
@@ -687,6 +704,62 @@ function requireConnection(state) {
   return state.connection;
 }
 
+function requireFullVpsScope(connection) {
+  if (connection?.scope !== "vps" || connection.identity?.privilege !== "root" ||
+    connection.identity?.loginUid !== 0 || connection.identity?.effectiveUid !== 0) {
+    throw Object.assign(new Error(
+      "This SSH session is local-model-only. OAuth bridge, Assistant and SuperGrok VPS operations require a verified root session. Disconnect and reconnect using a UID 0 account; local ChatGPT sign-in remains available.",
+    ), { statusCode: 403 });
+  }
+}
+
+function credentialBearingVpsRoute(path) {
+  return path === "/api/plan" || path === "/api/install" ||
+    path === "/api/assistant/plan" || path === "/api/assistant/install" ||
+    path.startsWith("/api/vps/supergrok/");
+}
+
+function validatedSshRequest(body) {
+  requireExactRequestBody(body, [
+    "host", "port", "username", "expectedFingerprint", "useAgent", "privilege",
+    ...(body?.useAgent === false ? ["password"] : []),
+  ], "The SSH connection request must contain only the selected authentication fields.");
+  if (typeof body.useAgent !== "boolean" || !["root", "sudo-n"].includes(body.privilege)) {
+    throw new Error("Choose SSH password or local agent authentication and an explicit administrative privilege.");
+  }
+  if (!body.useAgent && (typeof body.password !== "string" || !body.password || body.password.length > 16384)) {
+    throw new Error("Enter the SSH password for the selected account.");
+  }
+  if (typeof body.expectedFingerprint !== "string" || !/^SHA256:[A-Za-z0-9+/]{43}$/u.test(body.expectedFingerprint)) {
+    throw new Error("Confirm a valid SSH host fingerprint first.");
+  }
+  return {
+    host: validateHostname(body.host), port: validatePort(body.port),
+    username: validateUsername(body.username), expectedFingerprint: body.expectedFingerprint,
+    useAgent: body.useAgent, privilege: body.privilege,
+    ...(body.useAgent ? {} : { password: body.password }),
+  };
+}
+
+function verifiedConnectionIdentity(connection, request, generation) {
+  const identity = connection?.identity;
+  const scope = request.privilege === "root" ? "vps" : "local-model-only";
+  if (!identity || connection.scope !== scope ||
+    identity.host !== request.host || identity.port !== request.port ||
+    identity.fingerprint !== request.expectedFingerprint || identity.username !== request.username ||
+    identity.authentication !== (request.useAgent ? "agent" : "password") ||
+    identity.privilege !== request.privilege || identity.effectiveUid !== 0 ||
+    !Number.isSafeInteger(identity.loginUid) || identity.loginUid < 0 ||
+    (request.privilege === "root" && identity.loginUid !== 0)) {
+    throw new Error("The authenticated SSH identity does not match the requested administrative session. Reconnect and verify it again.");
+  }
+  return Object.freeze({
+    host: identity.host, port: identity.port, fingerprint: identity.fingerprint,
+    username: identity.username, authentication: identity.authentication,
+    privilege: identity.privilege, loginUid: identity.loginUid, effectiveUid: 0, scope, generation,
+  });
+}
+
 function oauthCredentialChangeInFlight(state) {
   return (
     state.oauthLoginStartInFlight ||
@@ -757,12 +830,18 @@ function invalidateVpsPlans(state) {
   state.sidecarPlan = null;
   state.assistantPlan = null;
   invalidateSuperGrokPlan(state);
+  invalidateLocalModelVpsPlan(state);
 }
 
 function invalidateSuperGrokPlan(state) {
   state.supergrokPlan = null;
   state.supergrokPlanGeneration += 1;
 }
+function invalidateLocalModelVpsPlan(state) {
+  state.localModelVpsPlan = null;
+  state.localModelVpsPlanGeneration += 1;
+}
+
 
 function beginVpsDiscoveryRefresh(state) {
   invalidateVpsPlans(state);
@@ -774,6 +853,11 @@ function beginSuperGrokPlanReview(state) {
   invalidateVpsPlans(state);
   return state.supergrokPlanGeneration;
 }
+function beginLocalModelVpsReview(state) {
+  invalidateVpsPlans(state);
+  return state.localModelVpsPlanGeneration;
+}
+
 
 function closeVpsConnectionBestEffort(connection) {
   try {
@@ -867,6 +951,7 @@ function detachVpsConnection(
     clearVpsConnectionIdleExpiry(state, connection);
     retireVpsConnectionUses(state, connection);
     state.connection = null;
+    state.connectionIdentity = null;
     advanceVpsLifecycleGeneration(state);
     state.discovery = null;
     state.networksByContainer.clear();
@@ -1259,6 +1344,15 @@ async function loadDefaultUiFiles() {
     readFile(new URL("../ui/supergrok-vps.html", import.meta.url), "utf8"),
     readFile(new URL("../ui/supergrok-vps.js", import.meta.url), "utf8"),
     readFile(new URL("../ui/supergrok-vps.css", import.meta.url), "utf8"),
+    readFile(new URL("../ui/local-model-vps.html", import.meta.url), "utf8"),
+    readFile(new URL("../ui/local-model-vps.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/local-model-vps.css", import.meta.url), "utf8"),
+    readFile(new URL("../ui/ssh-form.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/hosting.html", import.meta.url), "utf8"),
+    readFile(new URL("../ui/hosting.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/hosting.css", import.meta.url), "utf8"),
+    readFile(new URL("../domain/hosting-providers.js", import.meta.url), "utf8"),
+    readFile(new URL("../ui/hosting-archive.js", import.meta.url), "utf8"),
   ]);
 
   return {
@@ -1285,6 +1379,15 @@ async function loadDefaultUiFiles() {
     "/supergrok-vps": files[20],
     "/supergrok-vps.js": files[21],
     "/supergrok-vps.css": files[22],
+    "/local-model-vps": files[23],
+    "/local-model-vps.js": files[24],
+    "/local-model-vps.css": files[25],
+    "/ssh-form.js": files[26],
+    "/hosting": files[27],
+    "/hosting.js": files[28],
+    "/hosting.css": files[29],
+    "/domain/hosting-providers.js": files[30],
+    "/hosting-archive.js": files[31],
   };
 }
 
@@ -1458,6 +1561,11 @@ const LOCAL_DASHBOARD_SERVICE_DEFINITIONS = Object.freeze({
       "remove-owned-supergrok",
     ]),
   }),
+  "n8n-local-model": Object.freeze({
+    label: "Local model for n8n",
+    kind: "n8n-local-model",
+    actions: new Set(["setup", "retry-model", "remove"]),
+  }),
 });
 
 const LOCAL_DASHBOARD_PROVIDER_DEFINITIONS = Object.freeze({
@@ -1604,6 +1712,25 @@ function createSafeDashboardSnapshot(target, snapshot) {
       canRemove: true,
     };
   }
+  if (target === "n8n-local-model") {
+    if (
+      snapshot.target !== target ||
+      snapshot.endpoint !== "http://n8n-local-model:11434/v1" ||
+      !["missing", "downloading", "ready", "failed", "partial"].includes(snapshot.model?.state) ||
+      !["qwen3:0.6b", "qwen3:1.7b", "qwen3.5:2b", "qwen3.5:4b", "qwen3.5:9b"].includes(snapshot.model?.id) ||
+      (snapshot.model.digest !== null && !/^[a-f0-9]{64}$/u.test(snapshot.model.digest)) ||
+      snapshot.canRetry !== ["missing", "failed"].includes(snapshot.model.state) ||
+      snapshot.canRemove !== (snapshot.model.state !== "downloading") ||
+      (snapshot.model.state === "ready" && snapshot.model.digest === null)
+    ) throw new TypeError("The local dashboard model snapshot is invalid.");
+    return {
+      target,
+      endpoint: snapshot.endpoint,
+      model: { state: snapshot.model.state, id: snapshot.model.id, digest: snapshot.model.digest },
+      canRetry: snapshot.canRetry,
+      canRemove: snapshot.canRemove,
+    };
+  }
   if (target === "local-n8n-stack") {
     const assistantModes = new Set(["disabled", "sandbox", "sandbox-with-searxng"]);
     if (
@@ -1689,6 +1816,9 @@ function expectedDashboardActions({ definition, state, snapshot }) {
     snapshot.canRefreshCredential === true
   ) {
     actions.push("refresh-credential");
+  }
+  if (definition.kind === "n8n-local-model" && snapshot.canRetry === true) {
+    actions.push("retry-model");
   }
   if (definition.kind === "n8n-supergrok") {
     if (state === "healthy") {
@@ -2024,6 +2154,142 @@ function createSafeLocalN8nSuperGrokPlan(plan) {
     experimental: true,
     disposableHarnessWarning: plan.disposableHarnessWarning,
   };
+}
+
+function requireCatalogModel(value) {
+  if (!LOCAL_MODEL_CATALOG.some((model) => model.id === value)) throw new TypeError("Select an allowlisted local model.");
+  return value;
+}
+
+function safeModelBytes(value) {
+  if (!Number.isSafeInteger(value) || value < 0) throw new TypeError("The model resource measurement is invalid.");
+  return value;
+}
+
+function safeModelBudget(value) {
+  if (!value || typeof value !== "object" ||
+    !Number.isSafeInteger(value.memoryBytes) || value.memoryBytes <= 0 ||
+    typeof value.cpus !== "number" || !Number.isFinite(value.cpus) || value.cpus <= 0 ||
+    !Number.isSafeInteger(value.contextTokens) || value.contextTokens <= 0) {
+    throw new TypeError("The reviewed model budget is invalid.");
+  }
+  return { memoryBytes: value.memoryBytes, cpus: value.cpus, contextTokens: value.contextTokens };
+}
+
+function createSafeLocalN8nModelPlan(plan) {
+  if (plan?.kind !== LOCAL_N8N_MODEL_TARGET || plan.target !== LOCAL_N8N_MODEL_TARGET ||
+    plan.endpoint !== LOCAL_N8N_MODEL_ENDPOINT || plan.baseUrl !== LOCAL_N8N_MODEL_ENDPOINT ||
+    plan.hostPublication !== "none" || plan.authentication !== "none" ||
+    plan.upstreamAuth !== "none" || plan.protocol !== "openai-chat-completions" ||
+    plan.apiKeyPlaceholder !== "local-only" || plan.responsesApi !== false ||
+    plan.cloudEnabled !== false || plan.experimental !== true ||
+    plan.managedPath !== "~/.relmio/local/n8n-local-model" ||
+    plan.catalogRevision !== LOCAL_MODEL_CATALOG_REVISION ||
+    plan.runtimeImage !== LOCAL_MODEL_RUNTIME_IMAGE ||
+    plan.approvedModelDigest !== getLocalModelDefinition(requireCatalogModel(plan.modelId)).manifestDigest ||
+    !/^sha256:[a-f0-9]{64}$/u.test(plan.approvedModelDigest) ||
+    !Number.isFinite(plan.hostResources?.cpus) || plan.hostResources.cpus <= 0) {
+    throw Object.assign(new TypeError("The local model plan is invalid."), { statusCode: 502 });
+  }
+  return {
+    kind: LOCAL_N8N_MODEL_TARGET, target: LOCAL_N8N_MODEL_TARGET,
+    label: "Local model for n8n", endpoint: LOCAL_N8N_MODEL_ENDPOINT,
+    n8nContainerId: requireSafeDockerIdentifier(plan.n8nContainerId, "n8n container ID"),
+    n8nContainerName: requireSafeDockerName(plan.n8nContainerName, "n8n container name"),
+    dockerNetworkId: requireSafeDockerIdentifier(plan.dockerNetworkId, "Docker network ID"),
+    networkName: requireSafeDockerName(plan.networkName, "Docker network name"),
+    modelId: requireCatalogModel(plan.modelId), catalogRevision: LOCAL_MODEL_CATALOG_REVISION,
+    runtimeImage: LOCAL_MODEL_RUNTIME_IMAGE, approvedModelDigest: plan.approvedModelDigest,
+    contextTokens: safeModelBudget(plan).contextTokens, memoryBytes: plan.memoryBytes,
+    cpus: plan.cpus, expectedDownloadBytes: safeModelBytes(plan.expectedDownloadBytes),
+    requiredDiskBytes: safeModelBytes(plan.requiredDiskBytes),
+    reservedMemoryBytes: safeModelBytes(plan.reservedMemoryBytes),
+    hostResources: {
+      memoryBytes: safeModelBytes(plan.hostResources?.memoryBytes),
+      cpus: plan.hostResources.cpus,
+      diskAvailableBytes: safeModelBytes(plan.hostResources.diskAvailableBytes),
+    },
+    managedPath: plan.managedPath, hostPublication: "none",
+    authentication: "none", apiKeyPlaceholder: "local-only",
+    responsesApi: false, cloudEnabled: false, experimental: true,
+    disposableHarnessWarning: plan.disposableHarnessWarning === true,
+  };
+}
+
+function createSafeVpsLocalModelPlan(plan) {
+  if (!["install", "retry", "remove"].includes(plan?.action) ||
+    plan.installDirectory !== "/docker/n8n-openai-oauth/local-model" ||
+    plan.operationLockPath !== "/docker/n8n-openai-oauth/.local-model-operation.lock" ||
+    plan.temporaryBuildStatePath !== (plan.action === "remove" ? null : "/docker/n8n-openai-oauth/.local-model-operation.lock/buildx") ||
+    (plan.action === "install"
+      ? !exactObjectKeys(plan.sharedRootBootstrap, [
+          "directory", "markerPath", "mayCreateDirectory", "mayCreateMarker", "preservesExistingMode",
+        ]) ||
+        plan.sharedRootBootstrap.directory !== "/docker/n8n-openai-oauth" ||
+        plan.sharedRootBootstrap.markerPath !== "/docker/n8n-openai-oauth/.managed-by-relmio-root" ||
+        plan.sharedRootBootstrap.mayCreateDirectory !== true ||
+        plan.sharedRootBootstrap.mayCreateMarker !== true ||
+        plan.sharedRootBootstrap.preservesExistingMode !== true
+      : plan.sharedRootBootstrap !== null) ||
+    plan.endpoint !== LOCAL_N8N_MODEL_ENDPOINT ||
+    plan.catalogRevision !== LOCAL_MODEL_CATALOG_REVISION ||
+    plan.runtimeImage !== LOCAL_MODEL_RUNTIME_IMAGE ||
+    plan.approvedModelDigest !== getLocalModelDefinition(requireCatalogModel(plan.modelId)).manifestDigest ||
+    !/^sha256:[a-f0-9]{64}$/u.test(plan.approvedModelDigest) ||
+    plan.clearModelCache !== (plan.action === "remove") ||
+    !Array.isArray(plan.publishedPorts) || plan.publishedPorts.length !== 0 ||
+    !Array.isArray(plan.existingN8nChanges) || plan.existingN8nChanges.length !== 0 ||
+    plan.existingN8nRestarts !== 0 ||
+    !Number.isSafeInteger(plan.hostResources?.memoryBytes) ||
+    !Number.isSafeInteger(plan.hostResources?.diskAvailableBytes) ||
+    typeof plan.hostResources?.cpus !== "number" || !Number.isFinite(plan.hostResources.cpus) ||
+    plan.hostResources.cpus <= 0) {
+    throw Object.assign(new TypeError("The reviewed VPS model plan is invalid."), { statusCode: 502 });
+  }
+  const budget = safeModelBudget(plan);
+  return {
+    action: plan.action,
+    containerName: requireSafeDockerName(plan.containerName, "n8n container name"),
+    networkName: requireSafeDockerName(plan.networkName, "Docker network name"),
+    containerId: requireSafeDockerIdentifier(plan.containerId, "n8n container ID"),
+    networkId: requireSafeDockerIdentifier(plan.networkId, "Docker network ID"),
+    installId: plan.installId ?? null,
+    installDirectory: plan.installDirectory,
+    operationLockPath: "/docker/n8n-openai-oauth/.local-model-operation.lock",
+    temporaryBuildStatePath: plan.temporaryBuildStatePath,
+    sharedRootBootstrap: plan.action === "install"
+      ? {
+          directory: "/docker/n8n-openai-oauth",
+          markerPath: "/docker/n8n-openai-oauth/.managed-by-relmio-root",
+          mayCreateDirectory: true,
+          mayCreateMarker: true,
+          preservesExistingMode: true,
+        }
+      : null,
+    endpoint: LOCAL_N8N_MODEL_ENDPOINT,
+    modelId: requireCatalogModel(plan.modelId),
+    catalogRevision: LOCAL_MODEL_CATALOG_REVISION,
+    runtimeImage: LOCAL_MODEL_RUNTIME_IMAGE, approvedModelDigest: plan.approvedModelDigest,
+    contextTokens: budget.contextTokens, memoryBytes: budget.memoryBytes, cpus: budget.cpus,
+    expectedDownloadBytes: safeModelBytes(plan.expectedDownloadBytes),
+    requiredDiskBytes: safeModelBytes(plan.requiredDiskBytes),
+    reservedMemoryBytes: safeModelBytes(plan.reservedMemoryBytes),
+    hostResources: {
+      memoryBytes: safeModelBytes(plan.hostResources.memoryBytes),
+      cpus: plan.hostResources.cpus,
+      diskAvailableBytes: safeModelBytes(plan.hostResources.diskAvailableBytes),
+    },
+    clearModelCache: plan.clearModelCache,
+    publishedPorts: [], existingN8nChanges: [], existingN8nRestarts: 0,
+  };
+}
+
+function requireVpsSuperGrokBuildBoundary(plan) {
+  const mayBuild = ["install", "sign-in", "sign-out"].includes(plan?.action);
+  if (plan?.operationLockPath !== "/docker/n8n-openai-oauth/.supergrok-operation.lock" ||
+    plan.temporaryBuildStatePath !== (mayBuild ? "/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx" : null)) {
+    throw Object.assign(new TypeError("The reviewed SuperGrok build boundary is invalid."), { statusCode: 502 });
+  }
 }
 
 function createSafeLocalN8nAssistantPlan(plan) {
@@ -2677,6 +2943,114 @@ function createSafeLocalN8nRemovalResult(result) {
   };
 }
 
+const MODEL_INSTALL_STATES = new Set(["absent", "unavailable", "partial", "runtime-ready", "downloading", "model-ready", "model-error"]);
+const MODEL_PROGRESS_STATES = new Set(["downloading", "verifying", "model-ready", "model-error"]);
+
+function createSafeLocalModelStatus(result) {
+  if (result?.target !== LOCAL_N8N_MODEL_TARGET || !MODEL_INSTALL_STATES.has(result.status) ||
+    typeof result.managed !== "boolean" ||
+    (["absent", "unavailable"].includes(result.status) ? result.managed !== false : result.managed !== true)) {
+    throw Object.assign(new TypeError("The local model status is invalid."), { statusCode: 502 });
+  }
+  const base = {
+    target: LOCAL_N8N_MODEL_TARGET, managed: result.managed, status: result.status,
+    installId: null, modelId: null, modelDigest: null, endpoint: null,
+    networkName: null, containerName: null, resourceBudget: null,
+    operationId: null, progress: null, reason: null,
+  };
+  if (result.status === "absent" || result.status === "unavailable") return base;
+  if (result.status === "partial") return { ...base, managed: true };
+  if (result.endpoint !== LOCAL_N8N_MODEL_ENDPOINT ||
+    !/^[a-f0-9-]{16,64}$/iu.test(result.installId) ||
+    (result.modelDigest !== null && !/^[a-f0-9]{64}$/u.test(result.modelDigest)) ||
+    (result.status === "model-ready" && !result.modelDigest)) {
+    throw Object.assign(new TypeError("The installed model identity is invalid."), { statusCode: 502 });
+  }
+  const budget = safeModelBudget(result.resourceBudget);
+  let progress = null;
+  if (result.progress !== null) {
+    if (!MODEL_PROGRESS_STATES.has(result.progress?.status) ||
+      (result.progress.completed !== null && (!Number.isSafeInteger(result.progress.completed) || result.progress.completed < 0)) ||
+      (result.progress.total !== null && (!Number.isSafeInteger(result.progress.total) || result.progress.total < 0)) ||
+      (result.progress.total !== null && result.progress.completed !== null && result.progress.completed > result.progress.total)) {
+      throw Object.assign(new TypeError("The model transfer status is invalid."), { statusCode: 502 });
+    }
+    progress = { status: result.progress.status, completed: result.progress.completed, total: result.progress.total };
+  }
+  if (result.operationId !== null && !/^[a-f0-9]{32}$/u.test(result.operationId)) {
+    throw Object.assign(new TypeError("The model operation identity is invalid."), { statusCode: 502 });
+  }
+  return {
+    ...base, installId: result.installId, modelId: requireCatalogModel(result.modelId),
+    modelDigest: result.modelDigest, endpoint: LOCAL_N8N_MODEL_ENDPOINT,
+    networkName: requireSafeDockerName(result.networkName, "model network name"),
+    containerName: requireSafeDockerName(result.containerName, "n8n container name"),
+    resourceBudget: budget, operationId: result.operationId, progress,
+  };
+}
+
+function createSafeVpsLocalModelStatus(result) {
+  if (!MODEL_INSTALL_STATES.has(result?.state)) {
+    throw Object.assign(new TypeError("The VPS model status is invalid."), { statusCode: 502 });
+  }
+  if (result.state === "absent" || result.state === "unavailable") {
+    return { state: result.state, installId: null, modelId: null, endpoint: null, operation: null,
+      ...(result.removed === true && result.modelCacheDeleted === true ? { removed: true, modelCacheDeleted: true } : {}) };
+  }
+  if (!/^[a-f0-9-]{16,64}$/iu.test(result.installId) ||
+    result.endpoint !== LOCAL_N8N_MODEL_ENDPOINT ||
+    !["string", "undefined"].includes(typeof result.containerId) ||
+    !["string", "undefined"].includes(typeof result.networkId)) {
+    throw Object.assign(new TypeError("The VPS model identity is invalid."), { statusCode: 502 });
+  }
+  const operation = result.operation;
+  let safeOperation = null;
+  if (operation !== null && operation !== undefined) {
+    if (!["downloading", "verifying", "model-ready", "model-error", "partial"].includes(operation.state) ||
+      !["download", "inference", "complete", "error", "unknown"].includes(operation.phase) ||
+      typeof operation.writerMayBeActive !== "boolean" ||
+      (operation.completedBytes !== null && (!Number.isSafeInteger(operation.completedBytes) || operation.completedBytes < 0)) ||
+      (operation.totalBytes !== null && (!Number.isSafeInteger(operation.totalBytes) || operation.totalBytes < 0)) ||
+      (operation.totalBytes !== null && operation.completedBytes !== null && operation.completedBytes > operation.totalBytes) ||
+      (operation.modelDigest !== null && !/^sha256:[a-f0-9]{64}$/u.test(operation.modelDigest)) ||
+      (operation.errorCode !== null && !/^[a-z][a-z0-9_-]{0,63}$/u.test(operation.errorCode))) {
+      throw Object.assign(new TypeError("The VPS model progress is invalid."), { statusCode: 502 });
+    }
+    safeOperation = {
+      state: operation.state, phase: operation.phase, completedBytes: operation.completedBytes,
+      totalBytes: operation.totalBytes, modelDigest: operation.modelDigest,
+      errorCode: operation.errorCode, writerMayBeActive: operation.writerMayBeActive,
+    };
+  }
+  if (result.state === "model-ready" && safeOperation?.state !== "model-ready") {
+    throw Object.assign(new TypeError("The VPS model inference is not verified."), { statusCode: 502 });
+  }
+  return {
+    state: result.state, installId: result.installId, modelId: requireCatalogModel(result.modelId),
+    endpoint: LOCAL_N8N_MODEL_ENDPOINT, operation: safeOperation,
+  };
+}
+
+function createSafeLocalModelActionReview(review, reviewId) {
+  if (!["retry", "remove"].includes(review?.action) ||
+    !/^[a-f0-9-]{16,64}$/iu.test(review.installId) ||
+    review.endpoint !== LOCAL_N8N_MODEL_ENDPOINT ||
+    review.removeModelData !== (review.action === "remove") ||
+    (review.modelDigest !== null && !/^[a-f0-9]{64}$/u.test(review.modelDigest)) ||
+    (review.operationId !== null && !/^[a-f0-9]{32}$/u.test(review.operationId))) {
+    throw Object.assign(new TypeError("The reviewed model action is invalid."), { statusCode: 502 });
+  }
+  return {
+    reviewId, action: review.action, installId: review.installId,
+    modelId: requireCatalogModel(review.modelId), endpoint: LOCAL_N8N_MODEL_ENDPOINT,
+    modelDigest: review.modelDigest,
+    networkName: requireSafeDockerName(review.networkName, "model network name"),
+    containerName: requireSafeDockerName(review.containerName, "n8n container name"),
+    resourceBudget: safeModelBudget(review.resourceBudget),
+    removeModelData: review.removeModelData,
+  };
+}
+
 function requireLiveLocalAction(state, action) {
   if (state.previewMode) {
     throw Object.assign(
@@ -2752,7 +3126,9 @@ function requireLocalInstallBody(plan, body) {
         ? "The local n8n Assistant install request is invalid."
         : plan?.kind === "n8n-supergrok"
           ? "The local n8n SuperGrok install request is invalid."
-        : "The OAuth local endpoint install request is invalid.",
+          : plan?.kind === LOCAL_N8N_MODEL_TARGET
+            ? "The local model install request is invalid."
+            : "The OAuth local endpoint install request is invalid.",
   );
 }
 
@@ -2782,6 +3158,35 @@ async function requireReadyLocalChatTester(state) {
 async function handleApi(request, response, path, state) {
   requireApiToken(request, state);
   requireSameOrigin(request, state);
+
+  if (request.method === "GET" && path === "/api/hosting/providers") {
+    sendJson(response, 200, {
+      providers: HOSTING_PROVIDERS,
+      profiles: getHostingDeploymentProfiles(),
+      models: LOCAL_MODEL_CATALOG,
+    });
+    return;
+  }
+  if (request.method === "GET" && path === "/api/ssh/capabilities") {
+    const capability = await state.services.getSshCapabilities();
+    const agent = capability?.agent;
+    sendJson(response, 200, { agent: {
+      status: agent?.status === "configured" ? "configured" : "unavailable",
+      transport: ["unix-socket", "windows-openssh-pipe"].includes(agent?.transport) ? agent.transport : null,
+      verification: "untested",
+    } });
+    return;
+  }
+  if (request.method === "GET" && path === "/api/ssh/connection") {
+    requireConnection(state);
+    if (!state.connectionIdentity) throw new Error("Reconnect to verify the VPS identity.");
+    sendJson(response, 200, state.connectionIdentity);
+    return;
+  }
+  if (credentialBearingVpsRoute(path)) {
+    rejectActiveVpsMutation(state);
+    requireFullVpsScope(requireConnection(state));
+  }
 
   if (request.method === "GET" && path === "/api/status") {
     const status = await state.services.getAuthStatus();
@@ -2817,6 +3222,7 @@ async function handleApi(request, response, path, state) {
       : await state.services.getLocalDashboardStatus({
           inspectLocalN8nStack: state.services.getLocalN8nStackStatus,
           inspectLocalN8nSuperGrok: state.services.getLocalN8nSuperGrokStatus,
+          inspectLocalN8nModel: state.services.getLocalN8nModelStatus,
         });
     requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
     sendJson(
@@ -2838,6 +3244,16 @@ async function handleApi(request, response, path, state) {
       : await state.services.getLocalN8nSuperGrokStatus();
     requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
     sendJson(response, 200, createSafeLocalN8nSuperGrokStatus(status));
+    return;
+  }
+
+  if (request.method === "GET" && (path === "/api/local/model/status" || path === "/api/local/model/operation")) {
+    const generation = state.localDashboardGeneration;
+    const result = state.previewMode
+      ? { target: LOCAL_N8N_MODEL_TARGET, managed: false, status: "absent" }
+      : await state.services.getLocalN8nModelStatus();
+    requireCurrentLocalDashboardGeneration(state, generation);
+    sendJson(response, 200, createSafeLocalModelStatus(result));
     return;
   }
 
@@ -3099,7 +3515,20 @@ async function handleApi(request, response, path, state) {
   }
 
   const body = await readJsonBody(request);
+  // Body parsing yields: a different authenticated connection may now own the session.
+  if (credentialBearingVpsRoute(path)) {
+    rejectActiveVpsMutation(state);
+    requireFullVpsScope(requireConnection(state));
+  }
 
+  if (path === "/api/hosting/plan") {
+    try {
+      sendJson(response, 200, state.services.prepareHostingDeploymentPlan(body));
+    } catch {
+      throw Object.assign(new Error("The hosting plan request is invalid."), { statusCode: 400 });
+    }
+    return;
+  }
   if (path === "/api/local/discard") {
     if (
       state.localInstallInFlight ||
@@ -3113,6 +3542,7 @@ async function handleApi(request, response, path, state) {
     state.localDashboardGeneration += 1;
     state.localPlan = null;
     state.localAssistantSearxngReview = null;
+    state.localModelActionReview = null;
     state.localCredentialRotationPending = null;
     state.localInstalledTarget = null;
     state.localChatTest.resetAll?.();
@@ -3249,6 +3679,7 @@ async function handleApi(request, response, path, state) {
     const localDashboardGeneration = state.localDashboardGeneration;
     let plan;
     let disposableHarnessWarning = false;
+    state.localModelActionReview = null;
     if (body?.target === LOCAL_N8N_STACK_TARGET) {
       requireExactLocalPlanBody(
         body,
@@ -3283,23 +3714,29 @@ async function handleApi(request, response, path, state) {
     } else if (
       body?.target === LOCAL_N8N_SIDECAR_TARGET ||
       body?.target === LOCAL_N8N_ASSISTANT_TARGET ||
-      body?.target === LOCAL_N8N_SUPERGROK_TARGET
+      body?.target === LOCAL_N8N_SUPERGROK_TARGET ||
+      body?.target === LOCAL_N8N_MODEL_TARGET
     ) {
       const assistantTarget = body.target === LOCAL_N8N_ASSISTANT_TARGET;
       const superGrokTarget = body.target === LOCAL_N8N_SUPERGROK_TARGET;
+      const modelTarget = body.target === LOCAL_N8N_MODEL_TARGET;
       requireExactLocalPlanBody(
         body,
         assistantTarget
           ? ["target", "n8nContainerId", "dockerNetworkId", "includeSearxng"]
-          : ["target", "n8nContainerId", "dockerNetworkId"],
+          : modelTarget
+            ? ["target", "n8nContainerId", "dockerNetworkId", "modelId"]
+            : ["target", "n8nContainerId", "dockerNetworkId"],
         assistantTarget
           ? "The local n8n Assistant plan request is invalid."
           : superGrokTarget
             ? "The local n8n SuperGrok plan request is invalid."
-            : "The local n8n OAuth bridge plan request is invalid.",
+            : modelTarget
+              ? "The local model plan request is invalid."
+              : "The local n8n OAuth bridge plan request is invalid.",
       );
       requireLiveLocalAction(state, "Local n8n sidecar planning");
-      if (!assistantTarget && !superGrokTarget && localOAuthChangeInFlight(state)) {
+      if (!assistantTarget && !superGrokTarget && !modelTarget && localOAuthChangeInFlight(state)) {
         throw Object.assign(
           new Error("ChatGPT sign-in is already in progress."),
           { statusCode: 409 },
@@ -3334,6 +3771,20 @@ async function handleApi(request, response, path, state) {
             networkName: network.networkName,
             includeSearxng,
           }),
+          disposableHarnessWarning: network.disposable === true,
+        };
+      } else if (modelTarget) {
+        const modelId = requireCatalogModel(body.modelId);
+        const selected = {
+          dockerHost: discovery.dockerHost,
+          n8nContainerId: container.containerId,
+          n8nContainerName: container.containerName,
+          dockerNetworkId: network.dockerNetworkId,
+          networkName: network.networkName,
+        };
+        const hostResources = await state.services.inspectLocalN8nModelResources(selected);
+        plan = {
+          ...state.services.prepareLocalN8nModelPlan({ ...selected, modelId, hostResources }),
           disposableHarnessWarning: network.disposable === true,
         };
       } else if (superGrokTarget) {
@@ -3389,7 +3840,9 @@ async function handleApi(request, response, path, state) {
             ? createSafeLocalN8nAssistantPlan(plan)
             : plan.kind === "n8n-supergrok"
               ? createSafeLocalN8nSuperGrokPlan(plan)
-            : createSafeLocalPlan(plan),
+            : plan.kind === LOCAL_N8N_MODEL_TARGET
+              ? createSafeLocalN8nModelPlan(plan)
+              : createSafeLocalPlan(plan),
     });
     return;
   }
@@ -3426,6 +3879,9 @@ async function handleApi(request, response, path, state) {
         throw new Error(
           "Confirm the reviewed local n8n SuperGrok plan before installing.",
         );
+      }
+      if (pending.plan.kind === LOCAL_N8N_MODEL_TARGET && body.confirmed !== true) {
+        throw new Error("Confirm the reviewed local model and download before installing.");
       }
 
       let localN8nStackSecrets;
@@ -3479,6 +3935,8 @@ async function handleApi(request, response, path, state) {
           plan: pending.plan,
           confirmed: body.confirmed,
         });
+      } else if (pending.plan.kind === LOCAL_N8N_MODEL_TARGET) {
+        result = await state.services.installLocalN8nModel({ plan: pending.plan, confirmed: true });
       } else if (pending.plan.kind === "local-n8n-stack") {
         try {
           result = await state.services.installLocalN8nStack({
@@ -3524,7 +3982,9 @@ async function handleApi(request, response, path, state) {
             ? createSafeLocalN8nAssistantInstallResult(result, pending.plan)
             : pending.plan.kind === "n8n-supergrok"
               ? createSafeLocalN8nSuperGrokInstallResult(result, pending.plan)
-            : createSafeLocalInstallResult(result),
+            : pending.plan.kind === LOCAL_N8N_MODEL_TARGET
+              ? createSafeLocalModelStatus(result)
+              : createSafeLocalInstallResult(result),
       );
     } finally {
       if (acquiredInstallLock) {
@@ -3533,6 +3993,77 @@ async function handleApi(request, response, path, state) {
       body.ngrokAuthtoken = undefined;
       body.basicAuthUsername = undefined;
       body.basicAuthPassword = undefined;
+    }
+    return;
+  }
+
+  if (path === "/api/local/model/plan") {
+    requireLiveLocalAction(state, "Local model action review");
+    if (body?.action === "remove") {
+      requireExactRequestBody(body, ["action", "removeModelData"], "The model removal review is invalid.");
+      if (body.removeModelData !== true) throw new Error("Review deletion of the owned model cache.");
+    } else {
+      requireExactRequestBody(body, ["action"], "The model retry review is invalid.");
+      if (body.action !== "retry") throw new Error("The model action is invalid.");
+    }
+    if (state.localInstallInFlight || state.localCredentialRotationInFlight || localOAuthChangeInFlight(state)) {
+      throw Object.assign(new Error("A local change is in progress."), { statusCode: 409 });
+    }
+    const generation = state.localDashboardGeneration;
+    state.localPlan = null;
+    state.localModelActionReview = null;
+    const review = await state.services.reviewLocalN8nModelAction({
+      action: body.action, ...(body.action === "remove" ? { removeModelData: true } : {}),
+    });
+    requireCurrentLocalDashboardGeneration(state, generation);
+    const reviewId = randomUUID();
+    const safe = createSafeLocalModelActionReview(review, reviewId);
+    state.localModelActionReview = { reviewId, review, generation };
+    sendJson(response, 200, safe);
+    return;
+  }
+
+  if (path === "/api/local/model/apply") {
+    requireLiveLocalAction(state, "Local model action");
+    enforceRateLimit(state, path);
+    const pending = state.localModelActionReview;
+    requireExactRequestBody(
+      body,
+      pending?.review?.action === "remove"
+        ? ["reviewId", "confirmed", "removeModelData"]
+        : ["reviewId", "confirmed"],
+      "The model action confirmation is invalid.",
+    );
+    if (!pending || !tokenMatches(body.reviewId, pending.reviewId) ||
+      pending.generation !== state.localDashboardGeneration || body.confirmed !== true ||
+      (pending.review.action === "remove" && body.removeModelData !== true)) {
+      throw new Error("Review and explicitly confirm this model action again.");
+    }
+    if (state.localInstallInFlight || state.localCredentialRotationInFlight || localOAuthChangeInFlight(state)) {
+      throw Object.assign(new Error("A local change is in progress."), { statusCode: 409 });
+    }
+    state.localInstallInFlight = true;
+    state.localModelActionReview = null;
+    state.localPlan = null;
+    try {
+      const fresh = await state.services.reviewLocalN8nModelAction({
+        action: pending.review.action,
+        ...(pending.review.action === "remove" ? { removeModelData: true } : {}),
+      });
+      requireCurrentLocalDashboardGeneration(state, pending.generation);
+      for (const key of ["action", "installId", "modelId", "modelDigest", "endpoint", "removeModelData", "networkName", "containerName", "operationId"]) {
+        if (fresh[key] !== pending.review[key]) throw new Error("The model state changed after review. Review again.");
+      }
+      const result = await state.services.applyLocalN8nModelAction({ review: pending.review, confirmed: true });
+      requireCurrentLocalDashboardGeneration(state, pending.generation);
+      if (pending.review.action === "remove") {
+        if (result?.target !== LOCAL_N8N_MODEL_TARGET || result.removed !== true || result.cacheRetained !== false) {
+          throw Object.assign(new TypeError("The model removal result is invalid."), { statusCode: 502 });
+        }
+        sendJson(response, 200, { target: LOCAL_N8N_MODEL_TARGET, removed: true, cacheRetained: false });
+      } else sendJson(response, 200, createSafeLocalModelStatus(result));
+    } finally {
+      state.localInstallInFlight = false;
     }
     return;
   }
@@ -4122,8 +4653,8 @@ async function handleApi(request, response, path, state) {
     try {
       rejectActiveVpsMutation(state);
       enforceRateLimit(state, path);
-      const host = validateHostname(body.host);
-      const port = validatePort(body.port);
+      const connectionRequest = validatedSshRequest(body);
+      const { host, port } = connectionRequest;
       const scannedHost = state.scannedHost;
       if (
         !scannedHost ||
@@ -4141,6 +4672,7 @@ async function handleApi(request, response, path, state) {
       clearVpsConnectionIdleExpiry(state, previousConnection);
       retireVpsConnectionUses(state, previousConnection);
       state.connection = null;
+      state.connectionIdentity = null;
       connectionOperation.operation.lifecycleGeneration =
         advanceVpsLifecycleGeneration(state);
       state.discovery = null;
@@ -4148,14 +4680,7 @@ async function handleApi(request, response, path, state) {
       invalidateVpsPlans(state);
       closeVpsConnectionBestEffort(previousConnection);
 
-      candidateConnection = await state.services.connectVerified({
-        host,
-        port,
-        username: body.username,
-        password: body.password,
-        agent: body.useAgent ? process.env.SSH_AUTH_SOCK : undefined,
-        expectedFingerprint: scannedHost.fingerprint,
-      });
+      candidateConnection = await state.services.connectVerified(connectionRequest);
       requireCurrentVpsConnectionOperation(
         state,
         connectionOperation.operation,
@@ -4166,13 +4691,16 @@ async function handleApi(request, response, path, state) {
           { statusCode: 409 },
         );
       }
+      // Administrative identity belongs to this connection, not to later model mutations.
+      const identity = verifiedConnectionIdentity(candidateConnection, connectionRequest, state.vpsLifecycleGeneration);
       state.connection = candidateConnection;
+      state.connectionIdentity = identity;
       armVpsConnectionIdleExpiry(state, candidateConnection);
       candidateConnection = null;
       state.scannedHost = null;
-      sendJson(response, 200, { connected: true });
+      sendJson(response, 200, { connected: true, identity });
     } finally {
-      body.password = undefined;
+      if (body && typeof body === "object") body.password = undefined;
       closeVpsConnectionBestEffort(candidateConnection);
       connectionOperation?.release();
     }
@@ -4226,10 +4754,110 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (path.startsWith("/api/vps/local-model/")) {
+    rejectActiveVpsMutation(state);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    const snapshot = {
+      connection,
+      lifecycleGeneration: state.vpsLifecycleGeneration,
+      discoveryGeneration: state.vpsDiscoveryGeneration,
+    };
+    let releaseMutation;
+    try {
+      if (path === "/api/vps/local-model/status") {
+        requireExactRequestBody(body, ["containerName", "networkName"], "The model status selection is invalid.");
+        requireSafeDockerName(body.containerName, "n8n container name");
+        requireSafeDockerName(body.networkName, "Docker network name");
+        const result = await state.services.inspectVpsLocalModel({ remote: connection, containerName: body.containerName, networkName: body.networkName });
+        requireUnchangedVpsSession(state, snapshot);
+        sendJson(response, 200, createSafeVpsLocalModelStatus(result));
+      } else if (path === "/api/vps/local-model/plan") {
+        if (body?.action === "install") {
+          requireExactRequestBody(body, ["containerName", "networkName", "action", "modelId"], "The model install selection is invalid.");
+          requireCatalogModel(body.modelId);
+        } else if (body?.action === "remove") {
+          requireExactRequestBody(body, ["containerName", "networkName", "action", "clearModelCache"], "The model removal selection is invalid.");
+          if (body.clearModelCache !== true) throw new Error("Confirm that removal deletes the owned model cache.");
+        } else if (body?.action === "retry") {
+          requireExactRequestBody(body, ["containerName", "networkName", "action"], "The model retry selection is invalid.");
+        } else throw new Error("The model action is invalid.");
+        if (body.action !== "remove") requireDiscoveredNetwork(state, body.containerName, body.networkName);
+        else {
+          requireSafeDockerName(body.containerName, "n8n container name");
+          requireSafeDockerName(body.networkName, "Docker network name");
+        }
+        const generation = beginLocalModelVpsReview(state);
+        const reviewed = await state.services.reviewVpsLocalModel({
+          remote: connection, containerName: body.containerName, networkName: body.networkName,
+          action: body.action, ...(body.action === "install" ? { modelId: body.modelId } : {}),
+          ...(body.action === "remove" ? { clearModelCache: true } : {}),
+        });
+        requireUnchangedVpsSession(state, snapshot);
+        if (generation !== state.localModelVpsPlanGeneration) throw Object.assign(new Error("A newer model review replaced this plan."), { statusCode: 409 });
+        const plan = createSafeVpsLocalModelPlan(reviewed);
+        state.localModelVpsPlan = { ...reviewed, planId: randomUUID() };
+        sendJson(response, 200, { ...plan, planId: state.localModelVpsPlan.planId });
+      } else if (path === "/api/vps/local-model/apply") {
+        enforceRateLimit(state, path);
+        const plan = state.localModelVpsPlan;
+        requireExactRequestBody(
+          body,
+          plan?.action === "remove"
+            ? ["containerName", "networkName", "planId", "action", "confirmed", "clearModelCache"]
+            : ["containerName", "networkName", "planId", "action", "confirmed"],
+          "The model apply request is invalid.",
+        );
+        requireReviewedVpsPlan(plan, body, "local model");
+        if (!["install", "retry", "remove"].includes(body.action) || plan.action !== body.action || body.confirmed !== true ||
+          (plan.action === "remove" && (plan.clearModelCache !== true || body.clearModelCache !== true))) {
+          throw new Error("Confirm the exact reviewed model action and cache deletion.");
+        }
+        if (plan.action !== "remove") requireDiscoveredNetwork(state, body.containerName, body.networkName);
+        state.localModelVpsPlan = null;
+        releaseMutation = acquireVpsMutationLock(state);
+        snapshot.lifecycleGeneration = state.vpsLifecycleGeneration;
+        const fresh = await state.services.reviewVpsLocalModel({
+          remote: connection, containerName: plan.containerName, networkName: plan.networkName,
+          action: plan.action, ...(plan.action === "install" ? { modelId: plan.modelId } : {}),
+          ...(plan.action === "remove" ? { clearModelCache: true } : {}),
+        });
+        if (state.connection !== connection || state.vpsLifecycleGeneration !== snapshot.lifecycleGeneration ||
+          state.vpsDiscoveryGeneration !== snapshot.discoveryGeneration) {
+          throw new Error("The VPS session changed after model review. Reconnect and inspect again.");
+        }
+        createSafeVpsLocalModelPlan(fresh);
+        for (const key of ["action", "containerId", "networkId", "installId", "modelId", "approvedModelDigest", "catalogRevision", "runtimeImage", "contextTokens", "memoryBytes", "cpus", "expectedDownloadBytes", "requiredDiskBytes", "reservedMemoryBytes", "clearModelCache"]) {
+          if (fresh[key] !== plan[key]) throw new Error("The selected model, resources or Docker boundary changed. Review again.");
+        }
+        const servicePlan = { ...plan };
+        delete servicePlan.planId;
+        const result = await (plan.action === "install" ? state.services.installVpsLocalModel : state.services.changeVpsLocalModel)({ remote: connection, plan: servicePlan, confirmed: true });
+        if (state.connection !== connection || state.vpsLifecycleGeneration !== snapshot.lifecycleGeneration) throw new Error("VPS connection changed. Reconnect and inspect the owned model status.");
+        sendJson(response, 200, createSafeVpsLocalModelStatus(result));
+      } else if (path === "/api/vps/local-model/operation-status") {
+        requireExactRequestBody(body, ["containerName", "networkName", "installId"], "The model operation selection is invalid.");
+        requireSafeDockerName(body.containerName, "n8n container name");
+        requireSafeDockerName(body.networkName, "Docker network name");
+        const current = await state.services.inspectVpsLocalModel({ remote: connection, containerName: body.containerName, networkName: body.networkName });
+        requireUnchangedVpsSession(state, snapshot);
+        if (current.installId !== body.installId || !/^[a-f0-9-]{16,64}$/iu.test(body.installId)) throw new Error("The model operation identity changed. Inspect again.");
+        const result = await state.services.getVpsLocalModelOperationStatus({ remote: connection, installId: body.installId });
+        requireUnchangedVpsSession(state, snapshot);
+        sendJson(response, 200, createSafeVpsLocalModelStatus(result));
+      } else sendJson(response, 404, { error: "Not found." });
+    } finally {
+      releaseMutation?.();
+      connectionUse.release();
+    }
+    return;
+  }
+
   if (path.startsWith("/api/vps/supergrok/")) {
     rejectActiveVpsMutation(state);
     const connectionUse = acquireVpsConnectionUse(state);
     const { connection } = connectionUse;
+    requireFullVpsScope(connection);
     const snapshot = {
       connection,
       lifecycleGeneration: state.vpsLifecycleGeneration,
@@ -4254,6 +4882,7 @@ async function handleApi(request, response, path, state) {
               { statusCode: 409 },
             );
           }
+          requireVpsSuperGrokBuildBoundary(result);
           state.supergrokPlan = { ...result, planId: randomUUID() };
           sendJson(response, 200, state.supergrokPlan);
         } else sendJson(response, 200, result);
@@ -4267,7 +4896,8 @@ async function handleApi(request, response, path, state) {
         releaseMutation = acquireVpsMutationLock(state);
         snapshot.lifecycleGeneration = state.vpsLifecycleGeneration;
         const fresh = await state.services.reviewVpsSuperGrok({ remote: connection, ...plan });
-        if (["containerId", "networkId", "installId", "action"].some(key => fresh[key] !== plan[key])) throw new Error("The SuperGrok selection changed. Review a fresh plan.");
+        requireVpsSuperGrokBuildBoundary(fresh);
+        if (["containerId", "networkId", "installId", "action", "operationLockPath", "temporaryBuildStatePath"].some(key => fresh[key] !== plan[key])) throw new Error("The SuperGrok selection changed. Review a fresh plan.");
         const result = await (plan.action === "install" ? state.services.installVpsSuperGrok : state.services.changeVpsSuperGrok)({ remote: connection, plan, confirmed: true });
         if (state.connection !== connection || state.vpsLifecycleGeneration !== snapshot.lifecycleGeneration) {
           throw new Error("The VPS session changed during the companion action. Reconnect and inspect its status.");
@@ -4296,6 +4926,7 @@ async function handleApi(request, response, path, state) {
     const connectionUse = acquireVpsConnectionUse(state);
     let credentialOperation;
     try {
+      requireFullVpsScope(connectionUse.connection);
       requireDiscoveredNetwork(
         state,
         body.containerName,
@@ -4312,6 +4943,7 @@ async function handleApi(request, response, path, state) {
       };
       state.sidecarPlan = null;
       invalidateSuperGrokPlan(state);
+      invalidateLocalModelVpsPlan(state);
       const authStatus = requireVpsPlanAuthStatus(
         await state.services.getAuthStatus(),
         "Sign in with ChatGPT before reviewing this sidecar plan.",
@@ -4334,6 +4966,8 @@ async function handleApi(request, response, path, state) {
       sendJson(response, 200, {
         planId: state.sidecarPlan.planId,
         installDirectory: "/docker/n8n-openai-oauth",
+        operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
+        temporaryBuildStatePath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx",
         sidecarProject: "n8n-openai-oauth",
         endpointHostname: SIDECAR_HOSTNAME,
         networkName: body.networkName,
@@ -4352,6 +4986,7 @@ async function handleApi(request, response, path, state) {
     rejectActiveVpsMutation(state);
     const connectionUse = acquireVpsConnectionUse(state);
     try {
+      requireFullVpsScope(connectionUse.connection);
       const includeSearxng = requireAssistantSearxngSelection(body.includeSearxng);
       requireDiscoveredNetwork(
         state,
@@ -4361,6 +4996,7 @@ async function handleApi(request, response, path, state) {
       const instanceAi = requireEnabledInstanceAi(state, body.containerName);
       state.assistantPlan = null;
       invalidateSuperGrokPlan(state);
+      invalidateLocalModelVpsPlan(state);
       state.assistantPlan = {
         planId: randomUUID(),
         containerName: body.containerName,
@@ -4404,6 +5040,7 @@ async function handleApi(request, response, path, state) {
     requireReviewedAssistantPlan(state, reviewedPlan, body);
     const connectionUse = acquireVpsConnectionUse(state);
     const { connection } = connectionUse;
+    requireFullVpsScope(connection);
     state.assistantPlan = null;
     const releaseVpsMutationLock = acquireVpsMutationLock(state);
     try {
@@ -4443,6 +5080,7 @@ async function handleApi(request, response, path, state) {
     );
     const connectionUse = acquireVpsConnectionUse(state);
     const { connection } = connectionUse;
+    requireFullVpsScope(connection);
     state.sidecarPlan = null;
     const releaseVpsMutationLock = acquireVpsMutationLock(state);
     let result;
@@ -4769,6 +5407,7 @@ export async function startWizardServer({
     uiFiles: uiFiles ?? (await loadDefaultUiFiles()),
     origin: "http://127.0.0.1",
     connection: null,
+    connectionIdentity: null,
     vpsConnectionIdleMs,
     vpsConnectionIdleExpiry: null,
     vpsConnectionUses: new Set(),
@@ -4784,6 +5423,9 @@ export async function startWizardServer({
     assistantPlan: null,
     supergrokPlan: null,
     supergrokPlanGeneration: 0,
+    localModelVpsPlan: null,
+    localModelVpsPlanGeneration: 0,
+    localModelActionReview: null,
     vpsMutationInFlight: false,
     vpsMutationLock: null,
     vpsMutationCompletion: null,

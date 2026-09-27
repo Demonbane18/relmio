@@ -50,7 +50,7 @@ function extractLocalInstallHandler(script) {
   const helperEnd = script.indexOf("function showStep(step,", helperStart);
   const apiKeyHelperStart = script.indexOf("function isCodexChat(target)");
   const apiKeyHelperEnd = script.indexOf(
-    "function isGrokBuild(target)",
+    "function isN8nDockerTarget(target)",
     apiKeyHelperStart,
   );
   const handlerStart = script.indexOf(
@@ -170,10 +170,6 @@ function createInstallHarness(script, { target = "local-n8n-stack" } = {}) {
       installConfirm.checked = false;
       installSettingsButton.disabled = true;
     },
-    isN8nAssistant: () => false,
-    isN8nSidecar: () => false,
-    isN8nSuperGrok: () => false,
-    isN8nStack: (candidate) => candidate === "local-n8n-stack",
     renderInstallResult: (result) => renderedResults.push(result),
     setMessage: (message) => messages.push(message),
     showError: (error) => shownErrors.push(error),

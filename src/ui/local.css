@@ -2514,6 +2514,25 @@
   min-height: 2.75rem;
   padding: 0.375rem;
 }
+.local-wizard #local-model-settings .result-list dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.local-wizard #local-model-settings .result-list code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.local-wizard #local-model-settings .copy-value {
+  width: auto;
+  min-width: max-content;
+  padding: 0.375rem 0.75rem;
+  white-space: nowrap;
+}
+
 
 .local-wizard .success-heading {
   gap: 1rem;

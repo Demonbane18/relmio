@@ -43,6 +43,22 @@ export const PROVIDER_PROFILES = deepFreeze({
     documentedCapabilities: ["chat-completions", "streaming"],
     implementedCapabilities: ["chat-completions", "streaming", "client-tool-calls"],
   },
+  "local-model": {
+    id: "local-model",
+    providerId: "local",
+    label: "Local model",
+    availability: "implemented",
+    adapter: {
+      kind: "inference",
+      protocol: "openai-chat-completions",
+    },
+    authentication: {
+      method: "none",
+      custody: "none",
+    },
+    documentedCapabilities: ["chat-completions", "streaming"],
+    implementedCapabilities: ["chat-completions", "streaming"],
+  },
 });
 
 export const PROVIDER_TARGET_BINDINGS = deepFreeze({
@@ -69,6 +85,12 @@ export const PROVIDER_TARGET_BINDINGS = deepFreeze({
     label: "SuperGrok for n8n",
     protocol: "openai-chat-completions",
     upstreamAuth: "provider-owned-oauth",
+  },
+  "n8n-local-model": {
+    profileId: "local-model",
+    label: "Local model for n8n",
+    protocol: "openai-chat-completions",
+    upstreamAuth: "none",
   },
 });
 
@@ -98,6 +120,7 @@ export const PROVIDER_ACTION_POLICY = deepFreeze({
       credentialEffect: "provider-runtime-session",
     },
   },
+  none: {},
 });
 
 const HTTP_FAILURE_POLICIES = deepFreeze({

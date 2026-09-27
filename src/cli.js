@@ -83,6 +83,13 @@ function dashboardPath(mode) {
   return "/local";
 }
 
+async function logExperimentalNotice(readPackage, log) {
+  const { version } = JSON.parse(await readPackage());
+  if (typeof version !== "string" || !/^\d+\.\d+\.\d+-/u.test(version)) return;
+  log(`Experimental release ${version}: new provider support and local models have not been live-tested.`);
+  log("Offline checks are not live certification. Previous stable release: npx --yes --ignore-scripts relmio@0.17.5");
+}
+
 async function runForegroundWizard({
   mode,
   env,
@@ -230,6 +237,7 @@ export async function runCli({
     log("  grok login  Start the official SuperGrok device sign-in");
     log("  grok logout Sign out of the managed local SuperGrok endpoint");
     log("  Add --n8n to grok login/logout for the private n8n SuperGrok companion");
+    await logExperimentalNotice(readPackage, log);
     return 0;
   }
 
@@ -321,6 +329,7 @@ export async function runCli({
       argumentsList.length === 0 && env?.RELMIO_FOREGROUND_WIZARD !== "1";
     return packageManagerProbe ? 0 : 1;
   }
+  await logExperimentalNotice(readPackage, log);
 
   const foregroundWizard =
     argumentsList.length === 0 || env?.RELMIO_FOREGROUND_WIZARD === "1";

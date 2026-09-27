@@ -22,6 +22,61 @@ The hosted install-page launchers still run a foreground one-shot wizard from
 their temporary runtime. Use the installed package when you want the persistent
 dashboard lifecycle above.
 
+## VPS authentication and privilege
+
+| Wizard control | Contract |
+| --- | --- |
+| **SSH username** | Actual existing account; provider/image hints do not replace administrator configuration. |
+| **SSH authentication → Password** | An already-approved password login; never a sudo password or private-key field. |
+| **SSH authentication → Local SSH agent** | Uses a supported agent available to the backend process. No key upload, passphrase collection, forwarding or automatic password fallback. |
+| **Administrative context → Root account (UID 0)** | Must verify an actual UID-0 login. Existing credential-bearing VPS routes retain this requirement. |
+| **Administrative context → Passwordless sudo -n (model only)** | Explicit noninteractive effective-root context for local models and shared discovery; not OAuth bridge, Assistant or SuperGrok management. |
+
+Confirm the server host key before authentication and the exact reviewed plan
+before writes. The existing Docker context must already be `default`, targeting
+the rootful `unix:///var/run/docker.sock` daemon that owns n8n. Rootless,
+remote/custom contexts and Podman are not substitutes. The safe root-owned
+`/docker` directory must already exist without group/other write permission.
+
+Preparation checks bounded, root-owned, non-symlink Buildx current/default
+selector files without printing them. Foreign/ambiguous selections or a saved
+`instances/default` shadow are rejected; no pre-existing running builder is
+required. It does not invoke the Buildx CLI or read `config.json` or nodegroup
+secrets. Inherited `BUILDX_BUILDER`, `BUILDX_CONFIG`, `BUILDKIT_HOST`,
+`DOCKER_CONFIG` and `COMPOSE_BAKE` overrides are rejected. Administrative
+preparation has a 30-second deadline. Buildx `inspect` is not a safe substitute:
+even without `--bootstrap`, it can write state and expose nodegroup secrets.
+
+`DOCKER_BUILDKIT` is accepted only when unset, empty or `1`; the adapter does
+not fall back to the classic builder. Confirmed build-capable commands use
+command-local `BUILDX_CONFIG` at the reviewed operation-lock `buildx` child,
+`BUILDX_BUILDER=default`, `DOCKER_BUILDKIT=1` and `COMPOSE_BAKE=false`.
+Generated Compose `up` commands use `--no-build`; SuperGrok sign-in/sign-out
+use the confined state too because Compose `run` can build an image.
+The temporary state is not created by status or other nonbuilding actions.
+
+| Flow | Reviewed temporary state beneath `/docker/n8n-openai-oauth` |
+| --- | --- |
+| Model install/retry | `.local-model-operation.lock/buildx` |
+| SuperGrok install/sign-in/sign-out | `.supergrok-operation.lock/buildx` |
+| OpenAI bridge install/update | `.openai-oauth-operation.lock/buildx` |
+
+Creation requires final confirmation and the owned lock. Successful verified
+cleanup removes only owned state; uncertainty can leave partial state and the
+lock for administrator inspection. See [recovery limits](maintenance.md#vps-build-state-and-operation-lock-recovery).
+
+`GET /api/ssh/capabilities` is a protected read-only capability report, not an
+agent-key enumeration or proof that a host accepts a loaded key.
+`GET /api/ssh/connection` returns the safe active administrative identity,
+including account, authentication, privilege/scope and connection generation;
+it does not return credentials or add presentation fields to the model plan.
+An existing dashboard keeps its launch environment. See [agent setup and
+hosting guidance](hosting-compatibility.md#ssh-agent-and-administrative-access).
+
+For the independent, interactive maintainer fixture, see the
+[Linux acceptance harness](maintenance.md#linux-local-model-acceptance-harness).
+It is not a production n8n setup or a hosted CI approval bypass.
+
 ## Chat Adapter test commands
 
 The experimental Chat Adapter is a loopback-only, Relmio-specific `POST /chat`

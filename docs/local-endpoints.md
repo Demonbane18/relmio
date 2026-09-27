@@ -3,8 +3,8 @@
 Relmio installs isolated provider runtimes for local apps and private
 companions for n8n. SuperGrok is a first-class local and VPS option with its own
 official device sign-in. It does not require or read ChatGPT credentials. The
-adapter remains experimental. Its seven dashboard services keep the three local
-OAuth endpoints separate from the four n8n and support options.
+adapter remains experimental. The dashboard separates its local OAuth endpoints
+from the n8n and support options, including a provider-free local-model runtime.
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|
@@ -14,6 +14,7 @@ OAuth endpoints separate from the four n8n and support options.
 | **ChatGPT for n8n** | Private `http://n8n-openai-oauth:10531/v1` on one existing Docker network | Local ChatGPT OAuth copied into a private sidecar volume | Only the selected self-hosted n8n deployment |
 | **Grok for n8n** | Private `http://n8n-supergrok:14502/v1` on one existing Docker network | Separate fresh Grok OAuth session and one-time local bearer | Only the selected local or VPS n8n deployment |
 | **n8n AI Assistant tools** | Private Code Sandbox plus optional SearXNG JSON search on one existing Docker network | A generated sandbox key shown once; model-provider credentials stay in n8n | Only the selected self-hosted n8n deployment |
+| **Local model for n8n** | Private `http://n8n-local-model:11434/v1` on one existing Docker network | No provider sign-in; Ollama API key is ignored | Only the selected self-hosted n8n deployment |
 | **Set up new n8n** | A new owned n8n stack with loopback access and a Basic-Auth-protected public ngrok route | n8n credentials stay in its owned data volume; ngrok uses an operator-supplied token | A new disposable local n8n installation and its webhooks |
 
 Relmio does not exchange or translate a ChatGPT OAuth/session credential into
@@ -81,26 +82,34 @@ See the [direct OAuth route](supergrok-oauth-route-decision.md) and
 ## Requirements
 
 - Native Windows with Docker Desktop's `desktop-linux` engine, macOS, Linux,
-  or Linux under WSL2. Relmio verifies an owner-only NTFS DACL before writing
-  Windows credentials; POSIX hosts retain owner-only modes.
-- Docker Engine or Docker Desktop with Docker Compose v2 on the local computer
-- A free loopback port: `14500` for native Codex, `14501` for Codex Chat
-  Adapter, or `14502` for the Grok Build adapter
-
-- For the n8n bridge, a running official n8n container with an existing shared
-  Docker network; no host port is required
-- For n8n AI Assistant tools, the same running n8n and shared-network
-  requirement, plus enough capacity for a privileged Docker-in-Docker runner
-- For a new local n8n stack, an ngrok authtoken and reserved hostname, strong
-  Basic Auth credentials, and two free loopback ports
-- An eligible ChatGPT account for Codex, an existing local `openai-oauth`
-  ChatGPT sign-in for the private n8n bridge, or an eligible SuperGrok account
-  for the experimental official Grok Build runtime
-
+  or Linux under WSL2. Relmio verifies owner-only managed-file permissions
+  before writing.
+- Docker Engine or Docker Desktop with Docker Compose v2 on the local computer.
+- A free loopback port for a local endpoint: `14500` for native Codex, `14501`
+  for Codex Chat Adapter, or `14502` for the Grok Build adapter.
+- For a private n8n companion, a running official n8n container and existing
+  shared Docker network.
+- For the local-model companion, enough measured Docker-engine memory, CPU and
+  available disk for one allowlisted model. See [Private local models](local-models.md)
+  for capacity details and the download/resource review.
+- For the VPS model route, an SSH-reachable Linux host with rootful Docker
+  Engine, Compose v2 and Buildx targeting that same local daemon, plus a safe
+  preexisting root-owned `/docker`. Choose the
+  actual SSH username and **Local SSH agent** or approved password. Verified
+  **Passwordless sudo -n (model only)** is limited to model management, not
+  OAuth bridges, Assistant or SuperGrok. Do not upload keys, enable root/password
+  SSH or weaken existing policy. See [Hosting compatibility](hosting-compatibility.md)
+  for provider/image guidance and Render's separate manual private-service path.
+- For AI Assistant tools, enough capacity for the privileged Docker-in-Docker
+  runner. For a new local n8n stack, an ngrok authtoken and reserved hostname,
+  strong Basic Auth credentials, and two free loopback ports.
+- An eligible ChatGPT account for Codex, a local `openai-oauth` ChatGPT sign-in
+  for the private n8n bridge, or an eligible SuperGrok account for the
+  experimental official Grok Build runtime.
 - For loopback endpoints, a trusted local app that can keep the Relmio
-  capability secret
+  capability secret.
 
-The local path does not need a VPS or SSH access and does not modify the
+The local path does not need a VPS or SSH access and does not modify an
 existing n8n deployment. It creates a separate Relmio-managed Docker Compose
 project on the local computer.
 
@@ -117,14 +126,18 @@ project on the local computer.
 2. Relmio opens the local dashboard through an owner-only, single-use browser
    handoff. If it does not open, press Enter in the active foreground terminal
    or run `relmio open` from a persistent install. Then select **Add connection**.
-3. Choose **ChatGPT for n8n**, **Grok for n8n**, **Set up new n8n**, or
-   **Grok on this computer**. Open **More connections and tools** for Codex
-   endpoints and **n8n AI Assistant tools**. Expand **Connection details and
-   limits** when you need the technical explanation.
+3. Choose **ChatGPT for n8n**, **Grok for n8n**, **Local model for n8n**,
+   **Set up new n8n**, or **Grok on this computer**. Open **More connections
+   and tools** for Codex endpoints and **n8n AI Assistant tools**. Expand
+   **Connection details and limits** when you need the technical explanation.
 4. For a local endpoint, choose an unused loopback port. For the ChatGPT n8n
    bridge, sign in locally and select the running n8n container and its Docker
-   network. Assistant tools include Code Sandbox and optional SearXNG, off by
-   default. For a new stack, use the [new n8n guide](./local-n8n-stack.md).
+   network. For a local model, select its n8n container/network and allowlisted
+   model; Relmio measures Docker memory, CPU, and disk and shows the exact
+   download/resource plan. Assistant tools include Code Sandbox and optional
+   SearXNG, off by default. For a new stack, use the
+   [new n8n guide](./local-n8n-stack.md).
+
 
 5. Review the exact bind or private-network boundary, managed path, protocol,
    and limitations. Confirm the plan before Relmio writes files or starts
@@ -140,11 +153,11 @@ project on the local computer.
 
 ## Persistent local dashboard
 
-The standard `relmio` command opens a dashboard before the setup flow. Relmio
-0.14.0 reconstructs status for three OAuth endpoints and four n8n/support
-services from fixed managed directories, the selected local Docker context,
-and exact Docker resource identities. It does not discover or manage retired
-API-key targets.
+The standard `relmio` command opens a dashboard before the setup flow. Its
+inventory covers three loopback OAuth endpoints and five n8n/support services,
+including the managed local-model runtime. It reads fixed managed directories,
+the selected local Docker context, and exact Docker resource identities; it
+does not discover or manage retired API-key targets.
 
 The dashboard does not keep a second registry or adopt containers from labels
 alone.
@@ -182,6 +195,7 @@ local files live under:
 ~/.relmio/local/n8n-openai-oauth
 ~/.relmio/local/n8n-ai-assistant
 ~/.relmio/local/n8n-stack
+~/.relmio/local/n8n-local-model
 ```
 
 Advanced or test environments can set `RELMIO_HOME` before starting the
@@ -190,10 +204,11 @@ wizard to an absolute managed base whose final component is `.relmio`.
 Each target directory contains `.managed-by-relmio.json`. Endpoint markers
 record the target, port, Docker socket URI, installation ID, and unique Compose
 project name. The n8n bridge marker instead records the exact selected n8n
-container and network identities. The Assistant marker also records
-its generated service identities and exact SearXNG selection. No marker
-contains a credential. Relmio uses that identity to distinguish its resources
-from another checkout or user's resources on the same Docker Engine.
+container and network identities. The Assistant marker records generated
+service identities and the SearXNG selection; the local-model marker records
+its selected model and measured resource plan. No marker contains a provider
+credential. Relmio uses those identities to distinguish its resources from
+another checkout or user's resources on the same Docker Engine.
 
 ## Self-hosted n8n bridge
 

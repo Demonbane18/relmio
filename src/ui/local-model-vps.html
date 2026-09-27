@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Manage a private Docker local model beside existing VPS n8n." />
+    <title>Relmio | Local model on your VPS</title>
+    <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/local-model-vps.css" />
+    <script src="/session-bootstrap.js"></script>
+    <script src="/theme.js" type="module"></script>
+    <script src="/local-model-vps.js" type="module"></script>
+  </head>
+  <body class="local-model-vps">
+    <a class="skip-link" href="#main-content">Skip to local model setup</a>
+    <header class="site-header">
+      <div class="brand"><img class="brand-mark" src="/relmio-icon.png" alt="" width="28" height="28" /><span>Relmio</span></div>
+      <div class="header-actions">
+        <a id="back-link" class="button ghost">All n8n connections</a>
+        <fieldset class="theme-picker"><legend class="visually-hidden">Color theme</legend><label title="Use system appearance"><input type="radio" name="color-theme" value="system" checked /><span class="theme-icon theme-icon-system" aria-hidden="true"></span><span class="visually-hidden">System</span></label><label title="Use light appearance"><input type="radio" name="color-theme" value="light" /><span class="theme-icon theme-icon-light" aria-hidden="true"></span><span class="visually-hidden">Light</span></label><label title="Use dark appearance"><input type="radio" name="color-theme" value="dark" /><span class="theme-icon theme-icon-dark" aria-hidden="true"></span><span class="visually-hidden">Dark</span></label></fieldset>
+      </div>
+    </header>
+    <main id="main-content" class="model-layout" tabindex="-1">
+      <aside class="model-intro">
+        <p class="panel-kicker">Local model · VPS</p>
+        <h1>A private model for n8n</h1>
+        <aside class="experimental-notice" aria-labelledby="vps-model-experimental-title">
+          <strong id="vps-model-experimental-title">Experimental release · 0.18.0-experimental.1</strong>
+          <p>New hosting options and local models haven’t been tested on live setups. Try them on a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
+        </aside>
+        <p>Run one CPU model beside existing n8n. No ChatGPT sign-in. Other containers on the chosen network can reach Ollama's unauthenticated management API. Choose a trusted network.</p>
+        <p id="message" role="status" aria-live="polite">Check the server identity to begin.</p>
+        <p id="error" role="alert" tabindex="-1" hidden></p>
+        <p>Existing n8n stays untouched. No model port is published.</p>
+      </aside>
+      <div class="model-panels">
+        <section class="panel" aria-labelledby="connection-title">
+          <h2 id="connection-title">1. Check your server</h2>
+          <label class="field"><span>Hosting guidance</span><select id="hosting-provider"></select></label>
+          <p>Use the server address and username from your hosting provider.</p>
+          <aside id="hosting-alternative" class="model-hosting-hint" hidden><strong>This product does not use managed server SSH.</strong><p>Do not enter platform or SDK credentials here. Review the manual or external options instead.</p><a id="hosting-guide-link">Explore hosting options</a></aside>
+          <details class="technical-details"><summary>More details about the server check</summary><div><p id="hosting-hint" class="model-hosting-hint" role="status"></p><p>The check reads Docker Engine, Compose, the local endpoint, the admin account, an existing <code>/docker</code> directory, running official n8n, a private network, memory, and disk. Relmio does not install or upgrade Docker or n8n.</p></div></details>
+          <form id="ssh-form"><div class="fields">
+            <label class="field"><span>Server address</span><input id="host" autocomplete="off" required /></label>
+            <label class="field"><span>SSH port</span><input id="port" type="number" min="1" max="65535" value="22" required /></label>
+            <label class="field"><span>Server username</span><input id="username" autocomplete="username" value="root" required /></label>
+            <label class="field"><span>SSH authentication</span><select id="ssh-authentication"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
+            <label class="field"><span>Server permissions</span><select id="ssh-privilege"><option value="root">Root account (UID 0)</option><option value="sudo-n">Passwordless sudo -n (model only)</option></select></label>
+            <label class="field"><span>SSH password</span><input id="password" type="password" autocomplete="current-password" disabled required /></label>
+          </div>
+          <p>Passwordless sudo (sudo -n) is for this model only. It does not install the OAuth bridge, Assistant, or SuperGrok.</p>
+          <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
+          <details class="technical-details"><summary>More details about SSH agent sign-in</summary><div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. Relmio does not read private-key files, ask for passphrases, or forward your agent.</p></div></details>
+          <p id="ssh-session" role="status"></p><button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
+          <button id="scan" class="button secondary" type="button">Check server identity</button><div id="fingerprint-box" class="fingerprint" hidden><span>Server identity (SSH fingerprint)</span><code id="fingerprint"></code><label class="check-row"><input id="trust" type="checkbox" />I checked this server identity.</label></div><div class="actions"><button id="connect" class="button primary" type="submit" disabled>Connect and inspect</button></div></form>
+        </section>
+        <section id="manual-recovery" class="panel" aria-labelledby="manual-recovery-title" hidden><h2 id="manual-recovery-title">Check an owned model if n8n is gone</h2><p>If the original n8n container or network is gone, enter their exact names. This path cannot install. Removal needs a separate confirmation after Relmio re-checks its own files, runtime, and cache.</p><div class="fields"><label class="field"><span>Original n8n container name</span><input id="manual-container" autocomplete="off" maxlength="128" /></label><label class="field"><span>Original Docker network name</span><input id="manual-network" autocomplete="off" maxlength="128" /></label></div><button id="inspect-owned" class="button secondary" type="button">Inspect owned model</button></section>
+        <section id="selection-panel" class="panel" aria-labelledby="selection-title" hidden><h2 id="selection-title">2. Choose n8n and a model</h2><p>Choose a running n8n container and its existing network.</p><div class="fields"><label class="field"><span>n8n container</span><select id="container"></select></label><label class="field"><span>Shared Docker network</span><select id="network"></select></label><label class="field"><span>Allowlisted model</span><select id="model"><option value="qwen3:0.6b">Qwen3 0.6B · 0.523 GB download</option><option value="qwen3:1.7b">Qwen3 1.7B · 1.359 GB download</option><option value="qwen3.5:2b">Qwen3.5 2B · 2.741 GB download</option><option value="qwen3.5:4b">Qwen3.5 4B · 3.390 GB download</option><option value="qwen3.5:9b">Qwen3.5 9B · 6.594 GB download</option></select></label></div><p id="installation-state" role="status" aria-live="polite"></p><p id="progress" role="status" aria-live="polite" hidden></p><div class="actions"><button id="refresh" class="button secondary" type="button">Refresh status</button><button id="review-install" class="button primary" type="button">Review installation</button><button id="review-retry" class="button secondary" type="button" hidden>Review retry</button><button id="review-remove" class="button ghost" type="button" hidden>Review removal</button><button id="disconnect" class="button ghost" type="button">Disconnect</button></div></section>
+        <section id="review-panel" class="panel" aria-labelledby="review-title" hidden><h2 id="review-title">3. Review the plan</h2><dl class="result-list"><div><dt>Action</dt><dd id="review-action"></dd></div><div><dt>n8n container / network</dt><dd id="review-boundary"></dd></div><div><dt>Selected model</dt><dd id="review-model"></dd></div><div><dt>Memory / CPUs / context</dt><dd id="review-budget"></dd></div><div><dt>Download and disk</dt><dd id="review-download"></dd></div><div><dt>Owned files</dt><dd><code>/docker/n8n-openai-oauth/local-model</code></dd></div></dl><p>Private endpoint: <code>http://n8n-local-model:11434/v1</code>. No host port. No n8n changes or restarts. Downloads contact image and model registries. Prompts stay on the selected runtime, subject to n8n workflows and logs.</p><p id="deletion-warning" hidden><strong>Removal permanently deletes the owned model cache and downloaded weights.</strong> This can be multiple gigabytes. No other Docker volume or n8n data is removed.</p><label class="check-row"><input id="confirm" type="checkbox" />I approve only this reviewed action and its consequences.</label><label id="cache-confirm-row" class="check-row" hidden><input id="cache-confirm" type="checkbox" />I separately confirm deletion of the owned model cache and weights.</label><div class="actions"><button id="cancel-review" class="button ghost" type="button">Back</button><button id="apply" class="button primary" type="button" disabled>Confirm action</button></div></section>
+        <section id="settings-panel" class="panel" aria-labelledby="settings-title" hidden><h2 id="settings-title">4. Connect n8n after inference succeeds</h2><p id="readiness"></p><dl class="result-list"><div><dt>Private base URL</dt><dd><code id="base-url">http://n8n-local-model:11434/v1</code></dd></div><div><dt>Model</dt><dd><code id="selected-model"></code></dd></div><div><dt>API key</dt><dd><code>ollama</code> is an ignored placeholder. It does not authenticate the runtime</dd></div><div><dt>Protocol</dt><dd>OpenAI Chat Model: Use Responses API <strong>Off</strong> for this Chat Completions recipe</dd></div></dl><div class="actions"><button id="copy-url" class="button secondary" type="button">Copy base URL</button><button id="copy-model" class="button secondary" type="button">Copy model</button><button id="copy-key" class="button secondary" type="button">Copy ignored placeholder</button></div><p>Start with a short fixed prompt. Inference readiness does not set up the Assistant sandbox or tool use.</p></section>
+      </div>
+    </main>
+  </body>
+</html>
