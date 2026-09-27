@@ -300,8 +300,9 @@ marker is not upgraded automatically; migration requires a separately reviewed
 path. Sign out with `relmio grok logout --n8n`. This
 companion publishes no host port.
 ### I want a provider-free model for n8n
-First use does not require an existing `.relmio` directory. Open the local
-dashboard with `npx --yes --ignore-scripts relmio@latest local`; it initializes
+First use does not require an existing `.relmio` directory. To opt in to the
+untested local-model workflow, open the dashboard with
+`npx --yes --ignore-scripts relmio@0.18.0-experimental.1 local`; it initializes
 dashboard state as needed. The local-model installation requires an existing
 running n8n container and does not install n8n. If you do not yet run local
 n8n, set it up separately before selecting a model.

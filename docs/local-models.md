@@ -8,9 +8,7 @@ Relmio can manage an Ollama model runtime beside an existing self-hosted n8n ins
 > actual workload peaks, or achieve any throughput. Use the separate readiness
 > check during your own setup; a passing check is limited to that model and
 > machine. Stable `0.17.5` remains npm `latest` and the hosted-installer default.
-> Opt in with `npx --yes --ignore-scripts relmio@experimental local`, or pin
-> the exact version with `npx --yes --ignore-scripts
-> relmio@0.18.0-experimental.1 local`.
+> Opt in with `npx --yes --ignore-scripts relmio@0.18.0-experimental.1 local`.
 
 The companion joins the exact existing, eligible non-internal user-defined Docker bridge selected for n8n. n8n reaches it at `http://n8n-local-model:11434/v1`; Relmio publishes no host port and does not edit, restart, recreate, or execute inside n8n. The runtime is CPU-based, configured for one selected model at a time, and has cloud features disabled. Active-family `nat-unprotected`, unknown and isolated gateway modes fail closed; default/NAT and filtered `routed` modes are permitted. This is not a full host-firewall audit or isolation from the host administrator and trusted bridge peers.
 
@@ -34,7 +32,7 @@ The Qwen model names, quantization and sizes are point-in-time registry observat
 
 ## Install beside local n8n
 
-1. On a first-run machine, open the local dashboard with `npx --yes --ignore-scripts relmio@latest local` (or use `relmio local` from an installed command). This initializes dashboard state as needed; no pre-existing `.relmio` directory or n8n stack is required to open the route. The local-model installation itself requires an existing running n8n container and eligible Docker network. It does not create n8n, so if you have no local n8n yet, complete a separate n8n setup first. Then select **Add connection** and **Local model for n8n**.
+1. On a first-run machine, open the local dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.1 local`. This initializes dashboard state as needed; no pre-existing `.relmio` directory or n8n stack is required to open the route. The local-model installation itself requires an existing running n8n container and eligible Docker network. It does not create n8n, so if you have no local n8n yet, complete a separate n8n setup first. Then select **Add connection** and **Local model for n8n**.
 2. Relmio inspects the local Docker engine, running n8n containers, their shared user-defined Docker networks, the engine's measured memory and CPU allocation, and available Docker backing-filesystem disk. Select the running n8n container, its existing network, and an allowlisted model.
 3. Review the exact model, context and memory budget, measured engine capacity, available disk, image/model downloads, files and private network. Confirm only if the selected Docker engine and network are trusted and the reviewed budget leaves enough headroom.
 

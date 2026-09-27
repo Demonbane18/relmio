@@ -215,8 +215,9 @@ Responses API switch is specific to each integration:
 | SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
 | Local Ollama model for n8n | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for Chat Completions |
 
-First use does not require an existing `.relmio` directory. Open the local
-dashboard with `npx --yes --ignore-scripts relmio@latest local`; it initializes
+First use does not require an existing `.relmio` directory. To opt in to the
+untested local-model workflow, open the dashboard with
+`npx --yes --ignore-scripts relmio@0.18.0-experimental.1 local`; it initializes
 dashboard state as needed. The local-model option requires an existing running
 n8n container and does not install n8n. If you do not yet run local n8n, set up
 n8n separately before selecting a model.

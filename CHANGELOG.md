@@ -50,6 +50,9 @@ checks the registry separately after publication.
   streaming, parsing, and inference deadlines.
 - Decode managed Windows paths as strict UTF-8 before applying existing
   owner-only ACL checks.
+- Preserve the private setup session when opening hosting options directly.
+- Pin model-specific setup commands to this prerelease so they do not open
+  the stable wizard, which does not include the new model setup.
 
 ### Security
 

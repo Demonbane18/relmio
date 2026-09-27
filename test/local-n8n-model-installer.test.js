@@ -17,6 +17,7 @@ import {
 import { withTestLocalSecurity } from "./helpers/local-security.js";
 
 const HOST = process.platform === "win32" ? "npipe:////./pipe/dockerDesktopLinuxEngine" : "unix:///var/run/docker.sock";
+const DRIFTED_UNIX_HOST = "unix:///another/docker.sock";
 const N8N = "a".repeat(64), NETWORK = "b".repeat(64), RUNTIME = "c".repeat(64), HELPER = "d".repeat(64);
 const IMAGE = `sha256:${"e".repeat(64)}`, HELPER_IMAGE = `sha256:${"f".repeat(64)}`;
 const INSTALL = "1".repeat(32), OPERATION = "2".repeat(32), RETRY = "3".repeat(32);
@@ -48,7 +49,14 @@ function runner({ networkOptions = {}, networkFlags = {}, aliasCollision = false
     const ok = (value = "") => ({ code: 0, stdout: typeof value === "string" ? value : `${JSON.stringify(value)}\n`, stderr: "" });
     const absent = () => ({ code: 1, stdout: "", stderr: "not found" });
     if (args[0] === "context" && args[1] === "show") return ok("desktop-linux\n");
-    if (args[0] === "context") return ok(changedContext ? JSON.stringify("unix:///another/docker.sock") : JSON.stringify(dockerHost));
+    // win32 validateLocalDockerHost accepts only the Linux engine pipe, and it
+    // runs before the plan comparison. A drifted inspect must return that pipe.
+    if (args[0] === "context") {
+      const inspectedHost = changedContext
+        ? (process.platform === "win32" ? HOST : DRIFTED_UNIX_HOST)
+        : dockerHost;
+      return ok(JSON.stringify(inspectedHost));
+    }
     assert.equal(spec.dockerHost, dockerHost);
     if (args[0] === "version") return ok("29.0.0\n");
     if (args[0] === "info") return ok({ MemTotal: RESOURCE.memoryBytes, NCPU: RESOURCE.cpus });
@@ -340,8 +348,12 @@ test("a failed large image download leaves an inspectable owned partial deployme
 });
 
 test("changed Docker context, unsafe ancestors, and altered image identities cannot authorize a write", async t => {
-  const directory = await home(t), runProcess = runner({ changedContext: true });
-  await assert.rejects(() => installLocalN8nModel({ plan: plan(), confirmed: true }, safe({ homeDirectory: directory, runProcess })), /context changed/u);
+  // Plan creation validates dockerHost with platform omitted, so a Unix socket
+  // is accepted. On Windows the inspect fixture returns the Linux engine pipe
+  // first; the mismatch is then rejected as context drift, not an invalid pipe.
+  const plannedHost = process.platform === "win32" ? DRIFTED_UNIX_HOST : HOST;
+  const directory = await home(t), runProcess = runner({ changedContext: true, dockerHost: plannedHost });
+  await assert.rejects(() => installLocalN8nModel({ plan: plan({ dockerHost: plannedHost }), confirmed: true }, safe({ homeDirectory: directory, runProcess })), /context changed/u);
   assert.equal(runProcess.calls.some(item => item.args[0] === "image" && item.args[1] === "pull"), false);
   const linkedHome = await home(t);
   await fs.mkdir(join(linkedHome, ".relmio"));

@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
+import { isAbsolute } from "node:path";
 import { createHostingDeploymentPlan } from "../src/domain/hosting-deployment.js";
+
+// start.sh is the Linux container entrypoint (set -eu, ${#SEARXNG_SECRET}).
+// Native Windows has no sh, and this child PATH cannot locate one. An absolute
+// RELMIO_TEST_POSIX_SHELL is the existing opt-in; content checks stay enabled.
+const posixShell = process.platform === "win32"
+  ? (process.env.RELMIO_TEST_POSIX_SHELL && isAbsolute(process.env.RELMIO_TEST_POSIX_SHELL)
+    ? process.env.RELMIO_TEST_POSIX_SHELL
+    : null)
+  : "sh";
+const posixExecutionSkip = posixShell
+  ? false
+  : "start.sh is a Linux container POSIX script; native Windows has no sh unless absolute RELMIO_TEST_POSIX_SHELL is set.";
 
 const base = { providerId: "render", component: "model", deploymentId: "abcdef012345", modelId: "qwen3:0.6b", inputs: { region: "frankfurt", plan: "2c-4g", diskGB: 20 } };
 
@@ -65,17 +78,20 @@ test("Fly creates a valid private volume name for its persistent model cache", (
   assert.doesNotMatch(config, /\[\[services\]\]|\[http_service\]/u);
 });
 
-test("private search startup requires runtime secret and accepts JSON search only on private lane", () => {
+test("private search startup requires runtime secret and accepts JSON search only on private lane", async (t) => {
   const plan = createHostingDeploymentPlan({ providerId: "fly", component: "searxng", deploymentId: base.deploymentId, inputs: { region: "fra", memoryMB: 1024 } });
   const files = Object.fromEntries(plan.files.map(file => [file.name, file.content]));
-  for (const secret of [undefined, "short"]) {
-    const result = spawnSync("sh", ["-c", files["start.sh"]], {
-      env: secret === undefined ? { PATH: "/usr/bin:/bin" } : { PATH: "/usr/bin:/bin", SEARXNG_SECRET: secret },
-      encoding: "utf8",
-    });
-    assert.equal(result.status, 1);
-    assert.doesNotMatch(result.stderr, /short/u);
-  }
+  await t.test("startup script exits 1 without echoing a short secret", { skip: posixExecutionSkip }, () => {
+    for (const secret of [undefined, "short"]) {
+      const result = spawnSync(posixShell, ["-c", files["start.sh"]], {
+        env: secret === undefined ? { PATH: "/usr/bin:/bin" } : { PATH: "/usr/bin:/bin", SEARXNG_SECRET: secret },
+        encoding: "utf8",
+      });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 1);
+      assert.doesNotMatch(result.stderr, /short/u);
+    }
+  });
   assert.match(files["settings.yml"], /- json/u);
   assert.match(files["Dockerfile"], /USER 977:977/u);
   assert.doesNotMatch(files["fly.toml"], /\[http_service\]|\[\[services\]\]|\[\[mounts\]\]/u);

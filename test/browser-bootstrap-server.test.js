@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
+import vm from "node:vm";
 
 import { startWizardServer } from "../src/web/server.js";
+import { readWizardSession } from "../src/ui/session.js";
 
 const sessionToken = `w${"s".repeat(42)}`;
 const controlToken = `A${"c".repeat(42)}`;
@@ -170,6 +173,51 @@ test("one-time file POST yields only a short-lived transfer and replaces itself 
   assert.equal(replay.status, 401);
   assert.equal((await replay.json()).error, "Browser launch could not be verified.");
   assert.equal((await transfer(fixture, { ...envelope, route: "/local" })).status, 401);
+});
+
+test("private hosting launch exchanges its browser transfer into an authenticated session", async (t) => {
+  const fixture = await startFixture(t);
+  assert.equal((await prepare(fixture, "/hosting")).status, 201);
+  const bootstrap = await exchange(fixture, fixture.handoffs[0]);
+  assert.equal(bootstrap.status, 200);
+  const { transferId, secret } = readTransferEnvelope(await bootstrap.text());
+  const script = await readFile(new URL("../src/ui/session-bootstrap.js", import.meta.url), "utf8");
+  const visitedUrls = [];
+  const browserWindow = {
+    name: `relmio-v1.${transferId}.${secret}`,
+    location: { pathname: "/hosting", search: "", hash: "#dashboard" },
+    history: {
+      state: null,
+      replaceState(state, _title, url) {
+        this.state = state;
+        visitedUrls.push(url);
+      },
+    },
+    addEventListener() {},
+  };
+  vm.runInNewContext(script, {
+    window: browserWindow,
+    fetch(path, options) {
+      assert.equal(browserWindow.name, "");
+      const url = new URL(path, fixture.wizard.origin);
+      visitedUrls.push(url.href);
+      return fetch(url, {
+        ...options,
+        headers: { ...options.headers, Origin: fixture.wizard.origin },
+      });
+    },
+    JSON,
+    Promise,
+  });
+
+  await browserWindow.__relmioWizardSessionReady;
+  assert.equal(browserWindow.name, "");
+  assert.equal(readWizardSession(browserWindow), sessionToken);
+  for (const url of visitedUrls) {
+    assert.equal(url.includes(transferId), false);
+    assert.equal(url.includes(secret), false);
+    assert.equal(url.includes(sessionToken), false);
+  }
 });
 
 test("wrong secret, route, and origin do not consume the valid ticket", async (t) => {

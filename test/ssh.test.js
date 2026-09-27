@@ -19,6 +19,15 @@ const digest = "ab".repeat(32);
 const fingerprint = formatSha256Fingerprint(digest);
 const options = { host: "vps.example.test", port: 22, username: "root", password: "fixture-password", useAgent: false, privilege: "root", expectedFingerprint: fingerprint };
 const modelPath = "/docker/n8n-openai-oauth/local-model/catalog.mjs";
+// Remote VPS commands are Linux /bin/sh scripts (exit 78, $(( )), printf/wc).
+// Native Windows has no /bin/sh. RELMIO_TEST_POSIX_SHELL is the installer opt-in.
+// Node stdin/output-cap fixtures stay enabled; those shell scripts cannot.
+const posixShell = process.platform === "win32"
+  ? (process.env.RELMIO_TEST_POSIX_SHELL || null)
+  : "/bin/sh";
+const posixExecutionSkip = posixShell
+  ? false
+  : "Remote VPS command is a POSIX /bin/sh script; native Windows has no /bin/sh unless RELMIO_TEST_POSIX_SHELL is set.";
 const adminResult = (info = {}) => ({ code: 0, stdout: `0\nunix:///var/run/docker.sock\n/usr/bin/docker\ndefault\n${JSON.stringify({ OSType: "linux", ServerVersion: "28.0.1", SecurityOptions: ["name=seccomp,profile=builtin"], ...info })}\n2.39.2\ndefault\n`, stderr: "" });
 
 function resultChannel(result) {
@@ -36,11 +45,7 @@ function resultChannel(result) {
 
 // Authentication/attestation fixtures are injected; actual consumer commands
 // execute in a real local shell. This is not a claim of live SSH/sudo success.
-function processChannel(command) {
-  // Remote Linux ownership/context attestation is injected, like UID probes;
-  // stdin, shell quoting, process output and backpressure remain real.
-  command = command.replaceAll(quoteShell(BUILDER_STATE_PROBE).slice(1, -1), ":");
-  const child = spawn("/bin/sh", ["-c", command], { stdio: ["pipe", "pipe", "pipe"] });
+function pipeChannel(child) {
   const stream = new EventEmitter();
   stream.stderr = child.stderr;
   stream.write = chunk => child.stdin.write(chunk);
@@ -52,6 +57,15 @@ function processChannel(command) {
   child.on("error", error => stream.emit("error", error));
   child.on("close", code => stream.emit("close", code));
   return stream;
+}
+function processChannel(command) {
+  // Remote Linux ownership/context attestation is injected, like UID probes;
+  // stdin, shell quoting, process output and backpressure remain real.
+  command = command.replaceAll(quoteShell(BUILDER_STATE_PROBE).slice(1, -1), ":");
+  return pipeChannel(spawn(posixShell ?? "/bin/sh", ["-c", command], { stdio: ["pipe", "pipe", "pipe"] }));
+}
+function nodeEvalChannel(code) {
+  return pipeChannel(spawn(process.execPath, ["-e", code], { stdio: ["pipe", "pipe", "pipe"] }));
 }
 
 class BoundaryClient extends EventEmitter {
@@ -177,10 +191,17 @@ test("prepared identity records attested UID instead of trusting the username", 
 });
 
 test("root command stdin is byte bounded and consumed by a real hash process", async () => {
-  const client = new BoundaryClient();
-  const remote = await connect(client);
   const input = "é".repeat(32768);
   const code = "const c=require('node:crypto').createHash('sha256');process.stdin.on('data',b=>c.update(b));process.stdin.on('end',()=>process.stdout.write(c.digest('hex')))";
+  // The administrative wrapper is a Linux /bin/sh script. Without that shell,
+  // still deliver stdin to the same node hash program rather than a mock echo.
+  const client = new BoundaryClient(posixShell ? {} : {
+    execute: command => {
+      assert.equal(command.includes(input), false);
+      return nodeEvalChannel(code);
+    },
+  });
+  const remote = await connect(client);
   const result = await remote.exec(`${quoteShell(process.execPath)} -e ${quoteShell(code)}`, { input });
   assert.equal(result.code, 0);
   assert.equal(result.stdout, createHash("sha256").update(input).digest("hex"));
@@ -189,26 +210,46 @@ test("root command stdin is byte bounded and consumed by a real hash process", a
   remote.close();
 });
 
-test("sudo scopes the whole compound command, preserves quoting, and denies stdin", async () => {
-  const client = new BoundaryClient({ uid: 1000, execute: command => {
-    assert.ok(command.startsWith("/usr/bin/sudo -n -- /bin/sh -c "));
-    // Simulate only elevation; the quoted shell/compound command executes.
-    return processChannel(command.slice("/usr/bin/sudo -n -- ".length));
-  } });
-  const remote = await connect(client, { privilege: "sudo-n", username: "ubuntu" });
-  const result = await remote.exec("value='a b'; printf '%s' \"$value\" | wc -c; printf 'quoted' >&2; exit 7");
-  assert.equal(result.code, 7);
-  assert.equal(result.stdout.trim(), "3");
-  assert.equal(result.stderr, "quoted");
-  const before = client.calls.length;
-  await assert.rejects(() => remote.exec("cat", { input: "secret" }), /do not accept stdin/u);
-  assert.equal(client.calls.length, before);
-  remote.close();
+test("sudo scopes the whole compound command, preserves quoting, and denies stdin", async (t) => {
+  const command = "value='a b'; printf '%s' \"$value\" | wc -c; printf 'quoted' >&2; exit 7";
+  await t.test("denies stdin before opening a channel", async () => {
+    const client = new BoundaryClient({ uid: 1000, execute: () => {
+      throw new Error("must-not-spawn");
+    } });
+    const remote = await connect(client, { privilege: "sudo-n", username: "ubuntu" });
+    const before = client.calls.length;
+    await assert.rejects(() => remote.exec("cat", { input: "secret" }), /do not accept stdin/u);
+    assert.equal(client.calls.length, before);
+    remote.close();
+  });
+  // printf, wc, and exit 7 are the Linux remote command. A Windows shell cannot
+  // execute that script without faking the result or changing production quoting.
+  await t.test("preserves quoting through a real POSIX shell", { skip: posixExecutionSkip }, async () => {
+    const client = new BoundaryClient({ uid: 1000, execute: received => {
+      assert.ok(received.startsWith("/usr/bin/sudo -n -- /bin/sh -c "));
+      return processChannel(received.slice("/usr/bin/sudo -n -- ".length));
+    } });
+    const remote = await connect(client, { privilege: "sudo-n", username: "ubuntu" });
+    const result = await remote.exec(command);
+    assert.equal(result.code, 7);
+    assert.equal(result.stdout.trim(), "3");
+    assert.equal(result.stderr, "quoted");
+    const before = client.calls.length;
+    await assert.rejects(() => remote.exec("cat", { input: "secret" }), /do not accept stdin/u);
+    assert.equal(client.calls.length, before);
+    remote.close();
+  });
 });
 
 test("combined output cap terminates a real producer and hides channel errors", async () => {
-  const remote = await connect(new BoundaryClient());
-  await assert.rejects(() => remote.exec(`${quoteShell(process.execPath)} -e 'process.stderr.write("x".repeat(1000001))'`), /output exceeded/u);
+  const code = 'process.stderr.write("x".repeat(1000001))';
+  const remote = await connect(new BoundaryClient(posixShell ? {} : {
+    execute: command => {
+      assert.match(command, /process\.stderr\.write\("x"\.repeat\(1000001\)\)/u);
+      return nodeEvalChannel(code);
+    },
+  }));
+  await assert.rejects(() => remote.exec(`${quoteShell(process.execPath)} -e '${code}'`), /output exceeded/u);
   remote.close();
   const client = new BoundaryClient({ execute: () => { throw new Error("sensitive-agent-path"); } });
   const failed = await connect(client);
@@ -233,7 +274,7 @@ test("sudo upload streams a bounded binary payload under backpressure and report
   let stalls = 0;
   const code = `const h=require("node:crypto").createHash("sha256");let n=0;process.stdin.on("data",b=>{n+=b.length;h.update(b)});process.stdin.on("end",()=>process.exit(n===1000000&&h.digest("hex")==="${expected}"?0:9))`;
   const client = new BoundaryClient({ uid: 1000, execute: () => {
-    const stream = processChannel(`${quoteShell(process.execPath)} -e ${quoteShell(code)}`);
+    const stream = nodeEvalChannel(code);
     const write = stream.write;
     stream.write = chunk => {
       assert.ok(chunk.length <= 16384);
@@ -289,28 +330,32 @@ test("Podman migration host metadata does not impersonate the engine implementat
   assert.throws(() => parseAdministrativeProbe(adminResult({ OperatingSystem: "Podman Engine" })), /Podman/u);
 });
 
-test("unattested builder selection is rejected and inherited builder overrides cannot run a command", () => {
+test("unattested builder selection is rejected and inherited builder overrides cannot run a command", async (t) => {
   const original = adminResult();
   const prefix = original.stdout.split("\n").slice(0, 6).join("\n");
   assert.throws(() => parseAdministrativeProbe({ ...original, stdout: `${prefix}\nremote-ci\n` }), /builder/u);
-  const engine = parseAdministrativeProbe(adminResult());
-  const selectors = ["BUILDX_BUILDER", "BUILDX_CONFIG", "BUILDKIT_HOST", "DOCKER_CONFIG", "COMPOSE_BAKE"];
-  const base = { ...process.env };
-  for (const name of selectors) delete base[name];
-  for (const name of selectors) {
-    const result = spawnSync("/bin/sh", ["-c", administrativeCommand("printf must-not-run", "root", engine)],
-      { env: { ...base, [name]: "remote-ci" }, encoding: "utf8" });
-    assert.equal(result.status, 78);
-    assert.equal(result.stdout, "");
-  }
+  await t.test("inherited builder overrides exit 78 before the command", { skip: posixExecutionSkip }, () => {
+    const engine = parseAdministrativeProbe(adminResult());
+    const selectors = ["BUILDX_BUILDER", "BUILDX_CONFIG", "BUILDKIT_HOST", "DOCKER_CONFIG", "COMPOSE_BAKE"];
+    const base = { ...process.env };
+    for (const name of selectors) delete base[name];
+    for (const name of selectors) {
+      const result = spawnSync(posixShell, ["-c", administrativeCommand("printf must-not-run", "root", engine)],
+        { env: { ...base, [name]: "remote-ci" }, encoding: "utf8" });
+      assert.equal(result.error, undefined);
+      assert.equal(result.status, 78);
+      assert.equal(result.stdout, "");
+    }
+  });
 });
 
-test("disabled or invalid BuildKit selection cannot reach the command", () => {
+test("disabled or invalid BuildKit selection cannot reach the command", { skip: posixExecutionSkip }, () => {
   const env = { ...process.env };
   for (const name of ["BUILDX_BUILDER", "BUILDX_CONFIG", "BUILDKIT_HOST", "DOCKER_CONFIG", "COMPOSE_BAKE"]) delete env[name];
   for (const value of ["0", "false", "unexpected", "1"]) {
-    const result = spawnSync("/bin/sh", ["-c", administrativeCommand('printf "%s" "$((6 * 7))"', "root")],
+    const result = spawnSync(posixShell, ["-c", administrativeCommand('printf "%s" "$((6 * 7))"', "root")],
       { env: { ...env, DOCKER_BUILDKIT: value }, encoding: "utf8" });
+    assert.equal(result.error, undefined);
     assert.equal(result.status, value === "1" ? 0 : 78);
     assert.equal(result.stdout, value === "1" ? "42" : "");
   }
