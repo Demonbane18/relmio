@@ -29,6 +29,27 @@ npm run release:check
 The README badge can be cached. Post-release registry queries are the
 authoritative publication check.
 
+## Stable and experimental release channels
+
+For a prerelease such as `0.18.0-experimental.1`, use the exact matching
+version in package metadata, the `v0.18.0-experimental.1` tag, and GitHub
+Release. Mark that GitHub Release as a prerelease; the prerelease flag must
+agree with the SemVer version. Publishing the GitHub Release triggers
+`.github/workflows/publish.yml`, which uses the configured GitHub OIDC trusted
+publisher identity and the configured `npm` environment.
+
+The stable `0.17.5` remains npm `latest` while this prerelease is published only
+with the `experimental` dist-tag. Users must opt in with
+`npx --yes --ignore-scripts relmio@experimental` or an exact prerelease version.
+Do not move `latest`, hosted installer defaults, or stable commands to the
+prerelease.
+
+The prerelease workflow attaches versioned Windows x64 and arm64 ZIP candidates
+to the GitHub Release, but skips Homebrew and WinGet candidates. Homebrew is
+generated only for a stable version from its exact published npm tarball; the
+package-manager generator rejects prerelease formula and WinGet manifests.
+Hosted installers continue to invoke `relmio@latest`.
+
 ## Trusted publisher contract
 
 The npm package's **Trusted Publisher** configuration must remain:
@@ -42,10 +63,16 @@ The npm package's **Trusted Publisher** configuration must remain:
 | Environment name | `npm` |
 | Allowed action | Allow npm publish |
 
-The workflow runs on a GitHub-hosted runner with `id-token: write` and the
-protected `npm` environment. npm exchanges that workload identity for a
+The workflow runs on a GitHub-hosted runner with `id-token: write` and uses
+the configured `npm` environment. npm exchanges that workload identity for a
 short-lived publishing credential and generates provenance for the public
 package. The workflow contains no long-lived npm secret.
+
+The GitHub `npm` environment's settings were inspected on 2026-09-27; no
+additional required reviewers or deployment-branch restrictions were observed.
+Do not assume that this environment prompts for human approval. Keep the
+reviewed main-branch pull-request and branch-protection flow, and recheck the
+environment policy before a release.
 
 If this trusted-publisher configuration is missing or differs, stop. Repair it
 through npm's package settings and review the repository environment policy
@@ -141,16 +168,17 @@ git ls-remote origin "refs/tags/v${RELEASE_VERSION}^{}"
 ```
 
 Create the GitHub release from that tag with curated notes copied from the
-matching changelog entry. Publishing the GitHub release triggers
-`.github/workflows/publish.yml`; that workflow:
+matching changelog entry. Set its prerelease flag to match the SemVer version.
+The release triggers `.github/workflows/publish.yml`, which checks out the
+immutable tag, runs the release gate and audit, builds the reviewed tarball,
+skips if the immutable npm version already exists, and publishes through the
+configured OIDC trusted publisher identity.
 
-1. checks out the immutable release tag;
-2. runs the full release gate and audit;
-3. builds the reviewed tarball;
-4. skips safely if that immutable version already exists;
-5. otherwise publishes through npm trusted publishing;
-6. builds and attaches verified Windows release artifacts;
-7. generates a Homebrew formula candidate from the published npm tarball.
+For a stable release, the workflow publishes to npm `latest`, attaches verified
+Windows release artifacts, and generates a Homebrew formula candidate from the
+published npm tarball. For a prerelease, it publishes to `experimental`,
+attaches versioned Windows x64 and arm64 ZIP candidates, and skips Homebrew and
+WinGet candidate generation. Keep hosted installer scripts on `relmio@latest`.
 
 Never run `npm publish` locally. Never recreate or move a published tag.
 
@@ -158,27 +186,30 @@ Never run `npm publish` locally. Never recreate or move a published tag.
 
 After the workflow succeeds:
 
+For a prerelease, query the exact version and both dist-tags; do not compare the
+published version to `npm view relmio version`, which reports `latest`:
+
 ```bash
 LOCAL_VERSION="$(node -p "require('./package.json').version")"
-PUBLISHED_VERSION="$(npm view relmio version \
-  --registry=https://registry.npmjs.org)"
-test "$LOCAL_VERSION" = "$PUBLISHED_VERSION"
 npm view "relmio@${LOCAL_VERSION}" \
   version dist.integrity dist.tarball \
   --registry=https://registry.npmjs.org
+test "$(npm view relmio dist-tags.experimental \
+  --registry=https://registry.npmjs.org)" = "$LOCAL_VERSION"
+test "$(npm view relmio dist-tags.latest \
+  --registry=https://registry.npmjs.org)" = "0.17.5"
 ```
 
 Also verify:
 
-- the GitHub release tag targets the reviewed merged commit;
+- the GitHub release tag targets the reviewed merged commit and is marked
+  prerelease;
 - npm renders the registry-safe README and the package has provenance;
 - the Vercel production deployment corresponds to the merged commit;
 - hosted `install.sh`, `install.ps1`, and `install.cmd` still byte-match their
   tested repository sources and invoke `relmio@latest`;
-- Windows assets are attached to the GitHub release;
-- Homebrew points to the exact npm tarball version and SHA-256;
-- WinGet remains described as pending until its upstream catalog is actually
-  updated.
+- versioned Windows assets are attached to the GitHub prerelease;
+- no Homebrew or WinGet prerelease candidate was generated.
 
 Run the repository's distribution audit for the exact release version and do
 not call the release synchronized while a required surface is red.

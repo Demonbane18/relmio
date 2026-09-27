@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { connect, createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 
@@ -1174,6 +1173,120 @@ test("startOAuthLogin does not signal an already-closed failed helper", async ()
   assert.deepEqual(signals, []);
 });
 
+test("startOAuthLogin waits for the original Windows child to close after taskkill succeeds", async () => {
+  let loginChild;
+  const taskkills = [];
+  const spawnProcess = (command) => {
+    const child = new EventEmitter();
+    if (command === "taskkill") {
+      taskkills.push(child);
+    } else {
+      loginChild = child;
+      child.pid = 7070;
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+    }
+    return child;
+  };
+  const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
+    fileSystem: createMemoryFileSystem({}),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    spawnProcess,
+    createPendingId: () => "wait-for-child-close",
+    terminationGraceMs: 500,
+    terminationForceWaitMs: 500,
+    lockDownPath: noOpLockDownPath,
+  });
+
+  let confirmed = false;
+  const cancellation = login.cancel().then(() => {
+    confirmed = true;
+  });
+  finishChild(taskkills[0], 0);
+  await new Promise((resolvePromise) => setImmediate(resolvePromise));
+  assert.equal(confirmed, false);
+  assert.equal(taskkills.length, 1);
+  finishChild(loginChild, 1);
+  await cancellation;
+  assert.equal(confirmed, true);
+  await assert.rejects(login.completion);
+});
+
+test("startOAuthLogin blocks another Windows login when taskkill succeeds but the child never closes", async () => {
+  for (const emitSpawnError of [false, true]) {
+    let loginChild;
+    const spawnProcess = (command) => {
+      const child = new EventEmitter();
+      if (command === "taskkill") {
+        queueMicrotask(() => finishChild(child, 0));
+      } else {
+        loginChild = child;
+        child.pid = 7171;
+        child.stdout = new EventEmitter();
+        child.stderr = new EventEmitter();
+      }
+      return child;
+    };
+    const login = await startOAuthLogin({
+      probeCallbackPort: freeCallbackPort,
+      fileSystem: createMemoryFileSystem({}),
+      env: {},
+      homeDirectory: "/home/user",
+      platform: "win32",
+      spawnProcess,
+      createPendingId: () => `unclosed-child-${emitSpawnError}`,
+      terminationGraceMs: 10,
+      terminationForceWaitMs: 10,
+      lockDownPath: noOpLockDownPath,
+    });
+
+    // A spawn error settles completion, but cannot establish process close.
+    if (emitSpawnError) {
+      loginChild.emit("error", new Error("private spawn failure"));
+    }
+    await assert.rejects(login.cancel(), (error) => error.retryBlocked === true);
+    await assert.rejects(login.completion, (error) => error.retryBlocked === true);
+  }
+});
+
+test("startOAuthLogin confirms an already-closed Windows child after one successful taskkill", async () => {
+  let loginChild;
+  const taskkills = [];
+  const spawnProcess = (command) => {
+    const child = new EventEmitter();
+    if (command === "taskkill") {
+      taskkills.push(child);
+      queueMicrotask(() => finishChild(child, 0));
+    } else {
+      loginChild = child;
+      child.pid = 7272;
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+    }
+    return child;
+  };
+  const login = await startOAuthLogin({
+    probeCallbackPort: freeCallbackPort,
+    fileSystem: createMemoryFileSystem({}),
+    env: {},
+    homeDirectory: "/home/user",
+    platform: "win32",
+    spawnProcess,
+    createPendingId: () => "already-closed-child",
+    terminationGraceMs: 10,
+    terminationForceWaitMs: 10,
+    lockDownPath: noOpLockDownPath,
+  });
+
+  finishChild(loginChild, 1);
+  await login.cancel();
+  assert.equal(taskkills.length, 1);
+  await assert.rejects(login.completion);
+});
+
 test("startOAuthLogin refuses to launch when another app owns the callback port", async () => {
   let spawned = false;
   const directories = [];
@@ -1203,45 +1316,116 @@ test("startOAuthLogin refuses to launch when another app owns the callback port"
   assert.deepEqual(directories, []);
 });
 
-async function listenOnLoopback(host) {
-  const server = createServer((socket) => socket.destroy());
-  await new Promise((resolvePromise, rejectPromise) => {
-    server.once("error", rejectPromise);
-    server.listen(0, host, resolvePromise);
-  });
-  return server;
+function simulateCallbackProbe(outcomes) {
+  const sockets = new Map();
+  const connectSocket = ({ host, port }) => {
+    assert.equal(port, 1455);
+    const outcome = outcomes[host];
+    if (outcome?.throw) {
+      throw new Error("private connector detail");
+    }
+    const socket = new EventEmitter();
+    socket.destroyed = false;
+    socket.destroy = () => {
+      socket.destroyed = true;
+    };
+    sockets.set(host, socket);
+    if (outcome !== "silent") {
+      queueMicrotask(() => {
+        if (outcome === "connect") {
+          socket.emit("connect");
+        } else {
+          socket.emit("error", Object.assign(new Error("private socket detail"), {
+            code: outcome,
+          }));
+        }
+      });
+    }
+    return socket;
+  };
+  return { connectSocket, sockets };
 }
 
-test("isOAuthCallbackPortInUse detects a listener reachable only over IPv6 localhost", async (t) => {
-  let server;
-  try {
-    server = await listenOnLoopback("::1");
-  } catch {
-    t.skip("IPv6 loopback is unavailable on this host");
-    return;
+test("isOAuthCallbackPortInUse distinguishes free, occupied and unsupported IPv6", async () => {
+  for (const [outcomes, expected] of [
+    [{ "127.0.0.1": "ECONNREFUSED", "::1": "ECONNREFUSED" }, false],
+    [{ "127.0.0.1": "connect", "::1": "ECONNREFUSED" }, true],
+    [{ "127.0.0.1": "ECONNREFUSED", "::1": "connect" }, true],
+    [{ "127.0.0.1": "ECONNREFUSED", "::1": "EAFNOSUPPORT" }, false],
+  ]) {
+    const { connectSocket, sockets } = simulateCallbackProbe(outcomes);
+    assert.equal(await isOAuthCallbackPortInUse({ connectSocket, timeoutMs: 10 }), expected);
+    assert.equal(sockets.get("127.0.0.1").destroyed, true);
+    assert.equal(sockets.get("::1").destroyed, true);
   }
-  t.after(() => server.close());
-  const { port } = server.address();
-  const probedHosts = [];
-  // Route the fixed callback port to the ephemeral fixture so only [::1] listens.
-  const connectSocket = ({ host }) => {
-    probedHosts.push(host);
-    return connect({ host, port });
-  };
-
-  assert.equal(await isOAuthCallbackPortInUse({ connectSocket }), true);
-  assert.deepEqual(probedHosts.sort(), ["127.0.0.1", "::1"]);
 });
 
-test("isOAuthCallbackPortInUse reports a free port when nothing accepts", async () => {
-  const server = await listenOnLoopback("127.0.0.1");
-  const { port } = server.address();
-  await new Promise((resolvePromise) => server.close(resolvePromise));
+test("isOAuthCallbackPortInUse gives a confirmed listener precedence over an inconclusive address", async () => {
+  for (const inconclusive of ["silent", "EACCES"]) {
+    const { connectSocket, sockets } = simulateCallbackProbe({
+      "127.0.0.1": inconclusive,
+      "::1": "connect",
+    });
+    assert.equal(await isOAuthCallbackPortInUse({ connectSocket, timeoutMs: 10 }), true);
+    for (const socket of sockets.values()) {
+      assert.equal(socket.destroyed, true);
+      socket.emit("connect");
+    }
+  }
+});
 
-  assert.equal(
-    await isOAuthCallbackPortInUse({
-      connectSocket: ({ host }) => connect({ host, port }),
+test("isOAuthCallbackPortInUse rejects inconclusive probes without leaking error details", async () => {
+  let fixedMessage;
+  for (const outcomes of [
+    { "127.0.0.1": "ECONNREFUSED", "::1": "silent" },
+    { "127.0.0.1": "EACCES", "::1": "ECONNREFUSED" },
+    { "127.0.0.1": "ENETUNREACH", "::1": "ECONNREFUSED" },
+    { "127.0.0.1": "ETIMEDOUT", "::1": "ECONNREFUSED" },
+    { "127.0.0.1": { throw: true }, "::1": "ECONNREFUSED" },
+    { "127.0.0.1": "EAFNOSUPPORT", "::1": "ECONNREFUSED" },
+  ]) {
+    const { connectSocket, sockets } = simulateCallbackProbe(outcomes);
+    await assert.rejects(
+      isOAuthCallbackPortInUse({ connectSocket, timeoutMs: 10 }),
+      (error) => {
+        assert.equal(error instanceof Error, true);
+        assert.doesNotMatch(error.message, /private|EACCES|ENETUNREACH|ETIMEDOUT/u);
+        fixedMessage ??= error.message;
+        assert.equal(error.message, fixedMessage);
+        return true;
+      },
+    );
+    for (const socket of sockets.values()) {
+      assert.equal(socket.destroyed, true);
+    }
+  }
+});
+
+test("startOAuthLogin does not write or launch when the callback probe is inconclusive", async () => {
+  const { connectSocket } = simulateCallbackProbe({
+    "127.0.0.1": "EACCES",
+    "::1": "ECONNREFUSED",
+  });
+  let effects = 0;
+  await assert.rejects(
+    startOAuthLogin({
+      probeCallbackPort: () => isOAuthCallbackPortInUse({ connectSocket, timeoutMs: 10 }),
+      fileSystem: {
+        ...createMemoryFileSystem({}),
+        async mkdir() {
+          effects += 1;
+        },
+      },
+      env: {},
+      homeDirectory: "/home/user",
+      spawnProcess() {
+        effects += 1;
+      },
+      lockDownPath() {
+        effects += 1;
+      },
     }),
-    false,
+    (error) => error instanceof Error && !/private|EACCES/u.test(error.message),
   );
+  assert.equal(effects, 0);
 });

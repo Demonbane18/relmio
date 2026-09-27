@@ -5,7 +5,7 @@
   const match = /^relmio-v1\.([A-Za-z0-9_-]{43})\.([A-Za-z0-9_-]{43})$/u.exec(
     transferredName,
   );
-  const routes = new Set(["/", "/assistant", "/local", "/supergrok-vps"]);
+  const routes = new Set(["/", "/assistant", "/local", "/supergrok-vps", "/local-model-vps"]);
   const route = window.location.pathname;
 
   if (!match || !routes.has(route) || window.location.search !== "") {

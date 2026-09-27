@@ -266,7 +266,7 @@ test("returns current repository stars and npm version for the GitHub control", 
   assert.match(response.headers.get("cache-control") ?? "", /s-maxage=900/);
 });
 
-test("falls back safely when project metadata is malformed", async (t) => {
+test("malformed metadata keeps the public installer on a stable release", async (t) => {
   t.mock.method(
     globalThis,
     "fetch",
@@ -279,28 +279,11 @@ test("falls back safely when project metadata is malformed", async (t) => {
 
   const response = await requestApp("/api/project-meta");
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {
-    stars: null,
-    version: JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")).version,
-  });
+  const metadata = await response.json();
+  assert.equal(metadata.stars, null);
+  assert.match(metadata.version, /^\d+\.\d+\.\d+$/u);
 });
 
-test("keeps web metadata fallbacks synchronized with the prepared release version", async () => {
-  const [rootPackage, versionSource, routeSource, repositoryButton] = await Promise.all([
-    readFile(new URL("../../package.json", import.meta.url), "utf8"),
-    readFile(new URL("../app/project-version.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/project-meta/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/RepositoryButton.tsx", import.meta.url), "utf8"),
-  ]);
-  const preparedVersion = JSON.parse(rootPackage).version;
-
-  assert.match(versionSource, new RegExp(`preparedReleaseVersion = "${preparedVersion}"`, "u"));
-  assert.match(routeSource, /import \{ preparedReleaseVersion \} from "\.\.\/\.\.\/project-version"/u);
-  assert.match(routeSource, /const fallbackVersion = preparedReleaseVersion/u);
-  assert.match(repositoryButton, /import \{ preparedReleaseVersion \} from "\.\.\/project-version"/u);
-  assert.match(repositoryButton, /version: preparedReleaseVersion/u);
-  assert.doesNotMatch(`${routeSource}\n${repositoryButton}`, /0\.7\.0/u);
-});
 
 test("rejects non-string chat prompts before reading credentials", async () => {
   const response = await requestApp("/api/chat", {

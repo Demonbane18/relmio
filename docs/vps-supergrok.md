@@ -10,8 +10,11 @@ You can also choose **SuperGrok companion** from the detected n8n management
 screen. That link keeps the current wizard's verified SSH connection. ChatGPT
 sign-in is not required for this flow.
 
-1. Enter the VPS address. Check the SSH fingerprint against your provider before
-   entering its root password. The password is held only for the SSH connection.
+1. Enter the VPS address and actual SSH username. Independently confirm the
+   host fingerprint before using **Local SSH agent** or an already-approved
+   password login. This credential-bearing route requires a verified direct
+   UID-0 account; a **Passwordless sudo -n (model only)** session cannot manage
+   SuperGrok. Do not enable root/password SSH to bypass that boundary.
 2. Select the running n8n container and its existing Docker network.
 3. Review installation. Confirm the exact action before any remote write.
 4. Save the newly generated **local bridge bearer** directly into an n8n OpenAI
@@ -40,9 +43,10 @@ your existing credentials or provider selections.
 
 ## Management and safety
 
-The installation lives only in `/docker/n8n-openai-oauth/supergrok` and joins the
-selected existing Docker network. The companion publishes no host port. Relmio
-does not modify, rebuild, stop, recreate or restart n8n, its image or Compose file.
+The companion files live in `/docker/n8n-openai-oauth/supergrok`, with a sibling
+owned operation lock under the same managed root. The companion joins the
+selected existing Docker network and publishes no host port. Relmio does not
+modify, rebuild, stop, recreate or restart n8n, its image or Compose file.
 Sibling ChatGPT and Assistant installations remain untouched.
 
 The wizard supports status, fresh device sign-in, cancellation of a pending
@@ -58,18 +62,34 @@ network-alias collisions fail closed. An exclusive operation directory and a
 deterministic credential-action container prevent concurrent changes to the same
 auth volume. Sign-in expires after 15 minutes; logout after one minute.
 
-An interrupted SSH operation can leave
-`/docker/n8n-openai-oauth/.supergrok-operation.lock`. Automatic stale-lock deletion
-is deliberately unsupported: an administrator must first verify that no installer
-operation is running, then remove that empty directory before retrying. An
-incomplete owned installation can be reviewed and removed; it is never silently
-overwritten. Do not delete an existing installation merely to recover a bearer
-until you have considered its saved Grok session.
+Install, sign-in and sign-out reviews disclose temporary root-only mode-`0700`
+Buildx client state at
+`/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx`. Even a Compose
+credential-action run can build an image, so this boundary covers those
+actions, not just installation. State is created only for a confirmed
+build-capable call; status, removal and sign-in cancellation do not create it.
+Registry credentials are not copied, moved or printed for this state.
 
-The VPS needs root SSH access, Docker with Compose, standard Linux `stat`, `find`
-and `sha256sum`, outbound HTTPS for the pinned image/CLI and provider, and an
-eligible Grok account. The shared `/docker/n8n-openai-oauth` root must be absent or
-already marked as Relmio-managed; unmanaged files are not adopted automatically.
+Verified cleanup removes only owned temporary build state. An interrupted SSH
+operation or uncertain cleanup can leave
+`/docker/n8n-openai-oauth/.supergrok-operation.lock` and a partial `buildx` tree.
+Automatic stale-lock deletion is deliberately unsupported. An administrator
+must inspect the operation, ownership and remaining state before recovery;
+do not assume the lock is empty or remove it recursively to bypass a refusal.
+See [operation-lock recovery](maintenance.md#vps-build-state-and-operation-lock-recovery).
+An incomplete owned installation can be reviewed and removed; it is never
+silently overwritten. Do not delete an existing installation merely to
+recover a bearer until you have considered its saved Grok session.
+
+The VPS needs existing approved direct-root SSH access, rootful Docker Engine
+with Compose and Buildx targeting that same local daemon,
+standard Linux tools, outbound HTTPS for the pinned image/CLI and
+provider, and an eligible Grok account. An available local SSH agent can supply
+authentication, not sudo authorization. The safe root-owned, non-symlink
+`/docker` parent must already exist without group/other write permission. The
+shared `/docker/n8n-openai-oauth` root must be absent or already marked as
+Relmio-managed; unmanaged files are not adopted automatically. See
+[hosting and agent guidance](hosting-compatibility.md#ssh-agent-and-administrative-access).
 
 The adapter remains experimental. During the VPS handoff, the user's first Chat
 test returned `404 not_found` with Responses API on. The user reported that Chat

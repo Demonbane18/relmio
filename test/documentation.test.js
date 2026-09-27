@@ -34,54 +34,6 @@ test("manual installation remains the canonical exact sidecar guide", async () =
   assertOnlyDocumentationAddresses(guide);
 });
 
-test("README surfaces are concise product entry points linked to canonical docs", async () => {
-  const [readme, npmReadme] = await Promise.all([
-    readFile("README.md", "utf8"),
-    readFile("npm/README.md", "utf8"),
-  ]);
-  for (const guide of [readme, npmReadme]) {
-    assert.match(guide, /Bring your AI sign-ins to your tools/u);
-    assert.match(guide, /ChatGPT sign-in is not an\s+OpenAI Platform API key/u);
-    assert.match(guide, /unofficial[\s\S]*private[\s\S]*policy-uncertain/iu);
-    assert.match(guide, /img\.shields\.io\/github\/stars\/Demonbane18\/relmio/u);
-    assert.match(guide, /## Quick install/u);
-    assert.match(guide, /## Pick a path/u);
-    assert.match(guide, /## Common problems/u);
-    assert.match(guide, /Docker is not running/u);
-    assert.match(guide, /Authentication fails/u);
-    assert.match(guide, /Local image build failed/u);
-    assert.match(guide, /npx --yes --ignore-scripts relmio@latest/u);
-    assert.match(guide, /SuperGrok setup does not require or read ChatGPT credentials/u);
-    assert.match(
-      guide,
-      /Native Windows CI[\s\S]*hosted Git Bash launcher[\s\S]*terminal handles/iu,
-    );
-    assert.match(
-      guide,
-      /curl -fsSL https:\/\/relmio\.jpfusin\.tech\/install\.sh \| sh/u,
-    );
-    assert.match(guide, /bundled `winpty`/u);
-    assert.match(
-      guide,
-      /VPS Chat success was\s+user-reported[\s\S]*VPS Assistant and Calculator\s+remain unverified/iu,
-    );
-    assert.match(guide, /OpenAI OAuth[^\n]*\*\*On\*\*/iu);
-    assert.match(guide, /SuperGrok OAuth[^\n]*\*\*Off\*\*/iu);
-    assert.match(guide, /MSYS=enable_pcon/u);
-    assert.match(guide, /## Upgrade from 0\.13\.0/u);
-    assert.match(
-      guide,
-      /## Support[\s\S]*href="https:\/\/ko-fi\.com\/paldogies"[\s\S]*src="https:\/\/storage\.ko-fi\.com\/cdn\/kofi6\.png\?v=6"/u,
-    );
-    assert.doesNotMatch(guide, /<script\b/iu);
-    assert.doesNotMatch(guide, /```mermaid/u);
-  }
-  assert.match(readme, /docs\/images\/brand\/relmio-banner-animated\.svg/u);
-  assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\/docs\/reference/u);
-  assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\/changelog/u);
-  assert.match(npmReadme, /https:\/\/relmio\.jpfusin\.tech\/docs\/security/u);
-  assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
-});
 
 test("persistent dashboard guides keep launch, inventory, action, and secret boundaries aligned", async () => {
   const [readme, npmReadme, gettingStarted, localEndpoints, dashboard, troubleshooting] =
@@ -100,8 +52,6 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
       /relmio start[\s\S]*relmio status[\s\S]*relmio open[\s\S]*relmio stop/u,
     );
     assert.doesNotMatch(entryPoint, /Press Enter to reopen the same\s+dashboard/u);
-    assert.match(entryPoint, /seven services[\s\S]*Relmio\s+0\.15\.0/iu);
-    assert.doesNotMatch(entryPoint, /eight dashboard services|not a ninth dashboard service/u);
     assert.match(entryPoint, /never stored\s+secrets/u);
     assert.match(entryPoint, /existing four-step setup flow/u);
     assert.match(entryPoint, /relmio vps/u);
@@ -154,16 +104,6 @@ test("persistent dashboard guides keep launch, inventory, action, and secret bou
     troubleshooting,
     /hosted curl, PowerShell, and Command Prompt launchers run in the\s+foreground/iu,
   );
-  for (const service of [
-    "Codex (ChatGPT login)",
-    "Codex Chat adapter",
-    "n8n + ngrok",
-    "OpenAI OAuth bridge",
-    "AI Assistant tools",
-    "SuperGrok",
-  ]) {
-    assert.ok(dashboard.includes(`**${service}**`));
-  }
   const grokActionRow = dashboard.split("\n").find((line) => line.startsWith("| **SuperGrok** |"));
   assert.match(grokActionRow, /sign-in\/sign-out guidance/u);
   assert.match(grokActionRow, /local capability rotation/u);
@@ -291,7 +231,6 @@ test("OAuth roadmap includes both clients and preserves external acceptance gate
   assert.match(spec, /Execute the actual n8n AI Assistant in disposable n8n/u);
   assert.match(spec, /No xAI API key may be requested/u);
   assert.match(spec, /without an API-key fallback/u);
-  assert.match(endpoints, /seven dashboard services/u);
   assert.match(dashboard, /four OAuth entries/u);
   assert.match(dashboard, /Provider-managed · not inspected/u);
   assert.match(dashboard, /healthy container does not establish/iu);

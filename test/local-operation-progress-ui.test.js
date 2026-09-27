@@ -579,7 +579,7 @@ test("every long-running local wizard action enters and leaves the shared lifecy
   assert.match(script, /startInstallProgress\(button\);[\s\S]*stopInstallProgress\(button\);/u);
   const refreshContext = script.slice(
     script.indexOf("async function refreshSelectedN8nContext("),
-    script.indexOf("function validateOAuthAuthorizationUrl("),
+    script.indexOf("function validateOAuthAttemptId("),
   );
   assert.match(refreshContext, /startOperation\(/u);
   assert.match(refreshContext, /Promise\.allSettled\(/u);

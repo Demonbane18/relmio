@@ -1,8 +1,10 @@
+import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
 import { PRECHECK_COMMAND, createVerificationCommands } from "../src/domain/safety.js";
+import { VPS_OPERATION_LOCKS, createVpsLockCommand, createVpsBuildStateCommand } from "../src/domain/vps-build-state.js";
 import { installSidecar } from "../src/services/installer.js";
 import { startWizardServer } from "../src/web/server.js";
 
@@ -73,8 +75,8 @@ function createServices() {
       async scanHostFingerprint() {
         return "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
       },
-      async connectVerified() {
-        return remote;
+      async connectVerified(request) {
+        return verifiedSshFixture(request, remote);
       },
       async discoverN8n() {
         return {
@@ -147,6 +149,7 @@ async function prepareVpsNetwork(
       host: exampleHost,
       port: 22,
       username: "root",
+      useAgent: false, privilege: "root",
       password: fixturePassword,
       expectedFingerprint: fingerprint,
     }),
@@ -1130,6 +1133,7 @@ test("wizard flow validates discovered selections and never echoes a password", 
       host: exampleHost,
       port: 22,
       username: "root",
+      useAgent: false, privilege: "root",
       password: fixturePassword,
       expectedFingerprint: fingerprint,
     }),
@@ -1357,7 +1361,18 @@ test("opaque VPS plan ids isolate identical tabs and preserve only the current r
         },
       );
       assert.equal(consumed.status, 400);
-      assert.match((await consumed.json()).error, /fresh.*plan/i);
+      assert.equal(installs, 1);
+      await prepareVpsNetwork(wizard.origin);
+      const reusedAfterReconnect = await api(
+        wizard.origin,
+        assistant ? "/api/assistant/install" : "/api/install",
+        {
+          method: "POST",
+          headers: setup.originHeader,
+          body: createVpsInstallBody(currentSetup, { assistant }),
+        },
+      );
+      assert.equal(reusedAfterReconnect.status, 400);
       assert.equal(installs, 1);
     });
   }
@@ -1723,7 +1738,17 @@ test("VPS install consumes its plan when the credential generation changes durin
     }),
   });
   assert.equal(consumed.status, 400);
-  assert.match((await consumed.json()).error, /fresh.*sidecar plan/i);
+  assert.equal(credentialReads, 1);
+  assert.equal(installs, 0);
+  await prepareVpsNetwork(wizard.origin);
+  const reusedAfterReconnect = await api(wizard.origin, "/api/install", {
+    method: "POST",
+    headers: setup.originHeader,
+    body: createVpsInstallBody(setup),
+  });
+  assert.equal(reusedAfterReconnect.status, 400);
+  assert.equal(credentialReads, 1);
+  assert.equal(installs, 0);
 });
 
 test("safe OAuth cancellation releases the VPS credential gate", async (t) => {
@@ -1832,9 +1857,13 @@ test("VPS install failures consume the plan, release the shared lock, and preser
 test("the VPS API preserves safe model-refresh diagnostics from the real installer and closes its connection", async (t) => {
   const { remote, services } = createServices();
   const verification = createVerificationCommands();
+  const acquireLock = createVpsLockCommand(VPS_OPERATION_LOCKS.oauth);
+  const createBuildState = createVpsBuildStateCommand(VPS_OPERATION_LOCKS.oauth, "22:33");
   remote.upload = async () => {};
   remote.exec = async (command) => {
     if (command === PRECHECK_COMMAND) return { code: 0, stdout: "managed\n" };
+    if (command === acquireLock) return { code: 0, stdout: "22:33\n" };
+    if (command === createBuildState) return { code: 0, stdout: "22:34\n" };
     if (command === verification.runningService) return { code: 0, stdout: "openai-oauth\n" };
     if (command === verification.publicationState) return { code: 0, stdout: JSON.stringify({ Publishers: [] }) };
     if (command === verification.models) return {
@@ -2321,9 +2350,9 @@ test("shutdown rejects pending VPS lifecycle work and closes a stale SSH connect
       this.closeCalls += 1;
     },
   };
-  services.connectVerified = async () => {
+  services.connectVerified = async (request) => {
     connectStarted.resolve();
-    return await candidateReady.promise;
+    return verifiedSshFixture(request, await candidateReady.promise);
   };
   const wizard = await startWizardServer({
     sessionToken,
@@ -2346,6 +2375,7 @@ test("shutdown rejects pending VPS lifecycle work and closes a stale SSH connect
         host: exampleHost,
         port: 22,
         username: "root",
+        useAgent: false, privilege: "root",
         password: fixturePassword,
         expectedFingerprint,
       }),
@@ -2516,10 +2546,10 @@ test("disconnect and reconnect invalidate discovery work from the previous VPS s
         { close() {} },
         { close() {} },
       ];
-      services.connectVerified = async () => {
+      services.connectVerified = async (request) => {
         const connection = connections[connectionCalls];
         connectionCalls += 1;
-        return connection;
+        return verifiedSshFixture(request, connection);
       };
       services.discoverN8n = async (connection) => {
         discoverCalls += 1;
@@ -2568,6 +2598,7 @@ test("disconnect and reconnect invalidate discovery work from the previous VPS s
             host: exampleHost,
             port: 22,
             username: "root",
+            useAgent: false, privilege: "root",
             password: fixturePassword,
             expectedFingerprint: fingerprint,
           }),
@@ -2803,14 +2834,14 @@ test("concurrent SSH connects fail fast without replacing or leaking the winning
       this.closeCalls += 1;
     },
   };
-  services.connectVerified = async () => {
+  services.connectVerified = async (request) => {
     connectCalls += 1;
     if (connectCalls === 1) {
       firstConnectStarted.resolve();
       await firstCandidateReady.promise;
-      return firstCandidate;
+      return verifiedSshFixture(request, firstCandidate);
     }
-    return losingCandidate;
+    return verifiedSshFixture(request, losingCandidate);
   };
   const wizard = await startWizardServer({
     sessionToken,
@@ -2834,6 +2865,7 @@ test("concurrent SSH connects fail fast without replacing or leaking the winning
       host: exampleHost,
       port: 22,
       username: "root",
+      useAgent: false, privilege: "root",
       password: fixturePassword,
       expectedFingerprint: fingerprint,
     });
@@ -2926,6 +2958,7 @@ test("the last-started fingerprint scan deterministically owns host identity sta
         host: exampleHost,
         port: 22,
         username: "root",
+        useAgent: false, privilege: "root",
         password: fixturePassword,
         expectedFingerprint: secondFingerprint,
       }),
@@ -2961,6 +2994,7 @@ test("wizard binds SSH authentication to the server fingerprint it scanned", asy
       host: "changed-vps.example.test",
       port: 22,
       username: "root",
+      useAgent: false, privilege: "root",
       password: fixturePassword,
       expectedFingerprint:
         "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

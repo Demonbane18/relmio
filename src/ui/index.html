@@ -78,8 +78,7 @@
           <span class="operation-progress__bar" aria-hidden="true"></span>
         </div>
         <p id="operation-progress-note" class="operation-progress__note">
-          Timing varies with your VPS and network. Keep this page open. Relmio
-          will unlock this setup when the current operation finishes or stops.
+          Timing varies with your remote server and network. Keep this page open until this step finishes.
         </p>
       </div>
     </section>
@@ -88,21 +87,17 @@
       <aside class="rail" aria-label="Setup progress and safety">
         <section class="intro" aria-labelledby="page-title">
           <h1 id="page-title">Set up a private n8n connection</h1>
-          <p class="lede">
-            Choose where you want to use it. You will check your server, review the
-            plan, and approve every write before setup begins.
-          </p>
         </section>
 
         <nav class="steps" aria-label="Setup progress">
           <ol>
             <li data-step-marker="1" aria-current="step">
-              <span>1</span><em>Sign in</em>
+              <span>1</span><em>Choose setup</em>
             </li>
-            <li data-step-marker="2"><span>2</span><em>VPS</em></li>
-            <li data-step-marker="3"><span>3</span><em>n8n</em></li>
+            <li data-step-marker="2"><span>2</span><em>Check server</em></li>
+            <li data-step-marker="3"><span>3</span><em>Choose n8n</em></li>
             <li data-step-marker="4"><span>4</span><em>Review</em></li>
-            <li data-step-marker="5"><span>5</span><em>Done</em></li>
+            <li data-step-marker="5"><span>5</span><em>Ready</em></li>
           </ol>
         </nav>
 
@@ -112,10 +107,9 @@
             class="toast safety-note"
             aria-label="Safety guarantee"
           >
-            <strong>Sidecar-only guarantee</strong>
+            <strong>n8n stays unchanged</strong>
             <span>
-              No n8n restart. No n8n rebuild. No public port. You approve the
-              exact plan before anything is written.
+              No n8n restart, rebuild, or public port. Approve the exact plan before any write.
             </span>
             <button
               class="toast-close"
@@ -134,8 +128,7 @@
           >
             <strong>Back up first</strong>
             <span>
-              Export your n8n workflows before connecting. This wizard uses
-              sidecar-only commands, but it still writes to your VPS.
+              Export your n8n workflows before connecting. This still writes to your server.
             </span>
             <button
               class="toast-close"
@@ -186,36 +179,46 @@
 
       <section class="panel" data-step="1" aria-labelledby="signin-title">
         <div class="panel-heading">
-          <p class="panel-kicker">Choose a route</p>
           <h2 id="signin-title" tabindex="-1">Choose your setup</h2>
-          <p>Choose where you want to connect n8n.</p>
         </div>
+        <aside class="experimental-notice" aria-labelledby="experimental-warning-title">
+          <strong id="experimental-warning-title">Experimental release · 0.18.0-experimental.1</strong>
+          <p>New hosting options and local models haven’t been tested on live setups. Try them on a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
+        </aside>
 
         <div class="provider-route-grid" aria-label="Provider and destination choices">
           <div class="provider-route-choice">
             <button id="openai-vps-route" class="provider-route provider-route--selected" type="button" aria-describedby="openai-vps-route-detail">
               <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
-              <span class="provider-route__eyebrow">ChatGPT · your VPS</span>
+              <span class="provider-route__eyebrow">ChatGPT · your server</span>
               <strong>ChatGPT on my server</strong>
               <span id="openai-vps-route-detail">Connect n8n on your server with your ChatGPT sign-in.</span>
               <span class="route-status">Unofficial · private connection</span>
             </button>
             <details class="provider-route-details">
               <summary aria-label="More details about ChatGPT on my server">More details</summary>
-              <p>Sign in on this computer first, then review the private server plan before any write.</p>
+              <p>Sign in on this computer first. Review the plan before any write.</p>
             </details>
           </div>
           <div class="provider-route-choice">
             <a id="vps-supergrok-start" class="provider-route" aria-describedby="supergrok-vps-route-detail">
               <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/><path d="M16.5 5.5 19 3m-7 2.5V2"/></svg>
-              <span class="provider-route__eyebrow">Grok · your VPS</span>
+              <span class="provider-route__eyebrow">Grok · your server</span>
               <strong>Grok on my server</strong>
               <span id="supergrok-vps-route-detail">Connect n8n on your server with official Grok sign-in.</span>
             </a>
             <details class="provider-route-details">
               <summary aria-label="More details about Grok on my server">More details</summary>
-              <p>Grok signs in on your server directly; a ChatGPT sign-in is not used.</p>
+              <p>Grok signs in on your server. ChatGPT sign-in is not used.</p>
             </details>
+          </div>
+          <div class="provider-route-choice">
+            <a id="vps-local-model-start" class="provider-route" aria-describedby="local-model-vps-route-detail">
+              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
+              <span class="provider-route__eyebrow">Local model · your server</span>
+              <strong>Self-hosted model on my server</strong>
+              <span id="local-model-vps-route-detail">Run a private model on your server. No sign-in.</span>
+            </a>
           </div>
           <div class="provider-route-choice">
             <a id="local-endpoint-link" class="provider-route" aria-describedby="local-route-detail">
@@ -226,32 +229,32 @@
             </a>
             <details class="provider-route-details">
               <summary aria-label="More details about setup on this computer">More details</summary>
-              <p>Choose a local-only endpoint, an existing n8n companion, or a separate protected n8n stack.</p>
+              <p>A connection on this computer, an existing n8n companion, or a separate protected n8n stack.</p>
             </details>
           </div>
+          <div class="provider-route-choice">
+            <a id="hosting-options-link" class="provider-route" aria-describedby="hosting-route-detail">
+              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 20h18M5 20V8l7-5 7 5v12M9 20v-7h6v7M3 9h18"/></svg>
+              <span class="provider-route__eyebrow">Other hosting</span>
+              <strong>Compare hosting routes</strong>
+              <span id="hosting-route-detail">Compare other hosting routes before you choose.</span>
+            </a>
+          </div>
         </div>
-
-        <aside class="route-safety" aria-label="Route safety boundary">
-          <strong>You stay in control.</strong>
-          <span>Check the server identity before its password. Review the plan and approve it before setup writes anything.</span>
-        </aside>
 
         <div class="panel-heading provider-route-heading">
           <p class="panel-kicker">ChatGPT on my server</p>
           <h3>Next: sign in with ChatGPT</h3>
-          <p>
-            Sign in here first. You will review and approve the encrypted upload to
-            your server before it happens.
-          </p>
-          <p class="route-warning">Unofficial · private connection</p>
+          <p>Sign in here. This uses a saved ChatGPT/Codex credential, not a Platform API key, and the file stays on this computer until you approve its encrypted upload to the selected server.</p>
+          <p class="route-warning">Unofficial, private, and policy-uncertain.</p>
         </div>
 
         <details class="technical-details">
           <summary>More details about this connection</summary>
           <div>
-            <p>This is a ChatGPT/Codex sign-in, not a Platform API key. It stays on this computer until you approve its encrypted SSH upload to your VPS.</p>
-            <p>The current ChatGPT sign-in bridge supports Message a Model and GPT Image generation/editing. It does not support audio, Classify Text for Violations (moderation), file management, stored conversations, or video generation. Use a separate OpenAI Platform connection for those n8n actions; do not enter its API key into this bridge.</p>
-            <p>The OpenAI bridge remains unofficial, private, and policy-uncertain.</p>
+            <p>This uses a saved ChatGPT/Codex credential, not just your identity and not a Platform API key. Ordinary ChatGPT sign-in for a supported app shares your name, email, and an optional picture. This route copies the credential file only after you approve that upload.</p>
+            <p>What you can use depends on your account. This bridge supports Message a Model and GPT Image generation or editing. It does not support audio, text-to-speech, moderation, file management, stored conversations, or video. Use a separate OpenAI Platform connection for supported audio, moderation, file management, and stored conversations. Do not enter that API key here. OpenAI shut down the Videos API on September 24, 2026, with no replacement listed. A listed model is not proof that a workflow works.</p>
+            <p>The OpenAI bridge remains unofficial, private, and policy-uncertain. OpenAI still processes later model requests. Log retention for this pinned Codex login is not known. Approval here is for the Relmio upload, not an OpenAI permission.</p>
           </div>
         </details>
 
@@ -285,17 +288,16 @@
             Stop ChatGPT sign-in
           </button>
           <button id="signin-next" class="button primary" type="button" disabled>
-            Continue to VPS
+            Check the server
           </button>
         </div>
       </section>
 
       <section class="panel" data-step="2" aria-labelledby="vps-title" hidden>
         <div class="panel-heading">
-          <h2 id="vps-title" tabindex="-1">Connect to your server</h2>
+          <h2 id="vps-title" tabindex="-1">Check your server</h2>
           <p>
-            Enter the details from your hosting provider. First check the server
-            identity, then enter its password.
+            Check the server identity before you connect to the server.
           </p>
         </div>
 
@@ -338,10 +340,11 @@
                 required
               />
               <small>
-                Technical name: SSH username. This guided setup expects the VPS root account.
+                This route needs a root account (UID 0). Passwordless sudo is only on the local model page.
               </small>
             </label>
 
+            <label class="field"><span>SSH authentication</span><select id="ssh-authentication"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
             <label class="field">
               <span>Server password</span>
               <input
@@ -353,24 +356,28 @@
                 required
               />
               <small>
-                Used only for this SSH connection. It unlocks after you check the
-                server identity and clears immediately after connecting.
+                Unlocks after you check the server identity. It clears after you connect.
               </small>
             </label>
           </div>
 
+          <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
+          <details class="technical-details">
+            <summary>More details about SSH agent sign-in</summary>
+            <div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p></div>
+          </details>
+          <p id="ssh-session" role="status"></p><button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
           <button id="fingerprint-button" class="button secondary" type="button">
             Check this server
           </button>
 
           <div id="fingerprint-box" class="fingerprint" hidden>
-            <span>SSH fingerprint</span>
+            <span>Server identity (SSH fingerprint)</span>
             <code id="fingerprint-value"></code>
             <label class="check-row">
               <input id="fingerprint-confirm" type="checkbox" />
               <span>
-                This is the VPS I intended to connect to. I checked the address
-                carefully.
+                I checked this server identity. This is the server I mean to use.
               </span>
             </label>
           </div>
@@ -380,7 +387,7 @@
               Back
             </button>
             <button id="connect-button" class="button primary" type="submit" disabled>
-              Connect and find n8n
+              Connect
             </button>
           </div>
         </form>
@@ -390,7 +397,7 @@
         <div class="panel-heading">
           <h2 id="n8n-title" tabindex="-1">Choose your n8n</h2>
           <p>
-            Choose the n8n you want to connect. This step only looks; it changes nothing.
+            Choose the n8n to connect. This step only looks.
           </p>
         </div>
 
@@ -426,9 +433,9 @@
           <div>
             <h3 id="detected-vps-integration-management-title">Manage detected self-hosted n8n</h3>
             <p><a id="vps-supergrok-manage" class="button secondary">SuperGrok companion</a></p>
+            <p><a id="vps-local-model-manage" class="button secondary">Local model companion</a></p>
             <p>
-              Choose a Relmio-managed companion to review. This never edits,
-              rebuilds, stops, recreates, or restarts your existing n8n container.
+              Review a Relmio-managed companion. This does not edit, rebuild, stop, recreate, or restart n8n.
             </p>
           </div>
           <div class="field-grid single integration-management-options">
@@ -436,21 +443,21 @@
               <input id="manage-vps-sidecar" name="vps-integration" type="radio" value="sidecar" checked />
               <span>
                 <strong>OpenAI-OAuth/Codex bridge</strong>
-                <small>Refresh the local ChatGPT sign-in, then review the adapter runtime and private sidecar update.</small>
+                <small>Refresh the saved credential, then review the bridge update.</small>
               </span>
             </label>
             <label class="check-row">
               <input id="manage-vps-assistant" name="vps-integration" type="radio" value="assistant" />
               <span>
                 <strong>Assistant companion</strong>
-                <small>Manage Code Sandbox and the optional private SearXNG companion only.</small>
+                <small>Manage the sandbox and optional private search only.</small>
               </span>
             </label>
             <label id="manage-vps-searxng-row" class="check-row" hidden>
               <input id="manage-vps-searxng" type="checkbox" />
               <span>
                 <strong>Include SearXNG JSON web search</strong>
-                <small>Off by default. The companion remains private to the selected Docker network.</small>
+                <small>Off by default. It stays on the private network.</small>
               </span>
             </label>
           </div>
@@ -472,15 +479,16 @@
             Disconnect from VPS
           </button>
           <button id="review-button" class="button primary" type="button">
-            Review setup plan
+            Review
           </button>
         </div>
       </section>
 
       <section class="panel" data-step="4" aria-labelledby="review-title" hidden>
         <div class="panel-heading">
-          <h2 id="review-title" tabindex="-1">Review your setup</h2>
+          <h2 id="review-title" tabindex="-1">Review the plan</h2>
           <p id="review-intro">Nothing is written until you approve this plan.</p>
+          <p id="ssh-review-identity"></p>
         </div>
 
         <dl class="result-list review-details">
@@ -499,7 +507,7 @@
             <h3 id="will-title">The wizard will</h3>
             <ul id="review-will-list" class="check-list">
               <li>Create <code>/docker/n8n-openai-oauth</code></li>
-              <li>Upload the current Relmio adapter runtime and ChatGPT OAuth file</li>
+              <li>Upload the adapter runtime and the saved ChatGPT/Codex credential file</li>
               <li>Build and start only the <code>openai-oauth</code> sidecar</li>
               <li>Attach the sidecar only to the reviewed Docker network</li>
               <li>Use the reviewed private sidecar hostname</li>
@@ -518,8 +526,8 @@
 
         <label class="check-row approval">
           <input id="install-confirm" type="checkbox" />
-          <span id="install-confirm-copy">I approve this sidecar-only installation and understand
-          <code>openai-oauth</code> is an unofficial private connection.</span>
+          <span id="install-confirm-copy">I approve uploading the saved ChatGPT/Codex credential file only to
+          <code>/docker/n8n-openai-oauth</code>. This bridge is unofficial, private, and policy-uncertain.</span>
         </label>
 
         <div class="actions">
@@ -527,7 +535,7 @@
             Back
           </button>
           <button id="install-button" class="button primary" type="button" disabled>
-            Approve and set up
+            Install
           </button>
         </div>
       </section>
@@ -536,15 +544,15 @@
         <div class="success-heading">
           <div class="success-mark" aria-hidden="true">✓</div>
           <div class="panel-heading">
-            <h2 id="done-title" tabindex="-1">Connect n8n in three steps</h2>
-            <p id="done-detail">Use these values in n8n on the same private Docker network.</p>
+            <h2 id="done-title" tabindex="-1">Connect n8n</h2>
+            <p id="done-detail">Copy these values into n8n on the same private network.</p>
           </div>
         </div>
 
         <section id="assistant-result" class="assistant-result" hidden aria-labelledby="assistant-result-title">
           <h3 id="assistant-result-title">Assistant companion status</h3>
           <p id="assistant-result-detail">
-            The private companion was verified. Keep its connection details in your operator-controlled n8n configuration.
+            Copy these values into your own n8n settings. Relmio does not edit n8n.
           </p>
           <dl class="result-list assistant-result-list">
             <div>
@@ -577,7 +585,7 @@
             </div>
           </dl>
           <p class="assistant-result-warning">
-            Apply these values to your own n8n deployment. Relmio never edits its Compose file or restarts its container.
+            Apply these values yourself. Relmio never edits its Compose file or restarts its container.
           </p>
         </section>
 
@@ -589,7 +597,7 @@
         >
           <div>
             <strong>OpenAI OAuth/Codex: Use Responses API ON</strong>
-            <p>Keep it on for the Chat Model v1.3 recipe. If you switch to SuperGrok, turn it <strong>OFF</strong>; SuperGrok requires Chat Completions. When the OpenAI node has no switch, its default Chat Completions route is supported.</p>
+            <p>For this ChatGPT recipe, keep Use Responses API on. For SuperGrok, turn it off. If the switch is missing, the default Chat Completions route still works. A detected model is not proof that every workflow works.</p>
           </div>
           <button
             class="toast-close"
@@ -658,7 +666,7 @@
 
         <details class="recipe-disclosure">
           <summary>
-            <span>2. OpenAI Chat Model for AI Agent or Basic LLM Chain — More details</span>
+            <span>2. OpenAI Chat Model for AI Agent or Basic LLM Chain. More details</span>
           </summary>
           <div class="model-box recipe-content">
             <dl class="result-list">
@@ -685,8 +693,7 @@
             </dl>
             <p>All models detected: <span id="result-models">Not detected</span></p>
             <p>
-              If the Responses API switch is absent, keep the node's default
-              Chat Completions behavior; the bridge supports that route too.
+              If the Responses API switch is absent, keep the node's default Chat Completions behavior. The bridge supports that route too.
             </p>
           </div>
         </details>
@@ -806,11 +813,12 @@
         </details>
 
         <p class="final-note">
-          The README includes complete AI Agent, Basic LLM Chain, JSON, and
-          importable cURL examples. Start with no built-in tools. You can now
-          return to Terminal and press Control+C to close this local wizard;
-          the VPS sidecar will keep running.
+          You can close this wizard with Control+C. The connection on your server keeps running.
         </p>
+        <details class="technical-details">
+          <summary>More details about n8n examples</summary>
+          <div><p>The README has AI Agent, Basic LLM Chain, JSON, and cURL examples. Start with no built-in tools.</p></div>
+        </details>
         </div>
 
         <div class="actions">
@@ -821,8 +829,7 @@
 
     <footer>
       <p>
-        Personal and experimental use only. Keep your OAuth credential private
-        and follow OpenAI’s terms and usage policies.
+        Experimental use. Keep the saved credential private and follow OpenAI’s terms.
       </p>
     </footer>
   </body>

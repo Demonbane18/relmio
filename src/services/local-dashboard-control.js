@@ -2446,7 +2446,7 @@ export async function startLocalDashboardControlPlane(options = {}) {
 export async function readLocalDashboardBrowserUrl(options = {}) {
   const runtime = runtimeOptions(options);
   const route = options.route ?? "/local";
-  if (!["/", "/assistant", "/local", "/supergrok-vps"].includes(route)) {
+  if (!["/", "/assistant", "/local", "/supergrok-vps", "/local-model-vps"].includes(route)) {
     throw new TypeError("Relmio dashboard route is invalid.");
   }
   const current = await inspectRuntime(runtime);

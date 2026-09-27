@@ -138,7 +138,7 @@ Docker objects, network and publication boundaries, Compose state, and
 generated health checks. This does not change an installed service: it does
 not install, start, restart, recreate, remove, or execute inside a container.
 
-Relmio 0.14.0 always has these seven rows, even when nothing is installed.
+Relmio's dashboard always has these eight rows, even when nothing is installed.
 
 | Dashboard service | Verified connection details | Actions after current attestation |
 |---|---|---|
@@ -148,7 +148,14 @@ Relmio 0.14.0 always has these seven rows, even when nothing is installed.
 | **n8n + ngrok** | Local n8n, authenticated ngrok, and loopback inspector URLs | **Set up** when absent; **Resume** or **Review removal** only after exact ownership attestation |
 | **OpenAI OAuth bridge** | Private `http://n8n-openai-oauth:10531/v1` | **Set up**, **Manage bridge**, or **Review removal** only when offered |
 | **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` | **Set up**, official sign-in/sign-out guidance, or **Review removal** only when offered |
-| **AI Assistant tools** | Installed component state; no saved sandbox key | **Set up** or **Review removal** only when offered |
+| **Local model for n8n** | Private `http://n8n-local-model:11434/v1`; model readiness and selected ID | **Set up**, **Review model retry**, or **Review removal** only when offered |
+
+The local-model row distinguishes an installed runtime from a downloaded,
+inference-verified model. **Review model retry** repeats the reviewed selection
+and retains its cache. **Review removal** requires a separate confirmation
+that deletes the model cache as well as the owned runtime and files. No model
+bearer or provider sign-in is involved; the API-key value n8n requires is ignored.
+
 
 Copy buttons accept only verified URLs for the selected service. The OAuth
 bridge works only inside its selected Docker network. Grok Build's healthy
@@ -167,7 +174,7 @@ for that service.
 | **Needs recovery** | Managed evidence is incomplete or runtime state is mixed | Use only an explicitly attested recovery action; otherwise inspect without changing anything |
 | **Unavailable** | Relmio could not prove a safe state | No setup or maintenance action is available for that row |
 | **Stale** | The last verified snapshot is more than five minutes old | Refresh status before using any action |
-| **Not configured** | No Relmio-managed installation exists at the fixed path | Select **Set up** to open the four-step wizard |
+| **Not configured** | No Relmio-managed installation exists at the fixed path | Select **Set up** to open that service's reviewed setup flow |
 
 Refreshing inventory and refreshing a bridge credential are different actions.
 **Refresh status** only reads. **Refresh credential** opens the bridge's

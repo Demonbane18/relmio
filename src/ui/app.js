@@ -1,5 +1,6 @@
 import { formatAuthUpdatedAt } from "./time.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { bindSshAuthentication, createCredentialSshGuard } from "./ssh-form.js";
 
 const token = readWizardSession();
 
@@ -37,11 +38,20 @@ const localEndpointLink = element("local-endpoint-link");
 bindWizardNavigation(localEndpointLink, "/local", token);
 bindWizardNavigation(element("vps-supergrok-start"), "/supergrok-vps", token);
 bindWizardNavigation(element("vps-supergrok-manage"), "/supergrok-vps", token);
+bindWizardNavigation(element("vps-local-model-start"), "/local-model-vps", token);
+bindWizardNavigation(element("vps-local-model-manage"), "/local-model-vps", token);
+bindWizardNavigation(element("hosting-options-link"), "/hosting", token);
 const messageToast = element("global-message");
 const message = element("global-message-text");
 const errorBox = element("global-error");
 const errorMessage = element("global-error-text");
 const toastTimers = new WeakMap();
+const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan });
+const sshSession = createCredentialSshGuard({ token, onMismatch() {
+  invalidateReviewedPlan();
+  clearEndedVpsConnectionState();
+  showStep(2);
+} });
 
 element("openai-vps-route").addEventListener("click", () => {
   if (state.operationBusy) return;
@@ -482,7 +492,7 @@ const OPERATION_BLOCKED_EVENTS = [
   "submit",
 ];
 const OPERATION_DEFAULT_NOTE =
-  "Timing varies with your VPS and network. Keep this page open. Relmio will unlock this setup when the current operation finishes or stops.";
+  "Timing varies with your remote server and network. Keep this page open until this step finishes.";
 
 function readOperationAttribute(control, name) {
   return typeof control.getAttribute === "function"
@@ -860,6 +870,7 @@ async function api(path, { method = "GET", body } = {}) {
       "This wizard link is incomplete. Close this tab. For a persistent install, run relmio open. For an NPX run, use npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff.",
     );
   }
+  await sshSession.before(path);
 
   let response;
   try {
@@ -902,6 +913,7 @@ async function api(path, { method = "GET", body } = {}) {
     }
     throw error;
   }
+  await sshSession.after(path, result);
   return result;
 }
 
@@ -1029,12 +1041,16 @@ function renderIntegrationManagement() {
 
 function renderIntegrationReview(plan) {
   const assistant = isAssistantIntegration();
+  if (!assistant && (
+    plan.operationLockPath !== "/docker/n8n-openai-oauth/.openai-oauth-operation.lock" ||
+    plan.temporaryBuildStatePath !== "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx"
+  )) throw new Error("The reviewed bridge build boundary is invalid. Review a fresh plan.");
   const updatingSidecar =
     !assistant && state.managingDetectedIntegration;
   element("review-intro").textContent = assistant
-    ? "Only the separate Assistant companion can be changed. Your n8n container remains operator-managed."
+    ? "Only the Assistant companion changes. You still manage n8n."
     : updatingSidecar
-      ? "Only the existing wizard-managed bridge files and sidecar will be updated. Your n8n files and container will not be changed."
+      ? "Only the existing bridge files and sidecar will be updated. n8n files and the n8n container will not change."
       : "No existing n8n files or containers will be changed.";
   element("review-network").textContent = plan.networkName;
   element("review-endpoint-label").textContent = assistant
@@ -1061,9 +1077,11 @@ function renderIntegrationReview(plan) {
             ? "Update only /docker/n8n-openai-oauth."
             : "Create or update only /docker/n8n-openai-oauth.",
           updatingSidecar
-            ? "Upload the current Relmio adapter runtime and current ChatGPT sign-in."
-            : "Upload the current Relmio adapter runtime and ChatGPT sign-in.",
+            ? "Upload the adapter runtime and the saved ChatGPT/Codex credential file."
+            : "Upload the adapter runtime and the saved ChatGPT/Codex credential file.",
           `${updatingSidecar ? "Rebuild" : "Build"} and start only the openai-oauth sidecar.`,
+          `After you confirm, use a temporary root-only Buildx folder at ${plan.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect.`,
+          "Build only managed runtime files. The saved credential, other companions, and registry credentials are not copied into the build or printed. Cleanup does not change n8n or model caches.",
           `Attach the sidecar to ${plan.networkName}.`,
         ],
   );
@@ -1084,10 +1102,10 @@ function renderIntegrationReview(plan) {
         ],
   );
   element("install-confirm-copy").textContent = assistant
-    ? "I approve this private Assistant companion installation and understand that n8n configuration and any restart remain my separate action."
+    ? "I approve this private Assistant companion. n8n settings and any restart stay my separate action."
     : updatingSidecar
-      ? "I approve this sidecar-only runtime and sign-in update and understand openai-oauth is an unofficial project."
-      : "I approve this sidecar-only installation and understand openai-oauth is an unofficial project.";
+      ? "I approve this sidecar-only runtime and sign-in update. It uploads the saved ChatGPT/Codex credential file only to /docker/n8n-openai-oauth. This bridge is unofficial and policy-uncertain."
+      : "I approve uploading the saved ChatGPT/Codex credential file only to /docker/n8n-openai-oauth. This bridge is unofficial, private, and policy-uncertain.";
   const installButton = element("install-button");
   installButton.textContent = assistant
     ? "Install Assistant companion"
@@ -1384,7 +1402,10 @@ async function continueWithOpenAiVps() {
     const discovered = await runOperation(
       element("signin-next"),
       "Checking the verified VPS connection…",
-      discover,
+      async () => {
+        await sshSession.adoptCurrent();
+        return discover();
+      },
       {
         progressNote:
           "Relmio is inspecting the existing verified SSH connection with read-only Docker commands. Keep this page open.",
@@ -1398,7 +1419,7 @@ async function continueWithOpenAiVps() {
   } catch (error) {
     showStep(2);
     if (error?.message === "Connect to the VPS first.") {
-      setMessage("Enter the VPS address exactly as Hostinger shows it.");
+      setMessage("Enter the intended VPS address and account from your hosting provider.");
       return;
     }
     showError(error);
@@ -1436,7 +1457,7 @@ element("fingerprint-button").addEventListener("click", async (event) => {
     element("password").value = "";
     element("password").disabled = true;
     element("connect-button").disabled = true;
-    setMessage("Confirm the VPS identity before sending a password.");
+    setMessage("Confirm the VPS identity before authenticating.");
   } catch (error) {
     showError(error);
   }
@@ -1445,10 +1466,10 @@ element("fingerprint-button").addEventListener("click", async (event) => {
 element("fingerprint-confirm").addEventListener("change", (event) => {
   invalidateReviewedPlan();
   const confirmed = event.currentTarget.checked;
-  element("password").disabled = !confirmed;
+  sshAuthentication.sync({ trusted: confirmed });
   element("connect-button").disabled = !confirmed;
   if (confirmed) {
-    element("password").focus();
+    (element("ssh-authentication").value === "agent" ? element("connect-button") : element("password")).focus();
   } else {
     element("password").value = "";
   }
@@ -1456,7 +1477,6 @@ element("fingerprint-confirm").addEventListener("change", (event) => {
 
 element("host").addEventListener("input", resetFingerprint);
 element("port").addEventListener("input", resetFingerprint);
-element("username").addEventListener("input", invalidateReviewedPlan);
 element("password").addEventListener("input", invalidateReviewedPlan);
 
 element("vps-form").addEventListener("submit", async (event) => {
@@ -1472,13 +1492,7 @@ element("vps-form").addEventListener("submit", async (event) => {
       async () => {
         await api("/api/ssh/connect", {
           method: "POST",
-          body: {
-            host: element("host").value,
-            port: element("port").value,
-            username: element("username").value,
-            password: element("password").value,
-            expectedFingerprint: state.fingerprint,
-          },
+          body: sshAuthentication.request(state.fingerprint),
         });
         return discover();
       },
@@ -1695,11 +1709,11 @@ element("install-button").addEventListener("click", async (event) => {
       : "The private bridge is ready";
     element("done-detail").textContent = assistant
       ? assistantResult.includeSearxng
-        ? `Code Sandbox and private SearXNG were verified. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
-        : `Code Sandbox was verified without SearXNG. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
+        ? `Code Sandbox and private SearXNG were checked. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
+        : `Code Sandbox was checked without SearXNG. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
       : result.deploymentMode === "updated"
-        ? "The current adapter runtime and ChatGPT sign-in were updated and verified. Keep using these values in n8n on the same private Docker network."
-        : "Use these values in n8n on the same private Docker network.";
+        ? "The adapter runtime and saved ChatGPT/Codex credential file were updated and checked. Copy these values into n8n on the same private network."
+        : "Copy these values into n8n on the same private network.";
     element("assistant-result").hidden = !assistant;
     element("sidecar-ready-content").hidden = assistant;
     element("assistant-result-detail").textContent = assistant
@@ -1718,6 +1732,13 @@ element("install-button").addEventListener("click", async (event) => {
   } catch (error) {
     invalidateReviewedPlan();
     if (!assistant) renderImageModelsForN8n([]);
+    if (error.sshIdentityUnverified === true) {
+      state.installAttempted = false;
+      showStep(2);
+      setMessage("No installation request was sent from this page. Verify the intended VPS by disconnecting and reconnecting; the shared session was not closed automatically.");
+      showError(error);
+      return;
+    }
     if (error.recoveryAction === "refresh-chatgpt-sign-in") {
       clearEndedVpsConnectionState();
       showStep(1);

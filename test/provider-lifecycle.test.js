@@ -110,14 +110,14 @@ test("every unknown provider failure also forbids retry and automatic switching"
 
 
 
-test("OAuth-only provider records and actions remain immutable and explicit", () => {
-  assert.deepEqual(Object.keys(PROVIDER_PROFILES), ["openai-codex", "xai-grok-build"]);
-  assert.deepEqual(Object.keys(PROVIDER_TARGET_BINDINGS), ["codex-chatgpt", "codex-chat", "xai-grok-build", "n8n-supergrok-oauth"]);
-  for (const profile of Object.values(PROVIDER_PROFILES)) {
-    assert.equal(profile.authentication.method, "provider-owned-oauth");
-    assert.equal(profile.authentication.custody, "provider-agent-runtime");
-    assert.equal(Object.isFrozen(profile), true);
+test("credential-free local model cannot enter provider OAuth lifecycle", () => {
+  const local = getProviderProfile("local-model");
+  assert.deepEqual(local.adapter, { kind: "inference", protocol: "openai-chat-completions" });
+  assert.deepEqual(local.authentication, { method: "none", custody: "none" });
+  for (const action of ["sign-in", "sign-out", "replace-credential", "rotate-client-capability", "select-profile"]) {
+    assert.throws(() => getProviderActionPolicy("local-model", action), /not allowed/);
   }
+  assert.equal(Object.isFrozen(local), true);
   assert.equal(Object.hasOwn(PROVIDER_ACTION_POLICY, "relmio-private-secret"), false);
   for (const action of ["sign-in", "sign-out", "rotate-client-capability"]) {
     assert.equal(getProviderActionPolicy("xai-grok-build", action).automatic, false);

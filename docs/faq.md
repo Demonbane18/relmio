@@ -2,8 +2,10 @@
 
 ## Does a ChatGPT plan include a Platform API key?
 
-No. Relmio 0.14.0 handles provider OAuth only. Ordinary API-key
-connections belong directly in n8n or your app. The ChatGPT n8n OAuth bridge
+No. The managed provider-authentication flows use their documented OAuth
+sessions; they do not create an OpenAI Platform API key. Relmio's newer hosting
+planner is a separate operator-generated artifact flow, and API-key connections
+are configured directly in n8n or your app. The ChatGPT n8n OAuth bridge
 remains unofficial, private, and policy-uncertain.
 
 ## Can I use my SuperGrok subscription?
@@ -15,6 +17,20 @@ xAI API key, or fall back to separately billed API access.
 
 For n8n, SuperGrok requires **Use Responses API** off. The OpenAI OAuth/Codex
 recipe uses the switch on in OpenAI Chat Model node version 1.3.
+
+## Can I run a model privately beside self-hosted n8n?
+
+Yes. Relmio can manage one CPU-based Ollama model on the selected existing
+Docker network, with no published host port and no provider sign-in. The local
+API has no authentication, so trust every container on that network. Docker
+must have enough measured resources, and image/model downloads need outbound
+internet even though Ollama cloud features are disabled. See
+[Private local models](local-models.md) and
+[Hosting compatibility](hosting-compatibility.md).
+
+This workflow Chat Model is separate from n8n AI Assistant's sandbox and does
+not establish reliable tool calling. n8n Cloud cannot host the managed sidecar;
+that does not rule out separately configured external endpoints.
 
 ## How long does a ChatGPT/Codex sign-in token last?
 

@@ -26,6 +26,10 @@ on:
         description: Release tag whose npm publication already succeeded
         required: false
         type: string
+      release_channel:
+        description: Validated npm dist-tag for a release (latest or experimental)
+        required: false
+        type: string
   workflow_dispatch:
 
 permissions:
@@ -42,12 +46,24 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Use Node.js 24.21.0
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24.21.0"
           package-manager-cache: false
+
+      - name: Confirm the release channel before publishing candidates
+        if: inputs.release_tag != ''
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_PRERELEASE: ${{ inputs.release_channel == 'experimental' }}
+          RELEASE_CHANNEL: ${{ inputs.release_channel }}
+        run: |
+          channel="$(node scripts/check-release-metadata.js --npm-dist-tag)"
+          test "$channel" = "$RELEASE_CHANNEL"
 
       - name: Install the repository npm version
         shell: bash
@@ -68,12 +84,15 @@ jobs:
     name: Build Windows package-manager candidates
     runs-on: windows-latest
     timeout-minutes: 30
+    needs:
+      - validate
 
     steps:
       - name: Check out the candidate
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - name: Use Node.js 24.21.0
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -189,8 +208,14 @@ jobs:
             }
           }
           "version=$version" >> $env:GITHUB_OUTPUT
+          if ($version.Split('+')[0].Contains('-')) {
+            "stable=false" >> $env:GITHUB_OUTPUT
+          } else {
+            "stable=true" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Generate staged WinGet candidates
+        if: steps.portable.outputs.stable == 'true'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -253,6 +278,7 @@ jobs:
           retention-days: 7
 
       - name: Validate generated WinGet manifests
+        if: steps.portable.outputs.stable == 'true'
         shell: pwsh
         run: |
           $moduleVersion = "1.12.440"
@@ -267,7 +293,7 @@ jobs:
 
   homebrew-release-candidate:
     name: Generate Homebrew formula from the published npm artifact
-    if: inputs.release_tag != ''
+    if: inputs.release_tag != '' && inputs.release_channel == 'latest'
     needs:
       - validate
     runs-on: ubuntu-latest

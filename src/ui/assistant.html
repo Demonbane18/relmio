@@ -70,8 +70,7 @@
           <span class="operation-progress__bar" aria-hidden="true"></span>
         </div>
         <p id="operation-progress-note" class="operation-progress__note">
-          Timing varies with your remote server and network. Keep this page open. Relmio
-          will unlock this setup when the current operation finishes or stops.
+          Timing varies with your remote server and network. Keep this page open until this step finishes.
         </p>
       </div>
     </section>
@@ -81,15 +80,14 @@
         <section class="intro" aria-labelledby="page-title">
           <h1 id="page-title">Add private AI Assistant tools</h1>
           <p class="lede">
-            Add a private sandbox and optional SearXNG search. Your existing
-            n8n stays unchanged.
+            Add a private sandbox and optional SearXNG search. Existing n8n stays unchanged.
           </p>
         </section>
 
         <nav class="steps" aria-label="AI Assistant setup progress">
           <ol>
-            <li data-step-marker="1" aria-current="step"><span>1</span><em>Connect</em></li>
-            <li data-step-marker="2"><span>2</span><em>Select n8n</em></li>
+            <li data-step-marker="1" aria-current="step"><span>1</span><em>Check</em></li>
+            <li data-step-marker="2"><span>2</span><em>Choose</em></li>
             <li data-step-marker="3"><span>3</span><em>Review</em></li>
             <li data-step-marker="4"><span>4</span><em>Ready</em></li>
           </ol>
@@ -99,19 +97,17 @@
           <aside class="toast safety-note">
             <strong>n8n stays unchanged</strong>
             <span>
-              No n8n Compose edit, rebuild, restart, recreate, exec, host
-              port, or proxy route.
+              No Compose edit, restart, host port, or proxy route.
             </span>
           </aside>
           <aside class="toast safety-note backup-note">
-            <strong>Credential boundary</strong>
+            <strong>ChatGPT sign-in is not an API key</strong>
             <span>
-              ChatGPT/Codex subscription sign-in is not an OpenAI Platform API
-              key. Relmio does not offer it as the compliant model provider.
+              ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. Relmio does not offer it as the model provider.
             </span>
           </aside>
           <div id="global-message" class="toast message" role="status" aria-live="polite">
-            <span id="global-message-text">Review the self-hosted sandbox boundary.</span>
+            <span id="global-message-text">Check the server identity before you connect.</span>
           </div>
           <div id="global-error" class="toast error" role="alert" tabindex="-1" hidden>
             <span id="global-error-text"></span>
@@ -121,25 +117,23 @@
 
       <section class="panel" data-step="1" aria-labelledby="vps-title">
         <div class="panel-heading">
-          <h2 id="vps-title" tabindex="-1">Check the sandbox limits</h2>
-          <p>
-            AI Assistant is Preview. Review every generated workflow before use,
-            especially in production.
-          </p>
+          <h2 id="vps-title" tabindex="-1">Check the server</h2>
+          <p>Check the server identity, then connect. AI Assistant is Preview. Review generated workflows before use.</p>
         </div>
+        <aside class="experimental-notice" aria-labelledby="assistant-experimental-title">
+          <strong id="assistant-experimental-title">Experimental release · 0.18.0-experimental.1</strong>
+          <p>New hosting options and local models haven’t been tested on live setups. Try them on a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
+        </aside>
 
         <aside class="assistant-warning" aria-label="Privileged runner warning">
           <strong>Advanced local testing only</strong>
-          <p>
-            This runner uses privileged Docker-in-Docker. Treat it like host root.
-            n8n recommends Daytona for production sandboxing.
-          </p>
+          <p>This runner uses privileged Docker-in-Docker. Treat it like host root. n8n recommends Daytona for production.</p>
         </aside>
 
         <form id="vps-form">
           <div class="field-grid">
             <label class="field">
-              <span>SSH host</span>
+              <span>Server address</span>
               <input id="host" name="host" inputmode="url" autocomplete="off" required />
               <small>Use the hostname or IP exactly as your provider shows it.</small>
             </label>
@@ -151,6 +145,7 @@
               <span>Username</span>
               <input id="username" name="username" autocomplete="username" value="root" required />
             </label>
+            <label class="field"><span>SSH authentication</span><select id="ssh-authentication"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
             <label class="field">
               <span>SSH password</span>
               <input id="password" name="password" type="password" autocomplete="current-password" disabled required />
@@ -158,28 +153,33 @@
             </label>
           </div>
 
+          <p>This route needs a root account (UID 0). Passwordless sudo is only on the local model page.</p>
+          <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
+          <details class="technical-details">
+            <summary>More details about SSH agent sign-in</summary>
+            <div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p></div>
+          </details>
+          <p id="ssh-session" role="status"></p><button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
           <button id="fingerprint-button" class="button secondary" type="button">Check server identity</button>
           <div id="fingerprint-box" class="fingerprint" hidden>
-            <span>SSH fingerprint</span>
+            <span>Server identity (SSH fingerprint)</span>
             <code id="fingerprint-value"></code>
             <label class="check-row">
               <input id="fingerprint-confirm" type="checkbox" />
-              <span>I checked this fingerprint and this is the intended SSH host.</span>
+              <span>I checked this server identity. This is the server I mean to use.</span>
             </label>
           </div>
 
           <label class="check-row approval">
             <input id="privileged-confirm" type="checkbox" />
             <span>
-              I understand the runner is privileged Docker-in-Docker and this
-              path is for advanced local testing, not the production-recommended
-              Daytona sandbox.
+              I understand this runner is privileged Docker-in-Docker, like host root, and is for testing. Production should use Daytona.
             </span>
           </label>
 
           <div class="actions">
             <button id="connect-button" class="button primary" type="submit" disabled>
-              Connect and inspect Docker
+              Connect
             </button>
           </div>
         </form>
@@ -187,8 +187,8 @@
 
       <section class="panel" data-step="2" aria-labelledby="n8n-title" hidden>
         <div class="panel-heading">
-          <h2 id="n8n-title" tabindex="-1">Choose the detected n8n network</h2>
-          <p>Discovery uses read-only Docker commands. It never executes inside n8n.</p>
+          <h2 id="n8n-title" tabindex="-1">Choose n8n</h2>
+          <p>This step only looks. It does not run commands inside n8n.</p>
         </div>
         <div class="version-strip" aria-label="Detected Docker versions">
           <span>Docker <strong id="docker-version">Not detected</strong></span>
@@ -202,10 +202,10 @@
           <label class="field">
             <span>Existing shared Docker network</span>
             <select id="network-select"></select>
-            <small>Only the sandbox API attaches with its private alias unless you opt in to web search.</small>
+            <small>The sandbox joins this network. n8n stays unchanged.</small>
           </label>
           <p id="instance-ai-status" class="assistant-note" role="status">
-            Checking whether this n8n container enables the AI Assistant module.
+            Check whether this n8n already includes instance-ai.
           </p>
           <aside
             id="instance-ai-guidance"
@@ -213,26 +213,16 @@
             aria-labelledby="instance-ai-guidance-title"
           >
             <strong id="instance-ai-guidance-title">Required n8n prerequisite</strong>
-            <p>
-              The existing n8n service must have
-              <code>N8N_ENABLED_MODULES=instance-ai</code> applied before Relmio
-              can continue. If it is already configured without
-              <code>instance-ai</code>, append <code>instance-ai</code> as a
-              distinct comma-delimited token while preserving existing module
-              entries; do not replace unknown existing values.
-            </p>
+            <p>Set <code>N8N_ENABLED_MODULES=instance-ai</code> before Relmio can continue. If other modules are already set, append <code>instance-ai</code> as a distinct comma-delimited token while preserving existing module entries. Do not replace unknown values.</p>
             <ol class="prerequisite-steps">
-              <li>Use your existing n8n deployment workflow to update the n8n service.</li>
-              <li>Redeploy or restart n8n, then verify that it is healthy.</li>
-              <li>Reconnect to Relmio and run discovery again.</li>
+              <li>Use your existing n8n deployment workflow to update n8n.</li>
+              <li>Redeploy or restart n8n, then check that it is healthy.</li>
+              <li>Reconnect and run discovery again.</li>
             </ol>
             <details class="prerequisite-boundary">
               <summary>Why Relmio cannot apply this change</summary>
               <p>
-                Relmio reports only this allowlisted status and never displays
-                the raw environment value. It will not edit the existing n8n Compose
-                file, image, or environment; restart or recreate n8n;
-                or exec into n8n.
+                Relmio will not edit the existing n8n Compose file, image, or environment, restart or recreate n8n, or exec into n8n. It never shows the raw setting.
               </p>
             </details>
           </aside>
@@ -240,14 +230,14 @@
             <input id="include-searxng" type="checkbox" />
             <span>
               <strong>Optional SearXNG JSON web search</strong>
-              <small>Off by default. Select it only if you want a private Docker-internal web-search service for n8n’s AI Assistant.</small>
+              <small>Off by default. Choose it only for private Assistant search.</small>
             </span>
           </label>
         </div>
         <div class="actions">
           <button class="button ghost back-button" type="button" data-back="1">Back</button>
           <p id="review-readiness" class="action-hint" role="status">
-            Relmio must verify <code>instance-ai</code> before a plan can be reviewed.
+            Check <code>instance-ai</code> before you review a plan.
           </p>
           <button
             id="review-button"
@@ -256,15 +246,16 @@
             aria-describedby="review-readiness"
             disabled
           >
-            Review exact plan
+            Review
           </button>
         </div>
       </section>
 
       <section class="panel" data-step="3" aria-labelledby="review-title" hidden>
         <div class="panel-heading">
-          <h2 id="review-title" tabindex="-1">Review before installing</h2>
-          <p>The remote deployment starts only after this exact confirmation.</p>
+          <h2 id="review-title" tabindex="-1">Review the plan</h2>
+          <p>Nothing is written until you approve this plan.</p>
+          <p id="ssh-review-identity"></p>
         </div>
         <div class="review-grid">
           <section aria-labelledby="will-title">
@@ -292,14 +283,13 @@
         <label class="check-row approval">
           <input id="install-confirm" type="checkbox" />
           <span>
-            I approve this privileged, self-hosted AI Assistant companion and
-            understand that AI Assistant is Preview and workflows require human review.
+            I approve this privileged Assistant companion. AI Assistant is Preview, and workflows need human review. Production should use Daytona.
           </span>
         </label>
         <div class="actions">
           <button class="button ghost back-button" type="button" data-back="2">Back</button>
           <button id="install-button" class="button primary" type="button" disabled>
-            Install the companion
+            Install
           </button>
         </div>
       </section>
@@ -315,7 +305,7 @@
 
         <aside class="assistant-warning">
           <strong>Preview with human review</strong>
-          <p>Review every generated workflow before activation. For production sandboxing, use Daytona as n8n recommends.</p>
+          <p>Review every generated workflow before use. For production, use Daytona.</p>
         </aside>
 
         <h3>1. Sandbox settings</h3>
@@ -328,7 +318,7 @@
         <dl class="result-list">
           <div><dt>SearXNG Instance URL</dt><dd><code id="searxng-url">Web search disabled</code></dd></div>
         </dl>
-        <p id="searxng-note" class="assistant-note">Web search was disabled, so no SearXNG service or settings file was installed. Its retained private secret is never user-facing.</p>
+        <p id="searxng-note" class="assistant-note">Web search is off, so no SearXNG service or settings file was installed. Its secret stays private.</p>
 
         <h3>3. Model provider</h3>
         <dl class="result-list">
@@ -336,38 +326,24 @@
           <div><dt>Model</dt><dd><code>Keep the current supported selection</code></dd></div>
         </dl>
         <p>
-          Enter your user-owned OpenAI Platform API key directly in n8n. Relmio
-          does not read, receive, or store that model key.
+          Enter your OpenAI Platform API key in n8n. Relmio does not read, receive, or store that key.
         </p>
         <p>
-          Keep your current supported n8n model, including
-          <code>openai/gpt-5.6-sol</code>, while n8n accepts it.
-          Change models only if n8n rejects the current selection or you
-          deliberately choose another supported model.
+          Keep your current supported n8n model, including <code>openai/gpt-5.6-sol</code>, while n8n accepts it. Change it only if n8n rejects it or you choose another supported model. A listed model is not proof that every workflow works.
         </p>
 
         <h3>Platform account limits</h3>
         <aside class="assistant-warning">
           <strong>No setup can promise an account will never be flagged.</strong>
           <p>
-            Use a dedicated OpenAI Platform project and key. Keep it server-side
-            in n8n, set rate and spend limits with alerts, monitor use, limit
-            access, rotate or revoke credentials when needed, require human
-            review, and never expose this provider path publicly.
-          </p>
-          <p>
-            Relmio cannot inject per-user safety identifiers or moderation into
-            n8n’s direct provider path.
+            Use a dedicated OpenAI Platform project and key. Keep it in n8n, set spend limits, review use, and do not expose this path publicly. Relmio cannot add per-user safety identifiers or moderation to n8n’s direct provider path.
           </p>
         </aside>
 
         <details class="assistant-disclosure">
           <summary>Optional Ollama-style custom endpoint</summary>
           <p>
-            n8n’s custom OpenAI-compatible screen defaults to an Ollama-style
-            endpoint. Use it only with a separately deployed, n8n-reachable
-            Relmio endpoint backed by your own OpenAI Platform API key. This
-            wizard does not create one.
+            n8n’s custom screen defaults to an Ollama-style endpoint. Use it only with a separate n8n-reachable Relmio endpoint that uses your own OpenAI Platform API key. This wizard does not create one.
           </p>
           <dl class="result-list">
             <div><dt>Base URL</dt><dd><code>your Platform-key-backed Relmio /v1 endpoint</code></dd></div>

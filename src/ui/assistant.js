@@ -1,4 +1,5 @@
 import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { bindSshAuthentication, createCredentialSshGuard } from "./ssh-form.js";
 
 const token = readWizardSession();
 
@@ -27,6 +28,15 @@ const element = (id) => document.getElementById(id);
 const message = element("global-message-text");
 const errorBox = element("global-error");
 const errorMessage = element("global-error-text");
+const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan });
+const sshSession = createCredentialSshGuard({ token, onMismatch() {
+  invalidateReviewedPlan();
+  state.network = null;
+  resetFingerprint();
+  element("container-select").replaceChildren();
+  element("network-select").replaceChildren();
+  showStep(1);
+} });
 
 function setMessage(value) {
   message.textContent = value;
@@ -74,7 +84,7 @@ const OPERATION_BLOCKED_EVENTS = [
   "submit",
 ];
 const OPERATION_DEFAULT_NOTE =
-  "Timing varies with your remote server and network. Keep this page open. Relmio will unlock this setup when the current operation finishes or stops.";
+  "Timing varies with your remote server and network. Keep this page open until this step finishes.";
 
 function readOperationAttribute(control, name) {
   return typeof control.getAttribute === "function"
@@ -477,9 +487,9 @@ function formatInstanceAiStatus(instanceAi) {
     case "enabled":
       return "AI Assistant is enabled: N8N_ENABLED_MODULES includes instance-ai. Refresh discovery after n8n changes.";
     case "configured":
-      return "AI Assistant is not enabled: N8N_ENABLED_MODULES does not include instance-ai. Add it as a separate comma-delimited value, keep existing values, then redeploy or restart n8n outside this wizard.";
+      return "instance-ai is missing from N8N_ENABLED_MODULES. Add it as its own comma-delimited value, keep existing values, then redeploy or restart n8n yourself.";
     case "missing":
-      return "AI Assistant is not enabled: add N8N_ENABLED_MODULES=instance-ai to the existing n8n service, then redeploy or restart n8n outside this wizard.";
+      return "Add N8N_ENABLED_MODULES=instance-ai to existing n8n, then redeploy or restart n8n yourself.";
     default:
       return "AI Assistant prerequisite could not be verified for this n8n container.";
   }
@@ -487,6 +497,7 @@ function formatInstanceAiStatus(instanceAi) {
 
 async function api(path, { method = "GET", body } = {}) {
   if (!token) throw new Error("The setup session is missing. Start the assistant command again.");
+  await sshSession.before(path);
   const response = await fetch(path, {
     method,
     headers: {
@@ -502,6 +513,7 @@ async function api(path, { method = "GET", body } = {}) {
     throw new Error("The wizard returned an unreadable response. Start again.");
   }
   if (!response.ok) throw new Error(result?.error ?? "The request failed.");
+  await sshSession.after(path, result);
   return result;
 }
 
@@ -522,8 +534,8 @@ function renderNetworks(result) {
   const prerequisiteReady = result.instanceAi?.status === "enabled";
   element("review-button").disabled = !prerequisiteReady;
   element("review-readiness").textContent = prerequisiteReady
-    ? "Ready to review the companion and SearXNG choice. Nothing has been written."
-    : "Enable instance-ai, restart or redeploy n8n, then reconnect before reviewing a plan.";
+    ? "Ready to review. Nothing has been written."
+    : "Enable instance-ai, restart n8n yourself, then reconnect before you review.";
   fillSelect(
     element("network-select"),
     result.networks.map((network) => ({ value: network, label: network })),
@@ -573,7 +585,7 @@ element("fingerprint-button").addEventListener("click", async (event) => {
     );
     if (!result) return;
     renderFingerprint(result.fingerprint);
-    setMessage("Confirm the SSH host identity before supplying its password.");
+    setMessage("Confirm the SSH host identity before authenticating.");
   } catch (error) {
     showError(error);
   }
@@ -581,7 +593,7 @@ element("fingerprint-button").addEventListener("click", async (event) => {
 
 element("fingerprint-confirm").addEventListener("change", (event) => {
   invalidateReviewedPlan();
-  element("password").disabled = !event.currentTarget.checked;
+  sshAuthentication.sync({ trusted: event.currentTarget.checked });
   if (!event.currentTarget.checked) element("password").value = "";
   updateConnectState();
 });
@@ -592,7 +604,6 @@ element("privileged-confirm").addEventListener("change", () => {
 });
 element("host").addEventListener("input", resetFingerprint);
 element("port").addEventListener("input", resetFingerprint);
-element("username").addEventListener("input", invalidateReviewedPlan);
 element("password").addEventListener("input", invalidateReviewedPlan);
 
 element("vps-form").addEventListener("submit", async (event) => {
@@ -608,13 +619,7 @@ element("vps-form").addEventListener("submit", async (event) => {
       async () => {
         await api("/api/ssh/connect", {
           method: "POST",
-          body: {
-            host: element("host").value,
-            port: element("port").value,
-            username: element("username").value,
-            password: element("password").value,
-            expectedFingerprint: state.fingerprint,
-          },
+          body: sshAuthentication.request(state.fingerprint),
         });
         return discover();
       },

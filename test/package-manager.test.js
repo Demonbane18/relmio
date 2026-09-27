@@ -84,6 +84,60 @@ test("release package metadata and immutable release URLs are validated", () => 
   );
 });
 
+test("prerelease archive URLs remain available without stable catalog candidates", async (t) => {
+  const version = "0.18.0-experimental.1";
+  assert.deepEqual(
+    validateReleasePackage({ ...packageJson, version }),
+    { version },
+  );
+  assert.equal(
+    registryTarballUrl(version),
+    `https://registry.npmjs.org/relmio/-/relmio-${version}.tgz`,
+  );
+  for (const architecture of ["x64", "arm64"]) {
+    assert.equal(
+      wingetInstallerUrl({ architecture, version }),
+      `https://github.com/Demonbane18/relmio/releases/download/v${version}/relmio-${version}-windows-${architecture}.zip`,
+    );
+  }
+  assert.throws(
+    () => createHomebrewFormula({ sha256: digest, version }),
+    /require a stable version/u,
+  );
+  assert.throws(
+    () =>
+      createWingetManifestFiles({
+        installers: [
+          {
+            architecture: "x64",
+            sha256: digest,
+            url: wingetInstallerUrl({ architecture: "x64", version }),
+          },
+        ],
+        version,
+      }),
+    /require a stable version/u,
+  );
+
+  const directory = await mkdtemp(join(tmpdir(), "relmio-prerelease-catalog-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const outputDirectory = join(directory, "candidates");
+  await assert.rejects(
+    createPackageManagerCandidates({
+      outputDirectory,
+      packageJson: { ...packageJson, version },
+      wingetInstallers: [
+        {
+          architecture: "arm64",
+          path: join(directory, `relmio-${version}-windows-arm64.zip`),
+        },
+      ],
+    }),
+    /require a stable version/u,
+  );
+  await assert.rejects(readFile(outputDirectory), /ENOENT/u);
+});
+
 test("Homebrew candidate follows the standard Node formula layout", () => {
   const formula = createHomebrewFormula({ sha256: digest, version: "1.2.3" });
 
@@ -296,6 +350,40 @@ test("portable package bundles its runtime, launcher, package tree, and npx", as
   assert.equal(entries.has("app/node_modules/relmio/src/cli.js"), true);
   assert.equal(entries.has("app/node_modules/ssh2/index.js"), true);
   assert.equal(entries.has("app/node_modules/.cache/should-not-ship"), false);
+});
+
+test("portable ARM64 package accepts the versioned release archive", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "relmio-arm64-package-"));
+  t.after(() => rm(directory, { force: true, recursive: true }));
+  const runtimeDirectory = join(directory, "node-v24.21.0-win-arm64");
+  const launcherPath = join(directory, "relmio.exe");
+  const productionModules = join(directory, "production-node-modules");
+  const outputPath = join(directory, `relmio-${repositoryVersion}-windows-arm64.zip`);
+  await Promise.all([
+    writeFixture(join(runtimeDirectory, "node.exe"), createPe(0xaa64)),
+    writeFixture(
+      join(runtimeDirectory, "node_modules", "npm", "bin", "npx-cli.js"),
+      "export {};",
+    ),
+    writeFixture(launcherPath, createPe(0xaa64)),
+    writeFixture(join(productionModules, "ssh2", "index.js"), "export class Client {}"),
+  ]);
+  const result = await buildWingetPortablePackage({
+    architecture: "arm64",
+    launcherPath,
+    nodeRuntimeDirectory: runtimeDirectory,
+    outputPath,
+    productionNodeModulesDirectory: productionModules,
+    stagePackage: async (target) => {
+      await writeFixture(join(target, "src", "cli.js"), "console.log('fixture');");
+    },
+  });
+
+  assert.equal(result.version, repositoryVersion);
+  const entries = extractZipEntries(await readFile(outputPath));
+  assert.deepEqual(entries.get("relmio.exe"), createPe(0xaa64));
+  assert.deepEqual(entries.get("runtime/node.exe"), createPe(0xaa64));
+  assert.equal(entries.has("app/node_modules/relmio/src/cli.js"), true);
 });
 
 test("portable packaging rejects a mismatched Windows executable architecture", () => {

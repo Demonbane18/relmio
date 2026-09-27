@@ -9,6 +9,10 @@ const between = (text, start, end) => {
   assert.ok(from >= 0 && to > from, `missing ${start}`);
   return text.slice(from, to);
 };
+const footerHelpers = (script) => [
+  between(script, "function isN8nLocalModel(target)", "\nfunction isN8nAssistant"),
+  between(script, "function renderFooterForTarget(target)", "\nfunction renderTarget"),
+].join("\n");
 const snapshot = () => ({ generatedAt: "2026-09-05T00:00:00.000Z", services: [
   { target: "codex-chatgpt", label: "Codex (ChatGPT login)", kind: "endpoint", managed: true, state: "healthy", snapshot: { target: "codex-chatgpt", endpoint: "ws://127.0.0.1:14500/", auth: { configured: true, disclosure: "rotate-only" }, canRotateCredential: true }, actions: ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"] },
   { target: "codex-chat", label: "Codex Chat adapter", kind: "endpoint", managed: false, state: "absent", snapshot: null, actions: ["setup"] },
@@ -55,7 +59,7 @@ test("dashboard timer rerenders stale inventory and reduced motion selects auto 
 test("approved endpoint facts copy safely and copy failures expose no endpoint", async () => {
   const script = await source(); const facts = between(script, "function appendDashboardFact", "\nfunction dashboardComponentSummary"); const details = between(script, "function dashboardProviderForTarget", "\nfunction renderDashboardServiceRow");
   const nodes = new Map(); const make = () => ({ children: [], dataset: {}, attributes: new Map(), append(...items) { this.children.push(...items); }, addEventListener(event, listener) { this.listener = listener; }, setAttribute(k,v) { this.attributes.set(k,v); }, focus() { this.focused = true; }, replaceChildren(...items) { this.children = items; } }); const element = (id) => nodes.get(id) ?? nodes.set(id, make()).get(id);
-  let fail = false; const render = runInNewContext(`${facts}\n${details}; renderDashboardServiceDetail;`, { document: { createElement: make }, element, copyText: async () => { if (fail) throw new Error("copy denied"); }, flashCopied() {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "", dashboardServiceDescription: () => "", dashboardStateLabel: () => "Healthy", dashboardStatusDot: make, renderDashboardAction: () => null, state: { dashboardSnapshot: snapshot() } });
+  let fail = false; const render = runInNewContext(`${footerHelpers(script)}\n${facts}\n${details}; renderDashboardServiceDetail;`, { document: { createElement: make }, element, copyText: async () => { if (fail) throw new Error("copy denied"); }, flashCopied() {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "", dashboardServiceDescription: () => "", dashboardStateLabel: () => "Healthy", dashboardStatusDot: make, renderDashboardAction: () => null, state: { dashboardSnapshot: snapshot() } });
   render(snapshot().services[0]); const walk = (node) => node.listener ? node : node.children.flatMap((child) => [walk(child)]).find(Boolean); const button = walk(element("dashboard-service-facts")); assert.ok(button); await button.listener(); fail = true; await button.listener(); assert.equal(element("dashboard-error").focused, true); assert.doesNotMatch(element("dashboard-error").textContent, /127\.0\.0\.1/u);
 });
 
@@ -72,7 +76,7 @@ test("stale dashboard rerender restores focus to the matching Codex endpoint cop
   const descend = (root) => [root, ...(root.children ?? []).flatMap(descend)];
   const body = node("body"); body.dataset.localView = "dashboard";
   const document = { activeElement: body, body, createElement: node, querySelectorAll(selector) { assert.equal(selector, "[data-dashboard-service]"); return [...nodes.values()].flatMap(descend).filter((item) => item.dataset?.dashboardService); } };
-  const controls = runInNewContext(`const DASHBOARD_STALE_AFTER_MS = 300000;${staleAndFocus}\n${facts}\n${details}\n${render}; renderDashboardSnapshot;`, {
+  const controls = runInNewContext(`const DASHBOARD_STALE_AFTER_MS = 300000;${footerHelpers(script)}\n${staleAndFocus}\n${facts}\n${details}\n${render}; renderDashboardSnapshot;`, {
     Date: class extends Date { static now() { return now; } }, DASHBOARD_SERVICE_DEFINITIONS: view.services.map(({ target, label }) => ({ target, label })), document, element,
     state: { dashboardBusy: false, dashboardFocusIdentity: null, dashboardSelectedTarget: "codex-chatgpt", dashboardSnapshot: null, dashboardStaleTimer: null },
     window: { clearTimeout() {}, setTimeout(callback, delay) { timer = { callback, delay }; return 1; } },
@@ -88,7 +92,7 @@ test("stale dashboard rerender restores focus to the matching Codex endpoint cop
 test("dashboard copy allowlist includes endpoint and n8n URLs but never credential values", async () => {
   const script = await source(); const facts = between(script, "function appendDashboardFact", "\nfunction dashboardComponentSummary"); const details = between(script, "function dashboardProviderForTarget", "\nfunction renderDashboardServiceRow");
   const nodes = new Map(); const node = (tag = "div") => ({ tagName: tag, attributes: new Map(), children: [], classList: { add() {}, remove() {} }, dataset: {}, hidden: false, append(...items) { this.children.push(...items); this.childElementCount = this.children.length; }, addEventListener(name, callback) { this.listener = callback; }, setAttribute(name, value) { this.attributes.set(name, String(value)); }, replaceChildren(...items) { this.children = items; this.childElementCount = items.length; }, focus() { this.focused = true; } }); const element = (id) => nodes.get(id) ?? nodes.set(id, node()).get(id);
-  const detail = runInNewContext(`${facts}\n${details}; renderDashboardServiceDetail;`, { document: { createElement: node }, element, state: { dashboardSnapshot: snapshot() }, assistantModeLabel: () => "Disabled", copyText: async () => {}, flashCopied() {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n, ngrok", dashboardServiceDescription: () => "Verified", dashboardStateLabel: (value) => value, dashboardStatusDot: () => node("span"), renderDashboardAction: () => null });
+  const detail = runInNewContext(`${footerHelpers(script)}\n${facts}\n${details}; renderDashboardServiceDetail;`, { document: { createElement: node }, element, state: { dashboardSnapshot: snapshot() }, assistantModeLabel: () => "Disabled", copyText: async () => {}, flashCopied() {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n, ngrok", dashboardServiceDescription: () => "Verified", dashboardStateLabel: (value) => value, dashboardStatusDot: () => node("span"), renderDashboardAction: () => null });
   const buttons = () => element("dashboard-service-facts").children.flatMap((row) => row.children.flatMap((child) => child.children?.filter((item) => item.tagName === "button") ?? []));
   detail(snapshot().services[0]); assert.deepEqual(buttons().map((button) => button.attributes.get("aria-label")), ["Copy Codex (ChatGPT login) endpoint"]);
   detail({ target: "local-n8n-stack", label: "n8n + ngrok", kind: "n8n-stack", managed: true, state: "healthy", actions: [], snapshot: { endpoints: { n8nLocal: "http://127.0.0.1:5678/", ngrokPublic: "https://workflow.example.invalid/", ngrokInspector: "http://127.0.0.1:4040/" }, components: { n8n: true, ngrok: true }, assistantMode: "disabled" } });
@@ -98,11 +102,19 @@ test("dashboard copy allowlist includes endpoint and n8n URLs but never credenti
 });
 
 test("returning to dashboard discards pending setup reviews and one-time values", async () => {
-  const script = await source(); const transition = between(script, "function clearOneTimeSetupValues", "\nfunction syncDashboardNavigation"); const nodes = new Map();
+  const script = await source();
+  const transition = between(script, "function clearOneTimeSetupValues", "\nfunction syncDashboardNavigation");
+  const clearPoll = between(script, "function clearLocalModelPoll()", "\nfunction renderLocalModelStatus");
+  const nodes = new Map();
   const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, removeAttribute(name) { if (name === "href") this.href = ""; }, focus() {} }).get(id);
-  const state = { assistantSearxngReview: { reviewId: "pending" }, assistantSearxngReviewId: "pending", dashboardFocusIdentity: { service: "codex-chatgpt" }, installedTarget: "local-n8n-assistant", plan: { target: "local-n8n-assistant" }, planId: "pending" }; const calls = [];
-  const enter = runInNewContext(`${transition}; enterDashboardView;`, { state, element, document: { body: { dataset: {} } }, window: { scrollTo(options) { calls.push(options); } }, async api(path, options) { calls.push([path, options]); return { discarded: true }; }, clearChatTesterState() { calls.push("chat-cleared"); }, clearDashboardStaleTimer() {}, invalidatePlan() { state.plan = null; state.planId = null; }, preferredScrollBehavior: () => "auto", async loadLocalDashboard() { calls.push("inventory"); }, scheduleDashboardStaleExpiry() {} });
+  const state = { assistantSearxngReview: { reviewId: "pending" }, assistantSearxngReviewId: "pending", dashboardFocusIdentity: { service: "codex-chatgpt" }, installedTarget: "local-n8n-assistant", localModelPollTimer: 7, localModelGeneration: 0, plan: { target: "local-n8n-assistant" }, planId: "pending" };
+  const calls = []; const clearedTimers = [];
+  const enter = runInNewContext(`${clearPoll}\n${transition}; enterDashboardView;`, { state, element, document: { body: { dataset: {} } }, window: { clearTimeout(timer) { clearedTimers.push(timer); }, scrollTo(options) { calls.push(options); } }, async api(path, options) { calls.push([path, options]); return { discarded: true }; }, clearChatTesterState() { calls.push("chat-cleared"); }, clearDashboardStaleTimer() {}, invalidatePlan() { state.plan = null; state.planId = null; }, preferredScrollBehavior: () => "auto", async loadLocalDashboard() { calls.push("inventory"); }, scheduleDashboardStaleExpiry() {} });
   await enter(); assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["/api/local/discard", { method: "POST", body: {} }]); assert.equal(state.plan, null); assert.equal(state.planId, null); assert.equal(state.installedTarget, null); assert.equal(state.assistantSearxngReview, null); assert.equal(state.assistantSearxngReviewId, null); assert.equal(state.dashboardFocusIdentity, null); assert.equal(element("result-credential").textContent, ""); assert.equal(element("ngrok-authtoken").value, ""); assert.equal(element("install-result-list").hidden, true); assert.equal(element("n8n-oauth-link").href, ""); assert.equal(calls.at(-1), "inventory");
+  assert.deepEqual(clearedTimers, [7]);
+  assert.equal(state.localModelPollTimer, null);
+  assert.equal(state.localModelGeneration, 1);
+  assert.equal(element("n8n-local-model-management").hidden, true);
 });
 
 test("dashboard direct hashes and browser history retain one current navigation link", async () => {

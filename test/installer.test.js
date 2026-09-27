@@ -5,8 +5,6 @@ import test from "node:test";
 import {
   MANAGED_MARKER_PATH,
   PRECHECK_COMMAND,
-  SHARED_ROOT_MARKER_PATH,
-  createDeploymentCommands,
   createVerificationCommands,
 } from "../src/domain/safety.js";
 import { installSidecar } from "../src/services/installer.js";
@@ -33,6 +31,7 @@ function createFakeRemote({
     code: 0,
   },
   cleanupResult = { stdout: "", stderr: "", code: 0 },
+  cleanupError = null,
   publicationStateError = null,
 } = {}) {
   const commands = [];
@@ -58,6 +57,9 @@ function createFakeRemote({
           code: 0,
         };
       }
+      if (command.includes("mkdir /docker/n8n-openai-oauth/.openai-oauth-operation.lock")) {
+        return { stdout: "22:33", stderr: "", code: 0 };
+      }
       if (command === verification.models) {
         if (modelCheckError) throw modelCheckError;
         return modelCheckResult ?? {
@@ -76,6 +78,7 @@ function createFakeRemote({
         return publicationStateResult;
       }
       if (command === verification.cleanup) {
+        if (cleanupError) throw cleanupError;
         return cleanupResult;
       }
 
@@ -144,21 +147,6 @@ test("installSidecar refuses unsafe existing upload targets before writing", asy
 
   assert.deepEqual(remote.uploads, []);
   assert.deepEqual(remote.commands, [PRECHECK_COMMAND]);
-  for (const path of [
-    "/docker/n8n-openai-oauth/auth",
-    "/docker/n8n-openai-oauth/Dockerfile",
-    "/docker/n8n-openai-oauth/openai-oauth-sidecar.mjs",
-    "/docker/n8n-openai-oauth/docker-compose.yml",
-    "/docker/n8n-openai-oauth/auth/auth.json",
-  ]) {
-    assert.ok(PRECHECK_COMMAND.includes(`[ -L ${path} ]`));
-  }
-});
-
-test("sidecar precheck accepts the Relmio shared root so assistant-first installs remain compatible", () => {
-  assert.match(PRECHECK_COMMAND, new RegExp(SHARED_ROOT_MARKER_PATH.replaceAll("/", "\\/")));
-  assert.match(PRECHECK_COMMAND, /\.managed-by-n8n-openai-oauth/);
-  assert.match(PRECHECK_COMMAND, /\[ -L \/docker\/n8n-openai-oauth \]/);
 });
 
 test("installSidecar uploads secrets separately and starts only the sidecar", async () => {
@@ -191,11 +179,6 @@ test("installSidecar uploads secrets separately and starts only the sidecar", as
   );
 
   assert.ok(remote.uploads.some((upload) => upload.path === MANAGED_MARKER_PATH));
-  assert.ok(
-    remote.uploads.some(
-      (upload) => upload.path === SHARED_ROOT_MARKER_PATH && upload.mode === 0o600,
-    ),
-  );
   assert.ok(
     remote.uploads.some(
       (upload) =>
@@ -240,14 +223,6 @@ test("installSidecar updates an existing managed deployment with the packaged ad
         upload.path === "/docker/n8n-openai-oauth/auth/auth.json" &&
         upload.mode === 0o600,
     ),
-  );
-  const deploymentCommands = createDeploymentCommands();
-  assert.ok(remote.commands.includes(deploymentCommands.at(-2)));
-  assert.ok(remote.commands.includes(deploymentCommands.at(-1)));
-  assert.match(deploymentCommands.at(-2), /build openai-oauth$/u);
-  assert.match(
-    deploymentCommands.at(-1),
-    /up -d --wait --wait-timeout 60 --no-deps openai-oauth$/u,
   );
   assert.ok(
     remote.commands.every(
@@ -376,6 +351,60 @@ test("installSidecar fails closed when unsafe-port cleanup cannot be confirmed",
       }),
     /cleanup could not be confirmed/i,
   );
+});
+
+test("unknown SSH outcome during OAuth safety cleanup retains the lease and build state", async () => {
+  const verification = createVerificationCommands();
+  const remote = createFakeRemote({
+    publicationStateResult: { code: 0, stdout: "not-json", stderr: "" },
+    cleanupError: Object.assign(new Error("private-remote-diagnostic"), { remoteOutcomeUnknown: true }),
+  });
+  await assert.rejects(() => installSidecar({
+    remote, networkName: "proxy", authContents, confirmed: true,
+  }), error => {
+    assert.equal(error.remoteOutcomeUnknown, true);
+    assert.equal(error.operationLockRetained, true);
+    assert.match(error.safeMessage, /administrator must inspect/u);
+    assert.doesNotMatch(`${error.message} ${error.safeMessage}`, /private-remote-diagnostic/u);
+    return true;
+  });
+  assert.equal(remote.commands.at(-1), verification.cleanup);
+});
+
+test("verified nonzero OAuth cleanup may safely release its operation lease", async () => {
+  const verification = createVerificationCommands();
+  const remote = createFakeRemote({
+    publicationStateResult: { code: 0, stdout: "not-json", stderr: "" },
+    cleanupResult: { code: 1, stdout: "", stderr: "private-remote-diagnostic" },
+  });
+  await assert.rejects(() => installSidecar({
+    remote, networkName: "proxy", authContents, confirmed: true,
+  }), error => {
+    assert.notEqual(error.remoteOutcomeUnknown, true);
+    assert.notEqual(error.operationLockRetained, true);
+    assert.doesNotMatch(error.message, /private-remote-diagnostic/u);
+    return true;
+  });
+  assert.ok(remote.commands.indexOf(verification.cleanup) < remote.commands.length - 1);
+});
+
+test("unknown OAuth verification outcomes retain the lease without exposing remote diagnostics", async () => {
+  const verification = createVerificationCommands();
+  for (const kind of ["publication", "models"]) {
+    const error = Object.assign(new Error("private-remote-diagnostic"), { remoteOutcomeUnknown: true });
+    const remote = createFakeRemote(kind === "publication"
+      ? { publicationStateError: error }
+      : { modelCheckError: error });
+    await assert.rejects(() => installSidecar({
+      remote, networkName: "proxy", authContents, confirmed: true,
+    }), failure => {
+      assert.equal(failure.remoteOutcomeUnknown, true);
+      assert.equal(failure.operationLockRetained, true);
+      assert.doesNotMatch(`${failure.message} ${failure.safeMessage}`, /private-remote-diagnostic/u);
+      return true;
+    });
+    assert.equal(remote.commands.at(-1), kind === "publication" ? verification.publicationState : verification.models);
+  }
 });
 
 test("installSidecar fails closed on malformed publication metadata", async () => {

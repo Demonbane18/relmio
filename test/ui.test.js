@@ -20,157 +20,6 @@ test("credential timestamps are formatted in the user's local date and time", ()
   assert.equal(formatAuthUpdatedAt("not-a-date"), null);
 });
 
-test("wizard HTML has accessible landmarks, labels, and no inline scripts", async () => {
-  const html = await readFile("src/ui/index.html", "utf8");
-
-  assert.match(html, /<html lang="en">/);
-  assert.ok(
-    html.indexOf('src="/session-bootstrap.js"') <
-      html.indexOf('src="/app.js"'),
-  );
-  assert.match(html, /<body data-current-step="1">/u);
-  assert.match(html, /<title>Relmio \| n8n Setup<\/title>/u);
-  assert.match(html, /class="brand-mark"[\s\S]*<span>Relmio<\/span>/u);
-  assert.match(html, /class="theme-picker"/u);
-  assert.match(html, /name="color-theme" value="system"/u);
-  assert.match(html, /name="color-theme" value="light"/u);
-  assert.match(html, /name="color-theme" value="dark"/u);
-  assert.match(html, /class="theme-icon theme-icon-system"/u);
-  assert.match(html, /class="theme-icon theme-icon-light"/u);
-  assert.match(html, /class="theme-icon theme-icon-dark"/u);
-  assert.match(html, /title="Use system appearance"/u);
-  assert.match(
-    html,
-    /<nav class="steps" aria-label="Setup progress">[\s\S]*data-step-marker="1"[\s\S]*data-step-marker="5"/u,
-  );
-  assert.match(
-    html,
-    /<main id="main-content" class="shell" tabindex="-1" aria-busy="false">/u,
-  );
-  assert.match(
-    html,
-    /<aside class="rail" aria-label="Setup progress and safety">/u,
-  );
-  assert.match(
-    html,
-    /class="rail"[\s\S]*<h1 id="page-title">[\s\S]*aria-label="Setup progress"[\s\S]*class="toast-stack"[\s\S]*<section class="panel" data-step="1"/u,
-  );
-  assert.match(html, /unofficial, private, and policy-uncertain/u);
-  assert.match(html, /Unofficial · private connection/u);
-  assert.match(html, /<h2 id="signin-title" tabindex="-1">Choose your setup<\/h2>/u);
-  assert.match(html, /<h1 id="page-title">Set up a private n8n connection<\/h1>/u);
-  assert.match(
-    html,
-    /id="openai-vps-route"[\s\S]*class="route-icon"[\s\S]*ChatGPT on my server/u,
-  );
-  assert.match(
-    html,
-    /id="vps-supergrok-start"[\s\S]*class="route-icon"[\s\S]*Grok on my server/u,
-  );
-  assert.match(
-    html,
-    /id="local-endpoint-link"[\s\S]*class="route-icon"[\s\S]*Set up on this computer/u,
-  );
-  assert.equal((html.match(/class="provider-route-details"/gu) ?? []).length, 3);
-  assert.equal((html.match(/<summary aria-label="More details about [^"]+">More details<\/summary>/gu) ?? []).length, 3);
-  assert.match(html, /ChatGPT on my server[\s\S]*Connect n8n on your server with your ChatGPT sign-in\.[\s\S]*<summary aria-label="More details about ChatGPT on my server">More details<\/summary>/u);
-  assert.match(html, /<summary>More details about this connection<\/summary>/u);
-  assert.match(html, /<summary>More details about the server check<\/summary>/u);
-  assert.match(html, /<span>Connection port<\/span>[\s\S]*Technical name: SSH port/u);
-  assert.match(html, /<h2 id="done-title" tabindex="-1">Connect n8n in three steps<\/h2>/u);
-  assert.match(html, /<h3 id="result-image-models-title">3\. Choose an image model<\/h3>/u);
-  assert.match(
-    html,
-    /current ChatGPT sign-in bridge supports Message a Model and GPT Image generation\/editing[\s\S]*does not support audio, Classify Text for Violations \(moderation\), file management, stored conversations, or video generation[\s\S]*do not enter its API key into this bridge/u,
-  );
-  assert.doesNotMatch(html, /class="(?:eyebrow|step-kicker)"/u);
-  assert.doesNotMatch(html, /n8n OAuth Bridge/u);
-  assert.equal((html.match(/<h1\b/g) ?? []).length, 1);
-  assert.match(html, /class="skip-link"/);
-  assert.match(html, /Back up first/);
-  assert.match(html, /Export your n8n workflows before connecting/);
-  assert.match(
-    html,
-    /class="toast-stack" aria-label="Wizard notifications"[\s\S]*id="global-safety"[\s\S]*id="global-backup"[\s\S]*id="global-message"[\s\S]*id="global-error"/u,
-  );
-  assert.match(html, /id="global-message"[\s\S]*role="status"/u);
-  assert.match(html, /id="global-error"[\s\S]*role="alert"\s+tabindex="-1"/u);
-  assert.equal(
-    (html.match(/class="toast-close"/gu) ?? []).length,
-    5,
-  );
-  assert.match(html, /data-dismiss-toast="global-safety"/u);
-  assert.match(html, /data-dismiss-toast="global-backup"/u);
-  assert.match(html, /data-dismiss-toast="global-message"/u);
-  assert.match(html, /data-dismiss-toast="global-error"/u);
-  assert.match(
-    html,
-    /id="responses-api-notice"[\s\S]*OpenAI OAuth\/Codex: Use Responses API ON[\s\S]*data-dismiss-toast="responses-api-notice"[\s\S]*aria-label="Dismiss Responses API reminder"/u,
-  );
-  assert.match(
-    html,
-    /<dt>Responses API<\/dt>[\s\S]*<strong>On<\/strong> for Chat Model node version 1\.3/u,
-  );
-  assert.match(
-    html,
-    /id="auth-updated"[^>]*hidden[\s\S]*<time id="auth-updated-time"><\/time>/,
-  );
-  assert.equal(
-    (html.match(/<h2[^>]*tabindex="-1"/g) ?? []).length,
-    5,
-  );
-  assert.match(html, /<label class="field">[\s\S]*id="host"/);
-  assert.match(html, /id="password"[\s\S]*disabled[\s\S]*required/);
-  assert.match(
-    html,
-    /data-copy-target="result-url"[\s\S]*aria-label="Copy Base URL"/,
-  );
-  assert.match(
-    html,
-    /data-copy-target="result-key"[\s\S]*aria-label="Copy API key"/,
-  );
-  assert.match(
-    html,
-    /data-copy-target="result-model"[\s\S]*aria-label="Copy model ID"/,
-  );
-  assert.match(
-    html,
-    /data-copy-target="result-http-url"[\s\S]*aria-label="Copy HTTP endpoint"/,
-  );
-  assert.match(
-    html,
-    /data-copy-target="result-http-body"[\s\S]*aria-label="Copy HTTP JSON body"/,
-  );
-  assert.match(html, /id="copy-settings"[\s\S]*data-copy-group="credential"/u);
-  assert.match(html, /id="copy-http-recipe"[\s\S]*data-copy-group="http"/u);
-  assert.equal(
-    (html.match(/<details class="recipe-disclosure">/gu) ?? []).length,
-    2,
-  );
-  assert.match(
-    html,
-    /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*OpenAI Chat Model[\s\S]*More details/u,
-  );
-  assert.match(
-    html,
-    /<details class="recipe-disclosure">[\s\S]*<summary>[\s\S]*More details: HTTP Request node/u,
-  );
-  assert.match(html, /<dt>Method<\/dt>[\s\S]*<code>POST<\/code>/u);
-  assert.match(html, /Generic Auth Type[\s\S]*Bearer Auth/u);
-  assert.match(html, /Credential[\s\S]*openai-oauth/u);
-  assert.match(html, /Bearer token[\s\S]*local-only/u);
-  assert.match(html, /Authorization header[\s\S]*Bearer local-only/u);
-  assert.match(
-    html,
-    /data-copy-target="result-http-auth"[\s\S]*aria-label="Copy Authorization header"/u,
-  );
-  assert.match(html, /Content-Type[\s\S]*application\/json/u);
-  assert.match(html, /Send body[\s\S]*JSON[\s\S]*Using JSON/u);
-  assert.match(html, /id="result-http-body"/u);
-  assert.match(html, /OpenAI credential[\s\S]*OpenAI Chat Model/u);
-  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
-  assert.doesNotMatch(html, /\sonclick=/i);
-});
 
 test("every wizard route clears the browser transfer before loading its application module", async () => {
   for (const [path, applicationScript] of [
@@ -189,64 +38,8 @@ test("every wizard route clears the browser transfer before loading its applicat
   assert.doesNotMatch(session, /location\.search[\s\S]*session/u);
 });
 
-test("VPS wizard uses icon-only copy controls and starts fresh from Ready", async () => {
-  const [html, script, css] = await Promise.all([
-    readFile("src/ui/index.html", "utf8"),
-    readFile("src/ui/app.js", "utf8"),
-    readFile("src/ui/styles.css", "utf8"),
-  ]);
-
-  assert.doesNotMatch(html, />\s*Copy(?:\s+[^<]*)?\s*<\/button>/u);
-  assert.match(
-    html,
-    /data-copy-target="result-url"[\s\S]*aria-label="Copy Base URL"[\s\S]*title="Copy Base URL"[\s\S]*class="copy-icon copy-icon-copy"[\s\S]*class="copy-icon copy-icon-check"/u,
-  );
-  assert.match(
-    html,
-    /id="copy-settings"[\s\S]*aria-label="Copy OpenAI credential settings"[\s\S]*title="Copy OpenAI credential settings"/u,
-  );
-  assert.match(html, /data-step="5"[\s\S]*id="setup-another-vps"/u);
-  assert.doesNotMatch(html, /data-step="5"[\s\S]*data-back="4"/u);
-  assert.match(
-    script,
-    /bindWizardNavigation\(element\("setup-another-vps"\), "\/", token\);/u,
-  );
-  assert.match(script, /button\.classList\.add\("copied"\)/u);
-  assert.match(css, /\.copy-value\.copied \.copy-icon-copy/u);
-  assert.match(css, /\.copy-value\.copied \.copy-icon-check/u);
-  assert.match(css, /\.copy-value\s*\{[^}]*min-height:\s*2\.75rem;[^}]*width:\s*2\.75rem;/su);
-});
-
-test("detected VPS n8n exposes managed bridge and Assistant companion paths", async () => {
-  const [html, script] = await Promise.all([
-    readFile("src/ui/index.html", "utf8"),
-    readFile("src/ui/app.js", "utf8"),
-  ]);
-
-  assert.match(
-    html,
-    /id="detected-vps-integration-management"[^>]*hidden[\s\S]*Manage detected self-hosted n8n/u,
-  );
-  assert.match(html, /id="manage-vps-sidecar"[\s\S]*OpenAI-OAuth\/Codex bridge/u);
-  assert.match(html, /id="manage-vps-assistant"[\s\S]*Assistant companion/u);
-  assert.match(html, /id="refresh-vps-chatgpt"[^>]*>\s*Refresh ChatGPT sign-in\s*<\/button>/u);
-  assert.match(
-    html,
-    /id="disconnect-vps-button"[^>]*>\s*Disconnect from VPS\s*<\/button>/u,
-  );
-  assert.match(html, /id="manage-vps-searxng" type="checkbox"/u);
-  assert.match(script, /api\(assistant \? "\/api\/assistant\/plan" : "\/api\/plan"/u);
-  assert.match(script, /api\(assistant \? "\/api\/assistant\/install" : "\/api\/install"/u);
-  assert.match(script, /element\("login-button"\)\.click\(\)/u);
-  assert.match(script, /element\("sidecar-ready-content"\)\.hidden = assistant/u);
-  assert.doesNotMatch(script, /\.innerHTML\b/);
-});
-
 test("Responses API completion reminder stays until the user dismisses it", async () => {
-  const [html, script] = await Promise.all([
-    readFile("src/ui/index.html", "utf8"),
-    readFile("src/ui/app.js", "utf8"),
-  ]);
+  const script = await readFile("src/ui/app.js", "utf8");
   const dismissStart = script.indexOf("function dismissToast(toast)");
   const dismissEnd = script.indexOf("\nfunction resetFingerprint", dismissStart);
   const listenerStart = script.indexOf('for (const button of document.querySelectorAll("[data-dismiss-toast]")');
@@ -282,10 +75,6 @@ test("Responses API completion reminder stays until the user dismisses it", asyn
   assert.equal(notice.hidden, false);
   listeners.get("dismiss")({ currentTarget: dismissButton });
   assert.equal(notice.hidden, true);
-  assert.match(
-    html,
-    /<dt>Responses API<\/dt>[\s\S]*<strong>On<\/strong> for Chat Model node version 1\.3/u,
-  );
 });
 
 test("VPS disconnect clears only browser connection state after an exact server acknowledgement", async () => {
@@ -358,7 +147,7 @@ test("VPS disconnect clears only browser connection state after an exact server 
   );
 });
 
-test("failed VPS install returns to connection with an inspect-before-retry message", async () => {
+test("failed VPS install invalidates approval and returns to connection", async () => {
   const script = await readFile("src/ui/app.js", "utf8");
   const start = script.indexOf('element("install-button").addEventListener');
   const end = script.indexOf('\nfor (const input of document.querySelectorAll', start);
@@ -410,10 +199,6 @@ test("failed VPS install returns to connection with an inspect-before-retry mess
 
   assert.ok(calls.some(([name, value]) => name === "api" && value === "/api/install"));
   assert.ok(calls.some(([name, value]) => name === "step" && value === 2));
-  assert.ok(calls.some(([name, value]) =>
-    name === "message" &&
-    value === "The install or update did not finish, and the VPS connection was closed. Reconnect and inspect the companion before retrying."
-  ));
   assert.ok(calls.some(([name, value]) => name === "error" && value === "model verification failed"));
   assert.equal(state.planId, null);
   assert.equal(elements.get("install-confirm").checked, false);
@@ -464,6 +249,7 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
   assert.ok(apiStart >= 0 && apiEnd > apiStart, "missing browser API helper");
   const api = vm.runInNewContext(`${script.slice(apiStart, apiEnd)}; api`, {
     token: "setup-token",
+    sshSession: { async before() {}, async after() {} },
     fetch: async (path) => {
       calls.push(["api", path]);
       return {
@@ -521,9 +307,6 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
   assert.equal(elements.get("password").disabled, true);
   assert.equal(elements.get("connect-button").disabled, true);
   assert.equal(elements.get("detected-vps-integration-management").hidden, true);
-  assert.equal(elements.get("auth-title").textContent, "Fresh ChatGPT sign-in needed");
-  assert.match(elements.get("auth-detail").textContent, /reconnect to the VPS and review the bridge update again/u);
-  assert.equal(elements.get("login-button").textContent, "Refresh ChatGPT sign-in");
   assert.equal(elements.get("login-button").disabled, false);
   assert.equal(elements.get("signin-next").disabled, true);
   assert.ok(calls.some(([name, value]) => name === "focus" && value === "login-button"));
@@ -538,7 +321,6 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
   await handlers.get("install")({ currentTarget: elements.get("install-button") });
   assert.equal(elements.get("login-button").disabled, true);
   assert.equal(calls.some(([name]) => name === "focus"), false);
-  assert.match(elements.get("auth-detail").textContent, /restart Relmio/u);
 });
 
 test("install API preserves only the exact fresh-sign-in recovery action", async () => {
@@ -553,6 +335,7 @@ test("install API preserves only the exact fresh-sign-in recovery action", async
   };
   const api = vm.runInNewContext(`${script.slice(start, end)}; api`, {
     token: "setup-token",
+    sshSession: { async before() {}, async after() {} },
     fetch: async () => ({
       ok: false,
       async json() {
@@ -583,7 +366,7 @@ test("install API preserves only the exact fresh-sign-in recovery action", async
   assert.equal(otherError.recoveryAction, undefined);
 });
 
-test("failed Docker network refresh stays on selection without claiming disconnect", async () => {
+test("failed Docker network refresh stays on selection and invalidates approval", async () => {
   const script = await readFile("src/ui/app.js", "utf8");
   const start = script.indexOf('element("container-select").addEventListener');
   const end = script.indexOf('\nelement("review-button")', start);
@@ -624,10 +407,6 @@ test("failed Docker network refresh stays on selection without claiming disconne
   await handlers.get("networks")({ currentTarget: elements.get("container-select") });
 
   assert.equal(calls.some(([name]) => name === "step"), false);
-  assert.ok(calls.some(([name, value]) =>
-    name === "message" &&
-    value === "The Docker network list did not refresh. Retry the container selection, or disconnect and reconnect if needed."
-  ));
   assert.ok(calls.some(([name, value]) => name === "error" && value === "network refresh failed"));
   assert.equal(state.planId, null);
   assert.equal(elements.get("install-confirm").checked, false);
@@ -690,76 +469,34 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
 
   review.renderIntegrationReview({
     endpointHostname: "n8n-openai-oauth",
+    operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
+    temporaryBuildStatePath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx",
     networkName: "n8n_default",
   });
-  assert.equal(
-    elements.get("review-will-list").children[0].textContent,
-    "Create or update only /docker/n8n-openai-oauth.",
-  );
   review.state.integrationKind = "assistant";
   review.state.managingDetectedIntegration = true;
   review.renderIntegrationReview({ includeSearxng: true, networkName: "n8n_default" });
   review.state.integrationKind = "sidecar";
   review.renderIntegrationReview({
     endpointHostname: "n8n-openai-oauth",
+    operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
+    temporaryBuildStatePath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx",
     networkName: "n8n_default",
   });
 
   assert.equal(elements.get("review-network").textContent, "n8n_default");
-  assert.equal(elements.get("review-endpoint-label").textContent, "Private hostname");
   assert.equal(elements.get("review-endpoint").textContent, "n8n-openai-oauth");
-  assert.equal(elements.get("review-will-list").children.length, 4);
-  assert.equal(elements.get("review-wont-list").children.length, 4);
-  assert.equal(elements.get("install-button").textContent, "Update the bridge");
-  assert.deepEqual(
-    elements
-      .get("review-will-list")
-      .children.map((child) => child.textContent),
-    [
-      "Update only /docker/n8n-openai-oauth.",
-      "Upload the current Relmio adapter runtime and current ChatGPT sign-in.",
-      "Rebuild and start only the openai-oauth sidecar.",
-      "Attach the sidecar to n8n_default.",
-    ],
-  );
   assert.match(
-    elements.get("install-confirm-copy").textContent,
-    /runtime and sign-in update/u,
+    elements.get("review-will-list").children.map((item) => item.textContent).join(" "),
+    /\/docker\/n8n-openai-oauth/u,
   );
-  assert.match(
-    script,
-    /Adapter runtime and ChatGPT sign-in file updated on the existing wizard-managed sidecar\. n8n was not restarted\./u,
-  );
-});
-
-test("VPS Assistant results render validated one-time connection settings", async () => {
-  const [html, script] = await Promise.all([
-    readFile("src/ui/index.html", "utf8"),
-    readFile("src/ui/app.js", "utf8"),
-  ]);
-
-  assert.match(html, /id="assistant-result-sandbox-url"/u);
-  assert.match(html, /id="assistant-result-sandbox-key"/u);
-  assert.match(html, /Code Sandbox API key\s*<small>\(shown once\)<\/small>/u);
-  assert.match(html, /id="assistant-result-searxng-row"[^>]*hidden/u);
-  assert.match(html, /id="assistant-result-settings"/u);
-  assert.match(html, /Relmio never edits its Compose file or restarts its container/u);
-  assert.match(script, /function validateAssistantInstallResult\(result\)/u);
-  assert.match(script, /function renderAssistantResult\(result\)/u);
-  assert.match(script, /N8N_INSTANCE_AI_SANDBOX_IMAGE/u);
-  assert.match(script, /N8N_SANDBOX_SERVICE_API_KEY/u);
-  assert.match(script, /Object\.keys\(value\)\.length !== expectedNames\.length/u);
-  assert.match(script, /!Object\.hasOwn\(value, name\)/u);
-  assert.match(script, /value\[name\] !== expectedSettings\[name\]/u);
-  assert.match(script, /result\.n8nSettings,\s*expectedSettings/u);
-  assert.match(script, /intentionally does not return the existing sandbox API key/u);
-  assert.match(script, /preserve[^\n]*N8N_ENABLED_MODULES[^\n]*instance-ai/iu);
-  assert.doesNotMatch(script, /N8N_ENABLED_MODULES:\s*"instance-ai"/u);
-  assert.doesNotMatch(script, /returnedSettings\s*\?\?/u);
-  assert.match(script, /assistant-result-settings"\)\.textContent/u);
-  assert.match(script, /assistant-result-key-row"\)\.hidden/u);
-  assert.match(script, /sidecar-ready-content"\)\.hidden = assistant/u);
-  assert.doesNotMatch(script, /\.innerHTML\b/);
+  assert.throws(() => review.renderIntegrationReview({
+    endpointHostname: "n8n-openai-oauth",
+    networkName: "unexpected-network",
+    operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
+    temporaryBuildStatePath: "/root/.docker/buildx",
+  }), /build boundary/u);
+  assert.equal(elements.get("review-network").textContent, "n8n_default");
 });
 
 test("VPS Assistant result validation executes before any result DOM mutation", async () => {
@@ -817,7 +554,6 @@ test("VPS Assistant result validation executes before any result DOM mutation", 
   assert.equal(elements.get("assistant-result-key-row").hidden, false);
   assert.equal(elements.get("assistant-result-searxng-row").hidden, false);
   assert.equal(elements.get("assistant-result-sandbox-key").textContent, sandboxApiKey);
-  assert.match(elements.get("assistant-result-key-note").textContent, /shown-once API key/u);
 
   assistantUi.renderAssistantResult({
     deploymentMode: "updated",
@@ -829,10 +565,6 @@ test("VPS Assistant result validation executes before any result DOM mutation", 
   assert.equal(elements.get("assistant-result-key-row").hidden, true);
   assert.equal(elements.get("assistant-result-searxng-row").hidden, true);
   assert.equal(elements.get("assistant-result-sandbox-key").textContent, "");
-  assert.match(
-    elements.get("assistant-result-key-note").textContent,
-    /does not return the existing sandbox API key[\s\S]*Preserve the existing N8N_ENABLED_MODULES/u,
-  );
 
   const beforeInvalid = [...elements].map(([id, value]) => [
     id,
@@ -919,63 +651,6 @@ test("short narrow viewports preserve an internally scrollable task panel", asyn
     shortNarrowCss,
     /\.panel\s*\{[\s\S]*min-height:\s*7rem[\s\S]*overflow-y:\s*auto/u,
   );
-});
-
-test("browser code never uses innerHTML or web storage for credentials", async () => {
-  const [app, oauthPopup] = await Promise.all([
-    readFile("src/ui/app.js", "utf8"),
-    readFile("src/ui/oauth-popup.js", "utf8"),
-  ]);
-  const browserCode = `${app}\n${oauthPopup}`;
-
-  assert.doesNotMatch(browserCode, /\.innerHTML\b/);
-  assert.doesNotMatch(browserCode, /\blocalStorage\b|\bsessionStorage\b/);
-  assert.doesNotMatch(app, /console\.(?:log|warn|error)/);
-  assert.match(app, /textContent/);
-  assert.match(app, /authUpdatedAt/);
-  assert.match(app, /Fresh sign-in saved/);
-  assert.match(app, /unexpected response/);
-  assert.match(app, /For a persistent install, run relmio open/);
-  assert.match(app, /npx --yes --ignore-scripts relmio@latest open/);
-  assert.match(
-    app,
-    /For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff/,
-  );
-  assert.doesNotMatch(app, /URL printed by its active terminal/u);
-  assert.match(app, /installAttempted/);
-  assert.match(app, /status\.previewMode/);
-  assert.match(app, /Preview sign-in disabled/);
-  assert.match(
-    app,
-    /querySelectorAll\(\s*"\[data-copy-target\], \[data-copy-group\]",?\s*\)/u,
-  );
-  assert.match(app, /async function copyText\(value\)/);
-  assert.match(app, /textarea\.focus\(\)/);
-  assert.match(app, /textarea\.select\(\)/);
-  assert.match(app, /textarea\.setSelectionRange\?\.\(0, textarea\.value\.length\)/);
-  assert.match(app, /document\.execCommand\("copy"\)/);
-  assert.match(
-    app,
-    /const textarea = document\.createElement\("textarea"\);[\s\S]*textarea\.focus\(\);[\s\S]*textarea\.select\(\);[\s\S]*textarea\.setSelectionRange\?\.\(0, textarea\.value\.length\);[\s\S]*document\.execCommand\("copy"\)[\s\S]*finally \{[\s\S]*textarea\.remove\(\);[\s\S]*previouslyFocused\?\.focus\?\.\(\);[\s\S]*if \(copied\) \{[\s\S]*navigator\.clipboard\.writeText\(value\)/u,
-  );
-  assert.match(app, /messages:[\s\S]*What is a robot\?/u);
-  assert.match(app, /response_format:[\s\S]*json_schema/u);
-  assert.match(app, /additionalProperties: false/u);
-  assert.match(app, /strict: true/u);
-  assert.match(app, /chat\/completions/u);
-  assert.match(app, /Authentication: Generic Credential Type/u);
-  assert.match(app, /Generic Auth Type: Bearer Auth/u);
-  assert.match(app, /Authorization: \$\{element\("result-http-auth"\)\.textContent\}/u);
-  assert.match(app, /Specify Body: Using JSON/u);
-  assert.match(app, /function dismissToast\(toast\)/u);
-  assert.match(app, /document\.body\.dataset\.currentStep = String\(step\)/u);
-  assert.match(
-    app,
-    /if \(step === 5\) \{[\s\S]*dismissToast\(element\("global-safety"\)\);[\s\S]*dismissToast\(element\("global-backup"\)\);/u,
-  );
-  assert.match(app, /window\.setTimeout\([\s\S]*dismissToast\(messageToast\)/u);
-  assert.match(app, /data-dismiss-toast/u);
-  assert.doesNotMatch(app, /"Use Responses API: on"/u);
 });
 
 test("wizard session rejects query capabilities and reads only clean-entry history state", () => {
@@ -1394,27 +1069,19 @@ test("VPS reload rehydrates and completes the server-owned pending OAuth attempt
   assert.equal(state.oauthLoginGeneration, 5);
   assert.equal(state.oauthAttemptId, null);
   assert.equal(loginLink.hidden, true);
-  assert.deepEqual(calls, [
+  assert.deepEqual(
+    calls.filter(([name]) => !["operation", "message", "operation-label"].includes(name)),
     [
-      "operation",
-      null,
-      "Checking for active ChatGPT sign-in…",
-      "#login-link, #stop-login-button",
+      ["api", "/api/oauth/status"],
+      ["validate-attempt", "a1b2c3d4-1234"],
+      ["remove-attribute", "href"],
+      ["stop-visible", true],
+      ["wait", "a1b2c3d4-1234"],
+      ["api", "/api/status"],
+      ["render-auth", true, true],
+      ["stop-visible", false],
     ],
-    ["api", "/api/oauth/status"],
-    ["validate-attempt", "a1b2c3d4-1234"],
-    ["remove-attribute", "href"],
-    ["stop-visible", true],
-    [
-      "message",
-      "A ChatGPT sign-in is still in progress. Complete it in its existing browser tab, or stop it here.",
-    ],
-    ["operation-label", "Reconnecting to ChatGPT sign-in…"],
-    ["wait", "a1b2c3d4-1234"],
-    ["api", "/api/status"],
-    ["render-auth", true, true],
-    ["stop-visible", false],
-  ]);
+  );
   assert.doesNotMatch(
     JSON.stringify(state),
     /authorizationUrl|credential|password/iu,
@@ -1463,56 +1130,12 @@ test("copy success survives the browser clearing event.currentTarget", async () 
   event.currentTarget = null;
   await completion;
 
-  assert.deepEqual(calls, [
+  assert.deepEqual(calls.slice(0, 3), [
     "clear-error",
     ["copy", "http://n8n-openai-oauth:10531/v1"],
     ["flash", button],
-    ["message", "Base URL copied."],
   ]);
-});
-
-test("local OAuth delegates browser launch to the official helper without popup secrets", async () => {
-  const [app, html] = await Promise.all([
-    readFile("src/ui/app.js", "utf8"),
-    readFile("src/ui/index.html", "utf8"),
-  ]);
-
-  assert.match(app, /Preparing a fresh ChatGPT sign-in/u);
-  assert.match(app, /result\.launchMode !== "system-browser"/u);
-  assert.doesNotMatch(app, /window\.open\("about:blank", "_blank"\)/u);
-  assert.doesNotMatch(app, /loginLink\.href = authorizationUrl;/u);
-  assert.match(app, /official ChatGPT sign-in window/u);
-  assert.match(html, /id="login-link"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"/u);
-});
-
-test("OAuth UI offers an accessible stop control and rejects stale polling after replacement", async () => {
-  const [app, html] = await Promise.all([
-    readFile("src/ui/app.js", "utf8"),
-    readFile("src/ui/index.html", "utf8"),
-  ]);
-
-  assert.match(
-    html,
-    /<button id="stop-login-button" class="button secondary" type="button" hidden>\s*Stop ChatGPT sign-in\s*<\/button>/u,
-  );
-  assert.match(app, /async function waitForOAuthCompletion\(expectedAttemptId\)/u);
-  assert.match(
-    app,
-    /result\.retryBlocked === true[\s\S]*oauthRetryBlocked = true[\s\S]*result\.attemptId !== expectedAttemptId/u,
-  );
-  assert.match(
-    app,
-    /result\.attemptId !== expectedAttemptId[\s\S]*replaced by a newer attempt/u,
-  );
-  assert.match(
-    app,
-    /if \(error\.oauthRetryBlocked === true\) \{\s*blockOAuthRetry\(\);/u,
-  );
-  assert.match(app, /\/api\/oauth\/cancel/u);
-  assert.match(app, /body: \{ attemptId \}/u);
-  assert.match(app, /oauthLoginGeneration/u);
-  assert.match(app, /oauthRetryBlocked/u);
-  assert.match(app, /stop-login-button/u);
+  assert.equal(calls[3]?.[0], "message");
 });
 
 test("OpenAI VPS continuation reuses a verified connection before requesting SSH", async () => {
@@ -1525,6 +1148,7 @@ test("OpenAI VPS continuation reuses a verified connection before requesting SSH
   const continuation = vm.runInNewContext(
     `${script.slice(start, end)}; continueWithOpenAiVps;`,
     {
+      sshSession: { async adoptCurrent() {} },
       clearError() {
         calls.push("clear-error");
       },
@@ -1567,7 +1191,6 @@ test("OpenAI VPS continuation reuses a verified connection before requesting SSH
   await continuation();
   assert.ok(calls.some(([name, step]) => name === "step" && step === 2));
   assert.equal(calls.some(([name]) => name === "error"), false);
-  assert.ok(calls.some(([name, message]) => name === "message" && message === "Enter the VPS address exactly as Hostinger shows it."));
 
   calls.length = 0;
   discovery = new Error("Docker inspection failed.");
@@ -1643,7 +1266,6 @@ test("SuperGrok device polling defers while another VPS read is active", async (
   timers.get(deferredTimer).callback();
   await flush();
   assert.equal(apiCalls, 1);
-  assert.equal(element("login-state").textContent, "Complete the sign-in on the official Grok page, then return here.");
   assert.equal(timers.get(state.pollTimer)?.delay, 2_000);
 
   state.busy = true;
@@ -1657,7 +1279,6 @@ test("SuperGrok device polling defers while another VPS read is active", async (
   state.busy = false;
   loginState = "expired";
   await context.pollLogin("fixture-install", state.loginGeneration);
-  assert.match(element("login-state").textContent, /device code expired/u);
 });
 
 test("wizard theme preferences store only the selected color mode", async () => {

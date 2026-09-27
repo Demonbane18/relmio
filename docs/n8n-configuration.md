@@ -12,6 +12,12 @@ credential or Base URL.
 | --- | --- | --- | --- |
 | OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in OpenAI Chat Model node version 1.3 |
 | SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
+| Local Ollama model for n8n | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for the documented Chat Completions recipe |
+
+The local-model row is a separate self-hosted workflow model, not an OAuth
+provider. Its API-key field is not authentication. See [Private local
+models](local-models.md) for its network trust boundary, model readiness, and
+resource limits.
 
 The numbered recipe below configures the OpenAI OAuth bridge. SuperGrok uses its
 own official device sign-in and never requires or reads ChatGPT credentials.

@@ -79,10 +79,14 @@ Never show the auth file, browser session URL, cookies, or account details.
 
 ### 3:40 Connect to the VPS safely
 
-- Enter the complete address and SSH port.
-- Check the SHA-256 fingerprint before the password field unlocks.
-- Explain that the password is used only for the live SSH connection and is
-  not saved.
+- Enter the complete address, SSH port and actual username.
+- Select **Local SSH agent** or an already-approved password login.
+- Independently verify the SHA-256 host fingerprint before authentication.
+- Explain that keys/passphrases stay local and the agent is not forwarded;
+  passwords are used for the connection, not saved by Relmio.
+- Explain that this credential-bearing route needs approved direct-root
+  access. **Passwordless sudo -n (model only)** is for the separate model flow,
+  not a reason to enable root/password SSH.
 
 Blur or replace the real address, fingerprint, username, and provider account
 details in the recording.

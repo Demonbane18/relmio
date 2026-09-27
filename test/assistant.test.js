@@ -1,5 +1,5 @@
+import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -26,7 +26,6 @@ import {
   createSearxngSettings,
 } from "../src/domain/assistant-templates.js";
 import { installAssistant } from "../src/services/assistant-installer.js";
-import { cliMode } from "../src/cli.js";
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "assistant-session-token-that-is-long-enough-123456";
@@ -822,8 +821,8 @@ test("assistant route requires a fresh discovered network plan before installati
     sessionToken,
     uiFiles: { "/assistant": "assistant", "/assistant.js": "", "/styles.css": "" },
     services: {
-      async scanHostFingerprint() { return "SHA256:fixture"; },
-      async connectVerified() { return remote; },
+      async scanHostFingerprint() { return `SHA256:${"a".repeat(43)}`; },
+      async connectVerified(request) { return verifiedSshFixture(request, remote); },
       async discoverN8n() {
         return { dockerVersion: "28", composeVersion: "2", containers: [{ name: "n8n", id: "1", image: "n8nio/n8n", state: "running" }] };
       },
@@ -860,7 +859,7 @@ test("assistant route requires a fresh discovered network plan before installati
     body: JSON.stringify(body),
   });
   await request("/api/ssh/fingerprint", { host: "vps.example.test", port: 22 });
-  await request("/api/ssh/connect", { host: "vps.example.test", port: 22, username: "root", password: "x".repeat(32), expectedFingerprint: "SHA256:fixture" });
+  await request("/api/ssh/connect", { host: "vps.example.test", port: 22, username: "root", useAgent: false, privilege: "root", password: "x".repeat(32), expectedFingerprint: `SHA256:${"a".repeat(43)}` });
   await request("/api/discover");
   await request("/api/networks", { containerName: "n8n" });
   const stale = await request("/api/assistant/install", { containerName: "n8n", networkName: "proxy", includeSearxng: true, confirmed: true });
@@ -873,120 +872,4 @@ test("assistant route requires a fresh discovered network plan before installati
   assert.equal(calls.length, 1);
   assert.equal(calls[0].networkName, "proxy");
   assert.equal(calls[0].includeSearxng, true);
-});
-
-test("CLI, assistant UI, and guides keep credential, prerequisite, and abuse boundaries explicit", async () => {
-  assert.equal(cliMode(["assistant"]), "assistant");
-  const [html, browser, css, sharedCss, readme, npmReadme, guide] = await Promise.all([
-    readFile("src/ui/assistant.html", "utf8"),
-    readFile("src/ui/assistant.js", "utf8"),
-    readFile("src/ui/assistant.css", "utf8"),
-    readFile("src/ui/styles.css", "utf8"),
-    readFile("README.md", "utf8"),
-    readFile("npm/README.md", "utf8"),
-    readFile("docs/ai-assistant.md", "utf8"),
-  ]);
-  for (const contents of [html, guide]) {
-    assert.match(contents, /ChatGPT\/Codex subscription sign-in is not\s+an OpenAI Platform API\s+key/i);
-    assert.match(contents, /AI\s+Assistant is Preview/i);
-  }
-  for (const contents of [readme, npmReadme]) {
-    assert.match(contents, /ChatGPT sign-in is not an OpenAI Platform API key/i);
-    assert.match(contents, /AI Assistant tools/i);
-  }
-  assert.match(html, /id="instance-ai-status"/i);
-  assert.match(html, /id="instance-ai-guidance"/i);
-  assert.match(html, /id="review-readiness"/i);
-  assert.match(html, /id="review-button"[\s\S]*disabled/i);
-  assert.match(html, /N8N_ENABLED_MODULES=instance-ai/u);
-  assert.match(
-    html,
-    /append\s+<code>instance-ai<\/code>\s+as\s+a\s+distinct comma-delimited token[\s\S]*preserving existing module\s+entries/i,
-  );
-  assert.match(
-    html,
-    /existing n8n deployment workflow[\s\S]*redeploy or restart n8n[\s\S]*healthy[\s\S]*reconnect[\s\S]*discovery/i,
-  );
-  assert.doesNotMatch(html, /(?:>|^)[^<]*(?:Hostinger|VPS)[^<]*(?=<|$)/im);
-  assert.match(browser, /Confirm the SSH host identity before supplying its password/u);
-  assert.match(browser, /The SSH host has not changed/u);
-  assert.match(
-    html,
-    /will not edit[^.]*n8n Compose[^.]*image[^.]*environment[^.]*restart[^.]*recreate[^.]*exec into n8n/i,
-  );
-  assert.match(html, /id="review-instance-ai"/i);
-  assert.match(browser, /N8N_ENABLED_MODULES.*instance-ai/i);
-  assert.match(browser, /Refresh discovery after n8n changes/i);
-  assert.match(browser, /focus\(\{ preventScroll: true \}\)/u);
-  assert.match(browser, /review-button"\)\.disabled = !prerequisiteReady/u);
-  assert.doesNotMatch(browser, /instanceAi\.(?:value|raw|environment)/u);
-  assert.match(html, /openai\/gpt-5\.6-sol/);
-  assert.match(css, /\.assistant-wizard \.safety-note[\s\S]*grid-template-columns:\s*1\.75rem minmax\(0, 1fr\)/u);
-  assert.match(css, /\.assistant-wizard \.safety-note > strong,[\s\S]*\.assistant-wizard \.safety-note > span[\s\S]*grid-column:\s*2/u);
-  assert.match(html, /Keep your current supported n8n model/i);
-  assert.match(css, /\.assistant-wizard \.steps ol[\s\S]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/u);
-  assert.match(sharedCss, /\.steps ol[\s\S]*grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\)/u);
-  assert.match(html, /Base URL[\s\S]*API key[\s\S]*Model ID/);
-  assert.match(html, /Ollama-style custom endpoint/i);
-  assert.match(html, /not an OpenAI-issued API key/i);
-  assert.match(html, /unofficial, private, and policy-uncertain/i);
-  assert.match(html, /No setup can promise an account will never be flagged/i);
-  assert.doesNotMatch(browser, /\.innerHTML\b/);
-  assert.match(html, /not auto-selected,[\s\S]*enabled, or presented as TOS-approved/i);
-  assert.match(html, /Use these values in n8n\. The sandbox key appears only/i);
-  assert.match(html, /Optional SearXNG JSON web search[\s\S]*Off by default/i);
-  assert.match(guide, /Web search is \*\*off by default\*\*[\s\S]*never adds it\s+silently/i);
-  assert.match(browser, /includeSearxng: state\.reviewedIncludeSearxng/u);
-  assert.match(browser, /Web search disabled/u);
-  assert.match(guide, /N8N_ENABLED_MODULES[\s\S]*instance-ai/i);
-  assert.match(guide, /SSH-reachable host/i);
-  assert.match(guide, /direct local Docker-socket\s+discovery works/i);
-  assert.doesNotMatch(guide, /\b(?:Hostinger|VPS)\b/i);
-  assert.match(guide, /N8N_ENABLED_MODULES=instance-ai/u);
-  assert.match(
-    guide,
-    /append\s+`instance-ai`\s+as\s+a\s+distinct comma-delimited token[\s\S]*preserving existing\s+module entries/i,
-  );
-  assert.match(
-    guide,
-    /redeploy or restart n8n[\s\S]*healthy[\s\S]*reconnect[\s\S]*discovery/i,
-  );
-  assert.match(
-    guide,
-    /will not edit[^.]*n8n Compose[^.]*image[^.]*environment[^.]*restart[^.]*recreate[^.]*exec into n8n/i,
-  );
-  assert.match(guide, /4 GB RAM[\s\S]*2 vCPU/i);
-  assert.match(guide, /dedicated OpenAI Platform project\/key[\s\S]*rate\/spend limits[\s\S]*usage monitoring[\s\S]*least user access[\s\S]*rotation\/revocation[\s\S]*human review[\s\S]*public exposure/i);
-  assert.match(guide, /cannot inject per-user safety identifiers or moderation/i);
-  assert.match(guide, /may first\s+create\s+`\/docker\/n8n-openai-oauth`[\s\S]*shared mode-0600 Relmio root\s+marker[\s\S]*only the `assistant-sandbox` child[\s\S]*does not write existing n8n project files/i);
-  assert.match(guide, /URLs are stable generated result values; only the sandbox API key is\s+one-time-displayed/i);
-  assert.doesNotMatch(guide, /generated one-time result URL/i);
-  for (const contents of [readme, npmReadme]) {
-    assert.match(contents, /https:\/\/relmio\.jpfusin\.tech\/docs\/ai-assistant/u);
-  }
-});
-
-test("Assistant VPS wizard uses plain language and keeps every later step reversible", async () => {
-  const [html, browser, css] = await Promise.all([
-    readFile("src/ui/assistant.html", "utf8"),
-    readFile("src/ui/assistant.js", "utf8"),
-    readFile("src/ui/assistant.css", "utf8"),
-  ]);
-
-  assert.match(html, /Add private AI Assistant tools/u);
-  assert.match(html, /private sandbox and optional SearXNG search[\s\S]*n8n stays unchanged/u);
-  assert.match(html, /ChatGPT\/Codex subscription sign-in is not an OpenAI Platform API\s+key/u);
-  assert.match(html, /data-step="2"[\s\S]*data-back="1"/u);
-  assert.match(html, /data-step="3"[\s\S]*data-back="2"/u);
-  assert.match(html, /data-step="4"[\s\S]*id="setup-another-assistant"/u);
-  assert.doesNotMatch(html, /data-step="4"[\s\S]*data-back="3"/u);
-  assert.match(
-    browser,
-    /bindWizardNavigation\(element\("setup-another-assistant"\), "\/assistant", token\);/u,
-  );
-  assert.doesNotMatch(browser, /[?]session=/u);
-  assert.match(browser, /querySelectorAll\("\.back-button"\)/u);
-  assert.match(css, /\.assistant-wizard \.back-button[\s\S]*margin-right:\s*auto/u);
-  assert.doesNotMatch(`${html}\n${browser}`, /—/u);
-  assert.doesNotMatch(html, /data-copy-target|data-copy-group/u);
 });

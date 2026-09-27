@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { lockDownLocalPath } from "../infrastructure/local-process.js";
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
-const ROUTES = new Set(["/", "/assistant", "/local", "/supergrok-vps"]);
+const ROUTES = new Set(["/", "/assistant", "/local", "/supergrok-vps", "/local-model-vps", "/hosting"]);
 const MAX_HANDOFF_BYTES = 8 * 1024;
 
 function fail(message = "could not create a private browser handoff") {
@@ -371,4 +371,4 @@ export async function createPrivateBrowserHandoff({
   }
 }
 
-export const BROWSER_HANDOFF_ROUTES = Object.freeze(["/", "/assistant", "/local", "/supergrok-vps"]);
+export const BROWSER_HANDOFF_ROUTES = Object.freeze(["/", "/assistant", "/local", "/supergrok-vps", "/local-model-vps"]);

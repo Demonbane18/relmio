@@ -1,34 +1,75 @@
 # VPS and n8n
 
-Relmio can add either OAuth companion beside an existing n8n VPS. Each companion
-has its own provider sign-in, Docker volume, endpoint, and n8n credential.
-SuperGrok does not require or read ChatGPT credentials.
+Relmio can add OAuth or local-model companions beside an existing n8n VPS. Each
+companion uses the selected existing Docker network and has a separate endpoint
+and lifecycle. SuperGrok does not require or read ChatGPT credentials.
 
 | Connection | Private Base URL | n8n API-key field | Use Responses API |
 | --- | --- | --- | --- |
 | OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in the Relmio OpenAI Chat Model v1.3 recipe |
 | SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
+| Local Ollama model | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for the documented Chat Completions recipe |
 
 The OpenAI bridge is unofficial, private, and policy-uncertain. ChatGPT sign-in
 is not an OpenAI Platform API key. The SuperGrok adapter is experimental and
 uses a fresh official Grok device sign-in.
 
-Relmio writes only below `/docker/n8n-openai-oauth`. It does not edit, rebuild,
-recreate, stop, or restart your n8n Compose project or image. Neither companion
-publishes a host port.
+Relmio's managed files stay below `/docker/n8n-openai-oauth`; the safe,
+root-owned `/docker` parent must already exist. Docker manages the companion's
+approved images, containers and volumes in its own data root. Relmio does not
+edit, rebuild, recreate, execute inside, stop, or restart your n8n Compose
+project or image. No companion publishes a host port.
+
+Confirmed build-capable actions also use temporary mode-`0700` Buildx client
+state inside the reviewed operation lock: `.local-model-operation.lock/buildx`
+for model install/retry, `.supergrok-operation.lock/buildx` for SuperGrok
+install/sign-in/sign-out, and `.openai-oauth-operation.lock/buildx` for the
+OpenAI bridge. All are beneath the managed root. Verified cleanup removes
+owned temporary state only; ambiguous or interrupted cleanup retains the
+lock for administrator inspection, not automatic deletion. Registry
+credentials are not copied, moved or printed for this state.
+
+The OpenAI bridge's `Dockerfile.dockerignore` permits only its Dockerfile and
+runtime source in the build context, excluding `auth`, sibling companions and
+temporary state. Relmio accepts an absent file or its exact safe owned version;
+it does not overwrite an unknown operator-supplied ignore file.
+
+The local-model companion is not a provider sign-in or an OpenAI API-key
+connection. Ollama's API has no authentication by default, so any container on
+the selected Docker network can reach its model-management API. Choose a
+trusted network. It runs one CPU-based model and needs outbound internet to
+download the runtime and model weights even though Ollama cloud features are
+disabled. See [Private local models](local-models.md) and
+[Hosting compatibility](hosting-compatibility.md).
 
 ## Use the wizard
 
-1. Start Relmio and choose the provider. Complete ChatGPT/Codex sign-in for the
-   OpenAI bridge, or choose SuperGrok and complete its device sign-in after the
-   companion is installed.
-2. Compare the shown SSH host fingerprint with your provider before you enter
-   a password.
-3. Select a running n8n container and one existing Docker network.
-4. Review the plan and confirm it before Relmio writes anything remotely.
-5. In n8n, use the matching private Base URL and Responses API setting from the
-   table above, never `127.0.0.1`.
-6. Select **Disconnect from VPS** when you finish the remote setup.
+1. Start Relmio and choose the integration. Complete ChatGPT/Codex sign-in for
+   the OpenAI bridge, or choose SuperGrok and complete its device sign-in after
+   the companion is installed. **Local model · your VPS** needs no provider sign-in.
+2. Enter the actual SSH username and choose **Local SSH agent** or
+   approved password authentication. Independently compare and confirm the SSH
+   host fingerprint before authenticating. Never upload a private key or enable
+   root/password SSH just for this wizard.
+3. Check the verified administrative identity. OAuth bridge, SuperGrok and
+   Assistant VPS operations require an already-approved direct-root connection;
+   agent authentication is available without changing that privilege boundary.
+   **Passwordless sudo -n (model only)** is limited to local-model management
+   and common read-only discovery, not those credential-bearing routes.
+4. Select a running official n8n container and one eligible existing Docker
+   network. Rootful Docker Engine, Compose v2 and Buildx must use the same local
+   daemon in the selected administrative context; Podman, rootless/remote
+   daemons, external build targets and managed PaaS service shells are not
+   substitutes.
+5. Review the exact account, privilege, resources and managed paths and confirm
+   before Relmio writes anything remotely. Host-key trust is a separate step.
+6. In n8n, use the matching private Base URL and Responses API setting from the
+   table above, never `127.0.0.1`. Select **Disconnect from VPS** when finished.
+
+See [Hosting compatibility](hosting-compatibility.md) for image-qualified
+accounts on Hetzner, Contabo, AWS, DigitalOcean and OCI, local-agent setup,
+the existing `/docker` prerequisite, and Render's separate manual private
+service. A provider choice does not provision or repair the host.
 
 Relmio also closes the authenticated SSH session after 15 minutes of
 inactivity. An active VPS operation holds a bounded lease so discovery or an

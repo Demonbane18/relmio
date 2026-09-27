@@ -25,7 +25,7 @@ The commands in this fallback use a POSIX shell. You need:
 - a local macOS or Linux computer with Node.js 24 or newer, or Windows with
   WSL/Git Bash and Node.js 24 or newer;
 - your VPS IP address;
-- the VPS root password;
+- existing approved direct-root SSH access using your local key/agent or password;
 - the name of the running n8n container;
 - an existing Docker network shared by n8n and the reverse proxy, commonly
 named `proxy`.
@@ -39,6 +39,12 @@ recoverable backup before proceeding.
 Replace every example such as `YOUR_VPS_IP` and `n8n-n8n-1` with the value
 shown on your own VPS. Never type the asterisks used to hide an IP in a
 screenshot.
+
+Keep the host's SSH policy unchanged. These manual root/SFTP commands are not
+the wizard's **Passwordless sudo -n (model only)** mode, which deliberately
+excludes credential-bearing bridge installation. Do not enable root/password
+SSH to make this fallback work. See [agent and privilege
+guidance](hosting-compatibility.md#ssh-agent-and-administrative-access).
 
 ## Part 1: sign in on your own computer
 

@@ -1,0 +1,47 @@
+services:
+  n8n:
+    image: docker.io/n8nio/n8n:2.36.8@sha256:cfe2704ff858395503d42548206c2c99ea351a205e941063a9d9b77b0f404478
+    restart: "no"
+    environment:
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      N8N_PERSONALIZATION_ENABLED: "false"
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      GENERIC_TIMEZONE: UTC
+      TZ: UTC
+    volumes:
+      - n8n-data:/home/node/.n8n
+    networks:
+      - model
+    healthcheck:
+      test: [CMD, wget, --quiet, --spider, "http://127.0.0.1:5678/healthz/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /home/node/.cache:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000,mode=0700
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      com.relmio.owner: ${RELMIO_ACCEPTANCE_OWNER}
+      com.relmio.disposable: "true"
+
+volumes:
+  n8n-data:
+    labels:
+      com.relmio.owner: ${RELMIO_ACCEPTANCE_OWNER}
+      com.relmio.disposable: "true"
+
+networks:
+  model:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: nat
+      com.docker.network.bridge.gateway_mode_ipv6: nat
+    labels:
+      com.relmio.owner: ${RELMIO_ACCEPTANCE_OWNER}
+      com.relmio.disposable: "true"

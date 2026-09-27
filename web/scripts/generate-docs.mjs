@@ -23,6 +23,16 @@ const pages = [
     sourcePath: "docs/local-endpoints.md",
   },
   {
+    slug: "local-models",
+    title: "Local models",
+    sourcePath: "docs/local-models.md",
+  },
+  {
+    slug: "hosting-compatibility",
+    title: "Hosting compatibility",
+    sourcePath: "docs/hosting-compatibility.md",
+  },
+  {
     slug: "local-n8n-stack",
     title: "New local n8n + ngrok",
     sourcePath: "docs/local-n8n-stack.md",

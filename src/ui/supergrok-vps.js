@@ -1,3 +1,4 @@
+import { bindSshAuthentication, createCredentialSshGuard } from "./ssh-form.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
 
 const token = readWizardSession();
@@ -13,6 +14,15 @@ const state = {
   progressStartedAt: 0,
   status: null,
 };
+const sshSession = createCredentialSshGuard({ token, onMismatch() {
+  invalidateBoundaryState();
+  element("container").replaceChildren();
+  element("network").replaceChildren();
+  element("ssh-panel").hidden = false;
+  element("selection-panel").hidden = true;
+  resetHost();
+  setStage(1);
+} });
 
 const actionLabels = {
   install: "Install a fresh private SuperGrok companion",
@@ -127,6 +137,7 @@ async function api(path, body = {}) {
   if (!token) {
     throw new Error("This private wizard session is missing. Return to Relmio and open a fresh setup link.");
   }
+  await sshSession.before(path);
   let response;
   try {
     response = await fetch(path, {
@@ -142,6 +153,7 @@ async function api(path, body = {}) {
     throw new Error("The wizard returned an unreadable response. Start a fresh setup link.");
   }
   if (!response.ok) throw new Error(result.error || "The operation could not be completed.");
+  await sshSession.after(path, result);
   return result;
 }
 
@@ -197,7 +209,7 @@ function invalidateBoundaryState() {
 
 function syncConnectionControls() {
   const trusted = Boolean(state.fingerprint && element("trust-host").checked);
-  element("password").disabled = !trusted;
+  sshAuthentication.sync({ trusted });
   element("connect-button").disabled = !trusted;
   element("apply-button").disabled = !state.plan || !element("confirm-action").checked;
 }
@@ -283,9 +295,17 @@ async function prepareReview(action) {
   invalidateReview();
   const boundary = selectedBoundary();
   const reviewed = await api("/api/vps/supergrok/plan", { ...boundary, action });
+  if (reviewed.action !== action || reviewed.containerName !== boundary.containerName || reviewed.networkName !== boundary.networkName ||
+    reviewed.operationLockPath !== "/docker/n8n-openai-oauth/.supergrok-operation.lock" ||
+    reviewed.temporaryBuildStatePath !== (["install", "sign-in", "sign-out"].includes(action) ? "/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx" : null)) {
+    throw new Error("The reviewed SuperGrok build boundary is invalid. Review a fresh plan.");
+  }
   if (boundaryKey(boundary) !== boundaryKey()) return;
   state.plan = reviewed;
-  element("review-summary").textContent = `${actionLabels[reviewed.action]}. ${reviewed.action === "remove" ? "Its saved OAuth session will be deleted; other companions and n8n data will remain." : "No existing provider credentials will be copied."}`;
+  element("review-summary").textContent = `${actionLabels[reviewed.action]}. ${reviewed.action === "remove" ? "Its saved OAuth session will be deleted. Other companions and n8n data stay." : "No existing provider credentials will be copied."} Serializes with ${reviewed.operationLockPath}.`;
+  if (reviewed.temporaryBuildStatePath) {
+    element("review-summary").textContent += ` After you confirm, builds use a temporary root-only folder at ${reviewed.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect. Registry credentials are not copied or printed. Cleanup does not change n8n or model caches.`;
+  }
   element("review-container").textContent = reviewed.containerName;
   element("review-network").textContent = reviewed.networkName;
   element("apply-button").textContent = actionLabels[reviewed.action];
@@ -341,7 +361,7 @@ element("scan-button").addEventListener("click", () => {
     state.fingerprint = result.fingerprint;
     element("fingerprint").textContent = state.fingerprint;
     element("fingerprint-box").hidden = false;
-    setMessage("Compare the fingerprint before entering your password.");
+    setMessage("Compare the fingerprint before authenticating.");
   });
 });
 
@@ -354,9 +374,7 @@ element("ssh-form").addEventListener("submit", (event) => {
   event.preventDefault();
   if (!state.fingerprint || !element("trust-host").checked) return;
   void perform("Connecting and finding n8n…", async () => {
-    const password = element("password").value;
-    element("password").value = "";
-    await api("/api/ssh/connect", { host: element("host").value, port: element("port").value, username: "root", password, expectedFingerprint: state.fingerprint });
+    await api("/api/ssh/connect", sshAuthentication.request(state.fingerprint));
     await discover();
   });
 });
@@ -436,11 +454,14 @@ window.addEventListener("pagehide", () => {
   element("client-key").value = "";
 });
 
+const sshAuthentication = bindSshAuthentication({ token, trustId: "trust-host", onChange: invalidateBoundaryState });
+
 if (!token) {
   setMessage("Open this page from the Relmio wizard to establish a private session.");
 } else {
   void perform("Checking the VPS connection…", async () => {
     try {
+      await sshSession.adoptCurrent();
       await discover();
     } catch (error) {
       if (error.message !== "Connect to the VPS first.") throw error;

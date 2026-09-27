@@ -1,0 +1,32 @@
+.local-model-vps { min-height: 100svh; }
+.local-model-vps .header-actions { display: flex; align-items: center; gap: .75rem; }
+.local-model-vps .model-layout { display: grid; grid-template-columns: minmax(15rem, 19rem) minmax(0, 48rem); gap: clamp(1rem, 3vw, 3rem); width: min(100% - 2rem, 70rem); margin: 2rem auto 4rem; align-items: start; }
+.local-model-vps .model-intro { position: sticky; top: 6rem; display: grid; gap: .75rem; }
+.local-model-vps .model-intro h1 { margin: 0; font-size: clamp(1.6rem, 2vw, 2.3rem); line-height: 1.1; }
+.local-model-vps .model-intro p { margin: 0; line-height: 1.5; }
+.local-model-vps #message, .local-model-vps #error { padding: .75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); overflow-wrap: anywhere; }
+.local-model-vps #error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
+.local-model-vps .model-panels { display: grid; gap: 1rem; min-width: 0; }
+.local-model-vps .model-panels > .panel { padding: clamp(1rem, 2vw, 1.5rem); }
+.local-model-vps .model-panels h2 { margin-top: 0; }
+.local-model-vps .fields { display: grid; gap: 1rem; margin: 1rem 0; }
+.local-model-vps .field { display: grid; gap: .35rem; font-weight: 700; }
+.local-model-vps .field input, .local-model-vps .field select { width: 100%; min-height: 2.75rem; box-sizing: border-box; padding: .625rem .75rem; color: var(--text); background: var(--surface-muted); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; }
+.local-model-vps .fingerprint { margin: 1rem 0; }
+.local-model-vps .fingerprint code { overflow-wrap: anywhere; }
+.local-model-vps .check-row { margin-top: 1rem; }
+.local-model-vps .actions { display: flex; flex-wrap: wrap; gap: .625rem; margin-top: 1rem; }
+.local-model-vps #installation-state, .local-model-vps #progress { padding: .75rem; background: var(--accent-soft); border-left: 3px solid var(--accent); overflow-wrap: anywhere; }
+.local-model-vps #deletion-warning { padding: 1rem; color: var(--danger); border: 1px solid var(--danger-border); border-radius: var(--radius); background: var(--danger-soft); }
+.local-model-vps #review-panel .result-list dd { overflow-wrap: anywhere; }
+.local-model-vps .model-hosting-hint { padding: .875rem; background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius); line-height: 1.5; overflow-wrap: anywhere; }
+.local-model-vps #ssh-agent-status, .local-model-vps #ssh-session { overflow-wrap: anywhere; line-height: 1.5; }
+.local-model-vps :where(button, input, select, a):focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.local-model-vps [hidden] { display: none !important; }
+@media (max-width: 52rem) { .local-model-vps .model-layout { grid-template-columns: 1fr; } .local-model-vps .model-intro { position: static; } }
+@media (max-width: 36rem) {
+  .local-model-vps .site-header { flex-wrap: wrap; height: auto; }
+  .local-model-vps .header-actions { width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+  .local-model-vps .actions { flex-direction: column; }
+  .local-model-vps .actions .button { width: 100%; }
+}
