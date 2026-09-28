@@ -339,6 +339,46 @@ test("effective runtime and helper CPU/swap limits must match the reviewed budge
   }
 });
 
+test("VPS model status accepts Docker's enabled security-option forms for both owned containers", async () => {
+  for (const resource of ["runtime", "helper"]) {
+    for (const securityOpt of ["no-new-privileges", "no-new-privileges:true", "no-new-privileges=true"]) {
+      const fixture = installedFixture();
+      fixture[resource].HostConfig.SecurityOpt = [securityOpt];
+      const inspected = await inspectVpsLocalModel({ remote: fixture.remote, ...selection });
+      assert.equal(inspected.state, "model-ready", `${resource}: ${securityOpt}`);
+      assert.equal(inspected.operation.modelDigest, fixture.digest);
+    }
+  }
+});
+
+test("VPS model status rejects absent, disabled, conflicting and malformed security options", async () => {
+  const unsafe = [
+    [],
+    ["no-new-privileges:false"],
+    ["no-new-privileges=false"],
+    ["no-new-privileges", "no-new-privileges:false"],
+    ["no-new-privileges:false", "no-new-privileges"],
+    ["no-new-privileges:true", "no-new-privileges=false"],
+    ["no-new-privileges=false", "no-new-privileges:true"],
+    ["no-new-privileges=true", "no-new-privileges=false"],
+    ["no-new-privileges=false", "no-new-privileges=true"],
+    ["no-new-privileges:maybe"],
+    ["no-new-privileges:true:extra"],
+    ["no-new-privileges", "no-new-privileges:maybe"],
+    ["no-new-privileges:maybe", "no-new-privileges"],
+    "no-new-privileges:true",
+  ];
+  for (const resource of ["runtime", "helper"]) {
+    for (const securityOpt of unsafe) {
+      const fixture = installedFixture();
+      fixture[resource].HostConfig.SecurityOpt = securityOpt;
+      await assert.rejects(() => getVpsLocalModelOperationStatus({
+        remote: fixture.remote, installId: fixture.marker.installId,
+      }), `${resource}: ${JSON.stringify(securityOpt)}`);
+    }
+  }
+});
+
 test("reviewed cache deletion removes only attested model resources when n8n is gone", async () => {
   const { remote, names } = installedFixture({ n8nMissing: true });
   const plan = await reviewVpsLocalModel({ remote, ...selection, action: "remove", clearModelCache: true });

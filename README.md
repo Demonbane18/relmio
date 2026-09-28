@@ -25,19 +25,22 @@ connections and operator-generated hosting artifacts are configured separately
 in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
 
 > [!WARNING]
-> **Relmio 0.18.0-experimental.1 is an opt-in prerelease.** New hosting provider
-> deployments and local-model workflows have not been live-tested. Offline
-> planner/profile checks do not certify runtime compatibility, model output,
-> provider access, or throughput. Stable `0.17.5` remains npm `latest` and the
-> hosted installers' default. Opt in explicitly:
+> **Relmio 0.18.0-experimental.2 is an opt-in prerelease candidate.** Limited
+> model-only smoke checks do not establish full-stack, hosting-provider or
+> throughput support. Use a test setup. A prior private candidate passed scoped
+> model-only checks in local Docker and on a Hostinger VPS; those checks do not
+> establish this candidate's artifact, other-provider coverage, model quality,
+> or full-stack support. Stable `0.17.5` remains npm `latest` and the hosted
+> installers' default. The `.2` candidate is not yet published to npm; use
+> these commands after publication:
 >
 > ```bash
 > npx --yes --ignore-scripts relmio@experimental
 > # Or pin the exact prerelease:
-> npx --yes --ignore-scripts relmio@0.18.0-experimental.1
+> npx --yes --ignore-scripts relmio@0.18.0-experimental.2
 > ```
 
-See the [2026-09-27 source review, data flows, and unknowns](docs/security.md#2026-09-27-openai-and-hosting-source-review).
+See the [2026-09-28 source review follow-up, data flows, and unknowns](docs/security.md#2026-09-28-private-candidate-openai-source-check), alongside the historical [2026-09-27 source review](docs/security.md#2026-09-27-openai-and-hosting-source-review).
 
 The hosted chat and the browser wizard's **Test AI Chat** console keep partial
 response text visible while it streams. Their status distinguishes connection
@@ -301,11 +304,11 @@ path. Sign out with `relmio grok logout --n8n`. This
 companion publishes no host port.
 ### I want a provider-free model for n8n
 First use does not require an existing `.relmio` directory. To opt in to the
-untested local-model workflow, open the dashboard with
-`npx --yes --ignore-scripts relmio@0.18.0-experimental.1 local`; it initializes
-dashboard state as needed. The local-model installation requires an existing
-running n8n container and does not install n8n. If you do not yet run local
-n8n, set it up separately before selecting a model.
+experimental local-model workflow after the prerelease is published, open the
+dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.2 local`;
+it initializes dashboard state as needed. The local-model installation
+requires an existing running n8n container and does not install n8n. If you do
+not yet run local n8n, set it up separately before selecting a model.
 
 Choose **Local model for n8n** to install one CPU-based Ollama model beside an
 existing local n8n container, or use the dedicated VPS model setup route. The
@@ -322,6 +325,13 @@ ignored placeholder key; see the [local-model guide](docs/local-models.md) for
 capacity estimates, setup, configuration, retry, and explicit cache removal.
 This is a workflow Chat Model, not n8n AI Assistant sandbox setup or proof of
 reliable tool calling.
+
+Prior private-candidate checks covered model-only smoke scenarios in local
+Docker and on a Hostinger VPS; they do not establish this `.2` artifact,
+full-stack behavior, support on other providers, model quality, or throughput.
+Cold model loads and host pressure may exceed caller deadlines; a reported
+120-second local inference timeout is not fixed by the Docker-attestation
+changes in this prerelease.
 
 For **Local model · your VPS**, the hosting selector provides guidance for
 15 Linux VM presets; see [Hosting compatibility](docs/hosting-compatibility.md)

@@ -31,18 +31,18 @@ authoritative publication check.
 
 ## Stable and experimental release channels
 
-For a prerelease such as `0.18.0-experimental.1`, use the exact matching
-version in package metadata, the `v0.18.0-experimental.1` tag, and GitHub
+For a prerelease such as `0.18.0-experimental.2`, use the exact matching
+version in package metadata, the `v0.18.0-experimental.2` tag, and GitHub
 Release. Mark that GitHub Release as a prerelease; the prerelease flag must
 agree with the SemVer version. Publishing the GitHub Release triggers
 `.github/workflows/publish.yml`, which uses the configured GitHub OIDC trusted
 publisher identity and the configured `npm` environment.
 
-The stable `0.17.5` remains npm `latest` while this prerelease is published only
-with the `experimental` dist-tag. Users must opt in with
-`npx --yes --ignore-scripts relmio@experimental` or an exact prerelease version.
-Do not move `latest`, hosted installer defaults, or stable commands to the
-prerelease.
+The stable `0.17.5` remains npm `latest`. When this prerelease is published,
+publish it only with the `experimental` dist-tag. Users must opt in with
+`npx --yes --ignore-scripts relmio@experimental` or an exact prerelease version
+after publication. Do not move `latest`, hosted installer defaults, or stable
+commands to the prerelease.
 
 The prerelease workflow attaches versioned Windows x64 and arm64 ZIP candidates
 to the GitHub Release, but skips Homebrew and WinGet candidates. Homebrew is

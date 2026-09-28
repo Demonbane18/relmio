@@ -5,7 +5,7 @@ import { validateDockerName } from "../domain/validation.js";
 import { validateDockerObjectId } from "../domain/local-n8n-sidecar.js";
 import { validateInstallId } from "../domain/local-endpoints.js";
 import { INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } from "../domain/safety.js";
-import { createLocalN8nModelPlan, createLocalN8nModelComposeFile, createLocalN8nModelAcquisitionDockerfile, createLocalN8nModelDockerignore, getLocalModelDefinition, LOCAL_N8N_MODEL_ENDPOINT, LOCAL_N8N_MODEL_TARGET, LOCAL_MODEL_RUNTIME_IMAGE } from "../domain/local-n8n-model.js";
+import { createLocalN8nModelPlan, createLocalN8nModelComposeFile, createLocalN8nModelAcquisitionDockerfile, createLocalN8nModelDockerignore, getLocalModelDefinition, hasEnabledNoNewPrivileges, LOCAL_N8N_MODEL_ENDPOINT, LOCAL_N8N_MODEL_TARGET, LOCAL_MODEL_RUNTIME_IMAGE } from "../domain/local-n8n-model.js";
 import { parseLocalModelOperationStatus } from "../local-model/acquisition.mjs";
 import { assertLocalModelNetworkEligibility } from "../domain/local-model-network.js";
 import { withVpsOperationLock } from "./vps-operation-lock.js";
@@ -145,7 +145,7 @@ function attestContainer(item, marker, helper) {
       !noPublication(item) || Object.keys(item.NetworkSettings?.Networks ?? {}).length !== 1 ||
       item.NetworkSettings.Networks[marker.networkName]?.NetworkID !== marker.networkId ||
       host?.ReadonlyRootfs !== true || !host.CapDrop?.includes("ALL") ||
-      !host.SecurityOpt?.includes("no-new-privileges:true") || host.RestartPolicy?.Name !== "no" ||
+      !hasEnabledNoNewPrivileges(host.SecurityOpt) || host.RestartPolicy?.Name !== "no" ||
       host.Memory !== (helper ? 268435456 : budget.memoryBytes) ||
       host.MemorySwap !== (helper ? 268435456 : budget.memoryBytes) ||
       host.NanoCpus !== (helper ? 500000000 : Math.round(budget.cpus * 1e9)) ||

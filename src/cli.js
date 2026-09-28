@@ -86,8 +86,8 @@ function dashboardPath(mode) {
 async function logExperimentalNotice(readPackage, log) {
   const { version } = JSON.parse(await readPackage());
   if (typeof version !== "string" || !/^\d+\.\d+\.\d+-/u.test(version)) return;
-  log(`Experimental release ${version}: new provider support and local models have not been live-tested.`);
-  log("Offline checks are not live certification. Previous stable release: npx --yes --ignore-scripts relmio@0.17.5");
+  log(`Experimental release ${version}: limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support.`);
+  log("Use a test setup. Previous stable release: npx --yes --ignore-scripts relmio@0.17.5");
 }
 
 async function runForegroundWizard({
