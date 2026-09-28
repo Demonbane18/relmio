@@ -220,11 +220,20 @@ export async function attestLocalDockerBuilder(dockerHost, {
     }
     try { return await fileSystem.readFile(location); } catch { throw unsafe(); }
   }
+  // Buildx ignores Key and Global when Name is empty, but the reviewed host's
+  // fallback can still select another builder; attest it below using dockerHost.
   const current = await selector(path.join(buildx, "current"));
   if (current !== null) {
-    const allowed = ["", "default"].flatMap(Name => [false, true].map(Global =>
-      JSON.stringify({ Key: dockerHost, Name, Global })));
-    if (!allowed.includes(current.toString("utf8"))) throw unsafe();
+    if (!Buffer.isBuffer(current) || current.length > 4096) throw unsafe();
+    let selected;
+    try { selected = JSON.parse(current.toString("utf8")); } catch { throw unsafe(); }
+    if (selected === null || typeof selected !== "object" || Array.isArray(selected) ||
+        typeof selected.Key !== "string" || typeof selected.Name !== "string" ||
+        typeof selected.Global !== "boolean" ||
+        !(selected.Name === "" || (selected.Name === "default" && selected.Key === dockerHost)) ||
+        !current.equals(Buffer.from(JSON.stringify({
+          Key: selected.Key, Name: selected.Name, Global: selected.Global,
+        })))) throw unsafe();
   }
   const key = createHash("sha256").update(dockerHost).digest("hex").slice(0, 20);
   const fallback = await selector(path.join(defaults, key));

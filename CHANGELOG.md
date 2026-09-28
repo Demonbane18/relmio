@@ -7,6 +7,20 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.0-experimental.2] - 2026-09-28
+
+### Fixed
+
+- Accept a bounded canonical Docker Buildx `current` record with an empty
+  `Name` without interpreting its `Key`. A named `default` still requires the
+  exact reviewed Docker host, and fallback, shadowed-default, and other saved
+  selector checks remain fail-closed.
+
+- Accept Docker's bare, `:true`, and `=true` enabled `no-new-privileges`
+  forms during local and VPS model readiness checks. Conflicting or malformed
+  values still fail closed; this fixes false readiness failures without
+  weakening the security requirement.
+
 ## [0.18.0-experimental.1] - 2026-09-27
 
 ### Added
@@ -1176,6 +1190,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
 
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1
+[0.18.0-experimental.2]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.1...v0.18.0-experimental.2
 
 [0.17.5]: https://github.com/Demonbane18/relmio/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/Demonbane18/relmio/compare/v0.17.3...v0.17.4

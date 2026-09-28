@@ -211,18 +211,110 @@ test("builder selectors and saved remote selections reject installation before a
   await assert.rejects(() => fs.stat(join(directory, ".relmio")), { code: "ENOENT" });
 });
 
-test("retry reattests saved builder before stopping its model writer", async t => {
+test("a context-only saved Key may change between install guards without rewriting selection", async t => {
+  const directory = await home(t);
+  const buildx = join(directory, ".docker", "buildx");
+  await fs.mkdir(buildx, { recursive: true });
+  const current = join(buildx, "current");
+  await fs.writeFile(current, JSON.stringify({ Key: HOST, Name: "", Global: false }));
+  const ignoredKey = "ssh://unreviewed.example.test";
+  const saved = JSON.stringify({ Key: ignoredKey, Name: "", Global: false });
+  const runProcess = runner();
+  let changed = false;
+  const transition = async spec => {
+    const result = await runProcess(spec);
+    if (!changed && spec.args[0] === "image" && spec.args[1] === "inspect" &&
+        spec.args.at(-1) === `relmio-n8n-local-model-acquisition-${INSTALL}:local`) {
+      changed = true;
+      await fs.writeFile(current, saved);
+    }
+    return result;
+  };
+  const installed = await installLocalN8nModel({ plan: plan(), confirmed: true },
+    safe({ homeDirectory: directory, runProcess: transition }));
+  assert.equal(changed, true);
+  assert.equal(installed.status, "downloading");
+  assert.equal(runProcess.calls.some(call => call.args[0] === "compose" && call.args.includes("build")), true);
+  assert.equal(runProcess.calls.some(call => call.args[0] === "compose" && call.args.includes("run")), true);
+  assert.equal(await fs.readFile(current, "utf8"), saved);
+  assert.equal(JSON.stringify(runProcess.calls).includes(ignoredKey), false);
+  assert.equal(JSON.stringify(installed).includes(ignoredKey), false);
+});
+
+test("fallback and default shadows appearing before the second install guard stop the helper build", async t => {
+  for (const kind of ["fallback", "shadow"]) {
+    const directory = await home(t);
+    const buildx = join(directory, ".docker", "buildx");
+    await fs.mkdir(buildx, { recursive: true });
+    const current = join(buildx, "current");
+    const saved = JSON.stringify({ Key: "desktop-linux", Name: "", Global: true });
+    await fs.writeFile(current, saved);
+    const runProcess = runner();
+    let changed = false;
+    const transition = async spec => {
+      const result = await runProcess(spec);
+      if (!changed && spec.args[0] === "image" && spec.args[1] === "inspect" &&
+          spec.args.at(-1) === `relmio-n8n-local-model-acquisition-${INSTALL}:local`) {
+        changed = true;
+        if (kind === "shadow") {
+          await fs.mkdir(join(buildx, "instances"), { recursive: true });
+          await fs.writeFile(join(buildx, "instances", "default"), "{}");
+        } else {
+          const hash = createHash("sha256").update(HOST).digest("hex").slice(0, 20);
+          await fs.mkdir(join(buildx, "defaults"), { recursive: true });
+          await fs.writeFile(join(buildx, "defaults", hash), "remote-ci");
+        }
+      }
+      return result;
+    };
+    await assert.rejects(() => installLocalN8nModel({ plan: plan(), confirmed: true },
+      safe({ homeDirectory: directory, runProcess: transition })));
+    assert.equal(changed, true);
+    assert.equal(runProcess.calls.some(call => call.args[0] === "compose" && call.args.includes("build")), false);
+    assert.equal(runProcess.calls.some(call => call.args[0] === "compose" && call.args.includes("run")), false);
+    assert.equal(await fs.readFile(current, "utf8"), saved);
+  }
+});
+
+test("a fallback appearing after helper build prevents acquisition from starting", async t => {
+  const directory = await home(t), runProcess = runner();
+  const buildx = join(directory, ".docker", "buildx");
+  await fs.mkdir(buildx, { recursive: true });
+  await fs.writeFile(join(buildx, "current"), JSON.stringify({ Key: "desktop-linux", Name: "", Global: false }));
+  let changed = false;
+  const transition = async spec => {
+    const result = await runProcess(spec);
+    if (!changed && result.code === 0 && spec.args[0] === "image" && spec.args[1] === "inspect" &&
+        spec.args.at(-1) === `relmio-n8n-local-model-acquisition-${INSTALL}:local`) {
+      changed = true;
+      const hash = createHash("sha256").update(HOST).digest("hex").slice(0, 20);
+      await fs.mkdir(join(buildx, "defaults"), { recursive: true });
+      await fs.writeFile(join(buildx, "defaults", hash), "remote-ci");
+    }
+    return result;
+  };
+  await assert.rejects(() => installLocalN8nModel({ plan: plan(), confirmed: true },
+    safe({ homeDirectory: directory, runProcess: transition })));
+  assert.equal(changed, true);
+  assert.equal(runProcess.calls.some(call => call.args[0] === "compose" && call.args.includes("build")), true);
+  assert.equal(runProcess.calls.some(call => call.args[0] === "compose" && call.args.includes("run")), false);
+});
+
+test("retry rejects a default shadow after an ignored Key appears without stopping the owned writer", async t => {
   const directory = await home(t), runProcess = runner();
   await installLocalN8nModel({ plan: plan(), confirmed: true }, safe({ homeDirectory: directory, runProcess }));
   runProcess.complete("model-error");
   const review = await reviewLocalN8nModelAction({ action: "retry" }, safe({ homeDirectory: directory, runProcess }));
-  const config = join(directory, ".docker", "buildx");
-  await fs.mkdir(join(config, "instances"), { recursive: true });
-  await fs.writeFile(join(config, "instances", "default"), "{}");
+  const buildx = join(directory, ".docker", "buildx");
+  await fs.mkdir(join(buildx, "instances"), { recursive: true });
+  await fs.writeFile(join(buildx, "current"), JSON.stringify({ Key: "other-context", Name: "", Global: true }));
+  await fs.writeFile(join(buildx, "instances", "default"), "{}");
   const before = runProcess.calls.length;
   await assert.rejects(() => applyLocalN8nModelAction({ review, confirmed: true },
-    safe({ homeDirectory: directory, runProcess })), /builder|selection/u);
-  assert.equal(runProcess.calls.slice(before).some(call => call.args[0] === "container" && ["stop", "rm", "start"].includes(call.args[1])), false);
+    safe({ homeDirectory: directory, runProcess })));
+  assert.equal(runProcess.calls.slice(before).some(call => call.args[0] === "container" &&
+    ["stop", "rm", "start"].includes(call.args[1])), false);
+  assert.equal(runProcess.state().helper, true);
 });
 
 test("confirmed install retains a private cache during download, then verifies real model readiness", async t => {
@@ -246,6 +338,56 @@ test("confirmed install retains a private cache during download, then verifies r
   assert.equal(ready.modelDigest, DIGEST.slice(7));
   assert.equal(ready.endpoint, "http://n8n-local-model:11434/v1");
   assert.equal(runProcess.calls.every(item => item.args[0] !== "exec"), true);
+});
+
+test("local model status accepts Docker's enabled security-option forms for runtime and helper", async t => {
+  const directory = await home(t), runProcess = runner();
+  await installLocalN8nModel({ plan: plan(), confirmed: true }, safe({ homeDirectory: directory, runProcess }));
+  runProcess.complete();
+  for (const resource of ["runtime", "helper"]) {
+    for (const securityOpt of ["no-new-privileges", "no-new-privileges:true", "no-new-privileges=true"]) {
+      const setPolicy = resource === "runtime" ? runProcess.setRuntimeBudgetDrift : runProcess.setHelperBudgetDrift;
+      setPolicy({ SecurityOpt: [securityOpt] });
+      const current = await getLocalN8nModelStatus(safe({ homeDirectory: directory, runProcess }));
+      assert.equal(current.status, "model-ready", `${resource}: ${securityOpt}`);
+      assert.equal(current.modelDigest, DIGEST.slice(7));
+      setPolicy({});
+    }
+  }
+});
+
+test("local model status and retry reject absent, disabled, conflicting and malformed security options", async t => {
+  const directory = await home(t), runProcess = runner();
+  await installLocalN8nModel({ plan: plan(), confirmed: true }, safe({ homeDirectory: directory, runProcess }));
+  runProcess.complete();
+  const unsafe = [
+    [],
+    ["no-new-privileges:false"],
+    ["no-new-privileges=false"],
+    ["no-new-privileges", "no-new-privileges:false"],
+    ["no-new-privileges:false", "no-new-privileges"],
+    ["no-new-privileges:true", "no-new-privileges=false"],
+    ["no-new-privileges=false", "no-new-privileges:true"],
+    ["no-new-privileges=true", "no-new-privileges=false"],
+    ["no-new-privileges=false", "no-new-privileges=true"],
+    ["no-new-privileges:maybe"],
+    ["no-new-privileges:true:extra"],
+    ["no-new-privileges", "no-new-privileges:maybe"],
+    ["no-new-privileges:maybe", "no-new-privileges"],
+    "no-new-privileges:true",
+  ];
+  for (const resource of ["runtime", "helper"]) {
+    for (const securityOpt of unsafe) {
+      const setPolicy = resource === "runtime" ? runProcess.setRuntimeBudgetDrift : runProcess.setHelperBudgetDrift;
+      setPolicy({ SecurityOpt: securityOpt });
+      const current = await getLocalN8nModelStatus(safe({ homeDirectory: directory, runProcess }));
+      assert.equal(current.status, "partial", `${resource}: ${JSON.stringify(securityOpt)}`);
+      assert.equal(current.modelDigest, null);
+      await assert.rejects(() => reviewLocalN8nModelAction({ action: "retry" },
+        safe({ homeDirectory: directory, runProcess })));
+      setPolicy({});
+    }
+  }
 });
 
 test("failed pull retains cache; retry is reviewed, shuts down its own writer, and never touches n8n", async t => {
@@ -288,6 +430,36 @@ test("partial bootstrap retry reattests and pins the default builder before rebu
   assert.equal(calls.find(item => item.args[0] === "compose" && item.args.includes("run")).attestedDockerConfig,
     join(directory, ".docker"));
   assert.equal(calls.some(item => item.args[0] === "buildx"), false);
+});
+
+test("partial bootstrap retry rejects a fallback appearing before its helper rebuild", async t => {
+  const directory = await home(t), runProcess = runner({ failHelperBuild: true });
+  await assert.rejects(() => installLocalN8nModel({ plan: plan(), confirmed: true },
+    safe({ homeDirectory: directory, runProcess })));
+  const review = await reviewLocalN8nModelAction({ action: "retry" }, safe({ homeDirectory: directory, runProcess }));
+  const buildx = join(directory, ".docker", "buildx");
+  await fs.mkdir(buildx, { recursive: true });
+  await fs.writeFile(join(buildx, "current"), JSON.stringify({ Key: "desktop-linux", Name: "", Global: true }));
+  runProcess.setFailHelperBuild(false);
+  let changed = false;
+  const transition = async spec => {
+    const result = await runProcess(spec);
+    if (!changed && spec.args[0] === "image" && spec.args[1] === "inspect" &&
+        spec.args.at(-1) === `relmio-n8n-local-model-acquisition-${INSTALL}:local`) {
+      changed = true;
+      const hash = createHash("sha256").update(HOST).digest("hex").slice(0, 20);
+      await fs.mkdir(join(buildx, "defaults"), { recursive: true });
+      await fs.writeFile(join(buildx, "defaults", hash), "remote-ci");
+    }
+    return result;
+  };
+  const before = runProcess.calls.length;
+  await assert.rejects(() => applyLocalN8nModelAction({ review, confirmed: true },
+    safe({ homeDirectory: directory, runProcess: transition, randomBytes: () => Buffer.from(RETRY, "hex") })));
+  assert.equal(changed, true);
+  assert.equal(runProcess.calls.slice(before).some(call => call.args[0] === "compose" && call.args.includes("build")), false);
+  assert.equal(runProcess.calls.slice(before).some(call => call.args[0] === "compose" && call.args.includes("run")), false);
+  assert.equal(runProcess.state().volume, false);
 });
 
 test("an inference-only retry binds the installed digest and refuses a mutable model tag change", async t => {

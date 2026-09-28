@@ -15,6 +15,19 @@ export const LOCAL_MODEL_RUNTIME_IMAGE = "ollama/ollama:0.34.4@sha256:8262851b28
 export const LOCAL_MODEL_HELPER_IMAGE = "node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6";
 const GIB = 1024 ** 3;
 
+export function hasEnabledNoNewPrivileges(securityOptions) {
+  if (!Array.isArray(securityOptions)) return false;
+  let enabled = false;
+  for (const option of securityOptions) {
+    if (option === "no-new-privileges" || option === "no-new-privileges:true" || option === "no-new-privileges=true") {
+      enabled = true;
+    } else if (typeof option !== "string" || option.startsWith("no-new-privileges")) {
+      return false;
+    }
+  }
+  return enabled;
+}
+
 function resourceBudget(modelId, value) {
   const model = getLocalModelDefinition(modelId);
   if (!value || typeof value !== "object" || Array.isArray(value) ||

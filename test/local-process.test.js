@@ -334,35 +334,201 @@ test("a model build pins its reviewed default builder despite inherited process 
   }, { spawnProcess() { throw new Error("Unexpected build"); } }), /attested default Docker builder/u);
 });
 
-test("saved Buildx selectors and shadowed default reject without touching saved config", async t => {
+test("canonical context-only Buildx selections ignore Key without changing the saved selector", async t => {
   const home = await realpath(await mkdtemp(join(tmpdir(), "relmio-builder-test-")));
   t.after(() => rm(home, { recursive: true, force: true }));
   const directory = join(home, ".docker", "buildx");
   await mkdir(join(directory, "defaults"), { recursive: true });
   await mkdir(join(directory, "instances"));
-  const key = createHash("sha256").update(RUNNER_DOCKER_HOST).digest("hex").slice(0, 20);
-  const current = join(directory, "current"), fallback = join(directory, "defaults", key);
+  const current = join(directory, "current");
+  const fallback = join(directory, "defaults",
+    createHash("sha256").update(RUNNER_DOCKER_HOST).digest("hex").slice(0, 20));
   const options = { fileSystem: await import("node:fs/promises"), environment: {}, homeDirectory: home,
     verifyDockerAcl: async () => {} };
   assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
-  await writeFile(current, JSON.stringify({ Key: RUNNER_DOCKER_HOST, Name: "remote-ci", Global: false }));
-  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), /default Docker builder/u);
-  assert.match(await readFile(current, "utf8"), /remote-ci/u);
-  await writeFile(current, JSON.stringify({ Key: RUNNER_DOCKER_HOST, Name: "default", Global: false }));
-  await writeFile(fallback, "remote-ci");
-  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), /default Docker builder/u);
-  await writeFile(fallback, "default");
-  assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
-  await writeFile(join(directory, "instances", "default"), "{}");
-  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), /default Docker builder/u);
-  await rm(join(directory, "instances", "default"));
-  await rm(current);
-  if (process.platform !== "win32") {
-    await symlink(fallback, current);
-    await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), /default Docker builder/u);
+  for (const Key of ["desktop-linux", "", "ssh://unreviewed.example.test"]) {
+    for (const Global of [false, true]) {
+      const saved = JSON.stringify({ Key, Name: "", Global });
+      await writeFile(current, saved);
+      assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
+      assert.equal(await readFile(current, "utf8"), saved);
+    }
   }
+  await writeFile(fallback, "default");
+  const saved = JSON.stringify({ Key: "other-context", Name: "", Global: true });
+  await writeFile(current, saved);
+  assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
+  assert.equal(await readFile(current, "utf8"), saved);
+  for (const Global of [false, true]) {
+    await writeFile(current, JSON.stringify({ Key: RUNNER_DOCKER_HOST, Name: "default", Global }));
+    assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
+    for (const [Key, Name] of [["other-context", "default"], [RUNNER_DOCKER_HOST, "remote-ci"]]) {
+      await writeFile(current, JSON.stringify({ Key, Name, Global }));
+      await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+    }
+  }
+});
+
+test("Buildx current requires bounded original canonical bytes and correct JSON types", async t => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "relmio-builder-test-")));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const directory = join(home, ".docker", "buildx");
+  await mkdir(directory, { recursive: true });
+  const current = join(directory, "current");
+  const options = { fileSystem: await import("node:fs/promises"), environment: {}, homeDirectory: home,
+    verifyDockerAcl: async () => {} };
+  const rejected = [
+    "{",
+    "[]",
+    "null",
+    JSON.stringify({ Key: "context", Name: "", Global: false, Extra: true }),
+    '{"Key":"first","Key":"second","Name":"","Global":false}',
+    '{"Name":"","Key":"context","Global":false}',
+    '{"Key":"\\u0063ontext","Name":"","Global":false}',
+    '{"Key":"context","Name":"","Global":false}\n',
+    '{"Key":"context","Name":""}',
+    '{"Key":"context","Global":false}',
+    '{"Name":"","Global":false}',
+    '{"Key":"context","Name":"","Global":"false"}',
+    '{"Key":null,"Name":"","Global":false}',
+    '{"Key":"context","Name":null,"Global":false}',
+    Buffer.concat([Buffer.from('{"Key":"'), Buffer.from([0xff]),
+      Buffer.from('","Name":"","Global":false}')]),
+  ];
+  let rejectionMessage;
+  for (const record of rejected) {
+    await writeFile(current, record);
+    await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), error => {
+      if (rejectionMessage === undefined) rejectionMessage = error.message;
+      assert.equal(error.message, rejectionMessage);
+      assert.equal(error.message.includes("context"), false);
+      return true;
+    });
+  }
+  const base = Buffer.byteLength(JSON.stringify({ Key: "", Name: "", Global: false }));
+  await writeFile(current, JSON.stringify({ Key: "k".repeat(4096 - base), Name: "", Global: false }));
+  assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
+  await writeFile(current, JSON.stringify({ Key: "k".repeat(4097 - base), Name: "", Global: false }));
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+  await writeFile(current, JSON.stringify({ Key: "context", Name: "", Global: false }));
+  const overBoundBytes = Buffer.from(JSON.stringify({
+    Key: "k".repeat(4097 - base), Name: "", Global: false,
+  }));
+  const fileSystem = { ...options.fileSystem, async readFile(location, ...args) {
+    return location === current ? overBoundBytes : options.fileSystem.readFile(location, ...args);
+  } };
   await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST,
-    { ...options, environment: { [process.platform === "win32" ? "USERPROFILE" : "HOME"]: join(tmpdir(), "different-home") } }), /configuration location changed/u);
+    { ...options, fileSystem }));
+});
+
+test("an ignored Buildx Key cannot bypass reviewed-host fallback or shadow rejection", async t => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "relmio-builder-test-")));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const directory = join(home, ".docker", "buildx");
+  await mkdir(join(directory, "defaults"), { recursive: true });
+  await mkdir(join(directory, "instances"));
+  const current = join(directory, "current");
+  const ignoredKey = "ssh://unreviewed.example.test";
+  const saved = JSON.stringify({ Key: ignoredKey, Name: "", Global: false });
+  await writeFile(current, saved);
+  const hash = key => createHash("sha256").update(key).digest("hex").slice(0, 20);
+  const fallback = join(directory, "defaults", hash(RUNNER_DOCKER_HOST));
+  await writeFile(join(directory, "defaults", hash(ignoredKey)), "default");
+  const options = { fileSystem: await import("node:fs/promises"), environment: {}, homeDirectory: home,
+    verifyDockerAcl: async () => {} };
+  for (const value of ["remote-ci", "", "default\n", "{}"]) {
+    await writeFile(fallback, value);
+    await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+  }
+  await rm(current);
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+  await writeFile(current, saved);
+  await writeFile(fallback, "default");
+  const shadow = join(directory, "instances", "default");
+  await writeFile(shadow, "{}");
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+  await rm(current);
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+  await writeFile(current, saved);
+  await rm(shadow);
+  if (process.platform !== "win32") {
+    await symlink(fallback, shadow);
+    await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+    await rm(shadow);
+    await rm(fallback);
+    await symlink(current, fallback);
+    await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+    await rm(fallback);
+    await rm(current);
+    await symlink(fallback, current);
+    await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options));
+    await rm(current);
+    await writeFile(current, saved);
+  }
+  assert.equal(await readFile(current, "utf8"), saved);
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST,
+    { ...options, environment: { [process.platform === "win32" ? "USERPROFILE" : "HOME"]: join(tmpdir(), "different-home") } }));
+});
+
+test("an ignored Key does not relax file ownership, links, ancestors, or readable selectors", async t => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "relmio-builder-test-")));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const directory = join(home, ".docker", "buildx");
+  await mkdir(directory, { recursive: true });
+  const current = join(directory, "current");
+  await writeFile(current, JSON.stringify({ Key: "other-context", Name: "", Global: true }));
+  const original = await import("node:fs/promises");
+  const options = { fileSystem: original, environment: {}, homeDirectory: home,
+    verifyDockerAcl: async () => {} };
+  assert.equal(await attestLocalDockerBuilder(RUNNER_DOCKER_HOST, options), join(home, ".docker"));
+  const brokenRead = { ...original, async readFile(location, ...args) {
+    if (location === current) throw new Error("other-context must not leak");
+    return original.readFile(location, ...args);
+  } };
+  await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST,
+    { ...options, fileSystem: brokenRead }), error => {
+    assert.equal(error.message.includes("other-context"), false);
+    return true;
+  });
+  if (process.platform !== "win32") {
+    for (const [location, properties] of [
+      [current, { nlink: 2 }],
+      [current, { mode: 0o666 }],
+      [current, { uid: process.getuid() + 1 }],
+      [home, { mode: 0o777 }],
+      [home, { uid: process.getuid() + 1 }],
+    ]) {
+      const fileSystem = { ...original, async lstat(path) {
+        const entry = await original.lstat(path);
+        return path === location ? Object.assign(Object.create(entry), properties) : entry;
+      } };
+      await assert.rejects(() => attestLocalDockerBuilder(RUNNER_DOCKER_HOST,
+        { ...options, fileSystem }));
+    }
+  }
+});
+
+test("Windows attestation rejects an untrusted-write ACL even for context-only keys", async () => {
+  const homeDirectory = "C:\\Users\\fixture";
+  const current = `${homeDirectory}\\.docker\\buildx\\current`;
+  const directories = new Set(["C:\\", "C:\\Users", homeDirectory,
+    `${homeDirectory}\\.docker`, `${homeDirectory}\\.docker\\buildx`]);
+  const fileSystem = {
+    async lstat(location) {
+      if (location === current) return { isFile: () => true, isSymbolicLink: () => false,
+        size: 60, nlink: 1 };
+      if (directories.has(location)) return { isDirectory: () => true, isSymbolicLink: () => false };
+      throw Object.assign(new Error("not found"), { code: "ENOENT" });
+    },
+    async readFile() { return Buffer.from(JSON.stringify({ Key: "other-context", Name: "", Global: true })); },
+  };
+  const options = { platform: "win32", homeDirectory, environment: {}, fileSystem,
+    verifyDockerAcl: async location => {
+      if (location === current) throw new Error("untrusted write access");
+    } };
+  await assert.rejects(() => attestLocalDockerBuilder(WINDOWS_DOCKER_HOST, options));
+  assert.equal(await attestLocalDockerBuilder(WINDOWS_DOCKER_HOST,
+    { ...options, verifyDockerAcl: async () => {} }), `${homeDirectory}\\.docker`);
 });
 
 test("existing Windows Docker ACL accepts inherited trusted owners but rejects untrusted modification", async () => {

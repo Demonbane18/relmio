@@ -759,3 +759,221 @@ model output, throughput, search, Daytona, provider entitlement, and TTS remain
 account-specific data controls, onward disclosures, scopes, and permission for
 the existing subscription bridge remain unknown. See
 [Hosting compatibility](hosting-compatibility.md) for operational boundaries.
+
+## 2026-09-27 local-model attestation source check
+
+**Scope and method.** The current official [Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt),
+[Codex authentication guide](https://learn.chatgpt.com/docs/auth),
+[API authentication documentation](https://developers.openai.com/api/reference/overview#authentication),
+[Codex models guide](https://learn.chatgpt.com/docs/models),
+[local-provider configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers),
+[Terms of Use](https://openai.com/policies/terms-of-use/),
+[Services Agreement](https://openai.com/policies/services-agreement/),
+[Service Terms](https://openai.com/policies/service-terms/),
+[Privacy Policy](https://openai.com/policies/privacy-policy/),
+[API data controls](https://developers.openai.com/api/docs/guides/your-data), and
+[Text-to-speech guide](https://developers.openai.com/api/docs/guides/text-to-speech)
+were reviewed on 2026-09-27. This source and code review made no sign-in,
+credential access, provider API request, SSH, remote change, test, build, or
+live workflow request. Docker's [security-opt documentation](https://docs.docker.com/reference/cli/docker/container/run/#security-opt)
+and the [Moby 28.5.2 option parser](https://github.com/moby/moby/blob/v28.5.2/daemon/daemon_unix.go#L215-L270)
+were separately checked for Docker's enabled spellings. They show that bare,
+`=`, and legacy `:` forms can express enabled `no-new-privileges`; the Relmio
+attestation deliberately accepts only bare, `:true`, and `=true`, rejecting
+missing, disabled, malformed, or contradictory entries. Conflicts fail closed
+regardless of entry order. This Docker compatibility finding is not an OpenAI
+permission or capability finding.
+
+**OpenAI findings and unknowns.** ChatGPT identity sign-in remains distinct
+from the existing credential-copy bridge; it does not grant bridge permission.
+The local-model flow uses no OpenAI sign-in, API key, or OAuth scope, and the
+review found no changed OpenAI recipient or capability. The documentation
+does not establish permission for the separate compatibility bridge, access
+to any OpenAI model or TTS, or account/workspace entitlement. Exact
+provider-side retention, host and registry logs, deployment-specific
+recipients, and account-specific permission remain unknown; OpenAI API data
+controls do not establish retention for this local-model flow.
+
+**Local-model data flow observed in source.** Relmio reads Docker/n8n/network
+identity, capacity, ownership metadata, container configuration/security
+options, hashes, and bounded acquisition status; Docker inspection internally
+parses full container JSON, which may include environment secrets even though
+the selected values are used for attestation. It stores owner-only local
+runtime assets and metadata under the validated Relmio home, or VPS assets and
+metadata under `/docker/n8n-openai-oauth/local-model`, plus the model cache in
+an owned Docker volume. Reviewed browser choices and status pass through the
+Relmio server; local operations reach the selected Docker daemon and VPS
+operations use the selected SSH transport. Runtime/helper images and weights
+are fetched from registries; the helper contacts the private
+`http://n8n-local-model:11434` endpoint for the selected model and fixed
+arithmetic probe without an authorization header. Workflow inference uses the
+private n8n-to-Ollama endpoint, not an OpenAI-hosted endpoint. The helper emits
+allowlisted status fields and bounded logs, but actual Ollama logs, n8n
+execution history, host/SSH/sudo audits, backups, and registry mirrors or CDN
+recipients are not established by this review. Trusted network peers and host
+administrators remain within the trust boundary.
+
+Container readiness and the helper arithmetic inference check are not an
+acceptance test for a fresh n8n workflow or evidence of general model quality.
+The initial manual workflow request with `reasoning_effort: none` and a
+32-token limit returned `2` and failed the exact-`4` assertion. A subsequent
+request using the same natural-language `2+2` prompt and exact assertion with
+`reasoning_effort: medium` and a 512-token limit passed in 5.653 seconds. This
+is one workflow acceptance result, not evidence of general model quality. No
+live acceptance for another provider is established by this source check.
+
+## 2026-09-27 builder-selector compatibility and OpenAI source check
+
+**Scope and source review.** On 2026-09-27, the official OpenAI
+[Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt),
+[Codex authentication guide](https://learn.chatgpt.com/docs/auth),
+[API authentication reference](https://developers.openai.com/api/reference/overview#authentication),
+[Codex models guide](https://learn.chatgpt.com/docs/models),
+[Codex local-provider configuration](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers),
+[Terms of Use](https://openai.com/policies/terms-of-use/),
+[Services Agreement](https://openai.com/policies/services-agreement/),
+[Service Terms](https://openai.com/policies/service-terms/),
+[Privacy Policy](https://openai.com/policies/privacy-policy/),
+[API data controls](https://developers.openai.com/api/docs/guides/your-data), and
+[Text-to-speech guide](https://developers.openai.com/api/docs/guides/text-to-speech)
+were fetched again. The identity article describes partner identity fields,
+not Relmio's separate host-side Codex credential-copy bridge; additional access
+requires separate authorization. Codex cache documentation is not blanket
+permission for that bridge. API authentication and API-specific retention
+controls do not establish the bridge's scopes, permission, retention, or
+recipient behavior. Terms and account eligibility remain unresolved; this is
+not legal advice or an OpenAI approval. The current local-model workflow and
+manual n8n workflow acceptance for this private fix are **NOT-RUN**.
+
+**Changed selector boundary.** The local read-only attestor accepts a present,
+bounded, canonical `current` record with an empty `Name` regardless of its
+string `Key`; the key is ignored, not treated as a builder/context name, and
+is not returned, logged, or passed to a process. `Global` must be boolean, and
+either value is accepted for an empty `Name`. A `Name` of `default` still
+requires `Key` to equal the reviewed Docker host; every other nonempty name is
+rejected.
+Canonical original bytes, file-size and actual-read bounds, regular-file/link/owner/mode and Windows ACL checks,
+validated home/config ancestry, and local Docker endpoint checks remain
+required. The fallback hash is always derived from the reviewed host; its
+entry must be absent or exactly `default`, and any `instances/default` entry
+rejects. The attestor is read-only and does not repair a profile. Repeated
+attestations and command-scoped default-builder pinning remain in force.
+
+**OpenAI permissions and model/TTS boundary.** This local-model selector
+change adds no OpenAI OAuth scope, grant, API key, credential copy, OpenAI
+recipient, OpenAI model capability, or TTS capability. Local inference uses
+the configured Ollama runtime; successful ChatGPT identity sign-in, API
+authentication documentation, or Codex's separate local-provider mode does
+not establish OpenAI model access or TTS entitlement through Relmio. Requested
+and granted scopes for the separate Codex bridge and its applicable provider
+permission remain unknown.
+
+**Local-model data handling observed in source.** Relmio reads Docker
+context/engine and n8n/network identities, capacity, ownership and resource
+metadata, container configuration/security options, hashes, and bounded
+acquisition status. Docker inspection parses full container JSON internally,
+which can include environment secrets even though attestation uses selected
+fields. The builder check reads HOME/USERPROFILE, protected directory/file
+metadata, bounded `~/.docker/buildx/current`, the fallback derived from the
+reviewed socket, and whether `instances/default` exists; it does not read
+`config.json` or nodegroup TLS files. Relmio stores owner-only runtime assets
+and metadata beneath its validated home and model cache in its owned Docker
+volume; VPS assets are under `/docker/n8n-openai-oauth/local-model`. This
+attestation stores no selector data and changes no Docker profile. No OpenAI
+token is stored by this model flow. The separate, unchanged OpenAI bridge
+stores its copied credential in its managed credential location.
+
+Browser choices and reviewed metadata pass through local Relmio; local Docker
+receives inspection/build/start commands and allowlisted helper assets. Docker
+registries receive runtime/base-image download requests and Ollama/model
+registries receive weight requests. The helper sends model IDs and a fixed
+synthetic arithmetic probe to `http://n8n-local-model:11434` without an
+Authorization header. Later workflow messages/results travel from n8n to that
+private model endpoint on the selected Docker network, not through a browser
+reverse proxy. A browser-facing reverse proxy such as ngrok, when used for a
+separate n8n/browser route, does not make this model endpoint public. Registries
+may observe download traffic; exact registry mirrors/CDN recipients and their
+logs are unknown.
+
+Acquisition logs and status use allowlisted fields and bounded output; the
+source limits helper/runtime Docker JSON-file logs, and Relmio uses bounded
+subprocess output with static failure messages. This is not a no-logging
+claim. Actual Ollama, host/SSH/sudo, and n8n execution-history contents,
+retention, backups, and downstream disclosures are unknown. Docker host
+administrators and trusted network peers remain in the trust boundary.
+
+The earlier same-day source review records historical workflow evidence; it
+does not validate this private selector fix or the current manual workflow.
+Any prior VPS success remains historical and is not a fresh acceptance result.
+Public upstream Buildx source is not proof of equivalence with the installed
+Docker Desktop-patched Buildx; that implementation detail remains unverified.
+This source review does not establish live installation, model readiness,
+workflow success, model quality, provider entitlement, or TTS support.
+
+**OpenAI policy and authentication details.** At re-fetch, the Sign in with
+ChatGPT page displayed “Updated: 16 hours ago”; the Codex and API authentication,
+models, local-provider, and TTS pages showed no publication date. The Terms of
+Use were effective 2026-01-01, the Services Agreement was updated 2025-12-01
+and effective 2026-01-01, and the Service Terms were updated 2026-09-21.
+Credential/account restrictions and usage limits remain relevant, but these
+sources do not determine permission for this bridge or this user's account.
+The Chat Adapter's API-key-only connection wording describes that adapter's
+configuration contract; it is not an exhaustive statement of OpenAI API
+authentication, whose current reference also describes workload-identity
+tokens. API-specific data controls do not establish retention for this local
+Ollama flow or the separate credential-copy bridge.
+
+**Buildx source limit.** Public
+[Buildx v0.36.1 store selection code](https://github.com/docker/buildx/blob/v0.36.1/store/store.go#L193-L246),
+[Docker CLI v29.6.2 host/context handling](https://github.com/docker/cli/blob/v29.6.2/cli/command/cli.go#L410-L455),
+and [Compose v5.5.1 build selection](https://github.com/docker/compose/blob/v5.5.1/pkg/compose/build_bake.go#L165-L202)
+were reviewed for the empty-name selector behavior and the command-scoped
+default-builder path. The installed Buildx reports `0.36.1-desktop.1`; its
+Desktop patch source is not publicly available in the checked upstream
+repository. Public upstream behavior therefore does not prove equivalence of
+the installed binary. The separate SSH `BUILDER_STATE_PROBE` policy is
+unchanged; this compatibility note applies to the local attestor only.
+
+The local model endpoint's private n8n-to-Ollama network path is distinct from
+an optional browser-facing reverse-proxy route such as ngrok. This fix neither
+adds an endpoint route nor changes what a reverse proxy exposes.
+Registry/CDN recipients and logs, host and n8n log contents/retention, backups,
+the bridge's OAuth scopes, account-specific permission, and provider-side
+retention remain unknown.
+
+## 2026-09-28 private-candidate OpenAI source check
+
+Current official OpenAI sources were fetched again, starting with [Sign in
+with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt)
+(displayed “Updated: yesterday”). The [Codex authentication](https://learn.chatgpt.com/docs/auth),
+[model availability](https://learn.chatgpt.com/docs/models),
+[API authentication](https://developers.openai.com/api/reference/overview#authentication),
+[local-provider](https://learn.chatgpt.com/docs/config-file/config-advanced#oss-mode-local-providers),
+[TTS](https://developers.openai.com/api/docs/guides/text-to-speech), and
+[API data-control](https://developers.openai.com/api/docs/guides/your-data)
+pages showed no page date. [Terms of Use](https://openai.com/policies/terms-of-use/)
+were effective 2026-01-01; [Europe Terms](https://openai.com/policies/eu-terms-of-use/)
+were updated 2026-01-16; the [Services Agreement](https://openai.com/policies/services-agreement/)
+was updated 2025-12-01 and effective 2026-01-01; [Service Terms](https://openai.com/policies/service-terms/)
+were updated 2026-09-21; [Usage Policies](https://openai.com/policies/usage-policies/)
+were effective 2025-10-29. The [Privacy Policy](https://openai.com/policies/privacy-policy/)
+and [Europe Privacy Policy](https://openai.com/policies/eu-privacy-policy/)
+were updated 2026-07-30 and 2026-08-24.
+
+This version-only candidate preparation and the two Docker attestation fixes
+add no OpenAI authentication flow, scope, credential-copy path, recipient, model
+capability, or TTS capability. The existing bridge still copies the complete
+Codex credential after deployment confirmation; it is not identity-only partner
+sign-in. Requested and granted scopes and permission for this third-party
+transport remain unknown. Codex cache-copy documentation and successful login
+are not blanket authorization. The third-party runtime may refresh and rewrite
+its credential copy and make separate catalog/npm lookups during a request;
+`store:false` does not establish zero retention. The existing reads, storage,
+transmission, logging and trust-boundary disclosures above remain applicable.
+The local-model path still uses private Ollama with cloud features disabled,
+while image/model downloads and separately configured n8n tools can use the
+network. Model readiness is not a fresh n8n workflow or general-quality proof.
+This review made no sign-in, credential access, model/API request, SSH/Docker
+operation, file change, build or test. Existing workflow evidence remains
+historical; current candidate, full-stack and bridge inference acceptance were
+not established. OpenAI permission and account-specific retention remain open.

@@ -21,19 +21,22 @@ connections and operator-generated hosting artifacts are configured separately
 in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
 SuperGrok setup does not require or read ChatGPT/Codex credentials.
 
-> **Relmio 0.18.0-experimental.1 is an opt-in prerelease.** New hosting provider
-> deployments and local-model workflows have not been live-tested. Offline
-> planner/profile checks do not certify runtime compatibility, model output,
-> provider access, or throughput. Stable `0.17.5` remains npm `latest` and the
-> hosted installers' default. Opt in explicitly:
+> **Relmio 0.18.0-experimental.2 is an opt-in prerelease candidate.** Limited
+> model-only smoke checks do not establish full-stack, hosting-provider or
+> throughput support. Use a test setup. A prior private candidate passed scoped
+> model-only checks in local Docker and on a Hostinger VPS; those checks do not
+> establish this candidate's artifact, other-provider coverage, model quality,
+> or full-stack support. Stable `0.17.5` remains npm `latest` and the hosted
+> installers' default. The `.2` candidate is not yet published to npm; use
+> these commands after publication:
 >
 > ```bash
 > npx --yes --ignore-scripts relmio@experimental
 > # Or pin the exact prerelease:
-> npx --yes --ignore-scripts relmio@0.18.0-experimental.1
+> npx --yes --ignore-scripts relmio@0.18.0-experimental.2
 > ```
 
-See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md) and [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
+See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md), the [2026-09-28 source review follow-up](https://relmio.jpfusin.tech/docs/security#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
 
 The hosted chat and the browser wizard's **Test AI Chat** console keep partial
 response text visible while it streams. Their status distinguishes connection
@@ -216,11 +219,11 @@ Responses API switch is specific to each integration:
 | Local Ollama model for n8n | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for Chat Completions |
 
 First use does not require an existing `.relmio` directory. To opt in to the
-untested local-model workflow, open the dashboard with
-`npx --yes --ignore-scripts relmio@0.18.0-experimental.1 local`; it initializes
-dashboard state as needed. The local-model option requires an existing running
-n8n container and does not install n8n. If you do not yet run local n8n, set up
-n8n separately before selecting a model.
+experimental local-model workflow after the prerelease is published, open the
+dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.2 local`;
+it initializes dashboard state as needed. The local-model option requires an
+existing running n8n container and does not install n8n. If you do not yet run
+local n8n, set up n8n separately before selecting a model.
 
 For a provider-free model, choose **Local model for n8n** and review the
 measured Docker resources and expected download. The unauthenticated model API
@@ -231,6 +234,14 @@ internet access. See the
 for local/VPS setup, capacity estimates, n8n settings, retry, and explicit
 cache removal. This workflow Chat Model is separate from Assistant sandbox
 setup and does not establish reliable tool calling.
+
+Prior private-candidate checks covered model-only smoke scenarios in local
+Docker and on a Hostinger VPS; they do not establish this `.2` artifact,
+full-stack behavior, support on other providers, model quality, or throughput.
+Cold model loads and host pressure may exceed caller deadlines; a reported
+120-second local inference timeout is not fixed by the Docker-attestation
+changes in this prerelease.
+
 
 The **Local model · your VPS** route provides guidance for 15 Linux VM presets.
 Use your actual SSH account with an existing local agent or approved password,

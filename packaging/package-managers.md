@@ -7,9 +7,10 @@ catalog repositories.
 
 ## Stable and experimental channels
 
-The prerelease `0.18.0-experimental.1` is published to npm's `experimental`
-dist-tag; stable `0.17.5` remains `latest`, and hosted installers continue to
-use `relmio@latest`. Prerelease Windows x64 and arm64 ZIPs may be attached to
+The `0.18.0-experimental.2` candidate targets npm's `experimental` dist-tag
+after publication; preparing it does not change that public channel. Stable
+`0.17.5` remains `latest`, and hosted installers continue to use `relmio@latest`.
+Prerelease Windows x64 and arm64 ZIPs may be attached to
 the matching GitHub prerelease. They are versioned review artifacts, not a
 WinGet catalog release.
 
