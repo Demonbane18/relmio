@@ -7,6 +7,30 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.0-experimental.3] - 2026-09-29
+
+### Changed
+
+- Put the VPS route chooser before ChatGPT sign-in and present setup in five
+  visible steps, with SSH fingerprint confirmation before credentials and
+  the required plan review kept in view.
+- Identify the credential-upload destination from the currently verified SSH
+  identity. Back navigation or an identity change clears the reviewed plan
+  and approval; separate human confirmation remains required before remote writes.
+
+### Fixed
+
+- Prevent a delayed startup SSH-status response from replacing the identity
+  adopted for review or leaving stale consent text after a newer connection
+  decision.
+
+### Security
+
+- Credential contents and recipients, OAuth behavior, provider permissions,
+  and bridge capabilities remain unchanged. The bridge remains unofficial,
+  private, and policy-uncertain; provider approval and account entitlement
+  have not been established.
+
 ## [0.18.0-experimental.2] - 2026-09-28
 
 ### Fixed
@@ -1191,6 +1215,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1
 [0.18.0-experimental.2]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.1...v0.18.0-experimental.2
+[0.18.0-experimental.3]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.2...v0.18.0-experimental.3
 
 [0.17.5]: https://github.com/Demonbane18/relmio/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/Demonbane18/relmio/compare/v0.17.3...v0.17.4

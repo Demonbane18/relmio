@@ -25,22 +25,22 @@ connections and operator-generated hosting artifacts are configured separately
 in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
 
 > [!WARNING]
-> **Relmio 0.18.0-experimental.2 is an opt-in prerelease candidate.** Limited
-> model-only smoke checks do not establish full-stack, hosting-provider or
-> throughput support. Use a test setup. A prior private candidate passed scoped
-> model-only checks in local Docker and on a Hostinger VPS; those checks do not
-> establish this candidate's artifact, other-provider coverage, model quality,
-> or full-stack support. Stable `0.17.5` remains npm `latest` and the hosted
-> installers' default. The `.2` candidate is not yet published to npm; use
-> these commands after publication:
+> **Relmio 0.18.0-experimental.3 is an opt-in prerelease candidate.** The
+> `.2` prerelease is published. Earlier private-candidate model-only checks
+> do not verify this `.3` artifact, full-stack behavior, hosting-provider
+> support, throughput, or model quality. Use a test setup. Stable `0.17.5`
+> remains npm `latest` and the hosted installers' default. Publication of
+> `.3` to npm is not verified. After publication, pin this candidate:
 >
 > ```bash
-> npx --yes --ignore-scripts relmio@experimental
-> # Or pin the exact prerelease:
-> npx --yes --ignore-scripts relmio@0.18.0-experimental.2
+> npx --yes --ignore-scripts relmio@0.18.0-experimental.3
 > ```
 
-See the [2026-09-28 source review follow-up, data flows, and unknowns](docs/security.md#2026-09-28-private-candidate-openai-source-check), alongside the historical [2026-09-27 source review](docs/security.md#2026-09-27-openai-and-hosting-source-review).
+See the [2026-09-29 source review and wizard consent correction](docs/openai-source-check-2026-09-29.md), the [2026-09-28 source review follow-up, data flows, and unknowns](docs/security.md#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](docs/security.md#2026-09-27-openai-and-hosting-source-review).
+
+The five-step chooser below belongs to experimental `.3` only. Stable
+`@latest` remains `0.17.5` and does not include the redesigned chooser.
+The published `.2` prerelease has its own release history.
 
 The hosted chat and the browser wizard's **Test AI Chat** console keep partial
 response text visible while it streams. Their status distinguishes connection
@@ -238,11 +238,16 @@ for capacity, the exact local/VPS setup, n8n settings, and explicit cache
 removal.
 
 
-1. Sign in with your own ChatGPT/Codex account.
-2. Select the running n8n container and its private Docker network.
-3. Review and install the sidecar.
-4. In n8n, use `http://n8n-openai-oauth:10531/v1` with the placeholder API key
-   `local-only`.
+In experimental `.3`, the VPS wizard shows five steps: **Choose setup**,
+**Check server**, **Choose n8n**, **Review**, and **Ready**. Choose the ChatGPT
+route before signing in. Enter the server address and port, independently
+compare and confirm its SSH fingerprint, then enter the SSH username and
+choose authentication. After connecting, select the running n8n container
+and its private Docker network. Review names the currently verified SSH
+identity as the recipient of the complete ChatGPT/Codex credential file.
+Going back or changing the connection clears the reviewed plan and approval;
+a separate confirmation is required before any remote write. In n8n, use
+`http://n8n-openai-oauth:10531/v1` with the placeholder API key `local-only`.
 
 **GPT Image 2.5.** New bridge installations include Flare and Sunburst in model
 discovery. For an existing owned bridge, use its browser **Update bridge runtime**
@@ -305,7 +310,7 @@ companion publishes no host port.
 ### I want a provider-free model for n8n
 First use does not require an existing `.relmio` directory. To opt in to the
 experimental local-model workflow after the prerelease is published, open the
-dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.2 local`;
+dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.3 local`;
 it initializes dashboard state as needed. The local-model installation
 requires an existing running n8n container and does not install n8n. If you do
 not yet run local n8n, set it up separately before selecting a model.

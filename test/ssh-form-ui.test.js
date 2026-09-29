@@ -228,3 +228,53 @@ test("initial shared-session adoption happens once and preserves precise model-o
   current = rootA;
   await assert.rejects(() => modelOnly.adoptCurrent(), /authenticated VPS changed/u);
 });
+
+test("late startup SSH probes cannot replace a newer connection decision", async t => {
+  const element = browserFixture(t);
+  const root = { ...identity, username: "root", privilege: "root", loginUid: 0, scope: "vps" };
+  for (const startup of [
+    { ok: false, json: async () => ({ error: "Connect to the VPS first." }) },
+    { ok: true, json: async () => ({ ...root, host: "former.example", generation: 1 }) },
+  ]) {
+    let release;
+    globalThis.fetch = async path => path === "/api/ssh/connection"
+      ? new Promise(resolve => { release = () => resolve(startup); })
+      : { ok: true, json: async () => ({ agent: { status: "unavailable" } }) };
+    let decision = 0;
+    bindSshAuthentication({
+      token: "fixture", trustId: "trust", onChange() {},
+      shouldApplyConnectionStatus: () => decision === 0,
+    });
+    const guard = createCredentialSshGuard({
+      token: "fixture", onMismatch() {}, onIdentityDecision() { decision++; },
+    });
+    await guard.after("/api/ssh/connect", { identity: { ...root, host: "new.example", generation: 2 } });
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.match(element("ssh-session").textContent, /root@new\.example/u);
+    assert.match(element("ssh-review-identity").textContent, /root@new\.example/u);
+    assert.equal(guard.adoptedIdentity()?.host, "new.example");
+    await guard.after("/api/disconnect", {});
+    assert.equal(guard.adoptedIdentity(), null);
+    element("ssh-session").textContent = "";
+  }
+});
+
+test("guard-owned identity is unavailable after replacement and ended connection", async t => {
+  const element = browserFixture(t);
+  const root = { ...identity, username: "root", privilege: "root", loginUid: 0, scope: "vps" };
+  let current = root;
+  globalThis.fetch = async () => ({ ok: true, json: async () => current });
+  const guard = createCredentialSshGuard({ token: "fixture", onMismatch() {} });
+  assert.equal(guard.adoptedIdentity(), null);
+  await guard.after("/api/ssh/connect", { identity: root });
+  assert.equal(guard.adoptedIdentity()?.host, root.host);
+  element("ssh-session").textContent = "No authenticated VPS session.";
+  assert.equal(guard.adoptedIdentity()?.host, root.host);
+  current = { ...root, host: "replacement.example", generation: 2 };
+  await assert.rejects(() => guard.before("/api/plan"), /authenticated VPS changed/u);
+  assert.equal(guard.adoptedIdentity(), null);
+  await guard.after("/api/ssh/connect", { identity: current });
+  await guard.after("/api/install", {});
+  assert.equal(guard.adoptedIdentity(), null);
+});

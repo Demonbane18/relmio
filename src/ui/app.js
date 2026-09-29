@@ -1,6 +1,6 @@
 import { formatAuthUpdatedAt } from "./time.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
-import { bindSshAuthentication, createCredentialSshGuard } from "./ssh-form.js";
+import { bindSshAuthentication, createCredentialSshGuard, sameSshIdentity } from "./ssh-form.js";
 
 const token = readWizardSession();
 
@@ -11,6 +11,7 @@ const state = {
   networks: null,
   installAttempted: false,
   planId: null,
+  reviewedIdentity: null,
   oauthAttemptId: null,
   oauthRetryBlocked: false,
   oauthLoginGeneration: 0,
@@ -46,30 +47,52 @@ const message = element("global-message-text");
 const errorBox = element("global-error");
 const errorMessage = element("global-error-text");
 const toastTimers = new WeakMap();
-const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan });
-const sshSession = createCredentialSshGuard({ token, onMismatch() {
+let sshIdentityDecision = 0;
+const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
+const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateReviewedPlan();
   clearEndedVpsConnectionState();
   showStep(2);
 } });
+setCredentialInputsEnabled(false);
+
+function focusVisible(target) {
+  target.focus({ preventScroll: true });
+  target.scrollIntoView?.({ block: "start", behavior: "instant" });
+}
+
+function selectChatGptSetup({ focus = true } = {}) {
+  element("setup-choices").hidden = true;
+  element("chatgpt-setup").hidden = false;
+  element("openai-vps-route").setAttribute("aria-expanded", "true");
+  if (state.step !== 1) showStep(1);
+  if (focus) focusVisible(element("chatgpt-setup-title"));
+}
 
 element("openai-vps-route").addEventListener("click", () => {
-  if (state.operationBusy) return;
+  if (state.operationBusy || state.step !== 1) return;
   clearError();
-  element("auth-indicator").scrollIntoView?.({
-    block: "center",
-    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? "auto"
-      : "smooth",
-  });
-  element("auth-title").focus?.({ preventScroll: true });
-  setMessage("OpenAI OAuth for a VPS uses the ChatGPT sign-in below.");
+  selectChatGptSetup();
+});
+
+element("change-setup-button").addEventListener("click", () => {
+  if (state.operationBusy || state.step !== 1) return;
+  clearError();
+  element("chatgpt-setup").hidden = true;
+  element("setup-choices").hidden = false;
+  element("openai-vps-route").setAttribute("aria-expanded", "false");
+  focusVisible(element("openai-vps-route"));
 });
 
 function dismissToast(toast) {
   window.clearTimeout(toastTimers.get(toast));
   toast.hidden = true;
 }
+function setCredentialInputsEnabled(enabled) {
+  element("username").disabled = !enabled;
+  element("ssh-authentication").disabled = !enabled;
+}
+
 
 function resetFingerprint() {
   invalidateReviewedPlan();
@@ -78,6 +101,7 @@ function resetFingerprint() {
   element("fingerprint-confirm").checked = false;
   element("password").value = "";
   element("password").disabled = true;
+  setCredentialInputsEnabled(false);
   element("connect-button").disabled = true;
 }
 
@@ -94,7 +118,7 @@ function setMessage(text) {
 function showError(error) {
   errorMessage.textContent = error.message ?? "Something went wrong.";
   errorBox.hidden = false;
-  errorBox.focus();
+  focusVisible(errorBox);
 }
 
 function clearError() {
@@ -116,6 +140,7 @@ function validatePlanId(value) {
 
 function invalidateReviewedPlan() {
   state.planId = null;
+  state.reviewedIdentity = null;
   element("install-confirm").checked = false;
   element("install-button").disabled = true;
 }
@@ -332,11 +357,26 @@ function setOAuthStopControlVisible(visible) {
   if (!stopButton.dataset.label) {
     stopButton.dataset.label = stopButton.textContent.trim();
   }
+  if (!visible && document.activeElement === stopButton) {
+    const progress = element("operation-progress");
+    if (!progress.hidden) focusVisible(progress);
+  }
   stopButton.hidden = !visible;
   stopButton.disabled = !visible;
   stopButton.setAttribute("aria-busy", "false");
   stopButton.textContent = stopButton.dataset.label;
 }
+function finishOAuthCancellation() {
+  if (!state.oauthCancellationMessage) return;
+  const cancellationMessage = state.oauthCancellationMessage;
+  state.oauthCancellationMessage = "";
+  setMessage(cancellationMessage);
+  const retry = element("login-button");
+  if (!state.operationBusy && !state.oauthRetryBlocked && !retry.disabled && errorBox.hidden) {
+    focusVisible(retry);
+  }
+}
+
 
 function blockOAuthRetry() {
   state.oauthRetryBlocked = true;
@@ -408,6 +448,7 @@ async function recoverPendingOAuthAttempt() {
         loginGeneration = state.oauthLoginGeneration + 1;
         state.oauthLoginGeneration = loginGeneration;
         state.oauthAttemptId = attemptId;
+        selectChatGptSetup({ focus: false });
         const loginLink = element("login-link");
         loginLink.hidden = true;
         loginLink.removeAttribute("href");
@@ -446,6 +487,9 @@ async function recoverPendingOAuthAttempt() {
       loginGeneration === null ||
       state.oauthLoginGeneration === loginGeneration
     ) {
+      if (loginGeneration !== null || error.oauthRetryBlocked === true) {
+        selectChatGptSetup({ focus: false });
+      }
       if (error.oauthRetryBlocked === true) {
         blockOAuthRetry();
       }
@@ -464,11 +508,7 @@ async function recoverPendingOAuthAttempt() {
         element("login-button").disabled = true;
       }
     }
-    if (state.oauthCancellationMessage) {
-      const cancellationMessage = state.oauthCancellationMessage;
-      state.oauthCancellationMessage = "";
-      setMessage(cancellationMessage);
-    }
+    finishOAuthCancellation();
   }
 }
 
@@ -663,7 +703,7 @@ function startOperation(
   const progress = element("operation-progress");
   progress.hidden = false;
   updateOperationLabel(state.operationLabel);
-  progress.focus?.({ preventScroll: true });
+  focusVisible(progress);
 
   if (typeof MutationObserver !== "undefined" && document.body) {
     state.operationControlObserver = new MutationObserver((records) => {
@@ -728,6 +768,10 @@ function stopOperation(trigger, expectedOwner) {
     );
   }
   state.operationControlStates = [];
+  updateStepNavigation();
+  const trusted = Boolean(state.step !== 5 && state.fingerprint && element("fingerprint-confirm").checked);
+  sshAuthentication.sync({ trusted });
+  setCredentialInputsEnabled(trusted);
 
   document.body.dataset.operationBusy = "false";
   element("main-content").setAttribute("aria-busy", "false");
@@ -771,7 +815,7 @@ function stopOperation(trigger, expectedOwner) {
     !focusControl?.hidden &&
     !focusControl?.closest?.("[hidden]")
   ) {
-    focusControl.focus?.({ preventScroll: true });
+    focusVisible(focusControl);
   }
 
   state.operationButton = null;
@@ -838,6 +882,16 @@ function blockOperationInteraction(event) {
 for (const eventName of OPERATION_BLOCKED_EVENTS) {
   document.addEventListener(eventName, blockOperationInteraction, true);
 }
+const STEP_LABELS = ["Choose setup", "Connect to your server", "Choose n8n", "Review the plan", "Done"];
+
+function updateStepNavigation() {
+  element("setup-progress-label").textContent = `Step ${state.step} of 5 · ${STEP_LABELS[state.step - 1]}`;
+  for (const button of document.querySelectorAll("[data-step-target]")) {
+    const target = Number(button.dataset.stepTarget);
+    button.disabled = state.operationBusy || state.step === 5 || !Number.isInteger(target) || target < 1 || target >= state.step;
+  }
+}
+
 function showStep(step) {
   state.step = step;
   document.body.dataset.currentStep = String(step);
@@ -845,24 +899,43 @@ function showStep(step) {
     dismissToast(element("global-safety"));
     dismissToast(element("global-backup"));
   }
+  let heading = null;
   for (const panel of document.querySelectorAll("[data-step]")) {
     const active = Number(panel.dataset.step) === step;
     panel.hidden = !active;
     if (active) {
-      panel.querySelector("h2")?.focus({ preventScroll: true });
+      panel.scrollTop = 0;
+      heading = panel.querySelector("h2");
     }
   }
   for (const marker of document.querySelectorAll("[data-step-marker]")) {
     const markerStep = Number(marker.dataset.stepMarker);
     marker.classList.toggle("complete", markerStep < step);
-    if (markerStep === step) {
-      marker.setAttribute("aria-current", "step");
-    } else {
-      marker.removeAttribute("aria-current");
-    }
+    if (markerStep === step) marker.setAttribute("aria-current", "step");
+    else marker.removeAttribute("aria-current");
   }
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  updateStepNavigation();
+  if (heading) focusVisible(heading);
 }
+
+document.querySelector(".skip-link")?.addEventListener("click", (event) => {
+  event.preventDefault();
+  const panel = document.querySelector("[data-step]:not([hidden])");
+  const heading = state.step === 1 && !element("chatgpt-setup").hidden
+    ? element("chatgpt-setup-title") : panel?.querySelector("h2");
+  if (heading) focusVisible(heading);
+});
+
+function goToEarlierStep(target) {
+  if (state.operationBusy || state.step === 5 || !Number.isInteger(target) || target < 1 || target >= state.step) return;
+  clearError();
+  invalidateReviewedPlan();
+  showStep(target);
+  setMessage(state.installAttempted
+    ? "The install was attempted. Reconnect to inspect the sidecar; n8n was not restarted."
+    : "No VPS changes have been made.");
+}
+
 
 async function api(path, { method = "GET", body } = {}) {
   if (!token) {
@@ -940,6 +1013,9 @@ function renderAuthStatus(status, { fresh = false } = {}) {
   const loginButton = element("login-button");
   const next = element("signin-next");
   const formattedUpdatedAt = renderAuthUpdatedAt(status.authUpdatedAt);
+  const showAuthMessage = text => {
+    if (!element("chatgpt-setup").hidden) setMessage(text);
+  };
 
   if (status.previewMode) {
     indicator.classList.add("ready");
@@ -950,7 +1026,7 @@ function renderAuthStatus(status, { fresh = false } = {}) {
     loginButton.dataset.label = "Preview sign-in disabled";
     loginButton.disabled = true;
     next.disabled = false;
-    setMessage("Sanitized preview mode: no live ChatGPT sign-in will open.");
+    showAuthMessage("Sanitized preview mode: no live ChatGPT sign-in will open.");
     return;
   }
 
@@ -961,14 +1037,14 @@ function renderAuthStatus(status, { fresh = false } = {}) {
       ? "Fresh credential saved"
       : "Local credential found";
     element("auth-detail").textContent =
-      "Continue uses it as-is. Refresh the sign-in if it is expired or was created by another client.";
+      "Continue uses this credential file as-is. Its validity and model access have not been checked; refresh sign-in if it is expired or came from another client.";
     loginButton.textContent = "Refresh ChatGPT sign-in";
     loginButton.dataset.label = "Refresh ChatGPT sign-in";
     next.disabled = false;
-    setMessage(
+    showAuthMessage(
       fresh && formattedUpdatedAt
         ? `Fresh sign-in saved at ${formattedUpdatedAt} (local time).`
-        : "Local sign-in is ready.",
+        : "Local credential found. Validity and model access have not been checked.",
     );
   } else {
     indicator.classList.remove("ready");
@@ -978,7 +1054,7 @@ function renderAuthStatus(status, { fresh = false } = {}) {
     loginButton.textContent = "Sign in with ChatGPT";
     loginButton.dataset.label = "Sign in with ChatGPT";
     next.disabled = true;
-    setMessage("Sign in with ChatGPT to continue.");
+    showAuthMessage("Sign in with ChatGPT to continue.");
   }
 }
 
@@ -1041,6 +1117,12 @@ function renderIntegrationManagement() {
 
 function renderIntegrationReview(plan) {
   const assistant = isAssistantIntegration();
+  const identity = sshSession.adoptedIdentity();
+  if (!identity || !sameSshIdentity(identity, state.reviewedIdentity ?? identity)) {
+    invalidateReviewedPlan();
+    throw new Error("The verified administrative SSH identity is unavailable. Disconnect and reconnect before reviewing this plan.");
+  }
+  const recipient = `${identity.username}@${identity.host}:${identity.port}`;
   if (!assistant && (
     plan.operationLockPath !== "/docker/n8n-openai-oauth/.openai-oauth-operation.lock" ||
     plan.temporaryBuildStatePath !== "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx"
@@ -1076,9 +1158,7 @@ function renderIntegrationReview(plan) {
           updatingSidecar
             ? "Update only /docker/n8n-openai-oauth."
             : "Create or update only /docker/n8n-openai-oauth.",
-          updatingSidecar
-            ? "Upload the adapter runtime and the saved ChatGPT/Codex credential file."
-            : "Upload the adapter runtime and the saved ChatGPT/Codex credential file.",
+          `Upload the adapter runtime and the saved ChatGPT/Codex credential file over SSH to ${recipient}, under /docker/n8n-openai-oauth.`,
           `${updatingSidecar ? "Rebuild" : "Build"} and start only the openai-oauth sidecar.`,
           `After you confirm, use a temporary root-only Buildx folder at ${plan.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect.`,
           "Build only managed runtime files. The saved credential, other companions, and registry credentials are not copied into the build or printed. Cleanup does not change n8n or model caches.",
@@ -1104,8 +1184,8 @@ function renderIntegrationReview(plan) {
   element("install-confirm-copy").textContent = assistant
     ? "I approve this private Assistant companion. n8n settings and any restart stay my separate action."
     : updatingSidecar
-      ? "I approve this sidecar-only runtime and sign-in update. It uploads the saved ChatGPT/Codex credential file only to /docker/n8n-openai-oauth. This bridge is unofficial and policy-uncertain."
-      : "I approve uploading the saved ChatGPT/Codex credential file only to /docker/n8n-openai-oauth. This bridge is unofficial, private, and policy-uncertain.";
+      ? `I approve this sidecar-only runtime and sign-in update. It uploads the saved ChatGPT/Codex credential file over SSH to ${recipient}, only under /docker/n8n-openai-oauth. This bridge is unofficial and policy-uncertain.`
+      : `I approve uploading the saved ChatGPT/Codex credential file over SSH to ${recipient}, only under /docker/n8n-openai-oauth. This bridge is unofficial, private, and policy-uncertain.`;
   const installButton = element("install-button");
   installButton.textContent = assistant
     ? "Install Assistant companion"
@@ -1113,6 +1193,7 @@ function renderIntegrationReview(plan) {
       ? "Update the bridge"
       : "Install the sidecar";
   installButton.dataset.label = installButton.textContent;
+  state.reviewedIdentity = identity;
 }
 
 const ASSISTANT_SANDBOX_IMAGE =
@@ -1304,6 +1385,7 @@ element("login-button").addEventListener("click", async (event) => {
           return undefined;
         }
         state.oauthAttemptId = attemptId;
+        selectChatGptSetup({ focus: false });
         setOAuthStopControlVisible(true);
         setMessage(
           "Finish sign-in in the official ChatGPT sign-in window opened by Relmio. If no window opened, check the Windows default browser, use Stop, and try again.",
@@ -1342,11 +1424,7 @@ element("login-button").addEventListener("click", async (event) => {
         button.disabled = true;
       }
     }
-    if (state.oauthCancellationMessage) {
-      const cancellationMessage = state.oauthCancellationMessage;
-      state.oauthCancellationMessage = "";
-      setMessage(cancellationMessage);
-    }
+    finishOAuthCancellation();
   }
 });
 
@@ -1437,6 +1515,14 @@ element("fingerprint-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
   invalidateReviewedPlan();
+  for (const id of ["host", "port"]) {
+    const input = element(id);
+    if (!input.checkValidity()) {
+      focusVisible(input);
+      input.reportValidity();
+      return;
+    }
+  }
   try {
     const result = await runOperation(
       button,
@@ -1456,6 +1542,7 @@ element("fingerprint-button").addEventListener("click", async (event) => {
     element("fingerprint-confirm").checked = false;
     element("password").value = "";
     element("password").disabled = true;
+    setCredentialInputsEnabled(false);
     element("connect-button").disabled = true;
     setMessage("Confirm the VPS identity before authenticating.");
   } catch (error) {
@@ -1467,6 +1554,7 @@ element("fingerprint-confirm").addEventListener("change", (event) => {
   invalidateReviewedPlan();
   const confirmed = event.currentTarget.checked;
   sshAuthentication.sync({ trusted: confirmed });
+  setCredentialInputsEnabled(confirmed && Boolean(state.fingerprint));
   element("connect-button").disabled = !confirmed;
   if (confirmed) {
     (element("ssh-authentication").value === "agent" ? element("connect-button") : element("password")).focus();
@@ -1618,9 +1706,14 @@ element("network-select").addEventListener("change", () => {
 });
 
 element("install-confirm").addEventListener("change", (event) => {
-  element("install-button").disabled = !(
-    event.currentTarget.checked && state.planId
-  );
+  const approved = event.currentTarget.checked && state.planId &&
+    sameSshIdentity(state.reviewedIdentity, sshSession.adoptedIdentity());
+  if (!approved && event.currentTarget.checked) {
+    invalidateReviewedPlan();
+    showError(new Error("The verified VPS identity changed. Disconnect and reconnect before reviewing a fresh plan."));
+    return;
+  }
+  element("install-button").disabled = !approved;
 });
 
 function clearEndedVpsConnectionState() {
@@ -1631,6 +1724,7 @@ function clearEndedVpsConnectionState() {
   element("fingerprint-confirm").checked = false;
   element("password").value = "";
   element("password").disabled = true;
+  setCredentialInputsEnabled(false);
   element("connect-button").disabled = true;
   element("container-select").replaceChildren();
   element("network-select").replaceChildren();
@@ -1654,7 +1748,8 @@ element("install-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
   const assistant = isAssistantIntegration();
-  if (!state.planId || !element("install-confirm").checked) {
+  if (!state.planId || !element("install-confirm").checked ||
+    !sameSshIdentity(state.reviewedIdentity, sshSession.adoptedIdentity())) {
     invalidateReviewedPlan();
     showError(new Error("Review and confirm a fresh plan first."));
     return;
@@ -1742,6 +1837,7 @@ element("install-button").addEventListener("click", async (event) => {
     if (error.recoveryAction === "refresh-chatgpt-sign-in") {
       clearEndedVpsConnectionState();
       showStep(1);
+      selectChatGptSetup({ focus: false });
       showRejectedChatGptSignInRecovery();
       setMessage(
         state.oauthRetryBlocked
@@ -1809,16 +1905,12 @@ for (const button of document.querySelectorAll("[data-dismiss-toast]")) {
 }
 
 for (const button of document.querySelectorAll(".back-button")) {
-  button.addEventListener("click", () => {
-    clearError();
-    showStep(Number(button.dataset.back));
-    setMessage(
-      state.installAttempted
-        ? "The install was attempted. Reconnect to inspect the sidecar; n8n was not restarted."
-        : "No VPS changes have been made.",
-    );
-  });
+  button.addEventListener("click", () => goToEarlierStep(Number(button.dataset.back)));
 }
+for (const button of document.querySelectorAll("[data-step-target]")) {
+  button.addEventListener("click", () => goToEarlierStep(Number(button.dataset.stepTarget)));
+}
+updateStepNavigation();
 
 renderHttpRequestBody(element("result-model").textContent);
 initializeVpsWizard().catch(showError);

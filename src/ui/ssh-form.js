@@ -35,7 +35,7 @@ export async function readSshIdentity(token, { allowModelOnly = false } = {}) {
   return identity;
 }
 
-export function createCredentialSshGuard({ token, onMismatch }) {
+export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision = () => {} }) {
   let adopted = null;
   let initialAdoptionAvailable = true;
   const isRemote = path => ["/api/discover", "/api/networks", "/api/plan", "/api/install"].includes(path) ||
@@ -44,6 +44,7 @@ export function createCredentialSshGuard({ token, onMismatch }) {
     validateSshIdentity(identity);
     if (identity.scope !== "vps") throw new Error("This connection is local-model-only. Reconnect with a UID 0 account for this VPS flow.");
     adopted = Object.freeze({ ...identity });
+    onIdentityDecision();
     initialAdoptionAvailable = false;
     const summary = `${identity.username}@${identity.host}:${identity.port} · ${identity.authentication} · ${identity.privilege} · UID ${identity.loginUid} → ${identity.effectiveUid} · ${identity.fingerprint}`;
     element("ssh-session").textContent = summary;
@@ -54,6 +55,7 @@ export function createCredentialSshGuard({ token, onMismatch }) {
     initialAdoptionAvailable = false;
     error.sshIdentityUnverified = true;
     adopted = null;
+    onIdentityDecision();
     onMismatch();
     element("ssh-review-identity").textContent = "";
     element("ssh-session").textContent = error.message;
@@ -71,6 +73,7 @@ export function createCredentialSshGuard({ token, onMismatch }) {
     }
   }
   return {
+    adoptedIdentity: () => adopted,
     async adoptCurrent() {
       if (!initialAdoptionAvailable) return verify();
       initialAdoptionAvailable = false;
@@ -79,15 +82,20 @@ export function createCredentialSshGuard({ token, onMismatch }) {
     async before(path) { if (isRemote(path)) await verify(); },
     async after(path, result) {
       if (path === "/api/ssh/connect") adopt(result.identity);
-      else if (path === "/api/disconnect") adopted = null;
+      else if (path === "/api/disconnect") {
+        adopted = null;
+        onIdentityDecision();
+        element("ssh-review-identity").textContent = "";
+        element("ssh-session").textContent = "No authenticated VPS session.";
+      }
       // These root installs intentionally retire their connection after completion.
-      else if (path === "/api/install" || path === "/api/assistant/install") adopted = null;
+      else if (path === "/api/install" || path === "/api/assistant/install") { adopted = null; onIdentityDecision(); }
       else if (isRemote(path)) await verify();
     },
   };
 }
 
-export function bindSshAuthentication({ token, trustId, onChange, allowSudo = false }) {
+export function bindSshAuthentication({ token, trustId, onChange, allowSudo = false, shouldApplyConnectionStatus = () => true }) {
   let locked = false;
   const useAgent = () => element("ssh-authentication").value === "agent";
   function sync(options = {}) {
@@ -124,9 +132,11 @@ export function bindSshAuthentication({ token, trustId, onChange, allowSudo = fa
         : "No usable local SSH agent is configured for this Relmio process. Load your key locally and relaunch Relmio, or choose password authentication.";
     }).catch(() => { element("ssh-agent-status").textContent = "Local SSH agent capability could not be checked. Authentication is not verified."; });
     void readSshIdentity(token, { allowModelOnly: true }).then((identity) => {
+      if (!shouldApplyConnectionStatus()) return;
       element("ssh-session").textContent = `Connected as ${identity.username}@${identity.host}:${identity.port}, ${identity.authentication}, ${identity.privilege}, UID ${identity.loginUid} → ${identity.effectiveUid}. ${identity.scope === "local-model-only" ? "Model-only session; OAuth bridge, Assistant and SuperGrok require a root reconnect." : "Verified root VPS session."}`;
       element("ssh-disconnect").hidden = false;
     }).catch((error) => {
+      if (!shouldApplyConnectionStatus()) return;
       element("ssh-session").textContent = error.message === "Connect to the VPS first." ? "No authenticated VPS session." : error.message;
     });
   }

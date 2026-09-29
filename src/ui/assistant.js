@@ -28,8 +28,9 @@ const element = (id) => document.getElementById(id);
 const message = element("global-message-text");
 const errorBox = element("global-error");
 const errorMessage = element("global-error-text");
-const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan });
-const sshSession = createCredentialSshGuard({ token, onMismatch() {
+let sshIdentityDecision = 0;
+const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
+const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateReviewedPlan();
   state.network = null;
   resetFingerprint();

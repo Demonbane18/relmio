@@ -29,16 +29,28 @@ On macOS, Linux, or WSL with Node.js 24 or newer:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The command opens the **ChatGPT on my server** route in a foreground browser
-wizard without creating persistent Relmio state. It works when there is no
-`.relmio` directory and no local n8n stack. Use `relmio local` only when you
-explicitly want the setup route for this computer. Relmio checks prerequisites
-in the browser, shows the plan, and asks before it writes files or starts
-Docker. Local endpoints use `127.0.0.1`. The n8n bridge and Assistant tools use
-one selected Docker network and publish no host port. SearXNG is off by default.
-For server setup, follow **Choose setup**, **Check server**, **Choose n8n**,
-**Review**, and **Ready**. Expand **More details** for optional explanations;
-the required choices and plan review stay in the main flow.
+The stable `@latest` command opens the **ChatGPT on my server** route in a
+foreground browser wizard; it remains `0.17.5` and does not include the
+redesigned experimental `.3` chooser. The `.2` prerelease is published, while
+publication of `.3` is not verified. After publication, opt in with
+`npx --yes --ignore-scripts relmio@0.18.0-experimental.3`.
+
+On a first-run machine with no `.relmio` directory and no local n8n stack, the
+wizard still opens and presents missing prerequisites as steps. Use `relmio
+local` only when you explicitly want the setup route for this computer. In
+experimental `.3`, choose the server route before ChatGPT sign-in. The five
+visible steps are **Choose setup**, **Check server**, **Choose n8n**,
+**Review**, and **Ready**. Enter the server address and port, independently
+compare and confirm the SSH fingerprint, then enter the SSH username and
+choose authentication. After connecting, select the n8n container and
+network, then review the plan. Review identifies the currently verified SSH
+identity as the recipient of the complete credential file. Going back or
+changing the connection clears the reviewed plan and approval, so review
+again before the separate final confirmation for remote writes. Expand
+**More details** for optional explanations; required choices and plan review
+stay in the main flow. Local endpoints use `127.0.0.1`; the n8n bridge and
+Assistant tools use one selected Docker network and publish no host port.
+SearXNG is off by default.
 
 On Git Bash, use the hosted launcher. It downloads a checksum-verified temporary
 Node.js runtime and uses Git for Windows' bundled `winpty` bridge so the wizard
