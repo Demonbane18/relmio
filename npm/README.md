@@ -21,22 +21,20 @@ connections and operator-generated hosting artifacts are configured separately
 in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
 SuperGrok setup does not require or read ChatGPT/Codex credentials.
 
-> **Relmio 0.18.0-experimental.3 is an opt-in prerelease candidate.** The
-> `.2` prerelease is published. Earlier private-candidate model-only checks
-> do not verify this `.3` artifact, full-stack behavior, hosting-provider
-> support, throughput, or model quality. Use a test setup. Stable `0.17.5`
-> remains npm `latest` and the hosted installers' default. Publication of
-> `.3` to npm is not verified. After publication, pin this candidate:
+> **Relmio 0.18.0-experimental.4 is an opt-in prerelease.** Earlier
+> private-candidate model-only checks do not verify this artifact, full-stack
+> behavior, hosting-provider support, throughput, or model quality. Use a
+> test setup. Stable `0.17.5` remains npm `latest` and the hosted installers'
+> default. Use this exact pinned command for the experimental wizard:
 >
 > ```bash
-> npx --yes --ignore-scripts relmio@0.18.0-experimental.3
+> npx --yes --ignore-scripts relmio@0.18.0-experimental.4
 > ```
 
 See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md), the [2026-09-29 source review and wizard consent correction](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-09-29.md), the [2026-09-28 source review follow-up](https://relmio.jpfusin.tech/docs/security#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
 
-The five-step chooser described in the full guide belongs to experimental
-`.3` only. Stable `@latest` remains `0.17.5` and does not include that
-redesigned chooser.
+The five-step chooser described in the full guide is experimental. Stable
+`@latest` remains `0.17.5` and does not include the redesigned chooser.
 
 The hosted chat and the browser wizard's **Test AI Chat** console keep partial
 response text visible while it streams. Their status distinguishes connection
@@ -219,8 +217,8 @@ Responses API switch is specific to each integration:
 | Local Ollama model for n8n | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for Chat Completions |
 
 First use does not require an existing `.relmio` directory. To opt in to the
-experimental local-model workflow after the prerelease is published, open the
-dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.3 local`;
+experimental local-model workflow, open the dashboard with
+`npx --yes --ignore-scripts relmio@0.18.0-experimental.4 local`;
 it initializes dashboard state as needed. The local-model option requires an
 existing running n8n container and does not install n8n. If you do not yet run
 local n8n, set up n8n separately before selecting a model.
@@ -262,7 +260,7 @@ separate paid private model service with its own disk/internal DNS is a manual
 option. See [Hosting compatibility](https://relmio.jpfusin.tech/docs/hosting-compatibility)
 for managed and manual routes, login hints, agent setup, and provider limits.
 
-In experimental `.3`, the VPS wizard shows five steps: **Choose setup**,
+In experimental `.4`, the VPS wizard shows five steps: **Choose setup**,
 **Check server**, **Choose n8n**, **Review**, and **Ready**. Choose the ChatGPT
 route before signing in. Enter the server address and port, independently
 compare and confirm its SSH fingerprint, then enter the username and choose

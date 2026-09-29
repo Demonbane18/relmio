@@ -25,22 +25,20 @@ connections and operator-generated hosting artifacts are configured separately
 in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
 
 > [!WARNING]
-> **Relmio 0.18.0-experimental.3 is an opt-in prerelease candidate.** The
-> `.2` prerelease is published. Earlier private-candidate model-only checks
-> do not verify this `.3` artifact, full-stack behavior, hosting-provider
-> support, throughput, or model quality. Use a test setup. Stable `0.17.5`
-> remains npm `latest` and the hosted installers' default. Publication of
-> `.3` to npm is not verified. After publication, pin this candidate:
+> **Relmio 0.18.0-experimental.4 is an opt-in prerelease.** Earlier
+> private-candidate model-only checks do not verify this artifact, full-stack
+> behavior, hosting-provider support, throughput, or model quality. Use a
+> test setup. Stable `0.17.5` remains npm `latest` and the hosted installers'
+> default. Use this exact pinned command for the experimental wizard:
 >
 > ```bash
-> npx --yes --ignore-scripts relmio@0.18.0-experimental.3
+> npx --yes --ignore-scripts relmio@0.18.0-experimental.4
 > ```
 
 See the [2026-09-29 source review and wizard consent correction](docs/openai-source-check-2026-09-29.md), the [2026-09-28 source review follow-up, data flows, and unknowns](docs/security.md#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](docs/security.md#2026-09-27-openai-and-hosting-source-review).
 
-The five-step chooser below belongs to experimental `.3` only. Stable
-`@latest` remains `0.17.5` and does not include the redesigned chooser.
-The published `.2` prerelease has its own release history.
+The five-step chooser below is experimental. Stable `@latest` remains
+`0.17.5` and does not include the redesigned chooser.
 
 The hosted chat and the browser wizard's **Test AI Chat** console keep partial
 response text visible while it streams. Their status distinguishes connection
@@ -238,7 +236,7 @@ for capacity, the exact local/VPS setup, n8n settings, and explicit cache
 removal.
 
 
-In experimental `.3`, the VPS wizard shows five steps: **Choose setup**,
+In experimental `.4`, the VPS wizard shows five steps: **Choose setup**,
 **Check server**, **Choose n8n**, **Review**, and **Ready**. Choose the ChatGPT
 route before signing in. Enter the server address and port, independently
 compare and confirm its SSH fingerprint, then enter the SSH username and
@@ -309,8 +307,8 @@ path. Sign out with `relmio grok logout --n8n`. This
 companion publishes no host port.
 ### I want a provider-free model for n8n
 First use does not require an existing `.relmio` directory. To opt in to the
-experimental local-model workflow after the prerelease is published, open the
-dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.3 local`;
+experimental local-model workflow, open the dashboard with
+`npx --yes --ignore-scripts relmio@0.18.0-experimental.4 local`;
 it initializes dashboard state as needed. The local-model installation
 requires an existing running n8n container and does not install n8n. If you do
 not yet run local n8n, set it up separately before selecting a model.

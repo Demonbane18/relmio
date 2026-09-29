@@ -7,6 +7,13 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.0-experimental.4] - 2026-09-29
+
+### Fixed
+
+- Remove stale pre-publication wording from experimental installation docs.
+  Wizard and runtime behavior are unchanged.
+
 ## [0.18.0-experimental.3] - 2026-09-29
 
 ### Changed
@@ -1216,6 +1223,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1
 [0.18.0-experimental.2]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.1...v0.18.0-experimental.2
 [0.18.0-experimental.3]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.2...v0.18.0-experimental.3
+[0.18.0-experimental.4]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.3...v0.18.0-experimental.4
 
 [0.17.5]: https://github.com/Demonbane18/relmio/compare/v0.17.4...v0.17.5
 [0.17.4]: https://github.com/Demonbane18/relmio/compare/v0.17.3...v0.17.4
