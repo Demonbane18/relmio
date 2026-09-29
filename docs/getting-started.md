@@ -30,15 +30,14 @@ npx --yes --ignore-scripts relmio@latest
 ```
 
 The stable `@latest` command opens the **ChatGPT on my server** route in a
-foreground browser wizard; it remains `0.17.5` and does not include the
-redesigned experimental `.3` chooser. The `.2` prerelease is published, while
-publication of `.3` is not verified. After publication, opt in with
-`npx --yes --ignore-scripts relmio@0.18.0-experimental.3`.
+foreground browser wizard. Stable `@latest` and hosted installers remain
+`0.17.5` and do not include the redesigned experimental chooser. To opt in,
+use `npx --yes --ignore-scripts relmio@0.18.0-experimental.4`.
 
 On a first-run machine with no `.relmio` directory and no local n8n stack, the
 wizard still opens and presents missing prerequisites as steps. Use `relmio
 local` only when you explicitly want the setup route for this computer. In
-experimental `.3`, choose the server route before ChatGPT sign-in. The five
+experimental `.4`, choose the server route before ChatGPT sign-in. The five
 visible steps are **Choose setup**, **Check server**, **Choose n8n**,
 **Review**, and **Ready**. Enter the server address and port, independently
 compare and confirm the SSH fingerprint, then enter the SSH username and

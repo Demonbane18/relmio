@@ -44,11 +44,10 @@ disabled. See [Private local models](local-models.md) and
 
 ## Use the wizard
 
-In experimental `.3`, the browser wizard shows **Choose setup**, **Check
-server**, **Choose n8n**, **Review**, and **Ready**. The route chooser appears
-before ChatGPT sign-in. Stable `@latest` remains `0.17.5` and does not open
-this redesigned chooser. The `.2` prerelease is published; publication of
-`.3` is not verified.
+In the experimental browser wizard, the five steps are **Choose setup**,
+**Check server**, **Choose n8n**, **Review**, and **Ready**. The route chooser
+appears before ChatGPT sign-in. Stable `@latest` and hosted installers remain
+`0.17.5` and do not open this redesigned chooser.
 
 1. Choose the ChatGPT route and complete ChatGPT/Codex sign-in on this computer
    before uploading the credential file. SuperGrok uses its own device sign-in
