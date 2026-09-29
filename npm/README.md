@@ -21,22 +21,22 @@ connections and operator-generated hosting artifacts are configured separately
 in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
 SuperGrok setup does not require or read ChatGPT/Codex credentials.
 
-> **Relmio 0.18.0-experimental.2 is an opt-in prerelease candidate.** Limited
-> model-only smoke checks do not establish full-stack, hosting-provider or
-> throughput support. Use a test setup. A prior private candidate passed scoped
-> model-only checks in local Docker and on a Hostinger VPS; those checks do not
-> establish this candidate's artifact, other-provider coverage, model quality,
-> or full-stack support. Stable `0.17.5` remains npm `latest` and the hosted
-> installers' default. The `.2` candidate is not yet published to npm; use
-> these commands after publication:
+> **Relmio 0.18.0-experimental.3 is an opt-in prerelease candidate.** The
+> `.2` prerelease is published. Earlier private-candidate model-only checks
+> do not verify this `.3` artifact, full-stack behavior, hosting-provider
+> support, throughput, or model quality. Use a test setup. Stable `0.17.5`
+> remains npm `latest` and the hosted installers' default. Publication of
+> `.3` to npm is not verified. After publication, pin this candidate:
 >
 > ```bash
-> npx --yes --ignore-scripts relmio@experimental
-> # Or pin the exact prerelease:
-> npx --yes --ignore-scripts relmio@0.18.0-experimental.2
+> npx --yes --ignore-scripts relmio@0.18.0-experimental.3
 > ```
 
-See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md), the [2026-09-28 source review follow-up](https://relmio.jpfusin.tech/docs/security#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
+See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md), the [2026-09-29 source review and wizard consent correction](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-09-29.md), the [2026-09-28 source review follow-up](https://relmio.jpfusin.tech/docs/security#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
+
+The five-step chooser described in the full guide belongs to experimental
+`.3` only. Stable `@latest` remains `0.17.5` and does not include that
+redesigned chooser.
 
 The hosted chat and the browser wizard's **Test AI Chat** console keep partial
 response text visible while it streams. Their status distinguishes connection
@@ -220,7 +220,7 @@ Responses API switch is specific to each integration:
 
 First use does not require an existing `.relmio` directory. To opt in to the
 experimental local-model workflow after the prerelease is published, open the
-dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.2 local`;
+dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.3 local`;
 it initializes dashboard state as needed. The local-model option requires an
 existing running n8n container and does not install n8n. If you do not yet run
 local n8n, set up n8n separately before selecting a model.
@@ -262,8 +262,15 @@ separate paid private model service with its own disk/internal DNS is a manual
 option. See [Hosting compatibility](https://relmio.jpfusin.tech/docs/hosting-compatibility)
 for managed and manual routes, login hints, agent setup, and provider limits.
 
-Sign in with your own ChatGPT/Codex account, select the running n8n container
-and Docker network, then install the sidecar. Configure n8n with:
+In experimental `.3`, the VPS wizard shows five steps: **Choose setup**,
+**Check server**, **Choose n8n**, **Review**, and **Ready**. Choose the ChatGPT
+route before signing in. Enter the server address and port, independently
+compare and confirm its SSH fingerprint, then enter the username and choose
+authentication. After connecting, select the n8n container and private
+Docker network. Review names the currently verified SSH identity as the
+recipient of the complete ChatGPT/Codex credential file. Going back or
+changing the connection clears the plan and approval; confirm separately
+before any remote write. Configure n8n with:
 
 ```text
 Base URL: http://n8n-openai-oauth:10531/v1

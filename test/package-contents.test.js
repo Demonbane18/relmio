@@ -61,6 +61,7 @@ const expectedPackedFiles = new Set([
   "docs/maintenance.md",
   "docs/manual-install.md",
   "docs/oauth-callback-port-source-check-2026-09-26.md",
+  "docs/openai-source-check-2026-09-29.md",
   "docs/node24-luna-source-check-2026-09-14.md",
   "docs/n8n-configuration.md",
   "docs/npm-publish.md",

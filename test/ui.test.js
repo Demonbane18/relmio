@@ -8,6 +8,13 @@ import {
   readWizardSession,
 } from "../src/ui/session.js";
 import { formatAuthUpdatedAt } from "../src/ui/time.js";
+import { createCredentialSshGuard, sameSshIdentity } from "../src/ui/ssh-form.js";
+
+const rootIdentity = {
+  host: "new.example", port: 22, username: "root",
+  fingerprint: `SHA256:${"a".repeat(43)}`, authentication: "agent",
+  privilege: "root", loginUid: 0, effectiveUid: 0, scope: "vps", generation: 1,
+};
 
 test("credential timestamps are formatted in the user's local date and time", () => {
   assert.equal(
@@ -157,6 +164,7 @@ test("failed VPS install invalidates approval and returns to connection", async 
   const handlers = new Map();
   const state = {
     planId: "reviewed-plan",
+    reviewedIdentity: rootIdentity,
     managingDetectedIntegration: true,
     installAttempted: false,
   };
@@ -169,12 +177,15 @@ test("failed VPS install invalidates approval and returns to connection", async 
   ]);
   const context = {
     state,
+    sshSession: { adoptedIdentity: () => rootIdentity },
+    sameSshIdentity,
     element: (id) => elements.get(id),
     isAssistantIntegration: () => false,
     clearError: () => calls.push(["clear-error"]),
     invalidateReviewedPlan() {
       calls.push(["invalidate-plan"]);
       state.planId = null;
+      state.reviewedIdentity = null;
       elements.get("install-confirm").checked = false;
       elements.get("install-button").disabled = true;
     },
@@ -215,6 +226,7 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
   const handlers = new Map();
   const state = {
     planId: "reviewed-plan",
+    reviewedIdentity: rootIdentity,
     fingerprint: "SHA256:reviewed",
     discovery: { containers: [{ name: "n8n" }] },
     networks: { networks: ["n8n_default"] },
@@ -232,6 +244,8 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
     ["fingerprint-confirm", { checked: true }],
     ["password", { value: "secret", disabled: false }],
     ["connect-button", { disabled: false }],
+    ["username", { disabled: false }],
+    ["ssh-authentication", { disabled: false }],
     ["detected-vps-integration-management", { hidden: false }],
     ["auth-indicator", { classList: { remove: (name) => calls.push(["class-remove", name]) } }],
     ["auth-title", { textContent: "Local credential found" }],
@@ -265,12 +279,20 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
   }, { filename: "vps-install-api.vm.js", timeout: 1_000 });
   const context = {
     state,
+    sshSession: { adoptedIdentity: () => rootIdentity },
+    sameSshIdentity,
+    selectChatGptSetup: () => calls.push(["select-chatgpt"]),
+    setCredentialInputsEnabled(enabled) {
+      elements.get("username").disabled = !enabled;
+      elements.get("ssh-authentication").disabled = !enabled;
+    },
     element: (id) => elements.get(id),
     isAssistantIntegration: () => false,
     clearError: () => calls.push(["clear-error"]),
     invalidateReviewedPlan() {
       calls.push(["invalidate-plan"]);
       state.planId = null;
+      state.reviewedIdentity = null;
       elements.get("install-confirm").checked = false;
       elements.get("install-button").disabled = true;
     },
@@ -306,6 +328,8 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
   assert.equal(elements.get("password").value, "");
   assert.equal(elements.get("password").disabled, true);
   assert.equal(elements.get("connect-button").disabled, true);
+  assert.equal(elements.get("username").disabled, true);
+  assert.equal(elements.get("ssh-authentication").disabled, true);
   assert.equal(elements.get("detected-vps-integration-management").hidden, true);
   assert.equal(elements.get("login-button").disabled, false);
   assert.equal(elements.get("signin-next").disabled, true);
@@ -314,6 +338,7 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
 
   calls.length = 0;
   state.planId = "another-reviewed-plan";
+  state.reviewedIdentity = rootIdentity;
   state.oauthRetryBlocked = true;
   elements.get("install-confirm").checked = true;
   elements.get("install-button").disabled = false;
@@ -414,15 +439,7 @@ test("failed Docker network refresh stays on selection and invalidates approval"
 });
 
 test("VPS integration review can be rendered repeatedly without deleting its summary fields", async () => {
-  const [html, script] = await Promise.all([
-    readFile("src/ui/index.html", "utf8"),
-    readFile("src/ui/app.js", "utf8"),
-  ]);
-  const reviewList = html.indexOf('<ul id="review-will-list"');
-  assert.ok(reviewList > 0);
-  assert.ok(html.indexOf('id="review-network"') < reviewList);
-  assert.ok(html.indexOf('id="review-endpoint"') < reviewList);
-
+  const script = await readFile("src/ui/app.js", "utf8");
   const functionStart = script.indexOf("function replaceReviewItems(");
   const functionEnd = script.indexOf("const ASSISTANT_SANDBOX_IMAGE", functionStart);
   assert.ok(functionStart >= 0 && functionEnd > functionStart);
@@ -437,6 +454,8 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
       "review-wont-list",
       "install-confirm-copy",
       "install-button",
+      "ssh-session",
+      "ssh-review-identity",
     ].map((id) => [
       id,
       {
@@ -464,7 +483,7 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
      const element = (id) => document.getElementById(id);
      ${script.slice(functionStart, functionEnd)}
      ({ state, renderIntegrationReview });`,
-    context,
+    { ...context, sshSession: { adoptedIdentity: () => rootIdentity }, sameSshIdentity },
   );
 
   review.renderIntegrationReview({
@@ -497,6 +516,275 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
     temporaryBuildStatePath: "/root/.docker/buildx",
   }), /build boundary/u);
   assert.equal(elements.get("review-network").textContent, "n8n_default");
+});
+
+test("review recipient follows the adopted guard identity and refuses missing or changed identity", async t => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("function replaceReviewItems(");
+  const end = script.indexOf("const ASSISTANT_SANDBOX_IMAGE", start);
+  const confirmStart = script.indexOf('element("install-confirm").addEventListener("change"');
+  const confirmEnd = script.indexOf("function clearEndedVpsConnectionState", confirmStart);
+  const elements = new Map();
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {
+      textContent: "", children: [], dataset: {}, hidden: true,
+      checked: false, disabled: true,
+      replaceChildren(...children) { this.children = children; },
+      addEventListener(_event, handler) { this.handler = handler; },
+    });
+    return elements.get(id);
+  };
+  const previousDocument = globalThis.document;
+  const previousFetch = globalThis.fetch;
+  const document = { getElementById: element, createElement: () => ({ textContent: "" }) };
+  globalThis.document = document;
+  let current = rootIdentity;
+  globalThis.fetch = async () => ({ ok: true, json: async () => current });
+  t.after(() => {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+    if (previousFetch === undefined) delete globalThis.fetch;
+    else globalThis.fetch = previousFetch;
+  });
+  const state = { integrationKind: "sidecar", managingDetectedIntegration: false, planId: "reviewed", reviewedIdentity: null };
+  const invalidateReviewedPlan = () => {
+    state.planId = null;
+    state.reviewedIdentity = null;
+    element("install-confirm").checked = false;
+    element("install-button").disabled = true;
+  };
+  const guard = createCredentialSshGuard({ token: "fixture", onMismatch: invalidateReviewedPlan });
+  const review = vm.runInNewContext(`
+    const element = id => document.getElementById(id);
+    ${script.slice(start, end)}
+    ${script.slice(confirmStart, confirmEnd)}
+    ({ renderIntegrationReview });`,
+    { document, state, sshSession: guard, sameSshIdentity, invalidateReviewedPlan },
+  );
+  const plan = {
+    endpointHostname: "n8n-openai-oauth", networkName: "n8n_default",
+    operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
+    temporaryBuildStatePath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx",
+  };
+  assert.throws(() => review.renderIntegrationReview(plan), /verified administrative SSH identity/u);
+  await guard.after("/api/ssh/connect", { identity: rootIdentity });
+  element("ssh-session").textContent = "No authenticated VPS session.";
+  review.renderIntegrationReview(plan);
+  state.planId = "reviewed";
+  assert.match(element("install-confirm-copy").textContent, /root@new\.example:22/u);
+  assert.doesNotMatch(element("install-confirm-copy").textContent, /No authenticated VPS session/u);
+  assert.match(element("review-will-list").children.map(item => item.textContent).join(" "), /root@new\.example:22/u);
+  element("install-confirm").checked = true;
+  element("install-confirm").handler({ currentTarget: element("install-confirm") });
+  assert.equal(element("install-button").disabled, false);
+  current = { ...rootIdentity, host: "replacement.example", generation: 2 };
+  await assert.rejects(() => guard.before("/api/plan"), /authenticated VPS changed/u);
+  assert.equal(state.planId, null);
+  assert.equal(element("install-confirm").checked, false);
+  assert.throws(() => review.renderIntegrationReview(plan), /verified administrative SSH identity/u);
+  await guard.after("/api/ssh/connect", { identity: current });
+  await guard.after("/api/disconnect", {});
+  assert.throws(() => review.renderIntegrationReview(plan), /verified administrative SSH identity/u);
+});
+
+test("earlier-step navigation clears plan approval and focuses visible destination", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("const STEP_LABELS");
+  const end = script.indexOf("async function api(", start);
+  const elements = new Map();
+  const focused = [];
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {
+      textContent: "", hidden: false, checked: false, disabled: false,
+      focus() { focused.push(id); }, scrollIntoView() {},
+      setAttribute() {}, removeAttribute() {},
+    });
+    return elements.get(id);
+  };
+  const panels = [1, 2, 3, 4, 5].map(step => ({
+    dataset: { step: String(step) }, hidden: step !== 4, scrollTop: 50,
+    querySelector: () => element(`heading-${step}`),
+  }));
+  const markers = [1, 2, 3, 4, 5].map(step => ({
+    dataset: { stepMarker: String(step) },
+    classList: { toggle() {} }, setAttribute() {}, removeAttribute() {},
+  }));
+  const buttons = [1, 2, 3, 4, 5].map(step => ({ dataset: { stepTarget: String(step) }, disabled: true }));
+  const document = {
+    body: { dataset: {} },
+    getElementById: element,
+    querySelectorAll: selector => selector === "[data-step]" ? panels : selector === "[data-step-marker]" ? markers : buttons,
+    querySelector: () => null,
+  };
+  const state = { step: 4, operationBusy: false, planId: "reviewed", installAttempted: false };
+  const wizard = vm.runInNewContext(`
+    const element = id => document.getElementById(id);
+    function focusVisible(target) { target.focus({ preventScroll: true }); target.scrollIntoView(); }
+    ${script.slice(start, end)}
+    ({ showStep, goToEarlierStep });`, {
+    document, state, dismissToast() {}, clearError() {},
+    invalidateReviewedPlan() {
+      state.planId = null;
+      element("install-confirm").checked = false;
+      element("install-button").disabled = true;
+    },
+    setMessage() {},
+  });
+  element("install-confirm").checked = true;
+  wizard.goToEarlierStep(3);
+  assert.equal(state.step, 3);
+  assert.equal(state.planId, null);
+  assert.equal(element("install-confirm").checked, false);
+  assert.equal(element("install-button").disabled, true);
+  assert.equal(panels[2].hidden, false);
+  assert.equal(panels[3].hidden, true);
+  assert.equal(focused.at(-1), "heading-3");
+  assert.equal(buttons[1].disabled, false);
+  state.operationBusy = true;
+  wizard.goToEarlierStep(1);
+  assert.equal(state.step, 3);
+  state.operationBusy = false;
+  wizard.showStep(5);
+  wizard.goToEarlierStep(1);
+  assert.equal(state.step, 5);
+  assert.equal(buttons.every(button => button.disabled), true);
+});
+
+test("route selection exposes ChatGPT setup and restores chooser focus", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("function focusVisible(");
+  const end = script.indexOf("function dismissToast(", start);
+  const focused = [];
+  const nodes = new Map();
+  const element = id => {
+    if (!nodes.has(id)) nodes.set(id, {
+      hidden: id === "chatgpt-setup", attributes: new Map(),
+      setAttribute(name, value) { this.attributes.set(name, value); },
+      addEventListener(name, listener) { this[name] = listener; },
+      focus() { focused.push(id); }, scrollIntoView() {},
+    });
+    return nodes.get(id);
+  };
+  const state = { step: 1, operationBusy: false };
+  vm.runInNewContext(script.slice(start, end), {
+    element, state, clearError() {}, showStep() {},
+  });
+  element("openai-vps-route").click();
+  assert.equal(element("setup-choices").hidden, true);
+  assert.equal(element("chatgpt-setup").hidden, false);
+  assert.equal(element("openai-vps-route").attributes.get("aria-expanded"), "true");
+  assert.equal(focused.at(-1), "chatgpt-setup-title");
+  element("change-setup-button").click();
+  assert.equal(element("setup-choices").hidden, false);
+  assert.equal(element("chatgpt-setup").hidden, true);
+  assert.equal(element("openai-vps-route").attributes.get("aria-expanded"), "false");
+  assert.equal(focused.at(-1), "openai-vps-route");
+  state.operationBusy = true;
+  element("openai-vps-route").click();
+  assert.equal(element("chatgpt-setup").hidden, true);
+});
+
+test("fingerprint check validates address and port before unlocking authentication", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf('element("fingerprint-button").addEventListener');
+  const end = script.indexOf('element("host").addEventListener("input"', start);
+  const nodes = new Map();
+  const focus = [];
+  const element = id => {
+    if (!nodes.has(id)) nodes.set(id, {
+      value: "", checked: false, disabled: true, hidden: true,
+      valid: true, addEventListener(name, handler) { this[name] = handler; },
+      checkValidity() { return this.valid; },
+      reportValidity() { this.reported = true; },
+      focus() { focus.push(id); }, scrollIntoView() {},
+    });
+    return nodes.get(id);
+  };
+  const calls = [];
+  const state = { fingerprint: null };
+  const context = {
+    element, state, clearError() {}, invalidateReviewedPlan() {},
+    runOperation: async (_button, _label, work) => work(),
+    api: async (path, options) => {
+      calls.push([path, options.body]);
+      return { fingerprint: rootIdentity.fingerprint };
+    },
+    focusVisible: input => { input.focus(); input.scrollIntoView(); },
+    setCredentialInputsEnabled: enabled => {
+      element("username").disabled = !enabled;
+      element("ssh-authentication").disabled = !enabled;
+    },
+    sshAuthentication: { sync({ trusted }) { element("password").disabled = !trusted; } },
+    setMessage() {}, showError(error) { throw error; },
+  };
+  vm.runInNewContext(script.slice(start, end), context);
+  element("host").value = "new.example";
+  element("port").value = "0";
+  element("port").valid = false;
+  await element("fingerprint-button").click({ currentTarget: element("fingerprint-button") });
+  assert.equal(calls.length, 0);
+  assert.equal(element("port").reported, true);
+  assert.equal(focus.at(-1), "port");
+  element("port").value = "22";
+  element("port").valid = true;
+  await element("fingerprint-button").click({ currentTarget: element("fingerprint-button") });
+  assert.equal(calls[0][0], "/api/ssh/fingerprint");
+  assert.equal(element("fingerprint-box").hidden, false);
+  assert.equal(element("username").disabled, true);
+  element("fingerprint-confirm").checked = true;
+  element("fingerprint-confirm").change({ currentTarget: element("fingerprint-confirm") });
+  assert.equal(element("username").disabled, false);
+  assert.equal(element("ssh-authentication").disabled, false);
+  element("fingerprint-confirm").checked = false;
+  element("fingerprint-confirm").change({ currentTarget: element("fingerprint-confirm") });
+  assert.equal(element("username").disabled, true);
+});
+
+test("wizard errors and completed cancellation move focus to visible recovery controls", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const errorStart = script.indexOf("function showError(");
+  const errorEnd = script.indexOf("function clearError(", errorStart);
+  const stopStart = script.indexOf("function setOAuthStopControlVisible(");
+  const stopEnd = script.indexOf("function blockOAuthRetry(", stopStart);
+  const focused = [];
+  const elements = new Map();
+  const element = id => {
+    if (!elements.has(id)) elements.set(id, {
+      hidden: id === "operation-progress", disabled: false, dataset: {},
+      textContent: "Stop ChatGPT sign-in",
+      setAttribute() {},
+      removeAttribute() {},
+      focus() { focused.push(id); }, scrollIntoView() {},
+    });
+    return elements.get(id);
+  };
+  const state = { oauthCancellationMessage: "Sign-in stopped", operationBusy: false, oauthRetryBlocked: false };
+  const document = { activeElement: null };
+  const ui = vm.runInNewContext(`
+    function focusVisible(target) { target.focus({ preventScroll: true }); target.scrollIntoView(); }
+    ${script.slice(errorStart, errorEnd)}
+    ${script.slice(stopStart, stopEnd)}
+    ({ showError, setOAuthStopControlVisible, finishOAuthCancellation });`, {
+    element, state, document,
+    errorMessage: element("global-error-text"), errorBox: element("global-error"),
+    setMessage: text => { element("global-message-text").textContent = text; },
+  });
+  ui.showError(new Error("connection failed"));
+  assert.equal(element("global-error").hidden, false);
+  assert.equal(focused.at(-1), "global-error");
+  element("global-error").hidden = true;
+  document.activeElement = element("stop-login-button");
+  element("operation-progress").hidden = false;
+  ui.setOAuthStopControlVisible(false);
+  assert.equal(focused.at(-1), "operation-progress");
+  element("operation-progress").hidden = true;
+  ui.finishOAuthCancellation();
+  assert.equal(element("global-message-text").textContent, "Sign-in stopped");
+  assert.equal(focused.at(-1), "login-button");
+  state.oauthCancellationMessage = "Stopped again";
+  state.oauthRetryBlocked = true;
+  ui.finishOAuthCancellation();
+  assert.equal(focused.at(-1), "login-button");
 });
 
 test("VPS Assistant result validation executes before any result DOM mutation", async () => {
@@ -609,47 +897,6 @@ test("VPS Assistant result validation executes before any result DOM mutation", 
         sandboxUrl: "https://example.test/sandbox",
       }),
     /invalid Code Sandbox URL/u,
-  );
-});
-
-test("workspace CSS keeps the document still and notices in flow", async () => {
-  const css = await readFile("src/ui/styles.css", "utf8");
-
-  const bodyBlock = css.match(/(?:^|\n)body\s*\{[^}]*\}/u)?.[0] ?? "";
-  assert.match(bodyBlock, /overflow:\s*hidden/u);
-
-  const toastStackBlock = css.match(/\.toast-stack\s*\{[^}]*\}/u)?.[0] ?? "";
-  assert.notEqual(toastStackBlock, "");
-  assert.doesNotMatch(toastStackBlock, /position:\s*fixed/u);
-
-  const panelBlock = css.match(/\.panel\s*\{[^}]*\}/u)?.[0] ?? "";
-  assert.match(panelBlock, /overflow-y:\s*auto/u);
-
-  assert.match(css, /--radius-lg:\s*1rem/u);
-});
-
-test("short narrow viewports preserve an internally scrollable task panel", async () => {
-  const css = await readFile("src/ui/styles.css", "utf8");
-  const shortNarrowStart = css.indexOf(
-    "@media (max-width: 60rem) and (max-height: 36rem)",
-  );
-
-  assert.notEqual(shortNarrowStart, -1);
-
-  const shortNarrowCss = css.slice(shortNarrowStart);
-  assert.match(shortNarrowCss, /\.intro\s*\{\s*display:\s*none/u);
-  assert.match(
-    shortNarrowCss,
-    /\.shell\s*\{[\s\S]*grid-template-rows:\s*auto\s+minmax\(7rem,\s*1fr\)/u,
-  );
-  assert.match(
-    shortNarrowCss,
-    /\.toast-stack\s*\{[\s\S]*display:\s*flex[\s\S]*overflow-x:\s*auto/u,
-  );
-  assert.match(shortNarrowCss, /\.safety-note\s*>\s*span\s*\{\s*display:\s*none/u);
-  assert.match(
-    shortNarrowCss,
-    /\.panel\s*\{[\s\S]*min-height:\s*7rem[\s\S]*overflow-y:\s*auto/u,
   );
 });
 
@@ -993,10 +1240,6 @@ test("VPS reload rehydrates and completes the server-owned pending OAuth attempt
   const start = app.indexOf("async function recoverPendingOAuthAttempt()");
   const end = app.indexOf("\nasync function initializeVpsWizard()", start);
   assert.ok(start >= 0 && end > start, "missing OAuth reload recovery boundary");
-  assert.match(
-    app,
-    /async function initializeVpsWizard\(\) \{[\s\S]*recoverPendingOAuthAttempt\(\)[\s\S]*if \(!recoveredOAuth\) \{[\s\S]*refreshAuthStatus\(\);[\s\S]*initializeVpsWizard\(\)\.catch\(showError\);/u,
-  );
   const source = app.slice(start, end);
   const calls = [];
   const state = {
@@ -1027,6 +1270,8 @@ test("VPS reload rehydrates and completes the server-owned pending OAuth attempt
     blockOAuthRetry() {
       calls.push(["block-retry"]);
     },
+    selectChatGptSetup() {},
+    finishOAuthCancellation() {},
     element(id) {
       assert.equal(id, "login-link");
       return loginLink;
@@ -1086,6 +1331,36 @@ test("VPS reload rehydrates and completes the server-owned pending OAuth attempt
     JSON.stringify(state),
     /authorizationUrl|credential|password/iu,
   );
+});
+
+test("ordinary OAuth startup failure leaves route choices available", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("async function recoverPendingOAuthAttempt()");
+  const end = script.indexOf("async function initializeVpsWizard()", start);
+  const routeStart = script.indexOf("function focusVisible(");
+  const routeEnd = script.indexOf('element("openai-vps-route").addEventListener', routeStart);
+  const nodes = new Map([
+    ["setup-choices", { hidden: false }],
+    ["chatgpt-setup", { hidden: true }],
+    ["openai-vps-route", { setAttribute() {} }],
+  ]);
+  const state = { step: 1, oauthLoginGeneration: 0, oauthCancellationMessage: "" };
+  const errors = [];
+  const recover = vm.runInNewContext(`
+    ${script.slice(routeStart, routeEnd)}
+    ${script.slice(start, end)}
+    recoverPendingOAuthAttempt;`, {
+    state, element: id => nodes.get(id),
+    async runOperation(_trigger, _label, work) { return work(); },
+    async api() { throw new Error("Startup status unavailable"); },
+    showError(error) { errors.push(error.message); },
+    finishOAuthCancellation() {},
+    OPERATION_ALLOWED_SELECTOR: "#login-link, #stop-login-button",
+  });
+  assert.equal(await recover(), true);
+  assert.deepEqual(errors, ["Startup status unavailable"]);
+  assert.equal(nodes.get("setup-choices").hidden, false);
+  assert.equal(nodes.get("chatgpt-setup").hidden, true);
 });
 
 test("copy success survives the browser clearing event.currentTarget", async () => {

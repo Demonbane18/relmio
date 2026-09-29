@@ -44,27 +44,36 @@ disabled. See [Private local models](local-models.md) and
 
 ## Use the wizard
 
-1. Start Relmio and choose the integration. Complete ChatGPT/Codex sign-in for
-   the OpenAI bridge, or choose SuperGrok and complete its device sign-in after
-   the companion is installed. **Local model · your VPS** needs no provider sign-in.
-2. Enter the actual SSH username and choose **Local SSH agent** or
-   approved password authentication. Independently compare and confirm the SSH
-   host fingerprint before authenticating. Never upload a private key or enable
-   root/password SSH just for this wizard.
-3. Check the verified administrative identity. OAuth bridge, SuperGrok and
-   Assistant VPS operations require an already-approved direct-root connection;
-   agent authentication is available without changing that privilege boundary.
-   **Passwordless sudo -n (model only)** is limited to local-model management
-   and common read-only discovery, not those credential-bearing routes.
+In experimental `.3`, the browser wizard shows **Choose setup**, **Check
+server**, **Choose n8n**, **Review**, and **Ready**. The route chooser appears
+before ChatGPT sign-in. Stable `@latest` remains `0.17.5` and does not open
+this redesigned chooser. The `.2` prerelease is published; publication of
+`.3` is not verified.
+
+1. Choose the ChatGPT route and complete ChatGPT/Codex sign-in on this computer
+   before uploading the credential file. SuperGrok uses its own device sign-in
+   after installation. **Local model · your VPS** needs no provider sign-in.
+2. Enter the server address and port, then independently compare and confirm
+   the SSH host fingerprint. Only after that, enter the actual SSH username
+   and choose **Local SSH agent** or approved password authentication. Never
+   upload a private key or enable root/password SSH just for this wizard.
+3. Connect and check the verified administrative identity. OAuth bridge,
+   SuperGrok and Assistant VPS operations require an already-approved
+   direct-root connection; agent authentication does not change that privilege
+   boundary. **Passwordless sudo -n (model only)** is limited to local-model
+   management and common read-only discovery, not credential-bearing routes.
 4. Select a running official n8n container and one eligible existing Docker
-   network. Rootful Docker Engine, Compose v2 and Buildx must use the same local
-   daemon in the selected administrative context; Podman, rootless/remote
-   daemons, external build targets and managed PaaS service shells are not
-   substitutes.
-5. Review the exact account, privilege, resources and managed paths and confirm
-   before Relmio writes anything remotely. Host-key trust is a separate step.
-6. In n8n, use the matching private Base URL and Responses API setting from the
-   table above, never `127.0.0.1`. Select **Disconnect from VPS** when finished.
+   network. Rootful Docker Engine, Compose v2 and Buildx must use the same
+   local daemon in the selected administrative context; Podman, rootless or
+   remote daemons, external build targets and managed PaaS service shells are
+   not substitutes.
+5. Review the exact account, privilege, resources and managed paths. For the
+   OpenAI bridge, the displayed currently verified SSH identity names the
+   destination for the complete credential file. Going back, changing or
+   losing the verified identity clears review and approval. Final human
+   confirmation is still required before any remote write. In n8n, use the
+   matching private Base URL and Responses API setting from the table above,
+   never `127.0.0.1`. Select **Disconnect from VPS** when finished.
 
 See [Hosting compatibility](hosting-compatibility.md) for image-qualified
 accounts on Hetzner, Contabo, AWS, DigitalOcean and OCI, local-agent setup,

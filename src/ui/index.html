@@ -14,7 +14,7 @@
     <script src="/theme.js" type="module"></script>
     <script src="/app.js" type="module"></script>
   </head>
-  <body data-current-step="1">
+  <body class="setup-wizard" data-current-step="1">
     <a class="skip-link" href="#main-content">Skip to setup</a>
 
     <header class="site-header">
@@ -90,14 +90,13 @@
         </section>
 
         <nav class="steps" aria-label="Setup progress">
+          <p id="setup-progress-label">Step 1 of 5 · Choose setup</p>
           <ol>
-            <li data-step-marker="1" aria-current="step">
-              <span>1</span><em>Choose setup</em>
-            </li>
-            <li data-step-marker="2"><span>2</span><em>Check server</em></li>
-            <li data-step-marker="3"><span>3</span><em>Choose n8n</em></li>
-            <li data-step-marker="4"><span>4</span><em>Review</em></li>
-            <li data-step-marker="5"><span>5</span><em>Ready</em></li>
+            <li data-step-marker="1" aria-current="step"><button type="button" data-step-target="1" disabled><span>1</span><em>Setup</em></button></li>
+            <li data-step-marker="2"><button type="button" data-step-target="2" disabled><span>2</span><em>VPS</em></button></li>
+            <li data-step-marker="3"><button type="button" data-step-target="3" disabled><span>3</span><em>n8n</em></button></li>
+            <li data-step-marker="4"><button type="button" data-step-target="4" disabled><span>4</span><em>Review</em></button></li>
+            <li data-step-marker="5"><button type="button" data-step-target="5" disabled><span>5</span><em>Done</em></button></li>
           </ol>
         </nav>
 
@@ -146,7 +145,7 @@
             role="status"
             aria-live="polite"
           >
-            <span id="global-message-text">Checking your local sign-in…</span>
+            <span id="global-message-text">Choose a setup route to begin.</span>
             <button
               class="toast-close"
               type="button"
@@ -180,116 +179,117 @@
       <section class="panel" data-step="1" aria-labelledby="signin-title">
         <div class="panel-heading">
           <h2 id="signin-title" tabindex="-1">Choose your setup</h2>
+          <p>Choose where you want to connect n8n.</p>
         </div>
         <aside class="experimental-notice" aria-labelledby="experimental-warning-title">
-          <strong id="experimental-warning-title">Experimental release · 0.18.0-experimental.2</strong>
+          <strong id="experimental-warning-title">Experimental candidate · 0.18.0-experimental.3</strong>
           <p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
         </aside>
 
-        <div class="provider-route-grid" aria-label="Provider and destination choices">
-          <div class="provider-route-choice">
-            <button id="openai-vps-route" class="provider-route provider-route--selected" type="button" aria-describedby="openai-vps-route-detail">
-              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
-              <span class="provider-route__eyebrow">ChatGPT · your server</span>
-              <strong>ChatGPT on my server</strong>
-              <span id="openai-vps-route-detail">Connect n8n on your server with your ChatGPT sign-in.</span>
-              <span class="route-status">Unofficial · private connection</span>
-            </button>
-            <details class="provider-route-details">
-              <summary aria-label="More details about ChatGPT on my server">More details</summary>
-              <p>Sign in on this computer first. Review the plan before any write.</p>
-            </details>
+        <noscript>
+          <p class="route-safety">This setup needs JavaScript to check server identity and show the plan. Enable JavaScript, then reload before continuing.</p>
+        </noscript>
+        <div id="setup-choices">
+          <section class="route-group" aria-labelledby="server-routes-title">
+            <div class="route-group__heading">
+              <h3 id="server-routes-title">On your server</h3>
+              <p>Choose a connection beside your existing n8n.</p>
+            </div>
+            <div class="provider-route-grid">
+              <div class="provider-route-choice">
+                <button id="openai-vps-route" class="provider-route" type="button" aria-controls="chatgpt-setup" aria-expanded="false" aria-describedby="openai-vps-route-detail">
+                  <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
+                  <span class="provider-route__eyebrow">ChatGPT · your server</span>
+                  <strong>ChatGPT on my server</strong>
+                  <span id="openai-vps-route-detail">Connect n8n on your server with your ChatGPT sign-in.</span>
+                  <span class="route-status">Unofficial · private connection</span>
+                </button>
+                <details class="provider-route-details">
+                  <summary aria-label="More details about ChatGPT on my server">More details</summary>
+                  <p>Sign in on this computer first. Review the plan before any write.</p>
+                </details>
+              </div>
+              <div class="provider-route-choice">
+                <a id="vps-supergrok-start" class="provider-route" aria-describedby="supergrok-vps-route-detail">
+                  <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/><path d="M16.5 5.5 19 3m-7 2.5V2"/></svg>
+                  <span class="provider-route__eyebrow">Grok · your server</span>
+                  <strong>Grok on my server</strong>
+                  <span id="supergrok-vps-route-detail">Connect n8n on your server with official Grok sign-in.</span>
+                </a>
+                <details class="provider-route-details">
+                  <summary aria-label="More details about Grok on my server">More details</summary>
+                  <p>Grok signs in on your server. ChatGPT sign-in is not used.</p>
+                </details>
+              </div>
+              <div class="provider-route-choice">
+                <a id="vps-local-model-start" class="provider-route" aria-describedby="local-model-vps-route-detail">
+                  <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
+                  <span class="provider-route__eyebrow">Local model · your server</span>
+                  <strong>Self-hosted model on my server</strong>
+                  <span id="local-model-vps-route-detail">Run a private model on your server. No sign-in.</span>
+                </a>
+              </div>
+            </div>
+          </section>
+          <section class="route-group route-group--local" aria-labelledby="local-routes-title">
+            <h3 id="local-routes-title">On this computer</h3>
+            <div class="provider-route-choice">
+              <a id="local-endpoint-link" class="provider-route" aria-describedby="local-route-detail">
+                <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
+                <span class="provider-route__eyebrow">This computer</span>
+                <strong>Set up on this computer</strong>
+                <span id="local-route-detail">Create a private connection on this computer.</span>
+              </a>
+              <details class="provider-route-details">
+                <summary aria-label="More details about setup on this computer">More details</summary>
+                <p>A connection on this computer, an existing n8n companion, or a separate protected n8n stack.</p>
+              </details>
+            </div>
+          </section>
+          <div class="hosting-help">
+            <span>Need another hosting option?</span>
+            <a id="hosting-options-link" class="hosting-help__link" aria-describedby="hosting-route-detail"><strong>Compare hosting routes</strong></a>
+            <span id="hosting-route-detail">Compare other hosting routes before you choose.</span>
           </div>
-          <div class="provider-route-choice">
-            <a id="vps-supergrok-start" class="provider-route" aria-describedby="supergrok-vps-route-detail">
-              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/><path d="M16.5 5.5 19 3m-7 2.5V2"/></svg>
-              <span class="provider-route__eyebrow">Grok · your server</span>
-              <strong>Grok on my server</strong>
-              <span id="supergrok-vps-route-detail">Connect n8n on your server with official Grok sign-in.</span>
-            </a>
-            <details class="provider-route-details">
-              <summary aria-label="More details about Grok on my server">More details</summary>
-              <p>Grok signs in on your server. ChatGPT sign-in is not used.</p>
-            </details>
-          </div>
-          <div class="provider-route-choice">
-            <a id="vps-local-model-start" class="provider-route" aria-describedby="local-model-vps-route-detail">
-              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
-              <span class="provider-route__eyebrow">Local model · your server</span>
-              <strong>Self-hosted model on my server</strong>
-              <span id="local-model-vps-route-detail">Run a private model on your server. No sign-in.</span>
-            </a>
-          </div>
-          <div class="provider-route-choice">
-            <a id="local-endpoint-link" class="provider-route" aria-describedby="local-route-detail">
-              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
-              <span class="provider-route__eyebrow">This computer</span>
-              <strong>Set up on this computer</strong>
-              <span id="local-route-detail">Create a private connection on this computer.</span>
-            </a>
-            <details class="provider-route-details">
-              <summary aria-label="More details about setup on this computer">More details</summary>
-              <p>A connection on this computer, an existing n8n companion, or a separate protected n8n stack.</p>
-            </details>
-          </div>
-          <div class="provider-route-choice">
-            <a id="hosting-options-link" class="provider-route" aria-describedby="hosting-route-detail">
-              <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 20h18M5 20V8l7-5 7 5v12M9 20v-7h6v7M3 9h18"/></svg>
-              <span class="provider-route__eyebrow">Other hosting</span>
-              <strong>Compare hosting routes</strong>
-              <span id="hosting-route-detail">Compare other hosting routes before you choose.</span>
-            </a>
-          </div>
+          <aside class="route-safety" aria-label="Route safety boundary">
+            <strong>You stay in control.</strong>
+            <span>Check the server identity before authenticating. Review and approve the plan before any write.</span>
+          </aside>
         </div>
-
-        <div class="panel-heading provider-route-heading">
-          <p class="panel-kicker">ChatGPT on my server</p>
-          <h3>Next: sign in with ChatGPT</h3>
-          <p>Sign in here. This uses a saved ChatGPT/Codex credential, not a Platform API key, and the file stays on this computer until you approve its encrypted upload to the selected server.</p>
-          <p class="route-warning">Unofficial, private, and policy-uncertain.</p>
-        </div>
-
-        <details class="technical-details">
-          <summary>More details about this connection</summary>
-          <div>
-            <p>This uses a saved ChatGPT/Codex credential, not just your identity and not a Platform API key. Ordinary ChatGPT sign-in for a supported app shares your name, email, and an optional picture. This route copies the credential file only after you approve that upload.</p>
-            <p>What you can use depends on your account. This bridge supports Message a Model and GPT Image generation or editing. It does not support audio, text-to-speech, moderation, file management, stored conversations, or video. Use a separate OpenAI Platform connection for supported audio, moderation, file management, and stored conversations. Do not enter that API key here. OpenAI shut down the Videos API on September 24, 2026, with no replacement listed. A listed model is not proof that a workflow works.</p>
-            <p>The OpenAI bridge remains unofficial, private, and policy-uncertain. OpenAI still processes later model requests. Log retention for this pinned Codex login is not known. Approval here is for the Relmio upload, not an OpenAI permission.</p>
+        <div id="chatgpt-setup" hidden>
+          <div class="panel-heading provider-route-heading">
+            <p class="panel-kicker">ChatGPT on my server</p>
+            <h3 id="chatgpt-setup-title" tabindex="-1">Sign in with ChatGPT</h3>
+            <p>This uses a saved ChatGPT/Codex credential, not a Platform API key. The file stays on this computer until you approve its encrypted upload to the selected server.</p>
+            <p class="route-warning">Unofficial, private, and policy-uncertain.</p>
           </div>
-        </details>
-
-        <div class="status-row">
-          <span id="auth-indicator" class="status-dot" aria-hidden="true"></span>
-          <div>
-            <strong id="auth-title">Checking…</strong>
-            <p id="auth-detail">Looking for your local Codex credential.</p>
-            <p id="auth-updated" class="credential-time" hidden>
-              Credential updated
-              <time id="auth-updated-time"></time>
-              (local time).
-            </p>
+          <details class="technical-details">
+            <summary>More details about this connection</summary>
+            <div>
+              <p>This uses a saved ChatGPT/Codex credential, not just your identity and not a Platform API key. Ordinary ChatGPT sign-in for a supported app shares your name, email, and an optional picture. This route copies the credential file only after you approve that upload.</p>
+              <p>What you can use depends on your account. This bridge supports Message a Model and GPT Image generation or editing. It does not support audio, text-to-speech, moderation, file management, stored conversations, or video. Use a separate OpenAI Platform connection for supported audio, moderation, file management, and stored conversations. Do not enter that API key here. OpenAI shut down the Videos API on September 24, 2026, with no replacement listed. A listed model is not proof that a workflow works.</p>
+              <p>The OpenAI bridge remains unofficial, private, and policy-uncertain. OpenAI still processes later model requests. Log retention for this pinned Codex login is not known. Approval here is for the Relmio upload, not an OpenAI permission.</p>
+            </div>
+          </details>
+          <div class="status-row" role="status" aria-live="polite">
+            <span id="auth-indicator" class="status-dot" aria-hidden="true"></span>
+            <div>
+              <strong id="auth-title">Checking…</strong>
+              <p id="auth-detail">Looking for your local Codex credential.</p>
+              <p id="auth-updated" class="credential-time" hidden>
+                Credential updated
+                <time id="auth-updated-time"></time>
+                (local time).
+              </p>
+            </div>
           </div>
-        </div>
-
-        <div class="actions">
-          <button id="login-button" class="button secondary" type="button">
-            Sign in with ChatGPT
-          </button>
-          <a
-            id="login-link"
-            class="button secondary"
-            target="_blank"
-            rel="noopener noreferrer"
-            hidden
-          >
-            Open fresh ChatGPT sign-in
-          </a>
-          <button id="stop-login-button" class="button secondary" type="button" hidden>
-            Stop ChatGPT sign-in
-          </button>
-          <button id="signin-next" class="button primary" type="button" disabled>
-            Check the server
-          </button>
+          <div class="actions">
+            <button id="login-button" class="button secondary" type="button">Sign in with ChatGPT</button>
+            <a id="login-link" class="button secondary" target="_blank" rel="noopener noreferrer" hidden>Open fresh ChatGPT sign-in</a>
+            <button id="stop-login-button" class="button secondary" type="button" hidden>Stop ChatGPT sign-in</button>
+            <button id="signin-next" class="button primary" type="button" disabled>Check the server</button>
+          </div>
+          <button id="change-setup-button" class="button ghost" type="button">Change setup</button>
         </div>
       </section>
 
@@ -302,93 +302,63 @@
         </div>
 
         <form id="vps-form">
-          <div class="field-grid">
-            <label class="field">
-              <span>Server address</span>
-              <input
-                id="host"
-                name="host"
-                inputmode="url"
-                autocomplete="off"
-                placeholder="your-vps-ip-or-hostname"
-                required
-              />
-              <small>Use the full IP address or hostname. Do not add <code>ssh root@</code>.</small>
-            </label>
-
-            <label class="field compact">
-              <span>Connection port</span>
-              <input
-                id="port"
-                name="port"
-                type="number"
-                min="1"
-                max="65535"
-                value="22"
-                required
-              />
-              <small>Technical name: SSH port. Usually 22.</small>
-            </label>
-
-            <label class="field compact">
-              <span>Sign-in name</span>
-              <input
-                id="username"
-                name="username"
-                autocomplete="username"
-                value="root"
-                required
-              />
-              <small>
-                This route needs a root account (UID 0). Passwordless sudo is only on the local model page.
-              </small>
-            </label>
-
-            <label class="field"><span>SSH authentication</span><select id="ssh-authentication"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
-            <label class="field">
-              <span>Server password</span>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autocomplete="current-password"
-                disabled
-                required
-              />
-              <small>
-                Unlocks after you check the server identity. It clears after you connect.
-              </small>
-            </label>
-          </div>
-
-          <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
-          <details class="technical-details">
-            <summary>More details about SSH agent sign-in</summary>
-            <div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p></div>
-          </details>
-          <p id="ssh-session" role="status"></p><button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
-          <button id="fingerprint-button" class="button secondary" type="button">
-            Check this server
-          </button>
-
-          <div id="fingerprint-box" class="fingerprint" hidden>
-            <span>Server identity (SSH fingerprint)</span>
-            <code id="fingerprint-value"></code>
-            <label class="check-row">
-              <input id="fingerprint-confirm" type="checkbox" />
-              <span>
-                I checked this server identity. This is the server I mean to use.
-              </span>
-            </label>
-          </div>
-
+          <fieldset class="setup-fieldset">
+            <legend>1. Check server identity</legend>
+            <div class="field-grid">
+              <label class="field">
+                <span>Server address</span>
+                <input id="host" name="host" inputmode="url" autocomplete="off" placeholder="your-vps-ip-or-hostname" aria-describedby="host-hint" required />
+                <small id="host-hint">Use the full IP address or hostname. Do not add <code>ssh root@</code>.</small>
+              </label>
+              <label class="field compact">
+                <span>Connection port</span>
+                <input id="port" name="port" type="number" min="1" max="65535" value="22" aria-describedby="port-hint" required />
+                <small id="port-hint">Technical name: SSH port. Usually 22.</small>
+              </label>
+            </div>
+            <button id="fingerprint-button" class="button secondary" type="button">Check this server</button>
+          </fieldset>
+          <fieldset class="setup-fieldset">
+            <legend>2. Approve the returned fingerprint</legend>
+            <p>Compare this fingerprint with a trusted record for your server before approving it.</p>
+            <div id="fingerprint-box" class="fingerprint" hidden>
+              <span>Server identity (SSH fingerprint)</span>
+              <code id="fingerprint-value"></code>
+              <label class="check-row">
+                <input id="fingerprint-confirm" type="checkbox" />
+                <span>I checked this server identity. This is the server I mean to use.</span>
+              </label>
+            </div>
+          </fieldset>
+          <fieldset class="setup-fieldset">
+            <legend>3. Authenticate</legend>
+            <div class="field-grid">
+              <label class="field compact">
+                <span>Sign-in name</span>
+                <input id="username" name="username" autocomplete="username" value="root" aria-describedby="username-hint" disabled required />
+                <small id="username-hint">This route needs a root account (UID 0). Passwordless sudo is only on the local model page.</small>
+              </label>
+              <label class="field">
+                <span>SSH authentication</span>
+                <select id="ssh-authentication" disabled><option value="password">Password</option><option value="agent">Local SSH agent</option></select>
+              </label>
+              <label class="field">
+                <span>Server password</span>
+                <input id="password" name="password" type="password" autocomplete="current-password" disabled required />
+                <small>Unlocks after you check the server identity. It clears after you connect.</small>
+              </label>
+            </div>
+            <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
+            <details class="technical-details">
+              <summary>More details about SSH agent sign-in</summary>
+              <div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p></div>
+            </details>
+            <p id="ssh-session" role="status"></p>
+            <button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
+          </fieldset>
           <div class="actions">
-            <button class="button ghost back-button" data-back="1" type="button">
-              Back
-            </button>
-            <button id="connect-button" class="button primary" type="submit" disabled>
-              Connect
-            </button>
+            <button class="button ghost back-button" data-back="1" type="button">Back</button>
+            <button id="connect-button" class="button primary" type="submit" disabled>Connect</button>
           </div>
         </form>
       </section>

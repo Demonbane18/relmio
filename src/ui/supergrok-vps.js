@@ -14,7 +14,8 @@ const state = {
   progressStartedAt: 0,
   status: null,
 };
-const sshSession = createCredentialSshGuard({ token, onMismatch() {
+let sshIdentityDecision = 0;
+const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateBoundaryState();
   element("container").replaceChildren();
   element("network").replaceChildren();
@@ -454,7 +455,7 @@ window.addEventListener("pagehide", () => {
   element("client-key").value = "";
 });
 
-const sshAuthentication = bindSshAuthentication({ token, trustId: "trust-host", onChange: invalidateBoundaryState });
+const sshAuthentication = bindSshAuthentication({ token, trustId: "trust-host", onChange: invalidateBoundaryState, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
 
 if (!token) {
   setMessage("Open this page from the Relmio wizard to establish a private session.");
