@@ -3497,10 +3497,13 @@ async function reviewLocalModelAction(action) {
       throw new Error("The model action review is invalid.");
     }
     state.localModelReview = review;
+    // The review hides the Ready settings and the Refresh/Review buttons; move focus off them.
+    const settingsFocused = Boolean(document.activeElement?.closest("#local-model-settings, #n8n-local-model-management > .actions"));
     element("local-model-action-review").hidden = false;
     element("local-model-action-title").textContent = action === "remove" ? "Remove owned model and delete cache" : "Retry model acquisition";
     element("local-model-action-detail").textContent = `${action === "remove" ? "Stop only the owned runtime and permanently delete its downloaded weights." : "Retry the download and inference check."} Model: ${review.modelId}. Selected n8n: ${review.containerName}. Network: ${review.networkName}. Runtime budget: ${modelGigabytes(review.resourceBudget.memoryBytes)} RAM, ${review.resourceBudget.cpus} CPUs, ${review.resourceBudget.contextTokens} context tokens. n8n stays unchanged.`;
     element("local-model-cache-confirm-row").hidden = action !== "remove";
+    if (settingsFocused) element("local-model-action-title").focus();
     const apply = element("local-model-apply");
     setButtonLabel(apply, action === "remove" ? "Remove model and cached weights" : "Retry model download");
     apply.classList.toggle("rm-button--danger", action === "remove");
@@ -4773,7 +4776,11 @@ element("local-model-review-retry").addEventListener("click", () => reviewLocalM
 element("local-model-review-remove").addEventListener("click", () => reviewLocalModelAction("remove"));
 element("local-model-action-confirm").addEventListener("change", updateLocalModelActionConfirmation);
 element("local-model-cache-confirm").addEventListener("change", updateLocalModelActionConfirmation);
-element("local-model-cancel").addEventListener("click", invalidateLocalModelReview);
+element("local-model-cancel").addEventListener("click", () => {
+  const opener = element(state.localModelReview?.action === "retry" ? "local-model-review-retry" : "local-model-review-remove");
+  invalidateLocalModelReview();
+  if (!opener.hidden) opener.focus();
+});
 element("local-model-apply").addEventListener("click", async (event) => {
   const review = state.localModelReview;
   if (!review || !element("local-model-action-confirm").checked ||

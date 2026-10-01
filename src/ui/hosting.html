@@ -84,26 +84,14 @@
               <div class="rm-panel__heading">
                 <span class="rm-eyebrow">Step 1 of 3</span>
                 <h2 id="matrix-title" class="rm-h2" tabindex="-1">What is available?</h2>
+                <p class="rm-muted">Relmio is tested on Hostinger KVM VPS and local Docker. Other providers and all generated files are experimental and not live tested.</p>
               </div>
             </header>
             <div class="rm-panel__body">
-              <details class="rm-notice">
-                <summary>
-                  <span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span>
-                  <span class="rm-notice__title">Experimental release 0.18.0-experimental.4</span>
-                  <span class="rm-notice__text">Use a test setup.</span>
-                  <span class="rm-notice__toggle">Details</span>
-                </summary>
-                <div class="rm-notice__body">
-                  <p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup.</p>
-                  <p>Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code></p>
-                </div>
-              </details>
-
               <div class="hosting-compare">
                 <div class="hosting-compare__chooser">
                   <div class="rm-field">
-                    <label class="rm-field__label" for="hosting-provider">Hosting provider</label>
+                    <label class="rm-field__label" for="hosting-provider">Hosting provider <span id="hosting-provider-experimental" class="rm-badge rm-badge--accent" hidden>Experimental</span></label>
                     <select id="hosting-provider" class="rm-select" required disabled></select>
                   </div>
                   <div class="rm-field">
@@ -185,7 +173,7 @@
         <section id="hosting-review" class="rm-panel hosting-view hosting-review" aria-labelledby="review-title" hidden>
           <header class="rm-panel__header">
             <div class="rm-panel__heading">
-              <span class="rm-eyebrow">Step 3 of 3 · Manual files · not live tested</span>
+              <span class="rm-eyebrow">Step 3 of 3 · Manual files</span>
               <h2 id="review-title" class="rm-h2" tabindex="-1">Review the plan</h2>
             </div>
           </header>

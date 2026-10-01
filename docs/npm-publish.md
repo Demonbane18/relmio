@@ -31,18 +31,19 @@ authoritative publication check.
 
 ## Stable and experimental release channels
 
-For a prerelease such as `0.18.0-experimental.2`, use the exact matching
-version in package metadata, the `v0.18.0-experimental.2` tag, and GitHub
-Release. Mark that GitHub Release as a prerelease; the prerelease flag must
-agree with the SemVer version. Publishing the GitHub Release triggers
-`.github/workflows/publish.yml`, which uses the configured GitHub OIDC trusted
-publisher identity and the configured `npm` environment.
+Relmio 0.18.0 is the current stable release and the npm `latest` version.
+Hosted installers also use `latest`.
 
-The stable `0.17.5` remains npm `latest`. When this prerelease is published,
-publish it only with the `experimental` dist-tag. Users must opt in with
-`npx --yes --ignore-scripts relmio@experimental` or an exact prerelease version
-after publication. Do not move `latest`, hosted installer defaults, or stable
-commands to the prerelease.
+For a future prerelease such as `0.x.y-experimental.N`, use that exact version
+in package metadata, the Git tag, and GitHub Release. Mark the GitHub Release
+as a prerelease; the flag must agree with the SemVer version. Publishing the
+GitHub Release triggers `.github/workflows/publish.yml`, which uses the
+configured GitHub OIDC trusted publisher identity and the configured `npm`
+environment.
+
+Publish a prerelease only with the `experimental` dist-tag. Users can opt in
+with `npx --yes --ignore-scripts relmio@experimental` or its exact version.
+Do not move `latest` or hosted installer defaults to a prerelease.
 
 The prerelease workflow attaches versioned Windows x64 and arm64 ZIP candidates
 to the GitHub Release, but skips Homebrew and WinGet candidates. Homebrew is
@@ -186,18 +187,20 @@ Never run `npm publish` locally. Never recreate or move a published tag.
 
 After the workflow succeeds:
 
-For a prerelease, query the exact version and both dist-tags; do not compare the
-published version to `npm view relmio version`, which reports `latest`:
+For a stable release, check that `latest` points to the stable version. For a
+future prerelease, also check its exact version and `experimental` dist-tag.
+`npm view relmio version` reports the `latest` version:
 
 ```bash
 LOCAL_VERSION="$(node -p "require('./package.json').version")"
 npm view "relmio@${LOCAL_VERSION}" \
   version dist.integrity dist.tarball \
   --registry=https://registry.npmjs.org
+test "$(npm view relmio dist-tags.latest \
+  --registry=https://registry.npmjs.org)" = "0.18.0"
+# For a future prerelease only:
 test "$(npm view relmio dist-tags.experimental \
   --registry=https://registry.npmjs.org)" = "$LOCAL_VERSION"
-test "$(npm view relmio dist-tags.latest \
-  --registry=https://registry.npmjs.org)" = "0.17.5"
 ```
 
 Also verify:

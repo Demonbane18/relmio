@@ -2,14 +2,13 @@
 
 Relmio can manage an Ollama model runtime beside an existing self-hosted n8n installation on the same local Docker Engine or a supported SSH-connected VPS. This is a separate, provider-free workflow: it does not use ChatGPT/Codex sign-in, an OAuth token, or a provider API key, and it does not create an OpenAI Platform API key.
 
-> **Experimental release warning:** Relmio `0.18.0-experimental.2` includes this
-> managed workflow. A prior private candidate passed limited model-only smoke
-> checks in local Docker and on a Hostinger VPS; those checks do not establish
-> the `.2` artifact, full-stack behavior, other-provider coverage, model quality,
-> or throughput. A readiness check is limited to its selected model and
-> machine. Stable `0.17.5` remains npm `latest` and the hosted-installer default.
-> After publication, opt in with
-> `npx --yes --ignore-scripts relmio@0.18.0-experimental.2 local`.
+The local-model workflow is included in stable Relmio 0.18.0. Model-only smoke
+checks covered local Docker and a Hostinger VPS. Linux full-stack acceptance is
+tracked in [issue #86](https://github.com/Demonbane18/relmio/issues/86). A
+reported 120-second local inference timeout on cold model loads remains open.
+CPU inference can be slow. These checks prove bounded inference only, not a
+working workflow, tool calling, model quality, or performance on other hosts.
+
 
 The companion joins the exact existing, eligible non-internal user-defined Docker bridge selected for n8n. n8n reaches it at `http://n8n-local-model:11434/v1`; Relmio publishes no host port and does not edit, restart, recreate, or execute inside n8n. The runtime is CPU-based, configured for one selected model at a time, and has cloud features disabled. Active-family `nat-unprotected`, unknown and isolated gateway modes fail closed; default/NAT and filtered `routed` modes are permitted. This is not a full host-firewall audit or isolation from the host administrator and trusted bridge peers.
 
@@ -42,7 +41,8 @@ plus the [Qwen3 0.6B model card](https://huggingface.co/Qwen/Qwen3-0.6B),
 
 ## Install beside local n8n
 
-1. On a first-run machine, open the local dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.2 local`. This initializes dashboard state as needed; no pre-existing `.relmio` directory or n8n stack is required to open the route. The local-model installation itself requires an existing running n8n container and eligible Docker network. It does not create n8n, so if you have no local n8n yet, complete a separate n8n setup first. Then select **Add connection** and **Local model for n8n**. Use this exact prerelease command after `.2` is published.
+1. On a first-run machine, open the local dashboard with `npx --yes --ignore-scripts relmio@latest local`. This initializes dashboard state as needed; no pre-existing `.relmio` directory or n8n stack is required to open the route. The local-model installation itself requires an existing running n8n container and eligible Docker network. It does not create n8n, so if you have no local n8n yet, complete a separate n8n setup first. Then select **Add connection** and **Local model for n8n**.
+
 2. Relmio inspects the local Docker engine, running n8n containers, their shared user-defined Docker networks, the engine's measured memory and CPU allocation, and available Docker backing-filesystem disk. Select the running n8n container, its existing network, and an allowlisted model.
 3. Review the exact model, context and memory budget, measured engine capacity, available disk, image/model downloads, files and private network. Confirm only if the selected Docker engine and network are trusted and the reviewed budget leaves enough headroom.
 
@@ -163,20 +163,23 @@ A workflow's **Chat Model** connection is separate from n8n's **AI Assistant** s
 - Once local weights are used with cloud features disabled, inference requests go to the local runtime rather than a hosted model provider. n8n tools may still contact external services, and prompts/results can be retained by n8n execution history, host logs, or backups. Image/model registries can observe download traffic.
 - Model output is untrusted input. Preserve n8n's own credentials, permissions, and human approval boundaries for tools and actions.
 
-The `.2` candidate's attestation fixes accept Docker's bare, `:true`, and
-`=true` representations of enabled `no-new-privileges`; missing, disabled,
+Docker attestation accepts Docker's bare, `:true`, and `=true`
+representations of enabled `no-new-privileges`; missing, disabled,
 malformed, or conflicting entries remain unsafe. It also accepts a bounded,
 canonical Docker Buildx `current` record with an empty `Name` without
-interpreting its `Key`; a named `default` must match the reviewed host, and
+interpreting its `Key`. A named `default` must match the reviewed host;
 fallback, shadowed-default, and other saved-selector checks remain fail-closed.
-These are Docker attestation compatibility fixes, not changes to inference,
-container configuration, or n8n. Prior private-candidate model-only smoke checks
-covered local Docker and a Hostinger VPS; they do not establish the `.2`
-artifact, full-stack behavior, other-provider support, model quality, or
-throughput. Cold model loads and host pressure may exceed caller deadlines; a
-reported 120-second local inference timeout is not fixed by these attestation
-changes. Runtime identity and the helper's bounded arithmetic inference probe
-do not prove a fresh n8n workflow succeeds or that a model gives useful answers.
+These Docker attestation compatibility fixes do not change inference,
+container configuration, or n8n.
+
+Model-only smoke checks covered local Docker and a Hostinger VPS. Linux
+full-stack acceptance is tracked in [issue #86](https://github.com/Demonbane18/relmio/issues/86).
+A reported 120-second local inference timeout on cold model loads remains open.
+Cold loads and host pressure can exceed caller deadlines; CPU inference can be
+slow. These checks prove bounded inference only, not a working n8n workflow,
+tool calling, model quality, throughput, or support on other hosts. Runtime
+identity and the helper's bounded arithmetic inference probe do not prove that
+a fresh n8n workflow succeeds or that a model gives useful answers.
 
 ## Download recovery, cache, and removal
 

@@ -22,10 +22,21 @@ const state = { providers: [], profiles: [], models: [], generation: 0, plan: nu
 
 const VIEW_HEADINGS = Object.freeze({ choose: "matrix-title", details: "details-title", review: "review-title" });
 
+function focusVisible(target) {
+  target.focus({ preventScroll: true });
+  const rect = target.getBoundingClientRect();
+  const footer = target.closest(".rm-panel")?.querySelector(".rm-panel__footer");
+  const bottom = footer && getComputedStyle(footer).position === "sticky"
+    ? Math.min(innerHeight, footer.getBoundingClientRect().top) : innerHeight;
+  if (rect.top < document.querySelector(".rm-topbar").getBoundingClientRect().bottom || rect.bottom > bottom) {
+    target.scrollIntoView({ block: "start", behavior: "instant" });
+  }
+}
+
 function showView(view) {
   for (const name of Object.keys(VIEW_HEADINGS)) el(`hosting-${name}`).hidden = name !== view;
   document.body.dataset.hostingView = view;
-  el(VIEW_HEADINGS[view]).focus({ preventScroll: true });
+  focusVisible(el(VIEW_HEADINGS[view]));
 }
 
 function node(tag, text, className) {
@@ -91,6 +102,10 @@ function modeBadge(mode) {
   return node("span", MODE_LABELS[mode] ?? mode, mode === "managed" ? "rm-badge rm-badge--accent" : "rm-badge");
 }
 
+function experimentalBadge() {
+  return node("span", "Experimental", "rm-badge rm-badge--accent");
+}
+
 // Compact cell: one icon per mode (shapes are explained by #hosting-legend),
 // with the mode name as visually hidden text for screen readers.
 function modeMark(mode) {
@@ -116,7 +131,7 @@ function modeCell(modes) {
   return cell;
 }
 
-function matrixRow(label, modes, { count = 0, selected = false } = {}) {
+function matrixRow(label, modes, { count = 0, selected = false, experimental = false } = {}) {
   const row = node("tr");
   row.dataset.selected = String(selected);
   const heading = node("th");
@@ -126,6 +141,7 @@ function matrixRow(label, modes, { count = 0, selected = false } = {}) {
   if (count > 1) {
     heading.append(" ", node("span", String(count), "hosting-matrix__count"), node("span", " hosts", "rm-visually-hidden"));
   }
+  if (experimental) heading.append(" ", experimentalBadge());
   row.append(heading, ...modes.map(modeCell));
   return row;
 }
@@ -154,9 +170,10 @@ function renderMatrix() {
     rows.push(matrixRow(single ? providers[0].label : KIND_LABELS[kind] ?? kind, modes, {
       count: providers.length,
       selected: single && Boolean(selected),
+      experimental: providers.every((provider) => !provider.tested),
     }));
     if (selected && !single) {
-      rows.push(matrixRow(selected.label, Object.keys(COMPONENTS).map((component) => [modeOf(selected, component)]), { selected: true }));
+      rows.push(matrixRow(selected.label, Object.keys(COMPONENTS).map((component) => [modeOf(selected, component)]), { selected: true, experimental: !selected.tested }));
     }
   }
   el("hosting-matrix").replaceChildren(...rows);
@@ -189,6 +206,7 @@ function renderProvider() {
       if (provider.components?.[component]) el("hosting-component").append(option(component, label));
     }
   }
+  el("hosting-provider-experimental").hidden = !provider || provider.tested === true;
   el("hosting-hint").textContent = provider
     ? `${provider.sshHint} Catalog reviewed ${provider.reviewedOn}; runtime NOT-RUN.`
     : "Choose hosting to see what it supports.";
@@ -227,7 +245,7 @@ function renderComponent() {
   el("hosting-inputs").replaceChildren(...(profile?.fields ?? []).map(renderField));
   el("hosting-no-inputs").hidden = !profile || profile.fields.length > 0 || component === "model";
   el("hosting-limits").textContent = profile
-    ? "These files are not live tested. Check provider access, private routing, resources, storage, and your existing n8n connection before using them."
+    ? "Check provider access, private routing, resources, storage, and your existing n8n connection before using these files."
     : capability?.mode === "managed"
       ? provider.kind === "managed-vm"
         ? "Open setup to verify the server fingerprint (its identity) before connecting, then confirm the exact plan before any remote writes."
@@ -299,7 +317,11 @@ function appendList(id, items) {
 }
 
 function appendFacts(target, entries) {
-  target.replaceChildren(...entries.flatMap(([name, value]) => [node("dt", name), node("dd", value)]));
+  target.replaceChildren(...entries.flatMap(([name, value]) => {
+    const description = node("dd");
+    description.append(...[value].flat());
+    return [node("dt", name), description];
+  }));
 }
 
 function validFile(file) {
@@ -348,8 +370,9 @@ function renderPlan(plan, request) {
   state.plan = plan;
   el("hosting-review-details").open = false;
   el("hosting-reviewed-on").textContent = `Catalog reviewed ${plan.reviewedOn}. Live deployment: NOT-RUN.`;
+  const provider = activeProvider();
   appendFacts(el("hosting-review-facts"), [
-    ["Provider", activeProvider().label], ["Resource name", plan.resourceName],
+    ["Provider", provider.tested ? provider.label : [provider.label, " ", experimentalBadge()]], ["Resource name", plan.resourceName],
     ["Verification", "Not live tested"], ["Files", `${plan.files.length} individually downloadable files`],
   ]);
   appendList("hosting-requirements", plan.requirements);

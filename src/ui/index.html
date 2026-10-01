@@ -131,17 +131,6 @@
                   <h2 id="signin-title" class="rm-h1" tabindex="-1">Choose your setup</h2>
                   <p class="rm-muted">Choose where you want to connect n8n.</p>
                 </div>
-                <details class="rm-notice setup-notice">
-                  <summary>
-                    <span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span>
-                    <span class="rm-notice__title">Experimental 0.18.0-experimental.4</span>
-                    <span class="rm-notice__text">Use a test setup.</span>
-                    <span class="rm-notice__toggle">Details</span>
-                  </summary>
-                  <div class="rm-notice__body">
-                    <p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
-                  </div>
-                </details>
               </header>
 
               <div id="setup-choices" class="setup-view">
@@ -164,7 +153,7 @@
                     <div class="setup-route">
                       <a id="vps-supergrok-start" class="rm-choice" aria-describedby="supergrok-vps-route-detail">
                         <span class="rm-choice__icon"><span class="rm-icon rm-icon--bot rm-icon--lg" aria-hidden="true"></span></span>
-                        <span class="rm-choice__title">Grok on my server <span class="rm-badge">Official sign-in</span></span>
+                        <span class="rm-choice__title">Grok on my server <span class="rm-badge">Official sign-in</span> <span class="rm-badge rm-badge--accent">Experimental</span></span>
                         <span id="supergrok-vps-route-detail" class="rm-choice__text">Connect n8n on your server with your Grok sign-in.</span>
                       </a>
                       <details class="rm-disclosure rm-disclosure--plain">
@@ -245,7 +234,7 @@
                       <label class="rm-field setup-server-row__host">
                         <span class="rm-field__label">Server address</span>
                         <input id="host" name="host" class="rm-input" inputmode="url" autocomplete="off" placeholder="your-vps-ip-or-hostname" aria-describedby="host-hint" required />
-                        <span id="host-hint" class="rm-field__hint">Use the full IP address or hostname. Do not add <code>ssh root@</code>.</span>
+                        <span id="host-hint" class="rm-field__hint">Use the full IP address or hostname. Do not add <code>ssh root@</code>. Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</span>
                       </label>
                       <label class="rm-field setup-server-row__port">
                         <span class="rm-field__label">Connection port</span>

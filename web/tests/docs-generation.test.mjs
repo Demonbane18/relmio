@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import test from "node:test";
 import {
@@ -63,21 +64,22 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
     );
 
     await execFileAsync(process.execPath, [generatorPath]);
-    const generated = await readFile(
-      join(fixtureRoot, "web", "app", "docs", "generated-content.ts"),
-      "utf8",
+    const generated = await import(
+      pathToFileURL(join(fixtureRoot, "web", "app", "docs", "generated-content.ts")).href
     );
 
-    assert.match(generated, /# getting-started\.md\\n\\n/u);
-    assert.match(generated, /# Changelog\\n\\n/u);
-    assert.doesNotMatch(generated, /\\r/u);
+    assert.equal(
+      generated.documentationBySlug.get("getting-started").content,
+      "# getting-started.md\n\nSee [Getting started](/docs/getting-started).\n",
+    );
+    assert.equal(generated.changelogContent, "# Changelog\n\n- Fixture entry\n");
     await execFileAsync(process.execPath, [generatorPath, "--check"]);
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
 });
 
-test("renders guide and changelog Markdown without raw HTML", async () => {
+test("Markdown components forbid unsafe raw HTML rendering", async () => {
   const sources = await Promise.all(
     [
       "../app/docs/MarkdownContent.tsx",
@@ -87,6 +89,7 @@ test("renders guide and changelog Markdown without raw HTML", async () => {
     ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
   );
 
+  // AGENTS.md forbids rendering untrusted text through HTML injection.
   for (const source of sources) {
     assert.doesNotMatch(source, /rehypeRaw|rehype-raw|dangerouslySetInnerHTML|innerHTML/u);
   }

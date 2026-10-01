@@ -124,23 +124,10 @@
 
           <form id="vps-form" class="assistant-form">
             <div class="rm-panel__body">
-              <details class="rm-notice">
-                <summary>
-                  <span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span>
-                  <span class="rm-notice__title">Experimental preview</span>
-                  <span class="rm-notice__text">Use a test setup.</span>
-                  <span class="rm-notice__toggle">Details</span>
-                </summary>
-                <div class="rm-notice__body">
-                  <p>Release 0.18.0-experimental.4 has limited model-only smoke checks. Full-stack, hosting-provider and throughput support are untested. Use a test setup.</p>
-                  <p>Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code></p>
-                </div>
-              </details>
-
-              <div class="rm-callout rm-callout--warning assistant-callout" role="note" aria-label="Privileged runner warning">
+              <div class="rm-callout rm-callout--warning assistant-callout" role="note" aria-label="Preview and privileged runner warning">
                 <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
                 <div class="rm-callout__content">
-                  <p><strong class="rm-callout__title">Privileged runner for testing.</strong> Treat it like host root.</p>
+                  <p><strong class="rm-callout__title">n8n marks AI Assistant as Preview.</strong> This privileged runner is for testing. Treat it like host root.</p>
                   <details class="rm-disclosure rm-disclosure--plain assistant-callout__more">
                     <summary>Details</summary>
                     <div class="rm-disclosure__body"><p>It uses privileged Docker-in-Docker. n8n recommends Daytona for production. Review generated workflows before use.</p></div>
@@ -152,7 +139,7 @@
                 <div class="rm-field assistant-field--wide">
                   <label class="rm-field__label" for="host">Server address</label>
                   <input id="host" class="rm-input" name="host" inputmode="url" autocomplete="off" aria-describedby="host-hint" required />
-                  <p id="host-hint" class="rm-field__hint">Use the hostname or IP your provider shows.</p>
+                  <p id="host-hint" class="rm-field__hint">Use the hostname or IP your provider shows. Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</p>
                 </div>
                 <div class="rm-field assistant-field--port">
                   <label class="rm-field__label" for="port">SSH port</label>

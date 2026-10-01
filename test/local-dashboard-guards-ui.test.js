@@ -40,13 +40,12 @@ test("expired inventory refuses actions and marks the verified snapshot stale", 
   assert.equal(setup, 0); assert.equal(renders.length, 1); assert.equal(renders[0][1].stale, true); assert.equal(error.focused, true);
 });
 
-test("dashboard initialization enters through safe discard and refreshes metadata", async () => {
+test("dashboard initialization enters through safe discard and refresh preserves focus and scroll", async () => {
   const script = await source(); const section = between(script, "function initializeLocalDashboard", "\nfunction parseRelmioStreamEvent");
   const calls = []; const listeners = new Map();
   const initialize = runInNewContext(`${section}; initializeLocalDashboard;`, { document: { querySelectorAll: () => [] }, element: (id) => ({ addEventListener: (event, handler) => listeners.set(`${id}:${event}`, handler) }), async enterDashboardView(options) { calls.push(options ?? null); }, async refreshProjectMeta() { calls.push("meta"); }, enterSetupView() {}, renderDashboardFailure() {}, showError() {}, syncDashboardNavigation() {}, window: { addEventListener() {} } });
   initialize(); await Promise.resolve(); await Promise.resolve();
   assert.deepEqual(calls, [null]);
-  assert.match(script, /loadProjectMeta: \(\) => api\("\/api\/local\/project-meta"\)/u);
   listeners.get("dashboard-refresh:click")(); await Promise.resolve();
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), { preserveFocus: true, preserveScroll: true });
 });

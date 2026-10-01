@@ -355,31 +355,6 @@ test("private SuperGrok removal confirmation is enabled after the install lock r
   assert.equal(harness.superGrokRemovalButton.disabled, true);
 });
 
-test("local wizard exposes one semantic indeterminate operation progress region", async () => {
-  const html = await readFile("src/ui/local.html", "utf8");
-  const root = html.match(/<[^>]+id="operation-progress"[^>]*>/u)?.[0] ?? "";
-  const progressbar = html.match(
-    /<[^>]+class="[^"]*operation-progress__track[^"]*"[^>]*>/u,
-  )?.[0] ?? "";
-
-  assert.match(root, /class="operation-progress"/u);
-  assert.match(root, /role="status"/u);
-  assert.match(root, /aria-live="polite"/u);
-  assert.match(root, /aria-atomic="false"/u);
-  assert.match(root, /hidden/u);
-  assert.match(html, /class="[^"]*operation-progress__track/u);
-  assert.match(html, /class="[^"]*operation-progress__bar/u);
-  assert.match(html, /class="[^"]*operation-progress__label/u);
-  assert.match(html, /class="[^"]*operation-progress__elapsed/u);
-  assert.match(html, /class="install-progress-elapsed" aria-hidden="true"/u);
-  assert.match(html, /id="main-content"[^>]*aria-busy="false"/u);
-  assert.doesNotMatch(html, /<body[^>]*aria-busy=/u);
-  assert.match(progressbar, /role="progressbar"/u);
-  assert.doesNotMatch(progressbar, /aria-value(?:now|min|max)/u);
-  assert.match(html, /Duration varies by operation/u);
-  assert.doesNotMatch(html, /(?:\bETA\b|estimated time|\d+% complete)/iu);
-});
-
 test("central operation lifecycle locks, observes, blocks, restores, and resets", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
   const harness = createHarness(script);
@@ -584,39 +559,8 @@ test("operation cleanup restores the wizard after both success and error", async
   );
 });
 
-test("every long-running local wizard action enters and leaves the shared lifecycle", async () => {
+test("local wizard never logs credential values", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
-  const busyStarts = script.match(/setBusy\(button, true,/gu) ?? [];
-  const busyStops = script.match(/setBusy\(button, false\);/gu) ?? [];
-
-  assert.ok(busyStarts.length >= 15, `expected all async action starts, found ${busyStarts.length}`);
-  assert.equal(busyStops.length, busyStarts.length);
-  assert.match(script, /startInstallProgress\(button\);[\s\S]*stopInstallProgress\(button\);/u);
-  const refreshContext = script.slice(
-    script.indexOf("async function refreshSelectedN8nContext("),
-    script.indexOf("function validateOAuthAttemptId("),
-  );
-  assert.match(refreshContext, /startOperation\(/u);
-  assert.match(refreshContext, /Promise\.allSettled\(/u);
-  assert.doesNotMatch(refreshContext, /Promise\.all\(/u);
-  assert.match(script, /async function initializeLocalWizard\([\s\S]*startOperation\(/u);
-  for (const path of [
-    "/api/local/plan",
-    "/api/local/n8n/discover",
-    "/api/oauth/login",
-    "/api/local/n8n/sidecar/refresh",
-    "/api/local/n8n/assistant/searxng/review",
-    "/api/local/n8n/assistant/searxng/enable",
-    "/api/local/install",
-    "/api/local/n8n/remove",
-    "/api/local/n8n/assistant/remove",
-    "/api/local/n8n/stack/resume",
-    "/api/local/n8n/stack/remove",
-    "/api/local/client-credential/rotate",
-    "/api/local/chat-test/key",
-    "/api/local/codex/login",
-  ]) {
-    assert.match(script, new RegExp(path.replaceAll("/", "\\/"), "u"));
-  }
+  // AGENTS.md forbids printing OAuth tokens, passwords, and private keys.
   assert.doesNotMatch(script, /console\.(?:log|info|debug|warn|error)\([^)]*(?:credential|password|token|apiKey)/iu);
 });

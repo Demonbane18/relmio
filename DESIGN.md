@@ -340,8 +340,12 @@ characters per line. Use sentence case for headings, buttons and labels.
   the user chooses it. Sign-in is never an OpenAI Platform API key.
 - Never imply a capability, permission or test result that has no recorded
   evidence. Hosted chat has no tools, files, commands or browsing.
-- Experimental builds show an `rm-notice` whose summary names the version and
+- Prerelease builds show an `rm-notice` whose summary names the version and
   says "Use a test setup". The details hold the stable fallback command.
+  Stable releases show no release notice.
+- Label each experimental feature or provider with an `Experimental` badge
+  (`rm-badge rm-badge--accent`) beside its name and one short warning that
+  names the untested part. Do not repeat the warning on the same screen.
 
 ## Accessibility floor
 

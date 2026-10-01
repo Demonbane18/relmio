@@ -49,8 +49,11 @@ target and complete a new Codex sign-in. OpenAI currently documents its
 as a ChatGPT web feature and says it is not yet supported in Codex desktop.
 Relmio does not keep an account pool or move requests between accounts.
 
-Relmio 0.14.0 has no upstream API-key setup or API-key profile registry.
-Existing API installations and stored data are left untouched.
+Managed ChatGPT/Codex and SuperGrok OAuth sign-in flows do not configure
+upstream API keys, keep API-key profiles, or fall back to separately billed API
+access. Configure API-key connections and operator-generated hosting artifacts
+separately in n8n or on the target platform. Retired API installations and
+their data remain untouched.
 
 The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
 OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
@@ -552,10 +555,10 @@ The local bearer remains necessary even on loopback; keep it private.
 
 ## Retired API installations
 
-**Upgrading does not stop an existing API-key gateway.** This OAuth-only
-version no longer discovers or manages `openai-api` or `xai-inference`.
-An older container can continue listening and using its saved credential even
-though it has no dashboard row. The upgrade does not migrate or delete its data.
+**Upgrading does not stop an existing API-key gateway.** Relmio does not
+discover or manage legacy `openai-api` or `xai-inference` endpoints. An older
+container can continue listening and using its saved credential even though it
+has no dashboard row. The upgrade does not migrate or delete its data.
 
 To retire one, review it manually before stopping anything. These instructions
 apply only to a legacy Relmio API endpoint, never to n8n or its OAuth bridge.

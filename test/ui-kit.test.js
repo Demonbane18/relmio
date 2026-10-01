@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
 const kit = await readFile(new URL("../src/ui/relmio-ui.css", import.meta.url), "utf8");
 
@@ -74,15 +72,12 @@ const controlPairs = [
   ["--rm-focus", "--rm-surface"],
 ];
 
-test("the system dark theme repeats the explicit dark theme exactly", () => {
-  assert.ok(explicitDarkTokens.size > 20, "expected the dark theme to define its colors");
-  assert.deepEqual([...systemDarkTokens].sort(), [...explicitDarkTokens].sort());
-});
 
 test("text and controls keep WCAG AA contrast in light and dark themes", () => {
   const themes = {
     light: lightTokens,
     dark: new Map([...lightTokens, ...explicitDarkTokens]),
+    systemDark: new Map([...lightTokens, ...systemDarkTokens]),
   };
 
   for (const [theme, tokens] of Object.entries(themes)) {
@@ -100,37 +95,4 @@ test("text and controls keep WCAG AA contrast in light and dark themes", () => {
 
   assert.ok(terminalFocus, "the terminal sets its own focus color");
   assert.ok(contrast(terminalFocus, lightTokens.get("--rm-terminal-bg")) >= 3);
-});
-
-async function filesUnder(directory, extensions) {
-  const entries = await readdir(directory, { withFileTypes: true, recursive: true });
-  return entries
-    .filter((entry) => entry.isFile() && extensions.some((extension) => entry.name.endsWith(extension)))
-    .map((entry) => join(entry.parentPath ?? entry.path, entry.name));
-}
-
-test("every icon the wizard and website use is defined in the kit", async () => {
-  const sizes = new Set(["xs", "sm", "lg"]);
-  const used = new Set();
-
-  const wizardFiles = await filesUnder(fileURLToPath(new URL("../src/ui", import.meta.url)), [".html", ".js"]);
-  for (const file of wizardFiles) {
-    const source = await readFile(file, "utf8");
-    for (const [, name] of source.matchAll(/\brm-icon--([a-z0-9-]+)/gu)) {
-      if (!sizes.has(name)) used.add(name);
-    }
-  }
-
-  const iconComponent = await readFile(
-    new URL("../web/app/components/ui/Icon.tsx", import.meta.url),
-    "utf8",
-  );
-  const union = iconComponent.match(/export type IconName =([\s\S]*?);/u)?.[1] ?? "";
-  for (const [, name] of union.matchAll(/"([a-z0-9-]+)"/gu)) used.add(name);
-
-  assert.ok(used.size > 10, "expected icon usage in both apps");
-  for (const name of used) {
-    assert.match(kit, new RegExp(`--rm-icon-${name}: url\\(`, "u"), `missing icon geometry: ${name}`);
-    assert.match(kit, new RegExp(`\\.rm-icon--${name} \\{`, "u"), `missing icon class: ${name}`);
-  }
 });

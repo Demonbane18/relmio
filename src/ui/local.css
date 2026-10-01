@@ -21,11 +21,6 @@
   padding-bottom: var(--rm-space-4);
 }
 
-.header-notice {
-  flex: 0 1 20rem;
-  align-self: flex-start;
-}
-
 /* Headings receive focus from script after a view change; they are not
    interactive, so they show no focus ring. */
 .local-wizard :is(h1, h2)[tabindex="-1"]:focus {
@@ -1263,6 +1258,12 @@ body[data-current-step="4"] .setup-shell {
 .n8n-sidecar-removal > *,
 .local-model-management > * {
   justify-self: stretch;
+}
+
+/* While a model action review is open, it replaces the Ready settings and the
+   Refresh/Review buttons; Cancel brings them back. */
+.local-model-management:has(> #local-model-action-review:not([hidden])) > :is(#local-model-settings, .actions) {
+  display: none;
 }
 
 .removal-danger {

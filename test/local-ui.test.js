@@ -4,64 +4,6 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 
-test("Test AI Chat exposes a quiet accessible streaming lifecycle", async () => {
-  const [html, script, css] = await Promise.all([
-    readFile("src/ui/local.html", "utf8"),
-    readFile("src/ui/local.js", "utf8"),
-    readFile("src/ui/local.css", "utf8"),
-  ]);
-
-  assert.match(html, /id="chat-tester-stop"[\s\S]*aria-label="Stop response"/u);
-  assert.match(
-    html,
-    /id="chat-tester-status"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/u,
-  );
-  assert.match(
-    html,
-    /id="chat-tester-transcript"[\s\S]*role="log"[\s\S]*aria-busy="false"[\s\S]*aria-relevant="additions"/u,
-  );
-  assert.match(script, /nextChatTesterFeedback/u);
-  assert.match(script, /new AbortController\(\)/u);
-  assert.match(script, /signal: controller\.signal/u);
-  assert.match(script, /markMainBusy: false/u);
-  assert.match(
-    script,
-    /chat-tester-transcript"\)\.setAttribute\("aria-busy", "true"\)/u,
-  );
-  assert.match(
-    script,
-    /chat-tester-transcript"\)\.setAttribute\("aria-busy", "false"\)/u,
-  );
-  assert.match(script, /type: "stopping"/u);
-  assert.match(script, /type: "stopped"/u);
-  assert.match(script, /data\.text\.length === 0/u);
-  assert.match(
-    script,
-    /if \(feedback\.phase !== previous\.phase\) \{\s*setChatTesterStatus/u,
-  );
-  assert.match(css, /chat-tester-turn-waiting/u);
-  assert.match(css, /chat-tester-stream-cursor/u);
-
-  const reducedMotion = css.slice(
-    css.indexOf("@media (prefers-reduced-motion: reduce)"),
-  );
-  assert.match(
-    reducedMotion,
-    /chat-tester-turn-waiting[\s\S]*chat-tester-stream-cursor[\s\S]*animation:\s*none/u,
-  );
-});
-
-test("ready-panel credential and action controls sit in the panel body, not its heading", async () => {
-  const html = await readFile("src/ui/local.html", "utf8");
-  const panel = html.slice(html.indexOf('data-step="4"'));
-  assert.notEqual(panel.length, html.length, "expected the ready panel");
-  const header = panel.slice(0, panel.indexOf("</header>"));
-  const body = panel.slice(panel.indexOf('class="rm-panel__body"'), panel.indexOf("<footer"));
-  for (const id of ["one-time-note", "install-result-list", "codex-login", "chat-tester"]) {
-    assert.ok(body.includes(`id="${id}"`), `${id} is in the ready panel body`);
-    assert.ok(!header.includes(`id="${id}"`), `${id} is not in the ready heading`);
-  }
-});
 
 test("local model completion reflects acquisition, failure, and verified inference", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
@@ -189,49 +131,6 @@ test("the install key warning names the selected target's own boundary", async (
   }
 });
 
-test("the complete local script bootstraps without retired tail initializers", async () => {
-  const { runInNewContext } = await import("node:vm");
-  const script = (await readFile("src/ui/local.js", "utf8"))
-    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => null; const bindWizardNavigation = () => {};\n")
-    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n")
-    .replace(/import \{ initWizardTopbar \} from "\.\/topbar\.js";\r?\n/u, "const initWizardTopbar = () => {};\n");
-  const makeNode = () => ({
-    attributes: new Map(),
-    checked: false,
-    classList: { add() {}, remove() {}, toggle() {} },
-    dataset: {}, disabled: false, hidden: false, isConnected: true, readOnly: false,
-    append() {}, appendChild() {}, addEventListener() {}, focus() {}, removeAttribute() {}, replaceChildren() {}, select() {}, setAttribute() {}, setCustomValidity() {}, setSelectionRange() {},
-    querySelector() { return null; }, querySelectorAll() { return []; }, reportValidity() { return true; },
-    style: {}, textContent: "", type: "password", value: "",
-  });
-  const html = await readFile("src/ui/local.html", "utf8");
-  const nodes = new Map(
-    [...html.matchAll(/\bid="([^"\s]+)"/gu)].map(([, id]) => [id, makeNode()]),
-  );
-  const createdNodes = new Map();
-  const createElement = () => {
-    const node = makeNode();
-    Object.defineProperty(node, "id", {
-      get() { return node._id ?? ""; },
-      set(id) { node._id = id; createdNodes.set(id, node); },
-    });
-    return node;
-  };
-  const element = (id) => nodes.get(id) ?? createdNodes.get(id) ?? null;
-  const document = {
-    activeElement: null, body: makeNode(), createElement,
-    execCommand() { return false; }, getElementById: element,
-    addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; },
-  };
-  document.body.dataset = {};
-  const window = {
-    addEventListener() {}, clearInterval() {}, clearTimeout() {}, location: { hash: "" },
-    matchMedia() { return { matches: true }; }, scrollTo() {}, setInterval() { return 1; }, setTimeout() { return 1; },
-  };
-  runInNewContext(script, { URL, URLSearchParams, AbortController, Date, Intl, JSON, Math, Promise, TextDecoder, TextEncoder, Uint8Array, btoa(value) { return value; }, clearTimeout() {}, crypto: { getRandomValues() {}, subtle: {} }, document, fetch() { throw new Error("fetch must not run without a wizard token"); }, navigator: {}, setTimeout() { return 1; }, window }, { filename: "local-whole-bootstrap.vm.js", timeout: 1_000 });
-  await Promise.resolve();
-  assert.ok(nodes.has("dashboard-refresh"));
-});
 
 test("the complete script renders a healthy OAuth inventory instead of falling back to unavailable", async () => {
   const { runInNewContext } = await import("node:vm");

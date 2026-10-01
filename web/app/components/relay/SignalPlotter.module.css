@@ -27,10 +27,12 @@
   min-width: 0;
 }
 
+/* Six compact routes keep the guide no taller than the safety column, so the
+   home page still fits 1280 x 720. */
 .routeControls {
   display: grid;
   align-content: start;
-  gap: var(--rm-space-2);
+  gap: var(--rm-space-1);
   min-width: 0;
 }
 
@@ -39,8 +41,8 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--rm-space-3);
-  min-height: 2.75rem;
-  padding: var(--rm-space-2) var(--rm-space-3);
+  min-height: 2.5rem;
+  padding: var(--rm-space-1) var(--rm-space-3);
   border-radius: var(--rm-radius-md);
 }
 

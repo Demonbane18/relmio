@@ -1,9 +1,6 @@
 /* Hosted chat console. The shell is a kit panel; the transcript is its only
-   scroll container. Kit tokens only. */
-
-.shell {
-  height: min(44rem, max(30rem, calc(100dvh - 7rem)));
-}
+   scroll container. Below fit mode the shell grows with its notices and the
+   page scrolls; the transcript keeps its own bounded height. Kit tokens only. */
 
 .header {
   display: flex;
@@ -67,6 +64,7 @@
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
+  height: clamp(20rem, 100svh - 20rem, 36rem);
   min-height: 0;
 }
 
@@ -78,6 +76,8 @@
   padding: var(--rm-space-5);
   overflow-y: auto;
   overscroll-behavior: contain;
+  /* Focus scrolling stops above the Jump to latest button. */
+  scroll-padding-bottom: calc(2rem + 2 * var(--rm-space-3));
 }
 
 .transcript:focus-visible {
@@ -305,6 +305,10 @@
 @media (min-width: 64rem) and (min-height: 37.5rem) {
   .shell {
     height: 100%;
+  }
+
+  .transcriptRegion {
+    height: auto;
   }
 }
 

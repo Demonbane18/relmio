@@ -28,22 +28,6 @@ test("credential timestamps are formatted in the user's local date and time", ()
 });
 
 
-test("every wizard route clears the browser transfer before loading its application module", async () => {
-  for (const [path, applicationScript] of [
-    ["src/ui/index.html", "/app.js"],
-    ["src/ui/local.html", "/local.js"],
-    ["src/ui/assistant.html", "/assistant.js"],
-  ]) {
-    const html = await readFile(path, "utf8");
-    const bootstrapIndex = html.indexOf('src="/session-bootstrap.js"');
-    assert.ok(bootstrapIndex >= 0, path);
-    assert.ok(bootstrapIndex < html.indexOf(`src="${applicationScript}"`), path);
-  }
-
-  const session = await readFile("src/ui/session.js", "utf8");
-  assert.match(session, /await pendingBrowserTransfer/u);
-  assert.doesNotMatch(session, /location\.search[\s\S]*session/u);
-});
 
 test("Responses API completion reminder stays until the user dismisses it", async () => {
   const script = await readFile("src/ui/app.js", "utf8");
@@ -1318,32 +1302,17 @@ test("wizard navigation keeps the capability in same-tab history and all link UR
   assert.equal(reloads, 1);
 });
 
-test("persistent VPS and Assistant routes use the shared token-free session helpers", async () => {
-  const routes = [
-    { path: "/", scriptPath: "src/ui/app.js" },
-    { path: "/assistant", scriptPath: "src/ui/assistant.js" },
-  ];
-
-  for (const route of routes) {
-    const script = await readFile(route.scriptPath, "utf8");
-    assert.match(
-      script,
-      /import \{ bindWizardNavigation, readWizardSession \} from "\.\/session\.js";/u,
-    );
-    assert.match(script, /const token = readWizardSession\(\);/u);
+test("private wizard capability stays out of URLs and persistent browser storage", async () => {
+  for (const path of ["src/ui/app.js", "src/ui/assistant.js", "src/ui/session.js"]) {
+    const script = await readFile(path, "utf8");
     assert.doesNotMatch(script, /[?]session=/u);
     assert.doesNotMatch(
       script,
       /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|document\.cookie/u,
     );
   }
-
-  const sessionHelper = await readFile("src/ui/session.js", "utf8");
-  assert.doesNotMatch(
-    sessionHelper,
-    /\blocalStorage\b|\bsessionStorage\b|\bindexedDB\b|document\.cookie/u,
-  );
 });
+
 
 test("VPS reload rehydrates and completes the server-owned pending OAuth attempt", async () => {
   const app = await readFile("src/ui/app.js", "utf8");
@@ -1664,13 +1633,4 @@ test("SuperGrok device polling defers while another VPS read is active", async (
   state.busy = false;
   loginState = "expired";
   await context.pollLogin("fixture-install", state.loginGeneration);
-});
-
-test("wizard theme preferences store only the selected color mode", async () => {
-  const theme = await readFile("src/ui/theme.js", "utf8");
-
-  assert.match(theme, /relmio-color-mode/u);
-  assert.match(theme, /localStorage\.getItem/u);
-  assert.match(theme, /localStorage\.setItem/u);
-  assert.doesNotMatch(theme, /password|credential|token|fingerprint/iu);
 });

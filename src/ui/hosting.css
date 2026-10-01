@@ -126,9 +126,11 @@
   text-align: center;
 }
 
+/* Experimental badges wrap under the host name instead of widening the table. */
 .hosting-matrix tbody th {
   color: var(--rm-ink);
   font-weight: 600;
+  white-space: normal;
 }
 
 .hosting-matrix tbody tr[data-selected="true"] > * {

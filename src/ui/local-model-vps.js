@@ -159,7 +159,8 @@ async function perform(label, task) {
   el("error").hidden = true;
   el("progress").hidden = true;
   message(label);
-  el("message").scrollIntoView?.({ block: "start", behavior: "instant" });
+  // "nearest" scrolls only when the status is out of view, so the startup check does not move the page.
+  el("message").scrollIntoView?.({ block: "nearest", behavior: "instant" });
   el("route-steps-content").setAttribute("aria-busy", "true");
   const controls = [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")].map((control) => ({
     control, disabled: typeof control.disabled === "boolean" ? control.disabled : null,
@@ -381,7 +382,7 @@ function schedulePoll() {
       const wasHidden = el("progress").hidden;
       el("progress").hidden = false;
       el("progress").textContent = `${progress.phase}: ${formatBytes(progress.completedBytes)} of ${formatBytes(progress.totalBytes)} transferred. No ETA is available.`;
-      if (wasHidden) el("progress").scrollIntoView?.({ block: "start", behavior: "instant" });
+      if (wasHidden) el("progress").scrollIntoView?.({ block: "nearest", behavior: "instant" });
       schedulePoll();
     } catch (failure) { error(failure?.message ?? "Progress inspection failed. Refresh status."); }
   }, 2500);
@@ -517,6 +518,17 @@ window.addEventListener("pagehide", () => { clearTimeout(state.timer); state.tim
 const VIEWS = ["review-panel", "settings-panel", "selection-panel", "manual-recovery", "connection-panel"];
 const VIEW_STAGES = { "connection-panel": 1, "manual-recovery": 2, "selection-panel": 2, "review-panel": 3, "settings-panel": 4 };
 const view = { furthest: "connection-panel", shown: "connection-panel", returnedTo: null };
+function focusVisible(target) {
+  target.focus({ preventScroll: true });
+  const rect = target.getBoundingClientRect();
+  const footer = target.closest(".rm-panel")?.querySelector(".rm-panel__footer");
+  const bottom = footer && getComputedStyle(footer).position === "sticky"
+    ? Math.min(innerHeight, footer.getBoundingClientRect().top) : innerHeight;
+  if (rect.top < document.querySelector(".rm-topbar").getBoundingClientRect().bottom || rect.bottom > bottom) {
+    target.scrollIntoView({ block: "start", behavior: "instant" });
+  }
+}
+
 function syncView() {
   const furthest = VIEWS.find((id) => !el(id).hidden);
   if (furthest !== view.furthest) { view.furthest = furthest; view.returnedTo = null; }
@@ -537,8 +549,8 @@ function syncView() {
     else marker.removeAttribute("aria-current");
   }
   const heading = el(shown[0]).querySelector("h2");
-  if (leaving) heading.focus();
-  else if (!active || active === document.body) heading.focus({ preventScroll: true });
+  if (leaving) focusVisible(heading);
+  else if (!active || active === document.body) focusVisible(heading);
 }
 function returnTo(id) {
   syncView();

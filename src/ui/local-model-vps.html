@@ -70,10 +70,6 @@
             <p class="rm-eyebrow">Local model · VPS</p>
             <h1 class="rm-h3">A private model for n8n</h1>
           </div>
-          <details class="rm-notice">
-            <summary><span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span><span class="rm-notice__title">Experimental 0.18.0-experimental.4</span><span class="rm-notice__text">Use a test setup.</span><span class="rm-notice__toggle">Details</span></summary>
-            <div class="rm-notice__body"><p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p></div>
-          </details>
           <ol class="rm-stepper rm-stepper--auto route-steps" aria-label="Steps">
             <li class="rm-stepper__item" data-stage-marker="1" aria-current="step"><span class="rm-stepper__link"><span class="rm-stepper__marker">1</span><span class="rm-stepper__label">Check server</span></span></li>
             <li class="rm-stepper__item" data-stage-marker="2"><span class="rm-stepper__link"><span class="rm-stepper__marker">2</span><span class="rm-stepper__label">Choose model</span></span></li>
@@ -117,6 +113,7 @@
                     </div>
                   </div>
                   <div class="route-aside">
+                    <p class="rm-small rm-muted">Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</p>
                     <p class="rm-small rm-muted">Passwordless sudo covers this model only. The OAuth bridge, Assistant and SuperGrok need a root account.</p>
                     <p id="ssh-agent-status" class="rm-small rm-muted" role="status">Checking local SSH agent configuration…</p>
                     <details class="rm-disclosure">

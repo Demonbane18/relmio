@@ -23,7 +23,7 @@ const routeDefinitions = [
     destination: "Supported models through the unofficial openai-oauth sidecar",
     link: "/docs/local-endpoints#self-hosted-n8n-bridge",
     linkLabel: "Read the n8n bridge guide",
-    note: "This option is unofficial, private, experimental, and policy-uncertain. It does not turn ChatGPT sign-in into a Platform API key.",
+    note: "This option is unofficial, private and policy-uncertain. It does not turn ChatGPT sign-in into a Platform API key.",
     tone: "Unofficial n8n option",
   },
   {
@@ -36,8 +36,8 @@ const routeDefinitions = [
     destination: "SuperGrok through Grok Build",
     link: "/docs/local-endpoints#supergrok-development-backends",
     linkLabel: "Read the SuperGrok guide",
-    note: "Experimental. Official OAuth stays inside the Grok runtime, and setup never requires or reads a ChatGPT credential.",
-    tone: "Experimental OAuth",
+    note: "Official OAuth stays inside the Grok runtime, and setup never requires or reads a ChatGPT credential.",
+    tone: "Experimental",
   },
   {
     id: "sandbox-builder",
@@ -78,12 +78,25 @@ const routeDefinitions = [
     note: "The client must own the App Server lifecycle. Relmio does not make this a shared or public service.",
     tone: "Experimental",
   },
+  {
+    id: "local-model",
+    label: "Local model for n8n",
+    icon: "bot",
+    source: "Your self-hosted n8n",
+    credential: "No provider sign-in or API key",
+    transport: "Private Docker network with no host port",
+    destination: "One CPU Ollama model from Relmio's catalog, on local Docker or your VPS",
+    link: "/docs/local-models",
+    linkLabel: "Read the local model guide",
+    note: "CPU answers can be slow. A passed check proves a bounded inference, not a working workflow or tool calling.",
+    tone: "No sign-in",
+  },
 ] as const satisfies ReadonlyArray<Record<string, string> & { icon: IconName }>;
 
 type RouteId = (typeof routeDefinitions)[number]["id"];
 const relayEase = [0.22, 1, 0.36, 1] as const;
 
-/** The home connection guide: five real toggle buttons and the selected
+/** The home connection guide: six real toggle buttons and the selected
     route's path from source to destination. Selecting a route redraws the
     path; with reduced motion the path appears complete at once. */
 export function SignalPlotter({ className }: { className?: string }) {
@@ -149,7 +162,14 @@ export function SignalPlotter({ className }: { className?: string }) {
               >
                 <div className={styles.detailHeader}>
                   <h3 className={styles.detailTitle}>{activeRoute.label}</h3>
-                  <span className="rm-badge">{activeRoute.tone}</span>
+                  <span
+                    className={classNames(
+                      "rm-badge",
+                      activeRoute.tone === "Experimental" && "rm-badge--accent",
+                    )}
+                  >
+                    {activeRoute.tone}
+                  </span>
                 </div>
                 <ol
                   className={styles.routeStory}

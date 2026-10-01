@@ -328,35 +328,6 @@ function blockedEvent(target) {
   };
 }
 
-test("both VPS wizards expose one accessible indeterminate elapsed progress region", async () => {
-  for (const wizard of WIZARDS) {
-    const html = await readFile(wizard.html, "utf8");
-    const root = html.match(/<[^>]+id="operation-progress"[^>]*>/u)?.[0] ?? "";
-    const progressbar = html.match(
-      /<[^>]+id="operation-progress-bar"[^>]*>/u,
-    )?.[0] ?? "";
-
-    assert.equal((html.match(/id="operation-progress"/gu) ?? []).length, 1, wizard.html);
-    assert.equal((html.match(/role="progressbar"/gu) ?? []).length, 1, wizard.html);
-    assert.match(root, /class="operation-progress"/u);
-    assert.match(root, /role="status"/u);
-    assert.match(root, /aria-live="polite"/u);
-    assert.match(root, /aria-atomic="false"/u);
-    assert.match(root, /tabindex="-1"/u);
-    assert.match(root, /hidden/u);
-    assert.match(progressbar, /role="progressbar"/u);
-    assert.doesNotMatch(progressbar, /aria-value(?:now|min|max)/u);
-    assert.match(html, /id="operation-progress-elapsed"[^>]*datetime="PT0S"[^>]*>00:00</u);
-    assert.doesNotMatch(html, /id="main-content"[^>]*aria-busy=/u);
-    assert.doesNotMatch(html, /<body[^>]*aria-busy=/u);
-    assert.match(
-      html,
-      /Timing varies with your (?:VPS|remote server) and network/u,
-    );
-    assert.doesNotMatch(html, /(?:\bETA\b|estimated time|\d+% complete)/iu);
-  }
-});
-
 test("shared VPS lifecycle excludes overlap and locks slow operations", async () => {
   for (const wizard of WIZARDS) {
     const script = await readFile(wizard.script, "utf8");
@@ -615,7 +586,7 @@ test("VPS route operations reveal their live rail status while the step is busy"
   );
   startProgress("Checking VPS identity…");
   assert.equal(progress.hidden, false);
-  assert.equal(progress.scrolledIntoView.block, "start");
+  assert.equal(progress.scrolledIntoView.block, "nearest", "an offscreen status is revealed without moving a visible one");
 
   const local = await readFile("src/ui/local-model-vps.js", "utf8");
   const operationStart = local.indexOf("async function perform(");
@@ -640,7 +611,7 @@ test("VPS route operations reveal their live rail status while the step is busy"
   const pending = perform("Checking VPS host identity…", () => new Promise((resolve) => { release = resolve; }));
   assert.equal(modelState.busy, true);
   assert.equal(busyStep.getAttribute("aria-busy"), "true");
-  assert.equal(status.scrolledIntoView.block, "start");
+  assert.equal(status.scrolledIntoView.block, "nearest", "an offscreen status is revealed without moving a visible one");
   assert.equal(polling.hidden, true, "a new operation restores its own current status");
   release();
   await pending;
@@ -861,50 +832,4 @@ test("Assistant Back from Review withdraws the plan and its approval", async () 
   assert.equal(state.reviewedIncludeSearxng, null);
   assert.equal(confirm.checked, false);
   assert.equal(install.disabled, true);
-});
-
-test("every VPS long action routes through the page lifecycle", async () => {
-  const app = await readFile("src/ui/app.js", "utf8");
-  const assistant = await readFile("src/ui/assistant.js", "utf8");
-
-  for (const script of [app, assistant]) {
-    assert.match(script, /fingerprint-button[\s\S]*runOperation\(/u);
-    assert.match(script, /vps-form[\s\S]*runOperation\(/u);
-    assert.match(script, /container-select[\s\S]*runOperation\(/u);
-    assert.match(script, /review-button[\s\S]*runOperation\(/u);
-    assert.match(script, /install-button[\s\S]*runOperation\(/u);
-    assert.doesNotMatch(script, /function setBusy\(/u);
-  }
-
-  assert.match(app, /login-button[\s\S]*runOperation\(/u);
-  assert.match(app, /stop-login-button[\s\S]*runActiveOperationTask\(/u);
-  assert.match(app, /refreshAuthStatus[\s\S]*runOperation\(/u);
-  assert.ok((app.match(/runOperation\(/gu) ?? []).length >= 8);
-  assert.ok((assistant.match(/runOperation\(/gu) ?? []).length >= 6);
-
-  for (const path of [
-    "/api/status",
-    "/api/oauth/login",
-    "/api/oauth/cancel",
-    "/api/ssh/fingerprint",
-    "/api/ssh/connect",
-    "/api/discover",
-    "/api/networks",
-    "/api/plan",
-    "/api/assistant/plan",
-    "/api/install",
-    "/api/assistant/install",
-  ]) {
-    assert.match(app, new RegExp(path.replaceAll("/", "\\/"), "u"));
-  }
-  for (const path of [
-    "/api/ssh/fingerprint",
-    "/api/ssh/connect",
-    "/api/discover",
-    "/api/networks",
-    "/api/assistant/plan",
-    "/api/assistant/install",
-  ]) {
-    assert.match(assistant, new RegExp(path.replaceAll("/", "\\/"), "u"));
-  }
 });

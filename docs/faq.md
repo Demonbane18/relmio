@@ -2,11 +2,13 @@
 
 ## Does a ChatGPT plan include a Platform API key?
 
-No. The managed provider-authentication flows use their documented OAuth
-sessions; they do not create an OpenAI Platform API key. Relmio's newer hosting
-planner is a separate operator-generated artifact flow, and API-key connections
-are configured directly in n8n or your app. The ChatGPT n8n OAuth bridge
-remains unofficial, private, and policy-uncertain.
+No. ChatGPT sign-in does not create an OpenAI Platform API key. Managed
+ChatGPT/Codex and SuperGrok OAuth sign-in flows do not configure upstream API
+keys, keep API-key profiles, or fall back to separately billed API access.
+Configure API-key connections and operator-generated hosting artifacts
+separately in n8n or on the target platform. Retired API installations and
+their data remain untouched. The ChatGPT n8n OAuth bridge remains unofficial,
+private, and policy-uncertain.
 
 ## Can I use my SuperGrok subscription?
 

@@ -204,3 +204,62 @@ The hosted page and READMEs now label the third-party Codex flow unofficial and 
 These are disclosure and error-text edits, not a data-flow or capability change. The hosted third-party flow still keeps an encrypted, same-origin-readable session in browser IndexedDB and sends each prompt with a reusable bearer access token through Relmio's Vercel runtime to OpenAI's Codex `backend-api`; ID and refresh tokens remain in the browser and go directly to OpenAI for exchange/refresh. The private n8n route still copies complete Codex credentials into the selected sidecar after local deployment approval. The browser-token and hosted-runtime mismatches with the documented SIWC flow remain. Relmio-specific registered application identity, returned plan-usage grants, actual pinned Codex scopes, provider approval, extension behavior, and applicable account terms remain unverified. Hosting, provider, CLI, Docker, and n8n logs, retention, and downstream recipients are not established. No real hosted inference, image generation, n8n workflow, or TTS entitlement was proved; audio remains rejected by the bridge. A security guide is not a Relmio privacy notice or service terms, and the deferred script-execution CSP gap remains.
 
 Official sources rechecked in the [source check's register](#official-sources-checked) on 2026-10-01: [registration and grants](https://developers.openai.com/siwc/token-sharing-open-source/sign-in.md), [browser and session guidance](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions.md), [supported transport](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference.md), [image limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations.md), [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/), and the [Videos API shutdown notice](https://developers.openai.com/api/docs/deprecations#2026-03-24-sora-2-video-generation-models-and-videos-api) (shutdown 2026-09-24, no replacement listed). These sources do not approve Relmio's current bridge or settle provider retention.
+
+## API-key and stable-channel disclosure addendum, 2026-10-01
+
+This read-only check covers the revised API-key wording and stable-channel labels. It supplements the historical review, not its permission or capability findings. No credentials were accessed and no sign-in, provider API request, browser check, test, build, or edit was performed. Line references identify the inspected worktree and may move during final edits.
+
+### Official sources rechecked
+
+The Sign in with ChatGPT article was fetched first. Relative update labels are reproduced as displayed.
+
+| Source | Displayed date |
+| --- | --- |
+| [Sign in with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) | Updated: 2 days ago |
+| [Codex authentication](https://developers.openai.com/codex/auth/), redirected to [Authentication](https://learn.chatgpt.com/docs/auth) | None shown |
+| [API authentication](https://developers.openai.com/api/reference/overview#authentication) | None shown |
+| [Using your ChatGPT plan in other apps and sites](https://help.openai.com/en/articles/20001542-using-your-chatgpt-plan-in-other-apps-and-sites) | Updated: 3 hours ago |
+| [Registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in.md) | None shown |
+| [Models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference.md) | None shown |
+| [Text to speech](https://developers.openai.com/api/docs/guides/text-to-speech) | None shown |
+| [Terms of Use](https://openai.com/policies/terms-of-use/) | Published/effective: January 1, 2026 |
+| [Service Terms](https://openai.com/policies/service-terms/) | Updated: September 29, 2026 |
+| [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/) | September 29, 2026 |
+| [Privacy Policy](https://openai.com/policies/privacy-policy/) | Updated: July 30, 2026 |
+
+### API-key statements
+
+- **Confirmed:** “ChatGPT sign-in does not create an OpenAI Platform API key” is accurate (`docs/faq.md:3-11`). Codex distinguishes subscription authentication from API-key authentication and Platform billing. The plan-usage article says users need not create or share an API key. This does not imply that all OpenAI API requests require Platform keys: documented plan usage uses a separately authorized OAuth bearer.
+- **Observed:** The revised no-API-key/no-fallback statement correctly scopes itself to managed OAuth flows (`README.md:415-419`; `npm/README.md:390-394`; `docs/local-endpoints.md:52-56`; `docs/security.md:286-290`; `docs/faq.md:5-11`; `docs/roadmap.md:15-19`). Managed Codex forces ChatGPT authentication and requests device login; the n8n credential reader requires `auth_mode: chatgpt` (`src/domain/local-endpoints.js:258-265`; `src/services/codex-login.js:158-168`; `src/services/oauth.js:172-198,263-272`). Grok accepts its marked OIDC session and returns authentication/quota errors without choosing API-key billing (`src/supergrok/session.js:21-27,52-61`; `src/supergrok/chat.js:81-90,184-224`). xAI policy and CLI behavior remain **Provisional**, not OpenAI-confirmed. No API fallback must not be expanded into a promise of no possible charges: OpenAI separately documents optional ChatGPT credits and app charges.
+- **Observed:** Separately configured API-key connections and operator hosting artifacts are accurately distinguished. The planner generates files and instructions; its endpoint profiles require independent incoming and upstream runtime secrets, not OAuth-derived keys (`src/domain/hosting-deployment.js:80-104,133-164`; `src/domain/hosting-edge-profiles.js:151-182`).
+- **Observed:** The retirement text preserves the warning that an old gateway can keep running with its saved credential even without a dashboard row (`docs/local-endpoints.md:556-607`; `docs/local-dashboard.md:125-129`). Current managed targets exclude the retired API endpoints (`src/domain/local-endpoints.js:48-64`). Removing historical version qualifiers does not authorize automatic migration or deletion.
+
+### Stable channel and feature labels
+
+**Observed:** Package metadata now names 0.18.0, and README installation commands use `relmio@latest` (`package.json:3`; `package-lock.json:3,9`; `README.md:32-33,64-68`). The CLI notice is prerelease-only (`src/cli.js:86-90`). Feature-specific Experimental labels remain for SuperGrok and specialist Codex routes (`src/ui/local.html:343,364,375,381`; `src/ui/supergrok-vps.html:71`; `web/app/components/relay/SignalPlotter.tsx:40,65-79`). Hosting-provider labels use the catalog’s `tested` flag while generated plans remain “Not live tested” (`src/domain/hosting-providers.js:69,83`; `src/ui/hosting.js:173-176,209,374-376`). Publication to npm and the evidence supporting hosting test classifications were not checked here.
+
+**Observed / Confirmed:** Calling the bridge part of Relmio’s stable workflow does not itself claim OpenAI approval, provided the unofficial, private, policy-uncertain warning remains visible. It does in the inspected bridge UI and route description (`src/ui/index.html:193-194,681-682`; `src/ui/local.html:336,930`; `web/app/components/relay/SignalPlotter.tsx:26`). The hosting notes also withhold Platform-key and entitlement claims (`src/domain/hosting-providers.js:11,18`). Stable is Relmio’s release classification; it does not resolve the earlier documented SIWC mismatches or authorize credential copying.
+
+Two wording corrections were required before acceptance; both are applied in this update:
+
+1. `README.md:218-221` and `npm/README.md:195-198` still describe OpenAI’s documentation as identity-only. It now also covers separately authorized plan usage. Replace those stable/identity-only sentences with the following, preserving the existing source-check links:
+
+   > Relmio classifies this bridge as a stable workflow. It remains unofficial, private, and policy-uncertain. OpenAI documents identity sign-in and separately authorized ChatGPT plan usage; those documents do not establish approval for Relmio's Codex credential-copy bridge. The earlier source-check findings still apply.
+
+2. `npm/README.md:305-306` retains an experimental bridge label that conflicts with the requested classification. Replace it with:
+
+   > Relmio does not edit or restart n8n. The bridge is unofficial, private, and policy-uncertain.
+
+### Identity, permissions, and capability remain separate
+
+- **Identity — Confirmed / Observed:** Supported identity sign-in shares basic identity information. Relmio’s n8n route reads and copies complete Codex credentials, so it cannot inherit that identity-only data boundary (`src/services/oauth.js:172-198`; `src/services/installer.js:285-289`).
+- **Permissions — Confirmed / Open:** Official plan usage requires a separate grant. The registration guide distinguishes `openid profile email` from `offline_access resource.invoke chatgpt.tokens.use.direct`. Relmio delegates managed login to Codex without specifying or verifying those scopes (`src/services/oauth.js:263-272`; `src/services/codex-login.js:158-168`). Actual pinned-CLI scopes, grants, and bridge permission remain unknown. Login, deployment confirmation, and stable classification are not Terms compliance.
+- **Model/TTS capability — Confirmed / Observed / Open:** Account-specific availability and completed inference remain separate requirements. The bridge still rejects audio routes with HTTP 501 (`src/gateway/openai-oauth-sidecar.mjs:20-25,109-116`). OpenAI documents TTS through its Audio API. These edits establish no new model entitlement or TTS support.
+
+### Unchanged data flow and remaining unknowns
+
+**Observed, based on the parent’s diff review:** The parent reports inspecting the complete change scope since `f436ce6`, including the requested README/docs comparison. The changes concern release metadata, disclosures, feature labels, layout/focus behavior, generated documentation, and tests; they do not change OAuth, credential storage, transmission, logging, scopes, or recipients. This subreview inspected current source but did not execute Git or independently receive the raw patch.
+
+The existing boundaries remain: host credentials are read and stored under `~/.n8n-openai-oauth/auth.json` or its configured override (`src/services/oauth.js:123-133,172-198,381-407`); managed Codex uses its private volume (`src/domain/local-endpoints.js:447-450,531-534`); approved copies reach the local Docker helper/sidecar or selected VPS (`src/services/local-n8n-sidecar-installer.js:2034-2077`; `src/services/installer.js:272-289`). Grok reads its own marked session and sends requests to its configured xAI CLI proxy (`src/supergrok/runtime.js:14`; `src/supergrok/session.js:52-61`; `src/supergrok/chat.js:4-5,184-199`). Separate hosting artifacts forward requests using operator-supplied runtime secrets (`src/domain/hosting-edge-profiles.js:98-128,164-181`). Host-login output remains bounded in memory, not covered by a system-wide no-logging promise (`src/services/oauth.js:305-322`).
+
+The earlier hosted-chat data-flow and dependency findings are not superseded: its browser-to-Relmio/OpenAI request path and category-only route logging remain present (`web/app/components/ChatConsole.tsx:123-133`; `web/app/api/chat/route.ts:169-203,266-273`). Provider approval, actual grants, third-party behavior, operator/platform retention, deployed release bytes, and live model/TTS capability remain **Open**. OpenAI’s Privacy Policy does not establish zero retention for these paths.

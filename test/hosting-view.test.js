@@ -16,14 +16,19 @@ test("Back from Details keeps Choose focused when a pending plan completes", asy
       addEventListener(name, handler) { this.handlers.set(name, handler); },
       replaceChildren() {}, reportValidity() { return true; },
       focus() { activeElement = this; },
+      getBoundingClientRect() { return { top: 100, bottom: 130 }; },
+      closest() { return null; }, scrollIntoView() {},
     });
     return nodes.get(id);
   };
   const state = { generation: 0, plan: null, archive: null, requestPending: false };
-  const document = { body: { dataset: { hostingView: "details" } } };
+  const document = {
+    body: { dataset: { hostingView: "details" } },
+    querySelector() { return { getBoundingClientRect() { return { bottom: 56 }; } }; },
+  };
   let resolveRequest;
   runInNewContext(`${views}\n${invalidation}\n${handlers}`, {
-    el, document, state, token: "fixture-token",
+    el, document, state, token: "fixture-token", innerHeight: 800,
     activeProfile() { return { providerId: "fixture", component: "model" }; },
     planInputs() { return { diskGB: 20 }; },
     randomDeploymentId() { return "fixture-deployment"; },

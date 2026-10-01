@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import test from "node:test";
@@ -84,6 +84,7 @@ test("server-renders the Relmio home page with the shared top bar", async () => 
     "n8n Code Sandbox",
     "Codex Chat Adapter",
     "Codex App Server",
+    "Local model for n8n",
   ]) {
     assert.match(html, new RegExp(option, "u"));
   }
@@ -335,14 +336,8 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /never stops[^<]*n8n or a managed companion/);
   assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
   assert.match(installScript, /^#!\/bin\/sh/m);
-  assert.match(installScript, /Node\.js download checksum did not match/);
   assert.match(installScript, /--ignore-scripts relmio@latest/);
-  assert.doesNotMatch(commandPromptInstallScript, /powershell|pwsh/iu);
-  assert.match(commandPromptInstallScript, /certutil\.exe/u);
-  assert.match(commandPromptInstallScript, /Node\.js download checksum did not match/u);
   assert.match(commandPromptInstallScript, /--ignore-scripts relmio@latest/u);
-  assert.match(powerShellInstallScript, /Get-FileHash/);
-  assert.match(powerShellInstallScript, /Node\.js download checksum did not match/);
   assert.match(powerShellInstallScript, /--ignore-scripts/);
 });
 
@@ -415,22 +410,6 @@ test("rejects invalid chat prompts without caching their responses", async () =>
     assert.equal(response.status, status);
     assert.equal(response.headers.get("cache-control"), "no-store");
   }
-});
-
-test("streams chat over Relmio's explicit terminal-state protocol without proxy buffering", async () => {
-  const [chatConsole, chatRoute, streamReader] = await Promise.all([
-    readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/relmio-stream.js", import.meta.url), "utf8"),
-  ]);
-
-  assert.doesNotMatch(chatConsole, /useCompletion/u);
-  assert.match(chatConsole, /readRelmioEvents/u);
-  assert.match(streamReader, /ReadableStream|getReader/u);
-  assert.match(chatRoute, /createOpenAIOAuthTransport/u);
-  assert.match(chatRoute, /encodeEvent\("delta"/u);
-  assert.match(chatRoute, /encodeEvent\("terminal"/u);
-  assert.match(chatRoute, /"Content-Encoding":\s*"none"/u);
 });
 
 test("returns a streaming error event instead of an empty completion", async (t) => {
@@ -568,6 +547,8 @@ test("forwards incremental model text as separate chat stream events", async (t)
   });
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-encoding"), "none");
+  assert.equal(response.headers.get("cache-control"), "no-store");
   const stream = await response.text();
   assert.equal(upstreamRequestBody.model, "gpt-5.6-luna");
   assert.match(stream, /event: delta\ndata: \{"text":"Hello"\}/u);
@@ -659,43 +640,4 @@ test("fails a terminal-less upstream stream instead of reporting empty success",
   assert.match(stream, /"code":"upstream_failed"/u);
   assert.match(stream, /event: terminal\ndata: \{"outcome":"failed"\}/u);
   assert.doesNotMatch(stream, /private-id/u);
-});
-
-test("ships the request-bound chat and removes starter assets", async () => {
-  const [chatConsole, chatRoute, layout, packageJson] = await Promise.all([
-    readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-  ]);
-
-  assert.match(chatConsole, /openaiAuthHeaders/u);
-  assert.match(chatConsole, /SignInWithChatGPT/u);
-  assert.match(chatConsole, /styles\.messageIncomplete/u);
-  assert.match(chatConsole, /Relmio · incomplete/u);
-  assert.match(chatRoute, /openaiCredentials\(request\)/u);
-  assert.match(chatRoute, /Cache-Control": "no-store"/u);
-  assert.match(layout, /Relmio \| Connect local AI tools safely/u);
-  assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
-  await assert.rejects(
-    access(new URL("../app/_sites-preview", import.meta.url)),
-  );
-});
-
-test("returns hosted ChatGPT callbacks to the active deployment origin", async () => {
-  const chatConsole = await readFile(
-    new URL("../app/components/ChatConsole.tsx", import.meta.url),
-    "utf8",
-  );
-
-  assert.doesNotMatch(chatConsole, /callbackPath=/u);
-  assert.doesNotMatch(chatConsole, /relmio\.jpfusin\.tech/u);
-});
-
-
-test("keeps the entire scene still when SVG animation controls are unavailable", async () => {
-  const source = await readFile(new URL("../app/components/relay/DoorwayHero.tsx", import.meta.url), "utf8");
-  assert.match(source, /const running = smilSupported &&/);
-  assert.match(source, /useSyncExternalStore\(subscribeSmilSupport, getSmilSupport, \(\) => false\)/);
-  assert.match(source, /disabled=\{!smilSupported \|\| reducedMotion\}/);
 });

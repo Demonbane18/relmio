@@ -74,6 +74,16 @@ const STAGE_VIEWS = {
   4: ["settings-panel", "selection-panel", "ssh-panel"],
 };
 let currentView = "ssh-panel";
+function focusVisible(target) {
+  target.focus({ preventScroll: true });
+  const rect = target.getBoundingClientRect();
+  const footer = target.closest(".rm-panel")?.querySelector(".rm-panel__footer");
+  const bottom = footer && getComputedStyle(footer).position === "sticky"
+    ? Math.min(innerHeight, footer.getBoundingClientRect().top) : innerHeight;
+  if (rect.top < document.querySelector(".rm-topbar").getBoundingClientRect().bottom || rect.bottom > bottom) {
+    target.scrollIntoView({ block: "start", behavior: "instant" });
+  }
+}
 
 function syncView() {
   const order = STAGE_VIEWS[document.body.dataset.stage] ?? STAGE_VIEWS[1];
@@ -87,8 +97,8 @@ function syncView() {
   for (const id of STAGE_VIEWS[3]) element(id).toggleAttribute("data-current", id === next);
   currentView = next;
   const heading = element(next).querySelector("h2");
-  if (active && previous.contains(active)) heading.focus();
-  else if (!active || active === document.body) heading.focus({ preventScroll: true });
+  if (active && previous.contains(active)) focusVisible(heading);
+  else if (!active || active === document.body) focusVisible(heading);
 }
 
 async function readProjectMeta() {
@@ -115,7 +125,8 @@ function startProgress(label) {
   element("operation-progress-label").textContent = label;
   element("operation-progress-bar").setAttribute("aria-valuetext", label);
   element("operation-progress").hidden = false;
-  element("operation-progress").scrollIntoView?.({ block: "start", behavior: "instant" });
+  // "nearest" scrolls only when the card is out of view, so the startup check does not move the page.
+  element("operation-progress").scrollIntoView?.({ block: "nearest", behavior: "instant" });
   updateProgress();
   state.progressTimer = window.setInterval(updateProgress, 1_000);
 }
@@ -356,8 +367,7 @@ async function prepareReview(action) {
   element("apply-button").textContent = actionLabels[reviewed.action];
   element("review-panel").hidden = false;
   setStage(3);
-  element("review-title").focus({ preventScroll: true });
-  element("review-panel").scrollIntoView({ block: "center", behavior: "smooth" });
+  focusVisible(element("review-title"));
   setMessage("Review the action and confirm when ready.");
 }
 
@@ -460,7 +470,7 @@ element("cancel-review").addEventListener("click", () => {
   if (state.busy) return;
   invalidateReview();
   setStage(2);
-  element("selection-title").focus({ preventScroll: true });
+  focusVisible(element("selection-title"));
   setMessage("No companion action was applied.");
 });
 

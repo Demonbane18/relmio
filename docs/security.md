@@ -283,8 +283,11 @@ shared, or production service.
   `GET /health` requires a random local Relmio capability. Grok chat also
   requires a local bearer. The wizard displays the capability once and
   persists only its SHA-256 verifier. It remains valid until rotation.
-- Relmio accepts no upstream API-key setup or API-key profile operations.
-  Retired API installations and saved data remain untouched.
+- Managed ChatGPT/Codex and SuperGrok OAuth sign-in flows do not configure
+  upstream API keys, keep API-key profiles, or fall back to separately billed
+  API access. Configure API-key connections and operator-generated hosting
+  artifacts separately in n8n or on the target platform. Retired API
+  installations and their data remain untouched.
 
 - Raw Codex and Chat Adapter targets use the official Codex App Server inside
   their isolated runtime. The separate n8n OpenAI OAuth bridge starts the

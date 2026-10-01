@@ -156,10 +156,6 @@
                 <h1 id="dashboard-title" tabindex="-1" class="rm-h1">Local connections</h1>
                 <p class="rm-muted">Check what is installed, or add a connection.</p>
               </div>
-              <details class="rm-notice header-notice">
-                <summary><span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span><span id="dashboard-experimental-title" class="rm-notice__title">Experimental 0.18.0-experimental.4</span><span class="rm-notice__text">Use a test setup.</span><span class="rm-notice__toggle">Details</span></summary>
-                <div class="rm-notice__body"><p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p></div>
-              </details>
             </header>
 
             <div class="rm-panel__body dashboard-body">
@@ -325,10 +321,6 @@
                 <p id="choose-step-caption" class="rm-eyebrow">Step 1 of 4 · Choose</p>
                 <h2 id="choose-title" class="rm-h1" tabindex="-1">Choose what to set up</h2>
               </div>
-              <details class="rm-notice header-notice">
-                <summary><span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span><span id="local-experimental-title" class="rm-notice__title">Experimental 0.18.0-experimental.4</span><span class="rm-notice__text">Use a test setup.</span><span class="rm-notice__toggle">Details</span></summary>
-                <div class="rm-notice__body"><p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p></div>
-              </details>
             </header>
 
             <form id="target-form" class="setup-form">
@@ -348,7 +340,7 @@
                       <label class="rm-choice target-card">
                         <input class="rm-choice__input" type="radio" name="target" value="n8n-supergrok-oauth" />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--network rm-icon--lg"></span></span>
-                        <span class="rm-choice__title">Grok for n8n</span>
+                        <span class="rm-choice__title">Grok for n8n <span class="rm-badge rm-badge--accent">Experimental</span></span>
                         <span class="rm-choice__text">Use your SuperGrok sign-in in an n8n workflow.</span>
                       </label>
 
@@ -1333,7 +1325,7 @@
                   </div>
                   <div class="rm-cluster actions"><button id="local-model-refresh" class="rm-button rm-button--sm" type="button">Refresh model status</button><button id="local-model-review-retry" class="rm-button rm-button--sm" type="button" hidden>Review retry</button><button id="local-model-review-remove" class="rm-button rm-button--ghost rm-button--sm" type="button" hidden>Review removal</button></div>
                   <section id="local-model-action-review" class="rm-card rm-card--muted rm-card--compact model-box" aria-labelledby="local-model-action-title" hidden>
-                    <h4 id="local-model-action-title" class="rm-h3"></h4>
+                    <h4 id="local-model-action-title" class="rm-h3" tabindex="-1"></h4>
                     <p id="local-model-action-detail" class="rm-small"></p>
                     <label class="rm-check check-row"><input id="local-model-action-confirm" type="checkbox" /><span>I approve the exact reviewed action for this owned model only.</span></label>
                     <label id="local-model-cache-confirm-row" class="rm-check check-row" hidden><input id="local-model-cache-confirm" type="checkbox" /><span>I separately approve permanent deletion of this owned model cache and downloaded weights.</span></label>

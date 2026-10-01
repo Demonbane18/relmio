@@ -585,7 +585,7 @@ export function ChatConsole({
           )}
         </section>
 
-        {showJumpToLatest ? (
+        {showJumpToLatest && turns.length > 0 ? (
           <button
             className={`rm-button rm-button--sm ${styles.jumpToLatest}`}
             type="button"
