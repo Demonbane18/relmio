@@ -1,5 +1,6 @@
 import { bindWizardNavigation, readWizardSession } from "./session.js";
-import { bindSshAuthentication, readSshIdentity, sameSshIdentity, validateSshIdentity } from "./ssh-form.js";
+import { initWizardTopbar } from "./topbar.js";
+import { bindSshAuthentication, clearFieldError, readSshIdentity, sameSshIdentity, setFieldError, validateSshIdentity } from "./ssh-form.js";
 import { HOSTING_PROVIDERS, getHostingProvider } from "../domain/hosting-providers.js";
 
 const token = readWizardSession();
@@ -32,11 +33,17 @@ el("hosting-provider").addEventListener("change", () => {
   syncTrust(); syncConfirm();
 });
 
-bindWizardNavigation(el("back-link"), "/", token);
 bindWizardNavigation(el("hosting-guide-link"), "/hosting", token);
 
 function message(text) { el("message").textContent = text; }
-function error(text) { el("error").textContent = text; el("error").hidden = false; el("error").focus(); }
+function error(text) {
+  const rejected = [["Hostname", "host"], ["Port", "port"], ["Username", "username"], ["Password", "password"]]
+    .find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
+  if (rejected) setFieldError(el(rejected[1]), "error");
+  el("error").textContent = text;
+  el("error").hidden = false;
+  el("error").focus();
+}
 function invalidate() {
   state.generation++;
   state.plan = null;
@@ -139,18 +146,39 @@ async function api(path, body) {
   if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The operation failed.");
   return data;
 }
+for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"]) {
+  document.addEventListener(name, (event) => {
+    if (!state.busy || (name === "keydown" && event.key === "Tab")) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
+}
 async function perform(label, task) {
   if (state.busy) return;
   state.busy = true;
   el("error").hidden = true;
+  el("progress").hidden = true;
   message(label);
-  el("main-content").setAttribute("aria-busy", "true");
-  for (const button of document.querySelectorAll("button")) button.disabled = true;
+  // "nearest" scrolls only when the status is out of view, so the startup check does not move the page.
+  el("message").scrollIntoView?.({ block: "nearest", behavior: "instant" });
+  el("route-steps-content").setAttribute("aria-busy", "true");
+  const controls = [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")].map((control) => ({
+    control, disabled: typeof control.disabled === "boolean" ? control.disabled : null,
+    tabIndex: control.getAttribute("tabindex"),
+  }));
+  for (const { control, disabled } of controls) {
+    if (disabled !== null) control.disabled = true;
+    else control.setAttribute("tabindex", "-1");
+  }
   try { await task(); } catch (failure) { error(failure?.message || "The operation failed."); }
   finally {
     state.busy = false;
-    el("main-content").setAttribute("aria-busy", "false");
-    for (const button of document.querySelectorAll("button")) button.disabled = false;
+    el("route-steps-content").setAttribute("aria-busy", "false");
+    for (const { control, disabled, tabIndex } of controls) {
+      if (disabled !== null) control.disabled = disabled;
+      else if (tabIndex === null) control.removeAttribute("tabindex");
+      else control.setAttribute("tabindex", tabIndex);
+    }
     syncTrust(); syncConfirm();
   }
 }
@@ -195,7 +223,12 @@ function renderStatus(status) {
     el("readiness").textContent = "The model answered a bounded check. Test your own n8n workflow separately. This is not proof that every workflow works.";
   }
   if (status.state === "downloading") schedulePoll();
-  else { clearTimeout(state.timer); state.timer = null; el("progress").hidden = true; }
+  else {
+    clearTimeout(state.timer);
+    state.timer = null;
+    el("progress").hidden = true;
+    message(el("installation-state").textContent);
+  }
 }
 async function refreshStatus() {
   await verifyConnectedIdentity();
@@ -288,14 +321,19 @@ async function review(action) {
   state.plan = plan;
   el("review-action").textContent = action === "remove" ? "Permanently remove the owned runtime and model cache" : action === "retry" ? "Retry the same selected model" : "Install runtime and download selected model";
   el("review-action").textContent += action === "install"
-    ? `; may create ${plan.sharedRootBootstrap.directory} and ${plan.sharedRootBootstrap.markerPath}, keeping an existing parent's mode. Uses lock ${plan.operationLockPath}.`
-    : `; serializes with ${plan.operationLockPath}; no shared-root creation.`;
+    ? `; may create ${plan.sharedRootBootstrap.directory} and ${plan.sharedRootBootstrap.markerPath}, keeping an existing parent's mode.`
+    : "; no shared-root creation.";
+  // Lock, build, measurement, digest and runtime facts sit behind "Technical
+  // details" so the review fits one screen (DESIGN.md); every fact stays on the
+  // reviewed page.
+  el("review-details").textContent = action === "install" ? `Uses lock ${plan.operationLockPath}.` : `Serializes with ${plan.operationLockPath}.`;
   if (plan.temporaryBuildStatePath) {
-    el("review-action").textContent += ` After you confirm, builds use a temporary root-only folder at ${plan.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect. Registry credentials are not copied or printed. Cleanup does not change n8n or the model cache.`;
+    el("review-details").textContent += ` After you confirm, builds use a temporary root-only folder at ${plan.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect. Registry credentials are not copied or printed. Cleanup does not change n8n or the model cache.`;
   }
+  el("review-details").textContent += ` Measured server: ${formatBytes(plan.hostResources.memoryBytes)} memory, ${plan.hostResources.cpus} CPUs, ${formatBytes(plan.hostResources.diskAvailableBytes)} available disk; ${formatBytes(plan.reservedMemoryBytes)} reserved for OS, n8n and helper. Approved manifest ${plan.approvedModelDigest}. Runtime: ${plan.runtimeImage}.`;
   el("review-boundary").textContent = `${identity.username}@${identity.host}:${identity.port} (${identity.authentication}; ${identity.privilege}; UID ${identity.loginUid} → ${identity.effectiveUid}; SSH ${identity.fingerprint}) · ${plan.containerName} / ${plan.networkName}`;
-  el("review-model").textContent = `${plan.modelId} · approved manifest ${plan.approvedModelDigest}`;
-  el("review-budget").textContent = `${formatBytes(plan.memoryBytes)} model memory; ${plan.cpus} CPUs; ${plan.contextTokens} context tokens. Measured server: ${formatBytes(plan.hostResources.memoryBytes)} memory, ${plan.hostResources.cpus} CPUs, ${formatBytes(plan.hostResources.diskAvailableBytes)} available disk; ${formatBytes(plan.reservedMemoryBytes)} reserved for OS, n8n and helper. Runtime: ${plan.runtimeImage}.`;
+  el("review-model").textContent = plan.modelId;
+  el("review-budget").textContent = `${formatBytes(plan.memoryBytes)} model memory; ${plan.cpus} CPUs; ${plan.contextTokens} context tokens.`;
   el("review-download").textContent = action === "remove" ? "Owned model cache and weights will be deleted" : `${formatBytes(plan.expectedDownloadBytes)} expected model layers; ${formatBytes(plan.requiredDiskBytes)} estimated free disk requirement`;
   el("deletion-warning").hidden = action !== "remove";
   el("cache-confirm-row").hidden = action !== "remove";
@@ -341,26 +379,39 @@ function schedulePoll() {
       }
       const progress = result.operation;
       if (!progress || !["downloading", "verifying", "model-ready", "model-error", "partial"].includes(progress.state)) throw new Error("Operation progress is invalid.");
+      const wasHidden = el("progress").hidden;
       el("progress").hidden = false;
       el("progress").textContent = `${progress.phase}: ${formatBytes(progress.completedBytes)} of ${formatBytes(progress.totalBytes)} transferred. No ETA is available.`;
+      if (wasHidden) el("progress").scrollIntoView?.({ block: "nearest", behavior: "instant" });
       schedulePoll();
     } catch (failure) { error(failure?.message ?? "Progress inspection failed. Refresh status."); }
   }, 2500);
 }
 
-el("scan").addEventListener("click", () => { void perform("Checking VPS host identity…", async () => {
-  if (state.connectedIdentity) throw new Error("Disconnect before scanning another VPS host.");
-  requireSupportedHosting();
-  invalidate(); state.fingerprint = null; el("trust").checked = false; syncTrust();
-  const result = await api("/api/ssh/fingerprint", { host: el("host").value, port: Number(el("port").value) });
-  if (typeof result.fingerprint !== "string" || !result.fingerprint) throw new Error("Host fingerprint is unavailable.");
-  state.fingerprint = result.fingerprint;
-  el("fingerprint").textContent = result.fingerprint;
-  el("fingerprint-box").hidden = false;
-  message("Check the server identity before you connect.");
-}); });
+el("scan").addEventListener("click", () => {
+  for (const id of ["host", "port"]) {
+    if (!el(id).checkValidity()) {
+      error(id === "host" ? "Hostname is invalid." : "Port is invalid.");
+      return;
+    }
+  }
+  void perform("Checking VPS host identity…", async () => {
+    if (state.connectedIdentity) throw new Error("Disconnect before scanning another VPS host.");
+    requireSupportedHosting();
+    invalidate(); state.fingerprint = null; el("trust").checked = false; syncTrust();
+    const result = await api("/api/ssh/fingerprint", { host: el("host").value, port: Number(el("port").value) });
+    if (typeof result.fingerprint !== "string" || !result.fingerprint) throw new Error("Host fingerprint is unavailable.");
+    for (const id of ["host", "port"]) clearFieldError(el(id), "error");
+    state.fingerprint = result.fingerprint;
+    el("fingerprint").textContent = result.fingerprint;
+    el("fingerprint-box").hidden = false;
+    message("Check the server identity before you connect.");
+  });
+});
 el("trust").addEventListener("change", () => { invalidate(); syncTrust(); });
 for (const id of ["host", "port"]) el(id).addEventListener("input", () => {
+  clearFieldError(el(id), "error");
+  el("error").hidden = true;
   invalidate();
   el("settings-panel").hidden = true;
   if (!state.connectedIdentity) {
@@ -368,9 +419,20 @@ for (const id of ["host", "port"]) el(id).addEventListener("input", () => {
   }
   syncTrust();
 });
+for (const id of ["username", "password"]) el(id).addEventListener("input", () => {
+  clearFieldError(el(id), "error");
+  el("error").hidden = true;
+});
+el("ssh-form").addEventListener("invalid", (event) => {
+  const label = { host: "Hostname", port: "Port", username: "Username", password: "Password" }[event.target.id];
+  if (!label) return;
+  event.preventDefault();
+  error(`${label} is invalid.`);
+}, true);
 el("ssh-form").addEventListener("submit", (event) => { event.preventDefault(); if (state.connectedIdentity || !state.fingerprint || !el("trust").checked) return; void perform("Connecting to trusted VPS…", async () => {
   requireSupportedHosting();
   await api("/api/ssh/connect", sshAuthentication.request(state.fingerprint));
+  for (const id of ["username", "password"]) clearFieldError(el(id), "error");
   adoptConnectedIdentity(await readSshIdentity(token, { allowModelOnly: true }));
   try {
     await discover();
@@ -386,14 +448,19 @@ el("network").addEventListener("change", () => { void perform("Inspecting select
 el("model").addEventListener("change", invalidate);
 el("inspect-owned").addEventListener("click", () => { void perform("Inspecting only the specified owned model…", async () => {
   const name = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/u;
-  if (!name.test(el("manual-container").value) || !name.test(el("manual-network").value)) {
+  const invalid = ["manual-container", "manual-network"].filter((id) => !name.test(el(id).value));
+  if (invalid.length) {
+    for (const id of invalid) setFieldError(el(id), "error");
     throw new Error("Enter the exact original Docker container and network names.");
   }
+  for (const id of ["manual-container", "manual-network"]) clearFieldError(el(id), "error");
   state.manual = true;
   el("selection-panel").hidden = false;
   await refreshStatus();
 }); });
 for (const id of ["manual-container", "manual-network"]) el(id).addEventListener("input", () => {
+  clearFieldError(el(id), "error");
+  el("error").hidden = true;
   invalidate(); el("settings-panel").hidden = true;
   el("review-install").hidden = true; el("review-retry").hidden = true; el("review-remove").hidden = true;
 });
@@ -408,12 +475,101 @@ el("apply").addEventListener("click", () => { void applyReview(); });
 el("disconnect").addEventListener("click", () => { void perform("Disconnecting…", async () => {
   invalidate(); await api("/api/disconnect", {}); el("selection-panel").hidden = true; el("settings-panel").hidden = true; el("manual-recovery").hidden = true;
   state.connectedIdentity = null; state.fingerprint = null; el("trust").checked = false; el("fingerprint-box").hidden = true;
+  el("ssh-session").textContent = "No authenticated VPS session."; el("ssh-disconnect").hidden = true;
   state.status = null; message("Disconnected. The owned model remains on your server.");
 }); });
-for (const [id, value] of [["copy-url", () => ENDPOINT], ["copy-model", () => state.status?.modelId], ["copy-key", () => "local-only"]]) {
-  el(id).addEventListener("click", () => { const text = value(); if (text) void navigator.clipboard.writeText(text).then(() => message("Copied to clipboard."), () => error("Clipboard unavailable; select and copy the text manually.")); });
+async function copyText(text, button) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const input = document.createElement("textarea");
+    input.value = text;
+    input.style.position = "fixed";
+    input.style.opacity = "0";
+    document.body.append(input);
+    try {
+      input.focus();
+      input.select();
+      if (!document.execCommand("copy")) throw new Error("Clipboard unavailable.");
+    } finally {
+      input.remove();
+      button.focus();
+    }
+  }
+}
+for (const [id, targetId] of [["copy-url", "base-url"], ["copy-model", "selected-model"], ["copy-key", "placeholder-key"]]) {
+  el(id).addEventListener("click", async (event) => {
+    if (state.busy) return;
+    const text = el(targetId).textContent;
+    if (!text) return;
+    try {
+      await copyText(text, event.currentTarget);
+      message("Copied to clipboard.");
+    } catch {
+      error("Clipboard unavailable; select and copy the text manually.");
+    }
+  });
 }
 window.addEventListener("pagehide", () => { clearTimeout(state.timer); state.timer = null; });
+
+// One step panel shows at a time (DESIGN.md one-screen rule): the furthest open
+// step, or an earlier one the person went back to. Recovery without n8n shows
+// the names it checks together with the owned-model status and actions.
+const VIEWS = ["review-panel", "settings-panel", "selection-panel", "manual-recovery", "connection-panel"];
+const VIEW_STAGES = { "connection-panel": 1, "manual-recovery": 2, "selection-panel": 2, "review-panel": 3, "settings-panel": 4 };
+const view = { furthest: "connection-panel", shown: "connection-panel", returnedTo: null };
+function focusVisible(target) {
+  target.focus({ preventScroll: true });
+  const rect = target.getBoundingClientRect();
+  const footer = target.closest(".rm-panel")?.querySelector(".rm-panel__footer");
+  const bottom = footer && getComputedStyle(footer).position === "sticky"
+    ? Math.min(innerHeight, footer.getBoundingClientRect().top) : innerHeight;
+  if (rect.top < document.querySelector(".rm-topbar").getBoundingClientRect().bottom || rect.bottom > bottom) {
+    target.scrollIntoView({ block: "start", behavior: "instant" });
+  }
+}
+
+function syncView() {
+  const furthest = VIEWS.find((id) => !el(id).hidden);
+  if (furthest !== view.furthest) { view.furthest = furthest; view.returnedTo = null; }
+  const next = view.returnedTo && !el(view.returnedTo).hidden ? view.returnedTo : furthest;
+  const shown = next === "selection-panel" && !el("manual-recovery").hidden ? ["manual-recovery", next] : [next];
+  // Write only real changes: this runs from a MutationObserver on `hidden`.
+  if (el("selection-continue").hidden !== el("settings-panel").hidden) el("selection-continue").hidden = el("settings-panel").hidden;
+  if (shown.join() === view.shown) return;
+  const active = document.activeElement;
+  const leaving = VIEWS.filter((id) => el(id).hasAttribute("data-current")).some((id) => el(id).contains(active));
+  for (const id of VIEWS) el(id).toggleAttribute("data-current", shown.includes(id));
+  view.shown = shown.join();
+  for (const marker of document.querySelectorAll("[data-stage-marker]")) {
+    const markerStage = Number(marker.dataset.stageMarker);
+    if (markerStage < VIEW_STAGES[next]) marker.dataset.state = "done";
+    else delete marker.dataset.state;
+    if (markerStage === VIEW_STAGES[next]) marker.setAttribute("aria-current", "step");
+    else marker.removeAttribute("aria-current");
+  }
+  const heading = el(shown[0]).querySelector("h2");
+  if (leaving) focusVisible(heading);
+  else if (!active || active === document.body) focusVisible(heading);
+}
+function returnTo(id) {
+  syncView();
+  view.returnedTo = id;
+  syncView();
+}
+el("cancel-review").addEventListener("click", () => returnTo("selection-panel"));
+el("settings-back").addEventListener("click", () => { if (!state.busy) returnTo("selection-panel"); });
+el("selection-continue").addEventListener("click", () => { if (!state.busy) returnTo(null); });
+new MutationObserver(syncView).observe(el("main-content"), { subtree: true, attributeFilter: ["hidden"] });
+initWizardTopbar({
+  session: token,
+  isBusy: () => state.busy,
+  loadProjectMeta: token ? async () => {
+    const response = await fetch("/api/local/project-meta", { headers: { "X-Setup-Token": token }, credentials: "omit", mode: "same-origin", redirect: "error", cache: "no-store" });
+    if (!response.ok) throw new Error("Relmio project details are unavailable.");
+    return response.json();
+  } : undefined,
+});
 
 if (!token) {
   message("Open this page from a fresh Relmio wizard session.");

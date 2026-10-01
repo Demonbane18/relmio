@@ -16,7 +16,7 @@ credits. This project does not create an OpenAI Platform API key.
 
 - n8n's OpenAI credential expects an API key and supports a custom Base URL.
 - You already have a self-hosted n8n Docker deployment.
-- You want a private, experimental bridge without editing or restarting n8n.
+- You want a private, unofficial bridge without editing or restarting n8n.
 
 On screen: the README warning and the final architecture diagram.
 

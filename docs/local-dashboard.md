@@ -122,9 +122,9 @@ an approved install is not interrupted by that idle timer.
 
 ## Upgrading an older API installation
 
-Relmio 0.14.0 does not show or manage legacy API-key endpoints.
-Upgrading leaves their containers and credential volumes untouched, so they
-can remain running. Use the [legacy retirement guide](local-endpoints.md#retired-api-installations)
+The dashboard does not show or manage legacy API-key endpoints. Upgrading
+leaves their containers and credential volumes untouched, so they can remain
+running. Use the [legacy retirement guide](local-endpoints.md#retired-api-installations)
 to review and stop only an exactly owned endpoint. Dashboard absence is not
 proof that an old endpoint has stopped.
 

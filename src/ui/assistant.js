@@ -1,5 +1,6 @@
 import { bindWizardNavigation, readWizardSession } from "./session.js";
-import { bindSshAuthentication, createCredentialSshGuard } from "./ssh-form.js";
+import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, setFieldError } from "./ssh-form.js";
+import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
 
@@ -39,6 +40,11 @@ const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshI
   showStep(1);
 } });
 
+function focusVisible(target) {
+  target.focus({ preventScroll: true });
+  target.scrollIntoView?.({ block: "start", behavior: "instant" });
+}
+
 function setMessage(value) {
   message.textContent = value;
 }
@@ -49,7 +55,11 @@ function clearError() {
 }
 
 function showError(error) {
-  errorMessage.textContent = error?.message ?? "The request could not be completed.";
+  const text = error?.message ?? "The request could not be completed.";
+  const rejected = [["Hostname", "host"], ["Port", "port"], ["Username", "username"], ["Password", "password"]]
+    .find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
+  if (rejected) setFieldError(element(rejected[1]), "global-error-text");
+  errorMessage.textContent = text;
   errorBox.hidden = false;
   errorBox.focus();
 }
@@ -208,6 +218,12 @@ function updateOperationLabel(label) {
   updateOperationProgress();
 }
 
+function syncPanelBusy() {
+  for (const panel of document.querySelectorAll(".assistant-step")) {
+    panel.setAttribute("aria-busy", String(state.operationBusy && !panel.hidden));
+  }
+}
+
 function startOperation(
   trigger,
   label,
@@ -244,7 +260,7 @@ function startOperation(
   }
 
   document.body.dataset.operationBusy = "true";
-  element("main-content").setAttribute("aria-busy", "true");
+  syncPanelBusy();
   const messageRegion = element("global-message");
   state.operationMessageLive = readOperationAttribute(
     messageRegion,
@@ -256,7 +272,7 @@ function startOperation(
   const progress = element("operation-progress");
   progress.hidden = false;
   updateOperationLabel(state.operationLabel);
-  progress.focus?.({ preventScroll: true });
+  focusVisible(progress);
 
   if (typeof MutationObserver !== "undefined" && document.body) {
     state.operationControlObserver = new MutationObserver((records) => {
@@ -323,7 +339,7 @@ function stopOperation(trigger, expectedOwner) {
   state.operationControlStates = [];
 
   document.body.dataset.operationBusy = "false";
-  element("main-content").setAttribute("aria-busy", "false");
+  syncPanelBusy();
   restoreOperationAttribute(
     element("global-message"),
     "aria-live",
@@ -364,7 +380,7 @@ function stopOperation(trigger, expectedOwner) {
     !focusControl?.hidden &&
     !focusControl?.closest?.("[hidden]")
   ) {
-    focusControl.focus?.({ preventScroll: true });
+    focusVisible(focusControl);
   }
 
   state.operationButton = null;
@@ -419,6 +435,7 @@ async function runActiveOperationTask(button, label, work) {
 function blockOperationInteraction(event) {
   if (
     !state.operationBusy ||
+    (event.type === "keydown" && event.key === "Tab") ||
     event.target?.closest?.("#operation-progress") ||
     isOperationAllowedControl(event.target)
   ) {
@@ -439,11 +456,17 @@ function showStep(step) {
     panel.hidden = !active;
     if (active) activePanel = panel;
   }
+  syncPanelBusy();
   for (const marker of document.querySelectorAll("[data-step-marker]")) {
-    const active = Number(marker.dataset.stepMarker) === step;
-    marker.toggleAttribute("aria-current", active);
+    const markerStep = Number(marker.dataset.stepMarker);
+    if (markerStep === step) marker.setAttribute("aria-current", "step");
+    else marker.removeAttribute("aria-current");
+    if (markerStep < step) marker.dataset.state = "done";
+    else delete marker.dataset.state;
   }
-  if (activePanel) activePanel.scrollTop = 0;
+  if (activePanel && activePanel.getBoundingClientRect().top < 0) {
+    activePanel.scrollIntoView({ block: "start" });
+  }
   activePanel?.querySelector("h2")?.focus({ preventScroll: true });
 }
 
@@ -575,6 +598,12 @@ element("fingerprint-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
   invalidateReviewedPlan();
+  for (const id of ["host", "port"]) {
+    if (!element(id).checkValidity()) {
+      showError(new Error(id === "host" ? "Hostname is invalid." : "Port is invalid."));
+      return;
+    }
+  }
   try {
     const result = await runOperation(
       button,
@@ -585,6 +614,7 @@ element("fingerprint-button").addEventListener("click", async (event) => {
       }),
     );
     if (!result) return;
+    for (const id of ["host", "port"]) clearFieldError(element(id), "global-error-text");
     renderFingerprint(result.fingerprint);
     setMessage("Confirm the SSH host identity before authenticating.");
   } catch (error) {
@@ -603,9 +633,16 @@ element("privileged-confirm").addEventListener("change", () => {
   invalidateReviewedPlan();
   updateConnectState();
 });
-element("host").addEventListener("input", resetFingerprint);
-element("port").addEventListener("input", resetFingerprint);
-element("password").addEventListener("input", invalidateReviewedPlan);
+element("host").addEventListener("input", () => { clearFieldError(element("host"), "global-error-text"); clearError(); resetFingerprint(); });
+element("port").addEventListener("input", () => { clearFieldError(element("port"), "global-error-text"); clearError(); resetFingerprint(); });
+element("username").addEventListener("input", () => { clearFieldError(element("username"), "global-error-text"); clearError(); });
+element("password").addEventListener("input", () => { clearFieldError(element("password"), "global-error-text"); clearError(); invalidateReviewedPlan(); });
+element("vps-form").addEventListener("invalid", (event) => {
+  const label = { host: "Hostname", port: "Port", username: "Username", password: "Password" }[event.target.id];
+  if (!label) return;
+  event.preventDefault();
+  showError(new Error(`${label} is invalid.`));
+}, true);
 
 element("vps-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -616,7 +653,7 @@ element("vps-form").addEventListener("submit", async (event) => {
   try {
     const discovered = await runOperation(
       button,
-      "Connecting and inspecting Docker…",
+      "Wait…",
       async () => {
         await api("/api/ssh/connect", {
           method: "POST",
@@ -631,6 +668,7 @@ element("vps-form").addEventListener("submit", async (event) => {
     );
     if (!discovered) return;
     element("password").value = "";
+    for (const id of ["username", "password"]) clearFieldError(element(id), "global-error-text");
     renderDiscovery(discovered);
     setMessage("n8n was found. Choose an existing Docker network.");
   } catch (error) {
@@ -765,7 +803,14 @@ bindWizardNavigation(element("setup-another-assistant"), "/assistant", token);
 for (const button of document.querySelectorAll(".back-button")) {
   button.addEventListener("click", () => {
     clearError();
+    invalidateReviewedPlan();
     showStep(Number(button.dataset.back));
     setMessage("No new assistant installation has started.");
   });
 }
+
+initWizardTopbar({
+  session: token,
+  isBusy: () => state.operationBusy,
+  loadProjectMeta: () => api("/api/local/project-meta"),
+});

@@ -3,6 +3,7 @@ import {
   INITIAL_CHAT_TESTER_FEEDBACK,
   nextChatTesterFeedback,
 } from "./chat-tester-feedback.js";
+import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
 
@@ -116,15 +117,44 @@ bindWizardNavigation(element("local-route-vps-openai"), "/", token);
 bindWizardNavigation(element("local-route-vps-supergrok"), "/supergrok-vps", token);
 bindWizardNavigation(element("local-route-vps-model"), "/local-model-vps", token);
 bindWizardNavigation(element("dashboard-hosting-link"), "/hosting", token);
+initWizardTopbar({
+  session: token,
+  isBusy: () => state.operationBusy,
+  loadProjectMeta: () => api("/api/local/project-meta"),
+});
+
+// Step 1 has two stages so each fits one screen: choose a connection, then
+// check its settings. The form, its fields and the review submit are shared.
+function showSetupStage(stage, { focus = true } = {}) {
+  const configure = stage === "configure";
+  element("choose-stage").hidden = configure;
+  element("configure-stage").hidden = !configure;
+  element("back-to-vps").hidden = configure;
+  element("choose-continue").hidden = configure;
+  element("configure-back").hidden = !configure;
+  element("review-button").hidden = !configure;
+  element("choose-step-caption").textContent = configure
+    ? "Step 1 of 4 · Settings"
+    : "Step 1 of 4 · Choose";
+  element("choose-title").textContent = configure
+    ? "Check the settings"
+    : "Choose what to set up";
+  if (focus) element("choose-title").focus({ preventScroll: true });
+}
+
+element("choose-continue").addEventListener("click", () => {
+  if (state.operationBusy) return;
+  showSetupStage("configure");
+});
+
+element("configure-back").addEventListener("click", () => {
+  if (state.operationBusy) return;
+  showSetupStage("choose");
+});
 
 element("local-route-current").addEventListener("click", () => {
   if (state.operationBusy) return;
-  element("target-form").scrollIntoView({
-    block: "start",
-    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? "auto"
-      : "smooth",
-  });
+  showSetupStage("choose", { focus: false });
   document.querySelector('input[name="target"]:checked')?.focus({
     preventScroll: true,
   });
@@ -204,7 +234,7 @@ function resetBasicAuthPasswordVisibility() {
 }
 
 const OPERATION_INTERACTIVE_SELECTOR =
-  'button, input, select, textarea, a[href], [contenteditable]';
+  'button, input, select, textarea, summary, a[href], [contenteditable]';
 const OPERATION_ALLOWED_SELECTOR =
   '[data-operation-allow="auth"], [data-operation-allow="copy"], [data-operation-allow="stop"]';
 const OPERATION_BLOCKED_EVENTS = [
@@ -328,7 +358,7 @@ function updateOperationProgress() {
 
 function startOperation(button, label, {
   markMainBusy = true,
-  progressNote = "Duration varies by operation. Keep this page open; Relmio will unlock every control when the current operation finishes or stops.",
+  progressNote = "Duration varies. Keep this page open until it finishes.",
   showProgress = true,
 } = {}) {
   if (state.operationBusy) return false;
@@ -474,7 +504,7 @@ function startInstallProgress(button) {
   const panel = element("install-panel");
   if (!startOperation(button, "Installing locally…", {
     progressNote:
-      "Docker may be downloading images, building, or starting services. First-time Docker downloads can take several minutes. Duration varies. Keep this page open; Relmio will unlock every control when installation finishes or stops.",
+      "Docker may be downloading or building. Keep this page open until it finishes.",
   })) {
     return false;
   }
@@ -500,6 +530,7 @@ function stopInstallProgress(button) {
 function blockOperationInteraction(event) {
   if (
     !state.operationBusy ||
+    (event.type === "keydown" && event.key === "Tab") ||
     event.target?.closest?.("#operation-progress") ||
     isOperationAllowedControl(event.target)
   ) {
@@ -539,7 +570,11 @@ function showStep(step, { showSetupProgress = true } = {}) {
 
   for (const marker of document.querySelectorAll("[data-step-marker]")) {
     const markerStep = Number(marker.dataset.stepMarker);
-    marker.classList.toggle("complete", showSetupProgress && markerStep < step);
+    if (showSetupProgress && markerStep < step) {
+      marker.dataset.state = "done";
+    } else {
+      delete marker.dataset.state;
+    }
     if (showSetupProgress && markerStep === step) {
       marker.setAttribute("aria-current", "step");
     } else {
@@ -1085,14 +1120,14 @@ function dashboardServiceDescription(service) {
 
 function dashboardStateNode(serviceState, className = "dashboard-state-token") {
   const node = document.createElement("span");
-  node.className = `${className} state-${serviceState}`;
+  node.className = `rm-badge ${className} state-${serviceState}`;
   node.textContent = dashboardStateLabel(serviceState);
   return node;
 }
 
 function dashboardStatusDot(serviceState) {
   const dot = document.createElement("span");
-  dot.className = `dashboard-status-dot state-${serviceState}`;
+  dot.className = `rm-status__dot dashboard-status-dot state-${serviceState}`;
   dot.setAttribute("aria-hidden", "true");
   return dot;
 }
@@ -1200,20 +1235,26 @@ function appendDashboardFact(
     displayedValue.textContent = value;
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "button secondary dashboard-fact-copy";
+    button.className = "rm-icon-button rm-icon-button--outline rm-icon-button--sm dashboard-fact-copy";
     button.dataset.copyLabel = copyLabel;
     button.dataset.dashboardService = service;
     button.dataset.dashboardFact = fact;
-    button.textContent = "Copy";
+    const icon = document.createElement("span");
+    icon.className = "rm-icon rm-icon--copy rm-icon--sm";
+    icon.setAttribute("aria-hidden", "true");
+    button.append(icon);
     button.setAttribute("aria-label", `Copy ${copyLabel}`);
     button.setAttribute("title", `Copy ${copyLabel}`);
     button.addEventListener("click", async () => {
       const error = element("dashboard-error");
+      const status = element("dashboard-copy-status");
       error.hidden = true;
       error.textContent = "";
+      status.textContent = "";
       try {
-        await copyText(value);
+        await copyText(displayedValue.textContent, button);
         flashCopied(button);
+        status.textContent = `${copyLabel} copied.`;
       } catch {
         error.textContent = `Copy failed. Select the ${copyLabel} manually.`;
         error.hidden = false;
@@ -1366,6 +1407,7 @@ function showDashboardRotationReview(service) {
   state.installedTarget = service.target;
   element("credential-rotation-note").hidden = false;
   element("rotate-credential-button").disabled = false;
+  element("credential-rotation-note").open = true;
   element("done-title").textContent = `Rotate local capability for ${service.label}`;
   element("done-detail").textContent =
     "A replacement will be shown once, then activated and verified. The existing credential stays active until that sequence succeeds.";
@@ -1426,6 +1468,7 @@ function showDashboardRemovalReview(service) {
     element("remove-assistant-button").disabled = true;
     element("done-title").textContent = "Review Assistant tools removal";
   }
+  document.querySelector(".ready-optional:has(> .n8n-sidecar-removal:not([hidden]))")?.setAttribute("open", "");
   element("done-detail").textContent =
     "Nothing has changed. Read the exact ownership boundary and confirm separately only if you want to continue.";
   showStep(4);
@@ -1504,7 +1547,7 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
   };
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `button ${["setup", "resume", "sign-in-chatgpt", "sign-in-grok-build"].includes(action) ? "primary" : "secondary"}`;
+  button.className = `rm-button rm-button--sm${["setup", "resume", "sign-in-chatgpt", "sign-in-grok-build"].includes(action) ? " rm-button--primary" : ""}`;
   button.dataset.dashboardService = service.target;
   button.dataset.dashboardAction = action;
   button.dataset.dashboardActionLocation = compact ? "row" : "detail";
@@ -1513,8 +1556,8 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
     const accessibleLabels = {
       setup: `Set up ${service.label}`,
       resume: `Resume ${service.label}`,
-      remove: `Review removal for ${service.label}`,
-      "remove-owned-supergrok": `Review removal for ${service.label}`,
+      remove: `Remove ${service.label}`,
+      "remove-owned-supergrok": `Remove ${service.label}`,
       "sign-in-chatgpt": `Sign in to ChatGPT for ${service.label}`,
       "sign-out-chatgpt": `ChatGPT sign-out guidance for ${service.label}`,
       "sign-in-grok-build": `Grok Build sign-in guidance for ${service.label}`,
@@ -1587,6 +1630,8 @@ function renderDashboardRelayPath(service, provider = dashboardProviderForTarget
         : dashboardProviderReadiness(provider),
     },
   ];
+  // Services without a provider sign-in end at the runtime.
+  if (!provider && service.kind !== "n8n-local-model") nodes.pop();
   relay.append(
     ...nodes.map((node) => {
       const item = document.createElement("li");
@@ -1634,12 +1679,10 @@ function renderDashboardServiceDetail(
   element("dashboard-service-detail-copy").textContent = dashboardServiceDescription(service);
   const facts = element("dashboard-service-facts");
   facts.replaceChildren();
-  appendDashboardFact(facts, "State", dashboardStateLabel(service.state));
   appendDashboardFact(facts, "Boundary", dashboardBoundary(service));
   appendDashboardFact(facts, "Ownership", service.managed ? "Relmio managed" : "Not attested");
   if (provider) {
     appendDashboardFact(facts, "Authentication", dashboardProviderAuthentication(provider));
-    appendDashboardFact(facts, "Provider readiness", dashboardProviderReadiness(provider));
   }
   if (service.snapshot?.endpoint) {
     appendDashboardFact(facts, "Endpoint", service.snapshot.endpoint, {
@@ -1788,12 +1831,12 @@ function renderDashboardChecking() {
   const statusDot = element("dashboard-environment").querySelector(
     ".dashboard-status-dot",
   );
-  if (statusDot) statusDot.className = "dashboard-status-dot state-checking";
+  if (statusDot) statusDot.className = "rm-status__dot dashboard-status-dot state-checking";
   element("dashboard-environment-title").textContent = "Checking Docker";
   element("dashboard-environment-detail").textContent =
     "Reading a non-secret inventory from this computer.";
   element("dashboard-environment-state").className =
-    "dashboard-state-token state-checking";
+    "rm-badge dashboard-state-token state-checking";
   element("dashboard-environment-state").textContent = "Checking";
   renderDashboardTruth("dashboard-runtime-health", "Checking", "checking");
   renderDashboardTruth("dashboard-provider-readiness", "Checking", "checking");
@@ -1977,11 +2020,11 @@ function renderDashboardFailure() {
   const environment = element("dashboard-environment");
   environment.className = "dashboard-environment state-unavailable";
   const statusDot = environment.querySelector(".dashboard-status-dot");
-  if (statusDot) statusDot.className = "dashboard-status-dot state-unavailable";
+  if (statusDot) statusDot.className = "rm-status__dot dashboard-status-dot state-unavailable";
   element("dashboard-environment-title").textContent = "Local inventory unavailable";
   element("dashboard-environment-detail").textContent = "Refresh when the local wizard and Docker are ready.";
   element("dashboard-environment-state").className =
-    "dashboard-state-token state-unavailable";
+    "rm-badge dashboard-state-token state-unavailable";
   element("dashboard-environment-state").textContent = "Unavailable";
 
   element("dashboard-n8n-services").replaceChildren(
@@ -2113,6 +2156,9 @@ function resetPendingSetupState() {
   ]) {
     element(id).hidden = true;
   }
+  for (const details of document.querySelectorAll(".ready-columns details[open]")) {
+    details.open = false;
+  }
   for (const id of ["n8n-oauth-link", "device-code-link"]) {
     element(id).removeAttribute("href");
   }
@@ -2163,6 +2209,7 @@ async function enterSetupView(target = null, { checkDocker = true } = {}) {
       state.suppressTargetRefresh = false;
     }
   }
+  showSetupStage(target ? "configure" : "choose", { focus: false });
   showStep(1);
   if (checkDocker) await initializeLocalWizard();
   if (refreshSelectedN8n) await refreshSelectedN8nContext();
@@ -2194,6 +2241,8 @@ async function enterDashboardView({
   }
 }
 
+// The dashboard shows one section at a time so each fits one screen. The hash
+// picks the section; unknown or empty hashes fall back to the overview.
 function syncDashboardNavigation(hash = window.location.hash) {
   const links = Array.from(
     document.querySelectorAll("#local-dashboard-nav a"),
@@ -2204,11 +2253,15 @@ function syncDashboardNavigation(hash = window.location.hash) {
     ? hash
     : "#dashboard-overview";
   for (const link of links) {
-    if (link.getAttribute("href") === requestedHash) {
+    const href = link.getAttribute("href");
+    const current = href === requestedHash;
+    if (current) {
       link.setAttribute("aria-current", "location");
     } else {
       link.removeAttribute("aria-current");
     }
+    const section = document.getElementById(href.slice(1));
+    if (section) section.hidden = !current;
   }
 }
 
@@ -2235,10 +2288,7 @@ function initializeLocalDashboard() {
   }
   window.addEventListener("hashchange", () => syncDashboardNavigation());
   syncDashboardNavigation();
-  Promise.all([
-    enterDashboardView(),
-    refreshProjectMeta().catch(() => {}),
-  ]).catch(renderDashboardFailure);
+  enterDashboardView().catch(renderDashboardFailure);
 }
 
 function parseRelmioStreamEvent(block) {
@@ -3158,7 +3208,7 @@ function renderPlan(plan) {
   element("review-endpoint-label").textContent = stack ? "Local n8n URL" : assistant ? "Support services" : "Endpoint";
   element("review-endpoint").textContent = stack ? plan.localUrl : assistant ? (plan.includeSearxng ? "Code Sandbox + SearXNG" : "Code Sandbox only") : plan.endpoint;
   element("review-protocol").textContent = localModel ? "Chat Completions /v1 inside Docker" : stack ? "New local n8n with ngrok Basic Auth" : sidecar ? "OpenAI-compatible /v1 inside Docker" : n8nSuperGrok ? "Chat Completions /v1 inside Docker" : assistant ? "n8n Assistant companion services" : grokBuild ? "SuperGrok Chat Completions: /v1/chat/completions" : codexChat ? "Relmio POST /chat" : "Codex App Server JSON-RPC over WebSocket";
-  element("review-auth").textContent = localModel ? "None. n8n's required API key is an ignored placeholder." : stack ? "ngrok token plus Basic Auth, entered only at install" : sidecar ? "Saved ChatGPT/Codex credential file, not identity-only and not a Platform API key" : n8nSuperGrok ? "Official SuperGrok sign-in; local key shown once" : assistant ? "Model credential is set in n8n, not here" : grokBuild ? "Official SuperGrok sign-in" : "ChatGPT sign-in through official Codex";
+  element("review-auth").textContent = localModel ? "None. n8n's API key is an ignored placeholder." : stack ? "ngrok token plus Basic Auth, entered only at install" : sidecar ? "Saved ChatGPT/Codex credential file, not identity-only and not a Platform API key" : n8nSuperGrok ? "Official SuperGrok sign-in; local key shown once" : assistant ? "Model credential is set in n8n, not here" : grokBuild ? "Official SuperGrok sign-in" : "ChatGPT sign-in through official Codex";
   element("review-browser-row").hidden = n8nTarget || stack;
   element("review-browser").textContent = codexChat ? "No. Trusted local backends and development servers only" : "No. Trusted native local clients only";
   element("review-origins-row").hidden = true;
@@ -3173,13 +3223,19 @@ function renderPlan(plan) {
   element("review-path").textContent = n8nSuperGrok
     ? "~/.relmio/local/n8n-supergrok-oauth"
     : plan.managedPath ?? "Managed by Relmio";
-  element("local-model-review-details").hidden = !localModel;
+  for (const id of ["review-model-row", "review-model-budget-row", "review-model-disk-row", "review-model-host-row", "local-model-review-details"]) {
+    element(id).hidden = !localModel;
+  }
   if (localModel) {
     validateLocalModelPlan(plan);
-    element("local-model-review-id").textContent = `${plan.modelId} · approved manifest ${plan.approvedModelDigest}`;
-    element("local-model-review-budget").textContent = `${plan.contextTokens} context tokens; ${modelGigabytes(plan.memoryBytes)} model memory limit; ${plan.cpus} CPUs; ${modelGigabytes(plan.reservedMemoryBytes)} reserved for OS, n8n and helper`;
-    element("local-model-review-disk").textContent = `${modelGigabytes(plan.expectedDownloadBytes)} model layers; ${modelGigabytes(plan.requiredDiskBytes)} required available space including runtime/image/temporary headroom`;
-    element("local-model-review-host").textContent = `${modelGigabytes(plan.hostResources.memoryBytes)} Docker memory; ${plan.hostResources.cpus} CPUs; ${modelGigabytes(plan.hostResources.diskAvailableBytes)} available disk; pinned runtime ${plan.runtimeImage}`;
+    element("local-model-review-id").textContent = plan.modelId;
+    element("local-model-review-budget").textContent = `${modelGigabytes(plan.memoryBytes)} memory, ${plan.cpus} CPUs`;
+    element("local-model-review-disk").textContent = `${modelGigabytes(plan.expectedDownloadBytes)} download; needs ${modelGigabytes(plan.requiredDiskBytes)} free disk`;
+    element("local-model-review-host").textContent = `${modelGigabytes(plan.hostResources.memoryBytes)} memory, ${plan.hostResources.cpus} CPUs, ${modelGigabytes(plan.hostResources.diskAvailableBytes)} free disk`;
+    element("local-model-review-digest").textContent = plan.approvedModelDigest;
+    element("local-model-review-context").textContent = `${plan.contextTokens} tokens`;
+    element("local-model-review-reserve").textContent = `${modelGigabytes(plan.reservedMemoryBytes)} for the OS, n8n and helper`;
+    element("local-model-review-runtime").textContent = plan.runtimeImage;
   }
   if (stack) {
     for (const id of ["review-n8n-row", "review-network-row", "review-publication-row"]) element(id).hidden = true;
@@ -3237,8 +3293,12 @@ function prepareInstallPanel() {
   }
   for (const id of ["generate-ngrok-basic-auth-password", "toggle-ngrok-basic-auth-password"]) element(id).disabled = !stack;
   resetBasicAuthPasswordVisibility();
-  element("codex-install-warning-title").textContent = codexChat ? "Local key for a trusted backend" : "High-trust local key";
-  element("codex-install-warning-detail").textContent = codexChat ? "This key authorizes chat through your signed-in Codex container. Keep it in a trusted local backend. Do not put it in browser code." : "Anyone with this key can control Codex in its container, act through your ChatGPT sign-in, and may recover that container's ChatGPT session. Treat it like your ChatGPT password. Give it only to a trusted local app.";
+  element("codex-install-warning-title").textContent = grokBuild ? "Local key for this endpoint" : codexChat ? "Local key for a trusted backend" : "High-trust local key";
+  element("codex-install-warning-detail").textContent = grokBuild
+    ? "Use the one-time key only with this Relmio endpoint on 127.0.0.1. It is not a Platform API key. Official SuperGrok sign-in stays in its private runtime."
+    : codexChat
+      ? "This key authorizes chat through your signed-in Codex container. Keep it in a trusted local backend. Do not put it in browser code."
+      : "Anyone with this key can control Codex in its container, act through your ChatGPT sign-in, and may recover that container's ChatGPT session. Treat it like your ChatGPT password. Give it only to a trusted local app.";
   element("install-intro").textContent = stack ? "Enter the ngrok token and Basic Auth for the reviewed new stack. They go only to this local Relmio process and are cleared after you submit." : sidecar ? "Relmio checks the selected n8n again, copies the saved credential file into its private volume, and installs only the new sidecar." : n8nSuperGrok ? "Relmio checks the selected n8n again, then installs only its private SuperGrok sidecar." : assistant ? "Relmio checks the selected n8n again, then installs only its Code Sandbox services and the SearXNG option you chose." : grokBuild ? "Relmio installs the reviewed SuperGrok runtime. Official sign-in happens after the container is ready." : codexChat ? "Relmio installs the reviewed adapter. ChatGPT device sign-in happens after the container is ready." : "Relmio installs Codex App Server. ChatGPT device sign-in happens after the container is ready.";
   setButtonLabel(element("install-button"), stack ? "Create new local n8n + ngrok" : sidecar ? "Install private n8n bridge" : n8nSuperGrok ? "Install SuperGrok for n8n" : assistant ? "Install n8n Assistant tools" : grokBuild ? "Install SuperGrok integration" : codexChat ? "Install Codex Chat Adapter" : "Install Codex App Server");
   if (localModel) {
@@ -3250,7 +3310,7 @@ function prepareInstallPanel() {
 const ASSISTANT_SANDBOX_IMAGE =
   "ghcr.io/n8n-io/n8n-sandbox-service-sandbox:1.1.0@sha256:16f62fb90a4ce61ef74925f62ea76bb11eb2a5598888b7c0651100c7944ed2d8";
 const ASSISTANT_N8N_SETTINGS_NOTE =
-  "Copy only the returned companion settings into n8n. Keep the existing N8N_ENABLED_MODULES value, and make sure it still includes instance-ai.";
+  "Copy only the returned settings below into n8n. Keep your N8N_ENABLED_MODULES value and make sure it still includes instance-ai.";
 
 function hasExactAssistantSettings(value, expectedSettings) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -3437,10 +3497,17 @@ async function reviewLocalModelAction(action) {
       throw new Error("The model action review is invalid.");
     }
     state.localModelReview = review;
+    // The review hides the Ready settings and the Refresh/Review buttons; move focus off them.
+    const settingsFocused = Boolean(document.activeElement?.closest("#local-model-settings, #n8n-local-model-management > .actions"));
     element("local-model-action-review").hidden = false;
     element("local-model-action-title").textContent = action === "remove" ? "Remove owned model and delete cache" : "Retry model acquisition";
     element("local-model-action-detail").textContent = `${action === "remove" ? "Stop only the owned runtime and permanently delete its downloaded weights." : "Retry the download and inference check."} Model: ${review.modelId}. Selected n8n: ${review.containerName}. Network: ${review.networkName}. Runtime budget: ${modelGigabytes(review.resourceBudget.memoryBytes)} RAM, ${review.resourceBudget.cpus} CPUs, ${review.resourceBudget.contextTokens} context tokens. n8n stays unchanged.`;
     element("local-model-cache-confirm-row").hidden = action !== "remove";
+    if (settingsFocused) element("local-model-action-title").focus();
+    const apply = element("local-model-apply");
+    setButtonLabel(apply, action === "remove" ? "Remove model and cached weights" : "Retry model download");
+    apply.classList.toggle("rm-button--danger", action === "remove");
+    apply.classList.toggle("rm-button--primary", action !== "remove");
   } catch (error) {
     invalidateLocalModelReview();
     showError(error);
@@ -3625,7 +3692,7 @@ function renderInstallResult(result) {
       ? "Copy this local key now"
       : "Copy this key now";
   element("one-time-note-detail").textContent = assistant
-    ? `Relmio shows the sandbox key only now. Copy the companion settings before you leave. ${ASSISTANT_N8N_SETTINGS_NOTE}`
+    ? "Relmio shows it only once. Save it before you leave."
     : n8nSuperGrok
       ? "Relmio shows the local key only now. It cannot recover it after you leave."
       : "Relmio shows this key only now. It cannot recover it after you leave.";
@@ -3691,8 +3758,8 @@ function renderInstallResult(result) {
     ? "Experimental Chat Adapter"
     : "Experimental WebSocket";
   element("codex-production-warning-detail").textContent = codexChat
-    ? "Trusted local backends only. It uses POST /chat, has no CORS, and is not OpenAI /v1."
-    : "Codex App Server WebSocket is experimental and not for production.";
+    ? "It uses POST /chat, has no browser CORS, and is not OpenAI /v1."
+    : "Not for production.";
   element("done-title").textContent = stack
     ? "New local n8n is ready"
     : sidecar
@@ -3709,11 +3776,11 @@ function renderInstallResult(result) {
   element("done-detail").textContent = stack
     ? "Use the local n8n URL on this computer. Before using the public URL, check that a private window stays blocked until Basic Auth succeeds."
     : sidecar
-    ? "In n8n, use the private base URL and the local-only placeholder. Turn Responses API on."
+    ? "Use these settings in n8n."
     : n8nSuperGrok
-    ? "Use the private base URL, the one-time local key, and Chat Completions. Run relmio grok login --n8n before use. grok-build is a legacy alias."
+    ? "Run relmio grok login --n8n in a terminal before first use. grok-build is a legacy alias."
     : assistant
-      ? `${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not change or restart n8n.`
+      ? "Relmio did not change or restart n8n."
     : grokBuild
         ? "Use the endpoint plus /v1 and the one-time Relmio key. grok-build is a legacy alias. Finish official SuperGrok sign-in before sending a request."
     : codexChat
@@ -3739,15 +3806,15 @@ function renderInstallResult(result) {
       : sidecar
       ? "Set the base URL to http://n8n-openai-oauth:10531/v1, use local-only as the API key placeholder, and turn Responses API on. No host port is published. This copied a saved credential file. It is unofficial, policy-uncertain, not identity-only sign-in, and not a Platform API key. A model list does not prove a workflow works. Availability depends on your account. This does not install Code Sandbox or SearXNG."
       : n8nSuperGrok
-      ? "Set the base URL to http://n8n-supergrok:14502/v1 and use the one-time local key. For workflow nodes, turn Use Responses API off and choose From list. For Assistant, enter a discovered model name. For Chat, turn Use Responses API off in Settings > Chat > OpenAI. No host port is published. Run relmio grok login --n8n or relmio grok logout --n8n in a terminal."
+      ? "In n8n, set the base URL to http://n8n-supergrok:14502/v1 and use the one-time local key with Chat Completions. Workflow nodes: turn Use Responses API off and choose From list. Assistant: enter a discovered model name. Chat: turn Use Responses API off in Settings > Chat > OpenAI. No host port is published. Sign out with relmio grok logout --n8n."
       : assistant
         ? result.includeSearxng
-          ? `Code Sandbox and SearXNG were checked. No host port is published. ${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. The runner is privileged and host-root equivalent. For production, use Daytona.`
-          : `Code Sandbox was checked. SearXNG was not installed. No host port is published. ${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. The runner is privileged and host-root equivalent. For production, use Daytona.`
+          ? `${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. Code Sandbox and SearXNG were checked. No host port is published. The runner is privileged and host-root equivalent. For production, use Daytona.`
+          : `${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. Code Sandbox was checked. SearXNG was not installed. No host port is published. The runner is privileged and host-root equivalent. For production, use Daytona.`
       : grokBuild
           ? "Use the one-time key only with this Relmio endpoint. Sign-in stays in its private runtime. This binds to 127.0.0.1. A private Docker connection for n8n is a separate reviewed setup."
       : codexChat
-        ? "Use this one-time key only as a Bearer token for POST /chat. It is not a Platform API key, has no browser CORS, and must stay in a trusted local backend."
+        ? "Use this key only as a Bearer token from a trusted local backend. It is not a Platform API key."
         : "This key is not a Platform API key. Treat it like your ChatGPT password. The client can control the container and may recover its ChatGPT session. It must speak Codex App Server JSON-RPC over WebSocket.",
   );
 }
@@ -3963,58 +4030,43 @@ async function waitForCodexLogin() {
   throw new Error("ChatGPT device sign-in expired. Start it again.");
 }
 
-async function copyText(value) {
-  const previouslyFocused = document.activeElement;
-  const textarea = document.createElement("textarea");
-  textarea.value = value;
-  textarea.readOnly = true;
-  textarea.setAttribute("aria-hidden", "true");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-
-  let copied = false;
-  try {
-    document.body.append(textarea);
-    textarea.focus();
-    textarea.select();
-    textarea.setSelectionRange?.(0, textarea.value.length);
-    copied = document.execCommand("copy");
-  } catch {
-    copied = false;
-  } finally {
-    textarea.remove();
-    previouslyFocused?.focus?.();
-  }
-
-  if (copied) {
-    return;
-  }
+// The wizard runs on 127.0.0.1, a secure context, so the Clipboard API is the
+// normal path. The fallback briefly focuses a visually hidden (not
+// aria-hidden) field, then returns focus to the copy button.
+async function copyText(value, trigger) {
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(value);
       return;
     } catch {
-      // A generic message below avoids repeating sensitive copied values.
+      // Try the selection fallback below.
     }
   }
-  throw new Error("The browser refused clipboard access.");
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.readOnly = true;
+  textarea.className = "rm-visually-hidden";
+  let copied = false;
+  try {
+    document.body.append(textarea);
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    textarea.remove();
+    trigger?.focus?.({ preventScroll: true });
+  }
+  // A generic message avoids repeating sensitive copied values.
+  if (!copied) throw new Error("The browser refused clipboard access.");
 }
 
+// Visual confirmation only. The accessible name never changes; callers
+// announce success through a polite status region.
 function flashCopied(button) {
-  const originalLabel = button.getAttribute("aria-label");
-  const originalTitle = button.getAttribute("title");
-  button.setAttribute("aria-label", `${button.dataset.copyLabel} copied`);
-  button.setAttribute("title", `${button.dataset.copyLabel} copied`);
   button.classList.add("copied");
-  window.setTimeout(() => {
-    if (originalLabel) {
-      button.setAttribute("aria-label", originalLabel);
-    }
-    if (originalTitle) {
-      button.setAttribute("title", originalTitle);
-    }
-    button.classList.remove("copied");
-  }, 1_800);
+  window.setTimeout(() => button.classList.remove("copied"), 1_800);
 }
 
 element("target-form").addEventListener("submit", async (event) => {
@@ -4724,12 +4776,16 @@ element("local-model-review-retry").addEventListener("click", () => reviewLocalM
 element("local-model-review-remove").addEventListener("click", () => reviewLocalModelAction("remove"));
 element("local-model-action-confirm").addEventListener("change", updateLocalModelActionConfirmation);
 element("local-model-cache-confirm").addEventListener("change", updateLocalModelActionConfirmation);
-element("local-model-cancel").addEventListener("click", invalidateLocalModelReview);
+element("local-model-cancel").addEventListener("click", () => {
+  const opener = element(state.localModelReview?.action === "retry" ? "local-model-review-retry" : "local-model-review-remove");
+  invalidateLocalModelReview();
+  if (!opener.hidden) opener.focus();
+});
 element("local-model-apply").addEventListener("click", async (event) => {
   const review = state.localModelReview;
   if (!review || !element("local-model-action-confirm").checked ||
     (review.action === "remove" && !element("local-model-cache-confirm").checked)) return;
-  if (setBusy(event.currentTarget, true, "Applying reviewed action…") === false) return;
+  if (setBusy(event.currentTarget, true, review.action === "remove" ? "Removing model…" : "Retrying download…") === false) return;
   clearError();
   invalidateLocalModelReview();
   try {
@@ -5207,6 +5263,10 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
     button.hidden = false;
     element("chat-tester-transcript").setAttribute("aria-busy", "false");
     stopOperation(button);
+    // Send or Stop held focus and is now hidden; keep the person's place.
+    if (!document.activeElement || document.activeElement === document.body) {
+      input.focus();
+    }
   }
 });
 
@@ -5244,6 +5304,7 @@ element("codex-login-button").addEventListener("click", async (event) => {
     const userCode = validateDeviceCode(result.userCode);
     element("device-code").textContent = userCode;
     element("device-code-link").href = verificationUrl;
+    element("device-code-step").hidden = false;
     status.textContent = "Waiting for sign-in in the isolated Codex container…";
     resultBox.hidden = false;
     setMessage("Open the official OpenAI page and enter the displayed device code.");
@@ -5256,6 +5317,8 @@ element("codex-login-button").addEventListener("click", async (event) => {
     status.textContent = "ChatGPT sign-in did not complete.";
     showError(error);
   } finally {
+    // The code is single-use; only the outcome stays on screen.
+    element("device-code-step").hidden = true;
     setBusy(button, false);
   }
 });
@@ -5269,7 +5332,7 @@ for (const button of document.querySelectorAll("[data-copy-target]")) {
       if (!value) {
         throw new Error("No displayed value is available to copy.");
       }
-      await copyText(value);
+      await copyText(value, copyButton);
       flashCopied(copyButton);
       setMessage(`${copyButton.dataset.copyLabel} copied.`);
     } catch {
@@ -5380,30 +5443,10 @@ async function refreshDockerStatus() {
   }
 }
 
-async function refreshProjectMeta() {
-  const result = await api("/api/local/project-meta");
-  const stars = Number.isSafeInteger(result.stars) && result.stars >= 0
-    ? new Intl.NumberFormat("en", {
-        notation: result.stars >= 1_000 ? "compact" : "standard",
-        maximumFractionDigits: 1,
-      }).format(result.stars)
-    : "?";
-  element("local-repository-stars").textContent = stars;
-  element("local-repository-button").setAttribute(
-    "aria-label",
-    `Open Relmio version ${result.version} on GitHub. ${
-      stars === "?" ? "GitHub star count is unavailable." : `${result.stars} GitHub stars.`
-    } Opens in a new tab.`,
-  );
-}
-
 async function initializeLocalWizard() {
   if (!startOperation(null, "Checking local Docker…")) return;
   try {
-    await Promise.all([
-      refreshDockerStatus(),
-      refreshProjectMeta().catch(() => {}),
-    ]);
+    await refreshDockerStatus();
   } catch (error) {
     showError(error);
   } finally {

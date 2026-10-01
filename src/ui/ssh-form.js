@@ -11,6 +11,21 @@ export function sameSshIdentity(left, right) {
   return Boolean(left && right && ["host", "port", "fingerprint", "username", "authentication", "privilege", "loginUid", "effectiveUid", "scope", "generation"].every((key) => left[key] === right[key]));
 }
 
+// Marks a rejected field invalid and links the visible error to it, keeping any
+// hint already in aria-describedby. clearFieldError undoes both on correction.
+export function setFieldError(input, errorId) {
+  input.setAttribute("aria-invalid", "true");
+  const ids = (input.getAttribute("aria-describedby") ?? "").split(/\s+/u).filter(Boolean);
+  if (!ids.includes(errorId)) input.setAttribute("aria-describedby", [...ids, errorId].join(" "));
+}
+
+export function clearFieldError(input, errorId) {
+  input.removeAttribute("aria-invalid");
+  const ids = (input.getAttribute("aria-describedby") ?? "").split(/\s+/u).filter((id) => id && id !== errorId);
+  if (ids.length) input.setAttribute("aria-describedby", ids.join(" "));
+  else input.removeAttribute("aria-describedby");
+}
+
 export function validateSshIdentity(identity) {
   if (!identity || typeof identity.host !== "string" || !identity.host ||
     !Number.isSafeInteger(identity.port) || identity.port < 1 || identity.port > 65535 ||
@@ -59,7 +74,7 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
     onMismatch();
     element("ssh-review-identity").textContent = "";
     element("ssh-session").textContent = error.message;
-    element("ssh-disconnect").hidden = false;
+    element("ssh-disconnect").hidden = error.message === "Connect to the VPS first.";
     throw error;
   }
   async function verify() {

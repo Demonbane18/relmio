@@ -2,14 +2,13 @@
 
 Relmio can manage an Ollama model runtime beside an existing self-hosted n8n installation on the same local Docker Engine or a supported SSH-connected VPS. This is a separate, provider-free workflow: it does not use ChatGPT/Codex sign-in, an OAuth token, or a provider API key, and it does not create an OpenAI Platform API key.
 
-> **Experimental release warning:** Relmio `0.18.0-experimental.2` includes this
-> managed workflow. A prior private candidate passed limited model-only smoke
-> checks in local Docker and on a Hostinger VPS; those checks do not establish
-> the `.2` artifact, full-stack behavior, other-provider coverage, model quality,
-> or throughput. A readiness check is limited to its selected model and
-> machine. Stable `0.17.5` remains npm `latest` and the hosted-installer default.
-> After publication, opt in with
-> `npx --yes --ignore-scripts relmio@0.18.0-experimental.2 local`.
+The local-model workflow is included in stable Relmio 0.18.0. Model-only smoke
+checks covered local Docker and a Hostinger VPS. Linux full-stack acceptance is
+tracked in [issue #86](https://github.com/Demonbane18/relmio/issues/86). A
+reported 120-second local inference timeout on cold model loads remains open.
+CPU inference can be slow. These checks prove bounded inference only, not a
+working workflow, tool calling, model quality, or performance on other hosts.
+
 
 The companion joins the exact existing, eligible non-internal user-defined Docker bridge selected for n8n. n8n reaches it at `http://n8n-local-model:11434/v1`; Relmio publishes no host port and does not edit, restart, recreate, or execute inside n8n. The runtime is CPU-based, configured for one selected model at a time, and has cloud features disabled. Active-family `nat-unprotected`, unknown and isolated gateway modes fail closed; default/NAT and filtered `routed` modes are permitted. This is not a full host-firewall audit or isolation from the host administrator and trusted bridge peers.
 
@@ -29,11 +28,21 @@ The managed catalog is a closed list of five Qwen models. Download sizes below a
 
 “Planning memory” is the model-resource allowance used by the catalog, not measured peak RSS, a minimum, or a guarantee. Context length, runtime overhead, prompt size, Docker memory allocation, n8n, the host OS, and other workloads affect actual use. Relmio inspects Docker-visible memory, CPU, and available backing-filesystem space before showing the reviewed plan; tier marketing and physical host RAM are not substitutes for the engine's measured capacity. Neither a model tag nor a quantization label guarantees a particular token rate. There is no guaranteed tokens/second figure; benchmark your own workload.
 
-The Qwen model names, quantization and sizes are point-in-time registry observations, not permanent upstream promises. Sources: [Qwen3 Ollama registry manifest](https://registry.ollama.ai/v2/library/qwen3/manifests/0.6b), [Qwen3.5 Ollama registry manifest](https://registry.ollama.ai/v2/library/qwen3.5/manifests/2b), [Qwen3 0.6B model card](https://huggingface.co/Qwen/Qwen3-0.6B), [Qwen3 1.7B model card](https://huggingface.co/Qwen/Qwen3-1.7B), [Qwen3.5 2B model card](https://huggingface.co/Qwen/Qwen3.5-2B), [Qwen3.5 4B model card](https://huggingface.co/Qwen/Qwen3.5-4B), [Qwen3.5 9B model card](https://huggingface.co/Qwen/Qwen3.5-9B). Retrieved 2026-09-26.
+The Qwen model names, quantization and sizes are point-in-time registry
+observations, not permanent upstream promises. Sources include the official
+[Qwen3 registry manifest](https://registry.ollama.ai/v2/library/qwen3/manifests/0.6b)
+and [Qwen3.5 registry manifest](https://registry.ollama.ai/v2/library/qwen3.5/manifests/2b),
+plus the [Qwen3 0.6B model card](https://huggingface.co/Qwen/Qwen3-0.6B),
+[Qwen3 1.7B model card](https://huggingface.co/Qwen/Qwen3-1.7B),
+[Qwen3.5 2B model card](https://huggingface.co/Qwen/Qwen3.5-2B),
+[Qwen3.5 4B model card](https://huggingface.co/Qwen/Qwen3.5-4B), and
+[Qwen3.5 9B model card](https://huggingface.co/Qwen/Qwen3.5-9B). Retrieved
+2026-09-26.
 
 ## Install beside local n8n
 
-1. On a first-run machine, open the local dashboard with `npx --yes --ignore-scripts relmio@0.18.0-experimental.2 local`. This initializes dashboard state as needed; no pre-existing `.relmio` directory or n8n stack is required to open the route. The local-model installation itself requires an existing running n8n container and eligible Docker network. It does not create n8n, so if you have no local n8n yet, complete a separate n8n setup first. Then select **Add connection** and **Local model for n8n**. Use this exact prerelease command after `.2` is published.
+1. On a first-run machine, open the local dashboard with `npx --yes --ignore-scripts relmio@latest local`. This initializes dashboard state as needed; no pre-existing `.relmio` directory or n8n stack is required to open the route. The local-model installation itself requires an existing running n8n container and eligible Docker network. It does not create n8n, so if you have no local n8n yet, complete a separate n8n setup first. Then select **Add connection** and **Local model for n8n**.
+
 2. Relmio inspects the local Docker engine, running n8n containers, their shared user-defined Docker networks, the engine's measured memory and CPU allocation, and available Docker backing-filesystem disk. Select the running n8n container, its existing network, and an allowlisted model.
 3. Review the exact model, context and memory budget, measured engine capacity, available disk, image/model downloads, files and private network. Confirm only if the selected Docker engine and network are trusted and the reviewed budget leaves enough headroom.
 
@@ -154,20 +163,23 @@ A workflow's **Chat Model** connection is separate from n8n's **AI Assistant** s
 - Once local weights are used with cloud features disabled, inference requests go to the local runtime rather than a hosted model provider. n8n tools may still contact external services, and prompts/results can be retained by n8n execution history, host logs, or backups. Image/model registries can observe download traffic.
 - Model output is untrusted input. Preserve n8n's own credentials, permissions, and human approval boundaries for tools and actions.
 
-The `.2` candidate's attestation fixes accept Docker's bare, `:true`, and
-`=true` representations of enabled `no-new-privileges`; missing, disabled,
+Docker attestation accepts Docker's bare, `:true`, and `=true`
+representations of enabled `no-new-privileges`; missing, disabled,
 malformed, or conflicting entries remain unsafe. It also accepts a bounded,
 canonical Docker Buildx `current` record with an empty `Name` without
-interpreting its `Key`; a named `default` must match the reviewed host, and
+interpreting its `Key`. A named `default` must match the reviewed host;
 fallback, shadowed-default, and other saved-selector checks remain fail-closed.
-These are Docker attestation compatibility fixes, not changes to inference,
-container configuration, or n8n. Prior private-candidate model-only smoke checks
-covered local Docker and a Hostinger VPS; they do not establish the `.2`
-artifact, full-stack behavior, other-provider support, model quality, or
-throughput. Cold model loads and host pressure may exceed caller deadlines; a
-reported 120-second local inference timeout is not fixed by these attestation
-changes. Runtime identity and the helper's bounded arithmetic inference probe
-do not prove a fresh n8n workflow succeeds or that a model gives useful answers.
+These Docker attestation compatibility fixes do not change inference,
+container configuration, or n8n.
+
+Model-only smoke checks covered local Docker and a Hostinger VPS. Linux
+full-stack acceptance is tracked in [issue #86](https://github.com/Demonbane18/relmio/issues/86).
+A reported 120-second local inference timeout on cold model loads remains open.
+Cold loads and host pressure can exceed caller deadlines; CPU inference can be
+slow. These checks prove bounded inference only, not a working n8n workflow,
+tool calling, model quality, throughput, or support on other hosts. Runtime
+identity and the helper's bounded arithmetic inference probe do not prove that
+a fresh n8n workflow succeeds or that a model gives useful answers.
 
 ## Download recovery, cache, and removal
 
@@ -181,7 +193,15 @@ The repository includes a separate [Linux local-model acceptance harness](mainte
 
 ## Sources and limits
 
-Runtime behavior and model metadata change. The catalog's download sizes, quantizations and license links were read from the official [Ollama registry manifests](https://registry.ollama.ai/) and linked Qwen model cards on 2026-09-26. Ollama documents its [OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility), [authentication](https://docs.ollama.com/api/authentication), [Docker deployment](https://docs.ollama.com/docker), [cloud controls](https://docs.ollama.com/faq), and [pull API](https://docs.ollama.com/api/pull). These sources establish API/configuration facts, not performance measurements or a guarantee that a particular model is suitable for every n8n workflow.
+Runtime behavior and model metadata change. The catalog's download sizes,
+quantizations and license links were read from the official [Qwen3 Ollama
+registry manifest](https://registry.ollama.ai/v2/library/qwen3/manifests/0.6b),
+[Qwen3.5 Ollama registry manifest](https://registry.ollama.ai/v2/library/qwen3.5/manifests/2b),
+and linked Qwen model cards on 2026-09-26. Ollama documents its [OpenAI
+compatibility](https://docs.ollama.com/api/openai-compatibility),
+[authentication](https://docs.ollama.com/api/authentication), [Docker
+deployment](https://docs.ollama.com/docker), [cloud controls](https://docs.ollama.com/faq),
+and [pull API](https://docs.ollama.com/api/pull).
 
 ## Manually generated platform model plans
 
@@ -206,7 +226,7 @@ or a generated connection URL is not readiness. Cloud Run, managed containers
 and scheduler workloads are operator-applied artifacts, not provider-live
 support. The planner reads only supplied nonsecret values and accepts no model
 API key or provider credential; it exposes no model endpoint or applies files.
-See [Hosting compatibility](hosting-compatibility.md#hosting-catalog-and-plan-artifacts)
+See [Hosting compatibility](hosting-compatibility.md#current-path-and-host-requirements)
 for all platform paths, input boundaries, private-network constraints and
 source links.
 

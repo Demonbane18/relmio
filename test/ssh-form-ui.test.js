@@ -6,21 +6,24 @@ import { bindSshAuthentication, createCredentialSshGuard, readSshIdentity, sameS
 import { getHostingProvider } from "../src/domain/hosting-providers.js";
 
 function browserFixture(t) {
-  const previous = { document: globalThis.document, window: globalThis.window, fetch: globalThis.fetch };
+  const previous = { document: globalThis.document, window: globalThis.window, fetch: globalThis.fetch, MutationObserver: globalThis.MutationObserver };
   const nodes = new Map();
   const element = id => {
     if (!nodes.has(id)) nodes.set(id, {
       value: "", checked: false, disabled: false, hidden: true, textContent: "", handlers: new Map(), attributes: new Map(),
       addEventListener(event, callback) { const list = this.handlers.get(event) ?? []; list.push(callback); this.handlers.set(event, list); },
       dispatch(event) { for (const callback of this.handlers.get(event) ?? []) callback({ currentTarget: this, preventDefault() {} }); },
-      setAttribute(name, value) { this.attributes.set(name, value); }, getAttribute(name) { return this.attributes.get(name); },
+      setAttribute(name, value) { this.attributes.set(name, value); }, getAttribute(name) { return this.attributes.get(name) ?? null; },
+      removeAttribute(name) { this.attributes.delete(name); },
+      checkValidity() { return Boolean(this.value); },
       focus() {},
       replaceChildren(...children) { this.children = children; if (!children.some(child => child.value === this.value)) this.value = children[0]?.value ?? ""; },
     });
     return nodes.get(id);
   };
-  globalThis.document = { getElementById: element, querySelectorAll: () => [], createElement: () => ({}) };
+  globalThis.document = { getElementById: element, querySelectorAll: () => [], addEventListener() {}, createElement: () => ({}) };
   globalThis.window = { history: { state: null, replaceState() {} }, location: { pathname: "/local-model-vps", hash: "", reload() {} }, addEventListener() {} };
+  globalThis.MutationObserver = class { observe() {} };
   t.after(() => { for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } });
   element("host").value = "fixture.example";
   element("port").value = "22";

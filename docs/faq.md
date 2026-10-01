@@ -2,11 +2,13 @@
 
 ## Does a ChatGPT plan include a Platform API key?
 
-No. The managed provider-authentication flows use their documented OAuth
-sessions; they do not create an OpenAI Platform API key. Relmio's newer hosting
-planner is a separate operator-generated artifact flow, and API-key connections
-are configured directly in n8n or your app. The ChatGPT n8n OAuth bridge
-remains unofficial, private, and policy-uncertain.
+No. ChatGPT sign-in does not create an OpenAI Platform API key. Managed
+ChatGPT/Codex and SuperGrok OAuth sign-in flows do not configure upstream API
+keys, keep API-key profiles, or fall back to separately billed API access.
+Configure API-key connections and operator-generated hosting artifacts
+separately in n8n or on the target platform. Retired API installations and
+their data remain untouched. The ChatGPT n8n OAuth bridge remains unofficial,
+private, and policy-uncertain.
 
 ## Can I use my SuperGrok subscription?
 
@@ -34,13 +36,11 @@ that does not rule out separately configured external endpoints.
 
 ## How long does a ChatGPT/Codex sign-in token last?
 
-ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
-them automatically during active use before they expire, so active sessions
-usually continue without another browser login. The official [OpenAI
-authentication documentation](https://learn.chatgpt.com/docs/auth) does not
-publish a fixed 10-day lifetime; do not plan around one. This provider
-credential is separate from Relmio's local capability, which remains valid
-until you rotate it.
+The Codex authentication guide describes automatic refresh but does not give a
+fixed token lifetime. Relmio's private bridge and hosted chat demo each refresh
+their own credential copies. OpenAI's one-hour access-token and rotating
+30-day refresh-token lifetimes describe the separate Sign in with ChatGPT
+plan-usage flow, not Relmio's pinned Codex flow.
 
 ## Can I expose local endpoints on my network?
 

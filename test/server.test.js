@@ -1,5 +1,6 @@
 import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
@@ -235,7 +236,47 @@ test("wizard server binds to loopback and protects API responses", async (t) => 
   assert.equal(status.headers.get("x-content-type-options"), "nosniff");
 });
 
-test("default wizard assets include the color theme controller", async (t) => {
+test("unknown browser pages offer recovery without changing API 404 responses", async (t) => {
+  const { services } = createServices();
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+
+  const missing = await fetch(`${wizard.origin}/missing-page`, {
+    headers: { Accept: "text/html,application/xhtml+xml" },
+  });
+  assert.equal(missing.status, 404);
+  assert.match(missing.headers.get("content-type") ?? "", /^text\/html/u);
+  assert.equal(missing.headers.get("cache-control"), "no-store");
+  assert.match(missing.headers.get("content-security-policy") ?? "", /default-src 'self'/u);
+  const html = await missing.text();
+  assert.ok(html.startsWith("<!DOCTYPE html>"));
+  assert.match(html, /<title>Page not found \| Relmio<\/title>/u);
+  assert.match(html, /<main id="main-content"/u);
+  assert.match(html, /<link rel="stylesheet" href="\/relmio-ui.css">/u);
+  // A plain link to "/" would drop the private session (it lives in history state),
+  // so the page explains how to get back instead of linking.
+  assert.doesNotMatch(html, /<a\b/u);
+  assert.doesNotMatch(html, new RegExp(sessionToken, "u"));
+
+  for (const [path, options] of [
+    ["/api/missing-page", { method: "POST", headers: { Accept: "text/html", Origin: wizard.origin } }],
+    ["/missing-page", { headers: { Accept: "application/json" } }],
+    ["/missing-page", { method: "POST", headers: { Accept: "text/html" } }],
+  ]) {
+    const response = await fetch(`${wizard.origin}${path}`, {
+      ...options,
+      headers: {
+        ...options.headers,
+        ...(path.startsWith("/api/") ? { "X-Setup-Token": sessionToken } : {}),
+      },
+    });
+    assert.equal(response.status, 404);
+    assert.match(response.headers.get("content-type") ?? "", /^application\/json/u);
+    assert.deepEqual(await response.json(), { error: "Not found." });
+  }
+});
+
+test("wizard serves shared UI assets and accessible chat and progress markup", async (t) => {
   const { services } = createServices();
   const wizard = await startWizardServer({
     sessionToken,
@@ -246,7 +287,6 @@ test("default wizard assets include the color theme controller", async (t) => {
   const response = await fetch(`${wizard.origin}/theme.js`);
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/javascript/u);
-  assert.match(await response.text(), /relmio-color-mode/u);
 
   const oauthPopup = await fetch(`${wizard.origin}/oauth-popup.js`);
   assert.equal(oauthPopup.status, 200);
@@ -254,19 +294,52 @@ test("default wizard assets include the color theme controller", async (t) => {
     oauthPopup.headers.get("content-type") ?? "",
     /^text\/javascript/u,
   );
-  assert.match(await oauthPopup.text(), /Preparing ChatGPT sign-in/u);
 
-  const icon = await fetch(`${wizard.origin}/icons/monitor.svg`);
-  assert.equal(icon.status, 200);
-  assert.match(icon.headers.get("content-type") ?? "", /^image\/svg\+xml/u);
-  assert.match(await icon.text(), /Lucide monitor icon/u);
+  const font = await fetch(`${wizard.origin}/fonts/geist-latin.woff2`);
+  assert.equal(font.status, 200);
+  assert.equal(font.headers.get("content-type"), "font/woff2");
+  assert.equal(Buffer.from(await font.arrayBuffer()).subarray(0, 4).toString("latin1"), "wOF2");
 
-  const relmioIcon = await fetch(`${wizard.origin}/relmio-icon.png`);
+  const kit = await fetch(`${wizard.origin}/relmio-ui.css`);
+  assert.equal(kit.status, 200);
+  assert.match(kit.headers.get("content-type") ?? "", /^text\/css/u);
+
+  for (const page of ["/", "/local", "/assistant", "/supergrok-vps", "/local-model-vps", "/hosting"]) {
+    const html = await (await fetch(`${wizard.origin}${page}`)).text();
+    assert.doesNotMatch(html, /__RELMIO_PACKAGE_VERSION__/u, `${page} keeps the version placeholder`);
+    if (["/", "/local", "/assistant"].includes(page)) {
+      const progress = html.match(/<[^>]+\bid="operation-progress"[^>]*>/u)?.[0] ?? "";
+      assert.deepEqual(
+        Object.fromEntries([...progress.matchAll(/\b(role|aria-live|aria-atomic)="([^"]*)"/gu)]
+          .map(([, name, value]) => [name, value])),
+        { role: "status", "aria-live": "polite", "aria-atomic": "false" },
+        page,
+      );
+      const bars = [...html.matchAll(/<[^>]+\brole="progressbar"[^>]*>/gu)];
+      assert.equal(bars.length, 1, page);
+      assert.doesNotMatch(bars[0][0], /\baria-value(?:now|min|max)=/u, page);
+    }
+    if (page === "/local") {
+      for (const [id, attributes] of [
+        ["chat-tester-status", { role: "status", "aria-live": "polite", "aria-atomic": "true" }],
+        ["chat-tester-transcript", { role: "log", "aria-relevant": "additions" }],
+      ]) {
+        const control = html.match(new RegExp(`<[^>]+\\bid="${id}"[^>]*>`, "u"))?.[0] ?? "";
+        for (const [name, value] of Object.entries(attributes)) {
+          assert.match(control, new RegExp(`\\b${name}="${value}"`, "u"), id);
+        }
+      }
+      const stop = html.match(/<[^>]+\bid="chat-tester-stop"[^>]*>/u)?.[0] ?? "";
+      assert.match(stop, /\baria-label="[^"]+"/u);
+    }
+  }
+
+  const relmioIcon = await fetch(`${wizard.origin}/relmio-icon-96.png`);
   assert.equal(relmioIcon.status, 200);
   assert.equal(relmioIcon.headers.get("content-type"), "image/png");
   assert.deepEqual(
-    Buffer.from(await relmioIcon.arrayBuffer()).subarray(0, 8),
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    Buffer.from(await relmioIcon.arrayBuffer()),
+    await readFile(new URL("../src/ui/relmio-icon-96.png", import.meta.url)),
   );
 
   const roundedRelmioIcon = await fetch(`${wizard.origin}/relmio-icon-rounded.svg`);
@@ -275,7 +348,6 @@ test("default wizard assets include the color theme controller", async (t) => {
     roundedRelmioIcon.headers.get("content-type") ?? "",
     /^image\/svg\+xml/u,
   );
-  assert.match(await roundedRelmioIcon.text(), /<clipPath id="rounded-square">/u);
 });
 
 test("wizard server rejects cross-origin writes", async (t) => {

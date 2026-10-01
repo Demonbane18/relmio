@@ -6,59 +6,254 @@
     <meta name="description" content="Manage a private Docker local model beside existing VPS n8n." />
     <title>Relmio | Local model on your VPS</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/local-model-vps.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
     <script src="/local-model-vps.js" type="module"></script>
   </head>
-  <body class="local-model-vps">
-    <a class="skip-link" href="#main-content">Skip to local model setup</a>
-    <header class="site-header">
-      <div class="brand"><img class="brand-mark" src="/relmio-icon.png" alt="" width="28" height="28" /><span>Relmio</span></div>
-      <div class="header-actions">
-        <a id="back-link" class="button ghost">All n8n connections</a>
-        <fieldset class="theme-picker"><legend class="visually-hidden">Color theme</legend><label title="Use system appearance"><input type="radio" name="color-theme" value="system" checked /><span class="theme-icon theme-icon-system" aria-hidden="true"></span><span class="visually-hidden">System</span></label><label title="Use light appearance"><input type="radio" name="color-theme" value="light" /><span class="theme-icon theme-icon-light" aria-hidden="true"></span><span class="visually-hidden">Light</span></label><label title="Use dark appearance"><input type="radio" name="color-theme" value="dark" /><span class="theme-icon theme-icon-dark" aria-hidden="true"></span><span class="visually-hidden">Dark</span></label></fieldset>
+  <body class="rm-app rm-app--fit local-model-vps">
+    <a class="rm-skip-link" href="#main-content">Skip to local model setup</a>
+    <header class="rm-topbar">
+      <div class="rm-topbar__inner">
+        <a class="rm-brand" href="/" data-wizard-route="/" aria-label="Relmio home">
+          <img class="rm-brand__logo" src="/relmio-icon-96.png" width="32" height="32" alt="" />
+          <span>Relmio</span>
+        </a>
+        <nav class="rm-nav" aria-label="Primary">
+          <ul class="rm-nav__list">
+            <li><a class="rm-nav__link" href="/" data-wizard-route="/" aria-current="true">Setup</a></li>
+            <li><a class="rm-nav__link" href="/local" data-wizard-route="/local">This computer</a></li>
+            <li><a class="rm-nav__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+            <li><a class="rm-nav__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer">Docs<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+          </ul>
+        </nav>
+        <div class="rm-topbar__actions">
+          <span class="rm-status rm-topbar__wide" data-tone="success"><span class="rm-status__dot"></span>Runs on this computer</span>
+          <fieldset class="rm-segmented">
+            <legend class="rm-visually-hidden">Color theme</legend>
+            <label class="rm-segmented__item" title="System"><input class="rm-segmented__input" type="radio" name="color-theme" value="system" checked /><span class="rm-icon rm-icon--monitor rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">System</span></label>
+            <label class="rm-segmented__item" title="Light"><input class="rm-segmented__input" type="radio" name="color-theme" value="light" /><span class="rm-icon rm-icon--sun rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Light</span></label>
+            <label class="rm-segmented__item" title="Dark"><input class="rm-segmented__input" type="radio" name="color-theme" value="dark" /><span class="rm-icon rm-icon--moon rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Dark</span></label>
+          </fieldset>
+          <a class="rm-chip rm-topbar__wide" data-rm-repo-link href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer" aria-label="Open Relmio version __RELMIO_PACKAGE_VERSION__ on GitHub. Opens in a new tab.">
+            <span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub
+            <span class="rm-chip__meta"><span class="rm-icon rm-icon--star rm-icon--xs" aria-hidden="true"></span><span data-rm-repo-stars>?</span></span>
+            <span class="rm-chip__meta">v__RELMIO_PACKAGE_VERSION__</span>
+          </a>
+          <a class="rm-icon-button rm-topbar__wide" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer" aria-label="Support Relmio on Ko-fi (opens in a new tab)" title="Support Relmio on Ko-fi"><span class="rm-icon rm-icon--coffee" aria-hidden="true"></span></a>
+          <details class="rm-menu">
+            <summary class="rm-icon-button" aria-label="Menu"><span class="rm-icon rm-icon--menu" aria-hidden="true"></span></summary>
+            <div class="rm-menu__panel">
+              <nav aria-label="Primary">
+                <ul class="rm-menu__list">
+                  <li><a class="rm-menu__link" href="/" data-wizard-route="/" aria-current="true">Setup</a></li>
+                  <li><a class="rm-menu__link" href="/local" data-wizard-route="/local">This computer</a></li>
+                  <li><a class="rm-menu__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+                  <li><a class="rm-menu__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--book rm-icon--sm" aria-hidden="true"></span>Docs<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                </ul>
+              </nav>
+              <ul class="rm-menu__list rm-menu__section">
+                <li><a class="rm-menu__link" href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                <li><a class="rm-menu__link" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--coffee rm-icon--sm" aria-hidden="true"></span>Support on Ko-fi<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+              </ul>
+            </div>
+          </details>
+        </div>
       </div>
     </header>
-    <main id="main-content" class="model-layout" tabindex="-1">
-      <aside class="model-intro">
-        <p class="panel-kicker">Local model · VPS</p>
-        <h1>A private model for n8n</h1>
-        <aside class="experimental-notice" aria-labelledby="vps-model-experimental-title">
-          <strong id="vps-model-experimental-title">Experimental release · 0.18.0-experimental.4</strong>
-          <p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
-        </aside>
-        <p>Run one CPU model beside existing n8n. No ChatGPT sign-in. Other containers on the chosen network can reach Ollama's unauthenticated management API. Choose a trusted network.</p>
-        <p id="message" role="status" aria-live="polite">Check the server identity to begin.</p>
-        <p id="error" role="alert" tabindex="-1" hidden></p>
-        <p>Existing n8n stays untouched. No model port is published.</p>
-      </aside>
-      <div class="model-panels">
-        <section class="panel" aria-labelledby="connection-title">
-          <h2 id="connection-title">1. Check your server</h2>
-          <label class="field"><span>Hosting guidance</span><select id="hosting-provider"></select></label>
-          <p>Use the server address and username from your hosting provider.</p>
-          <aside id="hosting-alternative" class="model-hosting-hint" hidden><strong>This product does not use managed server SSH.</strong><p>Do not enter platform or SDK credentials here. Review the manual or external options instead.</p><a id="hosting-guide-link">Explore hosting options</a></aside>
-          <details class="technical-details"><summary>More details about the server check</summary><div><p id="hosting-hint" class="model-hosting-hint" role="status"></p><p>The check reads Docker Engine, Compose, the local endpoint, the admin account, an existing <code>/docker</code> directory, running official n8n, a private network, memory, and disk. Relmio does not install or upgrade Docker or n8n.</p></div></details>
-          <form id="ssh-form"><div class="fields">
-            <label class="field"><span>Server address</span><input id="host" autocomplete="off" required /></label>
-            <label class="field"><span>SSH port</span><input id="port" type="number" min="1" max="65535" value="22" required /></label>
-            <label class="field"><span>Server username</span><input id="username" autocomplete="username" value="root" required /></label>
-            <label class="field"><span>SSH authentication</span><select id="ssh-authentication"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
-            <label class="field"><span>Server permissions</span><select id="ssh-privilege"><option value="root">Root account (UID 0)</option><option value="sudo-n">Passwordless sudo -n (model only)</option></select></label>
-            <label class="field"><span>SSH password</span><input id="password" type="password" autocomplete="current-password" disabled required /></label>
+    <main id="main-content" class="rm-app__main" tabindex="-1">
+      <noscript><p class="rm-callout rm-callout--warning">This setup needs JavaScript to check server identity and show the plan. Enable JavaScript, then reload before continuing.</p></noscript>
+      <div class="rm-split route-layout">
+        <aside class="rm-split__rail route-rail" aria-label="Local model setup progress">
+          <div class="route-intro">
+            <p class="rm-eyebrow">Local model · VPS</p>
+            <h1 class="rm-h3">A private model for n8n</h1>
           </div>
-          <p>Passwordless sudo (sudo -n) is for this model only. It does not install the OAuth bridge, Assistant, or SuperGrok.</p>
-          <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
-          <details class="technical-details"><summary>More details about SSH agent sign-in</summary><div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. Relmio does not read private-key files, ask for passphrases, or forward your agent.</p></div></details>
-          <p id="ssh-session" role="status"></p><button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
-          <button id="scan" class="button secondary" type="button">Check server identity</button><div id="fingerprint-box" class="fingerprint" hidden><span>Server identity (SSH fingerprint)</span><code id="fingerprint"></code><label class="check-row"><input id="trust" type="checkbox" />I checked this server identity.</label></div><div class="actions"><button id="connect" class="button primary" type="submit" disabled>Connect and inspect</button></div></form>
-        </section>
-        <section id="manual-recovery" class="panel" aria-labelledby="manual-recovery-title" hidden><h2 id="manual-recovery-title">Check an owned model if n8n is gone</h2><p>If the original n8n container or network is gone, enter their exact names. This path cannot install. Removal needs a separate confirmation after Relmio re-checks its own files, runtime, and cache.</p><div class="fields"><label class="field"><span>Original n8n container name</span><input id="manual-container" autocomplete="off" maxlength="128" /></label><label class="field"><span>Original Docker network name</span><input id="manual-network" autocomplete="off" maxlength="128" /></label></div><button id="inspect-owned" class="button secondary" type="button">Inspect owned model</button></section>
-        <section id="selection-panel" class="panel" aria-labelledby="selection-title" hidden><h2 id="selection-title">2. Choose n8n and a model</h2><p>Choose a running n8n container and its existing network.</p><div class="fields"><label class="field"><span>n8n container</span><select id="container"></select></label><label class="field"><span>Shared Docker network</span><select id="network"></select></label><label class="field"><span>Allowlisted model</span><select id="model"><option value="qwen3:0.6b">Qwen3 0.6B · 0.523 GB download</option><option value="qwen3:1.7b">Qwen3 1.7B · 1.359 GB download</option><option value="qwen3.5:2b">Qwen3.5 2B · 2.741 GB download</option><option value="qwen3.5:4b">Qwen3.5 4B · 3.390 GB download</option><option value="qwen3.5:9b">Qwen3.5 9B · 6.594 GB download</option></select></label></div><p id="installation-state" role="status" aria-live="polite"></p><p id="progress" role="status" aria-live="polite" hidden></p><div class="actions"><button id="refresh" class="button secondary" type="button">Refresh status</button><button id="review-install" class="button primary" type="button">Review installation</button><button id="review-retry" class="button secondary" type="button" hidden>Review retry</button><button id="review-remove" class="button ghost" type="button" hidden>Review removal</button><button id="disconnect" class="button ghost" type="button">Disconnect</button></div></section>
-        <section id="review-panel" class="panel" aria-labelledby="review-title" hidden><h2 id="review-title">3. Review the plan</h2><dl class="result-list"><div><dt>Action</dt><dd id="review-action"></dd></div><div><dt>n8n container / network</dt><dd id="review-boundary"></dd></div><div><dt>Selected model</dt><dd id="review-model"></dd></div><div><dt>Memory / CPUs / context</dt><dd id="review-budget"></dd></div><div><dt>Download and disk</dt><dd id="review-download"></dd></div><div><dt>Owned files</dt><dd><code>/docker/n8n-openai-oauth/local-model</code></dd></div></dl><p>Private endpoint: <code>http://n8n-local-model:11434/v1</code>. No host port. No n8n changes or restarts. Downloads contact image and model registries. Prompts stay on the selected runtime, subject to n8n workflows and logs.</p><p id="deletion-warning" hidden><strong>Removal permanently deletes the owned model cache and downloaded weights.</strong> This can be multiple gigabytes. No other Docker volume or n8n data is removed.</p><label class="check-row"><input id="confirm" type="checkbox" />I approve only this reviewed action and its consequences.</label><label id="cache-confirm-row" class="check-row" hidden><input id="cache-confirm" type="checkbox" />I separately confirm deletion of the owned model cache and weights.</label><div class="actions"><button id="cancel-review" class="button ghost" type="button">Back</button><button id="apply" class="button primary" type="button" disabled>Confirm action</button></div></section>
-        <section id="settings-panel" class="panel" aria-labelledby="settings-title" hidden><h2 id="settings-title">4. Connect n8n after inference succeeds</h2><p id="readiness"></p><dl class="result-list"><div><dt>Private base URL</dt><dd><code id="base-url">http://n8n-local-model:11434/v1</code></dd></div><div><dt>Model</dt><dd><code id="selected-model"></code></dd></div><div><dt>API key</dt><dd><code>ollama</code> is an ignored placeholder. It does not authenticate the runtime</dd></div><div><dt>Protocol</dt><dd>OpenAI Chat Model: Use Responses API <strong>Off</strong> for this Chat Completions recipe</dd></div></dl><div class="actions"><button id="copy-url" class="button secondary" type="button">Copy base URL</button><button id="copy-model" class="button secondary" type="button">Copy model</button><button id="copy-key" class="button secondary" type="button">Copy ignored placeholder</button></div><p>Start with a short fixed prompt. Inference readiness does not set up the Assistant sandbox or tool use.</p></section>
+          <ol class="rm-stepper rm-stepper--auto route-steps" aria-label="Steps">
+            <li class="rm-stepper__item" data-stage-marker="1" aria-current="step"><span class="rm-stepper__link"><span class="rm-stepper__marker">1</span><span class="rm-stepper__label">Check server</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="2"><span class="rm-stepper__link"><span class="rm-stepper__marker">2</span><span class="rm-stepper__label">Choose model</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="3"><span class="rm-stepper__link"><span class="rm-stepper__marker">3</span><span class="rm-stepper__label">Review</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="4"><span class="rm-stepper__link"><span class="rm-stepper__marker">4</span><span class="rm-stepper__label">Connect n8n</span></span></li>
+          </ol>
+          <p id="message" class="rm-callout rm-callout--neutral route-status" role="status" aria-live="polite">Check the server identity to begin.</p>
+          <p id="progress" class="rm-callout route-status" role="status" aria-live="polite" hidden></p>
+        </aside>
+        <div id="route-steps-content" class="rm-split__content route-content" aria-busy="false">
+          <section id="connection-panel" class="rm-panel route-panel" aria-labelledby="connection-title" data-current>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 1 of 4</span>
+                <h2 id="connection-title" class="rm-h1" tabindex="-1">Check your server</h2>
+              </div>
+              <label class="rm-field route-hosting"><span class="rm-field__label">Hosting product</span><select id="hosting-provider" class="rm-select"></select></label>
+            </header>
+            <form id="ssh-form" class="route-form">
+              <div class="rm-panel__body">
+                <div class="route-columns route-columns--form">
+                  <div class="route-main">
+                    <div id="hosting-alternative" class="rm-callout rm-callout--warning" hidden>
+                      <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
+                      <div class="rm-callout__content">
+                        <strong class="rm-callout__title">This product does not use managed server SSH.</strong>
+                        <p class="rm-callout__body">Do not enter platform or SDK credentials here. <a id="hosting-guide-link">Explore hosting options</a></p>
+                      </div>
+                    </div>
+                    <div class="route-target">
+                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
+                      <label class="rm-field"><span class="rm-field__label">SSH port</span><input id="port" class="rm-input" type="number" min="1" max="65535" value="22" required /></label>
+                      <button id="scan" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check server identity</button>
+                    </div>
+                    <label id="fingerprint-box" class="rm-check rm-check--boxed" hidden><input id="trust" type="checkbox" /><span>I checked this server identity. This is the server I mean to use.<span class="rm-check__hint">SSH fingerprint <code id="fingerprint" class="route-fingerprint"></code></span></span></label>
+                    <div class="rm-form-grid route-signin">
+                      <label class="rm-field"><span class="rm-field__label">SSH username</span><input id="username" class="rm-input" autocomplete="username" value="root" required /></label>
+                      <label class="rm-field"><span class="rm-field__label">SSH authentication</span><select id="ssh-authentication" class="rm-select"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
+                      <label class="rm-field"><span class="rm-field__label">Server permissions</span><select id="ssh-privilege" class="rm-select"><option value="root">Root account (UID 0)</option><option value="sudo-n">Passwordless sudo -n</option></select></label>
+                      <label class="rm-field"><span class="rm-field__label">Server password</span><input id="password" class="rm-input" type="password" autocomplete="current-password" disabled required /></label>
+                    </div>
+                  </div>
+                  <div class="route-aside">
+                    <p class="rm-small rm-muted">Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</p>
+                    <p class="rm-small rm-muted">Passwordless sudo covers this model only. The OAuth bridge, Assistant and SuperGrok need a root account.</p>
+                    <p id="ssh-agent-status" class="rm-small rm-muted" role="status">Checking local SSH agent configuration…</p>
+                    <details class="rm-disclosure">
+                      <summary>About the server check</summary>
+                      <div class="rm-disclosure__body">
+                        <p id="hosting-hint" role="status"></p>
+                        <p>The check reads Docker Engine, Compose, the local endpoint, the admin account, an existing <code>/docker</code> directory, running official n8n, a private network, memory and disk. Relmio does not install or upgrade Docker or n8n.</p>
+                      </div>
+                    </details>
+                    <details class="rm-disclosure">
+                      <summary>About SSH agent sign-in</summary>
+                      <div class="rm-disclosure__body"><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. Relmio does not read private-key files, ask for passphrases or forward your agent.</p></div>
+                    </details>
+                    <p id="ssh-session" class="rm-small route-session" role="status"></p>
+                  </div>
+                </div>
+              </div>
+              <footer class="rm-panel__footer">
+                <a id="back-link" class="rm-button rm-button--ghost" href="/" data-wizard-route="/"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</a>
+                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect shared VPS session</button>
+                <button id="connect" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect and inspect<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
+              </footer>
+            </form>
+          </section>
+          <section id="manual-recovery" class="rm-panel route-panel" aria-labelledby="manual-recovery-title" hidden>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 2 of 4</span>
+                <h2 id="manual-recovery-title" class="rm-h1" tabindex="-1">Check an owned model</h2>
+                <p class="rm-muted">No running n8n was found. If the original n8n container or network is gone, enter their exact names.</p>
+              </div>
+            </header>
+            <div class="rm-panel__body">
+              <div class="rm-form-grid">
+                <label class="rm-field"><span class="rm-field__label">Original n8n container name</span><input id="manual-container" class="rm-input" autocomplete="off" maxlength="128" /></label>
+                <label class="rm-field"><span class="rm-field__label">Original Docker network name</span><input id="manual-network" class="rm-input" autocomplete="off" maxlength="128" /></label>
+              </div>
+              <p class="rm-small rm-muted">This path cannot install. Removal needs its own confirmation after Relmio re-checks its files, runtime and cache.</p>
+            </div>
+            <footer class="rm-panel__footer">
+              <button id="inspect-owned" class="rm-button rm-button--primary rm-push" type="button">Inspect owned model</button>
+            </footer>
+          </section>
+          <section id="selection-panel" class="rm-panel route-panel" aria-labelledby="selection-title" hidden>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 2 of 4</span>
+                <h2 id="selection-title" class="rm-h1" tabindex="-1">Choose n8n and a model</h2>
+                <p class="rm-muted">Pick n8n, its network and one CPU model. This step only looks.</p>
+              </div>
+            </header>
+            <div class="rm-panel__body">
+              <div class="rm-form-grid route-n8n-fields">
+                <label class="rm-field"><span class="rm-field__label">n8n container</span><select id="container" class="rm-select"></select></label>
+                <label class="rm-field"><span class="rm-field__label">Shared Docker network</span><select id="network" class="rm-select" aria-describedby="network-hint"></select><span id="network-hint" class="rm-field__hint">Other containers on this network can reach Ollama's management API, which has no sign-in. Choose a trusted network.</span></label>
+                <label class="rm-field"><span class="rm-field__label">Allowlisted model</span><select id="model" class="rm-select"><option value="qwen3:0.6b">Qwen3 0.6B · 0.523 GB download</option><option value="qwen3:1.7b">Qwen3 1.7B · 1.359 GB download</option><option value="qwen3.5:2b">Qwen3.5 2B · 2.741 GB download</option><option value="qwen3.5:4b">Qwen3.5 4B · 3.390 GB download</option><option value="qwen3.5:9b">Qwen3.5 9B · 6.594 GB download</option></select></label>
+              </div>
+              <p id="installation-state" class="rm-callout rm-callout--neutral route-state" role="status" aria-live="polite"></p>
+            </div>
+            <footer class="rm-panel__footer">
+              <button id="disconnect" class="rm-button rm-button--ghost" type="button">Disconnect</button>
+              <button id="refresh" class="rm-button" type="button"><span class="rm-icon rm-icon--refresh rm-icon--sm" aria-hidden="true"></span>Refresh status</button>
+              <div class="rm-cluster rm-push" role="group" aria-label="Model actions">
+                <button id="review-remove" class="rm-button" type="button" hidden>Review removal</button>
+                <button id="review-retry" class="rm-button" type="button" hidden>Review retry</button>
+                <button id="review-install" class="rm-button rm-button--primary" type="button">Review installation</button>
+                <button id="selection-continue" class="rm-button rm-button--primary" type="button" hidden>Continue<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
+              </div>
+            </footer>
+          </section>
+          <section id="review-panel" class="rm-panel route-panel" aria-labelledby="review-title" hidden>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 3 of 4</span>
+                <h2 id="review-title" class="rm-h1" tabindex="-1">Review the plan</h2>
+                <p class="rm-muted">Nothing changes on your server until you confirm.</p>
+              </div>
+            </header>
+            <div class="rm-panel__body">
+              <dl class="rm-dl route-review-list">
+                <div><dt>Action</dt><dd id="review-action"></dd></div>
+                <div><dt>Server and n8n</dt><dd id="review-boundary"></dd></div>
+                <div><dt>Model</dt><dd id="review-model"></dd></div>
+                <div><dt>Resources</dt><dd id="review-budget"></dd></div>
+                <div><dt>Download and disk</dt><dd id="review-download"></dd></div>
+                <div><dt>Files and endpoint</dt><dd><code>/docker/n8n-openai-oauth/local-model</code> · <code>http://n8n-local-model:11434/v1</code></dd></div>
+              </dl>
+              <div class="route-review-notes">
+                <p class="rm-small rm-muted">Downloads contact image and model registries. Prompts stay on the selected runtime, subject to n8n workflows and logs.</p>
+                <details class="rm-disclosure">
+                  <summary>Technical details</summary>
+                  <div class="rm-disclosure__body"><p id="review-details" class="route-review-details"></p></div>
+                </details>
+              </div>
+              <div class="route-approvals">
+                <label class="rm-check rm-check--boxed"><input id="confirm" type="checkbox" /><span>I approve only this reviewed action and its consequences.</span></label>
+                <label id="cache-confirm-row" class="rm-check rm-check--boxed route-danger-check" hidden><input id="cache-confirm" type="checkbox" /><span>I separately confirm deletion of the owned model cache and weights.<span id="deletion-warning" class="rm-check__hint" hidden>This cannot be undone. The weights can be several gigabytes. No other Docker volume or n8n data is removed.</span></span></label>
+              </div>
+            </div>
+            <footer class="rm-panel__footer">
+              <button id="cancel-review" class="rm-button rm-button--ghost" type="button"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</button>
+              <button id="apply" class="rm-button rm-button--primary rm-push" type="button" disabled>Confirm action</button>
+            </footer>
+          </section>
+          <section id="settings-panel" class="rm-panel route-panel" aria-labelledby="settings-title" hidden>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 4 of 4</span>
+                <h2 id="settings-title" class="rm-h1" tabindex="-1">Connect n8n</h2>
+                <p id="readiness" class="rm-muted"></p>
+              </div>
+            </header>
+            <div class="rm-panel__body">
+              <dl class="rm-dl route-settings">
+                <div><dt>Private base URL</dt><dd><code id="base-url">http://n8n-local-model:11434/v1</code><button id="copy-url" class="rm-icon-button rm-icon-button--outline" type="button" aria-label="Copy base URL" title="Copy base URL"><span class="rm-icon rm-icon--copy" aria-hidden="true"></span></button></dd></div>
+                <div><dt>Model</dt><dd><code id="selected-model"></code><button id="copy-model" class="rm-icon-button rm-icon-button--outline" type="button" aria-label="Copy model" title="Copy model"><span class="rm-icon rm-icon--copy" aria-hidden="true"></span></button></dd></div>
+                <div><dt>API key</dt><dd><code id="placeholder-key">local-only</code><button id="copy-key" class="rm-icon-button rm-icon-button--outline" type="button" aria-label="Copy ignored placeholder" title="Copy ignored placeholder"><span class="rm-icon rm-icon--copy" aria-hidden="true"></span></button><span class="rm-small rm-muted">An ignored placeholder. It does not authenticate the runtime.</span></dd></div>
+              </dl>
+              <div class="rm-callout rm-callout--warning">
+                <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
+                <div class="rm-callout__content">
+                  <strong class="rm-callout__title">Use Responses API: Off</strong>
+                  <p class="rm-callout__body">This recipe uses Chat Completions. Set it in the OpenAI Chat Model node.</p>
+                </div>
+              </div>
+              <p class="rm-small rm-muted">Start with a short fixed prompt. Inference readiness does not set up the Assistant sandbox or tool use.</p>
+            </div>
+            <footer class="rm-panel__footer">
+              <button id="settings-back" class="rm-button rm-button--ghost" type="button"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</button>
+            </footer>
+          </section>
+        </div>
+        <div class="route-rail-foot">
+          <ul class="route-safety" aria-label="Safety">
+            <li class="rm-status"><span class="rm-status__dot" aria-hidden="true"></span>No ChatGPT sign-in</li>
+            <li class="rm-status" data-tone="success"><span class="rm-status__dot" aria-hidden="true"></span>Existing n8n stays untouched</li>
+            <li class="rm-status" data-tone="success"><span class="rm-status__dot" aria-hidden="true"></span>No model port is published</li>
+          </ul>
+          <p id="error" class="rm-callout rm-callout--danger route-error" role="alert" tabindex="-1" hidden></p>
+        </div>
       </div>
     </main>
   </body>

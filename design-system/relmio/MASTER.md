@@ -1,9 +1,9 @@
 # Relmio Design System: Doorway Playground
 
-> The public website follows the current Hallmark direction in `../../DESIGN.md`
-> and `pages/home.md`. The original Signal Plotter system remains a compatibility
-> baseline for operational surfaces. Its earlier public composition has been
-> superseded by the user's illustrated, animated brief.
+> Historical record. Superseded by [DESIGN.md](../../DESIGN.md) and
+> [BRANDKIT.md](../../BRANDKIT.md); do not use this file as current guidance.
+> At the time of writing, the public website followed the Hallmark direction
+> and `pages/home.md`, and the Signal Plotter system governed operational surfaces.
 
 **Project:** Relmio
 **Direction:** Playful animated public website; clear guided installation

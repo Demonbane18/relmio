@@ -12,28 +12,26 @@
     "docs:check": "node scripts/generate-docs.mjs --check",
     "docs:generate": "node scripts/generate-docs.mjs",
     "start": "vinext start",
-    "test": "npm run docs:check && npm run build && node --test tests/*.test.mjs",
+    "test": "npm run ui:check && npm run docs:check && npm run build && node --test tests/*.test.mjs",
+    "ui:check": "node scripts/sync-ui-kit.mjs --check",
+    "ui:sync": "node scripts/sync-ui-kit.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/react": "3.0.239",
-    "@astryxdesign/core": "0.2.0",
-    "@astryxdesign/theme-neutral": "0.2.0",
     "@openai-oauth/ai-sdk": "2.0.0",
     "@openai-oauth/react": "2.0.0",
-    "@stylexjs/stylex": "0.19.0",
     "ai": "6.0.237",
     "lucide-react": "1.28.0",
     "motion": "13.1.1",
-    "next": "16.3.5",
+    "next": "16.3.8",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1"
   },
   "devDependencies": {
-    "@astryxdesign/cli": "0.2.0",
     "@cloudflare/vite-plugin": "1.48.0",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "24.13.4",
@@ -42,7 +40,7 @@
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
     "eslint": "9.39.5",
-    "eslint-config-next": "16.3.5",
+    "eslint-config-next": "16.3.8",
     "react-server-dom-webpack": "19.2.8",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
@@ -52,17 +50,14 @@
   },
   "overrides": {
     "browserslist": "4.28.7",
-    "brace-expansion": "5.0.9",
-    "fast-uri": "3.1.7",
+    "brace-expansion": "5.0.12",
+    "fast-uri": "3.1.8",
     "js-yaml": "4.3.2",
     "minimatch": "10.2.6",
     "nanoid": "3.3.18",
     "postcss": "8.5.25",
     "sharp": "0.35.4",
-    "undici": "7.29.0"
-  },
-  "astryx": {
-    "theme": "./app/relmio.js"
+    "undici": "7.29.1"
   },
   "type": "module"
 }

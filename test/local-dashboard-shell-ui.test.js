@@ -3,8 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
-async function sources() {
-  return Promise.all([readFile("src/ui/local.html", "utf8"), readFile("src/ui/local.js", "utf8")]);
+async function loadScript() {
+  return readFile("src/ui/local.js", "utf8");
 }
 
 function normalizeProvider(script) {
@@ -21,7 +21,7 @@ function normalizeProvider(script) {
 
 
 test("provider snapshot validation rejects profile fields and non-runtime OAuth readiness", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const normalize = normalizeProvider(script);
   const definition = { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" };
   const good = { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" };
@@ -74,7 +74,7 @@ function loadSnapshotNormalizer(script) {
 }
 
 test("dashboard rejects unauthorized provider actions and unknown services", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const normalize = loadSnapshotNormalizer(script);
   const snapshot = oauthOnlySnapshot();
   const codex = snapshot.services[0];
@@ -114,7 +114,7 @@ test("dashboard rejects unauthorized provider actions and unknown services", asy
 });
 
 test("fresh inventory renders successfully and stale inventory preserves runtime truth", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const renderSource = sourceBetween(script, "function renderDashboardSnapshot", "\nfunction renderDashboardFailure");
   const truths = new Map();
   const nodes = new Map();
@@ -137,7 +137,7 @@ test("fresh inventory renders successfully and stale inventory preserves runtime
 });
 
 test("dashboard failure replaces loading state with unavailable, action-free rows", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const source = sourceBetween(script, "function renderDashboardFailure", "\nasync function loadLocalDashboard");
   const nodes = new Map();
   const element = (id) => {
@@ -154,7 +154,7 @@ test("dashboard failure replaces loading state with unavailable, action-free row
 });
 
 test("provider guidance dispatches without starting provider authentication", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const source = sourceBetween(script, "async function runDashboardAction", "\nfunction renderDashboardAction");
   const calls = [];
   const run = runInNewContext(`${source}; runDashboardAction;`, { dashboardToWizardTarget(target) { return target; }, async enterSetupView(target, options) { calls.push({ kind: "setup", target, options }); }, isDashboardSnapshotStale() { return false; }, showDashboardCodexSignInManagement() { calls.push({ kind: "codex" }); }, showDashboardProviderRuntimeGuidance(service, action) { calls.push({ kind: "guidance", target: service.target, action }); }, showDashboardRemovalReview() {}, showDashboardRotationReview() {}, showStoppedManagedLocalN8nStack() {}, state: { dashboardBusy: false, dashboardSnapshot: oauthOnlySnapshot() } });
@@ -169,8 +169,8 @@ test("provider guidance dispatches without starting provider authentication", as
   ]);
 });
 
-test("navigation clears one-time local values and dashboard controls remain keyboard-addressable", async () => {
-  const [html, script] = await sources();
+test("navigation clears one-time local values", async () => {
+  const script = await loadScript();
   const source = sourceBetween(script, "function clearOneTimeSetupValues", "\nfunction resetPendingSetupState");
   const nodes = new Map();
   const element = (id) => {
@@ -180,13 +180,10 @@ test("navigation clears one-time local values and dashboard controls remain keyb
   const clear = runInNewContext(`${source}; clearOneTimeSetupValues;`, { element, clearChatTesterState() {} });
   clear();
   for (const id of ["result-credential", "result-sandbox-key", "result-n8n-settings", "device-code"]) assert.equal(element(id).textContent, "");
-  assert.match(html, /id="dashboard-title" tabindex="-1"/u);
-  assert.match(script, /select\.type = "button";[\s\S]*aria-pressed/u);
-  assert.match(script, /button\.type = "button";[\s\S]*runDashboardAction/u);
 });
 
 test("local OAuth endpoint planning emits only target and port", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const helpers = sourceBetween(script, "function isCodexChat(target)", "\nfunction assistantModeLabel");
   const handler = sourceBetween(script, 'element("target-form").addEventListener("submit"', "\nfor (const input of document.querySelectorAll('input[name=\"target\"]')");
   const controls = new Map();
@@ -215,7 +212,7 @@ test("local OAuth endpoint planning emits only target and port", async () => {
 });
 
 test("private n8n SuperGrok planning sends only the selected n8n identities", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const helpers = sourceBetween(script, "function isCodexChat(target)", "\nfunction assistantModeLabel");
   const handler = sourceBetween(script, 'element("target-form").addEventListener("submit"', "\nfor (const input of document.querySelectorAll('input[name=\"target\"]')");
   const controls = new Map();
@@ -240,7 +237,7 @@ test("private n8n SuperGrok planning sends only the selected n8n identities", as
 });
 
 test("private n8n SuperGrok install validation rejects an unexpected endpoint before rendering a bearer", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const source = sourceBetween(script, "function renderInstallResult", "\nfunction setChatTesterStatus");
   const isN8nLocalModel = sourceBetween(script, "function isN8nLocalModel(target)", "\nfunction isN8nAssistant");
   const clearLocalModelPoll = sourceBetween(script, "function clearLocalModelPoll()", "\nfunction renderLocalModelStatus");
@@ -254,12 +251,9 @@ test("private n8n SuperGrok install validation rejects an unexpected endpoint be
   }), /unexpected response/u);
 });
 
-test("private n8n SuperGrok removal is stale-guarded and never dispatches the OpenAI bridge endpoint", async () => {
-  const [, script] = await sources();
+test("stale private n8n SuperGrok inventory refuses removal review", async () => {
+  const script = await loadScript();
   const actionSource = sourceBetween(script, "async function runDashboardAction", "\nfunction renderDashboardAction");
-  const removalSource = sourceBetween(script, 'element("remove-supergrok-confirm").addEventListener', '\nelement("remove-assistant-confirm").addEventListener');
-  assert.match(removalSource, /\/api\/local\/supergrok\/remove/u);
-  assert.doesNotMatch(removalSource, /\/api\/local\/n8n\/remove/u);
   const calls = [];
   const nodes = new Map();
   const element = (id) => {
@@ -275,7 +269,7 @@ test("private n8n SuperGrok removal is stale-guarded and never dispatches the Op
 });
 
 test("provider runtime guidance clears completion chrome and ordinary setup restores it", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const stepSource = sourceBetween(script, "function showStep(step,", "\nasync function api");
   const guidanceSource = sourceBetween(
     script,
@@ -338,7 +332,7 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
     assert.equal(nodes.get("setup-progress").hidden, true);
     assert.equal(nodes.get("done-step-caption").hidden, true);
     assert.equal(nodes.get("success-mark").hidden, true);
-    assert.ok(markers.every((marker) => !marker.classList.contains("complete")));
+    assert.ok(markers.every((marker) => !marker.dataset.state));
     assert.ok(markers.every((marker) => !marker.attributes.has("aria-current")));
   }
 
@@ -348,12 +342,12 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
   assert.equal(nodes.get("success-mark").hidden, false);
   assert.equal(markers[0].attributes.get("aria-current"), "step");
   showStep(4);
-  assert.ok(markers.slice(0, 3).every((marker) => marker.classList.contains("complete")));
+  assert.ok(markers.slice(0, 3).every((marker) => marker.dataset.state === "done"));
   assert.equal(markers[3].attributes.get("aria-current"), "step");
 });
 
 test("provider rows name each local runtime while preserving neutral provider readiness", async () => {
-  const [, script] = await sources();
+  const script = await loadScript();
   const definitionsStart = script.indexOf("const DASHBOARD_SERVICE_DEFINITIONS");
   const definitionsEnd = script.indexOf("\nconst DASHBOARD_PROVIDER_DEFINITIONS", definitionsStart);
   const renderer = sourceBetween(script, "function renderDashboardProvider", "\nfunction renderDashboardTruth");

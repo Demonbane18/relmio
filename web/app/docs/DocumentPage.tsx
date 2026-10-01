@@ -1,201 +1,117 @@
-import Image from "next/image";
 import Link from "next/link";
-import {
-  Children,
-  isValidElement,
-  type ReactNode,
-} from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { HashLink } from "../components/HashLink";
-import { RepositoryButton } from "../components/RepositoryButton";
-import { SupportButton } from "../components/SupportButton";
-import { ThemeModeControl } from "../components/ThemeModeControl";
-import { DocumentationSearch } from "./DocumentationSearch";
-import { CopyableCodeBlock } from "./CopyableCodeBlock";
+import { classNames } from "../components/ui/classNames";
+import { Icon } from "../components/ui/Icon";
+import { DocumentationSearch, type GuideEntry } from "./DocumentationSearch";
 import { DocumentOutline } from "./DocumentOutline";
 import { documentationPages } from "./generated-content";
+import { guideSummary, markdownOutline } from "./markdownText";
+import { GuideMarkdown } from "./MarkdownContent";
 import styles from "./docs.module.css";
 
 type DocumentationEntry = (typeof documentationPages)[number];
 
-function nodeText(node: ReactNode): string {
-  if (typeof node === "string" || typeof node === "number") {
-    return String(node);
-  }
-  if (isValidElement<{ children?: ReactNode }>(node)) {
-    return nodeText(node.props.children);
-  }
-  return Children.toArray(node).map(nodeText).join("");
-}
+const guides: GuideEntry[] = documentationPages.map((page, index) => ({
+  slug: page.slug,
+  title: page.title,
+  summary: guideSummary(page.content),
+  number: String(index + 1).padStart(2, "0"),
+}));
 
-function headingId(children: ReactNode) {
-  const normalized = nodeText(children)
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/gu, "-")
-    .replace(/^-|-$/gu, "");
-  return normalized || undefined;
-}
-
-function summaryFromMarkdown(markdown: string) {
-  const summary = markdown
-    .split("\n")
-    .map((line) => line.trim())
-    .find(
-      (line) =>
-        line.length > 40 &&
-        !line.startsWith("#") &&
-        !line.startsWith("|") &&
-        !line.startsWith("-") &&
-        !line.startsWith("```") &&
-        !line.startsWith(">"),
-    );
-  return (summary ?? "Open the main Relmio guide.")
-    .replace(/\[([^\]]+)\]\([^)]+\)/gu, "$1")
-    .replace(/[`*_]/gu, "")
-    .slice(0, 180);
-}
-
+/** The docs index (no page) or one guide, in the reading layout: guide list on
+    the left, the article in the scrolling pane, and its outline on the right. */
 export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
-  const currentIndex = page
-    ? documentationPages.findIndex((candidate) => candidate.slug === page.slug)
-    : -1;
-  const previousPage = currentIndex > 0 ? documentationPages[currentIndex - 1] : null;
-  const nextPage =
-    currentIndex >= 0 && currentIndex < documentationPages.length - 1
-      ? documentationPages[currentIndex + 1]
-      : null;
-  const searchPages = documentationPages.map((candidate) => ({
-    slug: candidate.slug,
-    title: candidate.title,
-    summary: summaryFromMarkdown(candidate.content),
-  }));
+  const currentIndex = page ? guides.findIndex((guide) => guide.slug === page.slug) : -1;
+  const previousGuide = currentIndex > 0 ? guides[currentIndex - 1] : null;
+  const nextGuide =
+    currentIndex >= 0 && currentIndex < guides.length - 1 ? guides[currentIndex + 1] : null;
+  const outline = page ? markdownOutline(page.content) : [];
+  const hasOutline = outline.length >= 2;
 
   return (
-    <main className={`${styles.page} ${styles.editorialPage}`} id="main-content">
-      <HashLink className="skip-link" focusTarget targetId="docs-content">
+    <main id="main-content" className="rm-app__main" tabIndex={-1}>
+      <a className="rm-skip-link" href="#docs-content">
         Skip to documentation
-      </HashLink>
-      <header className={styles.header}>
-        <Link className={styles.brand} href="/" aria-label="Relmio home">
-          <Image
-            src="/relmio-icon.png"
-            alt=""
-            width={32}
-            height={32}
-            unoptimized
-          />
-          <strong>Relmio</strong>
-        </Link>
-        <nav aria-label="Primary navigation" className={styles.primaryNav}>
-          <Link href="/">Home</Link>
-          <Link href="/install">Install</Link>
-          <Link href="/docs" aria-current="page">Docs</Link>
-          <Link href="/changelog">Changelog</Link>
-        </nav>
-        <section className={styles.controls} aria-label="Project controls">
-          <ThemeModeControl />
-          <SupportButton />
-          <RepositoryButton />
-        </section>
-      </header>
-
-      <section
-        className={`${styles.layout} ${styles.editorialLayout} ${page ? styles.layoutDetail : styles.layoutIndex}`}
-        aria-label="Documentation"
-      >
-        <details className={styles.mobileNavigation}>
+      </a>
+      <div className={styles.layout}>
+        <details className={`rm-disclosure ${styles.mobileNav}`}>
           <summary>Browse documentation</summary>
-          <ul>
-            {documentationPages.map((candidate) => (
-              <li key={candidate.slug}>
-                <Link
-                  href={`/docs/${candidate.slug}`}
-                  aria-current={candidate.slug === page?.slug ? "page" : undefined}
-                >
-                  {candidate.title}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <div className="rm-disclosure__body">
+            <DocumentationSearch guides={guides} currentSlug={page?.slug} />
+          </div>
         </details>
-        <nav className={styles.sidebar} aria-label="Documentation navigation">
-          <p>Field manual</p>
-          <ul>
-            {documentationPages.map((candidate, index) => (
-              <li key={candidate.slug}>
-                <Link
-                  href={`/docs/${candidate.slug}`}
-                  aria-current={candidate.slug === page?.slug ? "page" : undefined}
-                >
-                  <span aria-hidden="true">{String(index + 1).padStart(2, "0")}</span>
-                  <strong>{candidate.title}</strong>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </nav>
+        <div className={`rm-sidebar ${styles.sidebar}`}>
+          <DocumentationSearch guides={guides} currentSlug={page?.slug} />
+        </div>
 
-        {page ? (
-          <article className={styles.article} id="docs-content" tabIndex={-1}>
-            <p className={styles.sourceNote}>
-              Canonical guide · Source <code>{page.sourcePath}</code>
-            </p>
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                h1: ({ children }) => <h1 id={headingId(children)}>{children}</h1>,
-                h2: ({ children }) => <h2 id={headingId(children)}>{children}</h2>,
-                h3: ({ children }) => <h3 id={headingId(children)}>{children}</h3>,
-                pre: ({ children }) => <CopyableCodeBlock>{children}</CopyableCodeBlock>,
-              }}
+        <div className={styles.pane} data-reading-pane>
+          {page ? (
+            <div className={classNames(styles.reading, hasOutline && styles.readingWithOutline)}>
+              {hasOutline ? <DocumentOutline items={outline} variant="inline" /> : null}
+              <article className={`rm-prose ${styles.article}`} id="docs-content" tabIndex={-1}>
+                <p className={styles.source}>
+                  Canonical guide · Source <code>{page.sourcePath}</code>
+                </p>
+                <GuideMarkdown content={page.content} />
+                <nav className={styles.pager} aria-label="Adjacent documentation">
+                  {previousGuide ? (
+                    <Link className={styles.pagerLink} href={`/docs/${previousGuide.slug}`}>
+                      <span className={styles.pagerLabel}>
+                        <Icon name="arrow-left" size="xs" />
+                        Previous
+                      </span>
+                      <strong>{previousGuide.title}</strong>
+                    </Link>
+                  ) : null}
+                  {nextGuide ? (
+                    <Link
+                      className={`${styles.pagerLink} ${styles.pagerNext}`}
+                      href={`/docs/${nextGuide.slug}`}
+                    >
+                      <span className={styles.pagerLabel}>
+                        Next
+                        <Icon name="arrow-right" size="xs" />
+                      </span>
+                      <strong>{nextGuide.title}</strong>
+                    </Link>
+                  ) : null}
+                </nav>
+              </article>
+              {hasOutline ? <DocumentOutline items={outline} variant="rail" /> : null}
+            </div>
+          ) : (
+            <article
+              className={styles.index}
+              id="docs-content"
+              tabIndex={-1}
+              aria-labelledby="docs-title"
             >
-              {page.content}
-            </ReactMarkdown>
-            <nav className={styles.articlePager} aria-label="Adjacent documentation">
-              {previousPage ? (
-                <Link href={`/docs/${previousPage.slug}`}>
-                  <small>Previous</small>
-                  <strong>{previousPage.title}</strong>
-                </Link>
-              ) : null}
-              {nextPage ? (
-                <Link className={styles.nextPage} href={`/docs/${nextPage.slug}`}>
-                  <small>Next</small>
-                  <strong>{nextPage.title}</strong>
-                </Link>
-              ) : null}
-            </nav>
-          </article>
-        ) : (
-          <article className={styles.article} id="docs-content" tabIndex={-1}>
-            <header className={styles.indexHero} aria-labelledby="docs-title">
-              <p className={styles.eyebrow}>Field manual · {documentationPages.length} guides</p>
-              <h1 id="docs-title">Relmio documentation</h1>
-              <p className={styles.intro}>
-                Practical setup guides for private local tools, self-hosted n8n,
-                and their authentication boundaries. The content comes directly
-                from the repository documentation.
-              </p>
-            </header>
-            <DocumentationSearch pages={searchPages} />
-          </article>
-        )}
-        {page ? <DocumentOutline markdown={page.content} /> : null}
-      </section>
-
-      <footer className={styles.footer}>
-        <Link href="/docs/security">Security boundary</Link>
-        <Link href="/docs/troubleshooting">Troubleshooting</Link>
-        <a
-          href="https://github.com/Demonbane18/relmio"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Repository
-        </a>
-      </footer>
+              <header className={styles.indexHeader}>
+                <p className="rm-eyebrow">Documentation · {guides.length} guides</p>
+                <h1 className="rm-h1" id="docs-title">
+                  Relmio documentation
+                </h1>
+                <p className="rm-lede">
+                  Setup guides for local tools, self-hosted n8n and their sign-in
+                  boundaries. Every page comes from the docs in the repository.
+                </p>
+              </header>
+              <ul className={styles.guideGrid}>
+                {guides.map((guide) => (
+                  <li key={guide.slug}>
+                    <Link className={styles.guideCard} href={`/docs/${guide.slug}`}>
+                      <span className={styles.guideNumber} aria-hidden="true">
+                        {guide.number}
+                      </span>
+                      <strong className={styles.guideTitle}>{guide.title}</strong>
+                      <span className={styles.guideSummary}>{guide.summary}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          )}
+        </div>
+      </div>
     </main>
   );
 }

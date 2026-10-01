@@ -8,13 +8,27 @@ Read this page before you offer the wizard to another person.
 
 ## ChatGPT/Codex sign-in lifetime
 
-ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
-them automatically during active use before they expire, so active sessions
-usually continue without another browser login. The official [OpenAI
-authentication documentation](https://learn.chatgpt.com/docs/auth) does not
-publish a fixed 10-day lifetime; do not plan around one. This provider
-credential is separate from Relmio's local capability, which remains valid
-until you rotate it.
+OpenAI's Codex authentication guide describes automatic credential refresh but
+does not publish a fixed lifetime. The private bridge and hosted chat demo each
+refresh their own credential copies. The one-hour access-token and rotating
+30-day refresh-token lifetimes documented for the separate Sign in with ChatGPT
+plan-usage flow do not establish lifetimes for Relmio's pinned Codex flow.
+Relmio's local capabilities remain valid until you rotate them.
+
+## Hosted chat demo
+
+The demo at [relmio.jpfusin.tech/chat](https://relmio.jpfusin.tech/chat) uses
+the third-party `openai-oauth` Codex sign-in flow. It is not OpenAI's documented
+Sign in with ChatGPT integration. The flow is unofficial and policy-uncertain.
+
+The browser keeps an encrypted session in IndexedDB, where the site's own code
+can read it. Each message sends the prompt and access token to Relmio's server
+on Vercel, which forwards them to OpenAI. ID and refresh tokens stay in the
+browser and are sent only to OpenAI.
+
+Relmio's chat route code does not log prompts or tokens. Hosting-platform and
+provider logs and retention are unknown. Signing out removes the browser
+session only; it does not revoke access at OpenAI.
 
 ## Provider authentication boundaries
 
@@ -269,8 +283,11 @@ shared, or production service.
   `GET /health` requires a random local Relmio capability. Grok chat also
   requires a local bearer. The wizard displays the capability once and
   persists only its SHA-256 verifier. It remains valid until rotation.
-- Relmio accepts no upstream API-key setup or API-key profile operations.
-  Retired API installations and saved data remain untouched.
+- Managed ChatGPT/Codex and SuperGrok OAuth sign-in flows do not configure
+  upstream API keys, keep API-key profiles, or fall back to separately billed
+  API access. Configure API-key connections and operator-generated hosting
+  artifacts separately in n8n or on the target platform. Retired API
+  installations and their data remain untouched.
 
 - Raw Codex and Chat Adapter targets use the official Codex App Server inside
   their isolated runtime. The separate n8n OpenAI OAuth bridge starts the

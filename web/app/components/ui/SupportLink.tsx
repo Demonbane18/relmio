@@ -1,16 +1,17 @@
-import { Coffee } from "lucide-react";
+import { classNames } from "./classNames";
+import { Icon } from "./Icon";
 
-export function SupportButton() {
+export function SupportLink({ className }: { className?: string }) {
   return (
     <a
-      className="support-button"
+      className={classNames("rm-icon-button", className)}
       href="https://ko-fi.com/paldogies"
       target="_blank"
       rel="noopener noreferrer"
       aria-label="Support Relmio on Ko-fi (opens in a new tab)"
       title="Support Relmio on Ko-fi"
     >
-      <Coffee size="1.1rem" strokeWidth={1.8} aria-hidden="true" />
+      <Icon name="coffee" />
     </a>
   );
 }

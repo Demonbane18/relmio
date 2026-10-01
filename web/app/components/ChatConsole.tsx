@@ -5,24 +5,19 @@ import {
   SignInWithChatGPT,
   type SignInWithChatGPTState,
 } from "@openai-oauth/react";
-import { HStack } from "@astryxdesign/core/HStack";
-import { StatusDot } from "@astryxdesign/core/StatusDot";
-import { Text } from "@astryxdesign/core/Text";
-import { Token } from "@astryxdesign/core/Token";
-import {
-  ArrowDown,
-  LockKeyhole,
-  SendHorizontal,
-  Square,
-} from "lucide-react";
+import Link from "next/link";
+import { SendHorizontal, Square } from "lucide-react";
 import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
 import styles from "./ChatConsole.module.css";
+import { Callout } from "./ui/Callout";
+import { Icon } from "./ui/Icon";
 import {
   INITIAL_STREAM_FEEDBACK,
   nextStreamFeedback,
@@ -40,12 +35,33 @@ const streamErrors: Record<string, string> = {
     "ChatGPT blocked this hosting network. Try Relmio from a supported Node.js host.",
   output_limit: "The response exceeded Relmio's safe display limit.",
   timeout: "The response took too long. Try again.",
-  upstream_failed: "The response failed upstream. Reconnect ChatGPT and try again.",
+  upstream_failed: "The response failed upstream. Check account access and try again later.",
 };
 const MAX_VISIBLE_TURNS = 12;
 const STICK_TO_BOTTOM_DISTANCE = 72;
 const COMPOSER_MIN_HEIGHT = 64;
 const COMPOSER_MAX_HEIGHT = 192;
+// The sign-in button ships inline styles. Clearing them lets the kit button
+// classes style it like every other Relmio button.
+const kitButtonStyle: CSSProperties = {
+  alignItems: undefined,
+  background: undefined,
+  border: undefined,
+  borderRadius: undefined,
+  color: undefined,
+  cursor: undefined,
+  display: undefined,
+  fontFamily: undefined,
+  fontSize: undefined,
+  fontWeight: undefined,
+  gap: undefined,
+  justifyContent: undefined,
+  lineHeight: undefined,
+  minHeight: undefined,
+  minWidth: undefined,
+  padding: undefined,
+  whiteSpace: undefined,
+};
 
 type AssistantTurnStatus =
   | "waiting"
@@ -380,6 +396,7 @@ export function ChatConsole({
     const transcript = transcriptRef.current;
     if (!transcript) return;
 
+    transcript.focus();
     isNearBottomRef.current = true;
     transcript.scrollTop = transcript.scrollHeight;
     setShowJumpToLatest(false);
@@ -387,89 +404,86 @@ export function ChatConsole({
 
   const statusLabel =
     authStatus === "signed-in"
-      ? "Connected"
+      ? "Signed in"
       : authStatus === "checking"
         ? "Checking session"
-        : "Not connected";
-  const phaseVariant =
+        : "Signed out";
+  const phaseTone =
     streamPhase === "Failed"
-      ? "error"
+      ? "danger"
       : streamPhase === "Stopped"
         ? "warning"
         : streamPhase === "Ready" || streamPhase === "Complete"
           ? "success"
-          : "accent";
-  const phaseColor =
-    phaseVariant === "error"
-      ? "red"
-      : phaseVariant === "warning"
-        ? "orange"
-        : phaseVariant === "success"
-          ? "green"
-          : "teal";
+          : streamPhase === "Sending" ||
+              streamPhase === "Connecting" ||
+              streamPhase === "Waiting"
+            ? "busy"
+            : "accent";
 
   return (
-    <section className={styles.shell} aria-label="Hosted chat console">
-      <header className={styles.header}>
-        <HStack justify="between" align="center" gap={3} wrap="wrap">
-          <HStack gap={2} align="center">
-            <Text as="p" className={styles.kicker} type="code" color="accent">
-              Hosted test lane
-            </Text>
-            <Text as="p" className={styles.model} type="code">
-              gpt-5.6-luna
-            </Text>
-          </HStack>
-          <HStack className="console-statuses" gap={2} wrap="wrap">
-            <Token
-              label={streamPhase}
-              size="sm"
-              color={phaseColor}
-              endContent={
-                <StatusDot
-                  variant={phaseVariant}
-                  label={`Response state: ${streamPhase}`}
-                  isPulsing={
-                    streamPhase === "Sending" ||
-                    streamPhase === "Connecting" ||
-                    streamPhase === "Waiting"
-                  }
-                />
-              }
-            />
-            <Text className={styles.authStatus} type="supporting">
-              {statusLabel}
-            </Text>
-          </HStack>
-        </HStack>
-      </header>
+    <section className={`rm-panel ${styles.shell}`} aria-label="Hosted chat console">
+      <div className={styles.header}>
+        <div className={styles.cluster}>
+          <span className="rm-eyebrow">Hosted test lane</span>
+          <span className={`rm-badge ${styles.model}`}>gpt-5.6-luna</span>
+        </div>
+        <div className={styles.cluster}>
+          <span className="rm-status" data-tone={phaseTone}>
+            <span className="rm-status__dot" aria-hidden="true" />
+            <span className="rm-visually-hidden">Response state: </span>
+            {streamPhase}
+          </span>
+          <span
+            className={
+              authStatus === "signed-in" ? "rm-badge rm-badge--success" : "rm-badge"
+            }
+          >
+            {statusLabel}
+          </span>
+        </div>
+      </div>
 
-      <section className={styles.sessionBoundary} aria-label="Session boundary">
-        <HStack gap={3} align="center" wrap="wrap">
-          <LockKeyhole className={styles.boundaryIcon} aria-hidden="true" />
-          <SignInWithChatGPT
-            className={styles.connectButton}
-            loadingLabel="Checking ChatGPT…"
-            redirectingLabel="Opening ChatGPT…"
-            signedInLabel="Disconnect ChatGPT"
-            showLogo
-            onStateChange={(state) => {
-              setAuthStatus(state.status);
-              if (state.status === "error") {
-                setLocalError(state.error.message);
-              } else if (state.status === "signed-in") {
-                setLocalError("");
-              }
-            }}
-          />
-          <Text as="p" className={styles.boundaryCopy} type="supporting">
-            Encrypted in this browser. No tools, files, commands, or external
-            browsing. The demo keeps only the latest six exchanges in this tab.
-          </Text>
-        </HStack>
-      </section>
+      <div className={styles.sessionBoundary} role="group" aria-label="Session boundary">
+        <SignInWithChatGPT
+          className="rm-button"
+          style={kitButtonStyle}
+          loadingLabel="Checking ChatGPT…"
+          redirectingLabel="Opening ChatGPT…"
+          signedInLabel="Sign out"
+          showLogo
+          onStateChange={(state) => {
+            setAuthStatus(state.status);
+            if (state.status === "signed-out") {
+              const active = activeRequestRef.current;
+              activeRequestRef.current = null;
+              active?.controller.abort();
+              inFlightRef.current = false;
+              isNearBottomRef.current = true;
+              streamFeedbackRef.current = { ...INITIAL_STREAM_FEEDBACK };
+              setInput("");
+              setTurns([]);
+              setIsLoading(false);
+              setShowJumpToLatest(false);
+              setStreamPhase("Ready");
+              setLocalError("");
+            } else if (state.status === "error") {
+              setLocalError(state.error.message);
+            } else if (state.status === "signed-in") {
+              setLocalError("");
+            }
+          }}
+        />
+        <p className={styles.boundaryCopy}>
+          <Icon name="lock" size="sm" className={styles.boundaryIcon} />
+          <span>
+            Unofficial third-party openai-oauth Codex sign-in, not OpenAI&apos;s documented Sign in with ChatGPT integration. Policy status is uncertain. No tools, files, commands or browsing. The demo keeps six exchanges in this tab.{" "}
+            <Link className="rm-link" href="/docs/security#hosted-chat-demo">How prompts and sign-in are handled</Link>.
+          </span>
+        </p>
+      </div>
 
-      <section className={styles.transcriptRegion}>
+      <div className={styles.transcriptRegion}>
         <section
           className={styles.transcript}
           ref={transcriptRef}
@@ -481,29 +495,33 @@ export function ChatConsole({
           onScroll={updateStickiness}
         >
           {turns.length === 0 ? (
-            <section className={styles.emptyState} aria-label="Start a conversation">
-              <LockKeyhole className={styles.emptyIcon} aria-hidden="true" />
-              <Text as="p" type="label" weight="bold">
-                Your private test lane is ready.
-              </Text>
-              <Text as="p" className={styles.emptyCopy} type="supporting">
+            <div className={styles.emptyState}>
+              <span className={styles.emptyIcon}>
+                <Icon name="message" />
+              </span>
+              <p className={styles.emptyTitle}>Your private test lane is ready.</p>
+              <p className={styles.emptyCopy}>
                 Connect ChatGPT, choose a starter, or ask your own question.
-              </Text>
-              <section className={styles.suggestions} aria-label="Suggested prompts">
+              </p>
+              <div className={styles.suggestions} role="group" aria-label="Suggested prompts">
                 {suggestions.map((suggestion) => (
                   <button
+                    className="rm-button rm-button--sm"
                     key={suggestion}
                     type="button"
-                    onClick={() => void ask(suggestion)}
+                    onClick={() => {
+                      textareaRef.current?.focus();
+                      void ask(suggestion);
+                    }}
                     disabled={isLoading}
                   >
                     {suggestion}
                   </button>
                 ))}
-              </section>
-            </section>
+              </div>
+            </div>
           ) : (
-            <section className={styles.turnList}>
+            <div className={styles.turnList}>
               {turns.map((turn) => {
                 if (turn.role === "user") {
                   const lastPrompt = turn.content;
@@ -512,8 +530,8 @@ export function ChatConsole({
                       className={`${styles.message} ${styles.userMessage}`}
                       key={turn.id}
                     >
-                      <Text as="span" type="code" color="secondary">You</Text>
-                      <Text as="p" type="body">{lastPrompt}</Text>
+                      <span className={styles.speaker}>You</span>
+                      <p>{lastPrompt}</p>
                     </article>
                   );
                 }
@@ -535,17 +553,15 @@ export function ChatConsole({
                     key={turn.id}
                     data-status={turn.status}
                   >
-                    <HStack className={styles.messageMeta} gap={2} align="center">
-                      <Text as="span" type="code" color="accent">{isIncomplete ? "Relmio · incomplete" : "Relmio"}</Text>
+                    <div className={styles.messageMeta}>
+                      <span className={styles.speaker}>
+                        {isIncomplete ? "Relmio · incomplete" : "Relmio"}
+                      </span>
                       {turn.status === "stopped" || turn.status === "failed" ? (
-                        <Text as="span" type="supporting">
-                          {turn.status}
-                        </Text>
+                        <span className={styles.turnStatus}>{turn.status}</span>
                       ) : null}
-                    </HStack>
-                    <Text
-                      as="p"
-                      type="body"
+                    </div>
+                    <p
                       className={
                         turn.status === "waiting"
                           ? styles.waitingIndicator
@@ -557,55 +573,49 @@ export function ChatConsole({
                         ? "Preparing response"
                         : completion || fallback}
                       {turn.status === "streaming" ? (
-                        <Text
-                          as="span"
-                          className={styles.streamingCursor}
-                          aria-hidden="true"
-                        >
+                        <span className={styles.streamingCursor} aria-hidden="true">
                           {" "}
-                        </Text>
+                        </span>
                       ) : null}
-                    </Text>
+                    </p>
                   </article>
                 );
               })}
-            </section>
+            </div>
           )}
         </section>
 
-        {showJumpToLatest ? (
+        {showJumpToLatest && turns.length > 0 ? (
           <button
-            className={styles.jumpToLatest}
+            className={`rm-button rm-button--sm ${styles.jumpToLatest}`}
             type="button"
             onClick={jumpToLatest}
           >
-            <ArrowDown aria-hidden="true" />
+            <Icon name="chevron-down" size="sm" />
             Jump to latest
           </button>
         ) : null}
-      </section>
+      </div>
 
-      <footer className={styles.composerDock}>
+      <div className={styles.composerDock}>
         {localError ? (
-          <Text
-            as="p"
-            className={styles.error}
-            type="supporting"
-            role="alert"
-          >
+          <Callout tone="danger" role="alert" className={styles.error}>
             {localError}
-          </Text>
+          </Callout>
         ) : null}
 
         <form className={styles.composer} onSubmit={handleSubmit}>
-          <HStack className={styles.composerMeta} justify="between" gap={2} wrap="wrap">
-            <label htmlFor="chat-prompt">Message Relmio</label>
-            <Text id="chat-input-hint" type="supporting">
+          <div className={styles.composerMeta}>
+            <label className="rm-field__label" htmlFor="chat-prompt">
+              Message Relmio
+            </label>
+            <span id="chat-input-hint" className="rm-field__hint">
               Enter to send · Shift+Enter for a new line · {input.length}/3000
-            </Text>
-          </HStack>
-          <section className={styles.composerRow}>
+            </span>
+          </div>
+          <div className={styles.composerRow}>
             <textarea
+              className="rm-textarea"
               id="chat-prompt"
               name="prompt"
               ref={textareaRef}
@@ -625,36 +635,35 @@ export function ChatConsole({
             />
             {isLoading ? (
               <button
-                className={`${styles.submitButton} ${styles.stopButton}`}
+                className={`rm-button ${styles.submitButton}`}
                 type="button"
                 onClick={stop}
                 aria-label="Stop response"
               >
-                <Square aria-hidden="true" />
+                <Square aria-hidden="true" size={16} strokeWidth={1.75} />
               </button>
             ) : (
               <button
-                className={styles.submitButton}
+                className={`rm-button rm-button--primary ${styles.submitButton}`}
                 type="submit"
                 disabled={!input.trim()}
                 aria-label="Send message"
               >
-                <SendHorizontal aria-hidden="true" />
+                <SendHorizontal aria-hidden="true" size={18} strokeWidth={1.75} />
               </button>
             )}
-          </section>
+          </div>
         </form>
-      </footer>
+      </div>
 
-      <Text
-        as="p"
-        className={styles.srOnly}
+      <p
+        className="rm-visually-hidden"
         role="status"
         aria-live="polite"
         aria-atomic="true"
       >
         {responsePhaseAnnouncement(streamPhase)}
-      </Text>
+      </p>
     </section>
   );
 }

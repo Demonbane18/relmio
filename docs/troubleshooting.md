@@ -21,17 +21,21 @@ rebuild unrelated containers while checking the local endpoint.
 Close stale wizard and device-code tabs, then run `relmio open` from a
 persistent install to open the active private dashboard page. A hosted
 foreground launcher instead requires its current terminal; press Enter there
-to create a fresh private browser handoff. Start one fresh ChatGPT device-code attempt and complete the newest code. Use the selected provider's official sign-in. Relmio 0.14.0 does not accept upstream API
-keys. Grok Build sign-in uses its official attended CLI flow.
-ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
-them automatically during active use before they expire, so active sessions
-usually continue without another browser login. The official [OpenAI
-authentication documentation](https://learn.chatgpt.com/docs/auth) does not
-publish a fixed 10-day lifetime; do not plan around one. This provider
-credential is separate from Relmio's local capability, which remains valid
-until you rotate it. If Relmio reports the credential is invalid or refresh no
-longer succeeds, select **Start ChatGPT sign-in** again in the active local
-wizard. The VPS sidecar flow labels that action **Refresh ChatGPT sign-in**.
+to create a fresh private browser handoff. Start one fresh ChatGPT device-code
+attempt and complete the newest code. Use the selected provider's official
+sign-in. The ChatGPT n8n OAuth bridge does not use a Platform API key;
+configure API-key connections and operator-generated hosting artifacts
+separately in n8n or the target platform. Grok Build sign-in uses its official
+attended CLI flow.
+
+ChatGPT/Codex sign-in tokens expire. The Codex authentication guide describes
+automatic refresh but does not give a fixed lifetime. Relmio's private bridge
+and hosted chat demo each refresh their own credential copies. OpenAI's one-hour
+access-token and rotating 30-day refresh-token lifetimes describe the separate
+Sign in with ChatGPT plan-usage flow, not Relmio's pinned Codex flow. If Relmio
+reports that a credential is invalid or refresh no longer succeeds, select
+**Refresh ChatGPT sign-in** in the active local wizard. Without a saved
+credential, the same button reads **Sign in with ChatGPT**.
 
 ## Local image build failed
 
@@ -44,13 +48,13 @@ managed endpoint or rebuild unrelated containers as a workaround.
 
 ## Hosted chat browser extension
 
-The hosted demo at [relmio.jpfusin.tech](https://relmio.jpfusin.tech/) needs the
+The hosted demo at [relmio.jpfusin.tech/chat](https://relmio.jpfusin.tech/chat) needs the
 open-source **Sign in with ChatGPT** extension to complete the OAuth handoff:
 
 - [Install for Chrome](https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna)
 - [Install for Firefox](https://addons.mozilla.org/firefox/addon/sign-in-with-chatgpt/)
 
-After installation, reload Relmio and select **Connect ChatGPT** again. If the
+After installation, reload Relmio and select **Sign in with ChatGPT** again. If the
 chat still shows **Not connected**, confirm the extension is enabled, close
 stale ChatGPT authorization tabs, and start one fresh connection from Relmio.
 The hosted sign-in component also displays its extension install screen when
@@ -138,10 +142,9 @@ foreground. Keep that terminal open. If the first browser launch fails, press
 Enter there to create a fresh owner-only, single-use browser handoff. Relmio
 does not print or pass the dashboard session capability in a browser URL.
 
-The local wizard may be displayed in a VS Code embedded browser. Its validated
-manual link, **Open fresh ChatGPT sign-in**, remains available if that embedded
-browser blocks the popup or no new tab opens. Use that link only from the active
-wizard attempt; it points to the fresh `auth.openai.com` authorization URL.
+Relmio opens local ChatGPT/Codex sign-in in the system browser. If no window
+opens, check the Windows default browser, select **Stop** in the active wizard,
+then retry. The current login flow does not provide a manual authorization link.
 
 You do not need to sign in to npm, configure npm 2FA, or own this package to
 run any public command. npm authentication is required only for the
@@ -230,7 +233,7 @@ bypassed.
 | An OAuth bridge, Assistant or SuperGrok VPS action says the SSH session is model-only | Noninteractive sudo deliberately excludes credential-bearing VPS operations because administrator sudo I/O recording may capture stdin. | Continue model management, or disconnect and use a separately approved direct-root session for the other flow. Do not enable root SSH just for Relmio. Agent authentication does not remove this privilege boundary. |
 | The `/docker` prerequisite fails | The administrator-managed parent is absent, symlinked, not root-owned, or group/other writable. Relmio only manages its reviewed subtree. | Ask the administrator to inspect and prepare the intended parent separately. Do not recursively loosen permissions, stage files in `/tmp`, or expect Relmio to create `/docker`. Existing n8n must remain unchanged. |
 | A model network is rejected as unprotected or unsupported | An active IP family uses `nat-unprotected`, an unknown/isolated mode, or another required existing-bridge property is missing. | Select an already eligible trusted user-defined bridge attached to n8n, if available. Default/NAT and filtered `routed` modes are not rejected merely for direct routing. Do not change n8n's network or publish `11434`/`10531` to bypass the boundary. |
-| The local/VPS model reports an unsafe or incomplete owned-container attestation although its Docker security option is enabled | The `.2` candidate accepts Docker's bare, `:true`, and `=true` enabled spellings, while still rejecting missing, disabled, malformed, or conflicting values. It also accepts a bounded canonical Docker Buildx `current` record with an empty `Name` without interpreting its `Key`; named `default`, fallback and shadow checks remain fail-closed. These are attestation compatibility fixes, not inference or model-quality fixes. | If using `0.18.0-experimental.1`, do not blindly reinstall, remove the runtime, clear the model cache, or change n8n. Once `.2` is published, explicitly opt in with `npx --yes --ignore-scripts relmio@0.18.0-experimental.2`; otherwise inspect only the exact owned container's security options and current Relmio status. A readiness probe does not prove a fresh n8n workflow, model quality, or acceptable latency. |
+| The local/VPS model reports an unsafe or incomplete owned-container attestation although its Docker security option is enabled | Relmio accepts Docker's bare, `:true`, and `=true` enabled spellings, while still rejecting missing, disabled, malformed, or conflicting values. It also accepts a bounded canonical Docker Buildx `current` record with an empty `Name` without interpreting its `Key`; named `default`, fallback and shadow checks remain fail-closed. These are attestation compatibility fixes, not inference or model-quality fixes. | Relmio 0.18.0 stable includes these attestation fixes. Open the dashboard with `npx --yes --ignore-scripts relmio@latest local`, then use **Review model retry** only after reviewing the fresh plan. Retry retains the owned state and cache; do not clear the model cache or change n8n to work around an attestation failure. |
 | Render SSH works but the model wizard cannot use it | Render connects to a service container, not the Docker host required by this adapter. Sudo or a Docker CLI inside that service does not grant host ownership. | Choose the Render guidance and follow the [manual paid private-service recipe](hosting-compatibility.md#render-manual-private-model-service), or use a qualifying existing Linux VM. Do not rebuild n8n with Docker-in-Docker. |
 | A manual Render service is healthy but n8n cannot use the model | TCP health does not prove weights or inference are ready; the caller may have the wrong internal DNS, region/workspace/environment, or worker location. | Validate acquisition in the model service's runtime with its own disk, then real inference from an authorized private-network caller and the actual n8n worker. Use the service's internal address, not the managed Docker alias or `localhost`; never make the model public as a probe workaround. |
 | The SSH fingerprint changed | The server was rebuilt, its host keys changed, or the connection may be reaching a different host. | Stop. Verify the address and the new fingerprint through the VPS provider console before confirming it. Never bypass the comparison. |

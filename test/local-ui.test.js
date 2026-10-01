@@ -3,104 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const VOID_ELEMENTS = new Set([
-  "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
-  "path", "rect", "source", "track", "wbr",
-]);
 
-function readyPanelParents(html) {
-  const start = html.indexOf('<section class="panel success-panel"');
-  assert.notEqual(start, -1, "expected the ready panel");
-  const stack = [];
-  const parents = new Map();
-  const actions = [];
-  const tags = /<\/?([A-Za-z][\w:-]*)(?:\s[^>]*)?>/gu;
-  tags.lastIndex = start;
-
-  for (const match of html.matchAll(tags)) {
-    if (match.index < start) continue;
-    const raw = match[0];
-    const tag = match[1].toLowerCase();
-    const closing = raw.startsWith("</");
-    if (closing) {
-      if (VOID_ELEMENTS.has(tag)) continue;
-      const node = stack.pop();
-      assert.ok(node, `unexpected closing </${tag}> in ready panel`);
-      assert.equal(node.tag, tag, `invalid ready panel nesting at </${tag}>`);
-      if (stack.length === 0) return { actions, parents };
-      continue;
-    }
-    const id = raw.match(/\bid="([^"\s]+)"/u)?.[1] ?? null;
-    const classes = new Set((raw.match(/\bclass="([^"]*)"/u)?.[1] ?? "").split(/\s+/u).filter(Boolean));
-    const node = { tag, id, classes };
-    const parent = stack.at(-1) ?? null;
-    if (id) parents.set(id, parent);
-    if (classes.has("actions")) actions.push(parent);
-    if (!VOID_ELEMENTS.has(tag) && !raw.endsWith("/>") ) stack.push(node);
-  }
-  assert.fail("ready panel did not close");
-}
-
-test("Test AI Chat exposes a quiet accessible streaming lifecycle", async () => {
-  const [html, script, css] = await Promise.all([
-    readFile("src/ui/local.html", "utf8"),
-    readFile("src/ui/local.js", "utf8"),
-    readFile("src/ui/local.css", "utf8"),
-  ]);
-
-  assert.match(html, /id="chat-tester-stop"[\s\S]*aria-label="Stop response"/u);
-  assert.match(
-    html,
-    /id="chat-tester-status"[^>]*role="status"[^>]*aria-live="polite"[^>]*aria-atomic="true"/u,
-  );
-  assert.match(
-    html,
-    /id="chat-tester-transcript"[\s\S]*role="log"[\s\S]*aria-busy="false"[\s\S]*aria-relevant="additions"/u,
-  );
-  assert.match(script, /nextChatTesterFeedback/u);
-  assert.match(script, /new AbortController\(\)/u);
-  assert.match(script, /signal: controller\.signal/u);
-  assert.match(script, /markMainBusy: false/u);
-  assert.match(
-    script,
-    /chat-tester-transcript"\)\.setAttribute\("aria-busy", "true"\)/u,
-  );
-  assert.match(
-    script,
-    /chat-tester-transcript"\)\.setAttribute\("aria-busy", "false"\)/u,
-  );
-  assert.match(script, /type: "stopping"/u);
-  assert.match(script, /type: "stopped"/u);
-  assert.match(script, /data\.text\.length === 0/u);
-  assert.match(
-    script,
-    /if \(feedback\.phase !== previous\.phase\) \{\s*setChatTesterStatus/u,
-  );
-  assert.match(css, /chat-tester-turn-waiting/u);
-  assert.match(css, /chat-tester-stream-cursor/u);
-
-  const reducedMotion = css.slice(
-    css.indexOf("@media (prefers-reduced-motion: reduce)"),
-  );
-  assert.match(
-    reducedMotion,
-    /chat-tester-turn-waiting[\s\S]*chat-tester-stream-cursor[\s\S]*animation:\s*none/u,
-  );
-});
-
-test("ready-panel credential and action controls are siblings of its flex heading", async () => {
-  const html = await readFile("src/ui/local.html", "utf8");
-  const { actions, parents } = readyPanelParents(html);
-  const oneTimeNoteParent = parents.get("one-time-note");
-  const resultParent = parents.get("install-result-list");
-
-  assert.ok(oneTimeNoteParent?.classes.has("success-panel"));
-  assert.ok(resultParent?.classes.has("success-panel"));
-  assert.ok(!oneTimeNoteParent?.classes.has("success-heading"));
-  assert.ok(!resultParent?.classes.has("success-heading"));
-  assert.ok(actions.some((parent) => parent?.classes.has("success-panel")));
-  assert.ok(!actions.some((parent) => parent?.classes.has("success-heading")));
-});
 
 test("local model completion reflects acquisition, failure, and verified inference", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
@@ -177,54 +80,64 @@ test("VPS model recovery appears only when discovery confirms no running n8n", a
   assert.equal(confirmed.errors.length, 0);
 });
 
-test("the complete local script bootstraps without retired tail initializers", async () => {
-  const { runInNewContext } = await import("node:vm");
-  const script = (await readFile("src/ui/local.js", "utf8"))
-    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => null; const bindWizardNavigation = () => {};\n")
-    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n");
-  const makeNode = () => ({
-    attributes: new Map(),
-    checked: false,
-    classList: { add() {}, remove() {}, toggle() {} },
-    dataset: {}, disabled: false, hidden: false, isConnected: true, readOnly: false,
-    append() {}, appendChild() {}, addEventListener() {}, focus() {}, removeAttribute() {}, replaceChildren() {}, select() {}, setAttribute() {}, setCustomValidity() {}, setSelectionRange() {},
-    querySelector() { return null; }, querySelectorAll() { return []; }, reportValidity() { return true; },
-    style: {}, textContent: "", type: "password", value: "",
-  });
-  const html = await readFile("src/ui/local.html", "utf8");
-  const nodes = new Map(
-    [...html.matchAll(/\bid="([^"\s]+)"/gu)].map(([, id]) => [id, makeNode()]),
+test("the install key warning names the selected target's own boundary", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const source = extractBetween(
+    script,
+    "function prepareInstallPanel()",
+    "\nconst ASSISTANT_SANDBOX_IMAGE",
   );
-  const createdNodes = new Map();
-  const createElement = () => {
-    const node = makeNode();
-    Object.defineProperty(node, "id", {
-      get() { return node._id ?? ""; },
-      set(id) { node._id = id; createdNodes.set(id, node); },
-    });
-    return node;
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { hidden: false, disabled: false, required: false, value: "", textContent: "", dataset: {}, setCustomValidity() {} });
+    return nodes.get(id);
   };
-  const element = (id) => nodes.get(id) ?? createdNodes.get(id) ?? null;
-  const document = {
-    activeElement: null, body: makeNode(), createElement,
-    execCommand() { return false; }, getElementById: element,
-    addEventListener() {}, querySelector() { return null; }, querySelectorAll() { return []; },
-  };
-  document.body.dataset = {};
-  const window = {
-    addEventListener() {}, clearInterval() {}, clearTimeout() {}, location: { hash: "" },
-    matchMedia() { return { matches: true }; }, scrollTo() {}, setInterval() { return 1; }, setTimeout() { return 1; },
-  };
-  runInNewContext(script, { URL, URLSearchParams, AbortController, Date, Intl, JSON, Math, Promise, TextDecoder, TextEncoder, Uint8Array, btoa(value) { return value; }, clearTimeout() {}, crypto: { getRandomValues() {}, subtle: {} }, document, fetch() { throw new Error("fetch must not run without a wizard token"); }, navigator: {}, setTimeout() { return 1; }, window }, { filename: "local-whole-bootstrap.vm.js", timeout: 1_000 });
-  await Promise.resolve();
-  assert.ok(nodes.has("dashboard-refresh"));
+  const prepare = runInNewContext(`${source}; prepareInstallPanel;`, {
+    element,
+    resetBasicAuthPasswordVisibility() {},
+    setButtonLabel() {},
+    isGrokBuild: (value) => value === "xai-grok-build",
+    isCodexChat: (target) => target === "codex-chat",
+    isN8nSidecar: (target) => target === "n8n-openai-oauth",
+    isN8nSuperGrok: (target) => target === "n8n-supergrok-oauth",
+    isN8nLocalModel: (target) => target === "n8n-local-model",
+    isN8nAssistant: (target) => target === "n8n-ai-assistant",
+    isN8nStack: (target) => target === "local-n8n-stack",
+    state: { plan: { target: "xai-grok-build" } },
+  });
+
+  prepare();
+  assert.equal(element("codex-install-warning").hidden, false);
+  assert.match(element("codex-install-warning-title").textContent, /endpoint/u);
+  assert.match(element("codex-install-warning-detail").textContent, /SuperGrok/u);
+  assert.doesNotMatch(element("codex-install-warning-detail").textContent, /Codex|ChatGPT/u);
+
+  for (const target of ["codex-chatgpt", "codex-chat"]) {
+    nodes.forEach((node) => { node.textContent = ""; });
+    runInNewContext(`${source}; prepareInstallPanel;`, {
+      element,
+      resetBasicAuthPasswordVisibility() {},
+      setButtonLabel() {},
+      isGrokBuild: () => false,
+      isCodexChat: (value) => value === target,
+      isN8nSidecar: () => false,
+      isN8nSuperGrok: () => false,
+      isN8nLocalModel: () => false,
+      isN8nAssistant: () => false,
+      isN8nStack: () => false,
+      state: { plan: { target } },
+    })();
+    assert.match(element("codex-install-warning-detail").textContent, /Codex/u);
+  }
 });
+
 
 test("the complete script renders a healthy OAuth inventory instead of falling back to unavailable", async () => {
   const { runInNewContext } = await import("node:vm");
   const script = (await readFile("src/ui/local.js", "utf8"))
     .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => 'a'.repeat(43); const bindWizardNavigation = () => {};\n")
-    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n");
+    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n")
+    .replace(/import \{ initWizardTopbar \} from "\.\/topbar\.js";\r?\n/u, "const initWizardTopbar = () => {};\n");
   const fixture = {
     schemaVersion: 1, generatedAt: new Date().toISOString(),
     docker: { available: true, version: "29.7.2", composeVersion: "2.39.1" }, auth: { secretsRevealable: false },
@@ -724,12 +637,14 @@ test("the Codex device-code sign-in stays separate from the n8n system-browser f
   const code = createOAuthControl();
   const status = createOAuthControl();
   const result = createOAuthControl();
+  const step = createOAuthControl();
   const button = createOAuthControl("Sign in to ChatGPT");
   const elements = new Map([
     ["device-code-link", link],
     ["device-code", code],
     ["device-code-status", status],
     ["device-code-result", result],
+    ["device-code-step", step],
     ["codex-login-button", button],
   ]);
   runInNewContext(`${validators}\n${listener}`, {
@@ -762,6 +677,7 @@ test("the Codex device-code sign-in stays separate from the n8n system-browser f
   assert.equal(link.href, "https://auth.openai.com/codex/device");
   assert.equal(code.textContent, "ABCD-EFGH");
   assert.equal(calls.some((call) => call.path === "/api/oauth/login"), false);
+  assert.equal(step.hidden, true, "the single-use code leaves the screen once sign-in ends");
   assert.equal(calls[0].path, "/api/local/codex/login");
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { target: "codex-chatgpt" });
 });

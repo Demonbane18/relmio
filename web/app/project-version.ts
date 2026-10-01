@@ -1,3 +1,3 @@
-// The public installer uses @latest; an experimental package must not replace
-// this last-stable fallback when registry metadata is unavailable.
-export const preparedReleaseVersion = "0.17.5";
+// The last stable release, shown when registry metadata is unavailable. The
+// public installer uses @latest, so never set a prerelease version here.
+export const preparedReleaseVersion = "0.18.0";

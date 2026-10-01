@@ -7,6 +7,99 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.0] - 2026-10-01
+
+Relmio 0.18.0 brings private local models for n8n, wider VPS support and
+hosting plans to the stable channel, with a redesigned wizard and website.
+Features that are not fully tested carry an Experimental label.
+
+### Added
+
+- Install one CPU Ollama model from an allowlisted catalog beside an existing
+  n8n container, on local Docker or a VPS. Relmio measures memory, CPU and disk,
+  reviews the exact download and resources before you confirm, publishes no
+  host port, and needs no provider sign-in or API key. Model-only checks ran on
+  local Docker and a Hostinger VPS. Linux full-stack acceptance is tracked in
+  [issue #86](https://github.com/Demonbane18/relmio/issues/86), and a reported
+  120-second local inference timeout on cold model loads remains open.
+- Sign in to a VPS with a local SSH agent and the image's real username. A
+  verified passwordless `sudo -n` login can manage the model only; the OAuth
+  bridge, AI Assistant and SuperGrok still need direct root.
+- Compare hosting products and generate manual plans for provider profiles,
+  model and search artifacts, Daytona handoffs and restricted relays. Plans do
+  not contact providers, provision resources or change n8n.
+- Add a maintainer harness for model acceptance on disposable Linux n8n hosts.
+  No live Linux result is claimed yet.
+- Publish per-page canonical URLs and social previews, plus `robots.txt` and a
+  sitemap, for the hosted site, and return a branded page for unknown wizard
+  and website addresses.
+
+### Changed
+
+- The stable channel (`relmio@latest` and the hosted installers) now includes
+  local models and hosting plans. Relmio is tested on Hostinger KVM VPS and
+  local Docker. Other VPS hosts, hosting-plan platforms, the SuperGrok adapter,
+  Codex App Server and Codex Chat Adapter are labelled Experimental.
+- Set up a VPS in five visible steps: choose a route before ChatGPT sign-in,
+  confirm the SSH fingerprint before entering credentials, and keep the
+  required plan review in view. The credential-upload destination comes from
+  the verified SSH identity; going back or changing the identity clears the
+  reviewed plan and approval.
+- Share one UI kit and top bar across the local wizard and website, with a
+  pastel-yellow light theme and black dark theme. Fit wizard and dashboard
+  views to one screen on laptop and desktop displays, use a smaller top-bar
+  logo, move hosted chat to `/chat`, and clarify its disclosures.
+- Clarify callback recovery, the system-browser Codex login boundary, Windows
+  launcher path limits and API-key scope: managed OAuth flows do not configure
+  upstream API keys, and API-key connections and hosting artifacts are
+  configured separately. Record the 2026-09-27, 2026-09-29 and 2026-10-01
+  OpenAI source reviews.
+
+### Fixed
+
+- Wizard: keep focused controls and view headings clear of the top bar and
+  footer on phones, show each step's primary action on the first phone screen,
+  keep long steps and the local model removal review within one screen, and
+  stop progress cards covering warnings and footer actions.
+- Hosted chat on narrow phones: starter prompts stay usable, and Jump to latest
+  appears only when a conversation exists.
+- Read progress and status updates aloud while an operation runs.
+- Accessibility: copy buttons keep stable names, announce results politely and
+  copy the text shown; rejected fields are linked to their errors; Tab keeps
+  working while an operation runs; focus returns to the composer or transcript
+  after a chat response or sign-out.
+- Hosted chat: name the sign-in flow as the unofficial third-party Codex flow,
+  describe who receives the prompt and tokens, label sign-out as local, and
+  return every response with `Cache-Control: no-store`.
+- Model readiness: accept Docker's canonical Buildx `current` record and enabled
+  `no-new-privileges` forms without weakening those checks, keep the owned
+  Ollama cache across restarts and retries, and verify the manifest digest and
+  quantization before readiness.
+- Track the matching Codex login attempt and require confirmed helper shutdown
+  before another sign-in. A delayed SSH-status response no longer replaces the
+  identity adopted for review. Managed Windows paths decode as strict UTF-8,
+  and opening hosting options keeps the private session.
+- Ignore forwarded hosts when building crawler and metadata URLs, and send
+  `Permissions-Policy` with the other hosted security headers.
+
+### Security
+
+- Keep model-only passwordless sudo separate from OAuth bridge, Assistant and
+  SuperGrok VPS access. Temporary Buildx state stays inside reviewed operation
+  locks; an unknown SSH or SFTP outcome keeps the lock and state for
+  inspection.
+- Require the VPS model ownership marker to stay root-owned, mode `0600` and
+  single-link. Generated relay runtimes process request bodies and send the
+  operator's upstream bearer to the fixed upstream; their logging and retention
+  remain unknown.
+- Credential contents and recipients, OAuth behavior and provider permissions
+  are unchanged. The ChatGPT bridge remains unofficial, private and
+  policy-uncertain; provider approval and account entitlement are not
+  established.
+- Update the hosted web framework to Next.js 16.3.8 and pin patched `undici`,
+  `brace-expansion` and `fast-uri` releases to address newly reported
+  advisories.
+
 ## [0.18.0-experimental.4] - 2026-09-29
 
 ### Fixed
@@ -1211,15 +1304,8 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.12.0]: https://github.com/Demonbane18/relmio/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
-[0.1.7]: https://github.com/Demonbane18/relmio/compare/v0.1.6...v0.1.7
-[0.1.6]: https://github.com/Demonbane18/relmio/compare/v0.1.5...v0.1.6
-[0.1.5]: https://github.com/Demonbane18/relmio/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/Demonbane18/relmio/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/Demonbane18/relmio/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/Demonbane18/relmio/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
 
+[0.18.0]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1
 [0.18.0-experimental.2]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.1...v0.18.0-experimental.2
 [0.18.0-experimental.3]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.2...v0.18.0-experimental.3

@@ -6,101 +6,264 @@
     <meta name="description" content="Connect SuperGrok to self-hosted n8n through a private companion." />
     <title>Relmio | SuperGrok on your VPS</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/supergrok-vps.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
     <script src="/supergrok-vps.js" type="module"></script>
   </head>
-  <body class="supergrok-vps" data-stage="1" data-operation-busy="false">
-    <a class="skip-link" href="#main-content">Skip to SuperGrok setup</a>
-    <header class="site-header">
-      <div class="brand"><img class="brand-mark" src="/relmio-icon.png" alt="" width="28" height="28" /><span>Relmio</span></div>
-      <div class="header-actions">
-        <a id="back-link" class="button ghost">All n8n connections</a>
-        <fieldset class="theme-picker">
-          <legend class="visually-hidden">Color theme</legend>
-          <label title="Use system appearance"><input type="radio" name="color-theme" value="system" checked /><span class="theme-icon theme-icon-system" aria-hidden="true"></span><span class="visually-hidden">System</span></label>
-          <label title="Use light appearance"><input type="radio" name="color-theme" value="light" /><span class="theme-icon theme-icon-light" aria-hidden="true"></span><span class="visually-hidden">Light</span></label>
-          <label title="Use dark appearance"><input type="radio" name="color-theme" value="dark" /><span class="theme-icon theme-icon-dark" aria-hidden="true"></span><span class="visually-hidden">Dark</span></label>
-        </fieldset>
+  <body class="rm-app rm-app--fit supergrok-vps" data-stage="1" data-operation-busy="false">
+    <a class="rm-skip-link" href="#main-content">Skip to SuperGrok setup</a>
+    <header class="rm-topbar">
+      <div class="rm-topbar__inner">
+        <a class="rm-brand" href="/" data-wizard-route="/" aria-label="Relmio home">
+          <img class="rm-brand__logo" src="/relmio-icon-96.png" width="32" height="32" alt="" />
+          <span>Relmio</span>
+        </a>
+        <nav class="rm-nav" aria-label="Primary">
+          <ul class="rm-nav__list">
+            <li><a class="rm-nav__link" href="/" data-wizard-route="/" aria-current="true">Setup</a></li>
+            <li><a class="rm-nav__link" href="/local" data-wizard-route="/local">This computer</a></li>
+            <li><a class="rm-nav__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+            <li><a class="rm-nav__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer">Docs<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+          </ul>
+        </nav>
+        <div class="rm-topbar__actions">
+          <span class="rm-status rm-topbar__wide" data-tone="success"><span class="rm-status__dot"></span>Runs on this computer</span>
+          <fieldset class="rm-segmented">
+            <legend class="rm-visually-hidden">Color theme</legend>
+            <label class="rm-segmented__item" title="System"><input class="rm-segmented__input" type="radio" name="color-theme" value="system" checked /><span class="rm-icon rm-icon--monitor rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">System</span></label>
+            <label class="rm-segmented__item" title="Light"><input class="rm-segmented__input" type="radio" name="color-theme" value="light" /><span class="rm-icon rm-icon--sun rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Light</span></label>
+            <label class="rm-segmented__item" title="Dark"><input class="rm-segmented__input" type="radio" name="color-theme" value="dark" /><span class="rm-icon rm-icon--moon rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Dark</span></label>
+          </fieldset>
+          <a class="rm-chip rm-topbar__wide" data-rm-repo-link href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer" aria-label="Open Relmio version __RELMIO_PACKAGE_VERSION__ on GitHub. Opens in a new tab.">
+            <span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub
+            <span class="rm-chip__meta"><span class="rm-icon rm-icon--star rm-icon--xs" aria-hidden="true"></span><span data-rm-repo-stars>?</span></span>
+            <span class="rm-chip__meta">v__RELMIO_PACKAGE_VERSION__</span>
+          </a>
+          <a class="rm-icon-button rm-topbar__wide" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer" aria-label="Support Relmio on Ko-fi (opens in a new tab)" title="Support Relmio on Ko-fi"><span class="rm-icon rm-icon--coffee" aria-hidden="true"></span></a>
+          <details class="rm-menu">
+            <summary class="rm-icon-button" aria-label="Menu"><span class="rm-icon rm-icon--menu" aria-hidden="true"></span></summary>
+            <div class="rm-menu__panel">
+              <nav aria-label="Primary">
+                <ul class="rm-menu__list">
+                  <li><a class="rm-menu__link" href="/" data-wizard-route="/" aria-current="true">Setup</a></li>
+                  <li><a class="rm-menu__link" href="/local" data-wizard-route="/local">This computer</a></li>
+                  <li><a class="rm-menu__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+                  <li><a class="rm-menu__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--book rm-icon--sm" aria-hidden="true"></span>Docs<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                </ul>
+              </nav>
+              <ul class="rm-menu__list rm-menu__section">
+                <li><a class="rm-menu__link" href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                <li><a class="rm-menu__link" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--coffee rm-icon--sm" aria-hidden="true"></span>Support on Ko-fi<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+              </ul>
+            </div>
+          </details>
+        </div>
       </div>
     </header>
-    <section id="operation-progress" class="operation-progress" role="status" aria-live="polite" aria-atomic="false" tabindex="-1" hidden>
-      <div class="operation-progress__content">
-        <p id="operation-progress-label" class="operation-progress__label">No operation is running.</p>
-        <p class="operation-progress__elapsed" aria-live="off">Elapsed <time id="operation-progress-elapsed" datetime="PT0S">00:00</time></p>
-        <div id="operation-progress-bar" class="operation-progress__track" role="progressbar" aria-label="Current SuperGrok setup operation" aria-valuetext="No operation is running."><span class="operation-progress__bar" aria-hidden="true"></span></div>
-        <p id="operation-progress-note" class="operation-progress__note">Timing varies with your remote server and network. Keep this page open until this step finishes.</p>
-      </div>
-    </section>
-    <main id="main-content" class="grok-layout" tabindex="-1" aria-busy="false">
-      <aside class="grok-rail" aria-label="SuperGrok setup progress and safety">
-        <section class="grok-intro" aria-labelledby="page-title">
-          <p class="panel-kicker">SuperGrok · VPS</p>
-          <h1 id="page-title">A private Grok route for n8n</h1>
-          <aside class="experimental-notice" aria-labelledby="supergrok-experimental-title"><strong id="supergrok-experimental-title">Experimental release · 0.18.0-experimental.4</strong><p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p></aside>
-          <p>Connect Grok to n8n on your server. Check the server identity first. This route does not use ChatGPT sign-in or an xAI API key.</p>
-        </section>
-        <nav class="grok-steps" aria-label="SuperGrok setup progress"><ol>
-          <li data-stage-marker="1" aria-current="step"><span>1</span><em>Check</em><small>Server identity</small></li>
-          <li data-stage-marker="2"><span>2</span><em>Choose</em><small>Existing n8n</small></li>
-          <li data-stage-marker="3"><span>3</span><em>Review</em><small>Approve one action</small></li>
-          <li data-stage-marker="4"><span>4</span><em>Install</em><small>Sign in, then connect n8n</small></li>
-        </ol></nav>
-        <div class="grok-notices">
-          <aside class="grok-safety-note"><strong>n8n stays unchanged</strong><span>Relmio does not rebuild, edit, stop, or restart n8n. No companion port is published.</span></aside>
-          <p id="status-message" class="grok-status" role="status" aria-live="polite">Checking the VPS connection…</p>
-          <p id="error-message" class="grok-error" role="alert" tabindex="-1" hidden></p>
-        </div>
-      </aside>
-      <div class="grok-panels">
-        <section id="ssh-panel" class="panel" aria-labelledby="ssh-title">
-          <div class="panel-heading"><p class="panel-kicker">Step 1 of 4 · Check</p><h2 id="ssh-title" tabindex="-1">Check the server before you sign in</h2><p>Check the server identity, then connect. The password clears after the attempt.</p></div>
-          <form id="ssh-form">
-            <div class="grok-field-grid">
-              <label class="field"><span>Server address</span><input id="host" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
-              <label class="field compact"><span>SSH port</span><input id="port" type="number" value="22" min="1" max="65535" required /></label>
-              <label class="field"><span>SSH username</span><input id="username" autocomplete="username" value="root" required /></label>
-              <label class="field"><span>SSH authentication</span><select id="ssh-authentication"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
-              <label class="field"><span>Server password</span><input id="password" type="password" autocomplete="current-password" disabled required /><small>Locked until you confirm the server identity.</small></label>
+    <main id="main-content" class="rm-app__main" tabindex="-1">
+      <noscript><p class="rm-callout rm-callout--warning">This setup needs JavaScript to check server identity and show the plan. Enable JavaScript, then reload before continuing.</p></noscript>
+      <div class="rm-split route-layout">
+        <aside class="rm-split__rail route-rail" aria-label="SuperGrok setup progress">
+          <div class="route-intro">
+            <p class="rm-eyebrow">SuperGrok · VPS</p>
+            <h1 class="rm-h3">A private Grok route for n8n <span class="rm-badge rm-badge--accent">Experimental</span></h1>
+            <p class="rm-small rm-muted">Chat on a VPS is user-reported. Assistant and the Calculator workflow are unverified there.</p>
+          </div>
+          <ol class="rm-stepper rm-stepper--auto route-steps" aria-label="Steps">
+            <li class="rm-stepper__item" data-stage-marker="1" aria-current="step"><span class="rm-stepper__link"><span class="rm-stepper__marker">1</span><span class="rm-stepper__label">Check server</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="2"><span class="rm-stepper__link"><span class="rm-stepper__marker">2</span><span class="rm-stepper__label">Choose n8n</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="3"><span class="rm-stepper__link"><span class="rm-stepper__marker">3</span><span class="rm-stepper__label">Review</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="4"><span class="rm-stepper__link"><span class="rm-stepper__marker">4</span><span class="rm-stepper__label">Connect n8n</span></span></li>
+          </ol>
+          <section id="operation-progress" class="rm-card rm-card--compact route-progress" role="status" aria-live="polite" aria-atomic="false" tabindex="-1" hidden>
+            <div class="route-progress__head">
+              <p id="operation-progress-label" class="route-progress__label">No operation is running.</p>
+              <p class="rm-small rm-muted" aria-live="off"><span class="rm-visually-hidden">Elapsed </span><time id="operation-progress-elapsed" datetime="PT0S">00:00</time></p>
             </div>
-            <p>This route needs a root account (UID 0). Passwordless sudo is only on the local model page.</p>
-            <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
-            <details class="technical-details"><summary>More details about SSH agent sign-in</summary><div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p></div></details>
-            <p id="ssh-session" role="status"></p><button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
-            <button id="scan-button" class="button secondary" type="button">Check server identity</button>
-            <div id="fingerprint-box" class="fingerprint" hidden><span>Server identity (SSH fingerprint)</span><code id="fingerprint"></code><label class="check-row"><input id="trust-host" type="checkbox" /><span>I checked this server identity. This is the server I mean to use.</span></label></div>
-            <div class="actions"><button id="connect-button" class="button primary" type="submit" disabled>Connect and inspect n8n</button></div>
-          </form>
-        </section>
-        <section id="selection-panel" class="panel" aria-labelledby="selection-title" hidden>
-          <div class="panel-heading"><p class="panel-kicker">Step 2 of 4 · Choose</p><h2 id="selection-title" tabindex="-1">Choose existing n8n</h2><p>This step only looks. It does not run commands inside n8n.</p></div>
-          <div class="grok-field-grid grok-field-grid--selection"><label class="field"><span>Running n8n container</span><select id="container"></select></label><label class="field"><span>Shared private Docker network</span><select id="network"></select><small>The companion joins this existing network; n8n does not change.</small></label></div>
-          <div id="installation-state" class="grok-installation-state" role="status" aria-live="polite"></div>
-          <div class="actions"><button id="refresh-button" class="button secondary" type="button">Refresh status</button><button id="disconnect-button" class="button ghost" type="button">Disconnect from VPS</button></div>
-          <div id="manage-actions" class="grok-action-cluster" aria-label="SuperGrok companion actions"><button class="button primary" data-action="install" type="button">Review installation</button><button class="button primary" data-action="sign-in" type="button" hidden>Sign in with Grok</button><button class="button secondary" data-action="sign-out" type="button" hidden>Sign out of Grok</button><button class="button secondary" data-action="cancel-sign-in" type="button" hidden>Cancel sign-in</button><button class="button ghost" data-action="remove" type="button" hidden>Remove companion</button></div>
-        </section>
-        <section id="review-panel" class="panel" aria-labelledby="review-title" hidden>
-          <div class="panel-heading"><p class="panel-kicker">Step 3 of 4 · Review</p><h2 id="review-title" tabindex="-1">Review the plan</h2><p id="review-summary"></p></div>
-          <p id="ssh-review-identity"></p>
-          <dl class="result-list grok-review-details"><div><dt>n8n container</dt><dd id="review-container"></dd></div><div><dt>Private network</dt><dd id="review-network"></dd></div><div><dt>Companion directory</dt><dd><code>/docker/n8n-openai-oauth/supergrok</code></dd></div><div><dt>Private endpoint</dt><dd><code>http://n8n-supergrok:14502/v1</code></dd></div></dl>
-          <div class="grok-review-boundary"><strong>Existing n8n changes: none.</strong><span>No n8n restart. No published companion port.</span></div>
-          <label class="check-row approval"><input id="confirm-action" type="checkbox" /><span>I approve this action on only the reviewed SuperGrok companion.</span></label>
-          <div class="actions"><button id="cancel-review" class="button ghost" type="button">Back to inspection</button><button id="apply-button" class="button primary" type="button" disabled>Confirm action</button></div>
-        </section>
-        <section id="login-panel" class="panel" aria-labelledby="login-title" hidden>
-          <div class="panel-heading"><p class="panel-kicker">Step 4 of 4 · Official sign-in</p><h2 id="login-title" tabindex="-1">Complete official Grok sign-in</h2><p id="login-state" role="status" aria-live="polite">Preparing device sign-in…</p></div>
-          <p id="device-code" class="device-code"></p><a id="device-link" class="button primary" target="_blank" rel="noopener noreferrer" hidden>Open official Grok sign-in</a><p class="grok-supporting-copy">This sign-in expires after 15 minutes. Tokens stay in the companion's private volume.</p>
-        </section>
-        <section id="settings-panel" class="panel" aria-labelledby="settings-title" hidden>
-          <div class="panel-heading"><p class="panel-kicker">Step 4 of 4 · Connect n8n</p><h2 id="settings-title" tabindex="-1">Use the private SuperGrok endpoint</h2><p>Save the endpoint and local bearer in your own n8n credential on the same network.</p></div>
-          <dl class="result-list grok-settings-list"><div><dt>Base URL</dt><dd><code>http://n8n-supergrok:14502/v1</code></dd></div><div><dt>API key</dt><dd>Local bridge bearer below</dd></div><div><dt>Host publication</dt><dd>None</dd></div></dl>
-          <section class="response-setting-compare" aria-labelledby="response-setting-title"><h3 id="response-setting-title">Check this setting when switching providers</h3><div class="response-setting-grid"><article class="response-setting response-setting--grok"><p>SuperGrok</p><strong>Use Responses API: OFF</strong><span>SuperGrok uses Chat Completions. Leaving this on returns <code>404 not_found</code>.</span></article><article class="response-setting response-setting--openai"><p>OpenAI OAuth/Codex recipe</p><strong>Use Responses API: ON</strong><span>Keep the existing OpenAI OAuth Chat Model v1.3 recipe on when you switch back.</span></article></div><p>For workflow nodes, turn SuperGrok off and choose From list. For Chat, turn it off in Settings, Chat, OpenAI, Edit provider. For Assistant, enter a discovered model name. A listed model is not proof that a workflow works.</p></section>
-          <label class="field grok-key-field"><span>Local bridge bearer</span><input id="client-key" type="password" autocomplete="off" spellcheck="false" /><small id="key-help">A new bearer is shown only in this browser session. Save it in your n8n credential. For an existing install, enter the saved bearer to check models.</small></label>
-          <div class="actions"><button id="copy-key" class="button secondary" type="button">Copy local bearer</button><button id="models-button" class="button secondary" type="button">Check account models</button></div><p id="models-result" class="grok-models-result" role="status" aria-live="polite"></p>
-          <aside class="grok-completion-note"><strong>Check with a test workflow.</strong><span>Ask for 317 × 29. The tool result and the answer should both be 9193.</span></aside>
-        </section>
+            <div id="operation-progress-bar" class="rm-progress rm-progress--indeterminate" role="progressbar" aria-label="Current SuperGrok setup operation" aria-valuetext="No operation is running."><span class="rm-progress__bar" aria-hidden="true"></span></div>
+            <p id="operation-progress-note" class="rm-small rm-muted">Keep this page open until the step finishes.</p>
+          </section>
+        </aside>
+        <div id="route-steps-content" class="rm-split__content route-content" aria-busy="false">
+          <section id="ssh-panel" class="rm-panel route-panel" aria-labelledby="ssh-title" data-current>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 1 of 4</span>
+                <h2 id="ssh-title" class="rm-h1" tabindex="-1">Check your server</h2>
+                <p class="rm-muted">Confirm the server identity before you sign in. The password clears after each attempt.</p>
+              </div>
+            </header>
+            <form id="ssh-form" class="route-form">
+              <div class="rm-panel__body">
+                <div class="route-columns route-columns--form">
+                  <div class="route-main">
+                    <div class="route-target">
+                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
+                      <label class="rm-field"><span class="rm-field__label">SSH port</span><input id="port" class="rm-input" type="number" value="22" min="1" max="65535" required /></label>
+                      <button id="scan-button" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check server identity</button>
+                    </div>
+                    <label id="fingerprint-box" class="rm-check rm-check--boxed" hidden><input id="trust-host" type="checkbox" /><span>I checked this server identity. This is the server I mean to use.<span class="rm-check__hint">SSH fingerprint <code id="fingerprint" class="route-fingerprint"></code></span></span></label>
+                    <div class="rm-form-grid route-signin">
+                      <label class="rm-field"><span class="rm-field__label">SSH username</span><input id="username" class="rm-input" autocomplete="username" value="root" required aria-describedby="username-hint" /><span id="username-hint" class="rm-field__hint">Needs a root account (UID 0).</span></label>
+                      <label class="rm-field"><span class="rm-field__label">SSH authentication</span><select id="ssh-authentication" class="rm-select"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
+                      <label class="rm-field"><span class="rm-field__label">Server password</span><input id="password" class="rm-input" type="password" autocomplete="current-password" disabled required aria-describedby="password-hint" /><span id="password-hint" class="rm-field__hint">Unlocks after you confirm the server identity.</span></label>
+                    </div>
+                  </div>
+                  <div class="route-aside">
+                    <p class="rm-small rm-muted">Tested on Hostinger KVM VPS. Other Linux VPS hosts are experimental.</p>
+                    <p class="rm-small rm-muted">Passwordless sudo works only on the Local model page.</p>
+                    <p id="ssh-agent-status" class="rm-small rm-muted" role="status">Checking local SSH agent configuration…</p>
+                    <details class="rm-disclosure">
+                      <summary>About SSH agent sign-in</summary>
+                      <div class="rm-disclosure__body"><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases or forwarded agent are sent to the server.</p></div>
+                    </details>
+                    <p id="ssh-session" class="rm-small route-session" role="status"></p>
+                  </div>
+                </div>
+              </div>
+              <footer class="rm-panel__footer">
+                <a id="back-link" class="rm-button rm-button--ghost" href="/" data-wizard-route="/"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</a>
+                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect shared VPS session</button>
+                <button id="connect-button" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect and inspect n8n<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
+              </footer>
+            </form>
+          </section>
+          <section id="selection-panel" class="rm-panel route-panel" aria-labelledby="selection-title" hidden>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 2 of 4</span>
+                <h2 id="selection-title" class="rm-h1" tabindex="-1">Choose existing n8n</h2>
+                <p class="rm-muted">This step only looks. It runs no commands inside n8n.</p>
+              </div>
+            </header>
+            <div class="rm-panel__body">
+              <div class="rm-form-grid">
+                <label class="rm-field"><span class="rm-field__label">Running n8n container</span><select id="container" class="rm-select"></select></label>
+                <label class="rm-field"><span class="rm-field__label">Shared private Docker network</span><select id="network" class="rm-select" aria-describedby="network-hint"></select><span id="network-hint" class="rm-field__hint">The companion joins this existing network. n8n does not change.</span></label>
+              </div>
+              <p id="installation-state" class="rm-callout rm-callout--neutral route-state" role="status" aria-live="polite"></p>
+            </div>
+            <footer class="rm-panel__footer">
+              <button id="disconnect-button" class="rm-button rm-button--ghost" type="button">Disconnect from VPS</button>
+              <button id="refresh-button" class="rm-button" type="button"><span class="rm-icon rm-icon--refresh rm-icon--sm" aria-hidden="true"></span>Refresh status</button>
+              <div class="rm-cluster rm-push" role="group" aria-label="SuperGrok companion actions">
+                <button class="rm-button" data-action="cancel-sign-in" type="button" hidden>Cancel sign-in</button>
+                <button class="rm-button rm-button--danger" data-action="remove" type="button" hidden>Remove companion</button>
+                <button class="rm-button rm-button--primary" data-action="install" type="button">Review installation</button>
+                <button id="selection-continue" class="rm-button rm-button--primary" type="button" hidden>Continue<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
+              </div>
+            </footer>
+          </section>
+          <section id="review-panel" class="rm-panel route-panel" aria-labelledby="review-title" hidden>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 3 of 4</span>
+                <h2 id="review-title" class="rm-h1" tabindex="-1">Review the plan</h2>
+                <p class="rm-muted">Nothing changes on your server until you confirm.</p>
+              </div>
+            </header>
+            <div class="rm-panel__body">
+              <div class="route-columns">
+                <dl class="rm-dl route-review-list">
+                  <div><dt>Server</dt><dd id="ssh-review-identity"></dd></div>
+                  <div><dt>n8n container</dt><dd id="review-container"></dd></div>
+                  <div><dt>Private network</dt><dd id="review-network"></dd></div>
+                  <div><dt>Companion directory</dt><dd><code>/docker/n8n-openai-oauth/supergrok</code></dd></div>
+                  <div><dt>Private endpoint</dt><dd><code>http://n8n-supergrok:14502/v1</code></dd></div>
+                  <div><dt>Existing n8n</dt><dd>No changes. No restart. No published companion port.</dd></div>
+                </dl>
+                <div class="route-aside">
+                  <p id="review-summary" class="route-summary"></p>
+                  <label class="rm-check rm-check--boxed"><input id="confirm-action" type="checkbox" /><span>I approve this action on only the reviewed SuperGrok companion.</span></label>
+                </div>
+              </div>
+            </div>
+            <footer class="rm-panel__footer">
+              <button id="cancel-review" class="rm-button rm-button--ghost" type="button"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back to inspection</button>
+              <button id="apply-button" class="rm-button rm-button--primary rm-push" type="button" disabled>Confirm action</button>
+            </footer>
+          </section>
+          <section id="settings-panel" class="rm-panel route-panel" aria-labelledby="settings-title" hidden>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 4 of 4</span>
+                <h2 id="settings-title" class="rm-h1" tabindex="-1">Sign in and connect n8n</h2>
+                <p class="rm-muted">Sign in with Grok, then save these values in your n8n credential.</p>
+              </div>
+            </header>
+            <div class="rm-panel__body">
+              <section id="login-panel" class="route-login" aria-labelledby="login-title" hidden>
+                <div class="route-login__text">
+                  <h3 id="login-title" class="rm-visually-hidden">Official Grok sign-in</h3>
+                  <p id="login-state" role="status" aria-live="polite">Preparing device sign-in…</p>
+                </div>
+                <div class="route-login__code">
+                  <p id="device-code" class="route-device-code"></p>
+                  <a id="device-link" class="rm-button rm-button--primary" target="_blank" rel="noopener noreferrer" hidden>Open official Grok sign-in<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+                </div>
+                <p class="rm-small rm-muted route-login__note">The code expires after 15 minutes. Tokens stay in the companion's private volume.</p>
+              </section>
+              <div class="route-columns route-connect">
+                <div class="route-main">
+                  <div class="rm-field">
+                    <label class="rm-field__label" for="client-key">Local bridge bearer</label>
+                    <div class="route-secret">
+                      <input id="client-key" class="rm-input rm-input--mono" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help" />
+                      <button id="copy-key" class="rm-icon-button rm-icon-button--outline" type="button" aria-label="Copy local bearer" title="Copy local bearer"><span class="rm-icon rm-icon--copy" aria-hidden="true"></span></button>
+                    </div>
+                    <span id="key-help" class="rm-field__hint">Shown once in this browser session. Save it in your n8n credential, or enter a saved bearer to check models.</span>
+                  </div>
+                  <div class="rm-cluster">
+                    <button id="models-button" class="rm-button" type="button"><span class="rm-icon rm-icon--list-checks rm-icon--sm" aria-hidden="true"></span>Check account models</button>
+                  </div>
+                  <p id="models-result" class="rm-small route-models" role="status" aria-live="polite"></p>
+                </div>
+                <div class="route-aside">
+                  <div class="rm-callout rm-callout--warning">
+                    <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
+                    <div class="rm-callout__content">
+                      <strong class="rm-callout__title">Use Responses API: Off</strong>
+                      <p class="rm-callout__body">SuperGrok uses Chat Completions. Leaving it on returns <code>404 not_found</code>.</p>
+                    </div>
+                  </div>
+                  <details class="rm-disclosure">
+                    <summary>Where to change it and how to test</summary>
+                    <div class="rm-disclosure__body">
+                      <p>For workflow nodes, turn it off and choose From list. For Chat, turn it off in Settings, Chat, OpenAI, Edit provider. For Assistant, enter a discovered model name.</p>
+                      <p>Keep the existing OpenAI OAuth Chat Model v1.3 recipe on when you switch back. A listed model is not proof that a workflow works.</p>
+                      <p>Check with a test workflow. Ask for 317 × 29. The tool result and the answer should both be 9193.</p>
+                    </div>
+                  </details>
+                </div>
+              </div>
+              <dl class="rm-dl route-values">
+                <div><dt>Base URL</dt><dd><code>http://n8n-supergrok:14502/v1</code></dd></div>
+                <div><dt>API key</dt><dd>Local bridge bearer</dd></div>
+                <div><dt>Published port</dt><dd>None</dd></div>
+              </dl>
+            </div>
+            <footer class="rm-panel__footer">
+              <button id="settings-back" class="rm-button rm-button--ghost" type="button"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</button>
+              <div class="rm-cluster rm-push" role="group" aria-label="Grok account actions">
+                <button class="rm-button rm-button--danger" data-action="remove" type="button" hidden>Remove companion</button>
+                <button class="rm-button" data-action="sign-out" type="button" hidden>Sign out of Grok</button>
+                <button class="rm-button" data-action="cancel-sign-in" type="button" hidden>Cancel sign-in</button>
+                <button class="rm-button rm-button--primary" data-action="sign-in" type="button" hidden>Sign in with Grok</button>
+              </div>
+            </footer>
+          </section>
+        </div>
+        <div class="route-rail-foot">
+          <ul class="route-safety" aria-label="Safety">
+            <li class="rm-status"><span class="rm-status__dot" aria-hidden="true"></span>Official Grok sign-in. No ChatGPT sign-in or xAI API key</li>
+            <li class="rm-status" data-tone="success"><span class="rm-status__dot" aria-hidden="true"></span>Existing n8n stays untouched</li>
+            <li class="rm-status" data-tone="success"><span class="rm-status__dot" aria-hidden="true"></span>No companion port is published</li>
+          </ul>
+          <p id="status-message" class="rm-callout rm-callout--neutral route-status" role="status" aria-live="polite">Checking the VPS connection…</p>
+          <p id="error-message" class="rm-callout rm-callout--danger route-error" role="alert" tabindex="-1" hidden></p>
+        </div>
       </div>
     </main>
   </body>

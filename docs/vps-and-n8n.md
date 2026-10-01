@@ -4,6 +4,12 @@ Relmio can add OAuth or local-model companions beside an existing n8n VPS. Each
 companion uses the selected existing Docker network and has a separate endpoint
 and lifecycle. SuperGrok does not require or read ChatGPT credentials.
 
+The VPS model setup is tested on Hostinger KVM VPS. Other Linux VPS hosts,
+including Hetzner, are experimental. Use the actual SSH username for your
+image and an approved local SSH agent or password; provider defaults are
+guidance, not credentials to try automatically.
+
+
 | Connection | Private Base URL | n8n API-key field | Use Responses API |
 | --- | --- | --- | --- |
 | OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in the Relmio OpenAI Chat Model v1.3 recipe |
@@ -44,10 +50,9 @@ disabled. See [Private local models](local-models.md) and
 
 ## Use the wizard
 
-In the experimental browser wizard, the five steps are **Choose setup**,
-**Check server**, **Choose n8n**, **Review**, and **Ready**. The route chooser
-appears before ChatGPT sign-in. Stable `@latest` and hosted installers remain
-`0.17.5` and do not open this redesigned chooser.
+The browser wizard has five steps: **Choose setup**, **Check server**,
+**Choose n8n**, **Review**, and **Ready**. The route chooser appears before
+ChatGPT sign-in. It is available from stable `@latest` and hosted installers.
 
 1. Choose the ChatGPT route and complete ChatGPT/Codex sign-in on this computer
    before uploading the credential file. SuperGrok uses its own device sign-in

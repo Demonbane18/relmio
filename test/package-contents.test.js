@@ -62,6 +62,7 @@ const expectedPackedFiles = new Set([
   "docs/manual-install.md",
   "docs/oauth-callback-port-source-check-2026-09-26.md",
   "docs/openai-source-check-2026-09-29.md",
+  "docs/openai-source-check-2026-10-01.md",
   "docs/node24-luna-source-check-2026-09-14.md",
   "docs/n8n-configuration.md",
   "docs/npm-publish.md",
@@ -145,9 +146,10 @@ const expectedPackedFiles = new Set([
   "src/ui/hosting.css",
   "src/ui/hosting.html",
   "src/ui/hosting.js",
-  "src/ui/icons/moon.svg",
-  "src/ui/icons/monitor.svg",
-  "src/ui/icons/sun.svg",
+  "src/ui/fonts/BricolageGrotesque-OFL.txt",
+  "src/ui/fonts/Geist-OFL.txt",
+  "src/ui/fonts/bricolage-grotesque-latin.woff2",
+  "src/ui/fonts/geist-latin.woff2",
   "src/ui/index.html",
   "src/ui/local.css",
   "src/ui/local.html",
@@ -157,6 +159,8 @@ const expectedPackedFiles = new Set([
   "src/ui/local-model-vps.js",
   "src/ui/oauth-popup.js",
   "src/ui/relmio-icon.png",
+  "src/ui/relmio-icon-96.png",
+  "src/ui/relmio-ui.css",
   "src/ui/relmio-icon-rounded.svg",
   "src/ui/session.js",
   "src/ui/session-bootstrap.js",
@@ -164,10 +168,11 @@ const expectedPackedFiles = new Set([
   "src/ui/styles.css",
   "src/ui/theme.js",
   "src/ui/time.js",
+  "src/ui/topbar.js",
   "src/web/server.js",
 ]);
 const reviewedBinaryFiles = new Set(
-  [...expectedPackedFiles].filter((path) => path.endsWith(".png")),
+  [...expectedPackedFiles].filter((path) => path.endsWith(".png") || path.endsWith(".woff2")),
 );
 const forbiddenBasename =
   /^(?:\.env(?:\..*)?|auth\.json|credentials?\.json|.*\.(?:key|p12|pem|pfx|ppk))$/iu;

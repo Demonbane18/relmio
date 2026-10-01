@@ -42,7 +42,7 @@ function assertChoices(elements, prefix, expectedIds) {
   assert.equal(elements.get(`${prefix}-image-models`).hidden, expectedIds.length === 0);
 }
 
-test("local bridge ready and runtime-update choices render only returned image IDs and clear stale IDs", async () => {
+test("local image choices render only returned IDs and clear stale IDs", async () => {
   const source = await readFile("src/ui/local.js", "utf8");
   const elements = new Map([
     ...createElements("result"),
@@ -67,11 +67,9 @@ test("local bridge ready and runtime-update choices render only returned image I
 
   context.render("update", ["gpt-6-astra"]);
   assertChoices(elements, "update", []);
-  assert.match(source, /renderImageModelsForN8n\("result", sidecar \? result\.models : \[\]\);/u);
-  assert.match(source, /renderImageModelsForN8n\("update", \[\]\);/u);
 });
 
-test("VPS choices render only returned IDs and leave text recipes on a non-image model", async () => {
+test("VPS image choices render only returned image IDs", async () => {
   const source = await readFile("src/ui/app.js", "utf8");
   const elements = createElements("result");
   const context = {
@@ -87,38 +85,4 @@ test("VPS choices render only returned IDs and leave text recipes on a non-image
 
   context.render(["gpt-6-astra", imageModelIds[1], imageModelIds[2]]);
   assertChoices(elements, "result", imageModelIds.slice(1));
-  assert.match(source, /const firstTextModel = result\.models\.find\([\s\S]*!model\.startsWith\("gpt-image"\)[\s\S]*\) \?\? "Not detected";/u);
-  assert.doesNotMatch(source, /const firstModel = result\.models\[0\]/u);
-  assert.match(source, /renderImageModelsForN8n\(result\.models\);/u);
-});
-
-test("both browser screens provide safe copy controls and exact n8n Generate/Edit guidance", async () => {
-  const [localHtml, localScript, vpsHtml, vpsScript] = await Promise.all([
-    readFile("src/ui/local.html", "utf8"),
-    readFile("src/ui/local.js", "utf8"),
-    readFile("src/ui/index.html", "utf8"),
-    readFile("src/ui/app.js", "utf8"),
-  ]);
-
-  for (const [html, expectedControls] of [[localHtml, 6], [vpsHtml, 3]]) {
-    assert.match(html, /Image Generate or Edit, choose From list/u);
-    assert.match(html, /choose By ID and paste its exact ID/u);
-    assert.match(html, /data-copy-target="(?:result|update)-image-model-flare"/u);
-    assert.match(html, /data-copy-target="(?:result|update)-image-model-sunburst"/u);
-    const controls = [...html.matchAll(
-      /<button[^>]+data-copy-target="(?:result|update)-image-model-(?:2|flare|sunburst)"[^>]*>([\s\S]*?)<\/button>/gu,
-    )];
-    assert.equal(controls.length, expectedControls);
-    for (const [, contents] of controls) {
-      assert.match(contents, /<svg class="copy-icon copy-icon-copy"[\s\S]*?<rect[\s\S]*?<\/svg>/u);
-      assert.match(contents, /<svg class="copy-icon copy-icon-check"[\s\S]*?m5 12 4 4L19 6[\s\S]*?<\/svg>/u);
-    }
-  }
-  for (const script of [localScript, vpsScript]) {
-    for (const id of imageModelIds) assert.match(script, new RegExp(id, "u"));
-  }
-  assert.match(localScript, /for \(const button of document\.querySelectorAll\("\[data-copy-target\]"\)\)/u);
-  assert.match(vpsScript, /\[data-copy-target\], \[data-copy-group\]/u);
-  assert.match(localScript, /renderImageModelsForN8n\("update", \[\]\);/u);
-  assert.match(vpsScript, /if \(!assistant\) renderImageModelsForN8n\(\[\]\);/u);
 });

@@ -1,30 +1,28 @@
-<!-- ASTRYX:START -->
-Astryx v0.2.0 · 90+ components
-CLI: run every command as `npx astryx <cmd>` (shown below as `astryx ...`).
+# Relmio web app
 
-SETUP (once, in your app entry e.g. main.tsx) — without these, components render unstyled:
-  import "@astryxdesign/core/reset.css";
-  import "@astryxdesign/core/astryx.css";
+Follow `../DESIGN.md` and `../BRANDKIT.md` for every interface change. The web
+app and the local wizard share one component kit:
 
-WORKFLOW — discover, don't guess. Before writing UI:
-1. `astryx build "<idea>"` — START HERE: returns a kit (closest [page] + [block]s + [component]s). No args = full playbook.
-2. `astryx template <name> [--skeleton]` — scaffold the [page]/[block]s it named, or study their layout. Templates are reference code.
-3. `astryx component <Name>` — props + examples for every component you use.
+- `app/relmio-ui.css` is a generated copy of `../src/ui/relmio-ui.css`. Edit the
+  source, then run `npm run ui:sync`. `npm run ui:check` (part of `npm test`)
+  fails when the copy is stale. The script also copies the fonts and logo files.
+- Build pages from the kit classes (`rm-*`) and the React components in
+  `app/components/ui/`: `TopBar`, `PrimaryNav`, `ThemeSwitch`, `RepositoryChip`,
+  `SupportLink`, `Icon`, `CopyButton` and `Callout`. Do not add another
+  component library or CSS framework.
+- The root layout renders the shared top bar and the `rm-app rm-app--fit` shell.
+  Pages render only their `<main id="main-content" className="rm-app__main">`.
+- Page styles live in a CSS module next to the page and use `--rm-*` tokens
+  only. No raw colors.
+- Keep the one-screen rule from `DESIGN.md`: no page scrollbar at 1024 x 768
+  and larger; docs and changelog scroll only inside their reading pane.
 
-RULES:
-- No <div> — components do all layout/spacing. Full page → AppShell; sidebar nav → SideNav.
-- Frame first: pick the shell (AppShell / Layout+LayoutPanel) and budget regions in px BEFORE writing content (`astryx docs layout`).
-- Dense data = rows (Table, List/Item) edge-to-edge — never Card-wrapped list items. Card = dashboard widgets, galleries, settings groups only.
-- Status → StatusDot/Token; Badge only for counts and enumerated states, never decoration.
-- Custom styling: component props first; else style/className with tokens — var(--color-*|--spacing-*|--radius-*). No raw hex/px. (No StyleX/Tailwind compiler here — don't use xstyle/utility classes.)
-- Tokens for every value (`astryx docs tokens`). Brand/accent via `astryx theme` — never override --color-* in :root.
-- SELF-CHECK before you finish: re-read the file and replace any raw <div>/<span> layout, imported .css/@apply, or hardcoded value (#hex, 16px) with the component or a token (var(--color-*|--spacing-*|…)). If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
+<!-- BEGIN:nextjs-agent-rules -->
 
-MORE CLI:
-  search "<query>"   find any component / hook / doc / template / block
-  component --list   90+ components by category
-  template --list    page + block recipes
-  docs <topic>       color, elevation, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
-  swizzle <Name>     eject component source for deep customization
-  upgrade --apply    run after any @astryxdesign/core bump
-<!-- ASTRYX:END -->
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

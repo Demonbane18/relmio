@@ -12,8 +12,11 @@ existing deployment identifiers. Do not change an operator's n8n container,
 image, Compose file, or network membership. A local dashboard refresh must
 remain read-only and must not adopt resources from labels alone.
 
-Keep upstream API-key setup, storage, profiles, gateways, and sidecars out of
-0.14.0. Existing API installations and saved data remain untouched.
+Managed ChatGPT/Codex and SuperGrok OAuth sign-in flows do not configure
+upstream API keys, keep API-key profiles, or fall back to separately billed API
+access. Configure API-key connections and operator-generated hosting artifacts
+separately in n8n or on the target platform. Retired API installations and
+their data remain untouched.
 Relmio's own local bearer, sandbox key, and ngrok credentials retain their
 separate purposes and protections.
 

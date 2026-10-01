@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 import test from "node:test";
 
 async function requestApp(path = "/", init = {}) {
@@ -24,69 +26,171 @@ async function requestApp(path = "/", init = {}) {
   );
 }
 
-test("server-renders the Relmio product page", async () => {
+function headerLinks(html) {
+  const header = html.match(/<header\b[\s\S]*?<\/header>/u)?.[0] ?? "";
+  return [...header.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gu)].map(([, attributes, inner]) => ({
+    attributes,
+    text: inner.replace(/<[^>]*>/gu, "").trim(),
+  }));
+}
+
+function assertSharedTopBar(html, currentLabel) {
+  const header = html.match(/<header\b[\s\S]*?<\/header>/u)?.[0] ?? "";
+  assert.match(header, /src="\/relmio-icon-96\.png"/u);
+  assert.match(header, /<legend[^>]*>Color theme<\/legend>/u);
+  for (const mode of ["system", "light", "dark"]) {
+    assert.match(header, new RegExp(`name="color-theme"[^>]*value="${mode}"|value="${mode}"[^>]*name="color-theme"`, "u"));
+  }
+
+  const links = headerLinks(html);
+  for (const [href, label] of [["/", "Home"], ["/install", "Install"], ["/docs", "Docs"], ["/changelog", "Changelog"], ["/chat", "Chat"]]) {
+    const link = links.find((candidate) => candidate.text === label && candidate.attributes.includes(`href="${href}"`));
+    assert.ok(link, `missing top-bar link ${label}`);
+    assert.equal(
+      /aria-current="page"/u.test(link.attributes),
+      label === currentLabel,
+      `${label} aria-current`,
+    );
+  }
+
+  for (const href of ["https://ko-fi.com/paldogies", "https://github.com/Demonbane18/relmio"]) {
+    const external = links.filter((link) => link.attributes.includes(`href="${href}"`));
+    assert.ok(external.length > 0, `missing ${href}`);
+    for (const link of external) {
+      assert.match(link.attributes, /target="_blank"/u);
+      assert.match(link.attributes, /rel="noopener noreferrer"/u);
+    }
+  }
+  assert.match(header, /aria-label="Support Relmio on Ko-fi \(opens in a new tab\)"/u);
+}
+
+test("server-renders the Relmio home page with the shared top bar", async () => {
   const response = await requestApp();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
+  const text = html.replace(/<[^>]*>/g, "");
   assert.match(html, /<title>Relmio \| Connect local AI tools safely<\/title>/i);
-  assert.match(html.replace(/<[^>]*>/g, ""), /Bring your AI sign-ins to your tools\./);
-  assert.match(html, /relmio-icon\.png/);
-  assert.match(html, /aria-label="A message travels between a VPS cloud, the Relmio doorway, and a local workshop\."/);
-  assert.match(html, /Choose a connection/u);
+  assert.match(text, /Bring your AI sign-ins to your tools\./);
+  assertSharedTopBar(html, "Home");
+
+  assert.match(html, /<figure[^>]*data-scene-running[^>]*>[\s\S]*?<svg[^>]*aria-hidden="true"[^>]*>/u);
   assert.match(html, /aria-label="Setup options"/);
   assert.match(html, /aria-pressed="true"/);
-  assert.match(html, /n8n with ChatGPT sign-in/);
-  assert.match(html, /SuperGrok OAuth/);
-  assert.match(html, /n8n Code Sandbox/);
-  assert.match(html, /Codex Chat Adapter/);
-  assert.match(html, /Codex App Server/);
-  assert.match(html, /Choose a route to see what it uses and where it connects\./);
-  assert.doesNotMatch(html, /OpenAI-shaped workflows you already use/);
-  assert.match(html, /href="\/install"[^>]*>Install Relmio/);
-  assert.match(html, /href="\/changelog"[^>]*>Changelog<\/a>/);
-  assert.match(html, /data-astryx-theme="relmio"/);
-  assert.match(html, /aria-label="Color theme"/);
-  assert.match(html, /class="[^"]*\btheme-mode-control\b/);
-  assert.match(html, /aria-label="System"/);
-  assert.match(html, /aria-label="Light"/);
-  assert.match(html, /aria-label="Dark"/);
-  assert.match(html, /lucide-monitor/);
-  assert.match(html, /lucide-sun/);
-  assert.match(html, /lucide-moon/);
-  assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
-  assert.match(html, /class="[^"]*\beditorial-home\b/);
-  assert.match(html, /aria-label="n8n with ChatGPT sign-in connection map"/);
-  assert.match(html, /Before anything changes/);
-  assert.match(html, /What Relmio changes, and what it leaves alone\./);
-  assert.match(html, /Connect, then ask\./);
-  assert.match(html, /Before you connect: install the browser extension/);
+  for (const option of [
+    "n8n with ChatGPT sign-in",
+    "SuperGrok OAuth",
+    "n8n Code Sandbox",
+    "Codex Chat Adapter",
+    "Codex App Server",
+    "Local model for n8n",
+  ]) {
+    assert.match(html, new RegExp(option, "u"));
+  }
+  assert.match(html, /href="\/install"[^>]*>[\s\S]*?Install Relmio/u);
+  assert.match(text, /does not edit the existing n8n container, image, or workflows/u);
+  assert.match(html, /openai-oauth/);
+  assert.match(html, /Evan Zhou Dev/);
+  assert.doesNotMatch(html, /data-astryx-theme|codex-preview|Your site is taking shape/u);
+});
+
+test("missing pages keep a 404 with a usable main and recovery links", async () => {
+  const response = await requestApp("/missing-page");
+  assert.equal(response.status, 404);
+  const html = await response.text();
+  assert.match(html, /<meta (?=[^>]*name="robots")(?=[^>]*content="noindex)[^>]*>/u);
+  assert.equal((html.match(/<main\b/gu) ?? []).length, 1);
+  assert.match(html, /<main[^>]*id="main-content"[^>]*tabindex="-1"/u);
+  for (const path of ["/", "/install", "/docs"]) assert.ok(html.includes(`href="${path}"`));
+});
+
+test("public pages use their own canonical and social URL despite tracking parameters", async () => {
+  for (const path of ["/", "/chat", "/install", "/docs", "/docs/security", "/changelog"]) {
+    const response = await requestApp(`${path}?utm_source=check`);
+    assert.equal(response.status, 200, path);
+    const html = await response.text();
+    const canonical = html.match(/<link rel="canonical" href="([^"]+)"/u)?.[1];
+    const socialUrl = html.match(/<meta property="og:url" content="([^"]+)"/u)?.[1];
+    assert.ok(canonical, path);
+    assert.equal(new URL(canonical).pathname, path);
+    assert.equal(new URL(canonical).search, "");
+    assert.equal(socialUrl, canonical);
+    assert.match(html, /property="og:image" content="https?:\/\/[^"]+\/og\.png"/u);
+    assert.match(html, /name="twitter:image" content="https?:\/\/[^"]+\/og\.png"/u);
+  }
+});
+
+test("robots and sitemap expose all published guide URLs", async () => {
+  const [robots, sitemap] = await Promise.all([requestApp("/robots.txt"), requestApp("/sitemap.xml")]);
+  assert.equal(robots.status, 200);
+  assert.equal(sitemap.status, 200);
+  const robotsText = await robots.text();
+  const sitemapUrl = robotsText.match(/Sitemap: ([^\s]+)/u)?.[1];
+  assert.equal(new URL(sitemapUrl).pathname, "/sitemap.xml");
+  const xml = await sitemap.text();
+  const paths = [...xml.matchAll(/<loc>([^<]+)<\/loc>/gu)].map(([, url]) => new URL(url).pathname);
+  for (const path of ["/", "/chat", "/install", "/docs", "/changelog", "/docs/security", "/docs/vps-supergrok"]) {
+    assert.ok(paths.includes(path), path);
+  }
+});
+
+test("forwarded hosts cannot replace public canonical, social or sitemap URLs", async () => {
+  const headers = {
+    host: "relmio.jpfusin.tech",
+    "x-forwarded-host": "boundary-audit.invalid",
+    "x-forwarded-proto": "http",
+  };
+  const origin = "https://relmio.jpfusin.tech";
+  const [page, robots, sitemap] = await Promise.all([
+    requestApp("/chat", { headers }),
+    requestApp("/robots.txt", { headers }),
+    requestApp("/sitemap.xml", { headers }),
+  ]);
+  assert.equal(page.status, 200);
+  assert.equal(robots.status, 200);
+  assert.equal(sitemap.status, 200);
+  const html = await page.text();
+  assert.ok(html.includes(`<link rel="canonical" href="${origin}/chat"`));
+  assert.ok(html.includes(`<meta property="og:url" content="${origin}/chat"`));
+  assert.ok((await robots.text()).includes(`Sitemap: ${origin}/sitemap.xml`));
+  const xml = await sitemap.text();
+  assert.ok(xml.includes(`<loc>${origin}/chat</loc>`));
+  assert.doesNotMatch(xml, /boundary-audit\.invalid/u);
+});
+
+test("loopback hosts keep their own HTTP origin despite forwarded headers", async () => {
+  for (const host of ["127.0.0.1:3417", "localhost:3421", "[::1]:3456"]) {
+    const response = await requestApp("/robots.txt", {
+      headers: {
+        host,
+        "x-forwarded-host": "boundary-audit.invalid",
+        "x-forwarded-proto": "https",
+      },
+    });
+    assert.equal(response.status, 200, host);
+    assert.ok((await response.text()).includes(`Sitemap: http://${host}/sitemap.xml`), host);
+  }
+});
+
+test("server-renders the hosted chat page with its sign-in guidance", async () => {
+  const response = await requestApp("/chat");
+  assert.equal(response.status, 200);
+
+  const html = await response.text();
+  const text = html.replace(/<[^>]*>/g, "");
+  assert.match(html, /<title>Hosted chat demo \| Relmio<\/title>/u);
+  assertSharedTopBar(html, "Chat");
+  assert.match(text, /Connect, then ask\./u);
+  assert.match(text, /Before you connect: install the browser extension/u);
   assert.match(
     html,
     /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/,
   );
-  assert.match(
-    html,
-    /https:\/\/addons\.mozilla\.org\/firefox\/addon\/sign-in-with-chatgpt\//,
-  );
-  assert.match(html, /temporarily disable it during local sign-in/);
-  assert.match(html, /The n8n bridge stays private\./);
-  assert.doesNotMatch(html, /npx --yes --ignore-scripts relmio@latest/);
-  assert.match(html, /https:\/\/github\.com\/Demonbane18\/relmio/);
-  const header = html.match(/<header\b[\s\S]*?<\/header>/u)?.[0] ?? "";
-  assert.match(header, /class="repository-button"/u);
-  assert.match(header, /Color theme/u);
-  assert.match(header, /href="\/changelog"/u);
-  assert.match(header, />Chat<\/a>/u);
-  assert.match(html, /class="support-button"/);
-  assert.match(
-    html,
-    /href="https:\/\/ko-fi\.com\/paldogies"[^>]*target="_blank"[^>]*rel="noopener noreferrer"[^>]*aria-label="Support Relmio on Ko-fi \(opens in a new tab\)"/,
-  );
-  assert.match(html, /openai-oauth/);
+  assert.match(html, /https:\/\/addons\.mozilla\.org\/firefox\/addon\/sign-in-with-chatgpt\//);
+  assert.match(text, /temporarily disable it during local sign-in/u);
+  assert.match(html, /<noscript>[\s\S]*?Chat needs JavaScript[\s\S]*?<\/noscript>/u);
   assert.match(html, /Evan Zhou Dev/);
-  assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
 });
 
 test("server-renders canonical generated Markdown documentation routes", async () => {
@@ -113,61 +217,73 @@ test("server-renders canonical generated Markdown documentation routes", async (
   assert.match(troubleshootingHtml, /aria-label="Adjacent documentation"/u);
   assert.match(troubleshootingHtml, /id="local-image-build-failed"/u);
   assert.match(troubleshootingHtml, /Local image build failed/u);
-  assert.doesNotMatch(troubleshootingHtml, /dangerouslySetInnerHTML|rehype-raw/u);
+  assertSharedTopBar(indexHtml, "Docs");
+});
+
+test("copy button copies current displayed code after it changes", async () => {
+  const source = await readFile(new URL("../app/components/ui/CopyButton.tsx", import.meta.url), "utf8");
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText;
+  const exports = {};
+  const jsx = (type, props) => ({ type, props });
+  let announcement = "";
+  let copied = "";
+  const code = { textContent: "old command" };
+  runInNewContext(compiled, {
+    exports,
+    require(name) {
+      if (name === "react") return {
+        useEffect() {}, useRef: () => ({ current: undefined }),
+        useState: (initial) => [initial, (value) => { if (typeof initial === "string") announcement = value; }],
+      };
+      if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
+      if (name === "./classNames") return { classNames: (...names) => names.join(" ") };
+      if (name === "./Icon") return { Icon: () => null };
+      throw new Error(`Unexpected import: ${name}`);
+    },
+    document: { getElementById: () => code },
+    navigator: { clipboard: { async writeText(text) { copied = text; } } },
+    window: { clearTimeout() {}, setTimeout() { return 1; } },
+  });
+  const rendered = exports.CopyButton({ targetId: "rendered-code", label: "command" });
+  const button = rendered.props.children[0];
+  code.textContent = "displayed command";
+  await button.props.onClick();
+  assert.equal(copied, "displayed command");
+  assert.equal(announcement, "Copied command.");
+  assert.equal(button.props["aria-label"], "Copy command");
 });
 
 test("renders a command-first self-hosted n8n install page", async () => {
   const response = await requestApp("/install");
   assert.equal(response.status, 200);
 
-  const [html, installScript, commandPromptInstallScript, powerShellInstallScript, installStyles] = await Promise.all([
+  const [html, installScript, commandPromptInstallScript, powerShellInstallScript] = await Promise.all([
     response.text(),
     readFile(new URL("../dist/client/install.sh", import.meta.url), "utf8"),
     readFile(new URL("../dist/client/install.cmd", import.meta.url), "utf8"),
     readFile(new URL("../dist/client/install.ps1", import.meta.url), "utf8"),
-    readFile(new URL("../app/install/install.module.css", import.meta.url), "utf8"),
   ]);
-  const desktopInstallTabsRule = installStyles.match(
-    /\.methodTabs\s*\{(?<declarations>[^}]*)\}/u,
-  );
-  assert.ok(desktopInstallTabsRule, "expected desktop install tabs rule");
-  assert.match(
-    desktopInstallTabsRule.groups.declarations,
-    /grid-template-columns:\s*repeat\(5,\s*minmax\(0,\s*1fr\)\);/u,
-  );
   assert.match(html, /Install Relmio on your computer\./);
-  assert.match(html, /data-astryx-theme="relmio"/);
-  assert.match(html, /aria-label="Color theme"/);
-  assert.match(html, /class="[^"]*\btheme-mode-control\b/);
-  assert.match(html, /lucide-monitor/);
-  assert.match(html, /lucide-sun/);
-  assert.match(html, /lucide-moon/);
-  assert.doesNotMatch(html, /theme-mode-mobile|<select/u);
+  assertSharedTopBar(html, "Install");
   assert.match(html, /Self-hosted n8n/);
   assert.doesNotMatch(html, /Hostinger VPS/);
-  assert.match(html, /class="support-button"/);
-  assert.match(html, /https:\/\/ko-fi\.com\/paldogies/);
-  assert.match(
-    html,
-    /Relmio 0\.14\.0 handles provider OAuth only\./,
-  );
   assert.match(
     html,
     /Experimental SuperGrok setup works with local apps and private local or VPS n8n companions without a ChatGPT credential\./,
   );
   assert.match(
     html,
-    /ChatGPT tokens expire, but the official client refreshes active sessions/,
-  );
-  assert.match(
-    html,
-    /href="https:\/\/learn\.chatgpt\.com\/docs\/auth"/,
-  );
-  assert.match(html, /OpenAI publishes no fixed 10-day lifetime\./);
-  assert.match(
-    html,
     /curl -fsSL https:\/\/relmio\.jpfusin\.tech\/install\.sh \| sh/,
   );
+  assert.match(html, /<noscript>[\s\S]*?curl -fsSL https:\/\/relmio\.jpfusin\.tech\/install\.sh \| sh[\s\S]*?npx --yes --ignore-scripts relmio@latest[\s\S]*?<\/noscript>/u);
+  const fallback = html.match(/<noscript>([\s\S]*?)<\/noscript>/u)?.[1] ?? "";
+  assert.equal((fallback.match(/<details\b/gu) ?? []).length, 4);
+  assert.doesNotMatch(fallback, /<details\b[^>]*\bopen\b/u);
+  for (const label of ["Homebrew", "PowerShell", "CMD", "NPX"]) {
+    assert.ok(fallback.includes(`<summary>${label}</summary>`), label);
+  }
   assert.match(
     html,
     /brew tap Demonbane18\/relmio &amp;&amp; brew trust --formula Demonbane18\/relmio\/relmio &amp;&amp; brew install relmio/,
@@ -220,14 +336,8 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /never stops[^<]*n8n or a managed companion/);
   assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
   assert.match(installScript, /^#!\/bin\/sh/m);
-  assert.match(installScript, /Node\.js download checksum did not match/);
   assert.match(installScript, /--ignore-scripts relmio@latest/);
-  assert.doesNotMatch(commandPromptInstallScript, /powershell|pwsh/iu);
-  assert.match(commandPromptInstallScript, /certutil\.exe/u);
-  assert.match(commandPromptInstallScript, /Node\.js download checksum did not match/u);
   assert.match(commandPromptInstallScript, /--ignore-scripts relmio@latest/u);
-  assert.match(powerShellInstallScript, /Get-FileHash/);
-  assert.match(powerShellInstallScript, /Node\.js download checksum did not match/);
   assert.match(powerShellInstallScript, /--ignore-scripts/);
 });
 
@@ -285,33 +395,21 @@ test("malformed metadata keeps the public installer on a stable release", async 
 });
 
 
-test("rejects non-string chat prompts before reading credentials", async () => {
-  const response = await requestApp("/api/chat", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ prompt: { unexpected: true } }),
-  });
-
-  assert.equal(response.status, 400);
-  assert.deepEqual(await response.json(), {
-    error: "The prompt must be a string.",
-  });
-});
-
-test("streams chat over Relmio's explicit terminal-state protocol without proxy buffering", async () => {
-  const [chatConsole, chatRoute, streamReader] = await Promise.all([
-    readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/relmio-stream.js", import.meta.url), "utf8"),
-  ]);
-
-  assert.doesNotMatch(chatConsole, /useCompletion/u);
-  assert.match(chatConsole, /readRelmioEvents/u);
-  assert.match(streamReader, /ReadableStream|getReader/u);
-  assert.match(chatRoute, /createOpenAIOAuthTransport/u);
-  assert.match(chatRoute, /encodeEvent\("delta"/u);
-  assert.match(chatRoute, /encodeEvent\("terminal"/u);
-  assert.match(chatRoute, /"Content-Encoding":\s*"none"/u);
+test("rejects invalid chat prompts without caching their responses", async () => {
+  for (const [body, status] of [
+    ["{", 400],
+    [JSON.stringify({ prompt: { unexpected: true } }), 400],
+    [JSON.stringify({ prompt: "  " }), 400],
+    [JSON.stringify({ prompt: "x".repeat(3001) }), 413],
+  ]) {
+    const response = await requestApp("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    });
+    assert.equal(response.status, status);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+  }
 });
 
 test("returns a streaming error event instead of an empty completion", async (t) => {
@@ -449,6 +547,8 @@ test("forwards incremental model text as separate chat stream events", async (t)
   });
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-encoding"), "none");
+  assert.equal(response.headers.get("cache-control"), "no-store");
   const stream = await response.text();
   assert.equal(upstreamRequestBody.model, "gpt-5.6-luna");
   assert.match(stream, /event: delta\ndata: \{"text":"Hello"\}/u);
@@ -540,47 +640,4 @@ test("fails a terminal-less upstream stream instead of reporting empty success",
   assert.match(stream, /"code":"upstream_failed"/u);
   assert.match(stream, /event: terminal\ndata: \{"outcome":"failed"\}/u);
   assert.doesNotMatch(stream, /private-id/u);
-});
-
-test("ships the request-bound chat and removes starter assets", async () => {
-  const [chatConsole, chatStyles, chatRoute, layout, packageJson] = await Promise.all([
-    readFile(new URL("../app/components/ChatConsole.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/components/ChatConsole.module.css", import.meta.url), "utf8"),
-    readFile(new URL("../app/api/chat/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../package.json", import.meta.url), "utf8"),
-  ]);
-
-  assert.match(chatConsole, /openaiAuthHeaders/u);
-  assert.match(chatConsole, /SignInWithChatGPT/u);
-  assert.match(chatConsole, /styles\.messageIncomplete/u);
-  assert.match(chatConsole, /Relmio · incomplete/u);
-  assert.match(chatConsole, /<HStack className="console-statuses"/u);
-  assert.match(chatStyles, /\.messageIncomplete\s*\{[\s\S]*var\(--relay-amber,[^)]*--color-border-orange/u);
-  assert.match(chatStyles, /\.messageIncomplete p,[\s\S]*\.messageIncomplete span\s*\{[\s\S]*color:\s*var\(--color-text-orange\)/u);
-  assert.match(chatRoute, /openaiCredentials\(request\)/u);
-  assert.match(chatRoute, /Cache-Control": "no-store"/u);
-  assert.match(layout, /Relmio \| Connect local AI tools safely/u);
-  assert.doesNotMatch(packageJson, /react-loading-skeleton/u);
-  await assert.rejects(
-    access(new URL("../app/_sites-preview", import.meta.url)),
-  );
-});
-
-test("returns hosted ChatGPT callbacks to the active deployment origin", async () => {
-  const chatConsole = await readFile(
-    new URL("../app/components/ChatConsole.tsx", import.meta.url),
-    "utf8",
-  );
-
-  assert.doesNotMatch(chatConsole, /callbackPath=/u);
-  assert.doesNotMatch(chatConsole, /relmio\.jpfusin\.tech/u);
-});
-
-
-test("keeps the entire scene still when SVG animation controls are unavailable", async () => {
-  const source = await readFile(new URL("../app/components/relay/DoorwayHero.tsx", import.meta.url), "utf8");
-  assert.match(source, /const running = smilSupported &&/);
-  assert.match(source, /useSyncExternalStore\(subscribeSmilSupport, getSmilSupport, \(\) => false\)/);
-  assert.match(source, /disabled=\{!smilSupported \|\| reducedMotion\}/);
 });

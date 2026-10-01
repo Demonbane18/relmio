@@ -12,8 +12,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    "app/relmio.d.ts",
-    "app/relmio.variants.d.ts",
   ]),
 ]);
 

@@ -40,13 +40,14 @@ test("expired inventory refuses actions and marks the verified snapshot stale", 
   assert.equal(setup, 0); assert.equal(renders.length, 1); assert.equal(renders[0][1].stale, true); assert.equal(error.focused, true);
 });
 
-test("dashboard initialization enters through safe discard and refreshes metadata", async () => {
+test("dashboard initialization enters through safe discard and refresh preserves focus and scroll", async () => {
   const script = await source(); const section = between(script, "function initializeLocalDashboard", "\nfunction parseRelmioStreamEvent");
   const calls = []; const listeners = new Map();
   const initialize = runInNewContext(`${section}; initializeLocalDashboard;`, { document: { querySelectorAll: () => [] }, element: (id) => ({ addEventListener: (event, handler) => listeners.set(`${id}:${event}`, handler) }), async enterDashboardView(options) { calls.push(options ?? null); }, async refreshProjectMeta() { calls.push("meta"); }, enterSetupView() {}, renderDashboardFailure() {}, showError() {}, syncDashboardNavigation() {}, window: { addEventListener() {} } });
   initialize(); await Promise.resolve(); await Promise.resolve();
-  assert.deepEqual(calls, [null, "meta"]); listeners.get("dashboard-refresh:click")(); await Promise.resolve();
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[2])), { preserveFocus: true, preserveScroll: true });
+  assert.deepEqual(calls, [null]);
+  listeners.get("dashboard-refresh:click")(); await Promise.resolve();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), { preserveFocus: true, preserveScroll: true });
 });
 
 test("dashboard timer rerenders stale inventory and reduced motion selects auto scrolling", async () => {
@@ -109,8 +110,23 @@ test("returning to dashboard discards pending setup reviews and one-time values"
   const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, removeAttribute(name) { if (name === "href") this.href = ""; }, focus() {} }).get(id);
   const state = { assistantSearxngReview: { reviewId: "pending" }, assistantSearxngReviewId: "pending", dashboardFocusIdentity: { service: "codex-chatgpt" }, installedTarget: "local-n8n-assistant", localModelPollTimer: 7, localModelGeneration: 0, plan: { target: "local-n8n-assistant" }, planId: "pending" };
   const calls = []; const clearedTimers = [];
-  const enter = runInNewContext(`${clearPoll}\n${transition}; enterDashboardView;`, { state, element, document: { body: { dataset: {} } }, window: { clearTimeout(timer) { clearedTimers.push(timer); }, scrollTo(options) { calls.push(options); } }, async api(path, options) { calls.push([path, options]); return { discarded: true }; }, clearChatTesterState() { calls.push("chat-cleared"); }, clearDashboardStaleTimer() {}, invalidatePlan() { state.plan = null; state.planId = null; }, preferredScrollBehavior: () => "auto", async loadLocalDashboard() { calls.push("inventory"); }, scheduleDashboardStaleExpiry() {} });
-  await enter(); assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["/api/local/discard", { method: "POST", body: {} }]); assert.equal(state.plan, null); assert.equal(state.planId, null); assert.equal(state.installedTarget, null); assert.equal(state.assistantSearxngReview, null); assert.equal(state.assistantSearxngReviewId, null); assert.equal(state.dashboardFocusIdentity, null); assert.equal(element("result-credential").textContent, ""); assert.equal(element("ngrok-authtoken").value, ""); assert.equal(element("install-result-list").hidden, true); assert.equal(element("n8n-oauth-link").href, ""); assert.equal(calls.at(-1), "inventory");
+  const openDisclosures = [{ open: true }, { open: true }];
+  const document = { body: { dataset: {} }, querySelectorAll: () => openDisclosures };
+  await runInNewContext(`${clearPoll}\n${transition}\nenterDashboardView();`, { state, element, document, window: { clearTimeout(timer) { clearedTimers.push(timer); }, scrollTo(options) { calls.push(options); } }, async api(path, options) { calls.push([path, options]); return { discarded: true }; }, clearChatTesterState() { calls.push("chat-cleared"); }, clearDashboardStaleTimer() {}, invalidatePlan() { state.plan = null; state.planId = null; }, preferredScrollBehavior: () => "auto", async loadLocalDashboard() { calls.push("inventory"); }, scheduleDashboardStaleExpiry() {} });
+  await Promise.resolve();
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["/api/local/discard", { method: "POST", body: {} }]);
+  assert.equal(state.plan, null);
+  assert.equal(state.planId, null);
+  assert.equal(state.installedTarget, null);
+  assert.equal(state.assistantSearxngReview, null);
+  assert.equal(state.assistantSearxngReviewId, null);
+  assert.equal(state.dashboardFocusIdentity, null);
+  assert.equal(element("result-credential").textContent, "");
+  assert.equal(element("ngrok-authtoken").value, "");
+  assert.equal(element("install-result-list").hidden, true);
+  assert.equal(element("n8n-oauth-link").href, "");
+  assert.ok(openDisclosures.every((details) => details.open === false), "removal and tester disclosures start closed next time");
+  assert.equal(calls.at(-1), "inventory");
   assert.deepEqual(clearedTimers, [7]);
   assert.equal(state.localModelPollTimer, null);
   assert.equal(state.localModelGeneration, 1);
@@ -120,8 +136,8 @@ test("returning to dashboard discards pending setup reviews and one-time values"
 test("dashboard direct hashes and browser history retain one current navigation link", async () => {
   const script = await source(); const navigation = between(script, "function syncDashboardNavigation", "\nfunction initializeLocalDashboard"); const init = between(script, "function initializeLocalDashboard", "\nfunction parseRelmioStreamEvent");
   const links = ["#dashboard-overview", "#dashboard-connections", "#dashboard-n8n", "#dashboard-credentials", "#dashboard-activity"].map((href) => ({ attributes: new Map([["href", href]]), getAttribute(name) { return this.attributes.get(name) ?? null; }, setAttribute(name, value) { this.attributes.set(name, String(value)); }, removeAttribute(name) { this.attributes.delete(name); }, addEventListener(name, callback) { this.listener = callback; } }));
-  const listeners = new Map(); const window = { location: { hash: "#dashboard-n8n" }, addEventListener(name, callback) { listeners.set(name, callback); } }; const sync = runInNewContext(`${navigation}; syncDashboardNavigation;`, { document: { querySelectorAll: () => links }, window });
+  const listeners = new Map(); const window = { location: { hash: "#dashboard-n8n" }, addEventListener(name, callback) { listeners.set(name, callback); } }; const sync = runInNewContext(`${navigation}; syncDashboardNavigation;`, { document: { querySelectorAll: () => links, getElementById: () => ({ hidden: false }) }, window });
   sync(); assert.equal(links[2].attributes.get("aria-current"), "location"); window.location.hash = "#dashboard-activity"; sync(); assert.equal(links[4].attributes.get("aria-current"), "location"); window.location.hash = "#unknown"; sync(); assert.equal(links[0].attributes.get("aria-current"), "location");
-  const initialize = runInNewContext(`${init}; initializeLocalDashboard;`, { document: { querySelectorAll: () => links }, element: () => ({ addEventListener() {} }), window, syncDashboardNavigation: sync, async enterDashboardView() {}, async refreshProjectMeta() {}, enterSetupView() {}, renderDashboardFailure() {}, showError() {} });
+  const initialize = runInNewContext(`${init}; initializeLocalDashboard;`, { document: { querySelectorAll: () => links, getElementById: () => ({ hidden: false }) }, element: () => ({ addEventListener() {} }), window, syncDashboardNavigation: sync, async enterDashboardView() {}, async refreshProjectMeta() {}, enterSetupView() {}, renderDashboardFailure() {}, showError() {} });
   initialize(); window.location.hash = "#dashboard-connections"; listeners.get("hashchange")(); assert.equal(links[1].attributes.get("aria-current"), "location"); assert.equal(links.filter((link) => link.attributes.has("aria-current")).length, 1);
 });

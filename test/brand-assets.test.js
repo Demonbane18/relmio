@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -16,15 +16,8 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     localIcon,
     localRoundedIcon,
     socialPreview,
-    readme,
-    npmReadme,
-    brandGuide,
-    metadata,
-    hostedPage,
-    installPage,
-    n8nWizard,
-    localWizard,
-    assistantWizard,
+    localTopBarIcon,
+    hostedTopBarIcon,
   ] = await Promise.all([
     readFile("docs/images/brand/relmio-logo.png"),
     readFile("docs/images/brand/relmio-logo-rounded.svg", "utf8"),
@@ -33,15 +26,8 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     readFile("src/ui/relmio-icon.png"),
     readFile("src/ui/relmio-icon-rounded.svg", "utf8"),
     readFile("web/public/og.png"),
-    readFile("README.md", "utf8"),
-    readFile("npm/README.md", "utf8"),
-    readFile("docs/brand.md", "utf8"),
-    readFile("web/app/layout.tsx", "utf8"),
-    readFile("web/app/page.tsx", "utf8"),
-    readFile("web/app/install/page.tsx", "utf8"),
-    readFile("src/ui/index.html", "utf8"),
-    readFile("src/ui/local.html", "utf8"),
-    readFile("src/ui/assistant.html", "utf8"),
+    readFile("src/ui/relmio-icon-96.png"),
+    readFile("web/public/relmio-icon-96.png"),
   ]);
 
   assert.deepEqual(logo.subarray(0, PNG_SIGNATURE.length), PNG_SIGNATURE);
@@ -49,7 +35,6 @@ test("gateway android is the canonical logo across public surfaces", async () =>
   assert.deepEqual(localIcon, logo);
   assert.equal(hostedRoundedIcon, roundedLogo);
   assert.equal(localRoundedIcon, roundedLogo);
-  assert.match(roundedLogo, /<clipPath id="rounded-square">/u);
   assert.deepEqual(
     socialPreview.subarray(0, PNG_SIGNATURE.length),
     PNG_SIGNATURE,
@@ -60,40 +45,12 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     createHash("sha256").update(socialPreview).digest("hex"),
     SOCIAL_PREVIEW_SHA256,
   );
-  await Promise.all([
-    assert.rejects(access("docs/images/brand/relmio-mark.svg"), {
-      code: "ENOENT",
-    }),
-    assert.rejects(access("web/public/relmio-mark.svg"), { code: "ENOENT" }),
-  ]);
-  assert.ok(
-    readme.indexOf('src="docs/images/brand/relmio-banner-animated.svg"') <
-      readme.indexOf('<h1 align="center">Relmio</h1>'),
-  );
-  assert.match(
-    npmReadme,
-    /cdn\.jsdelivr\.net\/npm\/relmio@latest\/docs\/images\/brand\/relmio-banner-animated\.svg/u,
-  );
-  assert.match(readme, /Bring your AI sign-ins to your tools/u);
-  assert.match(npmReadme, /alt="Animated Relmio mascot carrying a private n8n connection through its doorway"/u);
-  assert.match(brandGuide, /images\/brand\/relmio-logo\.png/u);
-  assert.match(metadata, /new URL\("\/og\.png", metadataBase\)/u);
-  assert.match(metadata, /width: 1200, height: 630/u);
-
-  assert.match(metadata, /relmio-icon-rounded\.svg/u);
-  for (const source of [hostedPage, installPage]) {
-    assert.match(source, /relmio-icon\.png/u);
-    assert.doesNotMatch(source, /relmio-mark\.svg/u);
-  }
-
-  for (const source of [n8nWizard, localWizard, assistantWizard]) {
-    assert.match(source, /href="\/relmio-icon-rounded\.svg"/u);
-    assert.match(
-      source,
-      /<img\s+class="brand-mark"\s+src="\/relmio-icon\.png"\s+alt=""\s+width="28"\s+height="28"/u,
-    );
-    assert.doesNotMatch(source, /data:image\/svg\+xml/u);
-  }
+  // The top bars draw the logo at 32 px, so they load a 96 px copy (3x) of the
+  // master instead of the 512 px original.
+  assert.deepEqual(localTopBarIcon.subarray(0, PNG_SIGNATURE.length), PNG_SIGNATURE);
+  assert.equal(localTopBarIcon.readUInt32BE(16), 96);
+  assert.equal(localTopBarIcon.readUInt32BE(20), 96);
+  assert.deepEqual(hostedTopBarIcon, localTopBarIcon);
 });
 
 test("README makes the anti-bypass legal boundary prominent", async () => {

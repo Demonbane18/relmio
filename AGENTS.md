@@ -26,6 +26,9 @@
 - Use static remote commands wherever possible.
 - Render untrusted status text with `textContent`, never `innerHTML`.
 - Prefer named exports.
+- For any interface work in `src/ui` or `web/`, follow `DESIGN.md` and
+  `BRANDKIT.md` and use the shared UI kit in `src/ui/relmio-ui.css`. Edit the
+  kit only at its source; `npm run ui:sync` in `web/` refreshes the web copy.
 
 ## Safety boundaries
 

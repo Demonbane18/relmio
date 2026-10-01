@@ -1,265 +1,430 @@
 # Relmio design system
 
-## Doorway Playground
+This file is the design contract for every Relmio interface: the local browser
+wizard in `src/ui` and the hosted web app in `web/`. Read it with
+[BRANDKIT.md](BRANDKIT.md), which holds the logo, colors, type and voice. Agents
+and frontend skills should treat both files as the project brief and the
+existing design tokens.
 
-Relmio opens a door between AI accounts and local tools. The public website
-uses a playful animated world around the existing doorway mascot.
-Connection guides make the available routes and their limits clear; installation
-and operational surfaces remain calm and direct.
+The two apps share one component kit, `src/ui/relmio-ui.css`. The wizard links
+it directly. The web app imports a generated copy, `web/app/relmio-ui.css`,
+which `npm run ui:sync` in `web/` refreshes and `npm run ui:check` verifies in
+CI. Edit only the source file.
 
-Product truth and safety copy take priority over decoration. Hallmark governs the
-public redesign and its audit; the existing application system continues to govern
-operational surfaces. The user explicitly authorized a bespoke cartoonish direction.
+## Principles
 
-## Visual language
+1. One screen, one job. Each view answers one question or completes one step,
+   and it fits the window at laptop size. The next action is always visible.
+2. Safety stays in sight. Warnings that change a decision are visible without a
+   click. Background and technical detail sits behind a labelled disclosure.
+3. Same parts everywhere. A button, field, notice or top bar looks and behaves
+   the same in the wizard and on the website.
+4. Two themes, one accent. Light is pastel yellow, dark is black. The accent
+   (black in light, yellow in dark) marks the primary action, the current
+   place and selection.
+5. Plain words. Short sentences, sentence case, no jargon without a hint. See
+   the voice rules in BRANDKIT.md.
 
-The public website has a bespoke playful system. It is not a clone of a reference
-brand or a catalogue template. The central idea is an open illustrated world:
-Relmio's doorway connects the AI a visitor already uses to the tools where they
-make things. Lead with that idea, then make the product easy to understand.
+## Surfaces
 
-- Marketing display: Bricolage Grotesque, upright, bold or extra-bold. Body and
-  functional UI: existing Geist. Keep Geist Mono only for actual technical values.
-- Palette: warm cream, deep pine ink, and the existing teal brand anchor. A small
-  set of named coral, butter-yellow, and sky illustration tokens may support the
-  scene. Functional warning amber keeps its meaning. Define all new values as
-  semantic OKLCH tokens, including explicit and system-dark equivalents.
-- Compose one wide illustrated stage into the page. Avoid the rejected left-serif
-  headline plus framed-raster-card arrangement. The illustration must feel drawn
-  for Relmio, not a dashboard diagram or collection of generic floating cards.
-- Use friendly vector shapes or real 3D only when it materially serves the scene.
-  Existing Motion, CSS and SVG are sufficient if the visible result is excellent.
-  Do not label a CSS or SVG scene as Three.js.
-- Give the hero one clear install action. Keep explanation short and plain.
-  Preserve the five accurate connection choices in a secondary accessible guide.
-- Preserve the original logo bytes, dimensions, aspect ratio and artwork. Any
-  illustrated environment is separate artwork; never redraw or distort the logo.
-- Keep operational pages on the existing Astru semantic system. Scope public
-  styles so the installer, local wizard, hosted chat and docs remain dependable.
+| Surface | Where | Job |
+| --- | --- | --- |
+| Setup wizard | `src/ui/index.html` (`/`) | Choose a route, check the server, choose n8n, review, finish |
+| Local dashboard | `src/ui/local.html` (`/local`) | See and manage connections on this computer |
+| Route wizards | `/supergrok-vps`, `/local-model-vps`, `/assistant` | Provider or companion setup on a server |
+| Hosting options | `/hosting` | Compare hosts and build a plan without remote changes |
+| Home | `web/app/page.tsx` (`/`) | Explain Relmio in one screen and start the install |
+| Install | `/install` | Pick a terminal and copy the command |
+| Chat | `/chat` | Try the hosted chat demo |
+| Docs | `/docs`, `/docs/[slug]` | Find and read a guide |
+| Changelog | `/changelog` | Read release notes |
 
-The original Signal Plotter token pairs remain compatibility tokens for existing
-functional surfaces. New public tokens live in the homepage component system;
-no framework stylesheet or global token system is replaced.
+The wizard runs on the user's computer with a strict Content Security Policy:
+same-origin scripts, styles, fonts and images only, no inline styles or
+scripts, and `data:` images allowed. The web app runs on Vercel.
 
-## Public page composition
+## The one-screen rule
 
-- Headline: “Bring your AI sign-ins to your tools.”
-- Supporting copy: “Keep every credential where it belongs. Relmio guides you
-  through sign-in and setup for n8n and local tools.” Provider-specific availability
-  belongs in the connection guide, not the hero introduction.
-- Genre: playful. Hallmark route: custom, bespoke.
-- Marketing family: Doorway Playground, a short invitation followed by a broad
-  animated vector stage, a concise product explanation, and the connection guide.
-- Navigation: preserve existing destinations and logo; use a composed flat header
-  without fake browser chrome or floating glass. Keep How it works, Install,
-  Docs, Changelog, Chat, GitHub, Support, and the System/Light/Dark controls in
-  the header, as explicitly requested. Wrap them at narrow widths and browser
-  zoom without changing their reading order. Keep the install action clear.
-- Footer: a quiet closing invitation with useful destinations; no fake social proof.
-- Motion: one coordinated scene loop with a visible pause/resume control. It must
-  be apparent without hover, stop immediately for reduced motion, and pause when
-  offscreen. Pointer depth is an optional enhancement, not the only animation.
-- Mobile: maintain scene character at 320, 375, 414 and 768 px. Keep the headline,
-  install action and navigation usable; do not conceal overflow as a layout fix.
-- Reference collection: Awesome DESIGN.md is inspiration data. Preserve original
-  identity and factual content; do not copy another brand's assets or wordmarks.
+Every wizard step, the dashboard views, and the web home, install and chat
+pages must show all of their controls and content without a page scrollbar or
+a panel scrollbar at these window sizes:
 
-## Surface rules
+- 1280 x 720, 1366 x 768, 1440 x 900 and 1920 x 1080
+- 1024 x 768
 
-### Home
+Docs and changelog pages keep the top bar and side navigation fixed. Their
+article pane scrolls because long-form reading is the content.
 
-The public homepage introduces Relmio through a playful illustrated world. Use
-vector forms, expressive composition, and visible animation or depth around the
-teal two-eye mascot and cream doorway. The logo file is fixed: preserve its
-original proportions and artwork. A boxed raster scene beside a generic headline
-does not meet this direction.
+The rule covers every default, busy and error state. When a person opens an
+optional disclosure, the panel body may scroll; the footer actions stay
+visible. A chat transcript and an activity log may scroll inside their own
+region.
 
-Lead with a short, plain explanation for ordinary visitors and one obvious install
-action. Put the five connection choices and their truthful limits in an accessible
-secondary guide. Keep the public site welcoming while the installer remains a
-practical guided setup. The two surfaces share identity, not identical layouts.
+The shell makes this possible: put `rm-app rm-app--fit` on `<body>`. From
+1024 x 600 the shell is exactly one window tall and `.rm-app__main` is the only
+scroll container. Views are designed to fit, so that container never scrolls
+at the target sizes. If a view still overflows, for example at 200% zoom, the
+main area scrolls instead of clipping. Below 1024 pixels wide the page scrolls
+normally. Never hide overflow to pass the rule.
 
-Animation must be noticeable and deliberate, with a pause control for continuous
-motion, immediate reduced-motion support, and a complete static presentation.
-Interaction never waits for animation. Touch and keyboard paths must remain
-complete, and the narrow layout must preserve the scene's character as well as
-the install action.
+Ways to fit a view, in order of preference:
 
-### Hosted chat
+1. Remove repetition. Say a safety fact once, in the place it matters.
+2. Split a long step into two steps, or move secondary tasks to their own view
+   or route.
+3. Put optional explanation in an `rm-disclosure` and long warnings in an
+   `rm-notice`. Keep the warning's first sentence visible.
+4. Use the width: two-column forms, a `rm-grid` of choices, a definition list
+   for review facts.
+5. Keep actions in the panel footer, which stays visible.
 
-The console is the primary object in Focus Mode. Explanatory copy remains
-secondary. The transcript owns scrolling, messages use stable turns, the
-composer stays in normal flow, and stopping a request preserves partial output.
-Never imply tools, files, commands, browsing, persistent history, or a shared
-subscription pool.
+Narrow screens (390 x 844 and 320 wide) must never scroll sideways. The first
+screen of every view shows its title and its primary action or first choice.
 
-### Installer
+Verify the rule by measuring, not by eye: at each target size,
+`document.documentElement.scrollHeight` must equal `innerHeight`, and no
+element with `overflow: auto` or `scroll` may have `scrollHeight` above its
+`clientHeight`, except a docs or changelog reading pane, a chat transcript or
+an activity log.
 
-The method selector and usable command appear before supporting explanation.
-Tabs support pointer and arrow-key navigation. Copy feedback is announced, and
-commands wrap without causing page overflow. Wording targets compatible
-self-hosted n8n generally, not one hosting vendor.
+## Layout
 
-### Local browser wizard
-
-Use large, clearly labelled controls and plain instructions for nontechnical users.
-Keep one obvious next action in each of the four steps. Connection choices are
-full-width selectable rows; show the selected choice’s explanation and retain
-short status labels for every choice. Computer requirements and supporting
-credential details may use keyboard-accessible disclosures. Errors, the plan,
-and required confirmations remain explicit. Keep tested behavior unchanged.
-
-### Documentation
-
-Documentation behaves like a field manual: searchable numbered guides, safe
-generated Markdown, and compact adjacent navigation. Keep the index focused on
-finding a guide; request-path explanations belong in the relevant guide.
-Code and route panels may remain dark in either theme only when their foreground
-colors are explicitly paired for contrast.
-
-## Motion and interaction
-
-- Motion explains route selection, state changes, or new transcript content.
-  Public illustration may use visible decorative motion with a pause control.
-  It stays still when reduced motion is requested and remains clear without hover.
-- Use transform and opacity with short deceleration; never animate layout
-  dimensions or padding.
-- Honor `prefers-reduced-motion` with a stable final state and no decorative
-  loops.
-- All interactive targets remain keyboard reachable with visible focus.
-
-## Acceptance bar
-
-Every release must be inspected in Opera GX at desktop and mobile sizes in light
-and dark modes. It must have no horizontal overflow, console errors, failed
-resources, overlapping chat controls, or inaccessible terminal/status colors.
-Unreviewed and undocumented is unfinished; completion requires the finish
-review, its verdict, and this document.
-
-## Portable token exports
-
-The runtime source is `web/app/components/relay/tokens.css`, scoped to
-`.doorway-theme`. It uses the existing theme selection and locally hosted
-Bricolage Grotesque. These examples are optional mappings for another project;
-Relmio continues using Astryx and CSS modules. Import the source tokens first.
-
-### Tailwind v4 mapping
-
-```css
-@theme inline {
-  --color-doorway-cream: var(--doorway-cream);
-  --color-doorway-cream-soft: var(--doorway-cream-soft);
-  --color-doorway-ink: var(--doorway-ink);
-  --color-doorway-ink-soft: var(--doorway-ink-soft);
-  --color-doorway-teal: var(--doorway-teal);
-  --color-doorway-teal-deep: var(--doorway-teal-deep);
-  --color-doorway-teal-soft: var(--doorway-teal-soft);
-  --color-doorway-coral: var(--doorway-coral);
-  --color-doorway-coral-soft: var(--doorway-coral-soft);
-  --color-doorway-butter: var(--doorway-butter);
-  --color-doorway-sky: var(--doorway-sky);
-  --color-doorway-sky-soft: var(--doorway-sky-soft);
-  --color-doorway-hill-back: var(--doorway-hill-back);
-  --color-doorway-hill-front: var(--doorway-hill-front);
-  --color-doorway-shadow: var(--doorway-shadow);
-  --color-doorway-focus-ring: var(--doorway-focus-ring);
-  --font-doorway-display: var(--doorway-font-display);
-  --font-doorway-body: var(--doorway-font-body);
-}
+```
+┌ rm-topbar ─────────────────────────────────────────────────────────┐
+│ brand   nav links                     theme  GitHub  support  menu │
+├ rm-split ──────────────────────────────────────────────────────────┤
+│ rail            │ rm-panel                                         │
+│  rm-stepper     │  header: eyebrow, title, one-line description    │
+│  safety summary │  body: the step                                  │
+│                 │  footer: Back · secondary · primary action       │
+└─────────────────┴──────────────────────────────────────────────────┘
 ```
 
-### Design token JSON
+- Top bar 56 px. Rail 272 px. Gutter 16 to 32 px, fluid.
+- Content width caps at 1216 px; long-form text caps at 46rem.
+- The rail holds the stepper and a compact status or safety summary. It never
+  holds long notices.
+- Below 1024 px the rail moves above the panel and the stepper turns
+  horizontal (`rm-stepper--auto`).
+- Web pages without a rail use `rm-container` inside `rm-app__main`.
+- Below 64rem, the panel footer sticks to the bottom of the viewport while its
+  panel scrolls past, with a surface fill, top divider and safe-area padding.
+  Keep the desktop panel layout unchanged.
+- On narrow screens, document scroll padding leaves room for the sticky top
+  bar and panel footer when focusing or scrolling to content.
 
-Light and dark are separate groups. Colors use the object representation in the
-[Design Tokens Color Module](https://www.designtokens.org/tr/2025.10/color/#format).
-The CSS file remains authoritative for responsive typography and timing.
+## Navigation
 
-```json
-{
-  "light": {
-    "cream": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.955,0.028,92.0]}},
-    "cream-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.98,0.014,95.0]}},
-    "ink": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.3,0.038,175.0]}},
-    "ink-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.48,0.03,175.0]}},
-    "teal": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.55,0.095,185.0]}},
-    "teal-deep": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.44,0.08,186.0]}},
-    "teal-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.91,0.04,186.0]}},
-    "coral": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.65,0.155,45.0]}},
-    "coral-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.9,0.055,58.0]}},
-    "butter": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.89,0.115,95.0]}},
-    "sky": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.83,0.05,225.0]}},
-    "sky-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.94,0.02,225.0]}},
-    "hill-back": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.79,0.065,158.0]}},
-    "hill-front": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.87,0.06,152.0]}},
-    "shadow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.3,0.038,175.0],"alpha":0.16}},
-    "focus-ring": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.42,0.085,186.0]}}
-  },
-  "dark": {
-    "cream": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.25,0.022,95.0]}},
-    "cream-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.19,0.016,95.0]}},
-    "ink": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.91,0.02,170.0]}},
-    "ink-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.72,0.022,170.0]}},
-    "teal": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.77,0.105,178.0]}},
-    "teal-deep": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.63,0.09,180.0]}},
-    "teal-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.32,0.038,184.0]}},
-    "coral": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.73,0.13,48.0]}},
-    "coral-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.37,0.065,50.0]}},
-    "butter": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.8,0.095,95.0]}},
-    "sky": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.55,0.07,225.0]}},
-    "sky-soft": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.28,0.03,225.0]}},
-    "hill-back": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.38,0.045,163.0]}},
-    "hill-front": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.3,0.038,160.0]}},
-    "shadow": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.0,0.0,0.0],"alpha":0.4}},
-    "focus-ring": {"$type":"color","$value":{"colorSpace":"oklch","components":[0.8,0.11,178.0]}}
-  }
-}
+Both apps use the same top bar markup and classes. Only the destinations
+differ.
+
+| App | Primary links | Actions |
+| --- | --- | --- |
+| Wizard | Setup (`/`), This computer (`/local`), Hosting options (`/hosting`), Docs (external, new tab) | Theme switch, GitHub chip with version, Ko-fi support |
+| Web | Home, Install, Docs, Changelog, Chat | Theme switch, GitHub chip with stars and version, Ko-fi support |
+
+Rules:
+
+- Mark the current page with `aria-current="page"`. A route wizard such as
+  `/supergrok-vps` marks Setup with `aria-current="true"`.
+- At 1024 px and wider the links sit in `.rm-nav`. Narrower windows hide
+  `.rm-nav` and show the native `<details class="rm-menu">` with the same links.
+  Elements with `rm-topbar__wide` hide on narrow windows; the menu repeats
+  anything essential.
+- External links open in a new tab, show the `external` icon and use
+  `rel="noopener noreferrer"`. The accessible name says "opens in a new tab".
+- Wizard links between routes keep the private session with
+  `bindWizardNavigation` from `src/ui/session.js`. `src/ui/topbar.js` binds
+  every `[data-wizard-route]` link and blocks navigation while an operation is
+  running.
+- The theme switch is the same radio group in both apps: name `color-theme`,
+  values `system`, `light`, `dark`, stored under `relmio-color-mode`. An explicit
+  choice sets `data-theme` on `<html>`; System removes it.
+- Section navigation inside a page uses `rm-sidebar`. Guided flows use
+  `rm-stepper`.
+
+Top bar markup (the web renders the same structure from
+`web/app/components/ui/TopBar.tsx`):
+
+```html
+<header class="rm-topbar">
+  <div class="rm-topbar__inner">
+    <a class="rm-brand" href="/">
+      <img class="rm-brand__logo" src="/relmio-icon-96.png" width="32" height="32" alt="" />
+      <span>Relmio</span>
+    </a>
+    <nav class="rm-nav" aria-label="Primary">
+      <ul class="rm-nav__list">
+        <li><a class="rm-nav__link" href="/" aria-current="page">Setup</a></li>
+      </ul>
+    </nav>
+    <div class="rm-topbar__actions">
+      <!-- theme switch, rm-chip GitHub link, support rm-icon-button -->
+      <details class="rm-menu">
+        <summary class="rm-icon-button" aria-label="Menu">
+          <span class="rm-icon rm-icon--menu" aria-hidden="true"></span>
+        </summary>
+        <div class="rm-menu__panel"><nav aria-label="Primary">…same links as rm-menu__link…</nav></div>
+      </details>
+    </div>
+  </div>
+</header>
 ```
 
-### shadcn variable mapping
+## Components
 
-```css
-.doorway-theme {
-  --background: var(--doorway-cream-soft);
-  --foreground: var(--doorway-ink);
-  --card: var(--doorway-cream);
-  --card-foreground: var(--doorway-ink);
-  --popover: var(--doorway-cream-soft);
-  --popover-foreground: var(--doorway-ink);
-  --primary: var(--doorway-ink);
-  --primary-foreground: var(--doorway-cream-soft);
-  --secondary: var(--doorway-teal-soft);
-  --secondary-foreground: var(--doorway-ink);
-  --muted: var(--doorway-cream);
-  --muted-foreground: var(--doorway-ink-soft);
-  --accent: var(--doorway-teal-soft);
-  --accent-foreground: var(--doorway-ink);
-  --border: var(--doorway-ink-soft);
-  --input: var(--doorway-ink-soft);
-  --ring: var(--doorway-focus-ring);
-}
+All classes start with `rm-`. One class makes a component; a `--modifier`
+class picks a variant; ARIA and `data-*` attributes carry state. Base element
+styles use `:where()`, so a page stylesheet can override anything without
+`!important`. Class names are public API: rename one only together with every
+caller in both apps.
+
+| Component | Classes | Use |
+| --- | --- | --- |
+| App shell | `rm-app`, `rm-app--fit`, `rm-app__main`, `rm-split`, `rm-container` | Page frame and the one-screen rule |
+| Top bar | `rm-topbar`, `rm-brand`, `rm-nav`, `rm-menu`, `rm-topbar__actions` | Global navigation |
+| Sidebar | `rm-sidebar`, `rm-sidebar__link` | Views inside a page |
+| Stepper | `rm-stepper`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker` | Progress through a flow; `aria-current="step"`, `data-state="done"` |
+| Panel | `rm-panel`, `__header`, `__heading`, `__body`, `__footer` | The working surface of a view |
+| Card | `rm-card`, `--flat`, `--muted`, `--compact` | Grouped content |
+| Choice | `rm-choice` and its `__icon`, `__title`, `__text` | A selectable option row or card |
+| Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress |
+| Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name |
+| Link | `rm-link`, `--quiet` | Text links |
+| Chip | `rm-chip`, `rm-chip__meta` | GitHub link with stars and version |
+| Field | `rm-field`, `__label`, `__hint`, `__error`, `rm-input`, `rm-select`, `rm-textarea`, `rm-form-grid`, `rm-fieldset` | Forms |
+| Check | `rm-check`, `--boxed`, `rm-check__hint` | Checkbox or radio with its label |
+| Segmented | `rm-segmented`, `__item`, `__input` | Theme switch and small exclusive choices |
+| Tabs | `rm-tabs__list`, `rm-tabs__tab` | Switch panels in place |
+| Callout | `rm-callout`, `--success`, `--warning`, `--danger`, `--neutral`, `__icon`, `__content`, `__title`, `__body`, `__close` | A short message in a view |
+| Notice | `rm-notice`, `--info`, `__title`, `__text`, `__toggle`, `__body` | A one-line warning that expands for detail |
+| Badge | `rm-badge`, `--accent`, `--success`, `--warning` | Short labels |
+| Status | `rm-status`, `rm-status__dot`, `data-tone` | A dot plus a sentence |
+| Progress | `rm-progress`, `--indeterminate`, `rm-progress__bar` | Work in progress |
+| Definition list | `rm-dl` | Review facts and results |
+| Table | `rm-table-wrap`, `rm-table` | Tabular data; the wrap scrolls sideways on narrow screens |
+| Terminal | `rm-terminal`, `__bar`, `__actions`, `__body`, `__prompt`, `__note` | Commands; always dark |
+| Disclosure | `rm-disclosure`, `--plain`, `rm-disclosure__body` | Optional detail |
+| Prose | `rm-prose` | Generated Markdown and long text |
+| Type | `rm-display`, `rm-h1`, `rm-h2`, `rm-h3`, `rm-eyebrow`, `rm-lede`, `rm-muted`, `rm-small` | Text styles |
+| Icon | `rm-icon` plus `rm-icon--<name>`, sizes `--xs`, `--sm`, `--lg` | Lucide icons drawn in `currentColor` |
+| Utilities | `rm-cluster`, `rm-grid`, `rm-push`, `rm-visually-hidden`, `rm-skip-link` | Layout and accessibility helpers |
+
+Icon names: monitor, sun, moon, menu, x, check, check-circle, alert, info,
+external, coffee, copy, chevron-down, chevron-right, arrow-right, arrow-left,
+arrow-up-right, terminal, server, laptop, shield, lock, book, home, plug, key,
+activity, refresh, network, cloud, bot, message, search, box, star, download,
+help, list-checks, log-out, settings, github. Add an icon by appending its
+Lucide geometry to the token list in the kit and documenting it here.
+
+Component rules:
+
+- One primary button per view, in the panel footer or next to the field it
+  submits. Destructive actions use `rm-button--danger` and say what they
+  remove.
+- Every icon-only control has an accessible name. Decorative icons get
+  `aria-hidden="true"`.
+- Choices are real controls: a `<button>` with `aria-pressed` or
+  `aria-expanded`, a link, or a `<label>` around `rm-choice__input`.
+- Fields keep a visible label. Hints and errors connect through
+  `aria-describedby`; invalid fields set `aria-invalid="true"`.
+- Status never relies on color: a status dot always sits next to text, and
+  badges carry words.
+- Errors that block progress use `rm-callout--danger` with `role="alert"` and
+  take focus when they appear. In a step panel at 1024 px and wider, place the
+  error in the panel header beside the step title or in the rail, so it never
+  pushes the step past one screen; on narrower screens, place it next to the
+  footer actions.
+  Passing progress messages use `role="status"`.
+- Commands use `rm-terminal`. The copy button announces success through a
+  polite live region and does not move focus.
+- Long tokens such as fingerprints, hostnames and URLs wrap
+  (`overflow-wrap: anywhere` is built into fields, checks, callouts and
+  definition lists).
+
+Example step panel:
+
+```html
+<section class="rm-panel" aria-labelledby="vps-title">
+  <header class="rm-panel__header">
+    <div class="rm-panel__heading">
+      <span class="rm-eyebrow">Step 2 of 5</span>
+      <h2 id="vps-title" class="rm-h1" tabindex="-1">Check your server</h2>
+      <p class="rm-muted">Confirm the server identity before you sign in to it.</p>
+    </div>
+  </header>
+  <div class="rm-panel__body">…</div>
+  <footer class="rm-panel__footer">
+    <button class="rm-button rm-button--ghost" type="button">Back</button>
+    <button class="rm-button rm-button--primary rm-push" type="submit">Connect</button>
+  </footer>
+</section>
 ```
 
-These aliases map the colors this scene uses. Add component-specific validation
-and status colors when introducing forms; the scene does not define those states.
+## Color
 
+Use semantic tokens only. Never write a raw color in a page stylesheet; add a
+token to the kit when a new role appears. Hex values and contrast ratios are in
+BRANDKIT.md.
 
-### Mascot clarification from user review
-The homepage scene may use the existing green, mouthless, two-eyed mascot and
-separate cream doorway vectors from `docs/images/brand/relmio-banner-animated.svg`.
-Do not frame the square logo inside another arch. Preserve the original header
-logo asset. Keep three purposeful stops (VPS cloud, Relmio, local workshop), no smiling
-cloud or detached flag, and put moving messages behind foreground destinations.
+| Token | Role |
+| --- | --- |
+| `--rm-canvas` | Page background |
+| `--rm-surface` | Panels, cards, inputs |
+| `--rm-surface-muted` | Quiet fills: tracks, table headers, hover |
+| `--rm-surface-sunken` | Progress tracks and wells |
+| `--rm-ink`, `--rm-ink-muted`, `--rm-ink-subtle` | Text, secondary text, placeholders and decoration |
+| `--rm-line`, `--rm-line-strong`, `--rm-field-line` | Dividers, button outlines, form control borders |
+| `--rm-accent`, `--rm-accent-hover`, `--rm-on-accent` | Primary action and selection |
+| `--rm-accent-soft`, `--rm-accent-line`, `--rm-accent-ink` | Selected backgrounds, borders and text |
+| `--rm-focus` | Focus ring |
+| `--rm-success`, `--rm-warning`, `--rm-danger` and their `-soft`, `-line` pairs | Status |
+| `--rm-terminal-*` | Terminal and code blocks, dark in both themes |
+| `--rm-terminal-hover` | Terminal copy-button hover in both themes |
+| `--rm-brand-*` | Logo colors for illustration only, never for UI state |
 
+Light theme: pastel yellow surfaces, warm black ink, black primary buttons
+with yellow text. Dark theme: black surfaces with no green tint, warm white
+ink, yellow primary buttons with black text. Orange is only for warnings, red
+only for failures and destructive actions, green only for success. Teal
+appears only in the logo and mascot artwork. No purple AI gradients, neon
+glows, glass panels or decorative gradients.
 
-### Final landscape behavior
-The illustration spans the browser width with curved ground edges and a raised
-cloud. The neutral traveller passes behind destinations. Local and VPS labels
-appear briefly on arrival, sharing the same pause clock; permanent scene labels
-are omitted. Night mode adds a moon, stars and a warmly lit workshop window while
-retaining object colors. Unsupported SVG animation and reduced motion show a
-complete still scene. Header links, theme controls and the original logo remain.
+## Typography
 
-At the user's request, the illustrated ghost wears a blue sleep cap with closed
-eyes and quiet Zzz in night mode. Day mode restores the original blinking eyes.
-This is a scene accessory; the header logo asset is unchanged. All added motion
-obeys pause, reduced motion, visibility and unsupported-animation fallback.
+| Role | Family | Size | Weight |
+| --- | --- | --- | --- |
+| Display (web home headline) | Bricolage Grotesque | `--rm-text-display`, 36 to 60 px | 800 |
+| Page and step titles | Bricolage Grotesque | `--rm-text-h1`, 24 to 32 px | 760 |
+| Section titles | Geist | 20 px | 650 |
+| Body | Geist | 16 px | 400 |
+| Interface labels | Geist | 14 px | 560 to 650 |
+| Hints and metadata | Geist | 13 px | 400 |
+| Eyebrows | System monospace | 12 px uppercase, 0.08em tracking | 600 |
+| Commands and IDs | System monospace | 14 to 15 px | 400 |
+
+Inputs use 16 px text so mobile browsers do not zoom. Keep body text under 75
+characters per line. Use sentence case for headings, buttons and labels.
+
+## Spacing, shape and elevation
+
+- Spacing follows a 4 px grid: `--rm-space-1` (4) to `--rm-space-16` (64).
+- Radii: 6 px small labels, 10 px controls, 14 px cards, 18 px panels, full
+  round only for badges, chips and status dots.
+- Elevation is rare. Cards use `--rm-shadow-sm`, panels `--rm-shadow-md`, menus
+  and toasts `--rm-shadow-lg`. Lines carry most hierarchy, especially in dark
+  mode.
+- Do not nest more than two bordered containers.
+
+## Motion
+
+- Motion confirms a change: selection, a state change, new content. 120 to
+  280 ms with `--rm-ease`.
+- Animate only `transform` and `opacity`; never width, height, padding or
+  position.
+- `prefers-reduced-motion: reduce` stops spinners, pulses and slides; the kit
+  provides static fallbacks.
+- The home illustration may loop. It needs a visible pause control, pauses
+  offscreen, and shows a complete still scene for reduced motion or missing
+  SVG animation support.
+
+## Copy
+
+- Read the `humanizer` skill before writing interface text.
+- Lead with the action or the fact. One idea per sentence. No em dashes in
+  interface text.
+- Keep these product labels exact and distinct: n8n with ChatGPT sign-in,
+  SuperGrok OAuth, n8n Code Sandbox, Codex Chat Adapter, Codex App Server, and
+  Local model.
+- The ChatGPT bridge is unofficial, private and policy-uncertain; say so where
+  the user chooses it. Sign-in is never an OpenAI Platform API key.
+- Never imply a capability, permission or test result that has no recorded
+  evidence. Hosted chat has no tools, files, commands or browsing.
+- Prerelease builds show an `rm-notice` whose summary names the version and
+  says "Use a test setup". The details hold the stable fallback command.
+  Stable releases show no release notice.
+- Label each experimental feature or provider with an `Experimental` badge
+  (`rm-badge rm-badge--accent`) beside its name and one short warning that
+  names the untested part. Do not repeat the warning on the same screen.
+
+## Accessibility floor
+
+- WCAG 2.2 AA. Text contrast at least 4.5:1, large text and controls at least
+  3:1, in both themes. The focus ring is 3 px `--rm-focus` with a 2 px offset.
+- Landmarks: one `header`, one `main`, labelled `nav` and `aside`. One `h1`
+  per page; headings in order.
+- Keyboard: everything reachable in reading order, no traps, visible focus,
+  Escape closes menus. Do not reorder focusable content visually.
+- Focused or scrolled-to elements must clear sticky controls. On narrow
+  screens the document reserves top-bar and footer space through scroll
+  padding; check heading focus, skip links and both Tab directions on phones.
+- Targets at least 24 x 24 px; primary controls 40 px or taller.
+- Do not disable zoom. Content reflows at 320 px wide without sideways
+  scrolling.
+- Respect `prefers-reduced-motion`, `forced-colors` and `prefers-color-scheme`.
+
+## Implementation rules
+
+Wizard (`src/ui`):
+
+- Link `/relmio-ui.css` first, then any page stylesheet. Page stylesheets hold
+  only layout specific to that page.
+- Every new file in `src/ui` needs an entry in the server file map in
+  `src/web/server.js` and in the package allowlist in
+  `test/package-contents.test.js`.
+- Keep element IDs, `data-*` hooks and class names that scripts or tests use.
+  Search `src/ui/*.js` and `test/` before renaming.
+- Write untrusted text with `textContent`, never `innerHTML`.
+- Never weaken a safety step: host-key confirmation before authentication,
+  the reviewed plan, and the final confirmation before remote writes.
+
+Web (`web/`):
+
+- Import `./relmio-ui.css` in the root layout before other styles.
+- Use the React components in `web/app/components/ui/`. They render the kit
+  markup; add to them instead of creating new styling systems.
+- Page-specific styles go in a CSS module next to the page and use kit tokens.
+- Keep install commands and security attributes exact; tests guard them.
+
+## Verification
+
+For each changed view, before handing off:
+
+1. Run it: the wizard through `npm run preview` (sanitized, no live sign-in)
+   or a QA launcher with fake services; the web app with `next dev`.
+2. Use one headless browser tab and close it afterwards. Do not drive the
+   owner's personal browser for routine checks.
+3. Check 1280 x 720, 1440 x 900, 1024 x 768 and 390 x 844 in light and dark
+   themes. Measure the one-screen rule and horizontal overflow, check focus
+   order with the keyboard, and read the console.
+4. Audit against the Front-End Checklist with the `frontend-checklist-global`
+   skill. Report findings with rule ids.
+5. Run the affected root and web tests. Tests guard behavior, not class names
+   or wording.
+
+## Home illustration
+
+The home page keeps the Doorway scene: the green two-eyed mascot, its cream
+doorway, a VPS cloud and a local workshop, drawn as original vectors. It sits
+beside the headline and the install action, inside the one-screen layout.
+Preserve the original logo files exactly; the scene is separate artwork. Its
+backdrop follows the theme: pastel yellow sky and ochre hills by day, black
+sky and charcoal hills by night. Night mode may add a moon, stars, a lit
+window and the mascot's sleep cap. Keep the pause control and the still
+fallback described under Motion.
+
+## Do and don't
+
+Do:
+
+- Reuse a kit component before writing new CSS.
+- Write the shortest copy that keeps the meaning, then test it in the layout.
+- Put the next action where the eye ends: the panel footer, right side.
+
+Don't:
+
+- Add a second component library, CSS framework or icon set.
+- Stack warnings. One notice per view, with details inside it.
+- Use a scrollbar to fit content at the target sizes.
+- Center everything, use four equal feature cards with an oversized banner, or
+  decorate with badges.
