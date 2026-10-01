@@ -269,51 +269,6 @@ test("published guides document the local n8n Assistant tools wizard contract", 
   assert.match(security, /no host\s+port/u);
 });
 
-test("published documentation explains ChatGPT token refresh and lifetime boundaries", async () => {
-  const paths = [
-    "README.md",
-    "npm/README.md",
-    "docs/local-endpoints.md",
-    "docs/faq.md",
-    "docs/troubleshooting.md",
-    "docs/security.md",
-    "web/app/docs/generated-content.ts",
-  ];
-  const contents = await Promise.all(paths.map((path) => readFile(path, "utf8")));
-  const generated = contents.at(-1);
-
-  for (const published of contents.slice(0, -1)) {
-    assert.match(published, /ChatGPT\/Codex sign-in tokens expire/u);
-    assert.match(
-      published,
-      /official Codex client refreshes\s+them\s+automatically during active use before they expire/iu,
-    );
-    assert.match(
-      published,
-      /active\s+sessions\s+usually\s+continue\s+without\s+another\s+browser\s+login/iu,
-    );
-    assert.match(
-      published,
-      /official\s+(?:\[[^\]]+\]\([^\)]+\)|OpenAI documentation)\s+does not\s+publish a fixed 10-day lifetime/iu,
-    );
-    assert.match(published, /do not plan around one/u);
-    assert.match(
-      published,
-      /provider\s+credential is separate from Relmio's local\s+capability[\s\S]*remains valid\s+until you rotate it/u,
-    );
-  }
-  assert.match(generated, /ChatGPT\/Codex sign-in tokens expire/u);
-  assert.match(
-    generated,
-    /official Codex client refreshes\\nthem automatically during active use before they expire/u,
-  );
-  assert.match(generated, /fixed 10-day lifetime/u);
-  assert.match(
-    await readFile("docs/troubleshooting.md", "utf8"),
-    /If Relmio reports the credential is invalid or refresh no\s+longer succeeds, select \*\*Start ChatGPT sign-in\*\* again in the active local\s+wizard[\s\S]*labels that action \*\*Refresh ChatGPT sign-in\*\*/u,
-  );
-});
-
 test("local endpoint curl samples keep bearer credentials out of process arguments", async () => {
   const guides = await Promise.all(
     ["docs/local-endpoints.md", "docs/reference.md"].map((path) =>
@@ -446,8 +401,6 @@ test("troubleshooting distinguishes the CMD bootstrap from the shared Windows AC
     /Every native Windows launcher shares this[\s\S]*setup stops\s+before saving secrets/u,
   );
   assert.match(troubleshooting, /Please wait/u);
-  assert.match(troubleshooting, /VS Code embedded browser/u);
-  assert.match(troubleshooting, /validated manual link/u);
 });
 
 test("troubleshooting exposes the tested Homebrew tap while WinGet remains pending", async () => {

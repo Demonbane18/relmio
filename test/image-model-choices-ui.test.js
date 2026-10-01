@@ -109,9 +109,9 @@ test("both browser screens provide safe copy controls and exact n8n Generate/Edi
       /<button[^>]+data-copy-target="(?:result|update)-image-model-(?:2|flare|sunburst)"[^>]*>([\s\S]*?)<\/button>/gu,
     )];
     assert.equal(controls.length, expectedControls);
-    for (const [, contents] of controls) {
-      assert.match(contents, /<svg class="copy-icon copy-icon-copy"[\s\S]*?<rect[\s\S]*?<\/svg>/u);
-      assert.match(contents, /<svg class="copy-icon copy-icon-check"[\s\S]*?m5 12 4 4L19 6[\s\S]*?<\/svg>/u);
+    for (const [button, contents] of controls) {
+      assert.match(button, /aria-label="Copy [^"]+"/u);
+      assert.match(contents, /<span class="rm-icon rm-icon--copy[^"]*" aria-hidden="true"><\/span>/u);
     }
   }
   for (const script of [localScript, vpsScript]) {

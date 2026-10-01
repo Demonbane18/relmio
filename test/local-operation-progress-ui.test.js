@@ -96,6 +96,7 @@ class FakeElement {
     if (selector.includes("input") && this.tagName === "INPUT") return true;
     if (selector.includes("select") && this.tagName === "SELECT") return true;
     if (selector.includes("textarea") && this.tagName === "TEXTAREA") return true;
+    if (selector.includes("summary") && this.tagName === "SUMMARY") return true;
     if (selector.includes("a[href]") && this.tagName === "A" && this.hasAttribute("href")) return true;
     return selector.includes("[contenteditable]") && this.hasAttribute("contenteditable");
   }
@@ -155,6 +156,7 @@ function createHarness(script) {
   const superGrokRemovalButton = new FakeElement("button", { disabled: true });
   const deviceCodeCopy = new FakeElement("button", { textContent: "Copy" });
   deviceCodeCopy.setAttribute("data-operation-allow", "copy");
+  const disclosureSummary = new FakeElement("summary");
   body.append(
     activeButton,
     enabledInput,
@@ -166,6 +168,7 @@ function createHarness(script) {
     superGrokRemovalConfirm,
     superGrokRemovalButton,
     deviceCodeCopy,
+    disclosureSummary,
     operationProgress,
     mainContent,
   );
@@ -200,6 +203,7 @@ function createHarness(script) {
     superGrokRemovalConfirm,
     superGrokRemovalButton,
     deviceCodeCopy,
+    disclosureSummary,
   ];
   const document = {
     activeElement: activeButton,
@@ -274,6 +278,7 @@ function createHarness(script) {
     controls,
     deviceCodeCopy,
     disabledSelect,
+    disclosureSummary,
     document,
     elapsed,
     enabledInput,
@@ -398,7 +403,7 @@ test("central operation lifecycle locks, observes, blocks, restores, and resets"
   assert.ok(
     harness.controls
       .filter((control) =>
-        control !== harness.navigation && control !== harness.deviceCodeCopy)
+        control !== harness.navigation && control !== harness.deviceCodeCopy && control !== harness.disclosureSummary)
       .every((control) => control.disabled),
   );
   assert.equal(harness.deviceCodeCopy.disabled, false, "required device-code copy stays usable");
@@ -406,6 +411,15 @@ test("central operation lifecycle locks, observes, blocks, restores, and resets"
   assert.equal(harness.readonlyTextarea.readOnly, true);
   assert.equal(harness.navigation.getAttribute("aria-disabled"), "true");
   assert.equal(harness.navigation.getAttribute("tabindex"), "-1");
+  assert.equal(harness.disclosureSummary.getAttribute("tabindex"), "-1", "native summaries leave the tab order");
+  for (const shiftKey of [false, true]) {
+    const tab = { ...blockedEvent(harness.disclosureSummary), type: "keydown", key: "Tab", shiftKey };
+    harness.listeners.get("keydown").handler(tab);
+    assert.equal(tab.defaultPrevented, false, "Tab and Shift+Tab still move focus while busy");
+  }
+  const enter = { ...blockedEvent(harness.disclosureSummary), type: "keydown", key: "Enter" };
+  harness.listeners.get("keydown").handler(enter);
+  assert.equal(enter.defaultPrevented, true, "activation keys stay blocked on a summary");
   assert.equal(harness.hiddenAction.disabled, true, "hidden actions are locked before being shown");
 
   const dynamicButton = new FakeElement("button", { hidden: true });
@@ -515,6 +529,7 @@ test("central operation lifecycle locks, observes, blocks, restores, and resets"
   assert.equal(authLink.getAttribute("tabindex"), null);
   assert.equal(harness.navigation.getAttribute("aria-disabled"), null);
   assert.equal(harness.navigation.getAttribute("tabindex"), null);
+  assert.equal(harness.disclosureSummary.getAttribute("tabindex"), null);
   assert.deepEqual(harness.clearedIntervals, [1]);
   assert.equal(harness.observers[0].disconnected, true);
 

@@ -20,6 +20,11 @@ credential JSON into its selected private sidecar after confirmation. API-key
 connections and operator-generated hosting artifacts are configured separately
 in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
 SuperGrok setup does not require or read ChatGPT/Codex credentials.
+Hosted chat is separate: its unofficial, policy-uncertain demo uses a third-party
+Codex flow, not OpenAI's documented Sign in with ChatGPT integration. It stores an
+encrypted session in browser IndexedDB and sends each prompt with the access token
+to Relmio's Vercel server for forwarding to OpenAI. See the
+[hosted chat security notes](https://relmio.jpfusin.tech/docs/security#hosted-chat-demo).
 
 > **Relmio 0.18.0-experimental.4 is an opt-in prerelease.** Earlier
 > private-candidate model-only checks do not verify this artifact, full-stack
@@ -407,12 +412,12 @@ default. The dashboard never returns or re-shows a stored secret.
 
 ## Sign-in lifetime
 
-ChatGPT/Codex sign-in tokens expire. The official Codex client refreshes them
-automatically during active use before they expire, so active sessions usually
-continue without another browser login. Official OpenAI documentation does not
-publish a fixed 10-day lifetime; do not plan around one. This provider
-credential is separate from Relmio's local capability, which remains valid
-until you rotate it.
+The Codex authentication guide describes automatic credential refresh but does
+not give a fixed token lifetime. Relmio's private bridge and hosted chat demo
+each refresh their own credential copies. OpenAI's one-hour access-token and
+rotating 30-day refresh-token lifetimes describe the separate Sign in with
+ChatGPT plan-usage flow, not Relmio's pinned Codex flow. The local capability
+remains valid until you rotate it.
 
 ## Common problems
 

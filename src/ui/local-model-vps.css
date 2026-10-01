@@ -1,32 +1,252 @@
-.local-model-vps { min-height: 100svh; }
-.local-model-vps .header-actions { display: flex; align-items: center; gap: .75rem; }
-.local-model-vps .model-layout { display: grid; grid-template-columns: minmax(15rem, 19rem) minmax(0, 48rem); gap: clamp(1rem, 3vw, 3rem); width: min(100% - 2rem, 70rem); margin: 2rem auto 4rem; align-items: start; }
-.local-model-vps .model-intro { position: sticky; top: 6rem; display: grid; gap: .75rem; }
-.local-model-vps .model-intro h1 { margin: 0; font-size: clamp(1.6rem, 2vw, 2.3rem); line-height: 1.1; }
-.local-model-vps .model-intro p { margin: 0; line-height: 1.5; }
-.local-model-vps #message, .local-model-vps #error { padding: .75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-muted); overflow-wrap: anywhere; }
-.local-model-vps #error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
-.local-model-vps .model-panels { display: grid; gap: 1rem; min-width: 0; }
-.local-model-vps .model-panels > .panel { padding: clamp(1rem, 2vw, 1.5rem); }
-.local-model-vps .model-panels h2 { margin-top: 0; }
-.local-model-vps .fields { display: grid; gap: 1rem; margin: 1rem 0; }
-.local-model-vps .field { display: grid; gap: .35rem; font-weight: 700; }
-.local-model-vps .field input, .local-model-vps .field select { width: 100%; min-height: 2.75rem; box-sizing: border-box; padding: .625rem .75rem; color: var(--text); background: var(--surface-muted); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); font: inherit; }
-.local-model-vps .fingerprint { margin: 1rem 0; }
-.local-model-vps .fingerprint code { overflow-wrap: anywhere; }
-.local-model-vps .check-row { margin-top: 1rem; }
-.local-model-vps .actions { display: flex; flex-wrap: wrap; gap: .625rem; margin-top: 1rem; }
-.local-model-vps #installation-state, .local-model-vps #progress { padding: .75rem; background: var(--accent-soft); border-left: 3px solid var(--accent); overflow-wrap: anywhere; }
-.local-model-vps #deletion-warning { padding: 1rem; color: var(--danger); border: 1px solid var(--danger-border); border-radius: var(--radius); background: var(--danger-soft); }
-.local-model-vps #review-panel .result-list dd { overflow-wrap: anywhere; }
-.local-model-vps .model-hosting-hint { padding: .875rem; background: var(--surface-muted); border: 1px solid var(--border); border-radius: var(--radius); line-height: 1.5; overflow-wrap: anywhere; }
-.local-model-vps #ssh-agent-status, .local-model-vps #ssh-session { overflow-wrap: anywhere; line-height: 1.5; }
-.local-model-vps :where(button, input, select, a):focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
-.local-model-vps [hidden] { display: none !important; }
-@media (max-width: 52rem) { .local-model-vps .model-layout { grid-template-columns: 1fr; } .local-model-vps .model-intro { position: static; } }
-@media (max-width: 36rem) {
-  .local-model-vps .site-header { flex-wrap: wrap; height: auto; }
-  .local-model-vps .header-actions { width: 100%; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
-  .local-model-vps .actions { flex-direction: column; }
-  .local-model-vps .actions .button { width: 100%; }
+/* Local model on your VPS. Components come from relmio-ui.css; this file only
+   lays out the route wizard. Kit tokens only. */
+
+/* One step panel at a time. local-model-vps.js marks the current one. */
+.route-content > .route-panel:not([data-current]) {
+  display: none;
+}
+
+/* Recovery without n8n: the status and actions below the names stand in for
+   the n8n choice, so that part of step 2 steps aside. */
+.route-content:has(> #manual-recovery[data-current]) #selection-panel > .rm-panel__header,
+.route-content:has(> #manual-recovery[data-current]) .route-n8n-fields {
+  display: none;
+}
+
+.route-content:has(> #manual-recovery[data-current]) #selection-panel > .rm-panel__body {
+  padding-top: var(--rm-space-5);
+}
+
+.route-form {
+  display: contents;
+}
+
+/* Step headings take programmatic focus when the step changes; they are not controls. */
+.route-panel h2[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* Active status stays with the stepper on phones. Safety follows the
+   panel, while the desktop rail retains its two-row layout. */
+@media (min-width: 64rem) {
+  .route-layout {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .route-rail {
+    grid-area: 1 / 1;
+  }
+
+  .route-content {
+    grid-area: 1 / 2 / 3 / 3;
+  }
+
+  .route-rail-foot {
+    grid-area: 2 / 1;
+    align-self: start;
+  }
+}
+
+.route-rail-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rm-space-4);
+  min-width: 0;
+}
+
+.route-intro {
+  display: grid;
+  gap: var(--rm-space-1);
+}
+
+.route-steps .rm-stepper__link {
+  cursor: default;
+}
+
+.route-steps .rm-stepper__link:hover {
+  background: none;
+}
+
+.route-safety {
+  display: grid;
+  gap: var(--rm-space-2);
+  margin: 0;
+  padding: var(--rm-space-3) var(--rm-space-4);
+  border: 1px solid var(--rm-line);
+  border-radius: var(--rm-radius-md);
+  background: var(--rm-surface-muted);
+  list-style: none;
+}
+
+.route-status,
+.route-error,
+.route-state {
+  overflow-wrap: anywhere;
+}
+
+.route-error::before {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: 0.125rem;
+  background-color: var(--rm-danger);
+  content: "";
+  -webkit-mask: var(--rm-icon-alert) center / contain no-repeat;
+  mask: var(--rm-icon-alert) center / contain no-repeat;
+}
+
+/* Panel bodies: a main column and a quieter side column, chosen by the panel's
+   own width. */
+.route-panel .rm-panel__body {
+  container-type: inline-size;
+}
+
+.route-columns {
+  display: grid;
+  align-items: start;
+  gap: var(--rm-space-4) var(--rm-space-6);
+  min-width: 0;
+}
+
+@container (min-width: 36rem) {
+  .route-columns--form {
+    grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.5fr);
+  }
+}
+
+.route-main,
+.route-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rm-space-3);
+  min-width: 0;
+}
+
+.route-main {
+  container-type: inline-size;
+}
+
+/* Server address, port and the identity check share one row when there is room. */
+.route-target {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem;
+  align-items: end;
+  gap: var(--rm-space-3);
+}
+
+.route-target__scan {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@container (min-width: 30rem) {
+  .route-target {
+    grid-template-columns: minmax(0, 1fr) 6.5rem auto;
+  }
+
+  .route-target__scan {
+    grid-column: auto;
+    min-height: 2.75rem;
+  }
+}
+
+/* The hosting product gates the whole form, so it sits beside the step title. */
+.route-hosting {
+  flex: 0 1 16rem;
+}
+
+/* Two sign-in fields per row keep the permission choices readable. */
+@container (min-width: 22rem) {
+  .route-signin {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.route-fingerprint {
+  font-size: var(--rm-text-sm);
+}
+
+.route-session:empty,
+.route-state:empty {
+  display: none;
+}
+
+/* The model names are the longest choices. */
+@container (min-width: 48rem) {
+  .route-n8n-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.3fr);
+  }
+}
+
+/* Review: the plan facts, then the confirmations side by side when there is room. */
+.route-review-list {
+  grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr);
+}
+
+@container (max-width: 30rem) {
+  .route-review-list {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--rm-space-1);
+  }
+
+  .route-review-list > div + div > dt {
+    margin-top: var(--rm-space-2);
+  }
+}
+
+.route-review-list dd,
+.route-review-details {
+  overflow-wrap: anywhere;
+}
+
+.route-review-notes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rm-space-2) var(--rm-space-4);
+}
+
+.route-review-notes > p {
+  flex: 1 1 18rem;
+}
+
+.route-approvals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  align-items: start;
+  gap: var(--rm-space-3);
+}
+
+.route-danger-check {
+  border-color: var(--rm-danger-line);
+}
+
+.route-danger-check .rm-check__hint {
+  color: var(--rm-danger);
+}
+
+/* Current download feedback replaces the completed action message without
+   adding a second rail row. The message returns when progress is hidden. */
+.route-rail:has(> #progress:not([hidden])) > #message {
+  display: none;
+}
+
+/* An error replaces the stale rail status. */
+.local-model-vps:has(.route-error:not([hidden])) .route-status {
+  display: none;
+}
+
+/* Connect n8n */
+.route-settings dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rm-space-1) var(--rm-space-3);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.route-settings dd > .rm-small {
+  flex-basis: 100%;
+  font-weight: 400;
 }

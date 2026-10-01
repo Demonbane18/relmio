@@ -9,358 +9,427 @@
     />
     <title>Relmio | n8n AI Assistant</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/assistant.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
     <script src="/assistant.js" type="module"></script>
   </head>
-  <body class="assistant-wizard" data-current-step="1">
-    <a class="skip-link" href="#main-content">Skip to AI Assistant setup</a>
+  <body class="rm-app rm-app--fit assistant-wizard" data-current-step="1">
+    <a class="rm-skip-link" href="#main-content">Skip to AI Assistant setup</a>
 
-    <header class="site-header">
-      <div class="brand">
-        <img class="brand-mark" src="/relmio-icon.png" alt="" width="28" height="28" />
-        <span>Relmio</span>
+    <header class="rm-topbar">
+      <div class="rm-topbar__inner">
+        <a class="rm-brand" href="/" data-wizard-route="/" aria-label="Relmio home">
+          <img class="rm-brand__logo" src="/relmio-icon-96.png" width="32" height="32" alt="" />
+          <span>Relmio</span>
+        </a>
+        <nav class="rm-nav" aria-label="Primary">
+          <ul class="rm-nav__list">
+            <li><a class="rm-nav__link" href="/" data-wizard-route="/" aria-current="true">Setup</a></li>
+            <li><a class="rm-nav__link" href="/local" data-wizard-route="/local">This computer</a></li>
+            <li><a class="rm-nav__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+            <li><a class="rm-nav__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer">Docs<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+          </ul>
+        </nav>
+        <div class="rm-topbar__actions">
+          <span class="rm-status rm-topbar__wide" data-tone="success"><span class="rm-status__dot"></span>Runs on this computer</span>
+          <fieldset class="rm-segmented">
+            <legend class="rm-visually-hidden">Color theme</legend>
+            <label class="rm-segmented__item" title="System"><input class="rm-segmented__input" type="radio" name="color-theme" value="system" checked /><span class="rm-icon rm-icon--monitor rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">System</span></label>
+            <label class="rm-segmented__item" title="Light"><input class="rm-segmented__input" type="radio" name="color-theme" value="light" /><span class="rm-icon rm-icon--sun rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Light</span></label>
+            <label class="rm-segmented__item" title="Dark"><input class="rm-segmented__input" type="radio" name="color-theme" value="dark" /><span class="rm-icon rm-icon--moon rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Dark</span></label>
+          </fieldset>
+          <a class="rm-chip rm-topbar__wide" data-rm-repo-link href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer" aria-label="Open Relmio version __RELMIO_PACKAGE_VERSION__ on GitHub. Opens in a new tab.">
+            <span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub
+            <span class="rm-chip__meta"><span class="rm-icon rm-icon--star rm-icon--xs" aria-hidden="true"></span><span data-rm-repo-stars>?</span></span>
+            <span class="rm-chip__meta">v__RELMIO_PACKAGE_VERSION__</span>
+          </a>
+          <a class="rm-icon-button rm-topbar__wide" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer" aria-label="Support Relmio on Ko-fi (opens in a new tab)" title="Support Relmio on Ko-fi"><span class="rm-icon rm-icon--coffee" aria-hidden="true"></span></a>
+          <details class="rm-menu">
+            <summary class="rm-icon-button" aria-label="Menu"><span class="rm-icon rm-icon--menu" aria-hidden="true"></span></summary>
+            <div class="rm-menu__panel">
+              <nav aria-label="Primary">
+                <ul class="rm-menu__list">
+                  <li><a class="rm-menu__link" href="/" data-wizard-route="/" aria-current="true">Setup</a></li>
+                  <li><a class="rm-menu__link" href="/local" data-wizard-route="/local">This computer</a></li>
+                  <li><a class="rm-menu__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+                  <li><a class="rm-menu__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--book rm-icon--sm" aria-hidden="true"></span>Docs<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                </ul>
+              </nav>
+              <ul class="rm-menu__list rm-menu__section">
+                <li><a class="rm-menu__link" href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                <li><a class="rm-menu__link" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--coffee rm-icon--sm" aria-hidden="true"></span>Support on Ko-fi<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+              </ul>
+            </div>
+          </details>
+        </div>
       </div>
-      <fieldset class="theme-picker">
-        <legend class="visually-hidden">Color theme</legend>
-        <label title="Use system appearance">
-          <input type="radio" name="color-theme" value="system" checked />
-          <span class="theme-icon theme-icon-system" aria-hidden="true"></span>
-          <span class="visually-hidden">System</span>
-        </label>
-        <label title="Use light appearance">
-          <input type="radio" name="color-theme" value="light" />
-          <span class="theme-icon theme-icon-light" aria-hidden="true"></span>
-          <span class="visually-hidden">Light</span>
-        </label>
-        <label title="Use dark appearance">
-          <input type="radio" name="color-theme" value="dark" />
-          <span class="theme-icon theme-icon-dark" aria-hidden="true"></span>
-          <span class="visually-hidden">Dark</span>
-        </label>
-      </fieldset>
     </header>
 
-    <section
-      id="operation-progress"
-      class="operation-progress"
-      role="status"
-      aria-live="polite"
-      aria-atomic="false"
-      tabindex="-1"
-      hidden
-    >
-      <div class="operation-progress__content">
-        <p id="operation-progress-label" class="operation-progress__label">
-          No operation is running.
-        </p>
-        <p class="operation-progress__elapsed" aria-live="off">
-          Elapsed
-          <time id="operation-progress-elapsed" datetime="PT0S">00:00</time>
-        </p>
-        <div
-          id="operation-progress-bar"
-          class="operation-progress__track"
-          role="progressbar"
-          aria-label="Current setup operation"
-          aria-valuetext="No operation is running."
-        >
-          <span class="operation-progress__bar" aria-hidden="true"></span>
-        </div>
-        <p id="operation-progress-note" class="operation-progress__note">
-          Timing varies with your remote server and network. Keep this page open until this step finishes.
-        </p>
-      </div>
-    </section>
+    <main id="main-content" class="rm-app__main" tabindex="-1">
+      <noscript><p class="rm-callout rm-callout--warning">This setup needs JavaScript to check server identity and show the plan. Enable JavaScript, then reload before continuing.</p></noscript>
+      <div class="rm-split">
+        <aside class="rm-split__rail assistant-rail" aria-label="AI Assistant setup">
+          <h1 id="page-title" class="assistant-title">Add private AI Assistant tools</h1>
 
-    <main id="main-content" class="shell" tabindex="-1" aria-busy="false">
-      <aside class="rail" aria-label="AI Assistant setup progress and safety">
-        <section class="intro" aria-labelledby="page-title">
-          <h1 id="page-title">Add private AI Assistant tools</h1>
-          <p class="lede">
-            Add a private sandbox and optional SearXNG search. Existing n8n stays unchanged.
-          </p>
+          <nav aria-label="AI Assistant setup progress">
+            <ol class="rm-stepper rm-stepper--auto">
+              <li class="rm-stepper__item" data-step-marker="1" aria-current="step"><span class="rm-stepper__link"><span class="rm-stepper__marker">1</span><span class="rm-stepper__label">Check</span></span></li>
+              <li class="rm-stepper__item" data-step-marker="2"><span class="rm-stepper__link"><span class="rm-stepper__marker">2</span><span class="rm-stepper__label">Choose</span></span></li>
+              <li class="rm-stepper__item" data-step-marker="3"><span class="rm-stepper__link"><span class="rm-stepper__marker">3</span><span class="rm-stepper__label">Review</span></span></li>
+              <li class="rm-stepper__item" data-step-marker="4"><span class="rm-stepper__link"><span class="rm-stepper__marker">4</span><span class="rm-stepper__label">Ready</span></span></li>
+            </ol>
+          </nav>
+          <section
+            id="operation-progress"
+            class="operation-progress"
+            role="status"
+            aria-live="polite"
+            aria-atomic="false"
+            tabindex="-1"
+            hidden
+          >
+            <div class="operation-progress__content">
+              <p id="operation-progress-label" class="operation-progress__label">
+                No operation is running.
+              </p>
+              <p class="operation-progress__elapsed" aria-live="off">
+                Elapsed
+                <time id="operation-progress-elapsed" datetime="PT0S">00:00</time>
+              </p>
+              <div
+                id="operation-progress-bar"
+                class="rm-progress rm-progress--indeterminate operation-progress__track"
+                role="progressbar"
+                aria-label="Current setup operation"
+                aria-valuetext="No operation is running."
+              >
+                <span class="rm-progress__bar" aria-hidden="true"></span>
+              </div>
+              <p id="operation-progress-note" class="operation-progress__note">
+                Timing varies with your remote server and network. Keep this page open until this step finishes.
+              </p>
+            </div>
+          </section>
+        </aside>
+
+        <section class="rm-panel assistant-step" data-step="1" aria-labelledby="vps-title">
+          <header class="rm-panel__header">
+            <div class="rm-panel__heading">
+              <span class="rm-eyebrow">Step 1 of 4</span>
+              <h2 id="vps-title" class="rm-h1" tabindex="-1">Check the server</h2>
+            </div>
+          </header>
+
+          <form id="vps-form" class="assistant-form">
+            <div class="rm-panel__body">
+              <details class="rm-notice">
+                <summary>
+                  <span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span>
+                  <span class="rm-notice__title">Experimental preview</span>
+                  <span class="rm-notice__text">Use a test setup.</span>
+                  <span class="rm-notice__toggle">Details</span>
+                </summary>
+                <div class="rm-notice__body">
+                  <p>Release 0.18.0-experimental.4 has limited model-only smoke checks. Full-stack, hosting-provider and throughput support are untested. Use a test setup.</p>
+                  <p>Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code></p>
+                </div>
+              </details>
+
+              <div class="rm-callout rm-callout--warning assistant-callout" role="note" aria-label="Privileged runner warning">
+                <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
+                <div class="rm-callout__content">
+                  <p><strong class="rm-callout__title">Privileged runner for testing.</strong> Treat it like host root.</p>
+                  <details class="rm-disclosure rm-disclosure--plain assistant-callout__more">
+                    <summary>Details</summary>
+                    <div class="rm-disclosure__body"><p>It uses privileged Docker-in-Docker. n8n recommends Daytona for production. Review generated workflows before use.</p></div>
+                  </details>
+                </div>
+              </div>
+
+              <div class="assistant-fields assistant-fields--server">
+                <div class="rm-field assistant-field--wide">
+                  <label class="rm-field__label" for="host">Server address</label>
+                  <input id="host" class="rm-input" name="host" inputmode="url" autocomplete="off" aria-describedby="host-hint" required />
+                  <p id="host-hint" class="rm-field__hint">Use the hostname or IP your provider shows.</p>
+                </div>
+                <div class="rm-field assistant-field--port">
+                  <label class="rm-field__label" for="port">SSH port</label>
+                  <input id="port" class="rm-input" name="port" type="number" min="1" max="65535" value="22" required />
+                </div>
+              </div>
+
+              <div id="fingerprint-box" class="assistant-fingerprint" hidden>
+                <p class="assistant-fingerprint__value"><span>Server identity (SSH fingerprint)</span> <code id="fingerprint-value"></code></p>
+                <label class="rm-check">
+                  <input id="fingerprint-confirm" type="checkbox" />
+                  <span>I checked this server identity. This is the server I mean to use.</span>
+                </label>
+              </div>
+
+              <div class="assistant-fields">
+                <div class="rm-field">
+                  <label class="rm-field__label" for="username">Username</label>
+                  <input id="username" class="rm-input" name="username" autocomplete="username" value="root" aria-describedby="username-hint" required />
+                  <div class="assistant-field__more">
+                    <p id="username-hint" class="rm-field__hint">This route needs a root account (UID 0).</p>
+                    <details class="rm-disclosure rm-disclosure--plain assistant-callout__more">
+                      <summary>More about SSH sign-in</summary>
+                      <div class="rm-disclosure__body">
+                        <p>Passwordless sudo is only on the local model page.</p>
+                        <p>To use the local SSH agent, load keys into it before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+                <div class="rm-field">
+                  <label class="rm-field__label" for="ssh-authentication">SSH authentication</label>
+                  <select id="ssh-authentication" class="rm-select" aria-describedby="ssh-agent-status"><option value="password">Password</option><option value="agent">Local SSH agent</option></select>
+                  <p id="ssh-agent-status" class="rm-field__hint" role="status">Checking local SSH agent configuration…</p>
+                </div>
+                <div class="rm-field">
+                  <label class="rm-field__label" for="password">SSH password</label>
+                  <input id="password" class="rm-input" name="password" type="password" autocomplete="current-password" aria-describedby="password-hint" disabled required />
+                  <p id="password-hint" class="rm-field__hint">Used only for this verified SSH connection and never saved.</p>
+                </div>
+              </div>
+
+            </div>
+
+            <footer class="rm-panel__footer">
+              <button id="fingerprint-button" class="rm-button" type="button">Check server identity</button>
+              <label class="rm-check assistant-consent">
+                <input id="privileged-confirm" type="checkbox" />
+                <span>I understand this runner is privileged Docker-in-Docker, like host root, and is for testing. Production should use Daytona.</span>
+              </label>
+              <button id="connect-button" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect</button>
+            </footer>
+          </form>
         </section>
 
-        <nav class="steps" aria-label="AI Assistant setup progress">
-          <ol>
-            <li data-step-marker="1" aria-current="step"><span>1</span><em>Check</em></li>
-            <li data-step-marker="2"><span>2</span><em>Choose</em></li>
-            <li data-step-marker="3"><span>3</span><em>Review</em></li>
-            <li data-step-marker="4"><span>4</span><em>Ready</em></li>
-          </ol>
-        </nav>
+        <section class="rm-panel assistant-step" data-step="2" aria-labelledby="n8n-title" hidden>
+          <header class="rm-panel__header">
+            <div class="rm-panel__heading">
+              <span class="rm-eyebrow">Step 2 of 4</span>
+              <h2 id="n8n-title" class="rm-h1" tabindex="-1">Choose n8n</h2>
+              <p class="rm-muted">This step only looks. It does not run commands inside n8n.</p>
+            </div>
+          </header>
+          <div class="rm-panel__body">
+            <dl class="assistant-versions" aria-label="Detected Docker versions">
+              <div><dt>Docker</dt><dd id="docker-version">Not detected</dd></div>
+              <div><dt>Compose</dt><dd id="compose-version">Not detected</dd></div>
+            </dl>
+            <div class="assistant-fields assistant-fields--two">
+              <div class="rm-field">
+                <label class="rm-field__label" for="container-select">Running n8n container</label>
+                <select id="container-select" class="rm-select"></select>
+              </div>
+              <div class="rm-field">
+                <label class="rm-field__label" for="network-select">Existing shared Docker network</label>
+                <select id="network-select" class="rm-select" aria-describedby="network-hint"></select>
+                <p id="network-hint" class="rm-field__hint">The sandbox joins this network. n8n stays unchanged.</p>
+              </div>
+            </div>
+            <p id="instance-ai-status" class="assistant-note" role="status">
+              Check whether this n8n already includes instance-ai.
+            </p>
+            <div
+              id="instance-ai-guidance"
+              class="rm-callout rm-callout--warning assistant-callout"
+              role="note"
+              aria-labelledby="instance-ai-guidance-title"
+            >
+              <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
+              <div class="rm-callout__content">
+                <p><strong id="instance-ai-guidance-title" class="rm-callout__title">Required n8n prerequisite.</strong> Set <code>N8N_ENABLED_MODULES=instance-ai</code> before Relmio can continue.</p>
+                <details class="rm-disclosure rm-disclosure--plain assistant-callout__more">
+                  <summary>How to add it</summary>
+                  <div class="rm-disclosure__body assistant-guidance">
+                    <p>If other modules are already set, append <code>instance-ai</code> as a separate comma-delimited entry and keep the existing ones. Do not replace unknown values.</p>
+                    <ol class="assistant-steps">
+                      <li>Update n8n with your existing deployment workflow.</li>
+                      <li>Redeploy or restart n8n, then check that it is healthy.</li>
+                      <li>Reconnect and run discovery again.</li>
+                    </ol>
+                    <p>Relmio cannot apply this change. It will not edit the n8n Compose file, image or environment, restart or recreate n8n, or exec into n8n. It never shows the raw setting.</p>
+                  </div>
+                </details>
+              </div>
+            </div>
+            <label class="rm-check rm-check--boxed">
+              <input id="include-searxng" type="checkbox" />
+              <span>
+                <strong>Optional SearXNG JSON web search</strong>
+                <span class="rm-check__hint">Off by default. Choose it only for private Assistant search.</span>
+              </span>
+            </label>
+          </div>
+          <footer class="rm-panel__footer">
+            <button class="rm-button rm-button--ghost back-button" type="button" data-back="1">Back</button>
+            <p id="review-readiness" class="assistant-hint" role="status">
+              Check <code>instance-ai</code> before you review a plan.
+            </p>
+            <button
+              id="review-button"
+              class="rm-button rm-button--primary"
+              type="button"
+              aria-describedby="review-readiness"
+              disabled
+            >
+              Review
+            </button>
+          </footer>
+        </section>
 
-        <div class="toast-stack" aria-label="AI Assistant safety notices">
-          <aside class="toast safety-note">
-            <strong>n8n stays unchanged</strong>
-            <span>
-              No Compose edit, restart, host port, or proxy route.
-            </span>
-          </aside>
-          <aside class="toast safety-note backup-note">
-            <strong>ChatGPT sign-in is not an API key</strong>
-            <span>
-              ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. Relmio does not offer it as the model provider.
-            </span>
-          </aside>
-          <div id="global-message" class="toast message" role="status" aria-live="polite">
+        <section class="rm-panel assistant-step" data-step="3" aria-labelledby="review-title" hidden>
+          <header class="rm-panel__header">
+            <div class="rm-panel__heading">
+              <span class="rm-eyebrow">Step 3 of 4</span>
+              <h2 id="review-title" class="rm-h1" tabindex="-1">Review the plan</h2>
+              <p class="rm-muted">Nothing is written until you approve this plan.</p>
+              <p id="ssh-review-identity" class="assistant-identity"></p>
+            </div>
+          </header>
+          <div class="rm-panel__body">
+            <div class="assistant-review">
+              <section aria-labelledby="will-title">
+                <h3 id="will-title" class="rm-h3">The wizard will</h3>
+                <ul class="assistant-list assistant-list--will">
+                  <li>Create <code>/docker/n8n-openai-oauth/assistant-sandbox</code></li>
+                  <li>Start only the managed AI Assistant companion project</li>
+                  <li>Attach sandbox API to <strong id="review-network">Not selected</strong></li>
+                  <li id="review-instance-ai">AI Assistant prerequisite has not been reviewed</li>
+                  <li id="review-web-search">Web search selection has not been reviewed</li>
+                  <li>Generate separate 256-bit sandbox, runner, and private SearXNG secrets</li>
+                  <li>Check sandbox health, expected services, and no published host port</li>
+                </ul>
+              </section>
+              <section aria-labelledby="wont-title">
+                <h3 id="wont-title" class="rm-h3">The wizard will not</h3>
+                <ul class="assistant-list assistant-list--wont">
+                  <li>Edit, rebuild, stop, restart, recreate, or exec into n8n</li>
+                  <li>Upload your OpenAI Platform API key or ChatGPT/Codex OAuth</li>
+                  <li>Publish sandbox, runner, or SearXNG ports to the SSH host</li>
+                  <li>Enable a model provider or change n8n settings automatically</li>
+                </ul>
+              </section>
+            </div>
+          </div>
+          <footer class="rm-panel__footer">
+            <button class="rm-button rm-button--ghost back-button" type="button" data-back="2">Back</button>
+            <label class="rm-check assistant-consent">
+              <input id="install-confirm" type="checkbox" />
+              <span>I approve this privileged Assistant companion. AI Assistant is Preview, and workflows need human review. Production should use Daytona.</span>
+            </label>
+            <button id="install-button" class="rm-button rm-button--primary" type="button" disabled>Install</button>
+          </footer>
+        </section>
+
+        <section class="rm-panel assistant-step" data-step="4" aria-labelledby="ready-title" hidden>
+          <header class="rm-panel__header">
+            <div class="rm-panel__heading">
+              <span class="rm-eyebrow"><span class="rm-icon rm-icon--check-circle rm-icon--sm" aria-hidden="true"></span>Step 4 of 4</span>
+              <h2 id="ready-title" class="rm-h1" tabindex="-1">AI Assistant companion is ready</h2>
+              <p class="rm-muted">Use these values in n8n. The sandbox key appears only in this result.</p>
+            </div>
+          </header>
+          <div class="rm-panel__body">
+            <div class="rm-callout rm-callout--warning assistant-callout">
+              <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
+              <div class="rm-callout__content">
+                <p><strong class="rm-callout__title">Preview with human review.</strong> Review every generated workflow. Use Daytona for production.</p>
+              </div>
+            </div>
+
+            <div class="assistant-ready">
+              <div class="assistant-ready__column">
+                <h3 class="assistant-ready__heading">1. Sandbox settings</h3>
+                <dl class="assistant-values">
+                  <div><dt>Sandbox Service URL</dt><dd><code id="sandbox-url">Not installed</code></dd></div>
+                  <div><dt>Sandbox API key</dt><dd><code id="sandbox-api-key">Shown after installation</code></dd></div>
+                </dl>
+                <h3 class="assistant-ready__heading">2. Web search settings</h3>
+                <dl class="assistant-values">
+                  <div><dt>SearXNG Instance URL</dt><dd><code id="searxng-url">Web search disabled</code></dd></div>
+                </dl>
+                <p id="searxng-note" class="assistant-ready__note">Web search is off, so no SearXNG service or settings file was installed. Its secret stays private.</p>
+              </div>
+
+              <div class="assistant-ready__column">
+                <h3 class="assistant-ready__heading">3. Model provider</h3>
+                <dl class="assistant-values assistant-values--inline">
+                  <div><dt>Model provider</dt><dd><code>OpenAI</code></dd></div>
+                  <div><dt>Model</dt><dd><code>Keep the current supported selection</code></dd></div>
+                </dl>
+                <p>Enter your OpenAI Platform API key in n8n. Relmio does not read, receive, or store that key.</p>
+                <p>Keep your current supported n8n model, including <code>openai/gpt-5.6-sol</code>, while n8n accepts it. Change it only if n8n rejects it or you choose another supported model. A listed model is not proof that every workflow works.</p>
+                <div class="rm-callout rm-callout--warning assistant-callout" role="note" aria-label="Platform account limits">
+                  <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
+                  <div class="rm-callout__content">
+                    <p><strong class="rm-callout__title">No setup can promise an account will never be flagged.</strong></p>
+                    <details class="rm-disclosure rm-disclosure--plain assistant-callout__more">
+                      <summary>Platform account limits</summary>
+                      <div class="rm-disclosure__body">
+                        <p>Use a dedicated OpenAI Platform project and key. Keep it in n8n, set spend limits, review use, and do not expose this path publicly. Relmio cannot add per-user safety identifiers or moderation to n8n’s direct provider path.</p>
+                      </div>
+                    </details>
+                  </div>
+                </div>
+                <details class="rm-disclosure rm-disclosure--plain assistant-endpoint">
+                  <summary>Optional Ollama-style custom endpoint</summary>
+                  <div class="rm-disclosure__body">
+                    <p>n8n’s custom screen defaults to an Ollama-style endpoint. Use it only with a separate n8n-reachable Relmio endpoint that uses your own OpenAI Platform API key. This wizard does not create one.</p>
+                    <dl class="assistant-values">
+                      <div><dt>Base URL</dt><dd><code>your Platform-key-backed Relmio /v1 endpoint</code></dd></div>
+                      <div><dt>API key</dt><dd>Use that endpoint’s private Relmio client credential. It is not an OpenAI-issued API key.</dd></div>
+                      <div><dt>Model ID</dt><dd>Use a model ID exposed by that Platform-key-backed endpoint.</dd></div>
+                    </dl>
+                    <p>The existing ChatGPT/Codex OAuth sidecar may work, but it remains unofficial, private, and policy-uncertain. It is not auto-selected, enabled, or presented as TOS-approved.</p>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
+          <footer class="rm-panel__footer">
+            <a id="setup-another-assistant" class="rm-button rm-push">Set up another option</a>
+          </footer>
+        </section>
+
+        <aside class="assistant-aside" aria-label="AI Assistant safety and status">
+          <div id="global-error" class="rm-callout rm-callout--danger" role="alert" tabindex="-1" hidden>
+            <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
+            <div class="rm-callout__content"><span id="global-error-text"></span></div>
+          </div>
+          <div id="global-message" class="assistant-message" role="status" aria-live="polite">
             <span id="global-message-text">Check the server identity before you connect.</span>
           </div>
-          <div id="global-error" class="toast error" role="alert" tabindex="-1" hidden>
-            <span id="global-error-text"></span>
+          <div class="assistant-session">
+            <p id="ssh-session" class="assistant-session__text" role="status"></p>
+            <button id="ssh-disconnect" class="rm-button rm-button--sm" type="button" hidden>Disconnect shared VPS session</button>
           </div>
-        </div>
-      </aside>
 
-      <section class="panel" data-step="1" aria-labelledby="vps-title">
-        <div class="panel-heading">
-          <h2 id="vps-title" tabindex="-1">Check the server</h2>
-          <p>Check the server identity, then connect. AI Assistant is Preview. Review generated workflows before use.</p>
-        </div>
-        <aside class="experimental-notice" aria-labelledby="assistant-experimental-title">
-          <strong id="assistant-experimental-title">Experimental release · 0.18.0-experimental.4</strong>
-          <p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
+          <div class="assistant-safety">
+            <p class="assistant-safety__item">
+              <span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>
+              <span><strong>n8n stays unchanged.</strong> No Compose edit, restart, host port, or proxy route.</span>
+            </p>
+            <div class="rm-callout rm-callout--warning assistant-callout">
+              <span class="rm-icon rm-icon--alert rm-icon--sm rm-callout__icon" aria-hidden="true"></span>
+              <div class="rm-callout__content">
+                <p><strong class="rm-callout__title">ChatGPT sign-in is not an API key.</strong></p>
+                <details class="rm-disclosure rm-disclosure--plain assistant-callout__more">
+                  <summary>Details</summary>
+                  <div class="rm-disclosure__body">
+                    <p>ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. Relmio does not offer it as the model provider.</p>
+                  </div>
+                </details>
+              </div>
+            </div>
+          </div>
         </aside>
-
-        <aside class="assistant-warning" aria-label="Privileged runner warning">
-          <strong>Advanced local testing only</strong>
-          <p>This runner uses privileged Docker-in-Docker. Treat it like host root. n8n recommends Daytona for production.</p>
-        </aside>
-
-        <form id="vps-form">
-          <div class="field-grid">
-            <label class="field">
-              <span>Server address</span>
-              <input id="host" name="host" inputmode="url" autocomplete="off" required />
-              <small>Use the hostname or IP exactly as your provider shows it.</small>
-            </label>
-            <label class="field compact">
-              <span>SSH port</span>
-              <input id="port" name="port" type="number" min="1" max="65535" value="22" required />
-            </label>
-            <label class="field compact">
-              <span>Username</span>
-              <input id="username" name="username" autocomplete="username" value="root" required />
-            </label>
-            <label class="field"><span>SSH authentication</span><select id="ssh-authentication"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
-            <label class="field">
-              <span>SSH password</span>
-              <input id="password" name="password" type="password" autocomplete="current-password" disabled required />
-              <small>Used only for this verified SSH connection and never saved.</small>
-            </label>
-          </div>
-
-          <p>This route needs a root account (UID 0). Passwordless sudo is only on the local model page.</p>
-          <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
-          <details class="technical-details">
-            <summary>More details about SSH agent sign-in</summary>
-            <div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p></div>
-          </details>
-          <p id="ssh-session" role="status"></p><button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
-          <button id="fingerprint-button" class="button secondary" type="button">Check server identity</button>
-          <div id="fingerprint-box" class="fingerprint" hidden>
-            <span>Server identity (SSH fingerprint)</span>
-            <code id="fingerprint-value"></code>
-            <label class="check-row">
-              <input id="fingerprint-confirm" type="checkbox" />
-              <span>I checked this server identity. This is the server I mean to use.</span>
-            </label>
-          </div>
-
-          <label class="check-row approval">
-            <input id="privileged-confirm" type="checkbox" />
-            <span>
-              I understand this runner is privileged Docker-in-Docker, like host root, and is for testing. Production should use Daytona.
-            </span>
-          </label>
-
-          <div class="actions">
-            <button id="connect-button" class="button primary" type="submit" disabled>
-              Connect
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <section class="panel" data-step="2" aria-labelledby="n8n-title" hidden>
-        <div class="panel-heading">
-          <h2 id="n8n-title" tabindex="-1">Choose n8n</h2>
-          <p>This step only looks. It does not run commands inside n8n.</p>
-        </div>
-        <div class="version-strip" aria-label="Detected Docker versions">
-          <span>Docker <strong id="docker-version">Not detected</strong></span>
-          <span>Compose <strong id="compose-version">Not detected</strong></span>
-        </div>
-        <div class="field-grid single">
-          <label class="field">
-            <span>Running n8n container</span>
-            <select id="container-select"></select>
-          </label>
-          <label class="field">
-            <span>Existing shared Docker network</span>
-            <select id="network-select"></select>
-            <small>The sandbox joins this network. n8n stays unchanged.</small>
-          </label>
-          <p id="instance-ai-status" class="assistant-note" role="status">
-            Check whether this n8n already includes instance-ai.
-          </p>
-          <aside
-            id="instance-ai-guidance"
-            class="assistant-warning instance-ai-guidance"
-            aria-labelledby="instance-ai-guidance-title"
-          >
-            <strong id="instance-ai-guidance-title">Required n8n prerequisite</strong>
-            <p>Set <code>N8N_ENABLED_MODULES=instance-ai</code> before Relmio can continue. If other modules are already set, append <code>instance-ai</code> as a distinct comma-delimited token while preserving existing module entries. Do not replace unknown values.</p>
-            <ol class="prerequisite-steps">
-              <li>Use your existing n8n deployment workflow to update n8n.</li>
-              <li>Redeploy or restart n8n, then check that it is healthy.</li>
-              <li>Reconnect and run discovery again.</li>
-            </ol>
-            <details class="prerequisite-boundary">
-              <summary>Why Relmio cannot apply this change</summary>
-              <p>
-                Relmio will not edit the existing n8n Compose file, image, or environment, restart or recreate n8n, or exec into n8n. It never shows the raw setting.
-              </p>
-            </details>
-          </aside>
-          <label class="check-row">
-            <input id="include-searxng" type="checkbox" />
-            <span>
-              <strong>Optional SearXNG JSON web search</strong>
-              <small>Off by default. Choose it only for private Assistant search.</small>
-            </span>
-          </label>
-        </div>
-        <div class="actions">
-          <button class="button ghost back-button" type="button" data-back="1">Back</button>
-          <p id="review-readiness" class="action-hint" role="status">
-            Check <code>instance-ai</code> before you review a plan.
-          </p>
-          <button
-            id="review-button"
-            class="button primary"
-            type="button"
-            aria-describedby="review-readiness"
-            disabled
-          >
-            Review
-          </button>
-        </div>
-      </section>
-
-      <section class="panel" data-step="3" aria-labelledby="review-title" hidden>
-        <div class="panel-heading">
-          <h2 id="review-title" tabindex="-1">Review the plan</h2>
-          <p>Nothing is written until you approve this plan.</p>
-          <p id="ssh-review-identity"></p>
-        </div>
-        <div class="review-grid">
-          <section aria-labelledby="will-title">
-            <h3 id="will-title">The wizard will</h3>
-            <ul class="check-list">
-              <li>Create <code>/docker/n8n-openai-oauth/assistant-sandbox</code></li>
-              <li>Start only the managed AI Assistant companion project</li>
-              <li>Attach sandbox API to <strong id="review-network">Not selected</strong></li>
-              <li id="review-instance-ai">AI Assistant prerequisite has not been reviewed</li>
-              <li id="review-web-search">Web search selection has not been reviewed</li>
-              <li>Generate separate 256-bit sandbox, runner, and private SearXNG secrets</li>
-              <li>Check sandbox health, expected services, and no published host port</li>
-            </ul>
-          </section>
-          <section aria-labelledby="wont-title">
-            <h3 id="wont-title">The wizard will not</h3>
-            <ul class="no-list">
-              <li>Edit, rebuild, stop, restart, recreate, or exec into n8n</li>
-              <li>Upload your OpenAI Platform API key or ChatGPT/Codex OAuth</li>
-              <li>Publish sandbox, runner, or SearXNG ports to the SSH host</li>
-              <li>Enable a model provider or change n8n settings automatically</li>
-            </ul>
-          </section>
-        </div>
-        <label class="check-row approval">
-          <input id="install-confirm" type="checkbox" />
-          <span>
-            I approve this privileged Assistant companion. AI Assistant is Preview, and workflows need human review. Production should use Daytona.
-          </span>
-        </label>
-        <div class="actions">
-          <button class="button ghost back-button" type="button" data-back="2">Back</button>
-          <button id="install-button" class="button primary" type="button" disabled>
-            Install
-          </button>
-        </div>
-      </section>
-
-      <section class="panel success-panel" data-step="4" aria-labelledby="ready-title" hidden>
-        <div class="success-heading">
-          <div class="success-mark" aria-hidden="true">✓</div>
-          <div class="panel-heading">
-            <h2 id="ready-title" tabindex="-1">AI Assistant companion is ready</h2>
-            <p>Use these values in n8n. The sandbox key appears only in this result.</p>
-          </div>
-        </div>
-
-        <aside class="assistant-warning">
-          <strong>Preview with human review</strong>
-          <p>Review every generated workflow before use. For production, use Daytona.</p>
-        </aside>
-
-        <h3>1. Sandbox settings</h3>
-        <dl class="result-list">
-          <div><dt>Sandbox Service URL</dt><dd><code id="sandbox-url">Not installed</code></dd></div>
-          <div><dt>Sandbox API key</dt><dd><code id="sandbox-api-key">Shown after installation</code></dd></div>
-        </dl>
-
-        <h3>2. Web search settings</h3>
-        <dl class="result-list">
-          <div><dt>SearXNG Instance URL</dt><dd><code id="searxng-url">Web search disabled</code></dd></div>
-        </dl>
-        <p id="searxng-note" class="assistant-note">Web search is off, so no SearXNG service or settings file was installed. Its secret stays private.</p>
-
-        <h3>3. Model provider</h3>
-        <dl class="result-list">
-          <div><dt>Model provider</dt><dd><code>OpenAI</code></dd></div>
-          <div><dt>Model</dt><dd><code>Keep the current supported selection</code></dd></div>
-        </dl>
-        <p>
-          Enter your OpenAI Platform API key in n8n. Relmio does not read, receive, or store that key.
-        </p>
-        <p>
-          Keep your current supported n8n model, including <code>openai/gpt-5.6-sol</code>, while n8n accepts it. Change it only if n8n rejects it or you choose another supported model. A listed model is not proof that every workflow works.
-        </p>
-
-        <h3>Platform account limits</h3>
-        <aside class="assistant-warning">
-          <strong>No setup can promise an account will never be flagged.</strong>
-          <p>
-            Use a dedicated OpenAI Platform project and key. Keep it in n8n, set spend limits, review use, and do not expose this path publicly. Relmio cannot add per-user safety identifiers or moderation to n8n’s direct provider path.
-          </p>
-        </aside>
-
-        <details class="assistant-disclosure">
-          <summary>Optional Ollama-style custom endpoint</summary>
-          <p>
-            n8n’s custom screen defaults to an Ollama-style endpoint. Use it only with a separate n8n-reachable Relmio endpoint that uses your own OpenAI Platform API key. This wizard does not create one.
-          </p>
-          <dl class="result-list">
-            <div><dt>Base URL</dt><dd><code>your Platform-key-backed Relmio /v1 endpoint</code></dd></div>
-            <div><dt>API key</dt><dd>Use that endpoint’s private Relmio client credential. It is not an OpenAI-issued API key.</dd></div>
-            <div><dt>Model ID</dt><dd>Use a model ID exposed by that Platform-key-backed endpoint.</dd></div>
-          </dl>
-          <p>
-            The existing ChatGPT/Codex OAuth sidecar may work, but it remains
-            unofficial, private, and policy-uncertain. It is not auto-selected,
-            enabled, or presented as TOS-approved.
-          </p>
-        </details>
-
-        <div class="actions">
-          <a id="setup-another-assistant" class="button secondary">Set up another option</a>
-        </div>
-      </section>
+      </div>
     </main>
   </body>
 </html>

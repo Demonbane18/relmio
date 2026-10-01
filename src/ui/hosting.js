@@ -1,5 +1,6 @@
 import { createHostingArchive } from "./hosting-archive.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
 const el = (id) => document.getElementById(id);
@@ -11,10 +12,21 @@ const MANAGED_ROUTES = Object.freeze({
   "managed-vm": { model: "/local-model-vps", openai: "/", assistant: "/assistant", searxng: "/assistant", supergrok: "/supergrok-vps" },
   local: { model: "/local", openai: "/local", assistant: "/local", searxng: "/local", supergrok: "/local" },
 });
+const KIND_LABELS = Object.freeze({
+  "managed-vm": "Linux VMs", local: "Local Docker",
+  "manual-platform": "Container platforms", "external-only": "External services",
+});
+const MODE_LABELS = Object.freeze({ managed: "Managed", manual: "Manual", external: "External", unavailable: "None" });
 const FILE_NAME = /^(?:[A-Za-z0-9][A-Za-z0-9._-]*|\.dockerignore)(?:\/(?:[A-Za-z0-9][A-Za-z0-9._-]*|\.dockerignore))*$/u;
 const state = { providers: [], profiles: [], models: [], generation: 0, plan: null, archive: null, requestPending: false };
 
-bindWizardNavigation(el("back-link"), "/", token);
+const VIEW_HEADINGS = Object.freeze({ choose: "matrix-title", details: "details-title", review: "review-title" });
+
+function showView(view) {
+  for (const name of Object.keys(VIEW_HEADINGS)) el(`hosting-${name}`).hidden = name !== view;
+  document.body.dataset.hostingView = view;
+  el(VIEW_HEADINGS[view]).focus({ preventScroll: true });
+}
 
 function node(tag, text, className) {
   const item = document.createElement(tag);
@@ -43,8 +55,10 @@ function invalidate() {
   state.archive = null;
   state.requestPending = false;
   el("hosting-review").hidden = true;
+  el("hosting-review-details").open = false;
   el("hosting-files").replaceChildren();
   el("hosting-generate").disabled = !activeProfile();
+  el("hosting-continue").disabled = !activeProfile();
   clearError();
 }
 
@@ -66,22 +80,85 @@ function option(value, label) {
   return entry;
 }
 
-function renderMatrix() {
-  const rows = state.providers.map((provider) => {
-    const row = node("tr");
-    row.dataset.selected = String(provider.id === el("hosting-provider").value);
-    const heading = node("th", provider.label);
-    heading.scope = "row";
-    row.append(heading);
-    for (const component of Object.keys(COMPONENTS)) {
-      const capability = provider.components?.[component];
-      const cell = node("td", capability?.mode ?? "unavailable");
-      cell.dataset.mode = capability?.mode ?? "unavailable";
-      cell.title = capability?.note ?? "No native route";
-      row.append(cell);
-    }
-    return row;
+const MODE_ORDER = Object.keys(MODE_LABELS);
+const MODE_ICONS = Object.freeze({ managed: "check-circle", manual: "download", external: "external" });
+
+function modeOf(provider, component) {
+  return provider.components?.[component]?.mode ?? "unavailable";
+}
+
+function modeBadge(mode) {
+  return node("span", MODE_LABELS[mode] ?? mode, mode === "managed" ? "rm-badge rm-badge--accent" : "rm-badge");
+}
+
+// Compact cell: one icon per mode (shapes are explained by #hosting-legend),
+// with the mode name as visually hidden text for screen readers.
+function modeMark(mode) {
+  const mark = node("span", undefined, "hosting-mark");
+  mark.dataset.mode = mode;
+  if (MODE_ICONS[mode]) {
+    const icon = node("span", undefined, `rm-icon rm-icon--${MODE_ICONS[mode]} rm-icon--sm`);
+    icon.setAttribute("aria-hidden", "true");
+    mark.append(icon);
+  }
+  mark.append(node("span", MODE_LABELS[mode] ?? mode, "rm-visually-hidden"));
+  return mark;
+}
+
+function modeCell(modes) {
+  const cell = node("td");
+  cell.dataset.mode = modes.length === 1 ? modes[0] : "varies";
+  if (modes.length > 1) cell.append(node("span", "Varies: ", "rm-visually-hidden"));
+  modes.forEach((mode, index) => {
+    if (index > 0) cell.append(node("span", " or ", "rm-visually-hidden"));
+    cell.append(modeMark(mode));
   });
+  return cell;
+}
+
+function matrixRow(label, modes, { count = 0, selected = false } = {}) {
+  const row = node("tr");
+  row.dataset.selected = String(selected);
+  const heading = node("th");
+  heading.scope = "row";
+  if (selected) heading.append(node("span", "Selected: ", "rm-visually-hidden"));
+  heading.append(node("span", label));
+  if (count > 1) {
+    heading.append(" ", node("span", String(count), "hosting-matrix__count"), node("span", " hosts", "rm-visually-hidden"));
+  }
+  row.append(heading, ...modes.map(modeCell));
+  return row;
+}
+
+function providersByKind() {
+  const groups = new Map();
+  for (const provider of state.providers) {
+    if (!groups.has(provider.kind)) groups.set(provider.kind, []);
+    groups.get(provider.kind).push(provider);
+  }
+  return groups;
+}
+
+// One row per hosting type keeps the comparison on one screen. The chosen
+// provider gets its own row under its type with its exact availability.
+function renderMatrix() {
+  const selectedId = el("hosting-provider").value;
+  const rows = [];
+  for (const [kind, providers] of providersByKind()) {
+    const single = providers.length === 1;
+    const selected = providers.find((provider) => provider.id === selectedId) ?? null;
+    const modes = Object.keys(COMPONENTS).map((component) => {
+      const found = new Set(providers.map((provider) => modeOf(provider, component)));
+      return MODE_ORDER.filter((mode) => found.has(mode));
+    });
+    rows.push(matrixRow(single ? providers[0].label : KIND_LABELS[kind] ?? kind, modes, {
+      count: providers.length,
+      selected: single && Boolean(selected),
+    }));
+    if (selected && !single) {
+      rows.push(matrixRow(selected.label, Object.keys(COMPONENTS).map((component) => [modeOf(selected, component)]), { selected: true }));
+    }
+  }
   el("hosting-matrix").replaceChildren(...rows);
 }
 
@@ -89,10 +166,13 @@ function renderSources(target, sources) {
   const links = sources.filter((source) => {
     try { return new URL(source.url).protocol === "https:"; } catch { return false; }
   }).map((source) => {
-    const link = node("a", source.label);
+    const link = node("a", source.label, "rm-link");
     link.href = source.url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
+    const icon = node("span", undefined, "rm-icon rm-icon--external rm-icon--xs");
+    icon.setAttribute("aria-hidden", "true");
+    link.append(icon, node("span", " (opens in a new tab)", "rm-visually-hidden"));
     return link;
   });
   target.replaceChildren(...links);
@@ -122,9 +202,11 @@ function renderComponent() {
   const component = el("hosting-component").value;
   const capability = provider?.components?.[component];
   const profile = activeProfile();
-  el("hosting-capability").textContent = capability
-    ? `${capability.mode.toUpperCase()}: ${capability.note}`
-    : "Choose what to set up to see what's available.";
+  if (capability) {
+    el("hosting-capability").replaceChildren(modeBadge(capability.mode), " ", node("span", capability.note));
+  } else {
+    el("hosting-capability").textContent = "Choose what to set up to see what's available.";
+  }
   const route = provider && MANAGED_ROUTES[provider.kind]?.[component];
   const oldLink = el("hosting-managed-link");
   const managedLink = oldLink.cloneNode(false);
@@ -134,6 +216,7 @@ function renderComponent() {
     bindWizardNavigation(managedLink, route, token);
     managedLink.textContent = "Open managed setup";
   }
+  el("hosting-continue").hidden = !managedLink.hidden;
   el("hosting-model-wrap").hidden = !(profile && component === "model");
   el("hosting-model").disabled = el("hosting-model-wrap").hidden;
   el("hosting-model").required = !el("hosting-model-wrap").hidden;
@@ -142,6 +225,7 @@ function renderComponent() {
     ...state.models.map((model) => option(model.id, `${model.label} · ${model.quantization}`)),
   );
   el("hosting-inputs").replaceChildren(...(profile?.fields ?? []).map(renderField));
+  el("hosting-no-inputs").hidden = !profile || profile.fields.length > 0 || component === "model";
   el("hosting-limits").textContent = profile
     ? "These files are not live tested. Check provider access, private routing, resources, storage, and your existing n8n connection before using them."
     : capability?.mode === "managed"
@@ -152,12 +236,17 @@ function renderComponent() {
         ? "No complete manual plan is available for this route."
         : "";
   el("hosting-generate").disabled = !profile;
+  el("hosting-continue").disabled = !profile;
 }
 
-function renderField(field) {
-  const label = node("label", undefined, "field");
-  label.append(node("span", field.label));
+function renderField(field, index) {
+  const id = `hosting-input-${index}`;
+  const wrapper = node("div", undefined, "rm-field");
+  const label = node("label", field.label, "rm-field__label");
+  label.htmlFor = id;
   const input = document.createElement(field.type === "select" ? "select" : "input");
+  input.id = id;
+  input.className = field.type === "select" ? "rm-select" : "rm-input";
   input.name = field.name;
   input.required = field.required === true;
   if (field.type === "select") {
@@ -172,9 +261,14 @@ function renderField(field) {
     if (field.max !== undefined) input.max = String(field.max);
     if (field.defaultValue !== undefined) input.value = String(field.defaultValue);
   }
-  label.append(input);
-  if (field.description) label.append(node("small", field.description));
-  return label;
+  wrapper.append(label, input);
+  if (field.description) {
+    const hint = node("p", field.description, "rm-field__hint");
+    hint.id = `${id}-hint`;
+    input.setAttribute("aria-describedby", hint.id);
+    wrapper.append(hint);
+  }
+  return wrapper;
 }
 
 function randomDeploymentId() {
@@ -252,7 +346,8 @@ function renderPlan(plan, request) {
     throw new Error("The returned review is incomplete.");
   }
   state.plan = plan;
-  el("hosting-summary").textContent = `${activeProvider().label} · ${COMPONENTS[request.component]} · ${plan.resourceName} · reviewed ${plan.reviewedOn}. Live deployment: NOT-RUN.`;
+  el("hosting-review-details").open = false;
+  el("hosting-reviewed-on").textContent = `Catalog reviewed ${plan.reviewedOn}. Live deployment: NOT-RUN.`;
   appendFacts(el("hosting-review-facts"), [
     ["Provider", activeProvider().label], ["Resource name", plan.resourceName],
     ["Verification", "Not live tested"], ["Files", `${plan.files.length} individually downloadable files`],
@@ -265,16 +360,16 @@ function renderPlan(plan, request) {
   renderSources(el("hosting-plan-sources"), plan.sources ?? []);
   const cards = plan.files.map((file) => {
     const card = node("article", undefined, "hosting-file");
-    card.append(node("h4", file.name));
-    const button = node("button", `Download ${file.name}`, "button secondary");
+    const header = node("div", undefined, "hosting-file__header");
+    const button = node("button", `Download ${file.name}`, "rm-button rm-button--sm");
     button.type = "button";
     button.addEventListener("click", () => downloadFile(file));
-    card.append(button, node("pre", file.content, "hosting-code"));
+    header.append(node("h4", file.name, "hosting-file__name"), button);
+    card.append(header, node("pre", file.content, "hosting-code"));
     return card;
   });
   el("hosting-files").replaceChildren(...cards);
-  el("hosting-review").hidden = false;
-  el("review-title").focus();
+  showView("review");
 }
 
 el("hosting-provider").addEventListener("change", renderProvider);
@@ -283,6 +378,11 @@ el("hosting-model").addEventListener("change", invalidate);
 el("hosting-inputs").addEventListener("input", invalidate);
 el("hosting-inputs").addEventListener("change", invalidate);
 
+el("hosting-continue").addEventListener("click", () => {
+  if (activeProfile()) showView("details");
+});
+el("hosting-details-back").addEventListener("click", () => { invalidate(); showView("choose"); });
+el("hosting-review-back").addEventListener("click", () => showView("details"));
 el("hosting-download-bundle").addEventListener("click", downloadBundle);
 el("hosting-form").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -310,7 +410,7 @@ el("hosting-form").addEventListener("submit", async (event) => {
     const plan = await response.json();
     if (generation !== state.generation) return;
     renderPlan(plan, request);
-    el("hosting-status").textContent = "Plan ready. Review it before downloading; no server or provider was contacted.";
+    el("hosting-status").textContent = "Plan ready. No server or provider was contacted.";
   } catch (failure) {
     if (generation === state.generation) error(failure.message);
   } finally {
@@ -337,7 +437,12 @@ async function loadCatalog() {
     state.profiles = catalog.profiles;
     state.models = catalog.models;
     el("hosting-provider").replaceChildren(option("", "Choose hosting"),
-      ...state.providers.map((provider) => option(provider.id, provider.label)));
+      ...Array.from(providersByKind(), ([kind, providers]) => {
+        const group = node("optgroup");
+        group.label = KIND_LABELS[kind] ?? kind;
+        group.append(...providers.map((provider) => option(provider.id, provider.label)));
+        return group;
+      }));
     el("hosting-provider").disabled = false;
     renderMatrix();
     el("hosting-status").textContent = "Choose hosting and what to set up.";
@@ -348,3 +453,15 @@ async function loadCatalog() {
 }
 
 loadCatalog();
+
+initWizardTopbar({
+  session: token,
+  isBusy: () => state.requestPending,
+  loadProjectMeta: token
+    ? async () => {
+      const response = await fetch("/api/local/project-meta", { headers: { "X-Setup-Token": token } });
+      if (!response.ok) throw new Error("Project details are unavailable.");
+      return response.json();
+    }
+    : undefined,
+});

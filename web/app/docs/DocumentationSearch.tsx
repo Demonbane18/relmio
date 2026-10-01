@@ -4,60 +4,86 @@ import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 import styles from "./docs.module.css";
 
-type SearchEntry = {
+export type GuideEntry = {
   slug: string;
   title: string;
   summary: string;
+  /** Two-digit position in the guide sequence, such as "01". */
+  number: string;
 };
 
-export function DocumentationSearch({ pages }: { pages: SearchEntry[] }) {
+type DocumentationSearchProps = {
+  guides: readonly GuideEntry[];
+  currentSlug?: string;
+};
+
+/** "Find a guide" search above the numbered guide list. Typing filters the
+    list by title and summary. */
+export function DocumentationSearch({ guides, currentSlug }: DocumentationSearchProps) {
   const inputId = useId();
   const [query, setQuery] = useState("");
   const normalized = query.trim().toLowerCase();
-  const visiblePages = useMemo(
+  const visibleGuides = useMemo(
     () =>
       normalized
-        ? pages.filter((page) =>
-            `${page.title} ${page.summary}`.toLowerCase().includes(normalized),
+        ? guides.filter((guide) =>
+            `${guide.title} ${guide.summary}`.toLowerCase().includes(normalized),
           )
-        : pages,
-    [normalized, pages],
+        : guides,
+    [guides, normalized],
   );
+  const status = normalized
+    ? `${visibleGuides.length} guide${visibleGuides.length === 1 ? "" : "s"} found`
+    : `${guides.length} guides`;
 
   return (
-    <section className={styles.search} aria-labelledby={`${inputId}-label`}>
-      <label id={`${inputId}-label`} htmlFor={inputId}>
-        Find a guide
-      </label>
-      <input
-        id={inputId}
-        type="search"
-        value={query}
-        onChange={(event) => setQuery(event.currentTarget.value)}
-        placeholder="Search setup, n8n, security, or troubleshooting"
-        autoComplete="off"
-      />
-      <p className={styles.searchStatus} role="status" aria-live="polite">
-        {visiblePages.length === pages.length && !normalized
-          ? `${pages.length} guides`
-          : `${visiblePages.length} guide${visiblePages.length === 1 ? "" : "s"} found`}
-      </p>
-      {visiblePages.length > 0 ? (
-        <ul className={styles.pageList}>
-          {visiblePages.map((page) => (
-            <li key={page.slug}>
-              <Link href={`/docs/${page.slug}`}>
-                <strong>{page.title}</strong>
-                <span>{page.summary}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className={styles.emptySearch}>
-          No guide matches that search. Try “n8n”, “security”, or “install”.
+    <>
+      <div
+        className={`rm-field ${styles.search}`}
+        role="search"
+        aria-labelledby={`${inputId}-label`}
+      >
+        <label className="rm-field__label" id={`${inputId}-label`} htmlFor={inputId}>
+          Find a guide
+        </label>
+        <input
+          className="rm-input"
+          id={inputId}
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder="Setup, n8n, security…"
+          autoComplete="off"
+          aria-describedby={`${inputId}-status`}
+        />
+        <p className="rm-field__hint" id={`${inputId}-status`} role="status" aria-live="polite">
+          {status}
         </p>
-      )}
-    </section>
+      </div>
+      <nav className={styles.guideNav} aria-label="Documentation navigation">
+        {visibleGuides.length > 0 ? (
+          <ul className="rm-sidebar__list">
+            {visibleGuides.map((guide) => (
+              <li key={guide.slug}>
+                <Link
+                  className={`rm-sidebar__link ${styles.guideLink}`}
+                  href={`/docs/${guide.slug}`}
+                  aria-current={guide.slug === currentSlug ? "page" : undefined}
+                >
+                  <span className={styles.guideNumber} aria-hidden="true">
+                    {guide.number}
+                  </span>
+                  {guide.title}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className={styles.emptySearch}>
+            No guide matches that search. Try “n8n”, “security” or “install”.
+          </p>
+        )}
+      </nav>
+    </>
   );
 }

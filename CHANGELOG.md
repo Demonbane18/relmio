@@ -7,6 +7,38 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Publish per-page canonical URLs and social previews, plus `robots.txt` and a
+  sitemap, for the hosted site.
+- Return a branded page for unknown wizard and website addresses.
+
+### Changed
+
+- Share one UI kit and top bar across the local wizard and website, with a
+  pastel-yellow light theme and black dark theme. Fit wizard and dashboard
+  views to one screen on laptop and desktop displays, use a smaller top-bar
+  logo, move hosted chat to `/chat`, and clarify its disclosures.
+
+### Fixed
+
+- Wizard: keep focused controls clear of the top bar and footer, show each
+  step's primary action on the first phone screen, keep long steps fitted to one
+  screen, and stop the phone progress card covering warnings and footer actions.
+- Read progress and status updates aloud while an operation runs: they are no
+  longer inside a region marked busy.
+- Accessibility: copy buttons keep stable names and announce results politely,
+  rejected fields are linked to their errors, Tab keeps working while an
+  operation runs, and focus returns to the composer or transcript after a chat
+  response or sign-out.
+- Copy buttons use the displayed command, code block or model setting at click
+  time, so copied text matches what is shown.
+- Hosted chat: name the sign-in flow as the unofficial third-party Codex flow,
+  describe who receives the prompt and tokens, label sign-out as local, and
+  return every response with `Cache-Control: no-store`.
+- Ignore forwarded hosts when building crawler and metadata URLs, and send
+  `Permissions-Policy` with the other hosted security headers.
+
 ## [0.18.0-experimental.4] - 2026-09-29
 
 ### Fixed
@@ -1211,14 +1243,6 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.12.0]: https://github.com/Demonbane18/relmio/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
-[0.1.7]: https://github.com/Demonbane18/relmio/compare/v0.1.6...v0.1.7
-[0.1.6]: https://github.com/Demonbane18/relmio/compare/v0.1.5...v0.1.6
-[0.1.5]: https://github.com/Demonbane18/relmio/compare/v0.1.4...v0.1.5
-[0.1.4]: https://github.com/Demonbane18/relmio/compare/v0.1.3...v0.1.4
-[0.1.3]: https://github.com/Demonbane18/relmio/compare/v0.1.2...v0.1.3
-[0.1.2]: https://github.com/Demonbane18/relmio/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/Demonbane18/relmio/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/Demonbane18/relmio/releases/tag/v0.1.0
 
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1
 [0.18.0-experimental.2]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.1...v0.18.0-experimental.2

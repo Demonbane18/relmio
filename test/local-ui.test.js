@@ -3,43 +3,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const VOID_ELEMENTS = new Set([
-  "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
-  "path", "rect", "source", "track", "wbr",
-]);
-
-function readyPanelParents(html) {
-  const start = html.indexOf('<section class="panel success-panel"');
-  assert.notEqual(start, -1, "expected the ready panel");
-  const stack = [];
-  const parents = new Map();
-  const actions = [];
-  const tags = /<\/?([A-Za-z][\w:-]*)(?:\s[^>]*)?>/gu;
-  tags.lastIndex = start;
-
-  for (const match of html.matchAll(tags)) {
-    if (match.index < start) continue;
-    const raw = match[0];
-    const tag = match[1].toLowerCase();
-    const closing = raw.startsWith("</");
-    if (closing) {
-      if (VOID_ELEMENTS.has(tag)) continue;
-      const node = stack.pop();
-      assert.ok(node, `unexpected closing </${tag}> in ready panel`);
-      assert.equal(node.tag, tag, `invalid ready panel nesting at </${tag}>`);
-      if (stack.length === 0) return { actions, parents };
-      continue;
-    }
-    const id = raw.match(/\bid="([^"\s]+)"/u)?.[1] ?? null;
-    const classes = new Set((raw.match(/\bclass="([^"]*)"/u)?.[1] ?? "").split(/\s+/u).filter(Boolean));
-    const node = { tag, id, classes };
-    const parent = stack.at(-1) ?? null;
-    if (id) parents.set(id, parent);
-    if (classes.has("actions")) actions.push(parent);
-    if (!VOID_ELEMENTS.has(tag) && !raw.endsWith("/>") ) stack.push(node);
-  }
-  assert.fail("ready panel did not close");
-}
 
 test("Test AI Chat exposes a quiet accessible streaming lifecycle", async () => {
   const [html, script, css] = await Promise.all([
@@ -88,18 +51,16 @@ test("Test AI Chat exposes a quiet accessible streaming lifecycle", async () => 
   );
 });
 
-test("ready-panel credential and action controls are siblings of its flex heading", async () => {
+test("ready-panel credential and action controls sit in the panel body, not its heading", async () => {
   const html = await readFile("src/ui/local.html", "utf8");
-  const { actions, parents } = readyPanelParents(html);
-  const oneTimeNoteParent = parents.get("one-time-note");
-  const resultParent = parents.get("install-result-list");
-
-  assert.ok(oneTimeNoteParent?.classes.has("success-panel"));
-  assert.ok(resultParent?.classes.has("success-panel"));
-  assert.ok(!oneTimeNoteParent?.classes.has("success-heading"));
-  assert.ok(!resultParent?.classes.has("success-heading"));
-  assert.ok(actions.some((parent) => parent?.classes.has("success-panel")));
-  assert.ok(!actions.some((parent) => parent?.classes.has("success-heading")));
+  const panel = html.slice(html.indexOf('data-step="4"'));
+  assert.notEqual(panel.length, html.length, "expected the ready panel");
+  const header = panel.slice(0, panel.indexOf("</header>"));
+  const body = panel.slice(panel.indexOf('class="rm-panel__body"'), panel.indexOf("<footer"));
+  for (const id of ["one-time-note", "install-result-list", "codex-login", "chat-tester"]) {
+    assert.ok(body.includes(`id="${id}"`), `${id} is in the ready panel body`);
+    assert.ok(!header.includes(`id="${id}"`), `${id} is not in the ready heading`);
+  }
 });
 
 test("local model completion reflects acquisition, failure, and verified inference", async () => {
@@ -177,11 +138,63 @@ test("VPS model recovery appears only when discovery confirms no running n8n", a
   assert.equal(confirmed.errors.length, 0);
 });
 
+test("the install key warning names the selected target's own boundary", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const source = extractBetween(
+    script,
+    "function prepareInstallPanel()",
+    "\nconst ASSISTANT_SANDBOX_IMAGE",
+  );
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { hidden: false, disabled: false, required: false, value: "", textContent: "", dataset: {}, setCustomValidity() {} });
+    return nodes.get(id);
+  };
+  const prepare = runInNewContext(`${source}; prepareInstallPanel;`, {
+    element,
+    resetBasicAuthPasswordVisibility() {},
+    setButtonLabel() {},
+    isGrokBuild: (value) => value === "xai-grok-build",
+    isCodexChat: (target) => target === "codex-chat",
+    isN8nSidecar: (target) => target === "n8n-openai-oauth",
+    isN8nSuperGrok: (target) => target === "n8n-supergrok-oauth",
+    isN8nLocalModel: (target) => target === "n8n-local-model",
+    isN8nAssistant: (target) => target === "n8n-ai-assistant",
+    isN8nStack: (target) => target === "local-n8n-stack",
+    state: { plan: { target: "xai-grok-build" } },
+  });
+
+  prepare();
+  assert.equal(element("codex-install-warning").hidden, false);
+  assert.match(element("codex-install-warning-title").textContent, /endpoint/u);
+  assert.match(element("codex-install-warning-detail").textContent, /SuperGrok/u);
+  assert.doesNotMatch(element("codex-install-warning-detail").textContent, /Codex|ChatGPT/u);
+
+  for (const target of ["codex-chatgpt", "codex-chat"]) {
+    nodes.forEach((node) => { node.textContent = ""; });
+    runInNewContext(`${source}; prepareInstallPanel;`, {
+      element,
+      resetBasicAuthPasswordVisibility() {},
+      setButtonLabel() {},
+      isGrokBuild: () => false,
+      isCodexChat: (value) => value === target,
+      isN8nSidecar: () => false,
+      isN8nSuperGrok: () => false,
+      isN8nLocalModel: () => false,
+      isN8nAssistant: () => false,
+      isN8nStack: () => false,
+      state: { plan: { target } },
+    })();
+    assert.match(element("codex-install-warning-detail").textContent, /Codex/u);
+  }
+});
+
 test("the complete local script bootstraps without retired tail initializers", async () => {
   const { runInNewContext } = await import("node:vm");
   const script = (await readFile("src/ui/local.js", "utf8"))
     .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => null; const bindWizardNavigation = () => {};\n")
-    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n");
+    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n")
+    .replace(/import \{ initWizardTopbar \} from "\.\/topbar\.js";\r?\n/u, "const initWizardTopbar = () => {};\n");
   const makeNode = () => ({
     attributes: new Map(),
     checked: false,
@@ -224,7 +237,8 @@ test("the complete script renders a healthy OAuth inventory instead of falling b
   const { runInNewContext } = await import("node:vm");
   const script = (await readFile("src/ui/local.js", "utf8"))
     .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => 'a'.repeat(43); const bindWizardNavigation = () => {};\n")
-    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n");
+    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n")
+    .replace(/import \{ initWizardTopbar \} from "\.\/topbar\.js";\r?\n/u, "const initWizardTopbar = () => {};\n");
   const fixture = {
     schemaVersion: 1, generatedAt: new Date().toISOString(),
     docker: { available: true, version: "29.7.2", composeVersion: "2.39.1" }, auth: { secretsRevealable: false },
@@ -724,12 +738,14 @@ test("the Codex device-code sign-in stays separate from the n8n system-browser f
   const code = createOAuthControl();
   const status = createOAuthControl();
   const result = createOAuthControl();
+  const step = createOAuthControl();
   const button = createOAuthControl("Sign in to ChatGPT");
   const elements = new Map([
     ["device-code-link", link],
     ["device-code", code],
     ["device-code-status", status],
     ["device-code-result", result],
+    ["device-code-step", step],
     ["codex-login-button", button],
   ]);
   runInNewContext(`${validators}\n${listener}`, {
@@ -762,6 +778,7 @@ test("the Codex device-code sign-in stays separate from the n8n system-browser f
   assert.equal(link.href, "https://auth.openai.com/codex/device");
   assert.equal(code.textContent, "ABCD-EFGH");
   assert.equal(calls.some((call) => call.path === "/api/oauth/login"), false);
+  assert.equal(step.hidden, true, "the single-use code leaves the screen once sign-in ends");
   assert.equal(calls[0].path, "/api/local/codex/login");
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { target: "codex-chatgpt" });
 });

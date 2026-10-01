@@ -9,798 +9,706 @@
     />
     <title>Relmio | n8n Setup</title>
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
     <script src="/app.js" type="module"></script>
   </head>
-  <body class="setup-wizard" data-current-step="1">
-    <a class="skip-link" href="#main-content">Skip to setup</a>
+  <body class="rm-app rm-app--fit setup-wizard" data-current-step="1">
+    <a class="rm-skip-link" href="#main-content">Skip to setup</a>
 
-    <header class="site-header">
-      <div class="brand">
-        <img
-          class="brand-mark"
-          src="/relmio-icon.png"
-          alt=""
-          width="28"
-          height="28"
-        />
-        <span>Relmio</span>
-      </div>
-      <div class="header-actions">
-        <fieldset class="theme-picker">
-          <legend class="visually-hidden">Color theme</legend>
-          <label title="Use system appearance">
-            <input type="radio" name="color-theme" value="system" checked />
-            <span class="theme-icon theme-icon-system" aria-hidden="true"></span>
-            <span class="visually-hidden">System</span>
-          </label>
-          <label title="Use light appearance">
-            <input type="radio" name="color-theme" value="light" />
-            <span class="theme-icon theme-icon-light" aria-hidden="true"></span>
-            <span class="visually-hidden">Light</span>
-          </label>
-          <label title="Use dark appearance">
-            <input type="radio" name="color-theme" value="dark" />
-            <span class="theme-icon theme-icon-dark" aria-hidden="true"></span>
-            <span class="visually-hidden">Dark</span>
-          </label>
-        </fieldset>
-        <span class="local-badge">Runs only on this computer</span>
+    <header class="rm-topbar">
+      <div class="rm-topbar__inner">
+        <a class="rm-brand" href="/" data-wizard-route="/" aria-label="Relmio home">
+          <img class="rm-brand__logo" src="/relmio-icon-96.png" width="32" height="32" alt="" />
+          <span>Relmio</span>
+        </a>
+        <nav class="rm-nav" aria-label="Primary">
+          <ul class="rm-nav__list">
+            <li><a class="rm-nav__link" href="/" data-wizard-route="/" aria-current="page">Setup</a></li>
+            <li><a class="rm-nav__link" href="/local" data-wizard-route="/local">This computer</a></li>
+            <li><a class="rm-nav__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+            <li><a class="rm-nav__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer">Docs<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+          </ul>
+        </nav>
+        <div class="rm-topbar__actions">
+          <span class="rm-status rm-topbar__wide" data-tone="success"><span class="rm-status__dot"></span>Runs on this computer</span>
+          <fieldset class="rm-segmented">
+            <legend class="rm-visually-hidden">Color theme</legend>
+            <label class="rm-segmented__item" title="System"><input class="rm-segmented__input" type="radio" name="color-theme" value="system" checked /><span class="rm-icon rm-icon--monitor rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">System</span></label>
+            <label class="rm-segmented__item" title="Light"><input class="rm-segmented__input" type="radio" name="color-theme" value="light" /><span class="rm-icon rm-icon--sun rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Light</span></label>
+            <label class="rm-segmented__item" title="Dark"><input class="rm-segmented__input" type="radio" name="color-theme" value="dark" /><span class="rm-icon rm-icon--moon rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Dark</span></label>
+          </fieldset>
+          <a class="rm-chip rm-topbar__wide" data-rm-repo-link href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer" aria-label="Open Relmio version __RELMIO_PACKAGE_VERSION__ on GitHub. Opens in a new tab.">
+            <span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub
+            <span class="rm-chip__meta"><span class="rm-icon rm-icon--star rm-icon--xs" aria-hidden="true"></span><span data-rm-repo-stars>?</span></span>
+            <span class="rm-chip__meta">v__RELMIO_PACKAGE_VERSION__</span>
+          </a>
+          <a class="rm-icon-button rm-topbar__wide" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer" aria-label="Support Relmio on Ko-fi (opens in a new tab)" title="Support Relmio on Ko-fi"><span class="rm-icon rm-icon--coffee" aria-hidden="true"></span></a>
+          <details class="rm-menu">
+            <summary class="rm-icon-button" aria-label="Menu"><span class="rm-icon rm-icon--menu" aria-hidden="true"></span></summary>
+            <div class="rm-menu__panel">
+              <nav aria-label="Primary">
+                <ul class="rm-menu__list">
+                  <li><a class="rm-menu__link" href="/" data-wizard-route="/" aria-current="page">Setup</a></li>
+                  <li><a class="rm-menu__link" href="/local" data-wizard-route="/local">This computer</a></li>
+                  <li><a class="rm-menu__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+                  <li><a class="rm-menu__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--book rm-icon--sm" aria-hidden="true"></span>Docs<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                </ul>
+              </nav>
+              <ul class="rm-menu__list rm-menu__section">
+                <li><a class="rm-menu__link" href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                <li><a class="rm-menu__link" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--coffee rm-icon--sm" aria-hidden="true"></span>Support on Ko-fi<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+              </ul>
+            </div>
+          </details>
+        </div>
       </div>
     </header>
 
-    <section
-      id="operation-progress"
-      class="operation-progress"
-      role="status"
-      aria-live="polite"
-      aria-atomic="false"
-      tabindex="-1"
-      hidden
-    >
-      <div class="operation-progress__content">
-        <p id="operation-progress-label" class="operation-progress__label">
-          No operation is running.
-        </p>
-        <p class="operation-progress__elapsed" aria-live="off">
-          Elapsed
-          <time id="operation-progress-elapsed" datetime="PT0S">00:00</time>
-        </p>
-        <div
-          id="operation-progress-bar"
-          class="operation-progress__track"
-          role="progressbar"
-          aria-label="Current setup operation"
-          aria-valuetext="No operation is running."
-        >
-          <span class="operation-progress__bar" aria-hidden="true"></span>
-        </div>
-        <p id="operation-progress-note" class="operation-progress__note">
-          Timing varies with your remote server and network. Keep this page open until this step finishes.
-        </p>
-      </div>
-    </section>
+    <main id="main-content" class="rm-app__main" tabindex="-1">
+      <div class="rm-split setup-layout">
+        <aside class="rm-split__rail setup-rail" aria-label="Setup status">
+          <h1 id="page-title" class="rm-visually-hidden">Set up a private n8n connection</h1>
 
-    <main id="main-content" class="shell" tabindex="-1" aria-busy="false">
-      <aside class="rail" aria-label="Setup progress and safety">
-        <section class="intro" aria-labelledby="page-title">
-          <h1 id="page-title">Set up a private n8n connection</h1>
-        </section>
+          <nav aria-label="Setup progress">
+            <p id="setup-progress-label" class="rm-visually-hidden">Step 1 of 5 · Choose setup</p>
+            <ol class="rm-stepper rm-stepper--auto">
+              <li class="rm-stepper__item" data-step-marker="1" aria-current="step"><button class="rm-stepper__link" type="button" data-step-target="1" disabled><span class="rm-stepper__marker">1</span><span class="rm-stepper__label">Choose setup</span></button></li>
+              <li class="rm-stepper__item" data-step-marker="2"><button class="rm-stepper__link" type="button" data-step-target="2" disabled><span class="rm-stepper__marker">2</span><span class="rm-stepper__label">Check server</span></button></li>
+              <li class="rm-stepper__item" data-step-marker="3"><button class="rm-stepper__link" type="button" data-step-target="3" disabled><span class="rm-stepper__marker">3</span><span class="rm-stepper__label">Choose n8n</span></button></li>
+              <li class="rm-stepper__item" data-step-marker="4"><button class="rm-stepper__link" type="button" data-step-target="4" disabled><span class="rm-stepper__marker">4</span><span class="rm-stepper__label">Review</span></button></li>
+              <li class="rm-stepper__item" data-step-marker="5"><button class="rm-stepper__link" type="button" data-step-target="5" disabled><span class="rm-stepper__marker">5</span><span class="rm-stepper__label">Ready</span></button></li>
+            </ol>
+          </nav>
 
-        <nav class="steps" aria-label="Setup progress">
-          <p id="setup-progress-label">Step 1 of 5 · Choose setup</p>
-          <ol>
-            <li data-step-marker="1" aria-current="step"><button type="button" data-step-target="1" disabled><span>1</span><em>Setup</em></button></li>
-            <li data-step-marker="2"><button type="button" data-step-target="2" disabled><span>2</span><em>VPS</em></button></li>
-            <li data-step-marker="3"><button type="button" data-step-target="3" disabled><span>3</span><em>n8n</em></button></li>
-            <li data-step-marker="4"><button type="button" data-step-target="4" disabled><span>4</span><em>Review</em></button></li>
-            <li data-step-marker="5"><button type="button" data-step-target="5" disabled><span>5</span><em>Done</em></button></li>
-          </ol>
-        </nav>
-
-        <div class="toast-stack" aria-label="Wizard notifications">
-          <aside
-            id="global-safety"
-            class="toast safety-note"
-            aria-label="Safety guarantee"
-          >
-            <strong>n8n stays unchanged</strong>
-            <span>
-              No n8n restart, rebuild, or public port. Approve the exact plan before any write.
-            </span>
-            <button
-              class="toast-close"
-              type="button"
-              data-dismiss-toast="global-safety"
-              aria-label="Dismiss safety guarantee"
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          </aside>
-
-          <aside
-            id="global-backup"
-            class="toast safety-note backup-note"
-            aria-label="Backup reminder"
-          >
-            <strong>Back up first</strong>
-            <span>
-              Export your n8n workflows before connecting. This still writes to your server.
-            </span>
-            <button
-              class="toast-close"
-              type="button"
-              data-dismiss-toast="global-backup"
-              aria-label="Dismiss backup reminder"
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          </aside>
-
-          <div
-            id="global-message"
-            class="toast message"
+          <section
+            id="operation-progress"
+            class="operation-progress"
             role="status"
             aria-live="polite"
-          >
-            <span id="global-message-text">Choose a setup route to begin.</span>
-            <button
-              class="toast-close"
-              type="button"
-              data-dismiss-toast="global-message"
-              aria-label="Dismiss status message"
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          </div>
-
-          <div
-            id="global-error"
-            class="toast error"
-            role="alert"
+            aria-atomic="false"
             tabindex="-1"
             hidden
           >
-            <span id="global-error-text"></span>
-            <button
-              class="toast-close"
-              type="button"
-              data-dismiss-toast="global-error"
-              aria-label="Dismiss error"
-            >
-              <span aria-hidden="true">×</span>
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <section class="panel" data-step="1" aria-labelledby="signin-title">
-        <div class="panel-heading">
-          <h2 id="signin-title" tabindex="-1">Choose your setup</h2>
-          <p>Choose where you want to connect n8n.</p>
-        </div>
-        <aside class="experimental-notice" aria-labelledby="experimental-warning-title">
-          <strong id="experimental-warning-title">Experimental candidate · 0.18.0-experimental.4</strong>
-          <p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
-        </aside>
-
-        <noscript>
-          <p class="route-safety">This setup needs JavaScript to check server identity and show the plan. Enable JavaScript, then reload before continuing.</p>
-        </noscript>
-        <div id="setup-choices">
-          <section class="route-group" aria-labelledby="server-routes-title">
-            <div class="route-group__heading">
-              <h3 id="server-routes-title">On your server</h3>
-              <p>Choose a connection beside your existing n8n.</p>
-            </div>
-            <div class="provider-route-grid">
-              <div class="provider-route-choice">
-                <button id="openai-vps-route" class="provider-route" type="button" aria-controls="chatgpt-setup" aria-expanded="false" aria-describedby="openai-vps-route-detail">
-                  <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
-                  <span class="provider-route__eyebrow">ChatGPT · your server</span>
-                  <strong>ChatGPT on my server</strong>
-                  <span id="openai-vps-route-detail">Connect n8n on your server with your ChatGPT sign-in.</span>
-                  <span class="route-status">Unofficial · private connection</span>
-                </button>
-                <details class="provider-route-details">
-                  <summary aria-label="More details about ChatGPT on my server">More details</summary>
-                  <p>Sign in on this computer first. Review the plan before any write.</p>
-                </details>
-              </div>
-              <div class="provider-route-choice">
-                <a id="vps-supergrok-start" class="provider-route" aria-describedby="supergrok-vps-route-detail">
-                  <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/><path d="M16.5 5.5 19 3m-7 2.5V2"/></svg>
-                  <span class="provider-route__eyebrow">Grok · your server</span>
-                  <strong>Grok on my server</strong>
-                  <span id="supergrok-vps-route-detail">Connect n8n on your server with official Grok sign-in.</span>
-                </a>
-                <details class="provider-route-details">
-                  <summary aria-label="More details about Grok on my server">More details</summary>
-                  <p>Grok signs in on your server. ChatGPT sign-in is not used.</p>
-                </details>
-              </div>
-              <div class="provider-route-choice">
-                <a id="vps-local-model-start" class="provider-route" aria-describedby="local-model-vps-route-detail">
-                  <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20h16M6 20v-8l6-4 6 4v8M9 20v-4h6v4M4 8h16"/></svg>
-                  <span class="provider-route__eyebrow">Local model · your server</span>
-                  <strong>Self-hosted model on my server</strong>
-                  <span id="local-model-vps-route-detail">Run a private model on your server. No sign-in.</span>
-                </a>
-              </div>
-            </div>
-          </section>
-          <section class="route-group route-group--local" aria-labelledby="local-routes-title">
-            <h3 id="local-routes-title">On this computer</h3>
-            <div class="provider-route-choice">
-              <a id="local-endpoint-link" class="provider-route" aria-describedby="local-route-detail">
-                <svg class="route-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>
-                <span class="provider-route__eyebrow">This computer</span>
-                <strong>Set up on this computer</strong>
-                <span id="local-route-detail">Create a private connection on this computer.</span>
-              </a>
-              <details class="provider-route-details">
-                <summary aria-label="More details about setup on this computer">More details</summary>
-                <p>A connection on this computer, an existing n8n companion, or a separate protected n8n stack.</p>
-              </details>
-            </div>
-          </section>
-          <div class="hosting-help">
-            <span>Need another hosting option?</span>
-            <a id="hosting-options-link" class="hosting-help__link" aria-describedby="hosting-route-detail"><strong>Compare hosting routes</strong></a>
-            <span id="hosting-route-detail">Compare other hosting routes before you choose.</span>
-          </div>
-          <aside class="route-safety" aria-label="Route safety boundary">
-            <strong>You stay in control.</strong>
-            <span>Check the server identity before authenticating. Review and approve the plan before any write.</span>
-          </aside>
-        </div>
-        <div id="chatgpt-setup" hidden>
-          <div class="panel-heading provider-route-heading">
-            <p class="panel-kicker">ChatGPT on my server</p>
-            <h3 id="chatgpt-setup-title" tabindex="-1">Sign in with ChatGPT</h3>
-            <p>This uses a saved ChatGPT/Codex credential, not a Platform API key. The file stays on this computer until you approve its encrypted upload to the selected server.</p>
-            <p class="route-warning">Unofficial, private, and policy-uncertain.</p>
-          </div>
-          <details class="technical-details">
-            <summary>More details about this connection</summary>
-            <div>
-              <p>This uses a saved ChatGPT/Codex credential, not just your identity and not a Platform API key. Ordinary ChatGPT sign-in for a supported app shares your name, email, and an optional picture. This route copies the credential file only after you approve that upload.</p>
-              <p>What you can use depends on your account. This bridge supports Message a Model and GPT Image generation or editing. It does not support audio, text-to-speech, moderation, file management, stored conversations, or video. Use a separate OpenAI Platform connection for supported audio, moderation, file management, and stored conversations. Do not enter that API key here. OpenAI shut down the Videos API on September 24, 2026, with no replacement listed. A listed model is not proof that a workflow works.</p>
-              <p>The OpenAI bridge remains unofficial, private, and policy-uncertain. OpenAI still processes later model requests. Log retention for this pinned Codex login is not known. Approval here is for the Relmio upload, not an OpenAI permission.</p>
-            </div>
-          </details>
-          <div class="status-row" role="status" aria-live="polite">
-            <span id="auth-indicator" class="status-dot" aria-hidden="true"></span>
-            <div>
-              <strong id="auth-title">Checking…</strong>
-              <p id="auth-detail">Looking for your local Codex credential.</p>
-              <p id="auth-updated" class="credential-time" hidden>
-                Credential updated
-                <time id="auth-updated-time"></time>
-                (local time).
+            <div class="setup-progress__head">
+              <p id="operation-progress-label" class="setup-progress__label">No operation is running.</p>
+              <p class="setup-progress__elapsed" aria-live="off">
+                <span class="rm-visually-hidden">Elapsed</span>
+                <time id="operation-progress-elapsed" datetime="PT0S">00:00</time>
               </p>
             </div>
-          </div>
-          <div class="actions">
-            <button id="login-button" class="button secondary" type="button">Sign in with ChatGPT</button>
-            <a id="login-link" class="button secondary" target="_blank" rel="noopener noreferrer" hidden>Open fresh ChatGPT sign-in</a>
-            <button id="stop-login-button" class="button secondary" type="button" hidden>Stop ChatGPT sign-in</button>
-            <button id="signin-next" class="button primary" type="button" disabled>Check the server</button>
-          </div>
-          <button id="change-setup-button" class="button ghost" type="button">Change setup</button>
-        </div>
-      </section>
-
-      <section class="panel" data-step="2" aria-labelledby="vps-title" hidden>
-        <div class="panel-heading">
-          <h2 id="vps-title" tabindex="-1">Check your server</h2>
-          <p>
-            Check the server identity before you connect to the server.
-          </p>
-        </div>
-
-        <form id="vps-form">
-          <fieldset class="setup-fieldset">
-            <legend>1. Check server identity</legend>
-            <div class="field-grid">
-              <label class="field">
-                <span>Server address</span>
-                <input id="host" name="host" inputmode="url" autocomplete="off" placeholder="your-vps-ip-or-hostname" aria-describedby="host-hint" required />
-                <small id="host-hint">Use the full IP address or hostname. Do not add <code>ssh root@</code>.</small>
-              </label>
-              <label class="field compact">
-                <span>Connection port</span>
-                <input id="port" name="port" type="number" min="1" max="65535" value="22" aria-describedby="port-hint" required />
-                <small id="port-hint">Technical name: SSH port. Usually 22.</small>
-              </label>
-            </div>
-            <button id="fingerprint-button" class="button secondary" type="button">Check this server</button>
-          </fieldset>
-          <fieldset class="setup-fieldset">
-            <legend>2. Approve the returned fingerprint</legend>
-            <p>Compare this fingerprint with a trusted record for your server before approving it.</p>
-            <div id="fingerprint-box" class="fingerprint" hidden>
-              <span>Server identity (SSH fingerprint)</span>
-              <code id="fingerprint-value"></code>
-              <label class="check-row">
-                <input id="fingerprint-confirm" type="checkbox" />
-                <span>I checked this server identity. This is the server I mean to use.</span>
-              </label>
-            </div>
-          </fieldset>
-          <fieldset class="setup-fieldset">
-            <legend>3. Authenticate</legend>
-            <div class="field-grid">
-              <label class="field compact">
-                <span>Sign-in name</span>
-                <input id="username" name="username" autocomplete="username" value="root" aria-describedby="username-hint" disabled required />
-                <small id="username-hint">This route needs a root account (UID 0). Passwordless sudo is only on the local model page.</small>
-              </label>
-              <label class="field">
-                <span>SSH authentication</span>
-                <select id="ssh-authentication" disabled><option value="password">Password</option><option value="agent">Local SSH agent</option></select>
-              </label>
-              <label class="field">
-                <span>Server password</span>
-                <input id="password" name="password" type="password" autocomplete="current-password" disabled required />
-                <small>Unlocks after you check the server identity. It clears after you connect.</small>
-              </label>
-            </div>
-            <p id="ssh-agent-status" role="status">Checking local SSH agent configuration…</p>
-            <details class="technical-details">
-              <summary>More details about SSH agent sign-in</summary>
-              <div><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p></div>
-            </details>
-            <p id="ssh-session" role="status"></p>
-            <button id="ssh-disconnect" class="button secondary" type="button" hidden>Disconnect shared VPS session</button>
-          </fieldset>
-          <div class="actions">
-            <button class="button ghost back-button" data-back="1" type="button">Back</button>
-            <button id="connect-button" class="button primary" type="submit" disabled>Connect</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="panel" data-step="3" aria-labelledby="n8n-title" hidden>
-        <div class="panel-heading">
-          <h2 id="n8n-title" tabindex="-1">Choose your n8n</h2>
-          <p>
-            Choose the n8n to connect. This step only looks.
-          </p>
-        </div>
-
-        <div class="version-strip" aria-label="Detected Docker versions">
-          <span>Docker <strong id="docker-version">Not detected</strong></span>
-          <span>Compose <strong id="compose-version">Not detected</strong></span>
-        </div>
-
-        <div class="field-grid single">
-          <label class="field">
-            <span>Your n8n</span>
-            <select id="container-select"></select>
-          </label>
-
-          <label class="field">
-            <span>Private connection network</span>
-            <select id="network-select"></select>
-            <small>The connection joins this network. Your n8n stays unchanged.</small>
-          </label>
-        </div>
-
-        <details class="technical-details">
-          <summary>More details about the server check</summary>
-          <div><p>Relmio uses read-only Docker commands here. It does not run commands inside n8n, change its image, or restart its container.</p></div>
-        </details>
-
-        <section
-          id="detected-vps-integration-management"
-          class="detected-integration-management"
-          aria-labelledby="detected-vps-integration-management-title"
-          hidden
-        >
-          <div>
-            <h3 id="detected-vps-integration-management-title">Manage detected self-hosted n8n</h3>
-            <p><a id="vps-supergrok-manage" class="button secondary">SuperGrok companion</a></p>
-            <p><a id="vps-local-model-manage" class="button secondary">Local model companion</a></p>
-            <p>
-              Review a Relmio-managed companion. This does not edit, rebuild, stop, recreate, or restart n8n.
-            </p>
-          </div>
-          <div class="field-grid single integration-management-options">
-            <label class="check-row">
-              <input id="manage-vps-sidecar" name="vps-integration" type="radio" value="sidecar" checked />
-              <span>
-                <strong>OpenAI-OAuth/Codex bridge</strong>
-                <small>Refresh the saved credential, then review the bridge update.</small>
-              </span>
-            </label>
-            <label class="check-row">
-              <input id="manage-vps-assistant" name="vps-integration" type="radio" value="assistant" />
-              <span>
-                <strong>Assistant companion</strong>
-                <small>Manage the sandbox and optional private search only.</small>
-              </span>
-            </label>
-            <label id="manage-vps-searxng-row" class="check-row" hidden>
-              <input id="manage-vps-searxng" type="checkbox" />
-              <span>
-                <strong>Include SearXNG JSON web search</strong>
-                <small>Off by default. It stays on the private network.</small>
-              </span>
-            </label>
-          </div>
-          <div class="detected-integration-actions">
-            <button id="manage-vps-integration" class="button secondary" type="button">
-              Manage selected integration
-            </button>
-            <button id="refresh-vps-chatgpt" class="button ghost" type="button">
-              Refresh ChatGPT sign-in
-            </button>
-          </div>
-        </section>
-
-        <div class="actions">
-          <button class="button ghost back-button" data-back="2" type="button">
-            Back
-          </button>
-          <button id="disconnect-vps-button" class="button secondary" type="button">
-            Disconnect from VPS
-          </button>
-          <button id="review-button" class="button primary" type="button">
-            Review
-          </button>
-        </div>
-      </section>
-
-      <section class="panel" data-step="4" aria-labelledby="review-title" hidden>
-        <div class="panel-heading">
-          <h2 id="review-title" tabindex="-1">Review the plan</h2>
-          <p id="review-intro">Nothing is written until you approve this plan.</p>
-          <p id="ssh-review-identity"></p>
-        </div>
-
-        <dl class="result-list review-details">
-          <div>
-            <dt>Docker network</dt>
-            <dd id="review-network">Not selected</dd>
-          </div>
-          <div>
-            <dt id="review-endpoint-label">Private hostname</dt>
-            <dd><code id="review-endpoint">n8n-openai-oauth</code></dd>
-          </div>
-        </dl>
-
-        <div class="review-grid">
-          <section aria-labelledby="will-title">
-            <h3 id="will-title">The wizard will</h3>
-            <ul id="review-will-list" class="check-list">
-              <li>Create <code>/docker/n8n-openai-oauth</code></li>
-              <li>Upload the adapter runtime and the saved ChatGPT/Codex credential file</li>
-              <li>Build and start only the <code>openai-oauth</code> sidecar</li>
-              <li>Attach the sidecar only to the reviewed Docker network</li>
-              <li>Use the reviewed private sidecar hostname</li>
-            </ul>
-          </section>
-          <section aria-labelledby="wont-title">
-            <h3 id="wont-title">The wizard will not</h3>
-            <ul id="review-wont-list" class="no-list">
-              <li>Edit or rebuild the n8n image</li>
-              <li>Stop, restart, or recreate n8n</li>
-              <li>Publish port <code>10531</code></li>
-              <li>Create a Traefik route</li>
-            </ul>
-          </section>
-        </div>
-
-        <label class="check-row approval">
-          <input id="install-confirm" type="checkbox" />
-          <span id="install-confirm-copy">I approve uploading the saved ChatGPT/Codex credential file only to
-          <code>/docker/n8n-openai-oauth</code>. This bridge is unofficial, private, and policy-uncertain.</span>
-        </label>
-
-        <div class="actions">
-          <button class="button ghost back-button" data-back="3" type="button">
-            Back
-          </button>
-          <button id="install-button" class="button primary" type="button" disabled>
-            Install
-          </button>
-        </div>
-      </section>
-
-      <section class="panel success-panel" data-step="5" aria-labelledby="done-title" hidden>
-        <div class="success-heading">
-          <div class="success-mark" aria-hidden="true">✓</div>
-          <div class="panel-heading">
-            <h2 id="done-title" tabindex="-1">Connect n8n</h2>
-            <p id="done-detail">Copy these values into n8n on the same private network.</p>
-          </div>
-        </div>
-
-        <section id="assistant-result" class="assistant-result" hidden aria-labelledby="assistant-result-title">
-          <h3 id="assistant-result-title">Assistant companion status</h3>
-          <p id="assistant-result-detail">
-            Copy these values into your own n8n settings. Relmio does not edit n8n.
-          </p>
-          <dl class="result-list assistant-result-list">
-            <div>
-              <dt>Code Sandbox URL</dt>
-              <dd class="result-value">
-                <code id="assistant-result-sandbox-url"></code>
-                <button class="button secondary copy-value" type="button" data-copy-target="assistant-result-sandbox-url" data-copy-label="Code Sandbox URL" aria-label="Copy Code Sandbox URL" title="Copy Code Sandbox URL">⧉</button>
-              </dd>
-            </div>
-            <div id="assistant-result-key-row">
-              <dt>Code Sandbox API key <small>(shown once)</small></dt>
-              <dd class="result-value">
-                <code id="assistant-result-sandbox-key"></code>
-                <button class="button secondary copy-value" type="button" data-copy-target="assistant-result-sandbox-key" data-copy-label="one-time Code Sandbox API key" aria-label="Copy one-time Code Sandbox API key" title="Copy one-time Code Sandbox API key">⧉</button>
-              </dd>
-            </div>
-            <div id="assistant-result-searxng-row" hidden>
-              <dt>SearXNG URL</dt>
-              <dd class="result-value">
-                <code id="assistant-result-searxng-url"></code>
-                <button class="button secondary copy-value" type="button" data-copy-target="assistant-result-searxng-url" data-copy-label="SearXNG URL" aria-label="Copy SearXNG URL" title="Copy SearXNG URL">⧉</button>
-              </dd>
-            </div>
-            <div>
-              <dt>n8n environment settings</dt>
-              <dd>
-                <pre class="sample-json"><code id="assistant-result-settings"></code></pre>
-                <p id="assistant-result-key-note" class="assistant-result-key-note" hidden></p>
-              </dd>
-            </div>
-          </dl>
-          <p class="assistant-result-warning">
-            Apply these values yourself. Relmio never edits its Compose file or restarts its container.
-          </p>
-        </section>
-
-        <div id="sidecar-ready-content">
-        <aside
-          id="responses-api-notice"
-          class="approval"
-          aria-label="Provider-specific n8n setting"
-        >
-          <div>
-            <strong>OpenAI OAuth/Codex: Use Responses API ON</strong>
-            <p>For this ChatGPT recipe, keep Use Responses API on. For SuperGrok, turn it off. If the switch is missing, the default Chat Completions route still works. A detected model is not proof that every workflow works.</p>
-          </div>
-          <button
-            class="toast-close"
-            type="button"
-            data-dismiss-toast="responses-api-notice"
-            aria-label="Dismiss Responses API reminder"
-          >
-            <span aria-hidden="true">×</span>
-          </button>
-        </aside>
-        <h3>1. Add the OpenAI credential</h3>
-        <dl class="result-list">
-          <div>
-            <dt>Base URL</dt>
-            <dd class="result-value">
-              <code id="result-url">http://n8n-openai-oauth:10531/v1</code>
-              <button
-                class="button secondary copy-value"
-                type="button"
-                data-copy-target="result-url"
-                data-copy-label="Base URL"
-                aria-label="Copy Base URL"
-                title="Copy Base URL"
-              >
-                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-              </button>
-            </dd>
-          </div>
-          <div>
-            <dt>API key</dt>
-            <dd class="result-value">
-              <code id="result-key">local-only</code>
-              <button
-                class="button secondary copy-value"
-                type="button"
-                data-copy-target="result-key"
-                data-copy-label="API key"
-                aria-label="Copy API key"
-                title="Copy API key"
-              >
-                <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-              </button>
-            </dd>
-          </div>
-          <div>
-            <dt>Organization ID</dt>
-            <dd>Leave empty</dd>
-          </div>
-          <div>
-            <dt>Custom header</dt>
-            <dd><strong>Off</strong></dd>
-          </div>
-        </dl>
-
-        <button
-          id="copy-settings"
-          class="button primary copy-value"
-          type="button"
-          data-copy-group="credential"
-          data-copy-label="OpenAI credential settings"
-          aria-label="Copy OpenAI credential settings"
-          title="Copy OpenAI credential settings"
-        >
-          <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-        </button>
-
-        <details class="recipe-disclosure">
-          <summary>
-            <span>2. OpenAI Chat Model for AI Agent or Basic LLM Chain. More details</span>
-          </summary>
-          <div class="model-box recipe-content">
-            <dl class="result-list">
-              <div>
-                <dt>Model ID</dt>
-                <dd class="result-value">
-                  <code id="result-model">Not detected</code>
-                  <button
-                    class="button secondary copy-value"
-                    type="button"
-                    data-copy-target="result-model"
-                    data-copy-label="model ID"
-                    aria-label="Copy model ID"
-                    title="Copy model ID"
-                  >
-                    <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-                  </button>
-                </dd>
-              </div>
-              <div>
-                <dt>Responses API</dt>
-                <dd><strong>On</strong> for Chat Model node version 1.3</dd>
-              </div>
-            </dl>
-            <p>All models detected: <span id="result-models">Not detected</span></p>
-            <p>
-              If the Responses API switch is absent, keep the node's default Chat Completions behavior. The bridge supports that route too.
-            </p>
-          </div>
-        </details>
-
-        <section id="result-image-models" class="model-box" aria-labelledby="result-image-models-title" hidden>
-          <h3 id="result-image-models-title">3. Choose an image model</h3>
-          <p>In n8n Image Generate or Edit, choose From list. If it is not shown, choose By ID and paste its exact ID below.</p>
-          <dl class="result-list">
-            <div id="result-image-model-2-row" hidden>
-              <dt>GPT Image 2</dt>
-              <dd class="result-value"><code id="result-image-model-2"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-2" data-copy-label="GPT Image 2 model ID" aria-label="Copy GPT Image 2 model ID" title="Copy GPT Image 2 model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
-            </div>
-            <div id="result-image-model-flare-row" hidden>
-              <dt>GPT Image 2.5 Flare</dt>
-              <dd class="result-value"><code id="result-image-model-flare"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-flare" data-copy-label="GPT Image 2.5 Flare model ID" aria-label="Copy GPT Image 2.5 Flare model ID" title="Copy GPT Image 2.5 Flare model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
-            </div>
-            <div id="result-image-model-sunburst-row" hidden>
-              <dt>GPT Image 2.5 Sunburst</dt>
-              <dd class="result-value"><code id="result-image-model-sunburst"></code><button class="button secondary copy-value" type="button" data-copy-target="result-image-model-sunburst" data-copy-label="GPT Image 2.5 Sunburst model ID" aria-label="Copy GPT Image 2.5 Sunburst model ID" title="Copy GPT Image 2.5 Sunburst model ID"><svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg></button></dd>
-            </div>
-          </dl>
-        </section>
-
-        <details class="recipe-disclosure">
-          <summary><span>More details: HTTP Request node</span></summary>
-          <div class="model-box recipe-content">
-            <dl class="result-list">
-              <div>
-                <dt>Method</dt>
-                <dd><code>POST</code></dd>
-              </div>
-              <div>
-                <dt>URL</dt>
-                <dd class="result-value">
-                  <code id="result-http-url">http://n8n-openai-oauth:10531/v1/chat/completions</code>
-                  <button
-                    class="button secondary copy-value"
-                    type="button"
-                    data-copy-target="result-http-url"
-                    data-copy-label="HTTP endpoint"
-                    aria-label="Copy HTTP endpoint"
-                    title="Copy HTTP endpoint"
-                  >
-                    <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-                  </button>
-                </dd>
-              </div>
-              <div>
-                <dt>Authentication</dt>
-                <dd>Generic Credential Type</dd>
-              </div>
-              <div>
-                <dt>Generic Auth Type</dt>
-                <dd>Bearer Auth</dd>
-              </div>
-              <div>
-                <dt>Credential</dt>
-                <dd><code>openai-oauth</code></dd>
-              </div>
-              <div>
-                <dt>Bearer token</dt>
-                <dd><code>local-only</code></dd>
-              </div>
-              <div>
-                <dt>Authorization header</dt>
-                <dd class="result-value">
-                  <code id="result-http-auth">Bearer local-only</code>
-                  <button
-                    class="button secondary copy-value"
-                    type="button"
-                    data-copy-target="result-http-auth"
-                    data-copy-label="Authorization header"
-                    aria-label="Copy Authorization header"
-                    title="Copy Authorization header"
-                  >
-                    <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-                  </button>
-                </dd>
-              </div>
-              <div>
-                <dt>Content-Type</dt>
-                <dd><code>application/json</code></dd>
-              </div>
-              <div>
-                <dt>Send body</dt>
-                <dd>On · JSON · Using JSON</dd>
-              </div>
-              <div class="sample-body-row">
-                <dt>JSON body</dt>
-                <dd class="result-value">
-                  <pre class="sample-json"><code id="result-http-body"></code></pre>
-                  <button
-                    class="button secondary copy-value"
-                    type="button"
-                    data-copy-target="result-http-body"
-                    data-copy-label="HTTP JSON body"
-                    aria-label="Copy HTTP JSON body"
-                    title="Copy HTTP JSON body"
-                  >
-                    <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-                  </button>
-                </dd>
-              </div>
-            </dl>
-            <button
-              id="copy-http-recipe"
-              class="button secondary copy-value"
-              type="button"
-              data-copy-group="http"
-              data-copy-label="HTTP request recipe"
-              aria-label="Copy HTTP request recipe"
-              title="Copy HTTP request recipe"
+            <div
+              id="operation-progress-bar"
+              class="rm-progress rm-progress--indeterminate"
+              role="progressbar"
+              aria-label="Current setup operation"
+              aria-valuetext="No operation is running."
             >
-              <svg class="copy-icon copy-icon-copy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10" height="10" rx="1"></rect><path d="M15 9V6a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h3"></path></svg><svg class="copy-icon copy-icon-check" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m5 12 4 4L19 6"></path></svg>
-            </button>
+              <span class="rm-progress__bar" aria-hidden="true"></span>
+            </div>
+            <p id="operation-progress-note" class="setup-progress__note">
+              Timing varies with your remote server and network. Keep this page open until this step finishes.
+            </p>
+          </section>
+        </aside>
+
+        <div id="setup-steps" class="rm-split__content setup-content" aria-busy="false">
+          <div class="rm-panel setup-panel">
+            <div id="global-error" class="rm-callout rm-callout--danger setup-error" role="alert" tabindex="-1" hidden>
+              <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
+              <div class="rm-callout__content">
+                <p id="global-error-text"></p>
+              </div>
+              <button class="rm-icon-button rm-icon-button--sm rm-callout__close" type="button" data-dismiss-toast="global-error" aria-label="Dismiss error"><span class="rm-icon rm-icon--x rm-icon--sm" aria-hidden="true"></span></button>
+            </div>
+
+            <section class="setup-step" data-step="1" aria-labelledby="signin-title">
+              <header class="rm-panel__header">
+                <div class="rm-panel__heading">
+                  <span class="rm-eyebrow">Step 1 of 5</span>
+                  <h2 id="signin-title" class="rm-h1" tabindex="-1">Choose your setup</h2>
+                  <p class="rm-muted">Choose where you want to connect n8n.</p>
+                </div>
+                <details class="rm-notice setup-notice">
+                  <summary>
+                    <span class="rm-icon rm-icon--alert rm-notice__icon" aria-hidden="true"></span>
+                    <span class="rm-notice__title">Experimental 0.18.0-experimental.4</span>
+                    <span class="rm-notice__text">Use a test setup.</span>
+                    <span class="rm-notice__toggle">Details</span>
+                  </summary>
+                  <div class="rm-notice__body">
+                    <p>Limited model-only smoke checks do not establish full-stack, hosting-provider or throughput support. Use a test setup. Previous stable release: <code>npx --yes --ignore-scripts relmio@0.17.5</code>.</p>
+                  </div>
+                </details>
+              </header>
+
+              <div id="setup-choices" class="setup-view">
+                <div class="rm-panel__body">
+                  <noscript>
+                    <p class="rm-callout rm-callout--warning">This setup needs JavaScript to check server identity and show the plan. Enable JavaScript, then reload before continuing.</p>
+                  </noscript>
+                  <div class="setup-routes">
+                    <div class="setup-route">
+                      <button id="openai-vps-route" class="rm-choice" type="button" aria-controls="chatgpt-setup" aria-expanded="false" aria-describedby="openai-vps-route-detail">
+                        <span class="rm-choice__icon"><span class="rm-icon rm-icon--message rm-icon--lg" aria-hidden="true"></span></span>
+                        <span class="rm-choice__title">ChatGPT on my server <span class="rm-badge rm-badge--warning">Unofficial</span></span>
+                        <span id="openai-vps-route-detail" class="rm-choice__text">Connect n8n on your server with your ChatGPT sign-in.</span>
+                      </button>
+                      <details class="rm-disclosure rm-disclosure--plain">
+                        <summary aria-label="More details about ChatGPT on my server">More details</summary>
+                        <div class="rm-disclosure__body"><p>Sign in on this computer first. Review the plan before any write.</p></div>
+                      </details>
+                    </div>
+                    <div class="setup-route">
+                      <a id="vps-supergrok-start" class="rm-choice" aria-describedby="supergrok-vps-route-detail">
+                        <span class="rm-choice__icon"><span class="rm-icon rm-icon--bot rm-icon--lg" aria-hidden="true"></span></span>
+                        <span class="rm-choice__title">Grok on my server <span class="rm-badge">Official sign-in</span></span>
+                        <span id="supergrok-vps-route-detail" class="rm-choice__text">Connect n8n on your server with your Grok sign-in.</span>
+                      </a>
+                      <details class="rm-disclosure rm-disclosure--plain">
+                        <summary aria-label="More details about Grok on my server">More details</summary>
+                        <div class="rm-disclosure__body"><p>Grok signs in on your server. ChatGPT sign-in is not used.</p></div>
+                      </details>
+                    </div>
+                    <div class="setup-route">
+                      <a id="vps-local-model-start" class="rm-choice" aria-describedby="local-model-vps-route-detail">
+                        <span class="rm-choice__icon"><span class="rm-icon rm-icon--box rm-icon--lg" aria-hidden="true"></span></span>
+                        <span class="rm-choice__title">Self-hosted model on my server <span class="rm-badge">No sign-in</span></span>
+                        <span id="local-model-vps-route-detail" class="rm-choice__text">Run a private model on your server.</span>
+                      </a>
+                    </div>
+                    <div class="setup-route">
+                      <a id="local-endpoint-link" class="rm-choice" aria-describedby="local-route-detail">
+                        <span class="rm-choice__icon"><span class="rm-icon rm-icon--laptop rm-icon--lg" aria-hidden="true"></span></span>
+                        <span class="rm-choice__title">Set up on this computer <span class="rm-badge">No VPS needed</span></span>
+                        <span id="local-route-detail" class="rm-choice__text">Create a private connection on this computer.</span>
+                      </a>
+                      <details class="rm-disclosure rm-disclosure--plain">
+                        <summary aria-label="More details about setup on this computer">More details</summary>
+                        <div class="rm-disclosure__body"><p>A connection on this computer, an existing n8n companion, or a separate protected n8n stack.</p></div>
+                      </details>
+                    </div>
+                  </div>
+                  <p class="setup-hosting rm-small rm-muted">
+                    <span id="hosting-route-detail">Need another hosting option?</span>
+                    <a id="hosting-options-link" class="rm-link" aria-describedby="hosting-route-detail">Compare hosting routes</a>
+                  </p>
+                </div>
+              </div>
+
+              <div id="chatgpt-setup" class="setup-view" hidden>
+                <div class="rm-panel__body">
+                  <div class="setup-subhead">
+                    <p class="rm-muted">This uses a saved ChatGPT/Codex credential, not a Platform API key. The file stays on this computer until you approve its encrypted upload to the selected server.</p>
+                    <p class="setup-warning"><span class="rm-icon rm-icon--alert rm-icon--sm" aria-hidden="true"></span>Unofficial, private, and policy-uncertain. Keep the saved credential private and follow OpenAI’s terms.</p>
+                  </div>
+                  <div class="rm-callout rm-callout--neutral setup-auth" role="status" aria-live="polite">
+                    <span id="auth-indicator" class="rm-status__dot setup-auth__dot" aria-hidden="true"></span>
+                    <div class="rm-callout__content">
+                      <strong id="auth-title" class="rm-callout__title">Checking…</strong>
+                      <p id="auth-detail" class="rm-callout__body">Looking for your local Codex credential.</p>
+                      <p id="auth-updated" class="rm-callout__body" hidden>
+                        Credential updated
+                        <time id="auth-updated-time"></time>
+                        (local time).
+                      </p>
+                    </div>
+                  </div>
+                  <details class="rm-disclosure">
+                    <summary>More details about this connection</summary>
+                    <div class="rm-disclosure__body">
+                      <p>This is not identity-only sign-in. Ordinary ChatGPT sign-in for a supported app shares your name, email, and an optional picture. This route copies the saved credential file.</p>
+                      <p>What you can use depends on your account. This bridge supports Message a Model. GPT Image generation and editing go through unofficial compatibility handlers in the bridge. Sign in with ChatGPT plan usage does not include image generation, and a listed image model ID does not prove that generation works. The bridge does not support audio, text-to-speech, moderation, file management, stored conversations, or video. Use a separate OpenAI Platform connection for supported audio, moderation, file management, and stored conversations. Do not enter that API key here. OpenAI shut down the Videos API on September 24, 2026, with no replacement listed. A listed model is not proof that a workflow works.</p>
+                      <p>OpenAI still processes later model requests. Log retention for this pinned Codex login is not known. Approval here is for the Relmio upload, not an OpenAI permission.</p>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </section>
+
+            <section class="setup-step" data-step="2" aria-labelledby="vps-title" hidden>
+              <header class="rm-panel__header">
+                <div class="rm-panel__heading">
+                  <span class="rm-eyebrow">Step 2 of 5</span>
+                  <h2 id="vps-title" class="rm-h1" tabindex="-1">Check your server</h2>
+                  <p class="rm-muted">Check the server identity before you connect to the server.</p>
+                </div>
+              </header>
+
+              <form id="vps-form" class="setup-view">
+                <div class="rm-panel__body">
+                  <fieldset class="rm-fieldset">
+                    <legend class="rm-visually-hidden">Server identity</legend>
+                    <div class="setup-server-row">
+                      <label class="rm-field setup-server-row__host">
+                        <span class="rm-field__label">Server address</span>
+                        <input id="host" name="host" class="rm-input" inputmode="url" autocomplete="off" placeholder="your-vps-ip-or-hostname" aria-describedby="host-hint" required />
+                        <span id="host-hint" class="rm-field__hint">Use the full IP address or hostname. Do not add <code>ssh root@</code>.</span>
+                      </label>
+                      <label class="rm-field setup-server-row__port">
+                        <span class="rm-field__label">Connection port</span>
+                        <input id="port" name="port" class="rm-input" type="number" min="1" max="65535" value="22" aria-describedby="port-hint" required />
+                        <span id="port-hint" class="rm-field__hint">Technical name: SSH port.</span>
+                      </label>
+                      <button id="fingerprint-button" class="rm-button setup-server-row__check" type="button">Check this server</button>
+                    </div>
+                    <div id="fingerprint-box" class="setup-fingerprint" hidden>
+                      <label class="rm-check rm-check--boxed">
+                        <input id="fingerprint-confirm" type="checkbox" aria-describedby="fingerprint-hint" />
+                        <span>
+                          <span class="setup-fingerprint__label">I checked this server identity. This is the server I mean to use.</span>
+                          <span class="setup-fingerprint__value"><span class="setup-fingerprint__name">SSH fingerprint</span> <code id="fingerprint-value"></code></span>
+                          <span id="fingerprint-hint" class="rm-check__hint">Compare this fingerprint with a trusted record for your server before you approve it.</span>
+                        </span>
+                      </label>
+                    </div>
+                  </fieldset>
+
+                  <fieldset class="rm-fieldset">
+                    <legend class="rm-visually-hidden">Sign in</legend>
+                    <div class="setup-signin-row">
+                      <label class="rm-field setup-signin-row__name">
+                        <span class="rm-field__label">Sign-in name</span>
+                        <input id="username" name="username" class="rm-input" autocomplete="username" value="root" aria-describedby="username-hint" disabled required />
+                        <span id="username-hint" class="rm-field__hint">Needs a root account (UID 0).</span>
+                      </label>
+                      <label class="rm-field setup-signin-row__method">
+                        <span class="rm-field__label">SSH authentication</span>
+                        <select id="ssh-authentication" class="rm-select" disabled><option value="password">Password</option><option value="agent">Local SSH agent</option></select>
+                      </label>
+                      <label class="rm-field setup-signin-row__password">
+                        <span class="rm-field__label">Server password</span>
+                        <input id="password" name="password" class="rm-input" type="password" autocomplete="current-password" aria-describedby="password-hint" disabled required />
+                        <span id="password-hint" class="rm-field__hint">Unlocks after the identity check. Clears after you connect.</span>
+                      </label>
+                      <div class="setup-signin-row__agent">
+                        <p id="ssh-agent-status" class="rm-field__hint" role="status">Checking local SSH agent configuration…</p>
+                      </div>
+                    </div>
+                    <div class="setup-signin-notes">
+                      <p id="ssh-session" class="setup-session" role="status"></p>
+                      <details class="rm-disclosure rm-disclosure--plain">
+                        <summary>More details about SSH sign-in</summary>
+                        <div class="rm-disclosure__body">
+                          <p>Passwordless sudo works only on the local model page.</p>
+                          <p>For agent sign-in, load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases, or forwarded agent are sent to the server.</p>
+                        </div>
+                      </details>
+                    </div>
+                  </fieldset>
+                </div>
+              </form>
+            </section>
+
+            <section class="setup-step" data-step="3" aria-labelledby="n8n-title" hidden>
+              <header class="rm-panel__header">
+                <div class="rm-panel__heading">
+                  <span class="rm-eyebrow">Step 3 of 5</span>
+                  <h2 id="n8n-title" class="rm-h1" tabindex="-1">Choose your n8n</h2>
+                  <p class="rm-muted">Choose the n8n to connect. This step only looks.</p>
+                </div>
+              </header>
+
+              <div class="rm-panel__body">
+                <div class="setup-n8n-fields">
+                  <div class="rm-field">
+                    <label class="rm-field__label" for="container-select">Your n8n</label>
+                    <select id="container-select" class="rm-select" aria-describedby="docker-versions"></select>
+                    <p id="docker-versions" class="rm-field__hint">
+                      Detected Docker <strong id="docker-version">Not detected</strong>,
+                      Compose <strong id="compose-version">Not detected</strong>.
+                    </p>
+                    <details class="rm-disclosure rm-disclosure--plain setup-n8n-details">
+                      <summary>More details about the server check</summary>
+                      <div class="rm-disclosure__body"><p>Relmio uses read-only Docker commands here. It does not run commands inside n8n, change its image, or restart its container.</p></div>
+                    </details>
+                  </div>
+                  <label class="rm-field">
+                    <span class="rm-field__label">Private connection network</span>
+                    <select id="network-select" class="rm-select" aria-describedby="network-hint"></select>
+                    <span id="network-hint" class="rm-field__hint">The connection joins this network. Your n8n stays unchanged.</span>
+                  </label>
+                </div>
+
+                <section
+                  id="detected-vps-integration-management"
+                  class="setup-manage"
+                  aria-labelledby="detected-vps-integration-management-title"
+                  hidden
+                >
+                  <div class="setup-manage__head">
+                    <h3 id="detected-vps-integration-management-title" class="rm-h3">Manage detected self-hosted n8n</h3>
+                    <p class="rm-small rm-muted">
+                      Other companions:
+                      <a id="vps-supergrok-manage" class="rm-link">SuperGrok</a>
+                      <span aria-hidden="true">·</span>
+                      <a id="vps-local-model-manage" class="rm-link">Local model</a>
+                    </p>
+                    <p class="setup-manage__intro rm-small rm-muted">Review a Relmio-managed companion. This does not edit, rebuild, stop, recreate, or restart n8n.</p>
+                  </div>
+                  <fieldset class="rm-fieldset">
+                    <legend class="rm-visually-hidden">Companion to manage</legend>
+                    <div class="setup-manage__options">
+                      <label class="rm-check rm-check--boxed">
+                        <input id="manage-vps-sidecar" name="vps-integration" type="radio" value="sidecar" checked />
+                        <span>
+                          <strong>OpenAI-OAuth/Codex bridge</strong>
+                          <span class="rm-check__hint">Refresh the saved credential, then review the bridge update.</span>
+                        </span>
+                      </label>
+                      <label class="rm-check rm-check--boxed">
+                        <input id="manage-vps-assistant" name="vps-integration" type="radio" value="assistant" />
+                        <span>
+                          <strong>Assistant companion</strong>
+                          <span class="rm-check__hint">Manage the sandbox and optional private search only.</span>
+                        </span>
+                      </label>
+                      <label id="manage-vps-searxng-row" class="rm-check rm-check--boxed" hidden>
+                        <input id="manage-vps-searxng" type="checkbox" />
+                        <span>
+                          <strong>Include SearXNG JSON web search</strong>
+                          <span class="rm-check__hint">Off by default. It stays on the private network.</span>
+                        </span>
+                      </label>
+                    </div>
+                  </fieldset>
+                  <div class="setup-manage__actions">
+                    <button id="manage-vps-integration" class="rm-button rm-button--sm" type="button">Manage selected integration</button>
+                    <button id="refresh-vps-chatgpt" class="rm-button rm-button--sm rm-button--ghost" type="button">Refresh ChatGPT sign-in</button>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+            <section class="setup-step" data-step="4" aria-labelledby="review-title" hidden>
+              <header class="rm-panel__header">
+                <div class="rm-panel__heading">
+                  <span class="rm-eyebrow">Step 4 of 5</span>
+                  <h2 id="review-title" class="rm-h1" tabindex="-1">Review the plan</h2>
+                  <p id="review-intro" class="rm-muted">Nothing is written until you approve this plan.</p>
+                </div>
+              </header>
+
+              <div class="rm-panel__body">
+                <dl class="rm-dl setup-review-facts">
+                  <div class="setup-review-facts__server">
+                    <dt>Server</dt>
+                    <dd id="ssh-review-identity"></dd>
+                  </div>
+                  <div>
+                    <dt>Docker network</dt>
+                    <dd id="review-network">Not selected</dd>
+                  </div>
+                  <div>
+                    <dt id="review-endpoint-label">Private hostname</dt>
+                    <dd><code id="review-endpoint">n8n-openai-oauth</code></dd>
+                  </div>
+                </dl>
+
+                <div class="setup-review-lists">
+                  <section aria-labelledby="will-title">
+                    <h3 id="will-title" class="rm-h3">The wizard will</h3>
+                    <ul id="review-will-list" class="setup-list setup-list--will">
+                      <li>Create <code>/docker/n8n-openai-oauth</code></li>
+                      <li>Upload the adapter runtime and the saved ChatGPT/Codex credential file</li>
+                      <li>Build and start only the <code>openai-oauth</code> sidecar</li>
+                      <li>Attach the sidecar only to the reviewed Docker network</li>
+                    </ul>
+                  </section>
+                  <section aria-labelledby="wont-title">
+                    <h3 id="wont-title" class="rm-h3">The wizard will not</h3>
+                    <ul id="review-wont-list" class="setup-list setup-list--wont">
+                      <li>Edit or rebuild the n8n image</li>
+                      <li>Stop, restart, or recreate n8n</li>
+                      <li>Publish port <code>10531</code></li>
+                      <li>Create a Traefik route</li>
+                    </ul>
+                  </section>
+                </div>
+
+                <details id="review-build-details" class="rm-disclosure rm-disclosure--plain">
+                  <summary>Build and cleanup details</summary>
+                  <div class="rm-disclosure__body">
+                    <ul id="review-build-list" class="setup-list"></ul>
+                  </div>
+                </details>
+              </div>
+            </section>
+
+            <section class="setup-step" data-step="5" aria-labelledby="done-title" hidden>
+              <header class="rm-panel__header">
+                <div class="rm-panel__heading">
+                  <span class="rm-eyebrow setup-done-eyebrow"><span class="rm-icon rm-icon--check-circle rm-icon--sm" aria-hidden="true"></span>Step 5 of 5</span>
+                  <h2 id="done-title" class="rm-h1" tabindex="-1">Connect n8n</h2>
+                  <p id="done-detail" class="rm-muted">Copy these values into n8n on the same private network.</p>
+                </div>
+              </header>
+
+              <div class="rm-panel__body">
+                <section id="assistant-result" class="setup-assistant-result" hidden aria-labelledby="assistant-result-title">
+                  <div class="setup-results__head">
+                    <h3 id="assistant-result-title" class="rm-h3">Assistant companion status</h3>
+                  </div>
+                  <p id="assistant-result-detail" class="rm-small rm-muted">
+                    Copy these values into your own n8n settings. Relmio does not edit n8n.
+                  </p>
+                  <div class="setup-results">
+                    <dl class="rm-dl setup-values">
+                      <div>
+                        <dt>Code Sandbox URL</dt>
+                        <dd class="setup-value">
+                          <code id="assistant-result-sandbox-url"></code>
+                          <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="assistant-result-sandbox-url" data-copy-label="Code Sandbox URL" aria-label="Copy Code Sandbox URL" title="Copy Code Sandbox URL"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                        </dd>
+                      </div>
+                      <div id="assistant-result-key-row">
+                        <dt>Code Sandbox API key <span class="rm-badge rm-badge--warning">Shown once</span></dt>
+                        <dd class="setup-value">
+                          <code id="assistant-result-sandbox-key"></code>
+                          <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="assistant-result-sandbox-key" data-copy-label="one-time Code Sandbox API key" aria-label="Copy one-time Code Sandbox API key" title="Copy one-time Code Sandbox API key"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                        </dd>
+                      </div>
+                      <div id="assistant-result-searxng-row" hidden>
+                        <dt>SearXNG URL</dt>
+                        <dd class="setup-value">
+                          <code id="assistant-result-searxng-url"></code>
+                          <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="assistant-result-searxng-url" data-copy-label="SearXNG URL" aria-label="Copy SearXNG URL" title="Copy SearXNG URL"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                        </dd>
+                      </div>
+                    </dl>
+                    <div class="setup-settings">
+                      <p class="rm-field__label">n8n environment settings</p>
+                      <pre class="setup-code"><code id="assistant-result-settings"></code></pre>
+                      <p id="assistant-result-key-note" class="rm-small rm-muted" hidden></p>
+                    </div>
+                  </div>
+                  <p class="setup-warning">
+                    <span class="rm-icon rm-icon--alert rm-icon--sm" aria-hidden="true"></span>Apply these values yourself. Relmio never edits its Compose file or restarts its container.
+                  </p>
+                </section>
+
+                <div id="sidecar-ready-content" class="setup-results">
+                  <div class="setup-results__main">
+                    <section aria-labelledby="credential-title">
+                      <div class="setup-results__head">
+                        <h3 id="credential-title" class="rm-h3">1. Add the OpenAI credential</h3>
+                        <button
+                          id="copy-settings"
+                          class="rm-button rm-button--sm copy-value"
+                          type="button"
+                          data-copy-group="credential"
+                          data-copy-label="OpenAI credential settings"
+                          aria-label="Copy all OpenAI credential settings"
+                          title="Copy all OpenAI credential settings"
+                        ><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span>Copy all</button>
+                      </div>
+                      <dl class="rm-dl setup-values">
+                        <div>
+                          <dt>Base URL</dt>
+                          <dd class="setup-value">
+                            <code id="result-url">http://n8n-openai-oauth:10531/v1</code>
+                            <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-url" data-copy-label="Base URL" aria-label="Copy Base URL" title="Copy Base URL"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>API key</dt>
+                          <dd class="setup-value">
+                            <code id="result-key">local-only</code>
+                            <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-key" data-copy-label="API key" aria-label="Copy API key" title="Copy API key"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Organization ID</dt>
+                          <dd>Leave empty</dd>
+                        </div>
+                        <div>
+                          <dt>Custom header</dt>
+                          <dd>Off</dd>
+                        </div>
+                      </dl>
+                    </section>
+
+                    <section id="result-image-models" aria-labelledby="result-image-models-title" hidden>
+                      <h3 id="result-image-models-title" class="rm-h3">3. Choose an image model</h3>
+                      <p class="rm-small rm-muted">In n8n Image Generate or Edit, choose From list. If it is not shown, choose By ID and paste its exact ID below.</p>
+                      <dl class="rm-dl setup-values">
+                        <div id="result-image-model-2-row" hidden>
+                          <dt>GPT Image 2</dt>
+                          <dd class="setup-value"><code id="result-image-model-2"></code><button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-image-model-2" data-copy-label="GPT Image 2 model ID" aria-label="Copy GPT Image 2 model ID" title="Copy GPT Image 2 model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
+                        </div>
+                        <div id="result-image-model-flare-row" hidden>
+                          <dt>GPT Image 2.5 Flare</dt>
+                          <dd class="setup-value"><code id="result-image-model-flare"></code><button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-image-model-flare" data-copy-label="GPT Image 2.5 Flare model ID" aria-label="Copy GPT Image 2.5 Flare model ID" title="Copy GPT Image 2.5 Flare model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
+                        </div>
+                        <div id="result-image-model-sunburst-row" hidden>
+                          <dt>GPT Image 2.5 Sunburst</dt>
+                          <dd class="setup-value"><code id="result-image-model-sunburst"></code><button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-image-model-sunburst" data-copy-label="GPT Image 2.5 Sunburst model ID" aria-label="Copy GPT Image 2.5 Sunburst model ID" title="Copy GPT Image 2.5 Sunburst model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
+                        </div>
+                      </dl>
+                    </section>
+                  </div>
+
+                  <div class="setup-results__side">
+                    <aside id="responses-api-notice" class="rm-callout setup-responses" aria-label="Provider-specific n8n setting">
+                      <span class="rm-icon rm-icon--info rm-callout__icon" aria-hidden="true"></span>
+                      <div class="rm-callout__content">
+                        <strong class="rm-callout__title">OpenAI OAuth/Codex: Use Responses API ON</strong>
+                        <p class="rm-callout__body">For this ChatGPT recipe, keep Use Responses API on. For SuperGrok, turn it off. If the switch is missing, the default Chat Completions route still works. A detected model is not proof that every workflow works.</p>
+                      </div>
+                      <button class="rm-icon-button rm-icon-button--sm rm-callout__close" type="button" data-dismiss-toast="responses-api-notice" aria-label="Dismiss Responses API reminder"><span class="rm-icon rm-icon--x rm-icon--sm" aria-hidden="true"></span></button>
+                    </aside>
+
+                    <details class="rm-disclosure">
+                      <summary>2. OpenAI Chat Model for AI Agent or Basic LLM Chain</summary>
+                      <div class="rm-disclosure__body">
+                        <dl class="rm-dl setup-values">
+                          <div>
+                            <dt>Model ID</dt>
+                            <dd class="setup-value">
+                              <code id="result-model">Not detected</code>
+                              <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-model" data-copy-label="model ID" aria-label="Copy model ID" title="Copy model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Responses API</dt>
+                            <dd>On for Chat Model node version 1.3</dd>
+                          </div>
+                        </dl>
+                        <p>All models detected: <span id="result-models">Not detected</span></p>
+                        <p>If the Responses API switch is absent, keep the node's default Chat Completions behavior. The bridge supports that route too.</p>
+                      </div>
+                    </details>
+
+                    <details class="rm-disclosure">
+                      <summary>HTTP Request node</summary>
+                      <div class="rm-disclosure__body">
+                        <dl class="rm-dl setup-values">
+                          <div>
+                            <dt>Method</dt>
+                            <dd><code>POST</code></dd>
+                          </div>
+                          <div>
+                            <dt>URL</dt>
+                            <dd class="setup-value">
+                              <code id="result-http-url">http://n8n-openai-oauth:10531/v1/chat/completions</code>
+                              <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-http-url" data-copy-label="HTTP endpoint" aria-label="Copy HTTP endpoint" title="Copy HTTP endpoint"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Authentication</dt>
+                            <dd>Generic Credential Type</dd>
+                          </div>
+                          <div>
+                            <dt>Generic Auth Type</dt>
+                            <dd>Bearer Auth</dd>
+                          </div>
+                          <div>
+                            <dt>Credential</dt>
+                            <dd><code>openai-oauth</code></dd>
+                          </div>
+                          <div>
+                            <dt>Bearer token</dt>
+                            <dd><code>local-only</code></dd>
+                          </div>
+                          <div>
+                            <dt>Authorization header</dt>
+                            <dd class="setup-value">
+                              <code id="result-http-auth">Bearer local-only</code>
+                              <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-http-auth" data-copy-label="Authorization header" aria-label="Copy Authorization header" title="Copy Authorization header"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Content-Type</dt>
+                            <dd><code>application/json</code></dd>
+                          </div>
+                          <div>
+                            <dt>Send body</dt>
+                            <dd>On · JSON · Using JSON</dd>
+                          </div>
+                          <div>
+                            <dt>JSON body</dt>
+                            <dd class="setup-value setup-value--block">
+                              <pre class="setup-code"><code id="result-http-body"></code></pre>
+                              <button class="rm-icon-button rm-icon-button--sm copy-value" type="button" data-copy-target="result-http-body" data-copy-label="HTTP JSON body" aria-label="Copy HTTP JSON body" title="Copy HTTP JSON body"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button>
+                            </dd>
+                          </div>
+                        </dl>
+                        <p>
+                          <button
+                            id="copy-http-recipe"
+                            class="rm-button rm-button--sm copy-value"
+                            type="button"
+                            data-copy-group="http"
+                            data-copy-label="HTTP request recipe"
+                            aria-label="Copy recipe for the HTTP Request node"
+                            title="Copy recipe for the HTTP Request node"
+                          ><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span>Copy recipe</button>
+                        </p>
+                      </div>
+                    </details>
+
+                    <details class="rm-disclosure">
+                      <summary>n8n examples</summary>
+                      <div class="rm-disclosure__body"><p>The README has AI Agent, Basic LLM Chain, JSON, and cURL examples. Start with no built-in tools.</p></div>
+                    </details>
+
+                    <p class="rm-small rm-muted">You can close this wizard with Control+C. The connection on your server keeps running.</p>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <footer class="rm-panel__footer setup-footer">
+              <div id="global-message" class="rm-status setup-message" data-tone="accent" role="status" aria-live="polite">
+                <span class="rm-status__dot" aria-hidden="true"></span>
+                <span id="global-message-text">Choose a setup route to begin.</span>
+              </div>
+
+              <div class="setup-actions" data-step-actions="1">
+                <button id="change-setup-button" class="rm-button rm-button--ghost" type="button" data-subview="chatgpt"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Change setup</button>
+                <button id="login-button" class="rm-button" type="button" data-subview="chatgpt">Sign in with ChatGPT</button>
+                <a id="login-link" class="rm-button" target="_blank" rel="noopener noreferrer" data-subview="chatgpt" hidden>Open fresh ChatGPT sign-in<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+                <button id="stop-login-button" class="rm-button" type="button" data-subview="chatgpt" hidden>Stop ChatGPT sign-in</button>
+                <button id="signin-next" class="rm-button rm-button--primary rm-push" type="button" data-subview="chatgpt" disabled>Check the server</button>
+              </div>
+
+              <div class="setup-actions" data-step-actions="2">
+                <button class="rm-button rm-button--ghost back-button" data-back="1" type="button"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</button>
+                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect from VPS</button>
+                <button id="connect-button" class="rm-button rm-button--primary rm-push" type="submit" form="vps-form" disabled>Connect</button>
+              </div>
+
+              <div class="setup-actions" data-step-actions="3">
+                <button class="rm-button rm-button--ghost back-button" data-back="2" type="button"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</button>
+                <button id="disconnect-vps-button" class="rm-button" type="button">Disconnect from VPS</button>
+                <button id="review-button" class="rm-button rm-button--primary rm-push" type="button">Review</button>
+              </div>
+
+              <div class="setup-actions" data-step-actions="4">
+                <label class="rm-check setup-approval">
+                  <input id="install-confirm" type="checkbox" />
+                  <span id="install-confirm-copy">I approve uploading the saved ChatGPT/Codex credential file only to
+                  <code>/docker/n8n-openai-oauth</code>. This bridge is unofficial, private, and policy-uncertain.</span>
+                </label>
+                <button class="rm-button rm-button--ghost back-button" data-back="3" type="button"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</button>
+                <button id="install-button" class="rm-button rm-button--primary rm-push" type="button" disabled>Install</button>
+              </div>
+
+              <div class="setup-actions" data-step-actions="5">
+                <a id="setup-another-vps" class="rm-button rm-push">Set up another option</a>
+              </div>
+            </footer>
           </div>
-        </details>
-
-        <p class="final-note">
-          You can close this wizard with Control+C. The connection on your server keeps running.
-        </p>
-        <details class="technical-details">
-          <summary>More details about n8n examples</summary>
-          <div><p>The README has AI Agent, Basic LLM Chain, JSON, and cURL examples. Start with no built-in tools.</p></div>
-        </details>
         </div>
 
-        <div class="actions">
-          <a id="setup-another-vps" class="button secondary">Set up another option</a>
+        <div id="global-safety" class="rm-card rm-card--muted rm-card--compact setup-safety" role="note" aria-label="Safety">
+          <p class="rm-status" data-tone="success"><span class="rm-status__dot" aria-hidden="true"></span>n8n stays unchanged. No restart, rebuild or public port.</p>
+          <p class="rm-status" data-tone="warning"><span class="rm-status__dot" aria-hidden="true"></span>Back up your n8n workflows first. Setup still writes to your server.</p>
+          <p class="rm-status" data-tone="accent"><span class="rm-status__dot" aria-hidden="true"></span>Nothing is written until you approve the exact plan.</p>
         </div>
-      </section>
+      </div>
     </main>
-
-    <footer>
-      <p>
-        Experimental use. Keep the saved credential private and follow OpenAI’s terms.
-      </p>
-    </footer>
   </body>
 </html>

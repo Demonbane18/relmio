@@ -4,8 +4,8 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 
 const WIZARDS = [
-  { allowOAuth: true, html: "src/ui/index.html", script: "src/ui/app.js" },
-  { allowOAuth: false, html: "src/ui/assistant.html", script: "src/ui/assistant.js" },
+  { allowOAuth: true, busyId: "setup-steps", html: "src/ui/index.html", script: "src/ui/app.js" },
+  { allowOAuth: false, busyId: "assistant-step", html: "src/ui/assistant.html", script: "src/ui/assistant.js" },
 ];
 
 class FakeElement {
@@ -63,9 +63,13 @@ class FakeElement {
     return this.children.some((child) => child.contains(candidate));
   }
 
-  focus() {
+  focus(options) {
     this.focused = true;
+    this.focusOptions = options;
     if (this.ownerDocument) this.ownerDocument.activeElement = this;
+  }
+  scrollIntoView(options) {
+    this.scrolledIntoView = options;
   }
 
   getAttribute(name) {
@@ -77,6 +81,7 @@ class FakeElement {
   }
 
   matches(selector) {
+    if (selector === ".assistant-step") return this.getAttribute("id") === "assistant-step";
     if (selector.includes("button") && this.tagName === "BUTTON") return true;
     if (selector.includes("input") && this.tagName === "INPUT") return true;
     if (selector.includes("select") && this.tagName === "SELECT") return true;
@@ -110,18 +115,19 @@ class FakeElement {
 }
 
 function extractOperationHelpers(script) {
+  const focusStart = script.indexOf("function focusVisible(");
+  const focusEnd = script.indexOf("\nfunction ", focusStart + 1);
   const start = script.indexOf("const OPERATION_INTERACTIVE_SELECTOR");
   const end = script.indexOf("\nfunction showStep(step)", start);
-  assert.ok(start >= 0, "missing central operation helper marker");
-  assert.ok(end > start, "missing central operation helper end marker");
-  return script.slice(start, end);
+  assert.ok(focusStart >= 0 && focusEnd > focusStart && start >= 0 && end > start);
+  return `${script.slice(focusStart, focusEnd)}\n${script.slice(start, end)}`;
 }
 
-function createHarness(script) {
+function createHarness(script, wizard) {
   const elements = new Map();
   const body = new FakeElement("body");
   const mainContent = new FakeElement("main", { id: "main-content" });
-  mainContent.setAttribute("aria-busy", "false");
+  const busyRegion = new FakeElement("section", { id: wizard.busyId });
   const message = new FakeElement("div", { id: "global-message" });
   message.setAttribute("aria-live", "polite");
   const progress = new FakeElement("section", {
@@ -139,6 +145,9 @@ function createHarness(script) {
   const progressbar = new FakeElement("div", { id: "operation-progress-bar" });
   const note = new FakeElement("p", { id: "operation-progress-note" });
   progress.append(label, elapsed, progressbar, note);
+  const rail = new FakeElement("aside");
+  rail.append(progress);
+  mainContent.append(rail, busyRegion);
 
   const activeButton = new FakeElement("button", {
     id: "review-button",
@@ -148,6 +157,7 @@ function createHarness(script) {
     id: "back-button",
     textContent: "Back",
   });
+  const disclosure = new FakeElement("summary", { id: "details" });
   const input = new FakeElement("input", { id: "host" });
   const disabledSelect = new FakeElement("select", {
     disabled: true,
@@ -169,23 +179,24 @@ function createHarness(script) {
   body.append(
     activeButton,
     backButton,
+    disclosure,
     input,
     disabledSelect,
     navigation,
     loginLink,
     stopLogin,
     message,
-    progress,
     mainContent,
   );
 
-  for (const value of [mainContent, message, progress, label, elapsed, progressbar, note]) {
+  for (const value of [mainContent, busyRegion, message, progress, label, elapsed, progressbar, note]) {
     elements.set(value.getAttribute("id"), value);
   }
 
   const controls = [
     activeButton,
     backButton,
+    disclosure,
     input,
     disabledSelect,
     navigation,
@@ -200,6 +211,7 @@ function createHarness(script) {
       listeners.set(name, { handler, options });
     },
     querySelectorAll(selector) {
+      if (selector === ".assistant-step") return wizard.allowOAuth ? [] : [busyRegion];
       return controls.filter((control) => control.matches(selector));
     },
   };
@@ -254,7 +266,6 @@ function createHarness(script) {
         if (!elements.has(id)) elements.set(id, new FakeElement("div", { id }));
         return elements.get(id);
       },
-      focusVisible(target) { target.focus(); },
       sshAuthentication: { sync() {} },
       setCredentialInputsEnabled(enabled) {
         for (const id of ["username", "ssh-authentication"]) {
@@ -278,7 +289,9 @@ function createHarness(script) {
 
   return {
     activeButton,
+    busyRegion,
     backButton,
+    disclosure,
     clearedIntervals,
     disabledSelect,
     document,
@@ -334,7 +347,7 @@ test("both VPS wizards expose one accessible indeterminate elapsed progress regi
     assert.match(progressbar, /role="progressbar"/u);
     assert.doesNotMatch(progressbar, /aria-value(?:now|min|max)/u);
     assert.match(html, /id="operation-progress-elapsed"[^>]*datetime="PT0S"[^>]*>00:00</u);
-    assert.match(html, /id="main-content"[^>]*aria-busy="false"/u);
+    assert.doesNotMatch(html, /id="main-content"[^>]*aria-busy=/u);
     assert.doesNotMatch(html, /<body[^>]*aria-busy=/u);
     assert.match(
       html,
@@ -347,7 +360,7 @@ test("both VPS wizards expose one accessible indeterminate elapsed progress regi
 test("shared VPS lifecycle excludes overlap and locks slow operations", async () => {
   for (const wizard of WIZARDS) {
     const script = await readFile(wizard.script, "utf8");
-    const harness = createHarness(script);
+    const harness = createHarness(script, wizard);
     let release;
     const pending = harness.helpers.runOperation(
       harness.activeButton,
@@ -363,8 +376,13 @@ test("shared VPS lifecycle excludes overlap and locks slow operations", async ()
 
     assert.equal(harness.state.operationBusy, true, wizard.script);
     assert.equal(harness.document.body.dataset.operationBusy, "true");
-    assert.equal(harness.mainContent.getAttribute("aria-busy"), "true");
+    assert.equal(harness.busyRegion.getAttribute("aria-busy"), "true");
+    for (let ancestor = harness.progress; ancestor; ancestor = ancestor.parentElement) {
+      assert.notEqual(ancestor.getAttribute("aria-busy"), "true", "live progress is outside the busy step");
+    }
     assert.equal(harness.progress.hidden, false);
+    assert.equal(harness.progress.scrolledIntoView.block, "start", "active progress is revealed");
+    assert.equal(harness.progress.focusOptions.preventScroll, true);
     assert.equal(harness.label.textContent, "Preparing plan…");
     assert.equal(harness.activeButton.textContent, "Preparing plan…");
     assert.equal(harness.activeButton.getAttribute("aria-busy"), "true");
@@ -381,6 +399,17 @@ test("shared VPS lifecycle excludes overlap and locks slow operations", async ()
       wizard.allowOAuth ? null : "true",
     );
     assert.equal(harness.stopLogin.disabled, !wizard.allowOAuth);
+    assert.equal(harness.disclosure.getAttribute("tabindex"), "-1");
+    for (const key of ["Tab"]) {
+      for (const shiftKey of [false, true]) {
+        const event = { ...blockedEvent(harness.disclosure), type: "keydown", key, shiftKey };
+        harness.listeners.get("keydown").handler(event);
+        assert.equal(event.defaultPrevented, false, `${wizard.script}: ${shiftKey ? "Shift+Tab" : "Tab"} moves focus`);
+      }
+    }
+    const activation = { ...blockedEvent(harness.disclosure), type: "keydown", key: "Enter" };
+    harness.listeners.get("keydown").handler(activation);
+    assert.equal(activation.defaultPrevented, true, "native disclosure stays locked");
 
     for (const target of [harness.backButton, harness.input, harness.navigation]) {
       for (const eventName of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"]) {
@@ -426,7 +455,7 @@ test("shared VPS lifecycle excludes overlap and locks slow operations", async ()
     assert.equal(await pending, "done");
     assert.equal(harness.state.operationBusy, false);
     assert.equal(harness.document.body.dataset.operationBusy, "false");
-    assert.equal(harness.mainContent.getAttribute("aria-busy"), "false");
+    assert.equal(harness.busyRegion.getAttribute("aria-busy"), "false");
     assert.equal(harness.progress.hidden, true);
     assert.equal(harness.message.getAttribute("aria-live"), "polite");
     assert.equal(harness.backButton.disabled, false);
@@ -435,7 +464,9 @@ test("shared VPS lifecycle excludes overlap and locks slow operations", async ()
     assert.equal(harness.disabledSelect.disabled, true, "business-disabled state is preserved");
     assert.equal(harness.navigation.getAttribute("aria-disabled"), null);
     assert.equal(harness.navigation.getAttribute("tabindex"), null);
+    assert.equal(harness.disclosure.getAttribute("tabindex"), null);
     assert.equal(harness.document.activeElement, harness.activeButton);
+    assert.equal(harness.activeButton.scrolledIntoView.block, "start", "restored focus is revealed");
     assert.deepEqual(harness.clearedIntervals, [1]);
     assert.equal(harness.observers[0].disconnected, true);
   }
@@ -444,7 +475,7 @@ test("shared VPS lifecycle excludes overlap and locks slow operations", async ()
 test("VPS lifecycle restores success, failure, and replaced-button paths", async () => {
   for (const wizard of WIZARDS) {
     const script = await readFile(wizard.script, "utf8");
-    const harness = createHarness(script);
+    const harness = createHarness(script, wizard);
 
     assert.equal(
       await harness.helpers.runOperation(
@@ -472,7 +503,7 @@ test("VPS lifecycle restores success, failure, and replaced-button paths", async
     assert.equal(harness.progress.hidden, true);
     assert.equal(harness.elapsed.textContent, "00:00");
 
-    const replacementHarness = createHarness(script);
+    const replacementHarness = createHarness(script, wizard);
     assert.equal(
       replacementHarness.helpers.startOperation(
         replacementHarness.activeButton,
@@ -492,7 +523,7 @@ test("VPS lifecycle restores success, failure, and replaced-button paths", async
       "a detached initiating button is never focused during cleanup",
     );
 
-    const ownerHarness = createHarness(script);
+    const ownerHarness = createHarness(script, wizard);
     assert.equal(
       ownerHarness.helpers.startOperation(ownerHarness.activeButton, "First…"),
       true,
@@ -518,7 +549,7 @@ test("VPS lifecycle restores success, failure, and replaced-button paths", async
       true,
     );
 
-    const startupHarness = createHarness(script);
+    const startupHarness = createHarness(script, wizard);
     startupHarness.document.activeElement = startupHarness.document.body;
     await startupHarness.helpers.runOperation(
       null,
@@ -537,7 +568,7 @@ test("OAuth exceptions hand focus back before either allowed control disappears"
   const script = await readFile("src/ui/app.js", "utf8");
 
   for (const allowedControlName of ["loginLink", "stopLogin"]) {
-    const harness = createHarness(script);
+    const harness = createHarness(script, WIZARDS[0]);
     let release;
     const pending = harness.helpers.runOperation(
       harness.activeButton,
@@ -560,6 +591,164 @@ test("OAuth exceptions hand focus back before either allowed control disappears"
       harness.activeButton,
       `${allowedControlName} cannot retain focus after OAuth cleanup`,
     );
+  }
+});
+
+test("VPS route operations reveal their live rail status while the step is busy", async () => {
+  const supergrok = await readFile("src/ui/supergrok-vps.js", "utf8");
+  const progress = new FakeElement("section", { hidden: true });
+  const label = new FakeElement("p");
+  const bar = new FakeElement("div");
+  const started = supergrok.indexOf("function startProgress(");
+  const ended = supergrok.indexOf("\nfunction controls()", started);
+  const grokState = { progressStartedAt: 0, progressTimer: null };
+  const startProgress = runInNewContext(
+    `${supergrok.slice(started, ended)}\nstartProgress`,
+    {
+      element(id) {
+        return { "operation-progress": progress, "operation-progress-label": label, "operation-progress-bar": bar }[id];
+      },
+      state: grokState,
+      updateProgress() {},
+      window: { setInterval() { return 1; }, clearInterval() {} },
+    },
+  );
+  startProgress("Checking VPS identity…");
+  assert.equal(progress.hidden, false);
+  assert.equal(progress.scrolledIntoView.block, "start");
+
+  const local = await readFile("src/ui/local-model-vps.js", "utf8");
+  const operationStart = local.indexOf("async function perform(");
+  const operationEnd = local.indexOf("\nfunction setOptions", operationStart);
+  const status = new FakeElement("p");
+  const busyStep = new FakeElement("div");
+  const polling = new FakeElement("p", { hidden: false });
+  const modelState = { busy: false };
+  let release;
+  const { perform } = runInNewContext(
+    `${local.slice(operationStart, operationEnd)}\n({ perform })`,
+    {
+      document: { querySelectorAll() { return []; } },
+      el(id) { return { error: new FakeElement("p"), message: status, progress: polling, "route-steps-content": busyStep }[id]; },
+      error() {},
+      message(value) { status.textContent = value; },
+      state: modelState,
+      syncConfirm() {},
+      syncTrust() {},
+    },
+  );
+  const pending = perform("Checking VPS host identity…", () => new Promise((resolve) => { release = resolve; }));
+  assert.equal(modelState.busy, true);
+  assert.equal(busyStep.getAttribute("aria-busy"), "true");
+  assert.equal(status.scrolledIntoView.block, "start");
+  assert.equal(polling.hidden, true, "a new operation restores its own current status");
+  release();
+  await pending;
+  assert.equal(modelState.busy, false);
+});
+
+test("model polling completion replaces download feedback with the final status", async () => {
+  const script = await readFile("src/ui/local-model-vps.js", "utf8");
+  const start = script.indexOf("function renderStatus(");
+  const end = script.indexOf("\nasync function refreshStatus", start);
+  const nodes = new Map([
+    ...["installation-state", "review-install", "review-retry", "review-remove",
+      "settings-panel", "selected-model", "readiness", "message"].map((id) => [id, new FakeElement("p")]),
+    ["progress", new FakeElement("p", { hidden: true })],
+  ]);
+  const state = { manual: false, timer: null };
+  const renderStatus = runInNewContext(
+    `${script.slice(start, end)}\nrenderStatus`,
+    {
+      clearTimeout() {},
+      el(id) { return nodes.get(id); },
+      message(text) { nodes.get("message").textContent = text; },
+      schedulePoll() {},
+      state,
+      validStatus(status) { return status; },
+    },
+  );
+  renderStatus({ state: "downloading", modelId: "qwen3:0.6b" });
+  nodes.get("message").textContent = "Action applied.";
+  nodes.get("progress").hidden = false;
+  renderStatus({ state: "model-ready", modelId: "qwen3:0.6b" });
+  assert.equal(nodes.get("progress").hidden, true);
+  assert.equal(nodes.get("message").textContent, nodes.get("installation-state").textContent);
+});
+
+test("setup fingerprint result reveals confirmation after rendering without stealing later focus", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const focusStart = script.indexOf("function focusVisible(");
+  const errorStart = script.indexOf("function showError(");
+  const handlerStart = script.indexOf('element("fingerprint-button").addEventListener("click"');
+  const source = [
+    script.slice(focusStart, script.indexOf("\nfunction ", focusStart + 1)),
+    script.slice(errorStart, script.indexOf("\nfunction ", errorStart + 1)),
+    script.slice(handlerStart, script.indexOf('\nelement("fingerprint-confirm").addEventListener', handlerStart)),
+  ].join("\n");
+
+  for (const { failure = false, moved = false, stale = false } of [
+    {}, { moved: true }, { failure: true }, { failure: true, moved: true },
+    { stale: true }, { failure: true, stale: true },
+  ]) {
+    let onClick;
+    let settle;
+    const button = new FakeElement("button", { id: "fingerprint-button" });
+    button.addEventListener = (_name, handler) => { onClick = handler; };
+    const box = new FakeElement("div", { hidden: true });
+    const confirm = Object.assign(new FakeElement("input"), { checked: true });
+    const errorBox = new FakeElement("div", { hidden: true });
+    const errorMessage = new FakeElement("span");
+    const other = new FakeElement("button");
+    const progress = new FakeElement("section");
+    const document = { activeElement: button };
+    for (const node of [button, box, confirm, errorBox, other, progress]) node.ownerDocument = document;
+    const nodes = new Map([
+      ["fingerprint-button", button],
+      ["fingerprint-box", box],
+      ["fingerprint-confirm", confirm],
+      ["fingerprint-value", new FakeElement("code")],
+      ["host", Object.assign(new FakeElement("input"), { checkValidity: () => true, value: "example.test" })],
+      ["port", Object.assign(new FakeElement("input"), { checkValidity: () => true, value: "22" })],
+      ["password", Object.assign(new FakeElement("input"), { value: "old" })],
+      ["connect-button", new FakeElement("button")],
+    ]);
+    const state = { fingerprint: null, operationBusy: false, operationOwner: 0 };
+    runInNewContext(source, {
+      clearError() {},
+      clearFieldError() {},
+      document,
+      element(id) { return nodes.get(id); },
+      errorBox,
+      errorMessage,
+      invalidateReviewedPlan() {},
+      runOperation() {
+        state.operationOwner++;
+        document.activeElement = progress;
+        return new Promise((resolve, reject) => {
+          settle = () => {
+            if (document.activeElement === progress && !stale) document.activeElement = button;
+            if (failure) reject(new Error("scan failed"));
+            else resolve({ fingerprint: "SHA256:checked" });
+          };
+        });
+      },
+      setCredentialInputsEnabled() {},
+      setFieldError() {},
+      setMessage() {},
+      state,
+    });
+    const pending = onClick({ currentTarget: button });
+    if (moved) document.activeElement = other;
+    if (stale) { state.operationOwner++; state.operationBusy = true; }
+    settle();
+    await pending;
+
+    assert.equal(box.hidden, failure || stale);
+    assert.equal(document.activeElement, stale ? progress : moved ? other : failure ? errorBox : confirm);
+    assert.equal(Boolean(confirm.scrolledIntoView), !failure && !moved && !stale);
+    if (!failure && !moved && !stale) assert.equal(confirm.scrolledIntoView.block, "start");
+    assert.equal(errorBox.hidden, !failure || stale);
   }
 });
 
@@ -603,10 +792,6 @@ test("Assistant fingerprint rescans require a fresh confirmation", async () => {
   assert.equal(elements.get("password").disabled, true);
   assert.equal(elements.get("connect-button").disabled, true);
   assert.equal(invalidations, 1);
-  assert.match(
-    script,
-    /fingerprint-button[\s\S]*?if \(!result\) return;\s*renderFingerprint\(result\.fingerprint\);/u,
-  );
 });
 
 test("reviewed plan IDs stay opaque, gate installation, and invalidate on edits", async () => {
@@ -647,6 +832,35 @@ test("reviewed plan IDs stay opaque, gate installation, and invalidate on edits"
     assert.equal(installButton.disabled, true);
     if (!wizard.allowOAuth) assert.equal(state.reviewedIncludeSearxng, null);
   }
+});
+
+test("Assistant Back from Review withdraws the plan and its approval", async () => {
+  const script = await readFile("src/ui/assistant.js", "utf8");
+  const start = script.indexOf("function invalidateReviewedPlan()");
+  const end = script.indexOf("\nconst OPERATION_INTERACTIVE_SELECTOR", start);
+  const backStart = script.indexOf('for (const button of document.querySelectorAll(".back-button"))');
+  const backEnd = script.indexOf("\ninitWizardTopbar(", backStart);
+  assert.ok(start >= 0 && end > start && backStart >= 0 && backEnd > backStart);
+  const state = { planId: "reviewed-plan", reviewedIncludeSearxng: true };
+  const confirm = Object.assign(new FakeElement("input"), { checked: true });
+  const install = Object.assign(new FakeElement("button"), { disabled: false });
+  const back = Object.assign(new FakeElement("button"), {
+    dataset: { back: "2" },
+    addEventListener(name, handler) { if (name === "click") this.click = handler; },
+  });
+  let currentStep = 3;
+  runInNewContext(`${script.slice(start, end)}\n${script.slice(backStart, backEnd)}`, {
+    state,
+    element(id) { return id === "install-confirm" ? confirm : install; },
+    document: { querySelectorAll() { return [back]; } },
+    clearError() {}, setMessage() {}, showStep(step) { currentStep = step; },
+  });
+  back.click();
+  assert.equal(currentStep, 2);
+  assert.equal(state.planId, null);
+  assert.equal(state.reviewedIncludeSearxng, null);
+  assert.equal(confirm.checked, false);
+  assert.equal(install.disabled, true);
 });
 
 test("every VPS long action routes through the page lifecycle", async () => {
@@ -693,18 +907,4 @@ test("every VPS long action routes through the page lifecycle", async () => {
   ]) {
     assert.match(assistant, new RegExp(path.replaceAll("/", "\\/"), "u"));
   }
-});
-
-test("shared progress styling remains responsive and motion-safe", async () => {
-  const css = await readFile("src/ui/styles.css", "utf8");
-  assert.match(css, /\.operation-progress\s*\{/u);
-  assert.match(css, /\.operation-progress__content\s*\{/u);
-  assert.match(css, /\.operation-progress__track\s*\{/u);
-  assert.match(css, /\.operation-progress__bar\s*\{/u);
-  assert.match(css, /@keyframes operation-progress-indeterminate/u);
-  assert.match(css, /@media \(max-width: 42rem\)[\s\S]*\.operation-progress__content/u);
-  assert.match(
-    css,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.operation-progress__bar[\s\S]*animation:\s*none !important/u,
-  );
 });

@@ -41,7 +41,7 @@ const unsupportedRoutes = [
   {
     pattern: /^\/v1\/videos(?:\/|$)/u,
     param: "videos",
-    message: "Video generation is unavailable with ChatGPT OAuth. Use a separately configured OpenAI Platform connection for n8n's Generate a Video action.",
+    message: "Video generation is unavailable with ChatGPT OAuth. OpenAI shut down the Videos API on September 24, 2026, with no replacement listed.",
   },
   {
     pattern: /^\/v1\/live(?:\/|$)/u,

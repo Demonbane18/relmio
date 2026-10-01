@@ -1,582 +1,222 @@
-.kicker,
-.plotterEyebrow,
-.detailHeader p {
-  margin: 0;
-  color: var(--color-text-accent);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: var(--text-supporting-size);
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.detailFooter svg {
-  width: 1em;
-  height: 1em;
-}
+/* Home connection guide. Kit tokens only; buttons are kit choices. */
 
 .plotter {
-  overflow: hidden;
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-container);
-  background:
-    linear-gradient(var(--color-border) var(--border-width), transparent var(--border-width)),
-    linear-gradient(90deg, var(--color-border) var(--border-width), transparent var(--border-width)),
-    var(--color-background-card);
-  background-size: var(--spacing-6) var(--spacing-6);
-  box-shadow: var(--shadow-med);
+  display: flex;
+  flex-direction: column;
+  gap: var(--rm-space-3);
+  min-width: 0;
+  padding: var(--rm-space-4) var(--rm-space-5);
 }
 
-.plotterHeader {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: var(--spacing-3);
+.header {
+  display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  padding: var(--spacing-4) var(--spacing-5);
-  border-bottom: var(--border-width) solid var(--color-border);
-  background: color-mix(in srgb, var(--color-background-card) 92%, transparent);
+  gap: var(--rm-space-1) var(--rm-space-3);
 }
 
-.plotterHeader h2,
-.plotterHeader p,
-.detailHeader h3,
-.detailHeader p,
-.detailFooter p,
-.evidenceIntro h2,
-.evidenceIntro p {
-  margin: 0;
-}
-
-.plotterHeader h2 {
-  font-size: var(--text-heading-3-size);
-  font-weight: var(--font-weight-semibold);
-}
-
-.plotterHeader > p:last-child {
-  color: var(--color-text-secondary);
-  font-size: var(--text-supporting-size);
+.headerText {
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-sm);
 }
 
 .topology {
   display: grid;
-  grid-template-columns: minmax(12rem, 0.75fr) minmax(0, 1.25fr);
-  gap: var(--spacing-4);
-  min-height: 21rem;
-  padding: var(--spacing-5);
-  background: color-mix(in srgb, var(--color-background-card) 90%, transparent);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--rm-space-4);
+  min-width: 0;
 }
 
 .routeControls {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: var(--spacing-2);
-}
-
-.routeButton {
-  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: var(--spacing-3);
-  align-items: center;
-  min-height: var(--spacing-12);
-  padding: var(--spacing-2) var(--spacing-3);
-  overflow: hidden;
-  border: var(--border-width) solid var(--color-border);
-  border-radius: var(--radius-element);
-  background: var(--color-background-card);
-  color: var(--color-text-secondary);
-  text-align: left;
-  cursor: pointer;
-}
-
-.routeButton:hover {
-  border-color: var(--color-border-emphasized);
-  color: var(--color-text-primary);
-}
-
-.routeButton[aria-pressed="true"] {
-  border-color: var(--color-accent);
-  color: var(--color-text-primary);
-  box-shadow: var(--shadow-low);
-}
-
-.routeIcon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--spacing-8);
-  height: var(--spacing-8);
-  border-radius: var(--radius-inner);
-  background: var(--color-background-muted);
-  color: var(--color-icon-accent);
-}
-
-.routeIcon svg {
-  width: var(--spacing-4);
-  height: var(--spacing-4);
-}
-
-.routeButton > span:nth-child(2) {
-  font-size: var(--text-supporting-size);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--text-supporting-leading);
-}
-
-.routeMarker {
-  width: var(--spacing-2);
-  height: var(--spacing-2);
-  border-radius: var(--radius-full);
-  background: var(--color-accent);
-  box-shadow: 0 0 0 var(--spacing-1) var(--color-accent-muted);
-}
-
-.routeMap {
-  display: flex;
-  flex-direction: column;
+  align-content: start;
+  gap: var(--rm-space-2);
   min-width: 0;
-  margin: 0;
 }
 
-.routeSvg {
-  display: block;
-  width: 100%;
-  min-height: 18rem;
-  flex: 1 1 auto;
+/* Compact kit choice: icon and label on one row. Two classes beat .rm-choice. */
+.routeControls .routeButton {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--rm-space-3);
+  min-height: 2.75rem;
+  padding: var(--rm-space-2) var(--rm-space-3);
+  border-radius: var(--rm-radius-md);
 }
 
-.routeRail,
-.activeRail {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.routeControls .routeIcon {
+  grid-row: auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--rm-radius-sm);
 }
 
-.routeRail {
-  stroke: var(--color-border-emphasized);
-  stroke-width: 2;
+.routeLabel {
+  font-weight: 600;
+  line-height: 1.3;
 }
 
-.activeRail {
-  stroke: var(--color-accent);
-  stroke-width: 4;
-}
-
-.signalPacket,
-.destinationNode {
-  fill: var(--color-accent);
-  stroke: var(--color-background-card);
-  stroke-width: 3;
-}
-
-.gatewayHalo {
-  fill: var(--color-background-card);
-  stroke: var(--color-border);
-  stroke-width: 2;
-}
-
-.gatewayBody {
-  fill: var(--color-accent);
-}
-
-.gatewayEye {
-  fill: var(--color-on-accent);
-}
-
-.mapCaption {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--spacing-2);
-  color: var(--color-text-secondary);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
+.detailRegion {
+  min-width: 0;
 }
 
 .routeDetail {
-  border-top: var(--border-width) solid var(--color-border);
-  background: var(--color-background-card);
-}
-
-.detailHeader,
-.detailFooter {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--spacing-4);
-  align-items: center;
-  padding: var(--spacing-4) var(--spacing-5);
+  display: grid;
+  gap: var(--rm-space-3);
+  min-width: 0;
 }
 
 .detailHeader {
-  border-bottom: var(--border-width) solid var(--color-border);
-}
-
-.detailHeader h3 {
-  font-size: var(--text-heading-2-size);
-}
-
-.routeStory {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rm-space-2) var(--rm-space-3);
+}
+
+.detailTitle {
+  font-size: var(--rm-text-lg);
+  font-weight: 650;
+}
+
+/* The route path: one node per step joined by a rail. The accent fill redraws
+   each time a route is selected; the kit turns the animation into its final
+   state for reduced motion. */
+.routeStory {
+  display: grid;
+  gap: var(--rm-space-2);
   margin: 0;
-  padding: 0 var(--spacing-5);
+  padding: 0 0 0 var(--rm-space-6);
   list-style: none;
 }
 
 .routeStory li {
   position: relative;
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  gap: var(--spacing-1);
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.125rem var(--rm-space-3);
   min-width: 0;
-  padding: var(--spacing-4) var(--spacing-4) var(--spacing-4) 0;
-  border-bottom: var(--border-width) solid var(--color-border);
 }
 
-.routeStory li:not(:first-child) {
-  padding-left: var(--spacing-4);
-  border-left: var(--border-width) solid var(--color-border);
+.routeStory li:not(:last-child)::before,
+.routeStory li:not(:last-child)::after {
+  position: absolute;
+  top: 0.75rem;
+  left: calc(0.4375rem - var(--rm-space-6));
+  width: 2px;
+  height: calc(100% + var(--rm-space-2));
+  content: "";
 }
 
-.routeStory small {
-  color: var(--color-text-secondary);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: var(--font-size-xs);
+.routeStory li:not(:last-child)::before {
+  background: var(--rm-line-strong);
+}
+
+.routeStory li:not(:last-child)::after {
+  background: var(--rm-accent);
+  transform-origin: top;
+  animation: route-fill var(--rm-duration-slow) var(--rm-ease) both;
+}
+
+.routeStory li:nth-child(2)::after {
+  animation-delay: var(--rm-duration-slow);
+}
+
+.routeStory li:nth-child(3)::after {
+  animation-delay: calc(2 * var(--rm-duration-slow));
+}
+
+.node {
+  position: absolute;
+  z-index: 1;
+  top: 0.4375rem;
+  left: calc(0.125rem - var(--rm-space-6));
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 2px solid var(--rm-accent);
+  border-radius: 50%;
+  background: var(--rm-surface);
+}
+
+.routeStory li:last-child .node {
+  background: var(--rm-accent);
+}
+
+.storyLabel {
+  color: var(--rm-ink-subtle);
+  font-family: var(--rm-font-mono);
+  font-size: var(--rm-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-.routeStory strong {
-  color: var(--color-text-primary);
-  font-size: var(--text-supporting-size);
-  font-weight: var(--font-weight-medium);
-  line-height: var(--text-supporting-leading);
+.storyValue {
+  min-width: 0;
+  color: var(--rm-ink);
+  font-size: var(--rm-text-md);
+  font-weight: 560;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
-.detailFooter {
-  align-items: flex-start;
+.note {
+  max-width: var(--rm-reading-width);
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-sm);
+  line-height: 1.5;
 }
 
-.detailFooter p {
-  max-width: 54ch;
-  color: var(--color-text-secondary);
-  font-size: var(--text-supporting-size);
-  line-height: var(--text-supporting-leading);
-}
-
-.detailFooter a {
+.guideLink {
   display: inline-flex;
-  flex: 0 0 auto;
-  gap: var(--spacing-2);
   align-items: center;
-  color: var(--color-text-accent);
-  font-size: var(--text-supporting-size);
-  font-weight: var(--font-weight-semibold);
-  text-decoration: none;
+  justify-self: start;
+  gap: var(--rm-space-1);
+  font-size: var(--rm-text-md);
 }
 
-.boundaryEvidence {
-  display: grid;
-  grid-template-columns: minmax(0, 0.68fr) minmax(0, 1.32fr);
-  gap: var(--spacing-8);
-  width: min(calc(100% - var(--spacing-12)), 84rem);
-  margin-inline: auto;
-  padding-block: var(--spacing-8);
-  border-top: var(--border-width) solid var(--color-border);
-}
+@keyframes route-fill {
+  from {
+    transform: scaleY(0);
+  }
 
-.evidenceIntro {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-3);
-}
-
-.evidenceIntro h2 {
-  max-width: 16ch;
-  font-size: var(--text-display-2-size);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.04em;
-  line-height: var(--text-display-2-leading);
-}
-
-.evidenceIntro > p:last-child {
-  max-width: 46ch;
-  color: var(--color-text-secondary);
-  font-size: var(--text-supporting-size);
-  line-height: var(--text-supporting-leading);
-}
-
-.evidenceList {
-  display: grid;
-  grid-template-columns: minmax(9rem, 0.6fr) minmax(0, 1.4fr);
-  margin: 0;
-}
-
-.evidenceList dt {
-  padding: var(--spacing-4) var(--spacing-4) var(--spacing-4) 0;
-  border-top: var(--border-width) solid var(--color-border);
-  color: var(--color-text-primary);
-  font-weight: var(--font-weight-semibold);
-}
-
-.evidenceList dd {
-  margin: 0;
-  padding: var(--spacing-4) 0;
-  border-top: var(--border-width) solid var(--color-border);
-  color: var(--color-text-secondary);
-}
-
-.evidenceList dt:last-of-type,
-.evidenceList dd:last-of-type {
-  border-bottom: var(--border-width) solid var(--color-border);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .routeButton {
-    transition:
-      transform var(--duration-fast) var(--ease-standard),
-      color var(--duration-fast) var(--ease-standard),
-      border-color var(--duration-fast) var(--ease-standard),
-      background var(--duration-fast) var(--ease-standard);
+  to {
+    transform: scaleY(1);
   }
 }
 
-@media (max-width: 64rem) {
-  .boundaryEvidence {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (max-width: 48rem) {
-  .boundaryEvidence {
-    width: calc(100% - var(--spacing-8));
-    min-height: auto;
-  }
-
-  .plotterHeader {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
+@media (min-width: 48rem) {
   .topology {
-    grid-template-columns: minmax(0, 1fr);
-    min-height: auto;
-  }
-
-  .routeControls {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .routeMap {
-    min-height: 15rem;
-  }
-
-  .routeSvg {
-    min-height: 13rem;
-  }
-
-  .routeStory {
-    flex-direction: column;
-  }
-
-  .routeStory li,
-  .routeStory li:not(:first-child) {
-    padding: var(--spacing-3) 0;
-    border-left: 0;
-  }
-
-  .detailHeader,
-  .detailFooter {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .detailFooter a {
-    flex: 1 1 auto;
+    grid-template-columns: minmax(12.5rem, 15rem) minmax(0, 1fr);
+    align-items: start;
   }
 }
 
-/* A quiet route selector: the route facts do the visual work. */
+@media (max-width: 30rem) {
+  .plotter {
+    padding-inline: var(--rm-space-4);
+  }
 
-.plotter {
-  border-radius: var(--radius-element);
-  background: var(--color-background-surface);
-  box-shadow: none;
-}
-
-.plotterHeader {
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--spacing-2) var(--spacing-4);
-  padding: var(--spacing-4);
-}
-
-.plotterHeader > p:last-child {
-  grid-column: 2;
-  max-width: 42ch;
-}
-
-.topology {
-  grid-template-columns: minmax(0, 1fr) minmax(10rem, 0.45fr);
-  min-height: 0;
-  gap: var(--spacing-4);
-  padding: var(--spacing-4);
-  background: transparent;
-}
-
-.routeControls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--spacing-2);
-  align-content: start;
-}
-
-.routeButton {
-  min-height: 3.25rem;
-  gap: var(--spacing-2);
-  padding: var(--spacing-2);
-  border-color: transparent;
-  border-radius: var(--radius-inner);
-  background: var(--color-background-muted);
-}
-
-.routeButton:hover,
-.routeButton[aria-pressed="true"] {
-  border-color: var(--color-border-emphasized);
-  background: var(--color-background-card);
-  box-shadow: none;
-}
-
-.routeIcon {
-  width: var(--spacing-6);
-  height: var(--spacing-6);
-  border-radius: var(--radius-full);
-  background: transparent;
-}
-
-.routeMap {
-  justify-content: center;
-  padding-left: var(--spacing-4);
-  border-left: var(--border-width) solid var(--color-border);
-}
-
-.routeSvg {
-  min-height: 10rem;
-  max-height: 12rem;
-}
-
-.mapCaption {
-  font-size: var(--font-size-2xs);
-}
-
-.detailHeader,
-.detailFooter {
-  padding: var(--spacing-3) var(--spacing-4);
-}
-
-.detailHeader h3 {
-  font-size: var(--text-heading-3-size);
-}
-
-.routeStory {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  padding: 0 var(--spacing-4);
-}
-
-.routeStory li,
-.routeStory li:not(:first-child) {
-  padding: var(--spacing-3) var(--spacing-3) var(--spacing-3) 0;
-  border-bottom: var(--border-width) solid var(--color-border);
-  border-left: 0;
-}
-
-.routeStory li:nth-child(even) {
-  padding-right: 0;
-  padding-left: var(--spacing-3);
-  border-left: var(--border-width) solid var(--color-border);
-}
-
-.boundaryEvidence {
-  gap: clamp(var(--spacing-5), 6vw, var(--spacing-9));
-  padding-block: clamp(var(--spacing-7), 8vh, var(--spacing-10));
-}
-
-.evidenceIntro h2 {
-  font-size: clamp(var(--text-heading-2-size), 3vw, var(--text-display-2-size));
-  line-height: 1.08;
-}
-
-@media (max-width: 48rem) {
-
-  .plotterHeader {
+  .routeStory li {
     grid-template-columns: minmax(0, 1fr);
   }
+}
 
-  .plotterHeader > p:last-child {
-    grid-column: auto;
-  }
-
-  .topology {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .routeControls {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .routeMap {
-    display: none;
-  }
-
-  .routeStory {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .routeStory li:nth-child(even) {
-    padding-left: 0;
-    border-left: 0;
-  }
-
-  .detailHeader,
-  .detailFooter {
-    align-items: flex-start;
+/* The kit shortens animations for reduced motion but keeps delays; show the
+   complete path at once instead. */
+@media (prefers-reduced-motion: reduce) {
+  .routeStory li:not(:last-child)::after {
+    animation: none;
   }
 }
 
-@media (max-width: 32rem) {
-  .routeControls,
-  .evidenceList {
-    grid-template-columns: minmax(0, 1fr);
+@media (forced-colors: active) {
+  .routeStory li:not(:last-child)::after,
+  .routeStory li:last-child .node {
+    background: Highlight;
   }
 
-  .evidenceList dd {
-    padding-top: 0;
-    border-top: 0;
-  }
-
-  .routeButton {
-    min-height: var(--spacing-11);
-  }
-}
-
-/* Public hero: a single authored doorway scene. */
-
-.routeExplorer {
-  width: min(calc(100% - var(--spacing-12)), 84rem);
-  margin: 0 auto;
-}
-
-.routeExplorer .topology {
-  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.3fr);
-}
-
-@media (max-width: 48rem) {
-
-  .routeExplorer {
-    width: calc(100% - var(--spacing-8));
-    margin-top: var(--spacing-2);
-  }
-
-  .routeExplorer .topology {
-    grid-template-columns: minmax(0, 1fr);
+  .node {
+    border-color: Highlight;
   }
 }

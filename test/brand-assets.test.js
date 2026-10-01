@@ -20,11 +20,10 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     npmReadme,
     brandGuide,
     metadata,
-    hostedPage,
-    installPage,
-    n8nWizard,
-    localWizard,
-    assistantWizard,
+    webTopBar,
+    localTopBarIcon,
+    hostedTopBarIcon,
+    ...wizardPages
   ] = await Promise.all([
     readFile("docs/images/brand/relmio-logo.png"),
     readFile("docs/images/brand/relmio-logo-rounded.svg", "utf8"),
@@ -37,11 +36,17 @@ test("gateway android is the canonical logo across public surfaces", async () =>
     readFile("npm/README.md", "utf8"),
     readFile("docs/brand.md", "utf8"),
     readFile("web/app/layout.tsx", "utf8"),
-    readFile("web/app/page.tsx", "utf8"),
-    readFile("web/app/install/page.tsx", "utf8"),
-    readFile("src/ui/index.html", "utf8"),
-    readFile("src/ui/local.html", "utf8"),
-    readFile("src/ui/assistant.html", "utf8"),
+    readFile("web/app/components/ui/TopBar.tsx", "utf8"),
+    readFile("src/ui/relmio-icon-96.png"),
+    readFile("web/public/relmio-icon-96.png"),
+    ...[
+      "index.html",
+      "local.html",
+      "assistant.html",
+      "supergrok-vps.html",
+      "local-model-vps.html",
+      "hosting.html",
+    ].map((page) => readFile(`src/ui/${page}`, "utf8")),
   ]);
 
   assert.deepEqual(logo.subarray(0, PNG_SIGNATURE.length), PNG_SIGNATURE);
@@ -77,20 +82,22 @@ test("gateway android is the canonical logo across public surfaces", async () =>
   assert.match(readme, /Bring your AI sign-ins to your tools/u);
   assert.match(npmReadme, /alt="Animated Relmio mascot carrying a private n8n connection through its doorway"/u);
   assert.match(brandGuide, /images\/brand\/relmio-logo\.png/u);
-  assert.match(metadata, /new URL\("\/og\.png", metadataBase\)/u);
-  assert.match(metadata, /width: 1200, height: 630/u);
 
   assert.match(metadata, /relmio-icon-rounded\.svg/u);
-  for (const source of [hostedPage, installPage]) {
-    assert.match(source, /relmio-icon\.png/u);
-    assert.doesNotMatch(source, /relmio-mark\.svg/u);
-  }
+  assert.match(webTopBar, /src="\/relmio-icon-96\.png"/u);
+  // The top bars draw the logo at 32 px, so they load a 96 px copy (3x) of the
+  // master instead of the 512 px original.
+  assert.deepEqual(localTopBarIcon.subarray(0, PNG_SIGNATURE.length), PNG_SIGNATURE);
+  assert.equal(localTopBarIcon.readUInt32BE(16), 96);
+  assert.equal(localTopBarIcon.readUInt32BE(20), 96);
+  assert.deepEqual(hostedTopBarIcon, localTopBarIcon);
+  assert.doesNotMatch(webTopBar, /relmio-mark\.svg/u);
 
-  for (const source of [n8nWizard, localWizard, assistantWizard]) {
+  for (const source of wizardPages) {
     assert.match(source, /href="\/relmio-icon-rounded\.svg"/u);
     assert.match(
       source,
-      /<img\s+class="brand-mark"\s+src="\/relmio-icon\.png"\s+alt=""\s+width="28"\s+height="28"/u,
+      /<img\s+class="rm-brand__logo"\s+src="\/relmio-icon-96\.png"\s+width="32"\s+height="32"\s+alt=""/u,
     );
     assert.doesNotMatch(source, /data:image\/svg\+xml/u);
   }

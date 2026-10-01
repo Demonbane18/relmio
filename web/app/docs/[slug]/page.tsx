@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { DocumentationPage } from "../DocumentPage";
 import { documentationBySlug, documentationPages } from "../generated-content";
+import { guideSummary } from "../markdownText";
+import { pageMetadata } from "../../page-metadata";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -15,10 +17,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const page = documentationBySlug.get(slug);
   return page
-    ? {
-        title: `${page.title} | Relmio documentation`,
-        description: `Relmio documentation: ${page.title}.`,
-      }
+    ? pageMetadata(
+        `${page.title} | Relmio documentation`,
+        guideSummary(page.content),
+        `/docs/${slug}`,
+      )
     : {};
 }
 

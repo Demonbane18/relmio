@@ -1319,76 +1319,59 @@ async function cancelOAuthLogin(state, login) {
   releaseOAuthCredentialOperation(state, login.credentialOperation);
 }
 
-async function loadDefaultUiFiles() {
-  const files = await Promise.all([
-    readFile(new URL("../ui/index.html", import.meta.url), "utf8"),
-    readFile(new URL("../ui/local.html", import.meta.url), "utf8"),
-    readFile(new URL("../ui/app.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/local.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/chat-tester-feedback.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/session.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/session-bootstrap.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/oauth-popup.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/assistant.html", import.meta.url), "utf8"),
-    readFile(new URL("../ui/assistant.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/assistant.css", import.meta.url), "utf8"),
-    readFile(new URL("../ui/theme.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/time.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/styles.css", import.meta.url), "utf8"),
-    readFile(new URL("../ui/local.css", import.meta.url), "utf8"),
-    readFile(new URL("../ui/icons/monitor.svg", import.meta.url), "utf8"),
-    readFile(new URL("../ui/icons/sun.svg", import.meta.url), "utf8"),
-    readFile(new URL("../ui/icons/moon.svg", import.meta.url), "utf8"),
-    readFile(new URL("../ui/relmio-icon.png", import.meta.url)),
-    readFile(new URL("../ui/relmio-icon-rounded.svg", import.meta.url), "utf8"),
-    readFile(new URL("../ui/supergrok-vps.html", import.meta.url), "utf8"),
-    readFile(new URL("../ui/supergrok-vps.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/supergrok-vps.css", import.meta.url), "utf8"),
-    readFile(new URL("../ui/local-model-vps.html", import.meta.url), "utf8"),
-    readFile(new URL("../ui/local-model-vps.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/local-model-vps.css", import.meta.url), "utf8"),
-    readFile(new URL("../ui/ssh-form.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/hosting.html", import.meta.url), "utf8"),
-    readFile(new URL("../ui/hosting.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/hosting.css", import.meta.url), "utf8"),
-    readFile(new URL("../domain/hosting-providers.js", import.meta.url), "utf8"),
-    readFile(new URL("../ui/hosting-archive.js", import.meta.url), "utf8"),
-  ]);
+// Wizard pages and assets served from src/ui, keyed by request path. Entries
+// without an encoding are binary and stay Buffers. Pages get the package
+// version substituted for __RELMIO_PACKAGE_VERSION__.
+const UI_FILE_SOURCES = Object.freeze({
+  "/": ["../ui/index.html", "utf8"],
+  "/local": ["../ui/local.html", "utf8"],
+  "/assistant": ["../ui/assistant.html", "utf8"],
+  "/supergrok-vps": ["../ui/supergrok-vps.html", "utf8"],
+  "/local-model-vps": ["../ui/local-model-vps.html", "utf8"],
+  "/hosting": ["../ui/hosting.html", "utf8"],
+  "/app.js": ["../ui/app.js", "utf8"],
+  "/local.js": ["../ui/local.js", "utf8"],
+  "/assistant.js": ["../ui/assistant.js", "utf8"],
+  "/supergrok-vps.js": ["../ui/supergrok-vps.js", "utf8"],
+  "/local-model-vps.js": ["../ui/local-model-vps.js", "utf8"],
+  "/hosting.js": ["../ui/hosting.js", "utf8"],
+  "/chat-tester-feedback.js": ["../ui/chat-tester-feedback.js", "utf8"],
+  "/session.js": ["../ui/session.js", "utf8"],
+  "/session-bootstrap.js": ["../ui/session-bootstrap.js", "utf8"],
+  "/oauth-popup.js": ["../ui/oauth-popup.js", "utf8"],
+  "/theme.js": ["../ui/theme.js", "utf8"],
+  "/time.js": ["../ui/time.js", "utf8"],
+  "/topbar.js": ["../ui/topbar.js", "utf8"],
+  "/ssh-form.js": ["../ui/ssh-form.js", "utf8"],
+  "/hosting-archive.js": ["../ui/hosting-archive.js", "utf8"],
+  "/domain/hosting-providers.js": ["../domain/hosting-providers.js", "utf8"],
+  "/relmio-ui.css": ["../ui/relmio-ui.css", "utf8"],
+  "/styles.css": ["../ui/styles.css", "utf8"],
+  "/local.css": ["../ui/local.css", "utf8"],
+  "/assistant.css": ["../ui/assistant.css", "utf8"],
+  "/supergrok-vps.css": ["../ui/supergrok-vps.css", "utf8"],
+  "/local-model-vps.css": ["../ui/local-model-vps.css", "utf8"],
+  "/hosting.css": ["../ui/hosting.css", "utf8"],
+  "/relmio-icon-96.png": ["../ui/relmio-icon-96.png"],
+  "/relmio-icon-rounded.svg": ["../ui/relmio-icon-rounded.svg", "utf8"],
+  "/fonts/geist-latin.woff2": ["../ui/fonts/geist-latin.woff2"],
+  "/fonts/bricolage-grotesque-latin.woff2": ["../ui/fonts/bricolage-grotesque-latin.woff2"],
+});
+const UI_PAGES = new Set(["/", "/local", "/assistant", "/supergrok-vps", "/local-model-vps", "/hosting"]);
 
-  return {
-    "/": files[0],
-    "/local": files[1].replaceAll("__RELMIO_PACKAGE_VERSION__", PACKAGE_VERSION),
-    "/app.js": files[2],
-    "/local.js": files[3],
-    "/chat-tester-feedback.js": files[4],
-    "/session.js": files[5],
-    "/session-bootstrap.js": files[6],
-    "/oauth-popup.js": files[7],
-    "/assistant": files[8],
-    "/assistant.js": files[9],
-    "/assistant.css": files[10],
-    "/theme.js": files[11],
-    "/time.js": files[12],
-    "/styles.css": files[13],
-    "/local.css": files[14],
-    "/icons/monitor.svg": files[15],
-    "/icons/sun.svg": files[16],
-    "/icons/moon.svg": files[17],
-    "/relmio-icon.png": files[18],
-    "/relmio-icon-rounded.svg": files[19],
-    "/supergrok-vps": files[20],
-    "/supergrok-vps.js": files[21],
-    "/supergrok-vps.css": files[22],
-    "/local-model-vps": files[23],
-    "/local-model-vps.js": files[24],
-    "/local-model-vps.css": files[25],
-    "/ssh-form.js": files[26],
-    "/hosting": files[27],
-    "/hosting.js": files[28],
-    "/hosting.css": files[29],
-    "/domain/hosting-providers.js": files[30],
-    "/hosting-archive.js": files[31],
-  };
+async function loadDefaultUiFiles() {
+  const entries = await Promise.all(
+    Object.entries(UI_FILE_SOURCES).map(async ([route, [path, encoding]]) => {
+      const contents = await readFile(new URL(path, import.meta.url), encoding);
+      return [
+        route,
+        UI_PAGES.has(route)
+          ? contents.replaceAll("__RELMIO_PACKAGE_VERSION__", PACKAGE_VERSION)
+          : contents,
+      ];
+    }),
+  );
+  return Object.fromEntries(entries);
 }
 
 function createSafeLocalPlan(plan) {
@@ -5285,7 +5268,43 @@ function createRequestHandler(state) {
       }
 
       if (request.method !== "GET" || !(path in state.uiFiles)) {
-        sendJson(response, 404, { error: "Not found." });
+        if (
+          request.method === "GET" &&
+          !path.startsWith("/api/") &&
+          request.headers.accept?.split(",").some((entry) => entry.trim().split(";", 1)[0] === "text/html")
+        ) {
+          const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Page not found | Relmio</title>
+  <link rel="stylesheet" href="/relmio-ui.css">
+</head>
+<body class="rm-app rm-app--fit">
+  <main id="main-content" class="rm-app__main">
+    <div class="rm-container rm-split">
+      <section class="rm-panel">
+        <div class="rm-panel__header">
+          <div class="rm-panel__heading">
+            <h1 class="rm-h1">Page not found</h1>
+            <p class="rm-muted">This address is not part of the Relmio wizard.</p>
+          </div>
+        </div>
+        <div class="rm-panel__body"><p>Wizard pages open only through the private link Relmio gives your browser. Go back to your Relmio tab, or run <code>relmio open</code> in a terminal to start a new session.</p></div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>`;
+          response.writeHead(404, {
+            "Content-Type": "text/html; charset=utf-8",
+            "Content-Length": Buffer.byteLength(html),
+          });
+          response.end(html);
+        } else {
+          sendJson(response, 404, { error: "Not found." });
+        }
         return;
       }
 
@@ -5298,7 +5317,9 @@ function createRequestHandler(state) {
               ? "image/png"
               : path.endsWith(".css")
                 ? "text/css; charset=utf-8"
-                : "text/html; charset=utf-8";
+                : path.endsWith(".woff2")
+                  ? "font/woff2"
+                  : "text/html; charset=utf-8";
       const contents = state.uiFiles[path];
       response.writeHead(200, {
         "Content-Type": contentType,

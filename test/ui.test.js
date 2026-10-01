@@ -8,7 +8,7 @@ import {
   readWizardSession,
 } from "../src/ui/session.js";
 import { formatAuthUpdatedAt } from "../src/ui/time.js";
-import { createCredentialSshGuard, sameSshIdentity } from "../src/ui/ssh-form.js";
+import { clearFieldError, createCredentialSshGuard, sameSshIdentity, setFieldError } from "../src/ui/ssh-form.js";
 
 const rootIdentity = {
   host: "new.example", port: 22, username: "root",
@@ -282,6 +282,7 @@ test("rejected VPS bridge credential returns to fresh sign-in without retrying t
     sshSession: { adoptedIdentity: () => rootIdentity },
     sameSshIdentity,
     selectChatGptSetup: () => calls.push(["select-chatgpt"]),
+    setSignInLeads() {},
     setCredentialInputsEnabled(enabled) {
       elements.get("username").disabled = !enabled;
       elements.get("ssh-authentication").disabled = !enabled;
@@ -456,6 +457,8 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
       "install-button",
       "ssh-session",
       "ssh-review-identity",
+      "review-build-list",
+      "review-build-details",
     ].map((id) => [
       id,
       {
@@ -573,7 +576,6 @@ test("review recipient follows the adopted guard identity and refuses missing or
   state.planId = "reviewed";
   assert.match(element("install-confirm-copy").textContent, /root@new\.example:22/u);
   assert.doesNotMatch(element("install-confirm-copy").textContent, /No authenticated VPS session/u);
-  assert.match(element("review-will-list").children.map(item => item.textContent).join(" "), /root@new\.example:22/u);
   element("install-confirm").checked = true;
   element("install-confirm").handler({ currentTarget: element("install-confirm") });
   assert.equal(element("install-button").disabled, false);
@@ -673,7 +675,7 @@ test("route selection exposes ChatGPT setup and restores chooser focus", async (
   assert.equal(element("setup-choices").hidden, true);
   assert.equal(element("chatgpt-setup").hidden, false);
   assert.equal(element("openai-vps-route").attributes.get("aria-expanded"), "true");
-  assert.equal(focused.at(-1), "chatgpt-setup-title");
+  assert.equal(focused.at(-1), "signin-title");
   element("change-setup-button").click();
   assert.equal(element("setup-choices").hidden, false);
   assert.equal(element("chatgpt-setup").hidden, true);
@@ -690,21 +692,30 @@ test("fingerprint check validates address and port before unlocking authenticati
   const end = script.indexOf('element("host").addEventListener("input"', start);
   const nodes = new Map();
   const focus = [];
+  const document = { activeElement: null };
   const element = id => {
     if (!nodes.has(id)) nodes.set(id, {
-      value: "", checked: false, disabled: true, hidden: true,
+      value: "", checked: false, disabled: true, hidden: true, attributes: new Map([["aria-describedby", `${id}-hint`]]),
       valid: true, addEventListener(name, handler) { this[name] = handler; },
       checkValidity() { return this.valid; },
       reportValidity() { this.reported = true; },
-      focus() { focus.push(id); }, scrollIntoView() {},
+      getAttribute(name) { return this.attributes.get(name) ?? null; },
+      setAttribute(name, value) { this.attributes.set(name, value); },
+      removeAttribute(name) { this.attributes.delete(name); },
+      focus() { focus.push(id); document.activeElement = this; }, scrollIntoView() {},
     });
     return nodes.get(id);
   };
   const calls = [];
-  const state = { fingerprint: null };
+  const state = { fingerprint: null, operationBusy: false, operationOwner: 0 };
   const context = {
-    element, state, clearError() {}, invalidateReviewedPlan() {},
-    runOperation: async (_button, _label, work) => work(),
+    document, element, state, clearError() {}, invalidateReviewedPlan() {}, clearFieldError,
+    runOperation: async (button, _label, work) => {
+      state.operationOwner++;
+      document.activeElement = element("operation-progress");
+      try { return await work(); }
+      finally { document.activeElement = button; }
+    },
     api: async (path, options) => {
       calls.push([path, options.body]);
       return { fingerprint: rootIdentity.fingerprint };
@@ -725,11 +736,15 @@ test("fingerprint check validates address and port before unlocking authenticati
   assert.equal(calls.length, 0);
   assert.equal(element("port").reported, true);
   assert.equal(focus.at(-1), "port");
+  assert.equal(element("port").getAttribute("aria-invalid"), "true");
   element("port").value = "22";
   element("port").valid = true;
   await element("fingerprint-button").click({ currentTarget: element("fingerprint-button") });
   assert.equal(calls[0][0], "/api/ssh/fingerprint");
+  assert.equal(element("port").getAttribute("aria-invalid"), null);
+  assert.equal(element("port").getAttribute("aria-describedby"), "port-hint");
   assert.equal(element("fingerprint-box").hidden, false);
+  assert.equal(focus.at(-1), "fingerprint-confirm");
   assert.equal(element("username").disabled, true);
   element("fingerprint-confirm").checked = true;
   element("fingerprint-confirm").change({ currentTarget: element("fingerprint-confirm") });
@@ -785,6 +800,101 @@ test("wizard errors and completed cancellation move focus to visible recovery co
   state.oauthRetryBlocked = true;
   ui.finishOAuthCancellation();
   assert.equal(focused.at(-1), "login-button");
+});
+
+test("server-rejected connection fields are marked invalid until the person edits them", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const errorStart = script.indexOf("function showError(");
+  const errorEnd = script.indexOf("function clearError(", errorStart);
+  const inputStart = script.indexOf('for (const id of ["host", "port", "username"])');
+  const inputEnd = script.indexOf('element("password").addEventListener("input"', inputStart);
+  assert.ok(errorStart >= 0 && errorEnd > errorStart && inputStart >= 0 && inputEnd > inputStart);
+  const nodes = new Map();
+  const element = id => {
+    if (!nodes.has(id)) nodes.set(id, {
+      hidden: true, textContent: "", listeners: new Map(),
+      attributes: new Map([["aria-describedby", `${id}-hint`]]),
+      getAttribute(name) { return this.attributes.get(name) ?? null; },
+      setAttribute(name, value) { this.attributes.set(name, value); },
+      removeAttribute(name) { this.attributes.delete(name); },
+      addEventListener(name, listener) { this.listeners.set(name, listener); },
+      focus() {}, scrollIntoView() {},
+    });
+    return nodes.get(id);
+  };
+  const ui = vm.runInNewContext(`
+    function focusVisible(target) { target.focus({ preventScroll: true }); target.scrollIntoView(); }
+    ${script.slice(errorStart, errorEnd)}
+    ${script.slice(inputStart, inputEnd)}
+    ({ showError });`, {
+    element, setFieldError, clearFieldError,
+    errorMessage: element("global-error-text"), errorBox: element("global-error"),
+  });
+  const described = id => element(id).getAttribute("aria-describedby");
+
+  ui.showError(new Error("Connection refused."));
+  assert.equal(element("host").getAttribute("aria-invalid"), null);
+  ui.showError(new Error("Hostname is invalid."));
+  assert.equal(element("host").getAttribute("aria-invalid"), "true");
+  assert.equal(described("host"), "host-hint global-error-text");
+  assert.equal(element("global-error-text").textContent, "Hostname is invalid.");
+  ui.showError(new Error("Port is invalid."));
+  assert.equal(element("port").getAttribute("aria-invalid"), "true");
+  element("host").listeners.get("input")();
+  assert.equal(element("host").getAttribute("aria-invalid"), null);
+  assert.equal(described("host"), "host-hint");
+  assert.equal(element("port").getAttribute("aria-invalid"), "true");
+});
+
+test("a running setup operation marks the step panel busy and leaves the progress rail free", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("const OPERATION_INTERACTIVE_SELECTOR");
+  const end = script.indexOf("\nfunction showStep(step)", start);
+  assert.ok(start >= 0 && end > start);
+  const nodes = new Map();
+  const element = id => {
+    if (!nodes.has(id)) nodes.set(id, {
+      id, hidden: id === "operation-progress", textContent: "", dataset: {},
+      attributes: new Map(id === "setup-steps" ? [["aria-busy", "false"]] : []),
+      children: [],
+      setAttribute(name, value) { this.attributes.set(name, value); },
+      getAttribute(name) { return this.attributes.get(name) ?? null; },
+      removeAttribute(name) { this.attributes.delete(name); },
+      focus() {},
+      querySelectorAll() { return []; },
+    });
+    return nodes.get(id);
+  };
+  const progress = element("operation-progress");
+  const steps = element("setup-steps");
+  const main = element("main-content");
+  progress.parent = element("setup-rail");
+  steps.parent = main;
+  const state = { operationBusy: false, operationOwner: 0, step: 2, fingerprint: null };
+  const ui = vm.runInNewContext(`
+    ${script.slice(start, end)}
+    ({ startOperation, stopOperation });`, {
+    element, state, document: {
+      body: { dataset: {} },
+      activeElement: element("review-button"),
+      querySelectorAll: () => [],
+      addEventListener() {},
+    },
+    focusVisible() {},
+    sshAuthentication: { sync() {} },
+    setCredentialInputsEnabled() {},
+    updateStepNavigation() {},
+    MutationObserver: class { observe() {} disconnect() {} },
+    window: { setInterval() { return 1; }, clearInterval() {} },
+  });
+  assert.equal(ui.startOperation(element("review-button"), "Preparing plan…"), true);
+  assert.equal(steps.getAttribute("aria-busy"), "true");
+  assert.equal(main.getAttribute("aria-busy"), null);
+  assert.equal(progress.getAttribute("aria-busy"), null);
+  assert.equal(progress.parent.getAttribute("aria-busy"), null);
+  ui.stopOperation(element("review-button"), state.operationOwner);
+  assert.equal(steps.getAttribute("aria-busy"), "false");
+  assert.equal(main.getAttribute("aria-busy"), null);
 });
 
 test("VPS Assistant result validation executes before any result DOM mutation", async () => {

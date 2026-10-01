@@ -21,17 +21,21 @@ rebuild unrelated containers while checking the local endpoint.
 Close stale wizard and device-code tabs, then run `relmio open` from a
 persistent install to open the active private dashboard page. A hosted
 foreground launcher instead requires its current terminal; press Enter there
-to create a fresh private browser handoff. Start one fresh ChatGPT device-code attempt and complete the newest code. Use the selected provider's official sign-in. Relmio 0.14.0 does not accept upstream API
-keys. Grok Build sign-in uses its official attended CLI flow.
-ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
-them automatically during active use before they expire, so active sessions
-usually continue without another browser login. The official [OpenAI
-authentication documentation](https://learn.chatgpt.com/docs/auth) does not
-publish a fixed 10-day lifetime; do not plan around one. This provider
-credential is separate from Relmio's local capability, which remains valid
-until you rotate it. If Relmio reports the credential is invalid or refresh no
-longer succeeds, select **Start ChatGPT sign-in** again in the active local
-wizard. The VPS sidecar flow labels that action **Refresh ChatGPT sign-in**.
+to create a fresh private browser handoff. Start one fresh ChatGPT device-code
+attempt and complete the newest code. Use the selected provider's official
+sign-in. The ChatGPT n8n OAuth bridge does not use a Platform API key;
+configure API-key connections and operator-generated hosting artifacts
+separately in n8n or the target platform. Grok Build sign-in uses its official
+attended CLI flow.
+
+ChatGPT/Codex sign-in tokens expire. The Codex authentication guide describes
+automatic refresh but does not give a fixed lifetime. Relmio's private bridge
+and hosted chat demo each refresh their own credential copies. OpenAI's one-hour
+access-token and rotating 30-day refresh-token lifetimes describe the separate
+Sign in with ChatGPT plan-usage flow, not Relmio's pinned Codex flow. If Relmio
+reports that a credential is invalid or refresh no longer succeeds, select
+**Refresh ChatGPT sign-in** in the active local wizard. Without a saved
+credential, the same button reads **Sign in with ChatGPT**.
 
 ## Local image build failed
 
@@ -44,13 +48,13 @@ managed endpoint or rebuild unrelated containers as a workaround.
 
 ## Hosted chat browser extension
 
-The hosted demo at [relmio.jpfusin.tech](https://relmio.jpfusin.tech/) needs the
+The hosted demo at [relmio.jpfusin.tech/chat](https://relmio.jpfusin.tech/chat) needs the
 open-source **Sign in with ChatGPT** extension to complete the OAuth handoff:
 
 - [Install for Chrome](https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna)
 - [Install for Firefox](https://addons.mozilla.org/firefox/addon/sign-in-with-chatgpt/)
 
-After installation, reload Relmio and select **Connect ChatGPT** again. If the
+After installation, reload Relmio and select **Sign in with ChatGPT** again. If the
 chat still shows **Not connected**, confirm the extension is enabled, close
 stale ChatGPT authorization tabs, and start one fresh connection from Relmio.
 The hosted sign-in component also displays its extension install screen when
@@ -138,10 +142,9 @@ foreground. Keep that terminal open. If the first browser launch fails, press
 Enter there to create a fresh owner-only, single-use browser handoff. Relmio
 does not print or pass the dashboard session capability in a browser URL.
 
-The local wizard may be displayed in a VS Code embedded browser. Its validated
-manual link, **Open fresh ChatGPT sign-in**, remains available if that embedded
-browser blocks the popup or no new tab opens. Use that link only from the active
-wizard attempt; it points to the fresh `auth.openai.com` authorization URL.
+Relmio opens local ChatGPT/Codex sign-in in the system browser. If no window
+opens, check the Windows default browser, select **Stop** in the active wizard,
+then retry. The current login flow does not provide a manual authorization link.
 
 You do not need to sign in to npm, configure npm 2FA, or own this package to
 run any public command. npm authentication is required only for the

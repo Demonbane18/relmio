@@ -1,6 +1,7 @@
 import { formatAuthUpdatedAt } from "./time.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
-import { bindSshAuthentication, createCredentialSshGuard, sameSshIdentity } from "./ssh-form.js";
+import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, sameSshIdentity, setFieldError } from "./ssh-form.js";
+import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
 
@@ -55,6 +56,11 @@ const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshI
   showStep(2);
 } });
 setCredentialInputsEnabled(false);
+initWizardTopbar({
+  session: token,
+  isBusy: () => state.operationBusy,
+  loadProjectMeta: () => api("/api/local/project-meta"),
+});
 
 function focusVisible(target) {
   target.focus({ preventScroll: true });
@@ -64,9 +70,11 @@ function focusVisible(target) {
 function selectChatGptSetup({ focus = true } = {}) {
   element("setup-choices").hidden = true;
   element("chatgpt-setup").hidden = false;
+  element("signin-title").textContent = "Sign in with ChatGPT";
   element("openai-vps-route").setAttribute("aria-expanded", "true");
+  element("global-message").hidden = true;
   if (state.step !== 1) showStep(1);
-  if (focus) focusVisible(element("chatgpt-setup-title"));
+  if (focus) focusVisible(element("signin-title"));
 }
 
 element("openai-vps-route").addEventListener("click", () => {
@@ -80,6 +88,7 @@ element("change-setup-button").addEventListener("click", () => {
   clearError();
   element("chatgpt-setup").hidden = true;
   element("setup-choices").hidden = false;
+  element("signin-title").textContent = "Choose your setup";
   element("openai-vps-route").setAttribute("aria-expanded", "false");
   focusVisible(element("openai-vps-route"));
 });
@@ -115,10 +124,14 @@ function setMessage(text) {
   );
 }
 
-function showError(error) {
-  errorMessage.textContent = error.message ?? "Something went wrong.";
+function showError(error, { focus = true } = {}) {
+  const text = error.message ?? "Something went wrong.";
+  const rejected = [["Hostname", "host"], ["Port", "port"], ["Username", "username"]]
+    .find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
+  if (rejected) setFieldError(element(rejected[1]), "global-error-text");
+  errorMessage.textContent = text;
   errorBox.hidden = false;
-  focusVisible(errorBox);
+  if (focus) focusVisible(errorBox);
 }
 
 function clearError() {
@@ -147,61 +160,42 @@ function invalidateReviewedPlan() {
 
 const revertTimers = new WeakMap();
 
+// Shows a check on the button for a moment. The accessible name never changes;
+// the result is announced through the polite status message.
 function flashCopied(button) {
-  if (!button.dataset.label) {
-    button.dataset.label = button.getAttribute("aria-label");
-  }
-  button.setAttribute("aria-label", `${button.dataset.copyLabel} copied`);
-  button.setAttribute("title", `${button.dataset.copyLabel} copied`);
   button.classList.add("copied");
   window.clearTimeout(revertTimers.get(button));
-  revertTimers.set(
-    button,
-    window.setTimeout(() => {
-      button.setAttribute("aria-label", button.dataset.label);
-      button.setAttribute("title", button.dataset.label);
-      button.classList.remove("copied");
-    }, 1800),
-  );
+  revertTimers.set(button, window.setTimeout(() => button.classList.remove("copied"), 1800));
 }
 
 async function copyText(value) {
-  const previouslyFocused = document.activeElement;
-  const textarea = document.createElement("textarea");
-  textarea.value = value;
-  textarea.readOnly = true;
-  textarea.setAttribute("aria-hidden", "true");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-
+  try {
+    await navigator.clipboard.writeText(value);
+    return;
+  } catch {
+    // Fall back to copying a selection. Focus stays on the copy button.
+  }
+  const source = document.createElement("pre");
+  source.textContent = value;
+  source.setAttribute("aria-hidden", "true");
+  source.style.position = "fixed";
+  source.style.insetInlineStart = "-200vw";
+  const selection = document.getSelection();
+  const saved = selection.rangeCount ? selection.getRangeAt(0) : null;
   let copied = false;
   try {
-    document.body.append(textarea);
-    textarea.focus();
-    textarea.select();
-    textarea.setSelectionRange?.(0, textarea.value.length);
+    document.body.append(source);
+    selection.selectAllChildren(source);
     copied = document.execCommand("copy");
   } catch {
     copied = false;
   } finally {
-    textarea.remove();
-    previouslyFocused?.focus?.();
+    source.remove();
+    selection.removeAllRanges();
+    if (saved) selection.addRange(saved);
   }
-
-  if (copied) {
-    return;
-  }
-
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(value);
-      return;
-    } catch {
-      // The generic error below avoids exposing copied configuration values.
-    }
-  }
-
-  throw new Error("The browser refused clipboard access.");
+  // The generic error avoids exposing copied configuration values.
+  if (!copied) throw new Error("The browser refused clipboard access.");
 }
 
 function renderHttpRequestBody(model) {
@@ -453,9 +447,6 @@ async function recoverPendingOAuthAttempt() {
         loginLink.hidden = true;
         loginLink.removeAttribute("href");
         setOAuthStopControlVisible(true);
-        setMessage(
-          "A ChatGPT sign-in is still in progress. Complete it in its existing browser tab, or stop it here.",
-        );
         updateOperationLabel("Reconnecting to ChatGPT sign-in…");
         await waitForOAuthCompletion(attemptId);
         if (state.oauthLoginGeneration !== loginGeneration) {
@@ -469,7 +460,7 @@ async function recoverPendingOAuthAttempt() {
       {
         allowedSelector: OPERATION_ALLOWED_SELECTOR,
         progressNote:
-          "Relmio is checking for a server-owned ChatGPT sign-in attempt. If one is active, finish it in the existing browser tab or stop it here.",
+          "Relmio is checking for a ChatGPT sign-in that is still running. If one is active, finish it in its existing browser tab or stop it here.",
       },
     );
 
@@ -691,7 +682,7 @@ function startOperation(
   }
 
   document.body.dataset.operationBusy = "true";
-  element("main-content").setAttribute("aria-busy", "true");
+  element("setup-steps").setAttribute("aria-busy", "true");
   const messageRegion = element("global-message");
   state.operationMessageLive = readOperationAttribute(
     messageRegion,
@@ -774,7 +765,7 @@ function stopOperation(trigger, expectedOwner) {
   setCredentialInputsEnabled(trusted);
 
   document.body.dataset.operationBusy = "false";
-  element("main-content").setAttribute("aria-busy", "false");
+  element("setup-steps").setAttribute("aria-busy", "false");
   restoreOperationAttribute(
     element("global-message"),
     "aria-live",
@@ -870,6 +861,8 @@ async function runActiveOperationTask(button, label, work) {
 function blockOperationInteraction(event) {
   if (
     !state.operationBusy ||
+    // Tab and Shift+Tab still move focus; activation and input stay blocked.
+    (event.type === "keydown" && event.key === "Tab") ||
     event.target?.closest?.("#operation-progress") ||
     isOperationAllowedControl(event.target)
   ) {
@@ -882,7 +875,7 @@ function blockOperationInteraction(event) {
 for (const eventName of OPERATION_BLOCKED_EVENTS) {
   document.addEventListener(eventName, blockOperationInteraction, true);
 }
-const STEP_LABELS = ["Choose setup", "Connect to your server", "Choose n8n", "Review the plan", "Done"];
+const STEP_LABELS = ["Choose setup", "Check server", "Choose n8n", "Review", "Ready"];
 
 function updateStepNavigation() {
   element("setup-progress-label").textContent = `Step ${state.step} of 5 · ${STEP_LABELS[state.step - 1]}`;
@@ -895,10 +888,7 @@ function updateStepNavigation() {
 function showStep(step) {
   state.step = step;
   document.body.dataset.currentStep = String(step);
-  if (step === 5) {
-    dismissToast(element("global-safety"));
-    dismissToast(element("global-backup"));
-  }
+  if (step === 5) dismissToast(element("global-safety"));
   let heading = null;
   for (const panel of document.querySelectorAll("[data-step]")) {
     const active = Number(panel.dataset.step) === step;
@@ -910,7 +900,8 @@ function showStep(step) {
   }
   for (const marker of document.querySelectorAll("[data-step-marker]")) {
     const markerStep = Number(marker.dataset.stepMarker);
-    marker.classList.toggle("complete", markerStep < step);
+    if (markerStep < step) marker.setAttribute("data-state", "done");
+    else marker.removeAttribute("data-state");
     if (markerStep === step) marker.setAttribute("aria-current", "step");
     else marker.removeAttribute("aria-current");
   }
@@ -918,11 +909,9 @@ function showStep(step) {
   if (heading) focusVisible(heading);
 }
 
-document.querySelector(".skip-link")?.addEventListener("click", (event) => {
+document.querySelector(".rm-skip-link")?.addEventListener("click", (event) => {
   event.preventDefault();
-  const panel = document.querySelector("[data-step]:not([hidden])");
-  const heading = state.step === 1 && !element("chatgpt-setup").hidden
-    ? element("chatgpt-setup-title") : panel?.querySelector("h2");
+  const heading = document.querySelector("[data-step]:not([hidden]) h2");
   if (heading) focusVisible(heading);
 });
 
@@ -1008,25 +997,31 @@ function renderAuthUpdatedAt(value) {
   return formatted;
 }
 
+// Signing in is the step's action until a usable credential exists; after
+// that, Check the server is.
+function setSignInLeads(leads) {
+  const loginButton = element("login-button");
+  loginButton.classList.toggle("rm-button--primary", leads);
+  loginButton.classList.toggle("rm-push", leads);
+  element("signin-next").hidden = leads;
+}
+
+// The status callout is a polite live region, so it carries the result alone.
 function renderAuthStatus(status, { fresh = false } = {}) {
   const indicator = element("auth-indicator");
   const loginButton = element("login-button");
   const next = element("signin-next");
-  const formattedUpdatedAt = renderAuthUpdatedAt(status.authUpdatedAt);
-  const showAuthMessage = text => {
-    if (!element("chatgpt-setup").hidden) setMessage(text);
-  };
+  renderAuthUpdatedAt(status.authUpdatedAt);
 
   if (status.previewMode) {
     indicator.classList.add("ready");
     element("auth-title").textContent = "Sanitized preview credential";
     element("auth-detail").textContent =
       "Preview mode uses sample data and cannot start a real ChatGPT sign-in.";
-    loginButton.textContent = "Preview sign-in disabled";
-    loginButton.dataset.label = "Preview sign-in disabled";
     loginButton.disabled = true;
+    loginButton.hidden = true;
     next.disabled = false;
-    showAuthMessage("Sanitized preview mode: no live ChatGPT sign-in will open.");
+    setSignInLeads(false);
     return;
   }
 
@@ -1041,11 +1036,7 @@ function renderAuthStatus(status, { fresh = false } = {}) {
     loginButton.textContent = "Refresh ChatGPT sign-in";
     loginButton.dataset.label = "Refresh ChatGPT sign-in";
     next.disabled = false;
-    showAuthMessage(
-      fresh && formattedUpdatedAt
-        ? `Fresh sign-in saved at ${formattedUpdatedAt} (local time).`
-        : "Local credential found. Validity and model access have not been checked.",
-    );
+    setSignInLeads(false);
   } else {
     indicator.classList.remove("ready");
     element("auth-title").textContent = "Sign-in needed";
@@ -1054,7 +1045,7 @@ function renderAuthStatus(status, { fresh = false } = {}) {
     loginButton.textContent = "Sign in with ChatGPT";
     loginButton.dataset.label = "Sign in with ChatGPT";
     next.disabled = true;
-    showAuthMessage("Sign in with ChatGPT to continue.");
+    setSignInLeads(true);
   }
 }
 
@@ -1130,10 +1121,10 @@ function renderIntegrationReview(plan) {
   const updatingSidecar =
     !assistant && state.managingDetectedIntegration;
   element("review-intro").textContent = assistant
-    ? "Only the Assistant companion changes. You still manage n8n."
+    ? "Only the Assistant companion changes. Nothing is written until you approve."
     : updatingSidecar
-      ? "Only the existing bridge files and sidecar will be updated. n8n files and the n8n container will not change."
-      : "No existing n8n files or containers will be changed.";
+      ? "Only the existing bridge files and sidecar change. Nothing is written until you approve."
+      : "Nothing is written until you approve this plan.";
   element("review-network").textContent = plan.networkName;
   element("review-endpoint-label").textContent = assistant
     ? "Assistant selection"
@@ -1158,13 +1149,16 @@ function renderIntegrationReview(plan) {
           updatingSidecar
             ? "Update only /docker/n8n-openai-oauth."
             : "Create or update only /docker/n8n-openai-oauth.",
-          `Upload the adapter runtime and the saved ChatGPT/Codex credential file over SSH to ${recipient}, under /docker/n8n-openai-oauth.`,
+          "Upload the adapter runtime and the saved ChatGPT/Codex credential file.",
           `${updatingSidecar ? "Rebuild" : "Build"} and start only the openai-oauth sidecar.`,
-          `After you confirm, use a temporary root-only Buildx folder at ${plan.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect.`,
-          "Build only managed runtime files. The saved credential, other companions, and registry credentials are not copied into the build or printed. Cleanup does not change n8n or model caches.",
           `Attach the sidecar to ${plan.networkName}.`,
         ],
   );
+  replaceReviewItems("review-build-list", assistant ? [] : [
+    `After you confirm, use a temporary root-only Buildx folder at ${plan.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect.`,
+    "Build only managed runtime files. The saved credential, other companions, and registry credentials are not copied into the build or printed. Cleanup does not change n8n or model caches.",
+  ]);
+  element("review-build-details").hidden = assistant;
   replaceReviewItems(
     "review-wont-list",
     assistant
@@ -1363,9 +1357,6 @@ element("login-button").addEventListener("click", async (event) => {
   loginLink.hidden = true;
   loginLink.removeAttribute("href");
   setOAuthStopControlVisible(false);
-  setMessage(
-    "Preparing a fresh ChatGPT sign-in. The existing local credential will be replaced only after sign-in succeeds.",
-  );
   try {
     const status = await runOperation(
       button,
@@ -1387,9 +1378,6 @@ element("login-button").addEventListener("click", async (event) => {
         state.oauthAttemptId = attemptId;
         selectChatGptSetup({ focus: false });
         setOAuthStopControlVisible(true);
-        setMessage(
-          "Finish sign-in in the official ChatGPT sign-in window opened by Relmio. If no window opened, check the Windows default browser, use Stop, and try again.",
-        );
         await waitForOAuthCompletion(attemptId);
         if (state.oauthLoginGeneration !== loginGeneration) {
           return undefined;
@@ -1399,7 +1387,7 @@ element("login-button").addEventListener("click", async (event) => {
       {
         allowedSelector: OPERATION_ALLOWED_SELECTOR,
         progressNote:
-          "Finish the official ChatGPT sign-in window. This can take several minutes and no fixed finish time is promised. Keep this page open or use Stop to cancel safely.",
+          "Finish sign-in in the ChatGPT window that Relmio opened. If none opened, check your default browser. Your saved credential changes only after sign-in succeeds. This can take several minutes; keep this page open or use Stop.",
       },
     );
     if (!status || state.oauthLoginGeneration !== loginGeneration) {
@@ -1518,11 +1506,13 @@ element("fingerprint-button").addEventListener("click", async (event) => {
   for (const id of ["host", "port"]) {
     const input = element(id);
     if (!input.checkValidity()) {
+      input.setAttribute("aria-invalid", "true");
       focusVisible(input);
       input.reportValidity();
       return;
     }
   }
+  const operationOwner = state.operationOwner + 1;
   try {
     const result = await runOperation(
       button,
@@ -1535,7 +1525,8 @@ element("fingerprint-button").addEventListener("click", async (event) => {
         },
       }),
     );
-    if (!result) return;
+    if (!result || operationOwner !== state.operationOwner) return;
+    for (const id of ["host", "port"]) clearFieldError(element(id), "global-error-text");
     state.fingerprint = result.fingerprint;
     element("fingerprint-value").textContent = result.fingerprint;
     element("fingerprint-box").hidden = false;
@@ -1545,8 +1536,13 @@ element("fingerprint-button").addEventListener("click", async (event) => {
     setCredentialInputsEnabled(false);
     element("connect-button").disabled = true;
     setMessage("Confirm the VPS identity before authenticating.");
+    if (document.activeElement === button && !state.operationBusy) {
+      focusVisible(element("fingerprint-confirm"));
+    }
   } catch (error) {
-    showError(error);
+    if (operationOwner === state.operationOwner) {
+      showError(error, { focus: document.activeElement === button });
+    }
   }
 });
 
@@ -1565,6 +1561,9 @@ element("fingerprint-confirm").addEventListener("change", (event) => {
 
 element("host").addEventListener("input", resetFingerprint);
 element("port").addEventListener("input", resetFingerprint);
+for (const id of ["host", "port", "username"]) {
+  element(id).addEventListener("input", () => clearFieldError(element(id), "global-error-text"));
+}
 element("password").addEventListener("input", invalidateReviewedPlan);
 
 element("vps-form").addEventListener("submit", async (event) => {
@@ -1591,6 +1590,7 @@ element("vps-form").addEventListener("submit", async (event) => {
     );
     if (!discovered) return;
     element("password").value = "";
+    clearFieldError(element("username"), "global-error-text");
     renderDiscovery(discovered);
     setMessage(
       "n8n was found. Choose its network, then install or manage a Relmio-owned companion.",
@@ -1693,8 +1693,8 @@ element("review-button").addEventListener("click", async (event) => {
     state.planId = planId;
     element("install-confirm").checked = false;
     element("install-button").disabled = true;
+    dismissToast(messageToast);
     showStep(4);
-    setMessage("Review the plan. The VPS has not been changed.");
   } catch (error) {
     showError(error);
   }
@@ -1742,6 +1742,7 @@ function showRejectedChatGptSignInRecovery() {
   loginButton.dataset.label = "Refresh ChatGPT sign-in";
   loginButton.disabled = state.oauthRetryBlocked === true;
   element("signin-next").disabled = true;
+  setSignInLeads(true);
 }
 
 element("install-button").addEventListener("click", async (event) => {
@@ -1754,13 +1755,6 @@ element("install-button").addEventListener("click", async (event) => {
     showError(new Error("Review and confirm a fresh plan first."));
     return;
   }
-  setMessage(
-    assistant
-      ? "Installing only the separate Assistant companion. This can take several minutes."
-      : state.managingDetectedIntegration
-        ? "Updating only the separate OAuth sidecar runtime and ChatGPT sign-in. This can take several minutes."
-        : "Installing only the separate OAuth sidecar. This can take several minutes.",
-  );
   state.installAttempted = true;
   try {
     const result = await runOperation(
@@ -1807,7 +1801,8 @@ element("install-button").addEventListener("click", async (event) => {
         ? `Code Sandbox and private SearXNG were checked. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
         : `Code Sandbox was checked without SearXNG. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
       : result.deploymentMode === "updated"
-        ? "The adapter runtime and saved ChatGPT/Codex credential file were updated and checked. Copy these values into n8n on the same private network."
+        // The status message names what was updated; the lead keeps the check.
+        ? "The update was checked. Copy these values into n8n on the same private network."
         : "Copy these values into n8n on the same private network.";
     element("assistant-result").hidden = !assistant;
     element("sidecar-ready-content").hidden = assistant;

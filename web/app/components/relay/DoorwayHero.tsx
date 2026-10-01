@@ -1,15 +1,14 @@
 "use client";
-import Link from "next/link";
-import { VStack } from "@astryxdesign/core/VStack";
-import { ArrowRight, Pause, Play } from "lucide-react";
+import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import "./tokens.css";
+import { classNames } from "../ui/classNames";
 import styles from "./DoorwayHero.module.css";
 /*
- * DoorwayHero — the public homepage hero for the Doorway Playground system.
- * A short invitation above a wide, unboxed vector world: an AI cloud
- * home on the left, the little teal doorway in the middle, and a local tool
- * shed on the right. One message glides the full loop and returns.
+ * DoorwayHero: the home page Doorway scene. It sits beside the headline and
+ * scales to the space its grid cell gives it: an AI cloud on the left, the
+ * cream doorway with the teal mascot in the middle, and a local workshop on the right. One message
+ * glides the full loop and returns. The scene is decoration; the headline and
+ * actions next to it carry the meaning.
  *
  * Motion model:
  * - Gentle sapling sway and the workshop gear use CSS keyframes.
@@ -51,7 +50,7 @@ function subscribeVisibility(onStoreChange: () => void) {
 function getPageVisible() {
     return document.visibilityState === "visible";
 }
-export function DoorwayHero() {
+export function DoorwayHero({ className }: { className?: string }) {
     const stageRef = useRef<HTMLElement | null>(null);
     const tripRef = useRef<SVGAnimateMotionElement | null>(null);
     const packetRef = useRef<SVGGElement | null>(null);
@@ -93,25 +92,9 @@ export function DoorwayHero() {
         else
             svg.pauseAnimations();
     }, [running, reducedMotion]);
-    return (<section id="content-start" tabIndex={-1} className={`doorway-theme ${styles.hero}`} data-scene-running={running ? "true" : "false"} aria-labelledby="doorway-hero-title">
-      <VStack className={styles.heroIntro} gap={4}>
-        <h1 className={styles.headline} id="doorway-hero-title">
-          Bring your AI sign-ins to your tools.
-        </h1>
-        <p className={styles.lede}>
-          Keep every credential where it belongs. Relmio guides you through
-          sign-in and setup for n8n and local tools.
-        </p>
-        <p className={styles.actions}>
-          <Link className={styles.installLink} href="/install">
-            Install Relmio
-            <ArrowRight aria-hidden="true"/>
-          </Link>
-        </p>
-      </VStack>
-
-      <figure ref={stageRef} className={styles.stage}>
-        <svg ref={svgRef} className={styles.sceneSvg} viewBox="180 250 840 350" preserveAspectRatio="xMidYMid meet" role="img" aria-label="A message travels between a VPS cloud, the Relmio doorway, and a local workshop.">
+    return (<figure ref={stageRef} className={classNames(styles.stage, className)} data-scene-running={running ? "true" : "false"}>
+        <div className={styles.art}>
+        <svg ref={svgRef} className={styles.sceneSvg} viewBox="180 250 840 350" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
           <defs>
             <linearGradient id="doorway-night-sky" x1="0" y1="0" x2="0" y2="1">
               <stop className={styles.nightSkyStop} offset="0" stopOpacity="0"/>
@@ -144,7 +127,7 @@ export function DoorwayHero() {
             <g key={x} transform={`translate(${x} ${y})`}>
               <path className={styles.strokeInk} strokeWidth="2.5" strokeLinecap="round" d="M 0 0 L 0 -36"/>
               <g className={styles.sway} style={{ animationDelay: delay }}>
-                <path className={`${styles.paintTealSoft} ${styles.strokeInk}`} strokeWidth="2.5"
+                <path className={`${styles.paintLeaf} ${styles.strokeInk}`} strokeWidth="2.5"
                   d="M 0 -20 C -23 -41 -19 -62 0 -88 C 19 -62 23 -41 0 -20 Z"/>
                 <path className={styles.strokeInk} strokeWidth="2" fill="none" strokeLinecap="round" d="M 0 -20 L 0 -63"/>
               </g>
@@ -174,7 +157,7 @@ export function DoorwayHero() {
               <g className={styles.nightScene}>
                 <path className={styles.sleepEyes} d="M 21 45 Q 30 53 39 45 M 57 45 Q 66 53 75 45"/>
                 <g data-night-accessory="sleep-cap">
-                  <path className={`${styles.paintSky} ${styles.strokeInk}`} strokeWidth="2.5" d="M 4 12 Q 10 -24 48 -28 Q 86 -31 98 -5 L 111 10 Q 90 8 82 -5 Q 73 -13 66 -6 L 91 12 Z"/>
+                  <path className={`${styles.paintCap} ${styles.strokeInk}`} strokeWidth="2.5" d="M 4 12 Q 10 -24 48 -28 Q 86 -31 98 -5 L 111 10 Q 90 8 82 -5 Q 73 -13 66 -6 L 91 12 Z"/>
                   <path className={styles.sleepCapStripe} d="M 22 8 Q 26 -12 43 -23 M 48 8 Q 50 -5 59 -12"/>
                   <rect className={`${styles.paintBrandCream} ${styles.strokeInk}`} x="1" y="8" width="94" height="13" rx="6.5" strokeWidth="2.5"/>
                   <circle className={`${styles.paintBrandCream} ${styles.strokeInk}`} cx="111" cy="11" r="7" strokeWidth="2.5"/>
@@ -191,9 +174,9 @@ export function DoorwayHero() {
           {/* Your tools: a workshop, identified by its working gear. */}
           <ellipse className={styles.paintShadow} cx="880" cy="549" rx="84" ry="9"/>
           <g transform="translate(880 0)">
-            <path className={`${styles.paintSky} ${styles.strokeInk}`} strokeWidth="3" d="M -76 448 L 0 402 L 76 448 Z"/>
-            <rect className={`${styles.paintSkySoft} ${styles.strokeInk}`} strokeWidth="3" x="-68" y="445" width="136" height="95" rx="10"/>
-            <path className={`${styles.paintTealDeep} ${styles.strokeInk}`} strokeWidth="2.5" d="M -20 540 L -20 505 A 20 20 0 0 1 20 505 L 20 540 Z"/>
+            <path className={`${styles.paintRoof} ${styles.strokeInk}`} strokeWidth="3" d="M -76 448 L 0 402 L 76 448 Z"/>
+            <rect className={`${styles.paintWall} ${styles.strokeInk}`} strokeWidth="3" x="-68" y="445" width="136" height="95" rx="10"/>
+            <path className={`${styles.paintDoor} ${styles.strokeInk}`} strokeWidth="2.5" d="M -20 540 L -20 505 A 20 20 0 0 1 20 505 L 20 540 Z"/>
             <rect className={`${styles.paintWindow} ${styles.strokeInk}`} strokeWidth="2.5" x="-52" y="475" width="22" height="24" rx="3"/>
             <g transform="translate(0 462)"><g className={styles.gearSpin}>
               {[0, 60, 120, 180, 240, 300].map((angle) => (<rect key={angle} className={`${styles.paintButter} ${styles.strokeInk}`} strokeWidth="2.5" x="-5" y="-27" width="10" height="12" rx="3" transform={`rotate(${angle})`}/>))}
@@ -211,13 +194,11 @@ export function DoorwayHero() {
             </g>
           ))}
         </svg>
+        </div>
 
-        <button type="button" className={styles.pauseButton} aria-pressed={userPaused} aria-label={!smilSupported ? "Animation unavailable" : reducedMotion ? "Animation off: reduced motion" : userPaused ? "Resume animation" : "Pause animation"} disabled={!smilSupported || reducedMotion} onClick={() => setUserPaused((paused) => !paused)}>
-          {userPaused ? (<Play aria-hidden="true"/>) : (<Pause aria-hidden="true"/>)}
+        <button type="button" className={`rm-button rm-button--sm ${styles.pauseButton}`} aria-label={!smilSupported ? "Motion off: animation unavailable" : reducedMotion ? "Motion off: reduced motion" : userPaused ? "Play animation" : "Pause animation"} disabled={!smilSupported || reducedMotion} onClick={() => setUserPaused((paused) => !paused)}>
+          {userPaused ? (<Play aria-hidden="true" size={16} strokeWidth={1.75}/>) : (<Pause aria-hidden="true" size={16} strokeWidth={1.75}/>)}
           {!smilSupported || reducedMotion ? "Motion off" : userPaused ? "Play" : "Pause"}
         </button>
-
-
-      </figure>
-    </section>);
+      </figure>);
 }

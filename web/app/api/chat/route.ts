@@ -297,21 +297,21 @@ export async function POST(request: Request) {
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: "Expected a JSON request body." }, { status: 400 });
+    return Response.json({ error: "Expected a JSON request body." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
   const promptValue =
     body && typeof body === "object" && "prompt" in body ? body.prompt : null;
   if (typeof promptValue !== "string") {
-    return Response.json({ error: "The prompt must be a string." }, { status: 400 });
+    return Response.json({ error: "The prompt must be a string." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
   const prompt = promptValue.trim();
   if (!prompt) {
-    return Response.json({ error: "Enter a message first." }, { status: 400 });
+    return Response.json({ error: "Enter a message first." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
   if (prompt.length > MAX_PROMPT_LENGTH) {
     return Response.json(
       { error: `Messages must be ${MAX_PROMPT_LENGTH} characters or fewer.` },
-      { status: 413 },
+      { status: 413, headers: { "Cache-Control": "no-store" } },
     );
   }
   return streamResponse(request, prompt);

@@ -31,13 +31,12 @@ allowed. Review the agreements that apply to your account.
 
 ## ChatGPT/Codex sign-in lifetime
 
-ChatGPT/Codex sign-in tokens expire, but the official Codex client refreshes
-them automatically during active use before they expire, so active sessions
-usually continue without another browser login. The official [OpenAI
-authentication documentation](https://learn.chatgpt.com/docs/auth) does not
-publish a fixed 10-day lifetime; do not plan around one. This provider
-credential is separate from Relmio's local capability, which remains valid
-until you rotate it.
+The Codex authentication guide describes automatic refresh but does not give a
+fixed token lifetime. Relmio's private bridge refreshes its own credential
+copy. OpenAI's one-hour access-token and rotating 30-day refresh-token
+lifetimes describe the separate Sign in with ChatGPT plan-usage flow, not
+Relmio's pinned Codex flow. This provider credential is separate from Relmio's
+local capability, which remains valid until you rotate it.
 
 ## Provider authentication and account switching
 

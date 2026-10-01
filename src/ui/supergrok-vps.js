@@ -1,5 +1,6 @@
-import { bindSshAuthentication, createCredentialSshGuard } from "./ssh-form.js";
-import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, setFieldError } from "./ssh-form.js";
+import { readWizardSession } from "./session.js";
+import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
 const element = (id) => document.getElementById(id);
@@ -33,19 +34,16 @@ const actionLabels = {
   "cancel-sign-in": "Cancel this companion's pending device sign-in",
 };
 
-bindWizardNavigation(element("back-link"), "/", token);
-element("back-link").addEventListener("click", (event) => {
-  if (!state.busy) return;
-  event.preventDefault();
-  event.stopImmediatePropagation();
-}, true);
-
 function setMessage(text) {
   element("status-message").textContent = text;
 }
 
 function showError(error) {
-  element("error-message").textContent = error?.message ?? "The operation could not be completed.";
+  const text = error?.message ?? "The operation could not be completed.";
+  const rejected = [["Hostname", "host"], ["Port", "port"], ["Username", "username"], ["Password", "password"]]
+    .find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
+  if (rejected) setFieldError(element(rejected[1]), "error-message");
+  element("error-message").textContent = text;
   element("error-message").hidden = false;
   element("error-message").focus();
 }
@@ -59,10 +57,47 @@ function setStage(stage) {
   document.body.dataset.stage = String(stage);
   for (const marker of document.querySelectorAll("[data-stage-marker]")) {
     const markerStage = Number(marker.dataset.stageMarker);
-    marker.classList.toggle("complete", markerStage < stage);
+    if (markerStage < stage) marker.dataset.state = "done";
+    else delete marker.dataset.state;
     if (markerStage === stage) marker.setAttribute("aria-current", "step");
     else marker.removeAttribute("aria-current");
   }
+  syncView();
+}
+
+// One step panel is visible at a time: the panel for the current stage, or the
+// nearest available panel while a reviewed action is being applied.
+const STAGE_VIEWS = {
+  1: ["ssh-panel", "selection-panel"],
+  2: ["selection-panel", "ssh-panel"],
+  3: ["review-panel", "settings-panel", "selection-panel", "ssh-panel"],
+  4: ["settings-panel", "selection-panel", "ssh-panel"],
+};
+let currentView = "ssh-panel";
+
+function syncView() {
+  const order = STAGE_VIEWS[document.body.dataset.stage] ?? STAGE_VIEWS[1];
+  const next = order.find((id) => !element(id).hidden) ?? "ssh-panel";
+  const continueButton = element("selection-continue");
+  // Write only real changes: this runs from a MutationObserver on `hidden`.
+  if (continueButton.hidden !== element("settings-panel").hidden) continueButton.hidden = element("settings-panel").hidden;
+  if (next === currentView) return;
+  const previous = element(currentView);
+  const active = document.activeElement;
+  for (const id of STAGE_VIEWS[3]) element(id).toggleAttribute("data-current", id === next);
+  currentView = next;
+  const heading = element(next).querySelector("h2");
+  if (active && previous.contains(active)) heading.focus();
+  else if (!active || active === document.body) heading.focus({ preventScroll: true });
+}
+
+async function readProjectMeta() {
+  if (!token) throw new Error("This private wizard session is missing.");
+  const response = await fetch("/api/local/project-meta", {
+    headers: { "X-Setup-Token": token }, credentials: "omit", mode: "same-origin", redirect: "error", cache: "no-store",
+  });
+  if (!response.ok) throw new Error("Relmio project details are unavailable.");
+  return response.json();
 }
 
 function formatElapsed(seconds) {
@@ -80,6 +115,7 @@ function startProgress(label) {
   element("operation-progress-label").textContent = label;
   element("operation-progress-bar").setAttribute("aria-valuetext", label);
   element("operation-progress").hidden = false;
+  element("operation-progress").scrollIntoView?.({ block: "start", behavior: "instant" });
   updateProgress();
   state.progressTimer = window.setInterval(updateProgress, 1_000);
 }
@@ -95,7 +131,15 @@ function stopProgress() {
 }
 
 function controls() {
-  return [...document.querySelectorAll("button, input, select, a[href]")];
+  return [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")];
+}
+
+for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"]) {
+  document.addEventListener(name, (event) => {
+    if (!state.busy || (name === "keydown" && event.key === "Tab")) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }, true);
 }
 
 async function perform(label, work) {
@@ -104,7 +148,7 @@ async function perform(label, work) {
   clearError();
   setMessage(label);
   document.body.dataset.operationBusy = "true";
-  element("main-content").setAttribute("aria-busy", "true");
+  element("route-steps-content").setAttribute("aria-busy", "true");
   const snapshots = controls().map((control) => ({
     control,
     disabled: typeof control.disabled === "boolean" ? control.disabled : null,
@@ -129,7 +173,7 @@ async function perform(label, work) {
     }
     state.busy = false;
     document.body.dataset.operationBusy = "false";
-    element("main-content").setAttribute("aria-busy", "false");
+    element("route-steps-content").setAttribute("aria-busy", "false");
     syncConnectionControls();
   }
 }
@@ -353,12 +397,34 @@ async function pollLogin(installId, generation) {
   }
 }
 
-for (const id of ["host", "port"]) element(id).addEventListener("input", resetHost);
+for (const id of ["host", "port"]) element(id).addEventListener("input", () => {
+  clearFieldError(element(id), "error-message");
+  clearError();
+  resetHost();
+});
+for (const id of ["username", "password"]) element(id).addEventListener("input", () => {
+  clearFieldError(element(id), "error-message");
+  clearError();
+});
+element("ssh-form").addEventListener("invalid", (event) => {
+  const label = { host: "Hostname", port: "Port", username: "Username", password: "Password" }[event.target.id];
+  if (!label) return;
+  event.preventDefault();
+  showError(new Error(`${label} is invalid.`));
+}, true);
 
 element("scan-button").addEventListener("click", () => {
+  clearError();
+  for (const id of ["host", "port"]) {
+    if (!element(id).checkValidity()) {
+      showError(new Error(id === "host" ? "Hostname is invalid." : "Port is invalid."));
+      return;
+    }
+  }
   void perform("Checking VPS identity…", async () => {
     resetHost();
     const result = await api("/api/ssh/fingerprint", { host: element("host").value, port: element("port").value });
+    for (const id of ["host", "port"]) clearFieldError(element(id), "error-message");
     state.fingerprint = result.fingerprint;
     element("fingerprint").textContent = state.fingerprint;
     element("fingerprint-box").hidden = false;
@@ -376,6 +442,7 @@ element("ssh-form").addEventListener("submit", (event) => {
   if (!state.fingerprint || !element("trust-host").checked) return;
   void perform("Connecting and finding n8n…", async () => {
     await api("/api/ssh/connect", sshAuthentication.request(state.fingerprint));
+    for (const id of ["username", "password"]) clearFieldError(element(id), "error-message");
     await discover();
   });
 });
@@ -428,10 +495,28 @@ element("models-button").addEventListener("click", () => {
   });
 });
 
-element("copy-key").addEventListener("click", async () => {
-  if (state.busy || !element("client-key").value) return;
+element("copy-key").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const input = element("client-key");
+  if (state.busy || !input.value) return;
   try {
-    await navigator.clipboard.writeText(element("client-key").value);
+    try {
+      await navigator.clipboard.writeText(input.value);
+    } catch {
+      const fallback = document.createElement("textarea");
+      fallback.value = input.value;
+      fallback.style.position = "fixed";
+      fallback.style.opacity = "0";
+      document.body.append(fallback);
+      try {
+        fallback.focus();
+        fallback.select();
+        if (!document.execCommand("copy")) throw new Error("Clipboard unavailable.");
+      } finally {
+        fallback.remove();
+        button.focus();
+      }
+    }
     setMessage("Local bearer copied. Paste it directly into the n8n credential.");
   } catch {
     showError(new Error("Clipboard access was refused by the browser. Select the local bearer manually."));
@@ -454,6 +539,17 @@ window.addEventListener("pagehide", () => {
   stopLoginPolling();
   element("client-key").value = "";
 });
+
+element("settings-back").addEventListener("click", () => {
+  if (!state.busy) setStage(2);
+});
+
+element("selection-continue").addEventListener("click", () => {
+  if (!state.busy && !element("settings-panel").hidden) setStage(4);
+});
+
+new MutationObserver(syncView).observe(element("main-content"), { subtree: true, attributeFilter: ["hidden"] });
+initWizardTopbar({ session: token, isBusy: () => state.busy, loadProjectMeta: readProjectMeta });
 
 const sshAuthentication = bindSshAuthentication({ token, trustId: "trust-host", onChange: invalidateBoundaryState, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
 

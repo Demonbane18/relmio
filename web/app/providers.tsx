@@ -1,8 +1,5 @@
 "use client";
 
-import { LinkProvider } from "@astryxdesign/core/Link";
-import { Theme } from "@astryxdesign/core/theme";
-import NextLink from "next/link";
 import {
   createContext,
   type ReactNode,
@@ -12,7 +9,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import { relmioTheme } from "./relmio.js";
 
 export type ThemeMode = "system" | "light" | "dark";
 
@@ -26,6 +22,17 @@ const ThemePreferenceContext = createContext<ThemePreference | null>(null);
 
 function isThemeMode(value: string | null): value is ThemeMode {
   return value === "system" || value === "light" || value === "dark";
+}
+
+// Same contract as the wizard's theme.js: Light or Dark sets data-theme on
+// <html>; System removes it so the kit follows prefers-color-scheme. The root
+// layout applies a saved choice before first paint.
+function applyMode(mode: ThemeMode) {
+  if (mode === "system") {
+    delete document.documentElement.dataset.theme;
+  } else {
+    document.documentElement.dataset.theme = mode;
+  }
 }
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -46,9 +53,10 @@ export function Providers({ children }: { children: ReactNode }) {
     }
 
     function syncMode(event: StorageEvent) {
-      if (event.key === storageKey) {
-        setModeState(isThemeMode(event.newValue) ? event.newValue : "system");
-      }
+      if (event.key !== storageKey) return;
+      const nextMode = isThemeMode(event.newValue) ? event.newValue : "system";
+      setModeState(nextMode);
+      applyMode(nextMode);
     }
 
     window.addEventListener("storage", syncMode);
@@ -60,6 +68,7 @@ export function Providers({ children }: { children: ReactNode }) {
 
   const setMode = useCallback((nextMode: ThemeMode) => {
     setModeState(nextMode);
+    applyMode(nextMode);
     try {
       window.localStorage.setItem(storageKey, nextMode);
     } catch {
@@ -70,13 +79,9 @@ export function Providers({ children }: { children: ReactNode }) {
   const preference = useMemo(() => ({ mode, setMode }), [mode, setMode]);
 
   return (
-    <Theme theme={relmioTheme} mode={mode}>
-      <LinkProvider component={NextLink}>
-        <ThemePreferenceContext.Provider value={preference}>
-          {children}
-        </ThemePreferenceContext.Provider>
-      </LinkProvider>
-    </Theme>
+    <ThemePreferenceContext.Provider value={preference}>
+      {children}
+    </ThemePreferenceContext.Provider>
   );
 }
 

@@ -29,7 +29,16 @@ The managed catalog is a closed list of five Qwen models. Download sizes below a
 
 “Planning memory” is the model-resource allowance used by the catalog, not measured peak RSS, a minimum, or a guarantee. Context length, runtime overhead, prompt size, Docker memory allocation, n8n, the host OS, and other workloads affect actual use. Relmio inspects Docker-visible memory, CPU, and available backing-filesystem space before showing the reviewed plan; tier marketing and physical host RAM are not substitutes for the engine's measured capacity. Neither a model tag nor a quantization label guarantees a particular token rate. There is no guaranteed tokens/second figure; benchmark your own workload.
 
-The Qwen model names, quantization and sizes are point-in-time registry observations, not permanent upstream promises. Sources: [Qwen3 Ollama registry manifest](https://registry.ollama.ai/v2/library/qwen3/manifests/0.6b), [Qwen3.5 Ollama registry manifest](https://registry.ollama.ai/v2/library/qwen3.5/manifests/2b), [Qwen3 0.6B model card](https://huggingface.co/Qwen/Qwen3-0.6B), [Qwen3 1.7B model card](https://huggingface.co/Qwen/Qwen3-1.7B), [Qwen3.5 2B model card](https://huggingface.co/Qwen/Qwen3.5-2B), [Qwen3.5 4B model card](https://huggingface.co/Qwen/Qwen3.5-4B), [Qwen3.5 9B model card](https://huggingface.co/Qwen/Qwen3.5-9B). Retrieved 2026-09-26.
+The Qwen model names, quantization and sizes are point-in-time registry
+observations, not permanent upstream promises. Sources include the official
+[Qwen3 registry manifest](https://registry.ollama.ai/v2/library/qwen3/manifests/0.6b)
+and [Qwen3.5 registry manifest](https://registry.ollama.ai/v2/library/qwen3.5/manifests/2b),
+plus the [Qwen3 0.6B model card](https://huggingface.co/Qwen/Qwen3-0.6B),
+[Qwen3 1.7B model card](https://huggingface.co/Qwen/Qwen3-1.7B),
+[Qwen3.5 2B model card](https://huggingface.co/Qwen/Qwen3.5-2B),
+[Qwen3.5 4B model card](https://huggingface.co/Qwen/Qwen3.5-4B), and
+[Qwen3.5 9B model card](https://huggingface.co/Qwen/Qwen3.5-9B). Retrieved
+2026-09-26.
 
 ## Install beside local n8n
 
@@ -181,7 +190,15 @@ The repository includes a separate [Linux local-model acceptance harness](mainte
 
 ## Sources and limits
 
-Runtime behavior and model metadata change. The catalog's download sizes, quantizations and license links were read from the official [Ollama registry manifests](https://registry.ollama.ai/) and linked Qwen model cards on 2026-09-26. Ollama documents its [OpenAI compatibility](https://docs.ollama.com/api/openai-compatibility), [authentication](https://docs.ollama.com/api/authentication), [Docker deployment](https://docs.ollama.com/docker), [cloud controls](https://docs.ollama.com/faq), and [pull API](https://docs.ollama.com/api/pull). These sources establish API/configuration facts, not performance measurements or a guarantee that a particular model is suitable for every n8n workflow.
+Runtime behavior and model metadata change. The catalog's download sizes,
+quantizations and license links were read from the official [Qwen3 Ollama
+registry manifest](https://registry.ollama.ai/v2/library/qwen3/manifests/0.6b),
+[Qwen3.5 Ollama registry manifest](https://registry.ollama.ai/v2/library/qwen3.5/manifests/2b),
+and linked Qwen model cards on 2026-09-26. Ollama documents its [OpenAI
+compatibility](https://docs.ollama.com/api/openai-compatibility),
+[authentication](https://docs.ollama.com/api/authentication), [Docker
+deployment](https://docs.ollama.com/docker), [cloud controls](https://docs.ollama.com/faq),
+and [pull API](https://docs.ollama.com/api/pull).
 
 ## Manually generated platform model plans
 
@@ -206,7 +223,7 @@ or a generated connection URL is not readiness. Cloud Run, managed containers
 and scheduler workloads are operator-applied artifacts, not provider-live
 support. The planner reads only supplied nonsecret values and accepts no model
 API key or provider credential; it exposes no model endpoint or applies files.
-See [Hosting compatibility](hosting-compatibility.md#hosting-catalog-and-plan-artifacts)
+See [Hosting compatibility](hosting-compatibility.md#current-path-and-host-requirements)
 for all platform paths, input boundaries, private-network constraints and
 source links.
 

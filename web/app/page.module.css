@@ -1,0 +1,188 @@
+/* Home: one screen inside the shared shell. Kit tokens only. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rm-space-4);
+  padding-block: var(--rm-space-5) var(--rm-space-3);
+}
+
+.hero {
+  display: grid;
+  gap: var(--rm-space-5);
+  align-items: center;
+}
+
+.intro {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--rm-space-4);
+  min-width: 0;
+}
+
+.lede {
+  max-width: 40rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rm-space-3);
+}
+
+.sceneCell {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+}
+
+.scene {
+  width: 100%;
+  max-width: 44rem;
+}
+
+.details {
+  display: grid;
+  gap: var(--rm-space-4);
+  min-width: 0;
+}
+
+.safety {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rm-space-3);
+  min-width: 0;
+  padding: var(--rm-space-4) var(--rm-space-5);
+  border: 1px solid var(--rm-line);
+  border-radius: var(--rm-radius-lg);
+  background: var(--rm-surface-muted);
+}
+
+.boundaryList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: var(--rm-space-3) var(--rm-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.boundaryList li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.125rem var(--rm-space-2);
+  min-width: 0;
+}
+
+.boundaryIcon {
+  grid-row: span 2;
+  margin-top: 0.125rem;
+  color: var(--rm-accent-ink);
+}
+
+.boundaryTitle {
+  color: var(--rm-ink);
+  font-size: var(--rm-text-md);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.boundaryText {
+  grid-column: 2;
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-sm);
+  line-height: 1.45;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--rm-space-1) var(--rm-space-4);
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-sm);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+@media (min-width: 64rem) {
+  .hero {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  }
+
+  /* The slim footer sits under the guide, in the height the safety column
+     already uses. Focus order still follows the DOM: guide, then footer. */
+  .details {
+    grid-template-columns: minmax(0, 1fr) 18rem;
+    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "guide safety"
+      "footer safety";
+    column-gap: var(--rm-space-4);
+    row-gap: var(--rm-space-3);
+  }
+
+  .guide {
+    grid-area: guide;
+  }
+
+  .safety {
+    grid-area: safety;
+  }
+
+  .footer {
+    grid-area: footer;
+  }
+
+  .boundaryList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Fit mode (DESIGN.md, one-screen rule). Auto margins center the content in
+   tall windows and collapse to zero when the view is full. The scene cell is a
+   size container, so the drawing and its pause control scale into the height
+   the intro sets, never beyond it. */
+@media (min-width: 64rem) and (min-height: 37.5rem) {
+  .page {
+    min-height: 100%;
+  }
+
+  .hero {
+    margin-top: auto;
+    align-items: stretch;
+  }
+
+  .details {
+    margin-bottom: auto;
+  }
+
+  .intro {
+    justify-content: center;
+  }
+
+  .title {
+    font-size: clamp(2.25rem, min(4.4vw, 7.2vh), 3.75rem);
+  }
+
+  .sceneCell {
+    min-height: 10rem;
+    place-items: center;
+    container-type: size;
+  }
+
+  .hero .scene {
+    width: min(100cqw, (100cqh - 2.5rem) * 2.4);
+    max-width: none;
+  }
+}
+
+@media (min-width: 64rem) and (max-width: 68rem) and (min-height: 37.5rem) {
+  .page {
+    gap: var(--rm-space-3);
+    padding-block: var(--rm-space-1) 0;
+  }
+}

@@ -338,7 +338,7 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
     assert.equal(nodes.get("setup-progress").hidden, true);
     assert.equal(nodes.get("done-step-caption").hidden, true);
     assert.equal(nodes.get("success-mark").hidden, true);
-    assert.ok(markers.every((marker) => !marker.classList.contains("complete")));
+    assert.ok(markers.every((marker) => !marker.dataset.state));
     assert.ok(markers.every((marker) => !marker.attributes.has("aria-current")));
   }
 
@@ -348,7 +348,7 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
   assert.equal(nodes.get("success-mark").hidden, false);
   assert.equal(markers[0].attributes.get("aria-current"), "step");
   showStep(4);
-  assert.ok(markers.slice(0, 3).every((marker) => marker.classList.contains("complete")));
+  assert.ok(markers.slice(0, 3).every((marker) => marker.dataset.state === "done"));
   assert.equal(markers[3].attributes.get("aria-current"), "step");
 });
 
