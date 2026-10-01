@@ -1,38 +1,33 @@
-/* Home connection guide. Kit tokens only; buttons are kit choices. */
+/* "How it works" on the home page: route buttons, a map of the selected route
+   through the Relmio doorway, and the route in words. Kit tokens only; the
+   buttons are kit choices. */
+
+.intro {
+  display: grid;
+  justify-items: start;
+  gap: var(--rm-space-3);
+  max-width: 46rem;
+  margin-bottom: var(--rm-space-8);
+}
 
 .plotter {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rm-space-3);
-  min-width: 0;
-  padding: var(--rm-space-4) var(--rm-space-5);
-}
-
-.header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--rm-space-1) var(--rm-space-3);
-}
-
-.headerText {
-  color: var(--rm-ink-muted);
-  font-size: var(--rm-text-sm);
-}
-
-.topology {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--rm-space-4);
+  grid-template-areas:
+    "controls"
+    "map"
+    "detail";
+  gap: var(--rm-space-5);
   min-width: 0;
+  padding: var(--rm-space-5);
+  border-radius: var(--rm-radius-xl);
+  box-shadow: var(--rm-shadow-lg);
 }
 
-/* Six compact routes keep the guide no taller than the safety column, so the
-   home page still fits 1280 x 720. */
 .routeControls {
   display: grid;
+  grid-area: controls;
   align-content: start;
-  gap: var(--rm-space-1);
+  gap: var(--rm-space-2);
   min-width: 0;
 }
 
@@ -41,15 +36,15 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--rm-space-3);
-  min-height: 2.5rem;
-  padding: var(--rm-space-1) var(--rm-space-3);
+  min-height: 3rem;
+  padding: var(--rm-space-2) var(--rm-space-3);
   border-radius: var(--rm-radius-md);
 }
 
 .routeControls .routeIcon {
   grid-row: auto;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: var(--rm-radius-sm);
 }
 
@@ -58,13 +53,112 @@
   line-height: 1.3;
 }
 
+/* Route map ---------------------------------------------------------------- */
+
+.routeMap {
+  display: grid;
+  grid-area: map;
+  align-content: center;
+  gap: var(--rm-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--rm-space-4);
+  border: 1px solid var(--rm-line);
+  border-radius: var(--rm-radius-lg);
+  background: var(--rm-surface-muted);
+}
+
+.routeSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 20rem;
+  aspect-ratio: 520 / 304;
+  overflow: visible;
+}
+
+.halo {
+  fill: var(--rm-accent-soft);
+}
+
+.rail,
+.activeRail {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rail {
+  stroke: var(--rm-line-strong);
+  stroke-width: 2;
+}
+
+.activeRail {
+  stroke: var(--rm-accent);
+  stroke-width: 4;
+}
+
+.source {
+  fill: var(--rm-surface);
+  stroke: var(--rm-line-strong);
+  stroke-width: 2;
+}
+
+.sourceActive,
+.packet,
+.destination {
+  fill: var(--rm-accent);
+  stroke: var(--rm-surface-muted);
+  stroke-width: 3;
+}
+
+.doorway {
+  fill: var(--rm-brand-cream);
+  stroke: var(--rm-brand-pine);
+  stroke-linejoin: round;
+  stroke-width: 6;
+}
+
+.mascot {
+  fill: var(--rm-brand-teal);
+}
+
+.eye {
+  fill: var(--rm-brand-cream);
+}
+
+/* Columns put "Relmio" under the doorway, about 61% across the map. */
+.mapCaption {
+  display: grid;
+  grid-template-columns: minmax(0, 52fr) minmax(max-content, 18fr) minmax(max-content, 30fr);
+  gap: var(--rm-space-2);
+  color: var(--rm-ink-subtle);
+  font-family: var(--rm-font-mono);
+  font-size: var(--rm-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mapCaption > :nth-child(2) {
+  text-align: center;
+}
+
+.mapCaption > :last-child {
+  text-align: end;
+}
+
+/* Route detail ------------------------------------------------------------- */
+
 .detailRegion {
+  grid-area: detail;
   min-width: 0;
 }
 
 .routeDetail {
   display: grid;
-  gap: var(--rm-space-3);
+  align-content: start;
+  gap: var(--rm-space-4);
   min-width: 0;
 }
 
@@ -76,16 +170,17 @@
 }
 
 .detailTitle {
-  font-size: var(--rm-text-lg);
-  font-weight: 650;
+  font-family: var(--rm-font-display);
+  font-size: var(--rm-text-2xl);
+  font-weight: 760;
+  letter-spacing: -0.015em;
 }
 
 /* The route path: one node per step joined by a rail. The accent fill redraws
-   each time a route is selected; the kit turns the animation into its final
-   state for reduced motion. */
+   each time a route is selected. */
 .routeStory {
   display: grid;
-  gap: var(--rm-space-2);
+  gap: var(--rm-space-3);
   margin: 0;
   padding: 0 0 0 var(--rm-space-6);
   list-style: none;
@@ -94,9 +189,7 @@
 .routeStory li {
   position: relative;
   display: grid;
-  grid-template-columns: 7.5rem minmax(0, 1fr);
-  align-items: baseline;
-  gap: 0.125rem var(--rm-space-3);
+  gap: 0.125rem;
   min-width: 0;
 }
 
@@ -106,7 +199,7 @@
   top: 0.75rem;
   left: calc(0.4375rem - var(--rm-space-6));
   width: 2px;
-  height: calc(100% + var(--rm-space-2));
+  height: calc(100% + var(--rm-space-3));
   content: "";
 }
 
@@ -131,7 +224,7 @@
 .node {
   position: absolute;
   z-index: 1;
-  top: 0.4375rem;
+  top: 0.3125rem;
   left: calc(0.125rem - var(--rm-space-6));
   width: 0.625rem;
   height: 0.625rem;
@@ -174,6 +267,7 @@
   align-items: center;
   justify-self: start;
   gap: var(--rm-space-1);
+  min-height: 1.5rem;
   font-size: var(--rm-text-md);
 }
 
@@ -187,20 +281,41 @@
   }
 }
 
-@media (min-width: 48rem) {
-  .topology {
-    grid-template-columns: minmax(12.5rem, 15rem) minmax(0, 1fr);
+@media (min-width: 40rem) {
+  .plotter {
+    padding: var(--rm-space-6);
+  }
+
+  .routeControls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .plotter {
+    grid-template-areas:
+      "controls map"
+      "controls detail";
+    grid-template-columns: 16rem minmax(0, 1fr);
+    gap: var(--rm-space-6) var(--rm-space-8);
+  }
+
+  .routeControls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 80rem) {
+  .plotter {
+    grid-template-areas: "controls map detail";
+    grid-template-columns: 16rem minmax(0, 1.05fr) minmax(0, 1fr);
     align-items: start;
   }
 }
 
 @media (max-width: 30rem) {
   .plotter {
-    padding-inline: var(--rm-space-4);
-  }
-
-  .routeStory li {
-    grid-template-columns: minmax(0, 1fr);
+    padding: var(--rm-space-4);
   }
 }
 
@@ -220,5 +335,20 @@
 
   .node {
     border-color: Highlight;
+  }
+
+  .rail,
+  .source {
+    stroke: CanvasText;
+  }
+
+  .activeRail {
+    stroke: Highlight;
+  }
+
+  .sourceActive,
+  .packet,
+  .destination {
+    fill: Highlight;
   }
 }

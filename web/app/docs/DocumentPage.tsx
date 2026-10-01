@@ -18,7 +18,7 @@ const guides: GuideEntry[] = documentationPages.map((page, index) => ({
 }));
 
 /** The docs index (no page) or one guide, in the reading layout: guide list on
-    the left, the article in the scrolling pane, and its outline on the right. */
+    the left, the article in the reading column, and its outline on the right. */
 export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
   const currentIndex = page ? guides.findIndex((guide) => guide.slug === page.slug) : -1;
   const previousGuide = currentIndex > 0 ? guides[currentIndex - 1] : null;
@@ -87,7 +87,7 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
             >
               <header className={styles.indexHeader}>
                 <p className="rm-eyebrow">Documentation · {guides.length} guides</p>
-                <h1 className="rm-h1" id="docs-title">
+                <h1 className={styles.indexTitle} id="docs-title">
                   Relmio documentation
                 </h1>
                 <p className="rm-lede">

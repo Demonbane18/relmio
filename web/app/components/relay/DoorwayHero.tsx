@@ -4,11 +4,11 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { classNames } from "../ui/classNames";
 import styles from "./DoorwayHero.module.css";
 /*
- * DoorwayHero: the home page Doorway scene. It sits beside the headline and
- * scales to the space its grid cell gives it: an AI cloud on the left, the
- * cream doorway with the teal mascot in the middle, and a local workshop on the right. One message
+ * DoorwayHero: the home page Doorway scene. It sits below the headline as a
+ * wide framed window: an AI cloud on the left, the cream doorway with the
+ * teal mascot in the middle, and a local workshop on the right. One message
  * glides the full loop and returns. The scene is decoration; the headline and
- * actions next to it carry the meaning.
+ * actions above it carry the meaning.
  *
  * Motion model:
  * - Gentle sapling sway and the workshop gear use CSS keyframes.

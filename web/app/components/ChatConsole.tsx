@@ -422,7 +422,7 @@ export function ChatConsole({
             : "accent";
 
   return (
-    <section className={`rm-panel ${styles.shell}`} aria-label="Hosted chat console">
+    <section className="rm-panel" aria-label="Hosted chat console">
       <div className={styles.header}>
         <div className={styles.cluster}>
           <span className="rm-eyebrow">Hosted test lane</span>

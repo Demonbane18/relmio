@@ -1,68 +1,68 @@
 /*
- * /install: one screen at laptop sizes. Kit tokens only.
- * Left: title, command picker and steps. Right: the AI Assistant launcher and
- * the reference disclosures. Only one disclosure opens at a time
- * (details[name]) so the right column always fits.
+ * /install: a scrolling page. Intro, the command toolbox, the AI Assistant
+ * launcher, reference details that open independently, then next steps.
+ * Kit tokens only.
  */
 
-/* Positioned so the copy buttons' visually hidden live regions stay inside main. */
+/* Positioned so the copy buttons' visually hidden live regions stay inside
+   main; isolated so the toolbox's accent sheet sits behind the toolbox. */
 .page {
   position: relative;
+  isolation: isolate;
   display: grid;
-  align-items: start;
-  gap: var(--rm-space-6) var(--rm-space-10);
-  padding-block: var(--rm-space-5);
+  gap: clamp(3rem, 6vw, 5rem);
+  padding-block: clamp(2.5rem, 5vw, 4.5rem) 0;
 }
 
-.primary,
 .intro,
-.toolbox,
+.toolboxHeading,
 .picker,
-.side,
-.assistant,
-.details {
+.assistantCopy,
+.reference {
   display: grid;
   align-content: start;
   gap: var(--rm-space-3);
   min-width: 0;
 }
 
-.primary {
-  gap: var(--rm-space-5);
+.intro {
+  gap: var(--rm-space-4);
 }
 
-.intro {
-  gap: var(--rm-space-2);
+.introGrid {
+  display: grid;
+  align-items: end;
+  gap: var(--rm-space-4) var(--rm-space-12);
+}
+
+.title {
+  color: var(--rm-ink);
+  font-family: var(--rm-font-display);
+  font-size: clamp(2.25rem, 1.3rem + 3.4vw, 4.25rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  text-wrap: balance;
 }
 
 .lede {
-  max-width: 40rem;
+  max-width: 34rem;
   color: var(--rm-ink-muted);
-  line-height: 1.5;
+  font-size: var(--rm-text-lg);
+  line-height: 1.55;
 }
 
-.side {
-  gap: var(--rm-space-6);
-}
-
-.assistant,
-.details {
-  gap: var(--rm-space-2);
-}
-
-.assistantHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--rm-space-1) var(--rm-space-3);
-}
-
-.assistantHead > :global(.rm-link) {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.5rem;
-  font-size: var(--rm-text-md);
+/* The toolbox sits on a tilted accent sheet for depth. */
+.toolbox {
+  position: relative;
+  display: grid;
+  gap: var(--rm-space-5);
+  min-width: 0;
+  padding: clamp(var(--rm-space-4), 3vw, var(--rm-space-10));
+  border: 1px solid var(--rm-line);
+  border-radius: var(--rm-radius-xl);
+  background: var(--rm-surface);
+  box-shadow: var(--rm-shadow-lg);
 }
 
 .terminal {
@@ -73,9 +73,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--rm-space-2);
-  max-block-size: 20rem;
   min-width: 0;
-  overflow: auto;
 }
 
 .noScriptAlternatives {
@@ -89,35 +87,13 @@
   display: none;
 }
 
-/* Short terminal with the copy button inside the command row. */
-.assistantCommand {
-  display: flex;
-  align-items: center;
-  gap: var(--rm-space-2);
-  margin-top: var(--rm-space-1);
-  padding-inline-end: var(--rm-space-2);
-  box-shadow: none;
-}
-
-.assistantCommand > pre {
-  flex: 1;
-  min-width: 0;
-  padding: 0.625rem 0.875rem;
-}
-
-.details code {
-  white-space: nowrap;
-}
-
-.externalIcon {
-  margin-inline-start: 0.25rem;
-}
-
+/* Numbered steps under the command. */
 .steps {
   display: grid;
-  gap: var(--rm-space-3);
-  margin: var(--rm-space-1) 0 0;
-  padding: 0;
+  gap: var(--rm-space-4);
+  margin: var(--rm-space-2) 0 0;
+  padding: var(--rm-space-5) 0 0;
+  border-top: 1px solid var(--rm-line);
   list-style: none;
   counter-reset: install-step;
 }
@@ -134,40 +110,154 @@
   display: grid;
   grid-row: span 2;
   place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
+  width: 2.25rem;
+  height: 2.25rem;
   border-radius: 50%;
-  background: var(--rm-accent-soft);
-  color: var(--rm-accent-ink);
+  background: var(--rm-accent);
+  color: var(--rm-on-accent);
   content: counter(install-step);
-  font-size: var(--rm-text-sm);
-  font-weight: 650;
+  font-family: var(--rm-font-display);
+  font-size: var(--rm-text-base);
+  font-weight: 800;
 }
 
 .steps strong {
-  padding-top: 0.25rem;
-  font-size: var(--rm-text-md);
+  padding-top: 0.375rem;
+  font-size: var(--rm-text-base);
   font-weight: 650;
   line-height: 1.35;
 }
 
 .steps span {
   color: var(--rm-ink-muted);
-  font-size: var(--rm-text-sm);
-  line-height: 1.45;
+  font-size: var(--rm-text-md);
+  line-height: 1.5;
+}
+
+/* AI Assistant launcher: copy on one side, its command on the other. */
+.assistant {
+  display: grid;
+  align-items: center;
+  gap: var(--rm-space-5) var(--rm-space-10);
+  padding: clamp(var(--rm-space-5), 3vw, var(--rm-space-8));
+  border: 1px solid var(--rm-accent-line);
+  border-radius: var(--rm-radius-xl);
+  background: var(--rm-accent-soft);
+}
+
+.assistantTitle {
+  color: var(--rm-ink);
+  font-family: var(--rm-font-display);
+  font-size: var(--rm-text-h1);
+  font-weight: 760;
+  letter-spacing: -0.015em;
+  line-height: 1.12;
+}
+
+.guideLink {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: var(--rm-space-1);
+  min-height: 1.5rem;
+}
+
+/* Short terminal with the copy button inside the command row. */
+.assistantCommand {
+  display: flex;
+  align-items: center;
+  gap: var(--rm-space-2);
+  padding-inline-end: var(--rm-space-2);
+}
+
+.assistantCommand > pre {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Reference details: each disclosure opens on its own. */
+.referenceTitle {
+  color: var(--rm-ink);
+  font-family: var(--rm-font-display);
+  font-size: var(--rm-text-h1);
+  font-weight: 760;
+  letter-spacing: -0.015em;
+}
+
+.disclosureGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  align-items: start;
+  gap: var(--rm-space-3);
+}
+
+.disclosureGrid code {
+  white-space: nowrap;
+}
+
+.externalIcon {
+  margin-inline-start: 0.25rem;
+}
+
+.closing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rm-space-4) var(--rm-space-6);
+  padding-top: var(--rm-space-6);
+  border-top: 1px solid var(--rm-line);
+}
+
+.closingLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rm-space-2) var(--rm-space-6);
+}
+
+.closingLinks > :global(.rm-link) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
 }
 
 @media (min-width: 40rem) {
   .noScriptAlternatives {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
   .steps {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
 @media (min-width: 64rem) {
-  .page {
-    grid-template-columns: minmax(0, 1.6fr) minmax(19rem, 1fr);
+  .introGrid {
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  }
+
+  .toolbox::before {
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    border: 1px solid var(--rm-accent-line);
+    border-radius: var(--rm-radius-xl);
+    background: var(--rm-accent-soft);
+    content: "";
+    transform: translate(-0.75rem, 0.75rem) rotate(-1deg);
+  }
+
+  .assistant {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+}
+
+@media (forced-colors: active) {
+  .toolbox::before {
+    display: none;
+  }
+
+  .steps li::before {
+    border: 1px solid CanvasText;
   }
 }

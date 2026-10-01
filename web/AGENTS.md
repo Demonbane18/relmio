@@ -8,14 +8,16 @@ app and the local wizard share one component kit:
   fails when the copy is stale. The script also copies the fonts and logo files.
 - Build pages from the kit classes (`rm-*`) and the React components in
   `app/components/ui/`: `TopBar`, `PrimaryNav`, `ThemeSwitch`, `RepositoryChip`,
-  `SupportLink`, `Icon`, `CopyButton` and `Callout`. Do not add another
-  component library or CSS framework.
-- The root layout renders the shared top bar and the `rm-app rm-app--fit` shell.
-  Pages render only their `<main id="main-content" className="rm-app__main">`.
+  `SupportLink`, `Icon`, `CopyButton`, `Callout` and `SiteFooter`. Do not add
+  another component library or CSS framework.
+- The root layout renders the `rm-app` shell (without `rm-app--fit`), the
+  shared top bar and the shared footer. Pages render only their
+  `<main id="main-content" className="rm-app__main">`.
 - Page styles live in a CSS module next to the page and use `--rm-*` tokens
-  only. No raw colors.
-- Keep the one-screen rule from `DESIGN.md`: no page scrollbar at 1024 x 768
-  and larger; docs and changelog scroll only inside their reading pane.
+  only. No raw colors. Styles shared by several pages live in
+  `app/site.module.css`.
+- The site scrolls as a normal page. The one-screen rule in `DESIGN.md` is for
+  the local wizard and dashboard only; follow "The hosted site" there.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

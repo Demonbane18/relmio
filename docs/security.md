@@ -17,7 +17,7 @@ Relmio's local capabilities remain valid until you rotate them.
 
 ## Hosted chat demo
 
-The demo at [relmio.jpfusin.tech/chat](https://relmio.jpfusin.tech/chat) uses
+The demo at [relmio.jpfusin.tech/#chat](https://relmio.jpfusin.tech/#chat) uses
 the third-party `openai-oauth` Codex sign-in flow. It is not OpenAI's documented
 Sign in with ChatGPT integration. The flow is unofficial and policy-uncertain.
 

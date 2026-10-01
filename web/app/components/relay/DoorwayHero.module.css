@@ -29,21 +29,22 @@
   --doorway-hill-front: light-dark(oklch(88% 0.11 90), oklch(26% 0.005 85));
   --doorway-shadow: light-dark(oklch(23% 0.012 85 / 0.16), oklch(0% 0 0 / 0.45));
 
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--rm-space-2);
+  position: relative;
   min-width: 0;
   margin: 0;
 }
 
-/* The art box keeps the drawing's aspect ratio, so the pause control sits
-   just under the scene at every size. */
+/* A framed window onto the scene. The art box keeps the drawing's aspect
+   ratio at every size; the pause control sits in its top corner. */
 .art {
   position: relative;
   width: 100%;
   aspect-ratio: 84 / 35;
-  clip-path: inset(0 round var(--rm-radius-lg));
+  overflow: hidden;
+  border: 1px solid var(--rm-line-strong);
+  border-radius: clamp(var(--rm-radius-lg), 2.5vw, 2rem);
+  background: var(--rm-surface);
+  box-shadow: var(--rm-shadow-lg);
 }
 
 .sceneSvg {
@@ -55,7 +56,9 @@
 }
 
 .pauseButton {
-  flex: none;
+  position: absolute;
+  top: var(--rm-space-3);
+  right: var(--rm-space-3);
 }
 
 /* ---------- Scene paint roles ---------- */

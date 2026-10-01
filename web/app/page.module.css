@@ -1,188 +1,303 @@
-/* Home: one screen inside the shared shell. Kit tokens only. */
+/* Home: a scrolling page of full-width sections. Hero with the Doorway scene,
+   How it works, the hosted chat, then the safety boundary as a night band.
+   Hill edges join the bands. Kit tokens only. */
 
-.page {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rm-space-4);
-  padding-block: var(--rm-space-5) var(--rm-space-3);
-}
+/* Hero --------------------------------------------------------------------- */
 
 .hero {
+  padding-block: clamp(2.5rem, 6vw, 5rem) clamp(4.5rem, 9vw, 8rem);
+}
+
+.heroInner {
   display: grid;
-  gap: var(--rm-space-5);
-  align-items: center;
+  justify-items: center;
+  gap: clamp(2.25rem, 5vw, 4rem);
 }
 
 .intro {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--rm-space-4);
-  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: var(--rm-space-5);
+  max-width: 56rem;
+  text-align: center;
+}
+
+.title {
+  font-size: clamp(2.5rem, 1.35rem + 4.4vw, 4.75rem);
+  letter-spacing: -0.035em;
+  line-height: 0.98;
+}
+
+/* A teal wavy underline, from the mascot's color. */
+.highlight {
+  text-decoration-color: var(--rm-brand-teal);
+  text-decoration-line: underline;
+  text-decoration-skip-ink: none;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.16em;
+  white-space: nowrap;
 }
 
 .lede {
-  max-width: 40rem;
+  max-width: 38rem;
+  font-size: clamp(var(--rm-text-lg), 1rem + 0.5vw, 1.3125rem);
 }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--rm-space-3);
+  margin-top: var(--rm-space-2);
 }
 
-.sceneCell {
-  display: grid;
-  justify-items: center;
-  min-width: 0;
+.actions .cta {
+  min-height: 3rem;
+  padding-inline: 1.25rem;
+  font-size: var(--rm-text-base);
 }
 
+/* The scene sits on a tilted accent plate for depth. */
 .scene {
+  isolation: isolate;
   width: 100%;
-  max-width: 44rem;
+  max-width: 70rem;
 }
 
-.details {
+.scene::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  border: 1px solid var(--rm-accent-line);
+  border-radius: clamp(var(--rm-radius-lg), 2.5vw, 2rem);
+  background: var(--rm-accent-soft);
+  content: "";
+  transform: translateY(clamp(0.5rem, 1.5vw, 1.25rem)) rotate(-1.25deg);
+}
+
+/* How it works ------------------------------------------------------------- */
+
+.how {
+  padding-block: clamp(3rem, 7vw, 6rem) clamp(4.5rem, 9vw, 8rem);
+  background: var(--rm-surface-muted);
+}
+
+/* Hosted chat -------------------------------------------------------------- */
+
+.chat {
+  padding-block: clamp(3rem, 7vw, 6rem) clamp(4.5rem, 9vw, 8rem);
+  background: var(--rm-canvas);
+}
+
+.chatGrid {
   display: grid;
+  align-items: start;
+  gap: var(--rm-space-10);
+}
+
+.chatCopy {
+  display: grid;
+  justify-items: start;
   gap: var(--rm-space-4);
   min-width: 0;
 }
 
-.safety {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rm-space-3);
-  min-width: 0;
-  padding: var(--rm-space-4) var(--rm-space-5);
-  border: 1px solid var(--rm-line);
-  border-radius: var(--rm-radius-lg);
-  background: var(--rm-surface-muted);
-}
-
-.boundaryList {
+.notes {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
-  gap: var(--rm-space-3) var(--rm-space-5);
+  gap: var(--rm-space-3);
   margin: 0;
   padding: 0;
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-md);
+  list-style: none;
+}
+
+.notes li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--rm-space-3);
+}
+
+.noteIcon {
+  margin-top: 0.1875rem;
+  color: var(--rm-accent-ink);
+}
+
+.console {
+  min-width: 0;
+}
+
+/* Safety boundary: a night band in the scene's night colors ------------------ */
+
+.night {
+  --rm-ink: var(--rm-terminal-fg);
+  --rm-ink-muted: var(--rm-terminal-muted);
+  --rm-ink-subtle: var(--rm-terminal-muted);
+  --rm-accent-ink: var(--rm-terminal-prompt);
+  --rm-focus: var(--rm-terminal-prompt);
+  --rm-line: var(--rm-terminal-line);
+
+  position: relative;
+  padding-block: clamp(4.5rem, 9vw, 8rem);
+  background: var(--rm-terminal-bg);
+  color: var(--rm-ink);
+  color-scheme: dark;
+}
+
+.stars {
+  position: absolute;
+  top: clamp(1rem, 3vw, 2rem);
+  right: var(--rm-gutter);
+  width: min(42rem, 62%);
+  height: auto;
+  pointer-events: none;
+}
+
+.moon,
+.star {
+  fill: var(--rm-terminal-prompt);
+}
+
+.safetyGrid {
+  position: relative;
+  display: grid;
+  align-items: start;
+  gap: var(--rm-space-10);
+}
+
+.safetyCopy {
+  display: grid;
+  justify-items: start;
+  gap: var(--rm-space-4);
+}
+
+.safetyLede {
+  max-width: 34rem;
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-lg);
+}
+
+.safetyLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rm-space-1);
+  min-height: 1.5rem;
+}
+
+/* Boundary rows: an editorial list with dividers, not a card grid. */
+.boundaryList {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rm-terminal-line);
   list-style: none;
 }
 
 .boundaryList li {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.125rem var(--rm-space-2);
+  align-items: start;
+  gap: var(--rm-space-1) var(--rm-space-4);
   min-width: 0;
+  padding-block: var(--rm-space-5);
+  border-bottom: 1px solid var(--rm-terminal-line);
 }
 
 .boundaryIcon {
+  display: grid;
   grid-row: span 2;
-  margin-top: 0.125rem;
-  color: var(--rm-accent-ink);
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid var(--rm-terminal-line);
+  border-radius: var(--rm-radius-md);
+  background: var(--rm-terminal-bar);
+  color: var(--rm-terminal-prompt);
 }
 
 .boundaryTitle {
   color: var(--rm-ink);
-  font-size: var(--rm-text-md);
-  font-weight: 650;
-  line-height: 1.35;
+  font-family: var(--rm-font-display);
+  font-size: var(--rm-text-xl);
+  font-weight: 760;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
 }
 
 .boundaryText {
   grid-column: 2;
+  max-width: 36rem;
   color: var(--rm-ink-muted);
-  font-size: var(--rm-text-sm);
-  line-height: 1.45;
-}
-
-.footer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--rm-space-1) var(--rm-space-4);
-  color: var(--rm-ink-muted);
-  font-size: var(--rm-text-sm);
-}
-
-.nowrap {
-  white-space: nowrap;
+  font-size: var(--rm-text-base);
+  line-height: 1.5;
 }
 
 @media (min-width: 64rem) {
-  .hero {
-    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  .chatGrid {
+    grid-template-columns: minmax(18rem, 0.8fr) minmax(0, 1.3fr);
+    gap: var(--rm-space-12);
   }
 
-  /* The slim footer sits under the guide, in the height the safety column
-     already uses. Focus order still follows the DOM: guide, then footer. */
-  .details {
-    grid-template-columns: minmax(0, 1fr) 18rem;
-    grid-template-rows: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "guide safety"
-      "footer safety";
-    column-gap: var(--rm-space-4);
-    row-gap: var(--rm-space-3);
+  /* A second sheet peeks out behind the console. A shadow, not a transformed
+     pseudo-element, so the sign-in dialog inside stays viewport-fixed. */
+  .console {
+    border-radius: var(--rm-radius-xl);
+    box-shadow:
+      0.75rem 0.75rem 0 -1px var(--rm-accent-soft),
+      0.75rem 0.75rem 0 0 var(--rm-accent-line);
   }
 
-  .guide {
-    grid-area: guide;
+  .safetyGrid {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: var(--rm-space-12);
   }
 
-  .safety {
-    grid-area: safety;
-  }
-
-  .footer {
-    grid-area: footer;
-  }
-
-  .boundaryList {
-    grid-template-columns: minmax(0, 1fr);
+  .safetyCopy {
+    padding-top: var(--rm-space-6);
   }
 }
 
-/* Fit mode (DESIGN.md, one-screen rule). Auto margins center the content in
-   tall windows and collapse to zero when the view is full. The scene cell is a
-   size container, so the drawing and its pause control scale into the height
-   the intro sets, never beyond it. */
-@media (min-width: 64rem) and (min-height: 37.5rem) {
-  .page {
-    min-height: 100%;
+@media (prefers-reduced-motion: no-preference) {
+  .scene {
+    animation: hero-rise 800ms var(--rm-ease) 100ms both;
   }
 
-  .hero {
-    margin-top: auto;
-    align-items: stretch;
+  /* Finite, under five seconds (WCAG 2.2.2), then the stars hold still. */
+  .star {
+    animation: twinkle 1.2s var(--rm-ease-in-out) 4 alternate;
   }
 
-  .details {
-    margin-bottom: auto;
-  }
-
-  .intro {
-    justify-content: center;
-  }
-
-  .title {
-    font-size: clamp(2.25rem, min(4.4vw, 7.2vh), 3.75rem);
-  }
-
-  .sceneCell {
-    min-height: 10rem;
-    place-items: center;
-    container-type: size;
-  }
-
-  .hero .scene {
-    width: min(100cqw, (100cqh - 2.5rem) * 2.4);
-    max-width: none;
+  .star:nth-child(odd) {
+    animation-delay: 0.6s;
   }
 }
 
-@media (min-width: 64rem) and (max-width: 68rem) and (min-height: 37.5rem) {
-  .page {
-    gap: var(--rm-space-3);
-    padding-block: var(--rm-space-1) 0;
+@keyframes hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(2rem) scale(0.97);
+  }
+}
+
+@keyframes twinkle {
+  to {
+    opacity: 0.3;
+  }
+}
+
+@media (forced-colors: active) {
+  .scene::before,
+  .stars {
+    display: none;
+  }
+
+  .console {
+    box-shadow: none;
+  }
+
+  .boundaryList li {
+    border-color: CanvasText;
   }
 }

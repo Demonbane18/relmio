@@ -43,7 +43,7 @@ function assertSharedTopBar(html, currentLabel) {
   }
 
   const links = headerLinks(html);
-  for (const [href, label] of [["/", "Home"], ["/install", "Install"], ["/docs", "Docs"], ["/changelog", "Changelog"], ["/chat", "Chat"]]) {
+  for (const [href, label] of [["/", "Home"], ["/install", "Install"], ["/docs", "Docs"], ["/changelog", "Changelog"], ["/#chat", "Chat"]]) {
     const link = links.find((candidate) => candidate.text === label && candidate.attributes.includes(`href="${href}"`));
     assert.ok(link, `missing top-bar link ${label}`);
     assert.equal(
@@ -63,6 +63,54 @@ function assertSharedTopBar(html, currentLabel) {
   }
   assert.match(header, /aria-label="Support Relmio on Ko-fi \(opens in a new tab\)"/u);
 }
+
+const footerPages = ["/", "/install", "/docs", "/docs/local-endpoints", "/changelog", "/missing-page"];
+const footerExternalLinks = [
+  ["https://www.npmjs.com/package/relmio", "npm"],
+  ["https://github.com/Demonbane18/relmio", "GitHub"],
+  ["https://github.com/EvanZhouDev/openai-oauth", "openai-oauth method by Evan Zhou Dev"],
+  ["https://github.com/Demonbane18", "Demonbane18"],
+  ["https://x.com/fusheenn", "@fusheenn"],
+  ["https://www.linkedin.com/in/john-paul-fusin-35846714a/", "in/john-paul-fusin-35846714a"],
+  ["https://www.youtube.com/@harness.engineer", "@harness.engineer"],
+  ["https://www.facebook.com/fusin.automation/", "fusin.automation"],
+  ["https://ko-fi.com/paldogies", "Ko-fi"],
+];
+
+function assertSiteFooter(html, path) {
+  const footer = html.slice(html.lastIndexOf("<footer"));
+  const links = [...footer.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/gu)].map(([, attributes, inner]) => ({
+    attributes,
+    text: inner.replace(/<[^>]*>/gu, ""),
+  }));
+  for (const [href, label] of [["/install", "Install"], ["/docs", "Docs"], ["/changelog", "Changelog"], ["/#chat", "Chat"]]) {
+    assert.ok(
+      links.some((link) => link.attributes.includes(`href="${href}"`) && link.text.trim() === label),
+      `${path}: missing footer link ${label}`,
+    );
+  }
+  for (const [href, visible] of footerExternalLinks) {
+    const link = links.find((candidate) => candidate.attributes.includes(`href="${href}"`));
+    assert.ok(link, `${path}: missing footer link ${href}`);
+    assert.ok(link.text.includes(visible), `${path}: ${href} shows ${visible}`);
+    assert.match(link.attributes, /target="_blank"/u, href);
+    assert.match(link.attributes, /rel="noopener noreferrer"/u, href);
+    assert.match(link.text, /\(opens in a new tab\)/u, href);
+  }
+  const text = footer.replace(/<[^>]*>/gu, "");
+  assert.match(
+    text,
+    new RegExp(`© ${new Date().getFullYear()} John Paul Fusin\\. Relmio is released under the Apache-2\\.0 license`, "u"),
+    path,
+  );
+}
+
+test("every page ends with the site footer, its links and the current copyright year", async () => {
+  for (const path of footerPages) {
+    const response = await requestApp(path);
+    assertSiteFooter(await response.text(), path);
+  }
+});
 
 test("server-renders the Relmio home page with the shared top bar", async () => {
   const response = await requestApp();
@@ -90,8 +138,17 @@ test("server-renders the Relmio home page with the shared top bar", async () => 
   }
   assert.match(html, /href="\/install"[^>]*>[\s\S]*?Install Relmio/u);
   assert.match(text, /does not edit the existing n8n container, image, or workflows/u);
-  assert.match(html, /openai-oauth/);
-  assert.match(html, /Evan Zhou Dev/);
+  assert.match(html, /<section[^>]*id="chat"/u);
+  assert.match(text, /Connect, then ask\./u);
+  assert.match(text, /Before you connect: install the browser extension/u);
+  assert.match(
+    html,
+    /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/,
+  );
+  assert.match(html, /https:\/\/addons\.mozilla\.org\/firefox\/addon\/sign-in-with-chatgpt\//);
+  assert.match(text, /temporarily disable it during local sign-in/u);
+  assert.match(html, /<noscript>[\s\S]*?Chat needs JavaScript[\s\S]*?<\/noscript>/u);
+  assert.match(html, /aria-label="Hosted chat console"/u);
   assert.doesNotMatch(html, /data-astryx-theme|codex-preview|Your site is taking shape/u);
 });
 
@@ -106,7 +163,7 @@ test("missing pages keep a 404 with a usable main and recovery links", async () 
 });
 
 test("public pages use their own canonical and social URL despite tracking parameters", async () => {
-  for (const path of ["/", "/chat", "/install", "/docs", "/docs/security", "/changelog"]) {
+  for (const path of ["/", "/install", "/docs", "/docs/security", "/changelog"]) {
     const response = await requestApp(`${path}?utm_source=check`);
     assert.equal(response.status, 200, path);
     const html = await response.text();
@@ -130,9 +187,10 @@ test("robots and sitemap expose all published guide URLs", async () => {
   assert.equal(new URL(sitemapUrl).pathname, "/sitemap.xml");
   const xml = await sitemap.text();
   const paths = [...xml.matchAll(/<loc>([^<]+)<\/loc>/gu)].map(([, url]) => new URL(url).pathname);
-  for (const path of ["/", "/chat", "/install", "/docs", "/changelog", "/docs/security", "/docs/vps-supergrok"]) {
+  for (const path of ["/", "/install", "/docs", "/changelog", "/docs/security", "/docs/vps-supergrok"]) {
     assert.ok(paths.includes(path), path);
   }
+  assert.ok(!paths.includes("/chat"), "the /chat redirect is not listed");
 });
 
 test("forwarded hosts cannot replace public canonical, social or sitemap URLs", async () => {
@@ -143,7 +201,7 @@ test("forwarded hosts cannot replace public canonical, social or sitemap URLs", 
   };
   const origin = "https://relmio.jpfusin.tech";
   const [page, robots, sitemap] = await Promise.all([
-    requestApp("/chat", { headers }),
+    requestApp("/install", { headers }),
     requestApp("/robots.txt", { headers }),
     requestApp("/sitemap.xml", { headers }),
   ]);
@@ -151,11 +209,11 @@ test("forwarded hosts cannot replace public canonical, social or sitemap URLs", 
   assert.equal(robots.status, 200);
   assert.equal(sitemap.status, 200);
   const html = await page.text();
-  assert.ok(html.includes(`<link rel="canonical" href="${origin}/chat"`));
-  assert.ok(html.includes(`<meta property="og:url" content="${origin}/chat"`));
+  assert.ok(html.includes(`<link rel="canonical" href="${origin}/install"`));
+  assert.ok(html.includes(`<meta property="og:url" content="${origin}/install"`));
   assert.ok((await robots.text()).includes(`Sitemap: ${origin}/sitemap.xml`));
   const xml = await sitemap.text();
-  assert.ok(xml.includes(`<loc>${origin}/chat</loc>`));
+  assert.ok(xml.includes(`<loc>${origin}/install</loc>`));
   assert.doesNotMatch(xml, /boundary-audit\.invalid/u);
 });
 
@@ -173,24 +231,12 @@ test("loopback hosts keep their own HTTP origin despite forwarded headers", asyn
   }
 });
 
-test("server-renders the hosted chat page with its sign-in guidance", async () => {
+test("the old /chat address redirects permanently to the chat on the home page", async () => {
   const response = await requestApp("/chat");
-  assert.equal(response.status, 200);
-
-  const html = await response.text();
-  const text = html.replace(/<[^>]*>/g, "");
-  assert.match(html, /<title>Hosted chat demo \| Relmio<\/title>/u);
-  assertSharedTopBar(html, "Chat");
-  assert.match(text, /Connect, then ask\./u);
-  assert.match(text, /Before you connect: install the browser extension/u);
-  assert.match(
-    html,
-    /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/,
-  );
-  assert.match(html, /https:\/\/addons\.mozilla\.org\/firefox\/addon\/sign-in-with-chatgpt\//);
-  assert.match(text, /temporarily disable it during local sign-in/u);
-  assert.match(html, /<noscript>[\s\S]*?Chat needs JavaScript[\s\S]*?<\/noscript>/u);
-  assert.match(html, /Evan Zhou Dev/);
+  assert.equal(response.status, 308);
+  const location = new URL(response.headers.get("location") ?? "", "http://localhost");
+  assert.equal(location.pathname, "/");
+  assert.equal(location.hash, "#chat");
 });
 
 test("server-renders canonical generated Markdown documentation routes", async () => {
@@ -334,7 +380,6 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.match(html, /relmio open/);
   assert.match(html, /relmio stop/);
   assert.match(html, /never stops[^<]*n8n or a managed companion/);
-  assert.doesNotMatch(html, /href="https:\/\/www\.npmjs\.com/);
   assert.match(installScript, /^#!\/bin\/sh/m);
   assert.match(installScript, /--ignore-scripts relmio@latest/);
   assert.match(commandPromptInstallScript, /--ignore-scripts relmio@latest/u);
@@ -373,7 +418,7 @@ test("returns current repository stars and npm version for the GitHub control", 
     stars: 42,
     version: "0.2.1",
   });
-  assert.match(response.headers.get("cache-control") ?? "", /s-maxage=900/);
+  assert.equal(response.headers.get("cache-control"), "public, s-maxage=60, stale-while-revalidate=60");
 });
 
 test("malformed metadata keeps the public installer on a stable release", async (t) => {

@@ -1,0 +1,59 @@
+/* Shared styles for the hosted site's expressive sections. The site scrolls as
+   a normal page; the one-screen fit rule belongs to the local wizard. Kit
+   tokens only. */
+
+/* Section titles: the display face at a size between page titles and the home
+   headline. */
+.sectionTitle {
+  color: var(--rm-ink);
+  font-family: var(--rm-font-display);
+  font-size: clamp(1.875rem, 1.25rem + 2vw, 3rem);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.04;
+  text-wrap: balance;
+}
+
+/* A soft hill edge on top of a full-width band. The band's own background
+   fills it, so the edge works on any band color. */
+.hillEdge {
+  position: relative;
+}
+
+.hillEdge::before {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% - 1px);
+  left: 0;
+  height: clamp(1.5rem, 4vw, 3.5rem);
+  background: inherit;
+  content: "";
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 60' preserveAspectRatio='none'%3E%3Cpath d='M0 38C190 6 360 4 560 30s430 34 640 0v30H0Z'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 60' preserveAspectRatio='none'%3E%3Cpath d='M0 38C190 6 360 4 560 30s430 34 640 0v30H0Z'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+}
+
+/* Sections rise into place as they scroll in. Without scroll-driven animation
+   support, or with reduced motion, content is simply there. Transforms and
+   opacity only, so nothing shifts the layout. */
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: site-reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+}
+
+@keyframes site-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(2.5rem) scale(0.985);
+  }
+}
+
+@media (forced-colors: active) {
+  .hillEdge::before {
+    display: none;
+  }
+}

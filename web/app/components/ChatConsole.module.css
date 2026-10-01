@@ -1,6 +1,6 @@
-/* Hosted chat console. The shell is a kit panel; the transcript is its only
-   scroll container. Below fit mode the shell grows with its notices and the
-   page scrolls; the transcript keeps its own bounded height. Kit tokens only. */
+/* Hosted chat console. The shell is a kit panel that grows with its notices
+   while the page scrolls; the transcript is its only scroll container and
+   keeps a fixed, bounded height. Kit tokens only. */
 
 .header {
   display: flex;
@@ -64,7 +64,7 @@
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  height: clamp(20rem, 100svh - 20rem, 36rem);
+  height: 28rem;
   min-height: 0;
 }
 
@@ -301,17 +301,6 @@
   }
 }
 
-/* Fit mode: the page gives the console its full height. */
-@media (min-width: 64rem) and (min-height: 37.5rem) {
-  .shell {
-    height: 100%;
-  }
-
-  .transcriptRegion {
-    height: auto;
-  }
-}
-
 @media (max-width: 40rem) {
   .header,
   .sessionBoundary,
@@ -322,6 +311,10 @@
 
   .message {
     max-width: 94%;
+  }
+
+  .transcriptRegion {
+    height: 24rem;
   }
 }
 

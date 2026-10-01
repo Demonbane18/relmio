@@ -148,7 +148,11 @@ take the current text color: `<span class="rm-icon rm-icon--server"
 aria-hidden="true"></span>`. Sizes: 14, 16, 18 (default) and 22 px. Licenses
 are in NOTICE.
 
-Do not mix icon sets, fill outline icons, or use emoji as icons.
+Do not mix icon sets, fill outline icons, or use emoji as icons. One
+exception: the hosted site footer's X, LinkedIn, YouTube and Facebook links use
+filled brand marks from `simple-icons@13.21.0` (CC0-1.0), drawn in
+`currentColor` by the web `Icon` component. Use them only to identify those
+services.
 
 ## Voice
 
