@@ -96,6 +96,9 @@ Features that are not fully tested carry an Experimental label.
   are unchanged. The ChatGPT bridge remains unofficial, private and
   policy-uncertain; provider approval and account entitlement are not
   established.
+- Update the hosted web framework to Next.js 16.3.8 and pin patched `undici`,
+  `brace-expansion` and `fast-uri` releases to address newly reported
+  advisories.
 
 ## [0.18.0-experimental.4] - 2026-09-29
 
