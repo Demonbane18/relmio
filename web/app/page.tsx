@@ -130,11 +130,13 @@ export default async function Home() {
               the OAuth handoff. Install it for{" "}
               <a className="rm-link" href={chromeExtensionUrl} target="_blank" rel="noopener noreferrer">
                 Chrome
+                <Icon name="external" size="xs" className={styles.externalIcon} />
                 <NewTabNote />
               </a>{" "}
               or{" "}
               <a className="rm-link" href={firefoxExtensionUrl} target="_blank" rel="noopener noreferrer">
                 Firefox
+                <Icon name="external" size="xs" className={styles.externalIcon} />
                 <NewTabNote />
               </a>
               , reload this page, then connect again.

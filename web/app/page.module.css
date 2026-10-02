@@ -125,6 +125,10 @@
   color: var(--rm-accent-ink);
 }
 
+.externalIcon {
+  margin-inline-start: 0.25rem;
+}
+
 .console {
   min-width: 0;
 }

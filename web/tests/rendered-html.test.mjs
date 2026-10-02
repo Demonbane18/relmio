@@ -172,6 +172,8 @@ test("every page enforces a fresh script nonce that its theme bootstrap and othe
     assert.ok(nonce, `${path}: ${policy}`);
     assert.match(policy, /(?:^|; )default-src 'self'(?:;|$)/u, path);
     assert.equal(response.headers.get("content-security-policy-report-only"), null, path);
+    const frameSources = policy.match(/(?:^|; )frame-src ([^;]+)/u)?.[1].split(/\s+/u);
+    assert.deepEqual(frameSources, ["http://localhost:1455/openai-oauth/installed"], `${path}: only the Firefox extension probe may be framed`);
     nonces.add(nonce);
 
     const html = await response.text();

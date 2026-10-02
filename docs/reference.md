@@ -1,5 +1,8 @@
 # Reference
 
+Command and API details: dashboard commands, VPS authentication and privilege,
+Chat Adapter tests, the raw Codex App Server command and the wizard tester API.
+
 ## Installed dashboard commands
 
 These commands manage the current operating-system account's Relmio dashboard
@@ -70,6 +73,7 @@ agent-key enumeration or proof that a host accepts a loaded key.
 `GET /api/ssh/connection` returns the safe active administrative identity,
 including account, authentication, privilege/scope and connection generation;
 it does not return credentials or add presentation fields to the model plan.
+Without an active session it returns only `{ "connected": false }`.
 An existing dashboard keeps its launch environment. See [agent setup and
 hosting guidance](hosting-compatibility.md#ssh-agent-and-administrative-access).
 

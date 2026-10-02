@@ -3161,7 +3161,11 @@ async function handleApi(request, response, path, state) {
     return;
   }
   if (request.method === "GET" && path === "/api/ssh/connection") {
-    requireConnection(state);
+    // No session is an expected state on every route load, not a failure.
+    if (!state.connection) {
+      sendJson(response, 200, { connected: false });
+      return;
+    }
     if (!state.connectionIdentity) throw new Error("Reconnect to verify the VPS identity.");
     sendJson(response, 200, state.connectionIdentity);
     return;

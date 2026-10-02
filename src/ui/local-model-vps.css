@@ -26,8 +26,8 @@
   outline: none;
 }
 
-/* Active status stays with the stepper on phones. Safety follows the
-   panel, while the desktop rail retains its two-row layout. */
+/* Active status stays with the stepper on phones. A blocking error, then
+   safety, follow the panel, while the desktop rail retains its two-row layout. */
 @media (min-width: 64rem) {
   .route-layout {
     grid-template-rows: auto minmax(0, 1fr);

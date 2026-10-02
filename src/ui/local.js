@@ -2214,6 +2214,8 @@ async function enterSetupView(target = null, { checkDocker = true } = {}) {
   element("local-dashboard").hidden = true;
   element("local-setup").hidden = false;
   document.body.dataset.localView = "setup";
+  // Management views skip the Docker check, so they show no Docker status.
+  document.querySelector(".docker-status").hidden = !checkDocker;
   let refreshSelectedN8n = false;
   if (target) {
     const input = document.querySelector(`input[name="target"][value="${target}"]`);
@@ -3526,7 +3528,6 @@ async function reviewLocalModelAction(action) {
     const apply = element("local-model-apply");
     setButtonLabel(apply, action === "remove" ? "Remove model and cached weights" : "Retry model download");
     apply.classList.toggle("rm-button--danger", action === "remove");
-    apply.classList.toggle("rm-button--primary", action !== "remove");
   } catch (error) {
     invalidateLocalModelReview();
     showError(error);

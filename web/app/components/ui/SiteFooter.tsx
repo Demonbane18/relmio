@@ -84,6 +84,7 @@ export function SiteFooter() {
                 rel="noopener noreferrer"
               >
                 openai-oauth method by Evan Zhou Dev
+                <Icon name="external" size="xs" className={styles.externalIcon} />
                 <NewTabNote />
               </a>
               .
@@ -145,6 +146,7 @@ export function SiteFooter() {
             rel="noopener noreferrer"
           >
             Apache-2.0 license
+            <Icon name="external" size="xs" className={styles.externalIcon} />
             <NewTabNote />
           </a>
           .

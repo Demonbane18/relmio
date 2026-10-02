@@ -271,3 +271,56 @@ The earlier hosted-chat data-flow and dependency findings are not superseded: it
 **Observed:** The hosted chat moved from `/chat` back onto the home page (`web/app/page.tsx`, section `#chat`); `/chat` now redirects to `/#chat`. Its disclosures moved with it unchanged: the third-party extension handoff, the prompt and access token sent to Relmio on Vercel and then OpenAI, refresh and ID tokens kept in the browser and sent only to OpenAI, and the IndexedDB storage caveat. `ChatConsole`, `web/app/api/chat/route.ts`, scopes, storage, logging and recipients are unchanged. The new site footer adds outbound links to the owner's GitHub, X, LinkedIn, YouTube, Facebook and Ko-fi pages; following one sends ordinary navigation metadata to that site, not prompts or tokens.
 
 **Unchanged / Open:** Every hosted-chat finding above still applies. The hosted flow remains the unofficial third-party Codex flow, not documented Sign in with ChatGPT or approved subscription sharing; provider approval, grants and retention remain **Open**.
+
+## Accessibility and browser-policy review, 2026-10-02
+
+The source review fetched the following official documents on 2026-10-02:
+
+- [Sign in with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) and [Using your ChatGPT plan in other apps and sites](https://help.openai.com/en/articles/20001542-using-your-chatgpt-plan-in-other-apps-and-sites).
+- [Website integration](https://developers.openai.com/siwc/website.md), [registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in.md), [accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions.md), and [models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference.md).
+- [Codex authentication](https://learn.chatgpt.com/docs/auth), [Codex models](https://learn.chatgpt.com/docs/models), and [text to speech](https://developers.openai.com/api/docs/guides/text-to-speech).
+- [Terms of Use](https://openai.com/policies/row-terms-of-use/), [Service Terms](https://openai.com/policies/service-terms/), [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/), and [Privacy Policy](https://openai.com/policies/services-communications-privacy-policy/).
+
+**Observed:** Target sizes, field errors, forced colors and dialog keyboard
+handling do not add credential reads or recipients. The new CSP changes browser
+resource permissions. Its script nonce is unrelated to an OIDC identity nonce;
+it does not validate OAuth grants or protect stored credentials from authorized
+same-origin code.
+
+**Provisional, from the installed dependency:** Hosted sign-in requests
+`openid profile email offline_access`; actual granted scopes remain unknown.
+The browser reads the returned session and keeps access, ID and refresh tokens,
+account identity and expiry information in encrypted IndexedDB alongside the
+usable encryption key. Pending state and the PKCE verifier use sessionStorage.
+OpenAI receives the authorization request and browser-side exchange/refresh
+traffic at `auth.openai.com`. Relmio on Vercel receives the submitted prompt,
+access-token bearer and account ID; its server forwards them with model settings
+to OpenAI's Codex backend. Displayed turns remain in component memory.
+
+Extension detection also probes the installed Chrome extension or the Firefox
+loopback frame at `http://localhost:1455/openai-oauth/installed`. The inference
+dependency can query OpenAI model metadata and npm's Codex-version metadata.
+User-activated links lead to GitHub, browser-extension stores and the footer's
+social/support services; they are not configured to carry prompts or tokens.
+Extension onward recipients and telemetry are unverified.
+
+**Observed / Open:** Explicit chat-route logs contain fixed categories/status
+codes, not prompts or tokens. Chat responses remain `no-store`; local sign-out
+does not revoke provider access. Framework, hosting, extension, npm and OpenAI
+logs and retention are not established by this source review.
+
+**Confirmed / Open:** Identity sign-in, separately authorized plan usage and
+model/TTS capability remain distinct. The official identity description is not
+the hosted dependency's reusable-credential flow. Official plan usage requires
+separate registration and grants; this frontend change does not establish them,
+provider permission or Terms compliance. The fixed hosted model name proves no
+account entitlement, and this route implements no TTS operation.
+
+**Compatibility finding:** Source inspection identified the Firefox discovery
+frame as incompatible with the initial `default-src 'self'` policy. A controlled
+headless-browser probe reproduced the frame block and verified that allowing
+the exact discovery URL permits a fixture-assisted authorization handoff with
+no CSP violation. No real OAuth authorization, token exchange or model call was
+completed. Actual installed-extension behavior, especially on Firefox itself,
+remains unverified; an absent Chrome extension produces probe failures that
+must not be reported as successful sign-in.

@@ -100,6 +100,10 @@
   font-size: var(--rm-text-sm);
 }
 
+.externalIcon {
+  margin-inline-start: 0.25rem;
+}
+
 .column {
   display: grid;
   align-content: start;
@@ -210,7 +214,8 @@
   font-size: var(--rm-text-sm);
 }
 
-/* Decorative closing wordmark; it bleeds past the bottom edge. */
+/* Decorative closing wordmark; it bleeds past the bottom edge, and its tall
+   text box would otherwise cover the copyright line's license link. */
 .wordmark {
   margin-bottom: -0.2em;
   color: var(--rm-line);
@@ -220,6 +225,7 @@
   letter-spacing: -0.04em;
   line-height: 0.8;
   text-align: center;
+  pointer-events: none;
   user-select: none;
 }
 

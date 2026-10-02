@@ -22,15 +22,32 @@ checks the registry separately after publication.
   and `/chat` redirects to the chat section at `/#chat`. The one-screen layout
   stays with the local wizard and dashboard.
 - The hosted site now enforces a Content Security Policy with a fresh nonce
-  on every page. Only the site's own scripts run, and the browser connects
-  only to the site and to `auth.openai.com` for ChatGPT sign-in. HSTS now
-  covers subdomains.
+  on every page. Only the site's own scripts run. Network connections stay
+  on the site or at `auth.openai.com`, with one frame allowed for Firefox's
+  extension detection endpoint. HSTS now covers subdomains.
 - The local dashboard's Connections view has one primary button, Add
   connection. Setup, resume and sign-in actions in rows and the detail card
   keep the 40 px size in the default style.
 
 ### Fixed
 
+- The hosted ChatGPT extension dialog takes focus, keeps keyboard navigation
+  inside, closes on Escape and returns focus to sign-in. Its title and focus
+  ring remain readable in dark theme, and its links announce a new tab.
+- The hosted sign-in flow can check Firefox's extension through its exact
+  loopback detection URL without relaxing the script nonce policy.
+- The decorative footer wordmark no longer blocks clicks on the license link.
+- Local management views keep one primary action and hide the Docker status
+  when no Docker check runs.
+- SuperGrok and Local model VPS errors sit directly after the footer actions
+  on narrow screens and remain in the rail on desktop.
+- The wizard's initial SSH status check returns a normal not-connected
+  response instead of logging an HTTP error. Connection-required operations
+  still reject requests until the VPS is connected.
+- New-tab links in the hosted footer, extension installation callout, sign-in
+  dialog and local ngrok checklist show an external-link indicator.
+- Docs, install, changelog and guide descriptions are unique, complete
+  summaries of 120 to 160 characters.
 - The GitHub chip's version follows the newest stable npm release within
   minutes.
 - Standalone links on the hosted site, including guide links, reference

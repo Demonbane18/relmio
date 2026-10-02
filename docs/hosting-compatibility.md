@@ -1,6 +1,6 @@
 # Hosting compatibility for n8n and local models
 
-This page distinguishes the **managed SSH/Docker path** from a separate **manual platform deployment**. Provider documentation was checked on 2026-09-26; it is not evidence of a live deployment on each provider. Relmio's managed model setup installs one CPU-based Ollama companion beside an existing running n8n container, on that same Docker host and an eligible existing network. It does not provision cloud servers or offer provider one-click installs.
+This page compares hosts for n8n and local models and distinguishes the **managed SSH/Docker path** from a separate **manual platform deployment**. Provider documentation was checked on 2026-09-26; it is not evidence of a live deployment on each provider. Relmio's managed model setup installs one CPU-based Ollama companion beside an existing running n8n container, on that same Docker host and an eligible existing network. It does not provision cloud servers or offer provider one-click installs.
 
 ## Current path and host requirements
 

@@ -16,6 +16,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import styles from "./ChatConsole.module.css";
+import { holdDialogFocus } from "./dialogFocus";
 import { Callout } from "./ui/Callout";
 import { Icon } from "./ui/Icon";
 import {
@@ -148,6 +149,8 @@ export function ChatConsole({
   const isNearBottomRef = useRef(true);
   const requestSequenceRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const signInRef = useRef<HTMLSpanElement>(null);
+  const needsExtension = authStatus === "needs-extension";
   const transcriptRef = useRef<HTMLElement>(null);
   const streamFeedbackRef = useRef<ReturnType<typeof nextStreamFeedback>>({
     ...INITIAL_STREAM_FEEDBACK,
@@ -210,6 +213,16 @@ export function ChatConsole({
       activeRequestRef.current?.controller.abort();
     };
   }, []);
+
+  // The library's extension dialog has no keyboard handling of its own.
+  useEffect(() => {
+    if (!needsExtension) return;
+    const signIn = signInRef.current;
+    const dialog = signIn?.querySelector<HTMLElement>('[role="dialog"]');
+    const trigger = signIn?.querySelector<HTMLElement>(":scope > button");
+    if (!dialog || !trigger) return;
+    return holdDialogFocus(dialog, trigger);
+  }, [needsExtension]);
 
   function isCurrentRequest(requestId: string) {
     return activeRequestRef.current?.requestId === requestId;
@@ -445,7 +458,7 @@ export function ChatConsole({
       </div>
 
       <div className={styles.sessionBoundary} role="group" aria-label="Session boundary">
-        <span className={styles.signIn}>
+        <span className={styles.signIn} ref={signInRef}>
           <SignInWithChatGPT
             className="rm-button"
             style={kitButtonStyle}

@@ -43,6 +43,25 @@
   gap: var(--rm-space-1);
 }
 
+/* The library's extension dialog is white in both themes. Its title and
+   status text take the dialog's own dark ink (the kit heading colour and the
+   inline #8f8f8f fall below AA there), and its focus ring stays dark. */
+.signIn :global([role="dialog"]) {
+  --rm-focus: var(--rm-terminal-bg);
+}
+
+.signIn :global(#openai-oauth-extension-title) {
+  color: inherit;
+}
+
+.signIn :global([role="dialog"] p[aria-live]) {
+  color: inherit !important;
+}
+
+.signIn :global([role="dialog"] .rm-icon) {
+  margin-inline-start: var(--rm-space-1);
+}
+
 .boundaryCopy {
   display: flex;
   flex: 1 1 18rem;

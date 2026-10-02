@@ -1,8 +1,9 @@
 # Use the local dashboard
 
 After you start Relmio, the local dashboard rediscovers the services Relmio
-manages on this computer. You can copy verified connection URLs, open a
-reviewed maintenance action, or start the existing setup wizard.
+manages on this computer and lists their verified connection URLs. You can copy
+those URLs, open a reviewed maintenance action, or start the existing setup
+wizard.
 
 An installed Relmio command can keep this dashboard running in the background.
 It does not install an operating-system login service or start at login.

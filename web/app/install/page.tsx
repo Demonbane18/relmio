@@ -9,7 +9,7 @@ import styles from "./install.module.css";
 
 export const metadata = pageMetadata(
   "Install Relmio for self-hosted n8n",
-  "Install the local Relmio wizard with Homebrew, macOS/Linux, PowerShell, Command Prompt, or NPX.",
+  "Install the local Relmio wizard with Homebrew, macOS/Linux, PowerShell, Command Prompt, or NPX. It changes nothing until you approve the exact plan.",
   "/install",
 );
 

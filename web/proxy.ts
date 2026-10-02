@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 /** Sends a per-request nonce Content Security Policy. Next.js reads the nonce
     from the request's policy header and adds it to its own scripts; the root
-    layout reads `x-nonce` for the theme bootstrap. The browser only calls
-    same-origin routes and the ChatGPT token endpoint at auth.openai.com. */
+    layout reads `x-nonce` for the theme bootstrap. Network calls stay on the
+    site or at OpenAI; Firefox's extension check uses one loopback frame. */
 export function proxy(request: NextRequest) {
   const nonce = btoa(crypto.randomUUID());
   // React's development build needs eval for its debugging stacks.
@@ -15,6 +15,7 @@ export function proxy(request: NextRequest) {
     "img-src 'self' data:",
     "font-src 'self'",
     "connect-src 'self' https://auth.openai.com",
+    "frame-src http://localhost:1455/openai-oauth/installed",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "object-src 'none'",

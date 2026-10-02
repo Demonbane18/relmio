@@ -83,6 +83,14 @@ test("shared credential pages reject model-only reuse while model page accepts i
   assert.equal(await readSshIdentity("fixture-token", { allowModelOnly: true }), identity);
 });
 
+test("an absent VPS session reads as the not-connected error that callers handle", async t => {
+  browserFixture(t);
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ connected: false }) });
+  for (const options of [{}, { allowModelOnly: true }]) {
+    await assert.rejects(() => readSshIdentity("fixture-token", options), { message: "Connect to the VPS first." });
+  }
+});
+
 test("unknown hosting product IDs cannot be treated as generic VM guidance", () => {
   assert.throws(() => getHostingProvider(""), RangeError);
   assert.throws(() => getHostingProvider("__proto__"), RangeError);
@@ -95,7 +103,7 @@ test("model wizard preserves selected identity and blocks platform, SDK and unkn
   const calls = [];
   globalThis.fetch = async path => {
     calls.push(path);
-    if (path === "/api/ssh/connection") return { ok: false, json: async () => ({ error: "Connect to the VPS first." }) };
+    if (path === "/api/ssh/connection") return { ok: true, json: async () => ({ connected: false }) };
     if (path === "/api/ssh/capabilities") return { ok: true, json: async () => ({ agent: { status: "unavailable" } }) };
     if (path === "/api/ssh/fingerprint") return { ok: true, json: async () => ({ fingerprint: identity.fingerprint }) };
     throw new Error("Unexpected SSH operation");
@@ -236,7 +244,7 @@ test("late startup SSH probes cannot replace a newer connection decision", async
   const element = browserFixture(t);
   const root = { ...identity, username: "root", privilege: "root", loginUid: 0, scope: "vps" };
   for (const startup of [
-    { ok: false, json: async () => ({ error: "Connect to the VPS first." }) },
+    { ok: true, json: async () => ({ connected: false }) },
     { ok: true, json: async () => ({ ...root, host: "former.example", generation: 1 }) },
   ]) {
     let release;

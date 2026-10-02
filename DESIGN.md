@@ -258,9 +258,9 @@ draws the X, LinkedIn, YouTube and Facebook brand marks from
 Component rules:
 
 - One primary button per view, in the panel footer or next to the field it
-  submits. On the local dashboard, Add connection is that button for every
-  view, so row and detail actions use the default style. Destructive actions
-  use `rm-button--danger` and say what they remove.
+  submits. The local dashboard uses Add connection; its management views use
+  Choose another connection. Row, detail and disclosure actions use the default
+  style. Destructive actions use `rm-button--danger` and say what they remove.
 - Primary and final destructive actions keep the standard 40 px size. Use
   `rm-button--sm` (32 px) only for secondary controls such as copy, refresh
   or show password.
@@ -410,6 +410,8 @@ characters per line. Use sentence case for headings, buttons and labels.
 - Focused or scrolled-to elements must clear sticky controls. On narrow
   screens the document reserves top-bar and footer space through scroll
   padding; check heading focus, skip links and both Tab directions on phones.
+- Modal dialogs move focus inside on open, keep Tab and Shift+Tab inside,
+  close on Escape through their cancel action, and return focus to the trigger.
 - Targets at least 24 x 24 px; primary controls 40 px or taller.
 - Do not disable zoom. Content reflows at 320 px wide without sideways
   scrolling.
@@ -444,9 +446,11 @@ Web (`web/`):
 - `web/proxy.ts` sends a Content Security Policy with a fresh nonce on every
   page: scripts need the nonce (`'strict-dynamic'`), styles may be inline,
   and images, fonts and connections stay on the site, except the ChatGPT
-  token exchange at `https://auth.openai.com`. An inline `<script>` reads the
-  nonce from the `x-nonce` request header; never add `'unsafe-inline'` to
-  `script-src`.
+  token exchange at `https://auth.openai.com`. The only permitted frame is the
+  Firefox extension probe at `http://localhost:1455/openai-oauth/installed`;
+  do not broaden this to other loopback paths, ports or extension origins.
+  An inline `<script>` reads the nonce from the `x-nonce` request header;
+  never add `'unsafe-inline'` to `script-src`.
 
 ## Verification
 

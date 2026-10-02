@@ -554,8 +554,6 @@
                             id="n8n-oauth-link"
                             class="rm-button rm-button--sm"
                             data-operation-allow="auth"
-                            target="_blank"
-                            rel="noopener noreferrer"
                             hidden
                           >Open fresh ChatGPT sign-in</a>
                         </div>
@@ -678,7 +676,7 @@
                                 <span>I reviewed this SearXNG-only update. Relmio may change only its owned Assistant companion. It will not change n8n or rotate the sandbox key.</span>
                               </label>
                               <div class="managed-companion-edit-actions">
-                                <button id="enable-assistant-searxng-button" class="rm-button rm-button--primary" type="button" disabled>
+                                <button id="enable-assistant-searxng-button" class="rm-button" type="button" disabled>
                                   Enable SearXNG on owned Assistant tools
                                 </button>
                                 <p id="assistant-searxng-edit-result" class="rm-small" role="status" aria-live="polite"></p>
@@ -699,8 +697,8 @@
                         <summary>Check ngrok before install</summary>
                         <div class="rm-disclosure__body">
                           <ol>
-                            <li>Create or choose a static domain in the <a href="https://dashboard.ngrok.com/domains" target="_blank" rel="noopener noreferrer">ngrok dashboard<span class="rm-visually-hidden"> (opens in a new tab)</span></a>.</li>
-                            <li>Copy one active agent token from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">Your Authtoken<span class="rm-visually-hidden"> (opens in a new tab)</span></a>. "Your Authtoken" is the quick-copy page. "Authtokens" lists the same token type. The token must be allowed to use your reserved domain.</li>
+                            <li>Create or choose a static domain in the <a href="https://dashboard.ngrok.com/domains" target="_blank" rel="noopener noreferrer">ngrok dashboard<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>.</li>
+                            <li>Copy one active agent token from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" rel="noopener noreferrer">Your Authtoken<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>. "Your Authtoken" is the quick-copy page. "Authtokens" lists the same token type. The token must be allowed to use your reserved domain.</li>
                             <li>Choose a Basic Auth username and password for people opening the public n8n link.</li>
                           </ol>
                           <p>After install, open the public link in a private window. It must stay blocked until you enter that Basic Auth pair.</p>
@@ -1134,7 +1132,7 @@
                 <section id="codex-login" class="rm-card rm-card--flat rm-card--compact codex-login" aria-labelledby="codex-login-title" hidden>
                   <h3 id="codex-login-title" class="rm-h3">Sign the container in to ChatGPT</h3>
                   <p class="rm-small rm-muted">Uses the official Codex device-code flow. The ChatGPT credential stays in the isolated Codex volume and is not a Platform API key. Codex may write a login log; Relmio does not know how long it is kept.</p>
-                  <button id="codex-login-button" class="rm-button rm-button--primary" type="button">
+                  <button id="codex-login-button" class="rm-button" type="button">
                     Start ChatGPT sign-in
                   </button>
 
@@ -1182,7 +1180,7 @@
                 <section id="n8n-stack-resume" class="rm-card rm-card--flat rm-card--compact n8n-sidecar-removal" aria-labelledby="n8n-stack-resume-title" hidden>
                   <h3 id="n8n-stack-resume-title" class="rm-h3">Resume stopped local n8n + ngrok</h3>
                   <p class="rm-small rm-muted">Resume starts only the existing stopped n8n, ngrok, and selected Assistant containers. It does not create, rebuild, or remove anything. Your n8n data stays in place.</p>
-                  <div class="sidecar-removal-actions"><button id="resume-n8n-stack-button" class="rm-button rm-button--primary" type="button">Resume owned stack</button><p id="resume-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack is stopped and can be resumed safely.</p></div>
+                  <div class="sidecar-removal-actions"><button id="resume-n8n-stack-button" class="rm-button" type="button">Resume owned stack</button><p id="resume-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack is stopped and can be resumed safely.</p></div>
                 </section>
 
                 <details
@@ -1251,7 +1249,7 @@
                           </label>
                         </div>
                       </fieldset>
-                      <button id="chat-tester-secure" class="rm-button rm-button--primary" type="submit">
+                      <button id="chat-tester-secure" class="rm-button" type="submit">
                         Secure credential for this test
                       </button>
                     </form>
@@ -1269,7 +1267,7 @@
                         ></textarea>
                       </label>
                       <div class="rm-cluster chat-tester-message-actions">
-                        <button id="chat-tester-send" class="rm-button rm-button--primary" type="submit">
+                        <button id="chat-tester-send" class="rm-button" type="submit">
                           Send test message
                         </button>
                         <button
@@ -1329,7 +1327,7 @@
                     <p id="local-model-action-detail" class="rm-small"></p>
                     <label class="rm-check check-row"><input id="local-model-action-confirm" type="checkbox" /><span>I approve the exact reviewed action for this owned model only.</span></label>
                     <label id="local-model-cache-confirm-row" class="rm-check check-row" hidden><input id="local-model-cache-confirm" type="checkbox" /><span>I separately approve permanent deletion of this owned model cache and downloaded weights.</span></label>
-                    <div class="rm-cluster actions"><button id="local-model-apply" class="rm-button rm-button--primary" type="button" disabled>Apply reviewed action</button><button id="local-model-cancel" class="rm-button rm-button--ghost rm-button--sm" type="button">Cancel review</button></div>
+                    <div class="rm-cluster actions"><button id="local-model-apply" class="rm-button" type="button" disabled>Apply reviewed action</button><button id="local-model-cancel" class="rm-button rm-button--ghost rm-button--sm" type="button">Cancel review</button></div>
                   </section>
                 </section>
 
