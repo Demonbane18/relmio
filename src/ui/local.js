@@ -1,4 +1,5 @@
 import { bindWizardNavigation, readWizardSession } from "./session.js";
+import { clearFieldError, setFieldError } from "./ssh-form.js";
 import {
   INITIAL_CHAT_TESTER_FEEDBACK,
   nextChatTesterFeedback,
@@ -165,18 +166,35 @@ function setMessage(text) {
   messageBox.hidden = false;
 }
 
+// Rejected fields point at the visible error through aria-describedby and
+// lose that link, and aria-invalid, whenever the error is cleared or replaced.
+const LOCAL_PORT_REJECTION =
+  /^(?:Port is invalid\.|Local endpoint port must|The selected local endpoint port)/u;
+
+function clearFieldErrors() {
+  for (const field of document.querySelectorAll('[aria-describedby~="global-error-text"]')) {
+    clearFieldError(field, "global-error-text");
+  }
+}
+
 function clearError() {
   errorText.textContent = "";
   element("local-image-build-troubleshooting").hidden = true;
   errorBox.hidden = true;
+  clearFieldErrors();
 }
 
-function showError(error) {
+function showError(error, invalidFields = []) {
   const localImageBuildFailed = error?.message === "Local image build failed.";
   errorText.textContent = localImageBuildFailed
     ? "Relmio could not build the local image. Check that Docker is running, has enough disk space, and can pull its base image."
     : error?.message ?? "Something went wrong.";
   element("local-image-build-troubleshooting").hidden = !localImageBuildFailed;
+  clearFieldErrors();
+  const rejected = LOCAL_PORT_REJECTION.test(errorText.textContent)
+    ? [element("local-port")]
+    : invalidFields;
+  for (const field of rejected) setFieldError(field, "global-error-text");
   errorBox.hidden = false;
   errorBox.focus();
 }
@@ -1547,7 +1565,11 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
   };
   const button = document.createElement("button");
   button.type = "button";
-  button.className = `rm-button rm-button--sm${["setup", "resume", "sign-in-chatgpt", "sign-in-grok-build"].includes(action) ? " rm-button--primary" : ""}`;
+  // Add connection is the view's one primary button. Setup, resume and sign-in
+  // keep the standard 40 px size in the default style; the rest stay compact.
+  button.className = ["setup", "resume", "sign-in-chatgpt", "sign-in-grok-build"].includes(action)
+    ? "rm-button"
+    : "rm-button rm-button--sm";
   button.dataset.dashboardService = service.target;
   button.dataset.dashboardAction = action;
   button.dataset.dashboardActionLocation = compact ? "row" : "detail";
@@ -1757,17 +1779,13 @@ function renderDashboardServiceRow(service, { selected, stale }) {
   select.append(dashboardStatusDot(service.state));
   const copy = document.createElement("span");
   copy.className = "dashboard-service-copy";
-  const titleLine = document.createElement("span");
-  titleLine.className = "dashboard-service-title-line";
+  // The row names the service, its state and boundary in full; the selected
+  // connection card holds the longer description.
   const title = document.createElement("strong");
   title.textContent = service.label;
-  const boundary = document.createElement("span");
-  boundary.className = "dashboard-boundary-token";
-  boundary.textContent = dashboardBoundary(service);
-  titleLine.append(title, boundary);
   const detail = document.createElement("small");
-  detail.textContent = `${dashboardStateLabel(service.state)} · ${dashboardServiceDescription(service)}`;
-  copy.append(titleLine, detail);
+  detail.textContent = `${dashboardStateLabel(service.state)} · ${dashboardBoundary(service)}`;
+  copy.append(title, detail);
   select.append(copy);
   select.addEventListener("click", () => {
     state.dashboardSelectedTarget = service.target;
@@ -2196,6 +2214,8 @@ async function enterSetupView(target = null, { checkDocker = true } = {}) {
   element("local-dashboard").hidden = true;
   element("local-setup").hidden = false;
   document.body.dataset.localView = "setup";
+  // Management views skip the Docker check, so they show no Docker status.
+  document.querySelector(".docker-status").hidden = !checkDocker;
   let refreshSelectedN8n = false;
   if (target) {
     const input = document.querySelector(`input[name="target"][value="${target}"]`);
@@ -3068,6 +3088,7 @@ function renderTarget() {
   const portInput = element("local-port");
   if (!n8nTarget) {
     portInput.value = grokBuild ? "14502" : codexChat ? "14501" : "14500";
+    if (portInput.getAttribute("aria-invalid") === "true") clearError();
   }
   endpointFields.hidden = n8nTarget || stack;
   portInput.disabled = n8nTarget || stack;
@@ -3507,7 +3528,6 @@ async function reviewLocalModelAction(action) {
     const apply = element("local-model-apply");
     setButtonLabel(apply, action === "remove" ? "Remove model and cached weights" : "Retry model download");
     apply.classList.toggle("rm-button--danger", action === "remove");
-    apply.classList.toggle("rm-button--primary", action !== "remove");
   } catch (error) {
     invalidateLocalModelReview();
     showError(error);
@@ -4152,6 +4172,31 @@ element("target-form").addEventListener("submit", async (event) => {
 for (const input of document.querySelectorAll('input[name="target"]')) {
   input.addEventListener("change", renderTarget);
 }
+
+// The browser rejects step 1 fields (such as a port below 1024) before submit.
+// Like the native bubble it replaces, the visible error reports the first
+// rejected field and is linked to it; editing that field clears both. The
+// short wording keeps the error within the rail at 1280 x 720.
+let reportingRejectedField = false;
+element("target-form").addEventListener("invalid", (event) => {
+  event.preventDefault();
+  if (reportingRejectedField) return;
+  reportingRejectedField = true;
+  window.setTimeout(() => {
+    reportingRejectedField = false;
+  });
+  const field = event.target;
+  const label = field.closest(".rm-field")?.querySelector(".rm-field__label")?.textContent.trim() ?? "This field";
+  const problem = field.validity.valueMissing
+    ? "enter a value."
+    : field.type === "number"
+      ? `use ${field.min} to ${field.max}.`
+      : field.validationMessage;
+  showError(new Error(`${label}: ${problem}`), [field]);
+}, true);
+element("target-form").addEventListener("input", (event) => {
+  if (event.target.getAttribute("aria-invalid") === "true") clearError();
+});
 
 element("local-port").addEventListener("input", invalidatePlan);
 element("include-local-searxng").addEventListener("change", invalidatePlan);

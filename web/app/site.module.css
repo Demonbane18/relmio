@@ -45,10 +45,11 @@
   }
 }
 
+/* Sections rise without scaling, so their targets keep their real size. */
 @keyframes site-reveal {
   from {
     opacity: 0;
-    transform: translateY(2.5rem) scale(0.985);
+    transform: translateY(2.5rem);
   }
 }
 

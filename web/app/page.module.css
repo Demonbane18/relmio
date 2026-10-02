@@ -125,6 +125,10 @@
   color: var(--rm-accent-ink);
 }
 
+.externalIcon {
+  margin-inline-start: 0.25rem;
+}
+
 .console {
   min-width: 0;
 }
@@ -177,13 +181,6 @@
   max-width: 34rem;
   color: var(--rm-ink-muted);
   font-size: var(--rm-text-lg);
-}
-
-.safetyLink {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--rm-space-1);
-  min-height: 1.5rem;
 }
 
 /* Boundary rows: an editorial list with dividers, not a card grid. */
@@ -264,9 +261,10 @@
     animation: hero-rise 800ms var(--rm-ease) 100ms both;
   }
 
-  /* Finite, under five seconds (WCAG 2.2.2), then the stars hold still. */
+  /* Four 1 s runs plus the 0.6 s odd-star delay end by 4.6 s, under five
+     seconds (WCAG 2.2.2). The even count leaves each star fully opaque. */
   .star {
-    animation: twinkle 1.2s var(--rm-ease-in-out) 4 alternate;
+    animation: twinkle 1s var(--rm-ease-in-out) 4 alternate;
   }
 
   .star:nth-child(odd) {

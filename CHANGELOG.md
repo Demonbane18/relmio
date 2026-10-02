@@ -7,11 +7,19 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.1] - 2026-10-02
+
+Relmio 0.18.1 returns the hosted site to its scrolling layout with a new
+footer, and fixes accessibility, keyboard and security-policy findings from
+a Front-End Checklist audit of the wizard and the site.
+
 ### Added
 
 - Add a footer to every page of the hosted site with product links, the
   creator's GitHub, X, LinkedIn, YouTube, Facebook and Ko-fi links, and the
   copyright and license line.
+- The hosted home page describes Relmio and its creator to search engines
+  with structured data.
 
 ### Changed
 
@@ -19,11 +27,60 @@ checks the registry separately after publication.
   its hero, How it works, hosted chat and safety sections in the shared theme,
   and `/chat` redirects to the chat section at `/#chat`. The one-screen layout
   stays with the local wizard and dashboard.
+- The hosted site now enforces a Content Security Policy with a fresh nonce
+  on every page. Only the site's own scripts run. Network connections stay
+  on the site or at `auth.openai.com`, with one frame allowed for Firefox's
+  extension detection endpoint. HSTS now covers subdomains.
+- The local dashboard's Connections view has one primary button, Add
+  connection. Setup, resume and sign-in actions in rows and the detail card
+  keep the 40 px size in the default style.
 
 ### Fixed
 
+- The hosted ChatGPT extension dialog takes focus, keeps keyboard navigation
+  inside, closes on Escape and returns focus to sign-in. Its title and focus
+  ring remain readable in dark theme, and its links announce a new tab.
+- The hosted sign-in flow can check Firefox's extension through its exact
+  loopback detection URL without relaxing the script nonce policy.
+- The decorative footer wordmark no longer blocks clicks on the license link.
+- Local management views keep one primary action and hide the Docker status
+  when no Docker check runs.
+- SuperGrok and Local model VPS errors sit directly after the footer actions
+  on narrow screens and remain in the rail on desktop.
+- The wizard's initial SSH status check returns a normal not-connected
+  response instead of logging an HTTP error. Connection-required operations
+  still reject requests until the VPS is connected.
+- New-tab links in the hosted footer, extension installation callout, sign-in
+  dialog, sign-in credit and local ngrok checklist show an external-link
+  indicator and announce the new tab.
+- Docs, install, changelog and guide descriptions are unique, complete
+  summaries of 120 to 160 characters that end at a full sentence, and the
+  FAQ opens with a short intro.
 - The GitHub chip's version follows the newest stable npm release within
   minutes.
+- Standalone links on the hosted site, including guide links, reference
+  lists in the docs and the sign-in attribution, have at least a 24 px
+  target. Quiet links keep their underline inside sentences.
+- Primary and removal buttons on the local dashboard use the standard 40 px
+  size.
+- In Windows high contrast and other forced-color modes, the stepper shows
+  the current step as a filled, ringed disc and finished steps as a check.
+- Local dashboard rows show each service's full name, state and boundary
+  instead of cutting text off. The selected connection card holds the longer
+  description.
+- A rejected port, or another rejected first-step field, on the local setup
+  page is marked invalid and linked to the visible error until you correct
+  it.
+- On narrow screens, a blocking error on the local setup page sits right
+  after the step's footer buttons instead of below the Docker status.
+- Standalone wizard links, including Compare hosting routes, the server setup
+  links, hosting sources and the local troubleshooting link, have a 24 px
+  target.
+- Docs code blocks, wide docs tables and the wizard's hosting comparison
+  table can be scrolled with the keyboard and show the focus ring.
+- The stars on the home page's night band stop twinkling within 5 seconds.
+- Browsers that ask for `/favicon.ico` or an Apple touch icon get the Relmio
+  logo instead of a missing page.
 
 ## [0.18.0] - 2026-10-01
 
@@ -1323,6 +1380,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.18.1]: https://github.com/Demonbane18/relmio/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1
 [0.18.0-experimental.2]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.1...v0.18.0-experimental.2

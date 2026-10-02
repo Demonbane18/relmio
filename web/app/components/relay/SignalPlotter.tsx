@@ -263,7 +263,7 @@ export function SignalPlotter({ className }: { className?: string }) {
                     ))}
                   </ol>
                   <p className={styles.note}>{activeRoute.note}</p>
-                  <Link className={`rm-link ${styles.guideLink}`} href={activeRoute.link}>
+                  <Link className={`rm-link rm-link--standalone ${styles.guideLink}`} href={activeRoute.link}>
                     {activeRoute.linkLabel}
                     <Icon name="arrow-right" size="xs" />
                   </Link>

@@ -1,9 +1,10 @@
 # Getting started
 
-Relmio provides provider sign-in connections, private n8n companions, and an
-optional self-hosted local-model workflow. SuperGrok is available for local apps
-and existing n8n deployments on the same computer or a VPS. It uses its own
-official device sign-in and never requires or reads ChatGPT credentials.
+Relmio sets up provider sign-in connections for local apps, private companions
+for n8n, and an optional self-hosted local-model workflow. SuperGrok is available
+for local apps and existing n8n deployments on the same computer or a VPS. It
+uses its own official device sign-in and never requires or reads ChatGPT
+credentials.
 
 | Need | Choose | Credential |
 | --- | --- | --- |
@@ -30,7 +31,7 @@ npx --yes --ignore-scripts relmio@latest
 ```
 
 The `@latest` command opens the **ChatGPT on my server** route in a foreground
-browser wizard. Relmio 0.18.0 is the current stable release, and hosted
+browser wizard. Relmio 0.18.1 is the current stable release, and hosted
 installers use the same version by default.
 
 

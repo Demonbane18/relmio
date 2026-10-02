@@ -1,9 +1,9 @@
 # SuperGrok for n8n on a VPS
 
-Relmio 0.14.0 includes browser setup for a private SuperGrok companion on an
-existing n8n VPS. It uses the same pinned official Grok CLI, fresh-session reader,
-Chat Completions adapter, and account model discovery as local n8n. It does not
-require or read ChatGPT credentials.
+Since Relmio 0.14.0, the browser wizard can set up a private SuperGrok companion
+on an existing n8n VPS. It does not require or read ChatGPT credentials. It uses
+the same pinned official Grok CLI, fresh-session reader, Chat Completions
+adapter, and account model discovery as local n8n.
 
 Run `relmio vps`, then choose **Set up SuperGrok for n8n**.
 You can also choose **SuperGrok companion** from the detected n8n management

@@ -162,6 +162,31 @@ test("missing pages keep a 404 with a usable main and recovery links", async () 
   for (const path of ["/", "/install", "/docs"]) assert.ok(html.includes(`href="${path}"`));
 });
 
+test("every page enforces a fresh script nonce that its theme bootstrap and other scripts carry", async () => {
+  const paths = ["/", "/docs/local-endpoints", "/missing-page"];
+  const nonces = new Set();
+  for (const path of paths) {
+    const response = await requestApp(path);
+    const policy = response.headers.get("content-security-policy") ?? "";
+    const nonce = policy.match(/script-src 'self' 'nonce-([^']+)' 'strict-dynamic'(?:;|$)/u)?.[1];
+    assert.ok(nonce, `${path}: ${policy}`);
+    assert.match(policy, /(?:^|; )default-src 'self'(?:;|$)/u, path);
+    assert.equal(response.headers.get("content-security-policy-report-only"), null, path);
+    const frameSources = policy.match(/(?:^|; )frame-src ([^;]+)/u)?.[1].split(/\s+/u);
+    assert.deepEqual(frameSources, ["http://localhost:1455/openai-oauth/installed"], `${path}: only the Firefox extension probe may be framed`);
+    nonces.add(nonce);
+
+    const html = await response.text();
+    const bootstrap = html.match(/<script\b([^>]*)>[^<]*relmio-color-mode[^<]*<\/script>/u);
+    assert.ok(bootstrap, `${path}: theme bootstrap`);
+    assert.ok(bootstrap[1].includes(`nonce="${nonce}"`), `${path}: bootstrap nonce`);
+    for (const [tag] of html.matchAll(/<script\b[^>]*>/gu)) {
+      assert.ok(tag.includes(`nonce="${nonce}"`), `${path}: ${tag}`);
+    }
+  }
+  assert.equal(nonces.size, paths.length, "each response gets its own nonce");
+});
+
 test("public pages use their own canonical and social URL despite tracking parameters", async () => {
   for (const path of ["/", "/install", "/docs", "/docs/security", "/changelog"]) {
     const response = await requestApp(`${path}?utm_source=check`);

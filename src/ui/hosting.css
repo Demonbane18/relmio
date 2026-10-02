@@ -261,9 +261,6 @@
 }
 
 .hosting-sources > a {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--rm-space-1);
   overflow-wrap: anywhere;
 }
 

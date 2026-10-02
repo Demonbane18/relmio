@@ -16,6 +16,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import styles from "./ChatConsole.module.css";
+import { holdDialogFocus } from "./dialogFocus";
 import { Callout } from "./ui/Callout";
 import { Icon } from "./ui/Icon";
 import {
@@ -148,6 +149,8 @@ export function ChatConsole({
   const isNearBottomRef = useRef(true);
   const requestSequenceRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const signInRef = useRef<HTMLSpanElement>(null);
+  const needsExtension = authStatus === "needs-extension";
   const transcriptRef = useRef<HTMLElement>(null);
   const streamFeedbackRef = useRef<ReturnType<typeof nextStreamFeedback>>({
     ...INITIAL_STREAM_FEEDBACK,
@@ -210,6 +213,16 @@ export function ChatConsole({
       activeRequestRef.current?.controller.abort();
     };
   }, []);
+
+  // The library's extension dialog has no keyboard handling of its own.
+  useEffect(() => {
+    if (!needsExtension) return;
+    const signIn = signInRef.current;
+    const dialog = signIn?.querySelector<HTMLElement>('[role="dialog"]');
+    const trigger = signIn?.querySelector<HTMLElement>(":scope > button");
+    if (!dialog || !trigger) return;
+    return holdDialogFocus(dialog, trigger);
+  }, [needsExtension]);
 
   function isCurrentRequest(requestId: string) {
     return activeRequestRef.current?.requestId === requestId;
@@ -445,35 +458,48 @@ export function ChatConsole({
       </div>
 
       <div className={styles.sessionBoundary} role="group" aria-label="Session boundary">
-        <SignInWithChatGPT
-          className="rm-button"
-          style={kitButtonStyle}
-          loadingLabel="Checking ChatGPT…"
-          redirectingLabel="Opening ChatGPT…"
-          signedInLabel="Sign out"
-          showLogo
-          onStateChange={(state) => {
-            setAuthStatus(state.status);
-            if (state.status === "signed-out") {
-              const active = activeRequestRef.current;
-              activeRequestRef.current = null;
-              active?.controller.abort();
-              inFlightRef.current = false;
-              isNearBottomRef.current = true;
-              streamFeedbackRef.current = { ...INITIAL_STREAM_FEEDBACK };
-              setInput("");
-              setTurns([]);
-              setIsLoading(false);
-              setShowJumpToLatest(false);
-              setStreamPhase("Ready");
-              setLocalError("");
-            } else if (state.status === "error") {
-              setLocalError(state.error.message);
-            } else if (state.status === "signed-in") {
-              setLocalError("");
-            }
-          }}
-        />
+        <span className={styles.signIn} ref={signInRef}>
+          <SignInWithChatGPT
+            className="rm-button"
+            style={kitButtonStyle}
+            loadingLabel="Checking ChatGPT…"
+            redirectingLabel="Opening ChatGPT…"
+            signedInLabel="Sign out"
+            showLogo
+            hideAttribution
+            onStateChange={(state) => {
+              setAuthStatus(state.status);
+              if (state.status === "signed-out") {
+                const active = activeRequestRef.current;
+                activeRequestRef.current = null;
+                active?.controller.abort();
+                inFlightRef.current = false;
+                isNearBottomRef.current = true;
+                streamFeedbackRef.current = { ...INITIAL_STREAM_FEEDBACK };
+                setInput("");
+                setTurns([]);
+                setIsLoading(false);
+                setShowJumpToLatest(false);
+                setStreamPhase("Ready");
+                setLocalError("");
+              } else if (state.status === "error") {
+                setLocalError(state.error.message);
+              } else if (state.status === "signed-in") {
+                setLocalError("");
+              }
+            }}
+          />
+          <a
+            className="rm-link rm-link--standalone rm-small"
+            href="https://github.com/EvanZhouDev/openai-oauth"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Powered by OpenAI OAuth
+            <Icon name="external" size="xs" />
+            <span className="rm-visually-hidden"> (opens in a new tab)</span>
+          </a>
+        </span>
         <p className={styles.boundaryCopy}>
           <Icon name="lock" size="sm" className={styles.boundaryIcon} />
           <span>

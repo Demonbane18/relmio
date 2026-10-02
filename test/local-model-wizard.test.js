@@ -190,7 +190,9 @@ test("VPS model confirms SSH identity then rejects unreviewed, stale and boundar
   const boundary = { containerName: selection.n8nContainerName, networkName: selection.networkName };
   assert.equal((await f.post("/api/ssh/connect", { host: "fixture.example", port: 22, username: "root", useAgent: false, privilege: "root", password: "fixture-only", expectedFingerprint: "SHA256:unverified" })).status, 400);
   assert.equal((await f.post("/api/vps/local-model/plan", { ...boundary, action: "install", modelId })).status, 400);
-  assert.equal((await f.get("/api/ssh/connection")).status, 400);
+  const notConnected = await f.get("/api/ssh/connection");
+  assert.equal(notConnected.status, 200);
+  assert.deepEqual(await notConnected.json(), { connected: false });
   await connectVps(f);
   const identity = await (await f.get("/api/ssh/connection")).json();
   assert.deepEqual(identity, { host: "fixture.example", port: 22, fingerprint: `SHA256:${"a".repeat(43)}`,
@@ -220,7 +222,10 @@ test("VPS model confirms SSH identity then rejects unreviewed, stale and boundar
   assert.equal(JSON.stringify(status).includes("must-not-escape"), false);
   assert.equal((await f.post("/api/vps/local-model/apply", { ...boundary, action: "install", planId: plan.planId, confirmed: true })).status, 400);
   assert.equal((await f.post("/api/disconnect", {})).status, 200);
-  assert.equal((await f.get("/api/ssh/connection")).status, 400);
+  const disconnected = await f.get("/api/ssh/connection");
+  assert.equal(disconnected.status, 200);
+  assert.deepEqual(await disconnected.json(), { connected: false });
+  assert.equal((await f.post("/api/vps/local-model/plan", { ...boundary, action: "install", modelId })).status, 400);
 });
 
 test("VPS cache removal can be reviewed after n8n discovery disappears but still needs both confirmations", async t => {

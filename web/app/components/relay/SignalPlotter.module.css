@@ -263,11 +263,7 @@
 }
 
 .guideLink {
-  display: inline-flex;
-  align-items: center;
   justify-self: start;
-  gap: var(--rm-space-1);
-  min-height: 1.5rem;
   font-size: var(--rm-text-md);
 }
 

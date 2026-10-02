@@ -252,21 +252,14 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.dashboard-service-title-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0 var(--rm-space-2);
+.dashboard-service-copy strong {
   font-size: var(--rm-text-md);
-}
-
-.dashboard-service-title-line strong {
   font-weight: 650;
 }
 
-.dashboard-boundary-token,
 .dashboard-service-copy small {
   color: var(--rm-ink-muted);
   font-size: var(--rm-text-xs);
@@ -349,9 +342,8 @@
   text-align: end;
 }
 
-/* Eight services fit on every fit screen: each row keeps its title and state
-   on one line each (the selected connection card shows the full text), and
-   the list scrolls only when zoom leaves less room than that. */
+/* Eight services fit on every fit screen. Rows keep their full text and wrap
+   when narrow; the list scrolls only when zoom leaves less room than that. */
 @media (min-width: 64rem) and (min-height: 37.5rem) {
   .dashboard-section {
     flex: 1 1 auto;
@@ -372,23 +364,6 @@
 
   .dashboard-service-row {
     flex-wrap: nowrap;
-  }
-
-  .dashboard-service-title-line {
-    flex-wrap: nowrap;
-    min-width: 0;
-  }
-
-  .dashboard-service-title-line > *,
-  .dashboard-service-copy small {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .dashboard-service-title-line strong {
-    flex: none;
-    max-width: 100%;
   }
 }
 
@@ -485,8 +460,9 @@
 }
 
 /* Status and safety notes follow the step panels in the DOM, so narrow
-   screens show the step title and actions first. From 1024px they sit in the
-   rail column under the stepper, as on /assistant. */
+   screens show the step title and actions first. The blocking error leads the
+   notes, so it sits right after the footer actions there. From 1024px they
+   sit in the rail column under the stepper, as on /assistant. */
 .setup-notes {
   display: flex;
   flex-direction: column;

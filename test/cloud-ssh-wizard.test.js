@@ -146,7 +146,7 @@ test("missing or mismatched transport metadata never becomes a root session", as
       } });
       await f.call("/api/ssh/fingerprint", { host: rootRequest.host, port: 22 });
       assert.equal((await f.call("/api/ssh/connect", rootRequest)).status, 400);
-      assert.equal((await f.call("/api/ssh/connection")).status, 400);
+      assert.deepEqual(await (await f.call("/api/ssh/connection")).json(), { connected: false });
       assert.equal(closed, true);
       assert.equal(f.credentialCalls(), 0);
     });

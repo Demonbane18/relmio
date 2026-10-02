@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 
-const canonicalOrigin = new URL("https://relmio.jpfusin.tech");
+export const canonicalOrigin = new URL("https://relmio.jpfusin.tech");
 const loopbackHost = /^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/iu;
 
 export async function requestOrigin() {

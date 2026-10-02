@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { ChatConsole } from "./components/ChatConsole";
 import { DoorwayHero } from "./components/relay/DoorwayHero";
@@ -5,7 +6,9 @@ import { SignalPlotter } from "./components/relay/SignalPlotter";
 import { Callout } from "./components/ui/Callout";
 import { classNames } from "./components/ui/classNames";
 import { Icon } from "./components/ui/Icon";
+import { creatorLinks } from "./components/ui/SiteFooter";
 import styles from "./page.module.css";
+import { canonicalOrigin } from "./request-origin";
 import site from "./site.module.css";
 
 const boundaries = [
@@ -44,9 +47,42 @@ function NewTabNote() {
   return <span className="rm-visually-hidden"> (opens in a new tab)</span>;
 }
 
-export default function Home() {
+const home = new URL("/", canonicalOrigin).href;
+const creatorId = `${home}#creator`;
+// Escaping "<" keeps the JSON from closing its script element.
+const structuredData = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      name: "Relmio",
+      url: home,
+      image: new URL("/relmio-icon.png", canonicalOrigin).href,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "macOS, Linux, Windows",
+      license: "https://www.apache.org/licenses/LICENSE-2.0",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      author: { "@id": creatorId },
+    },
+    {
+      "@type": "Person",
+      "@id": creatorId,
+      name: "John Paul Fusin",
+      sameAs: creatorLinks.map(({ href }) => href),
+    },
+  ],
+}).replace(/</gu, "\\u003c");
+
+export default async function Home() {
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <main id="main-content" className="rm-app__main" tabIndex={-1}>
+      <script
+        type="application/ld+json"
+        nonce={nonce}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{ __html: structuredData }}
+      />
       <section className={styles.hero} aria-labelledby="home-title">
         <div className={`rm-container ${styles.heroInner}`}>
           <div className={styles.intro}>
@@ -94,11 +130,13 @@ export default function Home() {
               the OAuth handoff. Install it for{" "}
               <a className="rm-link" href={chromeExtensionUrl} target="_blank" rel="noopener noreferrer">
                 Chrome
+                <Icon name="external" size="xs" className={styles.externalIcon} />
                 <NewTabNote />
               </a>{" "}
               or{" "}
               <a className="rm-link" href={firefoxExtensionUrl} target="_blank" rel="noopener noreferrer">
                 Firefox
+                <Icon name="external" size="xs" className={styles.externalIcon} />
                 <NewTabNote />
               </a>
               , reload this page, then connect again.
@@ -167,7 +205,7 @@ export default function Home() {
               The hosted chat is only a browser demo. Setup for n8n runs in the local wizard
               on your own computer.
             </p>
-            <Link className={`rm-link ${styles.safetyLink}`} href="/docs/security">
+            <Link className="rm-link rm-link--standalone" href="/docs/security">
               Read the security guide
               <Icon name="arrow-right" size="xs" />
             </Link>

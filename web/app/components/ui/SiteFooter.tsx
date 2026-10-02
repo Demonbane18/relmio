@@ -12,7 +12,7 @@ const productLinks = [
   { href: "https://github.com/Demonbane18/relmio", label: "GitHub", external: true },
 ] as const;
 
-const creatorLinks: ReadonlyArray<{ href: string; network: string; handle: string; icon: IconName }> = [
+export const creatorLinks: ReadonlyArray<{ href: string; network: string; handle: string; icon: IconName }> = [
   { href: "https://github.com/Demonbane18", network: "GitHub", handle: "Demonbane18", icon: "github" },
   { href: "https://x.com/fusheenn", network: "X", handle: "@fusheenn", icon: "brand-x" },
   {
@@ -84,6 +84,7 @@ export function SiteFooter() {
                 rel="noopener noreferrer"
               >
                 openai-oauth method by Evan Zhou Dev
+                <Icon name="external" size="xs" className={styles.externalIcon} />
                 <NewTabNote />
               </a>
               .
@@ -145,6 +146,7 @@ export function SiteFooter() {
             rel="noopener noreferrer"
           >
             Apache-2.0 license
+            <Icon name="external" size="xs" className={styles.externalIcon} />
             <NewTabNote />
           </a>
           .

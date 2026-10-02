@@ -43,7 +43,8 @@ CI. Edit only the source file.
 
 The wizard runs on the user's computer with a strict Content Security Policy:
 same-origin scripts, styles, fonts and images only, no inline styles or
-scripts, and `data:` images allowed. The web app runs on Vercel.
+scripts, and `data:` images allowed. The web app runs on Vercel with a
+per-request nonce policy; see the web implementation rules.
 
 ## The one-screen rule
 
@@ -218,13 +219,13 @@ caller in both apps.
 | App shell | `rm-app`, `rm-app--fit`, `rm-app__main`, `rm-split`, `rm-container` | Page frame; `rm-app--fit` applies the one-screen rule in the wizard and dashboard only |
 | Top bar | `rm-topbar`, `rm-brand`, `rm-nav`, `rm-menu`, `rm-topbar__actions` | Global navigation |
 | Sidebar | `rm-sidebar`, `rm-sidebar__link` | Views inside a page |
-| Stepper | `rm-stepper`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker` | Progress through a flow; `aria-current="step"`, `data-state="done"` |
+| Stepper | `rm-stepper`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker` | Progress through a flow; `aria-current="step"`, `data-state="done"`. In forced colors the current step is a ringed Highlight disc and a done step shows only its check |
 | Panel | `rm-panel`, `__header`, `__heading`, `__body`, `__footer` | The working surface of a view |
 | Card | `rm-card`, `--flat`, `--muted`, `--compact` | Grouped content |
 | Choice | `rm-choice` and its `__icon`, `__title`, `__text` | A selectable option row or card |
-| Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress |
+| Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress; `--sm` only for secondary controls |
 | Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name |
-| Link | `rm-link`, `--quiet` | Text links |
+| Link | `rm-link`, `--quiet`, `--standalone` | Text links; `--standalone` for a link outside a sentence |
 | Chip | `rm-chip`, `rm-chip__meta` | GitHub link with stars and version |
 | Field | `rm-field`, `__label`, `__hint`, `__error`, `rm-input`, `rm-select`, `rm-textarea`, `rm-form-grid`, `rm-fieldset` | Forms |
 | Check | `rm-check`, `--boxed`, `rm-check__hint` | Checkbox or radio with its label |
@@ -257,8 +258,18 @@ draws the X, LinkedIn, YouTube and Facebook brand marks from
 Component rules:
 
 - One primary button per view, in the panel footer or next to the field it
-  submits. Destructive actions use `rm-button--danger` and say what they
-  remove.
+  submits. The local dashboard uses Add connection; its management views use
+  Choose another connection. Row, detail and disclosure actions use the default
+  style. Destructive actions use `rm-button--danger` and say what they remove.
+- Primary and final destructive actions keep the standard 40 px size. Use
+  `rm-button--sm` (32 px) only for secondary controls such as copy, refresh
+  or show password.
+- A link that stands alone, outside a sentence, uses `rm-link--standalone` for
+  a 24 px target. Links inside a sentence keep their underline, including
+  `rm-link--quiet`.
+- A region that scrolls sideways, such as a wide table wrap or a code block,
+  takes `tabindex="0"`, a role and a name, so keyboard users can scroll it
+  and see the focus ring.
 - Every icon-only control has an accessible name. Decorative icons get
   `aria-hidden="true"`.
 - Choices are real controls: a `<button>` with `aria-pressed` or
@@ -399,6 +410,8 @@ characters per line. Use sentence case for headings, buttons and labels.
 - Focused or scrolled-to elements must clear sticky controls. On narrow
   screens the document reserves top-bar and footer space through scroll
   padding; check heading focus, skip links and both Tab directions on phones.
+- Modal dialogs move focus inside on open, keep Tab and Shift+Tab inside,
+  close on Escape through their cancel action, and return focus to the trigger.
 - Targets at least 24 x 24 px; primary controls 40 px or taller.
 - Do not disable zoom. Content reflows at 320 px wide without sideways
   scrolling.
@@ -430,6 +443,14 @@ Web (`web/`):
 - The root layout renders `SiteFooter` after every page. Keep its links and
   computed copyright year.
 - Keep install commands and security attributes exact; tests guard them.
+- `web/proxy.ts` sends a Content Security Policy with a fresh nonce on every
+  page: scripts need the nonce (`'strict-dynamic'`), styles may be inline,
+  and images, fonts and connections stay on the site, except the ChatGPT
+  token exchange at `https://auth.openai.com`. The only permitted frame is the
+  Firefox extension probe at `http://localhost:1455/openai-oauth/installed`;
+  do not broaden this to other loopback paths, ports or extension origins.
+  An inline `<script>` reads the nonce from the `x-nonce` request header;
+  never add `'unsafe-inline'` to `script-src`.
 
 ## Verification
 

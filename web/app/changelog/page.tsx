@@ -7,7 +7,7 @@ import { pageMetadata } from "../page-metadata";
 
 export const metadata = pageMetadata(
   "Changelog | Relmio",
-  "Read Relmio's published release notes, including setup changes, fixes and compatibility updates.",
+  "Read Relmio's published release notes for every version, including setup changes, fixes, compatibility updates and experimental prerelease builds.",
   "/changelog",
 );
 

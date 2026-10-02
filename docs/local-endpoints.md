@@ -1,10 +1,10 @@
 # Local Docker endpoints
 
 Relmio installs isolated provider runtimes for local apps and private
-companions for n8n. SuperGrok is a first-class local and VPS option with its own
-official device sign-in. It does not require or read ChatGPT credentials. The
-adapter remains experimental. The dashboard separates its local OAuth endpoints
-from the n8n and support options, including a provider-free local-model runtime.
+companions for n8n. SuperGrok has its own official device sign-in for local and
+VPS use. It does not require or read ChatGPT credentials. The adapter remains
+experimental. The dashboard separates its local OAuth endpoints from the n8n and
+support options, including a provider-free local-model runtime.
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|

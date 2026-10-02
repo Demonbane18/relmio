@@ -183,7 +183,7 @@ function renderSources(target, sources) {
   const links = sources.filter((source) => {
     try { return new URL(source.url).protocol === "https:"; } catch { return false; }
   }).map((source) => {
-    const link = node("a", source.label, "rm-link");
+    const link = node("a", source.label, "rm-link rm-link--standalone");
     link.href = source.url;
     link.target = "_blank";
     link.rel = "noopener noreferrer";

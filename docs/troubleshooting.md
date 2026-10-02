@@ -1,8 +1,9 @@
 # Troubleshooting
 
-Start with the symptom you see. Do not delete or rebuild n8n while you check
-the sidecar. Keep a working manual OAuth sidecar until the wizard-managed
-endpoint passes a real n8n request.
+Find the symptom you see in the sections or the symptom table below. Do not
+delete, restart or rebuild n8n while you check the sidecar. Keep a working
+manual OAuth sidecar until the wizard-managed endpoint passes a real n8n
+request.
 
 Always keep a current export or backup of your n8n workflows before using the
 wizard or any manual VPS command. The documented commands are sidecar-only and

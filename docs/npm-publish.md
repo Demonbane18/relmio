@@ -31,7 +31,7 @@ authoritative publication check.
 
 ## Stable and experimental release channels
 
-Relmio 0.18.0 is the current stable release and the npm `latest` version.
+Relmio 0.18.1 is the current stable release and the npm `latest` version.
 Hosted installers also use `latest`.
 
 For a future prerelease such as `0.x.y-experimental.N`, use that exact version
@@ -197,7 +197,7 @@ npm view "relmio@${LOCAL_VERSION}" \
   version dist.integrity dist.tarball \
   --registry=https://registry.npmjs.org
 test "$(npm view relmio dist-tags.latest \
-  --registry=https://registry.npmjs.org)" = "0.18.0"
+  --registry=https://registry.npmjs.org)" = "$LOCAL_VERSION"
 # For a future prerelease only:
 test "$(npm view relmio dist-tags.experimental \
   --registry=https://registry.npmjs.org)" = "$LOCAL_VERSION"

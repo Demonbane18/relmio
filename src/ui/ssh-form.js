@@ -43,7 +43,9 @@ export function validateSshIdentity(identity) {
 }
 
 export async function readSshIdentity(token, { allowModelOnly = false } = {}) {
-  const identity = validateSshIdentity(await sshRead(token, "/api/ssh/connection"));
+  const result = await sshRead(token, "/api/ssh/connection");
+  if (result?.connected === false) throw new Error("Connect to the VPS first.");
+  const identity = validateSshIdentity(result);
   if (!allowModelOnly && identity.scope !== "vps") {
     throw new Error("This connection is local-model-only (sudo -n). Use the Local model page, or disconnect and reconnect with a UID 0 account for this VPS flow.");
   }

@@ -1,8 +1,8 @@
 # VPS and n8n
 
 Relmio can add OAuth or local-model companions beside an existing n8n VPS. Each
-companion uses the selected existing Docker network and has a separate endpoint
-and lifecycle. SuperGrok does not require or read ChatGPT credentials.
+joins a selected existing Docker network with its own endpoint and lifecycle.
+SuperGrok does not require or read ChatGPT credentials.
 
 The VPS model setup is tested on Hostinger KVM VPS. Other Linux VPS hosts,
 including Hetzner, are experimental. Use the actual SSH username for your

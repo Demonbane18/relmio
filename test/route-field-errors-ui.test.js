@@ -141,6 +141,70 @@ test("manual model recovery rejects unsafe names and clears each field on correc
   assert.equal(state.manual, true);
 });
 
+test("local setup marks a rejected port invalid, links the error, and clears both on correction", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const helpersStart = script.indexOf("const LOCAL_PORT_REJECTION");
+  const helpersEnd = script.indexOf("\nfunction validateLocalN8nStackCredentials", helpersStart);
+  const handlersStart = script.indexOf("let reportingRejectedField");
+  const handlersEnd = script.indexOf('\nelement("local-port").addEventListener("input", invalidatePlan)', handlersStart);
+  assert.ok(helpersStart >= 0 && helpersEnd > helpersStart && handlersStart >= 0 && handlersEnd > handlersStart);
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, {
+      id, attributes: new Map(), handlers: new Map(), hidden: true, textContent: "",
+      type: "number", min: "1024", max: "65535", validity: { valueMissing: false },
+      getAttribute(name) { return this.attributes.get(name) ?? null; },
+      setAttribute(name, value) { this.attributes.set(name, value); },
+      removeAttribute(name) { this.attributes.delete(name); },
+      addEventListener(name, handler) { this.handlers.set(name, handler); },
+      closest() { return { querySelector: () => ({ textContent: " Port for this local connection " }) }; },
+      focus() {},
+    });
+    return nodes.get(id);
+  };
+  const describedByError = () => [...nodes.values()].filter((node) =>
+    (node.getAttribute("aria-describedby") ?? "").split(" ").includes("global-error-text"));
+  const timers = [];
+  const { showError } = runInNewContext(`${script.slice(helpersStart, helpersEnd)}\n${script.slice(handlersStart, handlersEnd)}\n({ showError });`, {
+    element, clearFieldError, setFieldError,
+    errorBox: element("global-error"), errorText: element("global-error-text"),
+    document: { querySelectorAll: describedByError, querySelector: () => describedByError()[0] ?? null },
+    window: { setTimeout: (callback) => timers.push(callback) },
+  });
+  const port = element("local-port");
+  const stackPort = element("n8n-stack-port");
+  port.setAttribute("aria-describedby", "local-port-help");
+  let prevented = 0;
+  const invalid = (target) => element("target-form").handlers.get("invalid")({ target, preventDefault() { prevented++; } });
+  // One validation pass rejects two fields: both lose the native bubble, and
+  // only the first is reported and linked, as the browser would.
+  invalid(port);
+  invalid(stackPort);
+  assert.equal(prevented, 2);
+  assert.equal(port.getAttribute("aria-invalid"), "true");
+  assert.equal(port.getAttribute("aria-describedby"), "local-port-help global-error-text");
+  assert.equal(stackPort.getAttribute("aria-invalid"), null);
+  assert.equal(element("global-error").hidden, false);
+  assert.ok(element("global-error-text").textContent.startsWith("Port for this local connection"));
+
+  element("target-form").handlers.get("input")({ target: port });
+  assert.equal(port.getAttribute("aria-invalid"), null);
+  assert.equal(port.getAttribute("aria-describedby"), "local-port-help");
+  assert.equal(element("global-error").hidden, true);
+
+  // The next submit reports again.
+  for (const run of timers.splice(0)) run();
+  invalid(stackPort);
+  assert.equal(stackPort.getAttribute("aria-invalid"), "true");
+
+  // A server-side port rejection marks the field; an unrelated error clears it.
+  showError(new Error("Local endpoint port must be between 1024 and 65535."));
+  assert.equal(port.getAttribute("aria-invalid"), "true");
+  showError(new Error("Docker is unavailable for local planning."));
+  assert.equal(port.getAttribute("aria-invalid"), null);
+  assert.equal(port.getAttribute("aria-describedby"), "local-port-help");
+});
+
 for (const file of ["supergrok-vps.js", "local-model-vps.js"]) {
   test(`${file} keeps live status outside the busy step while locking activation and leaving Tab free`, async () => {
     const script = await readFile(`src/ui/${file}`, "utf8");
