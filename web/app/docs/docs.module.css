@@ -1,9 +1,9 @@
 /*
  * Reading layout for /docs, /docs/[slug] and /changelog. Kit tokens only.
  *
- * From 1024 x 600 (the kit's viewport-fit shell) the sidebar stays put and the
- * reading pane is the only scroll container. Narrower or shorter windows stack
- * the page and scroll it normally; the sidebar becomes a disclosure.
+ * The page scrolls as a whole. From 1024 px wide the sidebar sits beside the
+ * reading column and stays in view while you read; narrower windows stack the
+ * page and turn the sidebar into a disclosure.
  */
 
 .layout {
@@ -244,7 +244,18 @@
 
 .indexHeader {
   display: grid;
-  gap: var(--rm-space-2);
+  justify-items: start;
+  gap: var(--rm-space-3);
+  padding-bottom: var(--rm-space-2);
+}
+
+.indexTitle {
+  color: var(--rm-ink);
+  font-family: var(--rm-font-display);
+  font-size: clamp(2.25rem, 1.4rem + 3vw, 3.75rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
 .guideGrid {
@@ -272,11 +283,16 @@
   background: var(--rm-surface);
   color: var(--rm-ink);
   text-decoration: none;
-  transition: border-color var(--rm-duration-fast) var(--rm-ease);
+  transition:
+    border-color var(--rm-duration-fast) var(--rm-ease),
+    box-shadow var(--rm-duration) var(--rm-ease),
+    transform var(--rm-duration) var(--rm-ease);
 }
 
 .guideCard:hover {
   border-color: var(--rm-accent-line);
+  box-shadow: var(--rm-shadow-md);
+  transform: translateY(-2px);
 }
 
 .guideCard .guideNumber {
@@ -373,9 +389,12 @@
   }
 
   .sidebar {
+    position: sticky;
+    top: var(--rm-topbar-height);
     display: flex;
+    align-self: start;
     gap: var(--rm-space-3);
-    padding-block: var(--rm-space-5);
+    padding-block: var(--rm-space-4);
   }
 
   .pane {
@@ -386,6 +405,14 @@
   .reading,
   .index {
     max-width: calc(var(--rm-content-width) - var(--rm-rail-width) - var(--rm-space-6) - var(--rm-space-8));
+  }
+}
+
+/* Short desktop windows: the sidebar is taller than the view, so it scrolls
+   with the page instead of pinning its lower links out of reach. */
+@media (min-width: 64rem) and (max-height: 40rem) {
+  .sidebar {
+    position: static;
   }
 }
 
@@ -405,33 +432,5 @@
     display: grid;
     gap: var(--rm-space-2);
     min-width: 0;
-  }
-}
-
-/* Viewport-fit shell: only the reading pane scrolls. */
-@media (min-width: 64rem) and (min-height: 37.5rem) {
-  .layout {
-    height: 100%;
-  }
-
-  .sidebar {
-    min-height: 0;
-    overflow-y: auto;
-  }
-
-  .pane {
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-  }
-
-  .outline {
-    top: 0;
-  }
-
-  .article,
-  .article :is(h1, h2, h3, h4),
-  .index {
-    scroll-margin-top: var(--rm-space-6);
   }
 }

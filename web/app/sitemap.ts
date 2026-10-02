@@ -4,6 +4,6 @@ import { requestOrigin } from "./request-origin";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const origin = await requestOrigin();
-  return ["/", "/chat", "/install", "/docs", "/changelog", ...documentationPages.map(({ slug }) => `/docs/${slug}`)]
+  return ["/", "/install", "/docs", "/changelog", ...documentationPages.map(({ slug }) => `/docs/${slug}`)]
     .map((path) => ({ url: new URL(path, origin).toString() }));
 }

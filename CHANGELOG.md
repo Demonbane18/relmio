@@ -7,6 +7,24 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Add a footer to every page of the hosted site with product links, the
+  creator's GitHub, X, LinkedIn, YouTube, Facebook and Ko-fi links, and the
+  copyright and license line.
+
+### Changed
+
+- The hosted site scrolls as a normal page again. The home page returns to
+  its hero, How it works, hosted chat and safety sections in the shared theme,
+  and `/chat` redirects to the chat section at `/#chat`. The one-screen layout
+  stays with the local wizard and dashboard.
+
+### Fixed
+
+- The GitHub chip's version follows the newest stable npm release within
+  minutes.
+
 ## [0.18.0] - 2026-10-01
 
 Relmio 0.18.0 brings private local models for n8n, wider VPS support and

@@ -48,7 +48,7 @@ managed endpoint or rebuild unrelated containers as a workaround.
 
 ## Hosted chat browser extension
 
-The hosted demo at [relmio.jpfusin.tech/chat](https://relmio.jpfusin.tech/chat) needs the
+The hosted demo at [relmio.jpfusin.tech/#chat](https://relmio.jpfusin.tech/#chat) needs the
 open-source **Sign in with ChatGPT** extension to complete the OAuth handoff:
 
 - [Install for Chrome](https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna)

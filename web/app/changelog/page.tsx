@@ -40,7 +40,7 @@ export default function ChangelogPage() {
             >
               <header className={styles.articleHeader}>
                 <p className="rm-eyebrow">Release notes</p>
-                <h1 className="rm-h1">What changed, in plain language.</h1>
+                <h1 className={styles.indexTitle}>What changed, in plain language.</h1>
                 <p className="rm-lede">
                   Every published release, newest first. This page reads{" "}
                   <code>CHANGELOG.md</code> from the repository, so both show the same

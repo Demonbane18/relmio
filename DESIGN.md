@@ -13,8 +13,10 @@ CI. Edit only the source file.
 
 ## Principles
 
-1. One screen, one job. Each view answers one question or completes one step,
-   and it fits the window at laptop size. The next action is always visible.
+1. One screen, one job in the wizard. Each wizard and dashboard view answers
+   one question or completes one step, and it fits the window at laptop size.
+   The next action is always visible. The hosted site is a scrolling page; see
+   [The hosted site](#the-hosted-site).
 2. Safety stays in sight. Warnings that change a decision are visible without a
    click. Background and technical detail sits behind a labelled disclosure.
 3. Same parts everywhere. A button, field, notice or top bar looks and behaves
@@ -33,9 +35,9 @@ CI. Edit only the source file.
 | Local dashboard | `src/ui/local.html` (`/local`) | See and manage connections on this computer |
 | Route wizards | `/supergrok-vps`, `/local-model-vps`, `/assistant` | Provider or companion setup on a server |
 | Hosting options | `/hosting` | Compare hosts and build a plan without remote changes |
-| Home | `web/app/page.tsx` (`/`) | Explain Relmio in one screen and start the install |
+| Home | `web/app/page.tsx` (`/`) | Explain Relmio, show the routes, host the chat demo and start the install |
 | Install | `/install` | Pick a terminal and copy the command |
-| Chat | `/chat` | Try the hosted chat demo |
+| Chat | `/#chat`, a section of the home page (`/chat` redirects there) | Try the hosted chat demo |
 | Docs | `/docs`, `/docs/[slug]` | Find and read a guide |
 | Changelog | `/changelog` | Read release notes |
 
@@ -45,15 +47,14 @@ scripts, and `data:` images allowed. The web app runs on Vercel.
 
 ## The one-screen rule
 
-Every wizard step, the dashboard views, and the web home, install and chat
-pages must show all of their controls and content without a page scrollbar or
-a panel scrollbar at these window sizes:
+This rule covers the local wizard and dashboard (`src/ui`) only. The hosted
+web app does not use it; see [The hosted site](#the-hosted-site).
+
+Every wizard step and dashboard view must show all of its controls and content
+without a page scrollbar or a panel scrollbar at these window sizes:
 
 - 1280 x 720, 1366 x 768, 1440 x 900 and 1920 x 1080
 - 1024 x 768
-
-Docs and changelog pages keep the top bar and side navigation fixed. Their
-article pane scrolls because long-form reading is the content.
 
 The rule covers every default, busy and error state. When a person opens an
 optional disclosure, the panel body may scroll; the footer actions stay
@@ -84,8 +85,40 @@ screen of every view shows its title and its primary action or first choice.
 Verify the rule by measuring, not by eye: at each target size,
 `document.documentElement.scrollHeight` must equal `innerHeight`, and no
 element with `overflow: auto` or `scroll` may have `scrollHeight` above its
-`clientHeight`, except a docs or changelog reading pane, a chat transcript or
-an activity log.
+`clientHeight`, except a chat transcript or an activity log.
+
+## The hosted site
+
+The web app in `web/` is a marketing and documentation site. It scrolls as a
+normal page and may be expressive, as long as it stays in the brand: the same
+tokens, kit components, top bar and themes as the wizard.
+
+- The root layout renders `rm-app` without `rm-app--fit`, then the top bar,
+  the page's `main` and the shared `SiteFooter`. Never lock a page to the
+  window height. Only the chat transcript keeps its own bounded scroll
+  region.
+- Home runs top to bottom: the hero with the Doorway scene, How it works
+  (`#how-it-works`), the hosted chat (`#chat`), the safety boundary
+  (`#security`), then the footer. Install, docs, changelog and the 404 page
+  follow the same rhythm: a large title, generous sections, the footer. Docs
+  and changelog keep their sidebar in view while the page scrolls.
+- Full-width bands carry the sections. A soft hill edge joins one band to the
+  next. The safety boundary is a night band that re-points the ink, accent
+  and focus tokens to the terminal values, which stay dark in both themes.
+- Depth comes from kit shadows and a tilted `--rm-accent-soft` sheet behind a
+  key surface, such as the scene, the chat console or the install toolbox.
+- Brand teal and cream are illustration accents only: the doorway and mascot,
+  and the teal wavy underline in the home headline. They never mark state.
+- Sections may rise into view with scroll-driven animation
+  (`animation-timeline: view()`). Content stays visible without support and
+  with reduced motion. Animate transform and opacity only.
+- Every page ends with the footer: brand and one-line description, product
+  links (Install, Docs, Changelog, Chat, npm, GitHub), the creator's profiles
+  with icon and visible handle, the openai-oauth credit and the line
+  `© <year> John Paul Fusin. Relmio is released under the Apache-2.0 license.`
+  The year is computed, never typed.
+- Pages never scroll sideways at 320 px, keep 24 px targets and AA contrast in
+  both themes, and hide decoration in forced colors.
 
 ## Layout
 
@@ -106,7 +139,8 @@ an activity log.
   holds long notices.
 - Below 1024 px the rail moves above the panel and the stepper turns
   horizontal (`rm-stepper--auto`).
-- Web pages without a rail use `rm-container` inside `rm-app__main`.
+- Web pages without a rail use `rm-container` inside `rm-app__main`, and
+  full-width bands put their content in an `rm-container`.
 - Below 64rem, the panel footer sticks to the bottom of the viewport while its
   panel scrolls past, with a surface fill, top divider and safe-area padding.
   Keep the desktop panel layout unchanged.
@@ -181,7 +215,7 @@ caller in both apps.
 
 | Component | Classes | Use |
 | --- | --- | --- |
-| App shell | `rm-app`, `rm-app--fit`, `rm-app__main`, `rm-split`, `rm-container` | Page frame and the one-screen rule |
+| App shell | `rm-app`, `rm-app--fit`, `rm-app__main`, `rm-split`, `rm-container` | Page frame; `rm-app--fit` applies the one-screen rule in the wizard and dashboard only |
 | Top bar | `rm-topbar`, `rm-brand`, `rm-nav`, `rm-menu`, `rm-topbar__actions` | Global navigation |
 | Sidebar | `rm-sidebar`, `rm-sidebar__link` | Views inside a page |
 | Stepper | `rm-stepper`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker` | Progress through a flow; `aria-current="step"`, `data-state="done"` |
@@ -215,7 +249,10 @@ external, coffee, copy, chevron-down, chevron-right, arrow-right, arrow-left,
 arrow-up-right, terminal, server, laptop, shield, lock, book, home, plug, key,
 activity, refresh, network, cloud, bot, message, search, box, star, download,
 help, list-checks, log-out, settings, github. Add an icon by appending its
-Lucide geometry to the token list in the kit and documenting it here.
+Lucide geometry to the token list in the kit and documenting it here. The
+hosted footer's social links are the only exception: the web `Icon` component
+draws the X, LinkedIn, YouTube and Facebook brand marks from
+`simple-icons@13.21.0` (CC0-1.0) as inline SVG.
 
 Component rules:
 
@@ -287,14 +324,16 @@ Light theme: pastel yellow surfaces, warm black ink, black primary buttons
 with yellow text. Dark theme: black surfaces with no green tint, warm white
 ink, yellow primary buttons with black text. Orange is only for warnings, red
 only for failures and destructive actions, green only for success. Teal
-appears only in the logo and mascot artwork. No purple AI gradients, neon
-glows, glass panels or decorative gradients.
+appears only in the logo and mascot artwork, plus the hosted site's
+illustration accents described above. No purple AI gradients, neon glows,
+glass panels or decorative gradients.
 
 ## Typography
 
 | Role | Family | Size | Weight |
 | --- | --- | --- | --- |
-| Display (web home headline) | Bricolage Grotesque | `--rm-text-display`, 36 to 60 px | 800 |
+| Display (web home headline) | Bricolage Grotesque | `--rm-text-display`, 36 to 60 px; the hosted home hero may reach 76 px | 800 |
+| Web page and section titles | Bricolage Grotesque | 30 to 72 px, set per page | 800 |
 | Page and step titles | Bricolage Grotesque | `--rm-text-h1`, 24 to 32 px | 760 |
 | Section titles | Geist | 20 px | 650 |
 | Body | Geist | 16 px | 400 |
@@ -327,6 +366,8 @@ characters per line. Use sentence case for headings, buttons and labels.
 - The home illustration may loop. It needs a visible pause control, pauses
   offscreen, and shows a complete still scene for reduced motion or missing
   SVG animation support.
+- Hosted-site sections may rise into view as they scroll in. With reduced
+  motion they are simply there.
 
 ## Copy
 
@@ -384,6 +425,10 @@ Web (`web/`):
 - Use the React components in `web/app/components/ui/`. They render the kit
   markup; add to them instead of creating new styling systems.
 - Page-specific styles go in a CSS module next to the page and use kit tokens.
+  Styles shared across site pages, such as section titles, hill edges and
+  scroll reveals, live in `app/site.module.css`.
+- The root layout renders `SiteFooter` after every page. Keep its links and
+  computed copyright year.
 - Keep install commands and security attributes exact; tests guard them.
 
 ## Verification
@@ -395,8 +440,10 @@ For each changed view, before handing off:
 2. Use one headless browser tab and close it afterwards. Do not drive the
    owner's personal browser for routine checks.
 3. Check 1280 x 720, 1440 x 900, 1024 x 768 and 390 x 844 in light and dark
-   themes. Measure the one-screen rule and horizontal overflow, check focus
-   order with the keyboard, and read the console.
+   themes. In the wizard and dashboard, measure the one-screen rule. On the
+   hosted site, check that the page scrolls naturally and add 320 px wide.
+   Everywhere, measure horizontal overflow, check focus order with the
+   keyboard, and read the console.
 4. Audit against the Front-End Checklist with the `frontend-checklist-global`
    skill. Report findings with rule ids.
 5. Run the affected root and web tests. Tests guard behavior, not class names
@@ -405,8 +452,9 @@ For each changed view, before handing off:
 ## Home illustration
 
 The home page keeps the Doorway scene: the green two-eyed mascot, its cream
-doorway, a VPS cloud and a local workshop, drawn as original vectors. It sits
-beside the headline and the install action, inside the one-screen layout.
+doorway, a VPS cloud and a local workshop, drawn as original vectors. It is
+the hero of the scrolling home page, a wide framed window below the headline
+and the install action.
 Preserve the original logo files exactly; the scene is separate artwork. Its
 backdrop follows the theme: pastel yellow sky and ochre hills by day, black
 sky and charcoal hills by night. Night mode may add a moon, stars, a lit

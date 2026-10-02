@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { pageMetadata } from "./page-metadata";
 import { preload } from "react-dom";
 import "./relmio-ui.css";
+import { SiteFooter } from "./components/ui/SiteFooter";
 import { TopBar } from "./components/ui/TopBar";
 import { Providers } from "./providers";
 import { requestOrigin } from "./request-origin";
@@ -40,12 +41,15 @@ export default function RootLayout({
       <body>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
         <Providers>
-          <div className="rm-app rm-app--fit">
+          {/* The hosted site scrolls as a normal page; the one-screen fit shell
+              (rm-app--fit) belongs to the local wizard only. */}
+          <div className="rm-app">
             <a className="rm-skip-link" href="#main-content">
               Skip to content
             </a>
             <TopBar />
             {children}
+            <SiteFooter />
           </div>
         </Providers>
       </body>

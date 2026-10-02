@@ -1,13 +1,16 @@
 import { preparedReleaseVersion } from "../../project-version";
 
 const fallbackVersion = preparedReleaseVersion;
-const cacheHeader = "public, s-maxage=900, stale-while-revalidate=3600";
+// The version must follow a new stable release within minutes, so the response
+// and the npm read are short-lived. Stars keep a longer cache: unauthenticated
+// GitHub API calls are rate-limited per server address.
+const cacheHeader = "public, s-maxage=60, stale-while-revalidate=60";
 
-async function fetchMetadata(url: string, headers?: HeadersInit) {
+async function fetchMetadata(url: string, revalidate: number, headers?: HeadersInit) {
   try {
     const response = await fetch(url, {
       headers,
-      next: { revalidate: 900 },
+      next: { revalidate },
     });
     return response.ok ? ((await response.json()) as unknown) : null;
   } catch {
@@ -21,11 +24,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export async function GET() {
   const [repositoryMetadata, packageMetadata] = await Promise.all([
-    fetchMetadata("https://api.github.com/repos/Demonbane18/relmio", {
+    fetchMetadata("https://api.github.com/repos/Demonbane18/relmio", 900, {
       Accept: "application/vnd.github+json",
       "User-Agent": "relmio-web",
     }),
-    fetchMetadata("https://registry.npmjs.org/relmio/latest"),
+    fetchMetadata("https://registry.npmjs.org/relmio/latest", 60),
   ]);
 
   let stars: number | null = null;
@@ -44,10 +47,8 @@ export async function GET() {
 
   if (isRecord(packageMetadata)) {
     const packageVersion = packageMetadata.version;
-    if (
-      typeof packageVersion === "string" &&
-      /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(packageVersion)
-    ) {
+    // npm `latest` is the stable channel; ignore anything that is not a plain release.
+    if (typeof packageVersion === "string" && /^\d+\.\d+\.\d+$/u.test(packageVersion)) {
       version = packageVersion;
     }
   }

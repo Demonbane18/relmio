@@ -1,0 +1,285 @@
+/* Shared site footer. A hill ridge with the doorway mascot leads into a muted
+   band; a large wordmark closes the page. Kit tokens only. */
+
+.footer {
+  position: relative;
+  isolation: isolate;
+  margin-top: var(--rm-space-16);
+  overflow: clip;
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-md);
+}
+
+.ridge {
+  position: relative;
+  height: 4.5rem;
+}
+
+.hills {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.hillBack {
+  fill: var(--rm-line);
+}
+
+.hillFront {
+  fill: var(--rm-surface-muted);
+}
+
+.mascot {
+  position: absolute;
+  right: max(var(--rm-gutter), 12%);
+  bottom: 0.75rem;
+  width: auto;
+  height: 4.25rem;
+  overflow: visible;
+}
+
+.doorway {
+  fill: var(--rm-brand-cream);
+  stroke: var(--rm-brand-pine);
+  stroke-linejoin: round;
+  stroke-width: 6;
+}
+
+.mascotBody {
+  fill: var(--rm-brand-teal);
+}
+
+.eyes {
+  fill: var(--rm-brand-cream);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.inner,
+.wordmark {
+  position: relative;
+}
+
+.inner {
+  display: grid;
+  gap: var(--rm-space-8);
+  padding-block: var(--rm-space-4) var(--rm-space-6);
+}
+
+/* The band behind the content, the copyright and the wordmark. */
+.footer::after {
+  position: absolute;
+  z-index: -1;
+  inset: calc(4.5rem - 1px) 0 0;
+  background: var(--rm-surface-muted);
+  content: "";
+}
+
+.grid {
+  display: grid;
+  gap: var(--rm-space-8) var(--rm-space-10);
+}
+
+.about {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: var(--rm-space-3);
+  max-width: 26rem;
+}
+
+.tagline {
+  color: var(--rm-ink);
+  font-size: var(--rm-text-base);
+  line-height: 1.5;
+}
+
+.credit {
+  font-size: var(--rm-text-sm);
+}
+
+.column {
+  display: grid;
+  align-content: start;
+  gap: var(--rm-space-3);
+  min-width: 0;
+}
+
+.columnTitle {
+  color: var(--rm-accent-ink);
+  font-family: var(--rm-font-mono);
+  font-size: var(--rm-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.linkList,
+.socialList {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.linkList {
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  gap: 0 var(--rm-space-8);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 2.25rem;
+  color: var(--rm-ink-muted);
+  font-weight: 560;
+  text-decoration: none;
+}
+
+.link:hover {
+  color: var(--rm-ink);
+  text-decoration: underline;
+}
+
+.socialList {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+  gap: var(--rm-space-1) var(--rm-space-4);
+}
+
+.social {
+  display: flex;
+  align-items: center;
+  gap: var(--rm-space-3);
+  min-height: 3rem;
+  margin-inline: calc(-1 * var(--rm-space-2));
+  padding: 0.375rem var(--rm-space-2);
+  border-radius: var(--rm-radius-md);
+  color: var(--rm-ink);
+  text-decoration: none;
+  transition: background-color var(--rm-duration-fast) var(--rm-ease);
+}
+
+.social:hover {
+  background: var(--rm-surface);
+}
+
+.socialIcon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--rm-line-strong);
+  border-radius: var(--rm-radius-md);
+  background: var(--rm-surface);
+  transition:
+    transform var(--rm-duration) var(--rm-ease),
+    border-color var(--rm-duration) var(--rm-ease);
+}
+
+.social:hover .socialIcon {
+  border-color: var(--rm-accent);
+  transform: translateY(-2px) rotate(-6deg);
+}
+
+.socialText {
+  display: grid;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.socialNetwork {
+  color: var(--rm-ink-subtle);
+  font-family: var(--rm-font-mono);
+  font-size: var(--rm-text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.socialHandle {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.copyright {
+  padding-top: var(--rm-space-4);
+  border-top: 1px solid var(--rm-line-strong);
+  font-size: var(--rm-text-sm);
+}
+
+/* Decorative closing wordmark; it bleeds past the bottom edge. */
+.wordmark {
+  margin-bottom: -0.2em;
+  color: var(--rm-line);
+  font-family: var(--rm-font-display);
+  font-size: clamp(4.5rem, 19vw, 11rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 0.8;
+  text-align: center;
+  user-select: none;
+}
+
+@media (min-width: 40rem) {
+  .grid {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+  }
+
+  .about {
+    grid-column: 1 / -1;
+  }
+
+  .linkList {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 64rem) {
+  .grid {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.6fr) minmax(0, 1.5fr);
+  }
+
+  .about {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .eyes {
+    /* One blink after the footer renders, then still (WCAG 2.2.2). */
+    animation: footer-blink 4s var(--rm-ease-in-out) 1;
+  }
+}
+
+@keyframes footer-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+
+@media (forced-colors: active) {
+  .ridge,
+  .wordmark {
+    display: none;
+  }
+
+  .copyright {
+    border-top-color: CanvasText;
+  }
+}
+
+@media print {
+  .ridge,
+  .wordmark {
+    display: none;
+  }
+}

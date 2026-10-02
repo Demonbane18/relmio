@@ -13,6 +13,10 @@ const nextConfig: NextConfig = {
       ],
     }];
   },
+  // The hosted chat lives on the home page again.
+  async redirects() {
+    return [{ source: "/chat", destination: "/#chat", permanent: true }];
+  },
   turbopack: {
     root: process.cwd(),
   },

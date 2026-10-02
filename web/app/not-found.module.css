@@ -1,0 +1,83 @@
+/* 404: an empty doorway beside the recovery links. Kit tokens only. */
+
+.page {
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  gap: var(--rm-space-8) var(--rm-space-12);
+  padding-block: clamp(3rem, 8vw, 6rem) 0;
+}
+
+.art {
+  width: min(14rem, 60%);
+  height: auto;
+}
+
+.shadow {
+  fill: var(--rm-line);
+}
+
+.doorway {
+  fill: var(--rm-brand-cream);
+  stroke: var(--rm-brand-pine);
+  stroke-linejoin: round;
+  stroke-width: 5;
+}
+
+.copy {
+  display: grid;
+  justify-items: start;
+  gap: var(--rm-space-4);
+}
+
+.title {
+  color: var(--rm-ink);
+  font-family: var(--rm-font-display);
+  font-size: clamp(2.5rem, 1.5rem + 3.6vw, 4.5rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rm-space-3);
+  margin-top: var(--rm-space-2);
+}
+
+@media (min-width: 48rem) {
+  .page {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    justify-items: stretch;
+  }
+
+  .art {
+    justify-self: end;
+    width: min(16rem, 100%);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .art {
+    /* Finite, under five seconds (WCAG 2.2.2). */
+    animation: doorway-sway 1.2s var(--rm-ease-in-out) 4 alternate;
+    transform-origin: 50% 100%;
+  }
+}
+
+@keyframes doorway-sway {
+  from {
+    transform: rotate(-2deg);
+  }
+
+  to {
+    transform: rotate(2deg);
+  }
+}
+
+@media (forced-colors: active) {
+  .art {
+    display: none;
+  }
+}
