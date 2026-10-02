@@ -7,6 +7,12 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.1] - 2026-10-02
+
+Relmio 0.18.1 returns the hosted site to its scrolling layout with a new
+footer, and fixes accessibility, keyboard and security-policy findings from
+a Front-End Checklist audit of the wizard and the site.
+
 ### Added
 
 - Add a footer to every page of the hosted site with product links, the
@@ -45,9 +51,11 @@ checks the registry separately after publication.
   response instead of logging an HTTP error. Connection-required operations
   still reject requests until the VPS is connected.
 - New-tab links in the hosted footer, extension installation callout, sign-in
-  dialog and local ngrok checklist show an external-link indicator.
+  dialog, sign-in credit and local ngrok checklist show an external-link
+  indicator and announce the new tab.
 - Docs, install, changelog and guide descriptions are unique, complete
-  summaries of 120 to 160 characters.
+  summaries of 120 to 160 characters that end at a full sentence, and the
+  FAQ opens with a short intro.
 - The GitHub chip's version follows the newest stable npm release within
   minutes.
 - Standalone links on the hosted site, including guide links, reference
@@ -70,13 +78,9 @@ checks the registry separately after publication.
   target.
 - Docs code blocks, wide docs tables and the wizard's hosting comparison
   table can be scrolled with the keyboard and show the focus ring.
-- The hosted chat's sign-in credit says it opens in a new tab and shows the
-  external-link icon.
 - The stars on the home page's night band stop twinkling within 5 seconds.
 - Browsers that ask for `/favicon.ico` or an Apple touch icon get the Relmio
   logo instead of a missing page.
-- Guide descriptions in search results end at a full sentence, and the FAQ
-  opens with a short intro.
 
 ## [0.18.0] - 2026-10-01
 
@@ -1376,6 +1380,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.18.1]: https://github.com/Demonbane18/relmio/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1
 [0.18.0-experimental.2]: https://github.com/Demonbane18/relmio/compare/v0.18.0-experimental.1...v0.18.0-experimental.2
