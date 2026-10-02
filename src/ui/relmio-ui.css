@@ -1311,6 +1311,23 @@ a.rm-chip:hover {
   }
 }
 
+/* From 1024 to 1279px panels are narrow, so their text wraps more. Fit
+   panels use slightly tighter chrome there to keep the step on one screen. */
+@media (min-width: 64rem) and (max-width: 79.99rem) and (min-height: 37.5rem) {
+  .rm-app--fit .rm-panel__header {
+    padding-block: var(--rm-space-4) var(--rm-space-2);
+  }
+
+  .rm-app--fit .rm-panel__body {
+    gap: var(--rm-space-3);
+    padding-bottom: var(--rm-space-4);
+  }
+
+  .rm-app--fit .rm-panel__footer {
+    padding-block: var(--rm-space-2);
+  }
+}
+
 @media (max-width: 40rem) {
   .rm-panel__header,
   .rm-panel__body,

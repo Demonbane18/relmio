@@ -466,14 +466,14 @@
 .setup-notes {
   display: flex;
   flex-direction: column;
-  gap: var(--rm-space-4);
+  gap: var(--rm-space-3);
   min-width: 0;
 }
 
 @media (min-width: 64rem) {
   .setup-shell {
     grid-template-rows: auto minmax(0, 1fr);
-    row-gap: var(--rm-space-4);
+    row-gap: var(--rm-space-3);
   }
 
   .setup-rail {
@@ -484,15 +484,23 @@
     grid-area: 1 / 2 / 3 / 3;
   }
 
+  /* The notes share the window-high rail with the stepper. An error longer
+     than the room left, or an opened disclosure, scrolls inside the notes so
+     the step panel and its footer actions stay put. The padding keeps the
+     focused error's outline inside the scroll box. */
   .setup-notes {
     grid-area: 2 / 1;
-    align-self: start;
+    min-height: 0;
+    margin: -0.25rem;
+    padding: 0.25rem;
+    overflow-y: auto;
   }
 }
 
 .setup-status {
   display: grid;
-  gap: var(--rm-space-3);
+  gap: var(--rm-space-2);
+  padding: var(--rm-space-3);
 }
 
 .docker-status {
@@ -523,7 +531,7 @@
 }
 
 .global-message {
-  padding-top: var(--rm-space-3);
+  padding-top: var(--rm-space-2);
   border-top: 1px solid var(--rm-line);
   overflow-wrap: anywhere;
 }
@@ -1558,15 +1566,6 @@ body[data-current-step="4"] .setup-shell {
     gap: var(--rm-space-3);
   }
 
-  .setup-status {
-    gap: var(--rm-space-2);
-    padding: var(--rm-space-3);
-  }
-
-  .global-message {
-    padding-top: var(--rm-space-2);
-  }
-
   .setup-safety {
     display: flex;
     flex-wrap: wrap;
@@ -1616,5 +1615,26 @@ body[data-current-step="4"] .setup-shell {
   .chat-tester-turn-waiting p::before,
   .chat-tester-stream-cursor::after {
     animation: none;
+  }
+}
+
+/* From 1024 to 1279px the review facts use tighter gaps, so long names
+   wrap less and the plan stays on one screen. */
+@media (min-width: 64rem) and (max-width: 79.99rem) {
+  .review-columns .review-details {
+    gap: 0.25rem var(--rm-space-4);
+  }
+
+  .review-columns .review-details > div:not([hidden]) {
+    column-gap: var(--rm-space-2);
+  }
+
+  /* The rail stepper beside the panel already marks the review step. */
+  .setup-panel[data-step="2"] .rm-panel__heading > .rm-eyebrow {
+    display: none;
+  }
+
+  .review-columns {
+    row-gap: var(--rm-space-1);
   }
 }

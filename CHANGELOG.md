@@ -7,6 +7,28 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.2] - 2026-10-03
+
+Relmio 0.18.2 fits the remaining wizard steps on one screen at laptop and
+desktop sizes, including SSH sign-in, review, install and failure states.
+
+### Fixed
+
+- On `/local` and `/assistant`, a long error or an opened rail disclosure no
+  longer makes the whole window scroll. The rail notes scroll on their own
+  and the step panel keeps its actions in view. The rejected-port error with
+  "This computer only" open and every local install failure now fit at
+  1024 x 768, 1280 x 720 and 1366 x 768.
+- The `/local` rail shows the ChatGPT credential copy only for ChatGPT for
+  n8n, and `/assistant` shows the verified server once on the review step.
+- Wizard steps that overflowed at 1024 px now fit on one screen: the home
+  Assistant result and install-failure error, `/assistant` while installing,
+  the `/local` review, the `/supergrok-vps` server check, the
+  `/local-model-vps` removal review and long `/hosting` detail forms. Fit
+  panels use slightly tighter padding from 1024 to 1279 px, the home error
+  takes a full-width row under the step title there, and the home Assistant
+  result says its settings note once.
+
 ## [0.18.1] - 2026-10-02
 
 Relmio 0.18.1 returns the hosted site to its scrolling layout with a new
@@ -1380,6 +1402,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.18.2]: https://github.com/Demonbane18/relmio/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/Demonbane18/relmio/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1

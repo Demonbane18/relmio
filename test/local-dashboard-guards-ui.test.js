@@ -10,7 +10,7 @@ const between = (text, start, end) => {
   return text.slice(from, to);
 };
 const footerHelpers = (script) => [
-  between(script, "function isN8nLocalModel(target)", "\nfunction isN8nAssistant"),
+  between(script, "function isN8nSidecar(target)", "\nfunction isN8nAssistant"),
   between(script, "function renderFooterForTarget(target)", "\nfunction renderTarget"),
 ].join("\n");
 const snapshot = () => ({ generatedAt: "2026-09-05T00:00:00.000Z", services: [

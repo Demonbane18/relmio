@@ -386,3 +386,22 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* From 1024 to 1279px: a tighter shell and five narrower field columns keep
+   long plan forms on one screen. */
+@media (min-width: 64rem) and (max-width: 79.99rem) {
+  .hosting-shell {
+    gap: var(--rm-space-2);
+    padding-block: var(--rm-space-1);
+  }
+
+  .hosting-fields {
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 11rem), 1fr));
+    gap: var(--rm-space-2) var(--rm-space-3);
+  }
+
+  .hosting-view .rm-panel__header {
+    padding-top: var(--rm-space-2);
+    padding-bottom: var(--rm-space-2);
+  }
+}

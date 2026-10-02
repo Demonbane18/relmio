@@ -234,11 +234,45 @@ body[data-current-step="5"] [data-step-actions="5"] {
   }
 }
 
-/* At 1024px the header is narrow, so the error takes the place of the step
-   label and hint while it shows. */
+/* From 1024 to 1279px the header is narrow, so the error takes its own
+   full-width row under the step title, and the step label and hint step
+   aside while it shows. */
 @media (min-width: 64rem) and (max-width: 79.99rem) {
+  .setup-panel {
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  .setup-step > .rm-panel__header {
+    grid-area: 1 / 1 / 2 / 3;
+  }
+
+  .setup-step > :not(.rm-panel__header) {
+    grid-area: 3 / 1 / 4 / 3;
+  }
+
+  .setup-error {
+    grid-area: 2 / 1 / 3 / 3;
+    width: auto;
+    margin: 0 var(--rm-space-6) var(--rm-space-1);
+  }
+
+  .setup-footer {
+    grid-area: 4 / 1 / 5 / 3;
+  }
+
   .setup-panel:has(> .setup-error:not([hidden])) .rm-panel__heading > :not(.rm-h1) {
     display: none;
+  }
+
+  .setup-panel:has(> .setup-error:not([hidden])) .setup-step > .rm-panel__header {
+    padding-bottom: 0;
+  }
+
+  /* The status line takes its own row above the actions while an error shows,
+     instead of wrapping into a tall column between the buttons. */
+  .setup-panel:has(> .setup-error:not([hidden])) .setup-message {
+    order: -1;
+    flex-basis: 100%;
   }
 }
 
@@ -582,6 +616,24 @@ body[data-current-step="5"] [data-step-actions="5"] {
 .setup-assistant-result {
   display: grid;
   gap: var(--rm-space-3);
+}
+
+/* The values stack label over value, so long URLs and keys get the full
+   column width instead of the space left beside a long label. */
+.setup-assistant-result .setup-values {
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: 0.125rem;
+}
+
+.setup-assistant-result .setup-values dd {
+  margin-bottom: var(--rm-space-2);
+}
+
+/* The stacked values need less width than the settings block. */
+@media (min-width: 64rem) {
+  .setup-assistant-result .setup-results {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
 }
 
 /* Narrow screens --------------------------------------------------------- */
