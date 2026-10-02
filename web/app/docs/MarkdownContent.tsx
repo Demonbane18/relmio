@@ -34,10 +34,28 @@ function headingId(children: ReactNode) {
   return slugify(nodeText(children)) || undefined;
 }
 
+/** Header cells of a Markdown table, joined into the name of its scroll
+    region, so several tables on one page get distinct names. */
+function tableLabel(table: HastElement | undefined) {
+  const cells: string[] = [];
+  const text = (node: HastElement["children"][number]): string =>
+    node.type === "text" ? node.value : node.type === "element" ? node.children.map(text).join("") : "";
+  const visit = (parent: HastElement) => {
+    for (const child of parent.children) {
+      if (child.type !== "element") continue;
+      if (child.tagName === "th") cells.push(text(child).trim());
+      else visit(child);
+    }
+  };
+  if (table) visit(table);
+  return cells.length > 0 ? `Table: ${cells.join(", ")}` : "Table";
+}
+
 const sharedComponents: Components = {
   pre: ({ children }) => <CopyableCodeBlock>{children}</CopyableCodeBlock>,
-  table: ({ children }) => (
-    <div className="rm-table-wrap">
+  // Wide tables scroll sideways; the region takes focus so keyboards can scroll it.
+  table: ({ node, children }) => (
+    <div className="rm-table-wrap" tabIndex={0} role="region" aria-label={tableLabel(node)}>
       <table className="rm-table">{children}</table>
     </div>
   ),

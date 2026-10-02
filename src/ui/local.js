@@ -1565,9 +1565,10 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
   };
   const button = document.createElement("button");
   button.type = "button";
-  // Primary actions keep the standard 40 px size; the rest stay compact.
+  // Add connection is the view's one primary button. Setup, resume and sign-in
+  // keep the standard 40 px size in the default style; the rest stay compact.
   button.className = ["setup", "resume", "sign-in-chatgpt", "sign-in-grok-build"].includes(action)
-    ? "rm-button rm-button--primary"
+    ? "rm-button"
     : "rm-button rm-button--sm";
   button.dataset.dashboardService = service.target;
   button.dataset.dashboardAction = action;

@@ -12,6 +12,8 @@ checks the registry separately after publication.
 - Add a footer to every page of the hosted site with product links, the
   creator's GitHub, X, LinkedIn, YouTube, Facebook and Ko-fi links, and the
   copyright and license line.
+- The hosted home page describes Relmio and its creator to search engines
+  with structured data.
 
 ### Changed
 
@@ -19,6 +21,13 @@ checks the registry separately after publication.
   its hero, How it works, hosted chat and safety sections in the shared theme,
   and `/chat` redirects to the chat section at `/#chat`. The one-screen layout
   stays with the local wizard and dashboard.
+- The hosted site now enforces a Content Security Policy with a fresh nonce
+  on every page. Only the site's own scripts run, and the browser connects
+  only to the site and to `auth.openai.com` for ChatGPT sign-in. HSTS now
+  covers subdomains.
+- The local dashboard's Connections view has one primary button, Add
+  connection. Setup, resume and sign-in actions in rows and the detail card
+  keep the 40 px size in the default style.
 
 ### Fixed
 
@@ -37,6 +46,20 @@ checks the registry separately after publication.
 - A rejected port, or another rejected first-step field, on the local setup
   page is marked invalid and linked to the visible error until you correct
   it.
+- On narrow screens, a blocking error on the local setup page sits right
+  after the step's footer buttons instead of below the Docker status.
+- Standalone wizard links, including Compare hosting routes, the server setup
+  links, hosting sources and the local troubleshooting link, have a 24 px
+  target.
+- Docs code blocks, wide docs tables and the wizard's hosting comparison
+  table can be scrolled with the keyboard and show the focus ring.
+- The hosted chat's sign-in credit says it opens in a new tab and shows the
+  external-link icon.
+- The stars on the home page's night band stop twinkling within 5 seconds.
+- Browsers that ask for `/favicon.ico` or an Apple touch icon get the Relmio
+  logo instead of a missing page.
+- Guide descriptions in search results end at a full sentence, and the FAQ
+  opens with a short intro.
 
 ## [0.18.0] - 2026-10-01
 

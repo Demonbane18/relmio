@@ -43,7 +43,8 @@ CI. Edit only the source file.
 
 The wizard runs on the user's computer with a strict Content Security Policy:
 same-origin scripts, styles, fonts and images only, no inline styles or
-scripts, and `data:` images allowed. The web app runs on Vercel.
+scripts, and `data:` images allowed. The web app runs on Vercel with a
+per-request nonce policy; see the web implementation rules.
 
 ## The one-screen rule
 
@@ -257,14 +258,18 @@ draws the X, LinkedIn, YouTube and Facebook brand marks from
 Component rules:
 
 - One primary button per view, in the panel footer or next to the field it
-  submits. Destructive actions use `rm-button--danger` and say what they
-  remove.
+  submits. On the local dashboard, Add connection is that button for every
+  view, so row and detail actions use the default style. Destructive actions
+  use `rm-button--danger` and say what they remove.
 - Primary and final destructive actions keep the standard 40 px size. Use
   `rm-button--sm` (32 px) only for secondary controls such as copy, refresh
   or show password.
 - A link that stands alone, outside a sentence, uses `rm-link--standalone` for
   a 24 px target. Links inside a sentence keep their underline, including
   `rm-link--quiet`.
+- A region that scrolls sideways, such as a wide table wrap or a code block,
+  takes `tabindex="0"`, a role and a name, so keyboard users can scroll it
+  and see the focus ring.
 - Every icon-only control has an accessible name. Decorative icons get
   `aria-hidden="true"`.
 - Choices are real controls: a `<button>` with `aria-pressed` or
@@ -436,6 +441,12 @@ Web (`web/`):
 - The root layout renders `SiteFooter` after every page. Keep its links and
   computed copyright year.
 - Keep install commands and security attributes exact; tests guard them.
+- `web/proxy.ts` sends a Content Security Policy with a fresh nonce on every
+  page: scripts need the nonce (`'strict-dynamic'`), styles may be inline,
+  and images, fonts and connections stay on the site, except the ChatGPT
+  token exchange at `https://auth.openai.com`. An inline `<script>` reads the
+  nonce from the `x-nonce` request header; never add `'unsafe-inline'` to
+  `script-src`.
 
 ## Verification
 

@@ -460,8 +460,9 @@
 }
 
 /* Status and safety notes follow the step panels in the DOM, so narrow
-   screens show the step title and actions first. From 1024px they sit in the
-   rail column under the stepper, as on /assistant. */
+   screens show the step title and actions first. The blocking error leads the
+   notes, so it sits right after the footer actions there. From 1024px they
+   sit in the rail column under the stepper, as on /assistant. */
 .setup-notes {
   display: flex;
   flex-direction: column;

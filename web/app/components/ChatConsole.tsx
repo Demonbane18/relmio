@@ -445,35 +445,48 @@ export function ChatConsole({
       </div>
 
       <div className={styles.sessionBoundary} role="group" aria-label="Session boundary">
-        <SignInWithChatGPT
-          className="rm-button"
-          style={kitButtonStyle}
-          loadingLabel="Checking ChatGPT…"
-          redirectingLabel="Opening ChatGPT…"
-          signedInLabel="Sign out"
-          showLogo
-          onStateChange={(state) => {
-            setAuthStatus(state.status);
-            if (state.status === "signed-out") {
-              const active = activeRequestRef.current;
-              activeRequestRef.current = null;
-              active?.controller.abort();
-              inFlightRef.current = false;
-              isNearBottomRef.current = true;
-              streamFeedbackRef.current = { ...INITIAL_STREAM_FEEDBACK };
-              setInput("");
-              setTurns([]);
-              setIsLoading(false);
-              setShowJumpToLatest(false);
-              setStreamPhase("Ready");
-              setLocalError("");
-            } else if (state.status === "error") {
-              setLocalError(state.error.message);
-            } else if (state.status === "signed-in") {
-              setLocalError("");
-            }
-          }}
-        />
+        <span className={styles.signIn}>
+          <SignInWithChatGPT
+            className="rm-button"
+            style={kitButtonStyle}
+            loadingLabel="Checking ChatGPT…"
+            redirectingLabel="Opening ChatGPT…"
+            signedInLabel="Sign out"
+            showLogo
+            hideAttribution
+            onStateChange={(state) => {
+              setAuthStatus(state.status);
+              if (state.status === "signed-out") {
+                const active = activeRequestRef.current;
+                activeRequestRef.current = null;
+                active?.controller.abort();
+                inFlightRef.current = false;
+                isNearBottomRef.current = true;
+                streamFeedbackRef.current = { ...INITIAL_STREAM_FEEDBACK };
+                setInput("");
+                setTurns([]);
+                setIsLoading(false);
+                setShowJumpToLatest(false);
+                setStreamPhase("Ready");
+                setLocalError("");
+              } else if (state.status === "error") {
+                setLocalError(state.error.message);
+              } else if (state.status === "signed-in") {
+                setLocalError("");
+              }
+            }}
+          />
+          <a
+            className="rm-link rm-link--standalone rm-small"
+            href="https://github.com/EvanZhouDev/openai-oauth"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Powered by OpenAI OAuth
+            <Icon name="external" size="xs" />
+            <span className="rm-visually-hidden"> (opens in a new tab)</span>
+          </a>
+        </span>
         <p className={styles.boundaryCopy}>
           <Icon name="lock" size="sm" className={styles.boundaryIcon} />
           <span>

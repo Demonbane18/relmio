@@ -108,6 +108,11 @@
   white-space: pre;
 }
 
+/* The terminal clips overflow, so the focus ring sits inside the block. */
+.codeBlock > pre:focus-visible {
+  outline-offset: -3px;
+}
+
 /* Previous and next guide. */
 .pager {
   display: grid;

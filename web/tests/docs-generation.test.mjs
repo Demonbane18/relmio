@@ -146,7 +146,7 @@ test("links every changelog release to the id its rendered heading gets", () => 
   assert.equal(releaseId("[0.18.0-experimental.2] - 2026-09-28"), "v0-18-0-experimental-2");
 });
 
-test("summarizes a guide from its first prose paragraph at a word boundary", () => {
+test("summarizes a guide with the full sentences of its first prose paragraph that fit", () => {
   const summary = guideSummary(
     [
       "# Guide",
@@ -159,7 +159,16 @@ test("summarizes a guide from its first prose paragraph at a word boundary", () 
   );
 
   assert.ok(summary.startsWith("Relmio connects local tools to n8n."));
-  assert.ok(summary.endsWith("…"));
+  assert.ok(summary.endsWith("here."), summary);
+  assert.ok(summary.length <= 160);
+  // Every whole sentence that fits is kept.
+  assert.ok(summary.length > 160 - "More words follow here. ".length, summary);
+});
+
+test("cuts a guide summary at a word boundary when no sentence fits", () => {
+  const summary = guideSummary(`${"Relmio keeps every credential where it belongs ".repeat(5)}today.`);
+
+  assert.ok(summary.endsWith("…"), summary);
   assert.ok(summary.length <= 161);
   assert.doesNotMatch(summary, / …$/u);
 });

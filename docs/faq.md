@@ -1,5 +1,8 @@
 # Frequently asked questions
 
+Answers to common questions about ChatGPT and SuperGrok sign-in, private local
+models, network exposure, and whether Relmio changes your n8n deployment.
+
 ## Does a ChatGPT plan include a Platform API key?
 
 No. ChatGPT sign-in does not create an OpenAI Platform API key. Managed

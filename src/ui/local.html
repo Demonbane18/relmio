@@ -397,9 +397,9 @@
                       <summary>Set up on a server instead</summary>
                       <div class="rm-disclosure__body">
                         <nav class="local-route-context" aria-label="Server setup choices">
-                          <a id="local-route-vps-openai" class="rm-link local-route-context__link">OpenAI OAuth on a server (VPS)</a>
-                          <a id="local-route-vps-supergrok" class="rm-link local-route-context__link">SuperGrok on a server (VPS)</a>
-                          <a id="local-route-vps-model" class="rm-link local-route-context__link">Local model on a server (VPS)</a>
+                          <a id="local-route-vps-openai" class="rm-link rm-link--standalone local-route-context__link">OpenAI OAuth on a server (VPS)</a>
+                          <a id="local-route-vps-supergrok" class="rm-link rm-link--standalone local-route-context__link">SuperGrok on a server (VPS)</a>
+                          <a id="local-route-vps-model" class="rm-link rm-link--standalone local-route-context__link">Local model on a server (VPS)</a>
                         </nav>
                       </div>
                     </details>
@@ -1428,19 +1428,6 @@
         </div>
 
         <aside class="setup-notes" aria-label="Local setup status and safety">
-          <div class="rm-card rm-card--muted rm-card--compact setup-status">
-            <div class="docker-status" aria-live="polite">
-              <span id="docker-indicator" class="rm-status__dot status-dot" aria-hidden="true"></span>
-              <div>
-                <strong id="docker-status-title">Checking Docker…</strong>
-                <p id="docker-status-detail">Looking for Docker Engine and Compose.</p>
-              </div>
-            </div>
-            <div id="global-message" class="global-message" role="status" aria-live="polite">
-              <span id="global-message-text">Checking local Docker…</span>
-            </div>
-          </div>
-
           <div
             id="global-error"
             class="rm-callout rm-callout--danger global-error"
@@ -1453,12 +1440,24 @@
               <span id="global-error-text"></span>
               <a
                 id="local-image-build-troubleshooting"
-                class="rm-link"
+                class="rm-link rm-link--standalone"
                 href="https://relmio.jpfusin.tech/docs/troubleshooting#local-image-build-failed"
                 target="_blank"
                 rel="noopener noreferrer"
                 hidden
-              >View troubleshooting<span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+              >View troubleshooting<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+            </div>
+          </div>
+          <div class="rm-card rm-card--muted rm-card--compact setup-status">
+            <div class="docker-status" aria-live="polite">
+              <span id="docker-indicator" class="rm-status__dot status-dot" aria-hidden="true"></span>
+              <div>
+                <strong id="docker-status-title">Checking Docker…</strong>
+                <p id="docker-status-detail">Looking for Docker Engine and Compose.</p>
+              </div>
+            </div>
+            <div id="global-message" class="global-message" role="status" aria-live="polite">
+              <span id="global-message-text">Checking local Docker…</span>
             </div>
           </div>
 

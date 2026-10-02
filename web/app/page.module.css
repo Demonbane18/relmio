@@ -257,9 +257,10 @@
     animation: hero-rise 800ms var(--rm-ease) 100ms both;
   }
 
-  /* Finite, under five seconds (WCAG 2.2.2), then the stars hold still. */
+  /* Four 1 s runs plus the 0.6 s odd-star delay end by 4.6 s, under five
+     seconds (WCAG 2.2.2). The even count leaves each star fully opaque. */
   .star {
-    animation: twinkle 1.2s var(--rm-ease-in-out) 4 alternate;
+    animation: twinkle 1s var(--rm-ease-in-out) 4 alternate;
   }
 
   .star:nth-child(odd) {

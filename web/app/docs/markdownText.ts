@@ -141,7 +141,8 @@ export function changelogReleases(markdown: string): ReleaseSeries[] {
 
 const summaryLength = 160;
 
-/** First prose paragraph of a guide, as plain text, cut at a word boundary. */
+/** First prose paragraph of a guide, as plain text: the full sentences that
+    fit in 160 characters, or a word cut with an ellipsis when none fits. */
 export function guideSummary(markdown: string) {
   let paragraph: string[] = [];
   let fence: string | null = null;
@@ -172,6 +173,8 @@ export function guideSummary(markdown: string) {
   const text = inlineText(summary || "Open the main Relmio guide.");
   if (text.length <= summaryLength) return text;
 
+  const sentences = text.slice(0, summaryLength + 1).match(/^.*[.!?](?=\s)/u)?.[0];
+  if (sentences) return sentences;
   const cut = text.lastIndexOf(" ", summaryLength);
   return `${text.slice(0, cut > 0 ? cut : summaryLength).replace(/[,;:.]$/u, "")}…`;
 }

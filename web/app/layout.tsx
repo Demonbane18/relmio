@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { pageMetadata } from "./page-metadata";
 import { preload } from "react-dom";
 import "./relmio-ui.css";
@@ -22,24 +23,30 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: "Relmio",
     keywords: ["ai", "n8n", "oauth", "local tools", "model relay"],
     icons: {
-      icon: "/relmio-icon-rounded.svg",
-      shortcut: "/relmio-icon-rounded.svg",
+      icon: [
+        { url: "/relmio-icon-rounded.svg", type: "image/svg+xml" },
+        { url: "/relmio-icon-96.png", type: "image/png", sizes: "96x96" },
+      ],
+      apple: "/relmio-icon.png",
     },
   };
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // proxy.ts sets the per-request nonce that the Content Security Policy allows.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   preload("/fonts/geist-latin.woff2", { as: "font", type: "font/woff2", crossOrigin: "anonymous" });
   preload("/fonts/bricolage-grotesque-latin.woff2", { as: "font", type: "font/woff2", crossOrigin: "anonymous" });
 
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+        {/* Browsers hide nonce values from the DOM, so hydration cannot compare them. */}
+        <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
         <Providers>
           {/* The hosted site scrolls as a normal page; the one-screen fit shell
               (rm-app--fit) belongs to the local wizard only. */}
