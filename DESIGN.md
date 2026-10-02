@@ -218,13 +218,13 @@ caller in both apps.
 | App shell | `rm-app`, `rm-app--fit`, `rm-app__main`, `rm-split`, `rm-container` | Page frame; `rm-app--fit` applies the one-screen rule in the wizard and dashboard only |
 | Top bar | `rm-topbar`, `rm-brand`, `rm-nav`, `rm-menu`, `rm-topbar__actions` | Global navigation |
 | Sidebar | `rm-sidebar`, `rm-sidebar__link` | Views inside a page |
-| Stepper | `rm-stepper`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker` | Progress through a flow; `aria-current="step"`, `data-state="done"` |
+| Stepper | `rm-stepper`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker` | Progress through a flow; `aria-current="step"`, `data-state="done"`. In forced colors the current step is a ringed Highlight disc and a done step shows only its check |
 | Panel | `rm-panel`, `__header`, `__heading`, `__body`, `__footer` | The working surface of a view |
 | Card | `rm-card`, `--flat`, `--muted`, `--compact` | Grouped content |
 | Choice | `rm-choice` and its `__icon`, `__title`, `__text` | A selectable option row or card |
-| Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress |
+| Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress; `--sm` only for secondary controls |
 | Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name |
-| Link | `rm-link`, `--quiet` | Text links |
+| Link | `rm-link`, `--quiet`, `--standalone` | Text links; `--standalone` for a link outside a sentence |
 | Chip | `rm-chip`, `rm-chip__meta` | GitHub link with stars and version |
 | Field | `rm-field`, `__label`, `__hint`, `__error`, `rm-input`, `rm-select`, `rm-textarea`, `rm-form-grid`, `rm-fieldset` | Forms |
 | Check | `rm-check`, `--boxed`, `rm-check__hint` | Checkbox or radio with its label |
@@ -259,6 +259,12 @@ Component rules:
 - One primary button per view, in the panel footer or next to the field it
   submits. Destructive actions use `rm-button--danger` and say what they
   remove.
+- Primary and final destructive actions keep the standard 40 px size. Use
+  `rm-button--sm` (32 px) only for secondary controls such as copy, refresh
+  or show password.
+- A link that stands alone, outside a sentence, uses `rm-link--standalone` for
+  a 24 px target. Links inside a sentence keep their underline, including
+  `rm-link--quiet`.
 - Every icon-only control has an accessible name. Decorative icons get
   `aria-hidden="true"`.
 - Choices are real controls: a `<button>` with `aria-pressed` or

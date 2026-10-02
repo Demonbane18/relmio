@@ -24,6 +24,19 @@ checks the registry separately after publication.
 
 - The GitHub chip's version follows the newest stable npm release within
   minutes.
+- Standalone links on the hosted site, including guide links, reference
+  lists in the docs and the sign-in attribution, have at least a 24 px
+  target. Quiet links keep their underline inside sentences.
+- Primary and removal buttons on the local dashboard use the standard 40 px
+  size.
+- In Windows high contrast and other forced-color modes, the stepper shows
+  the current step as a filled, ringed disc and finished steps as a check.
+- Local dashboard rows show each service's full name, state and boundary
+  instead of cutting text off. The selected connection card holds the longer
+  description.
+- A rejected port, or another rejected first-step field, on the local setup
+  page is marked invalid and linked to the visible error until you correct
+  it.
 
 ## [0.18.0] - 2026-10-01
 

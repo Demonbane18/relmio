@@ -155,11 +155,7 @@
 }
 
 .guideLink {
-  display: inline-flex;
-  align-items: center;
   justify-self: start;
-  gap: var(--rm-space-1);
-  min-height: 1.5rem;
 }
 
 /* Short terminal with the copy button inside the command row. */
@@ -213,12 +209,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--rm-space-2) var(--rm-space-6);
-}
-
-.closingLinks > :global(.rm-link) {
-  display: inline-flex;
-  align-items: center;
-  min-height: 1.5rem;
 }
 
 @media (min-width: 40rem) {

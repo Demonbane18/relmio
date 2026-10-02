@@ -167,7 +167,7 @@ export default function Home() {
               The hosted chat is only a browser demo. Setup for n8n runs in the local wizard
               on your own computer.
             </p>
-            <Link className={`rm-link ${styles.safetyLink}`} href="/docs/security">
+            <Link className="rm-link rm-link--standalone" href="/docs/security">
               Read the security guide
               <Icon name="arrow-right" size="xs" />
             </Link>

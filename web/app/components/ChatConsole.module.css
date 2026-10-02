@@ -36,8 +36,11 @@
 }
 
 /* The sign-in component's attribution link ships inline styles; keep it
-   readable in both themes. */
+   readable in both themes and give it the 24 px standalone target. */
 .sessionBoundary :global(a[href="https://github.com/EvanZhouDev/openai-oauth"]) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
   color: var(--rm-ink-muted) !important;
   font-family: var(--rm-font-sans) !important;
   font-size: var(--rm-text-xs) !important;

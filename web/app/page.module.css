@@ -179,13 +179,6 @@
   font-size: var(--rm-text-lg);
 }
 
-.safetyLink {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--rm-space-1);
-  min-height: 1.5rem;
-}
-
 /* Boundary rows: an editorial list with dividers, not a card grid. */
 .boundaryList {
   display: grid;

@@ -1167,14 +1167,23 @@ details[open] > .rm-icon-button {
   text-decoration-thickness: 2px;
 }
 
+/* Quiet links keep their underline, so they still read as links inside a
+   sentence. */
 .rm-link--quiet {
   color: var(--rm-ink-muted);
-  text-decoration: none;
 }
 
 .rm-link--quiet:hover {
   color: var(--rm-ink);
-  text-decoration: underline;
+}
+
+/* A link on its own, outside a sentence, keeps a 24 px target. Links inside
+   running text are exempt and rely on their underline. */
+.rm-link--standalone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 1.5rem;
 }
 
 /* A link chip such as the GitHub repository link with stars and version. */
@@ -2500,6 +2509,35 @@ a.rm-chip:hover {
   .rm-choice:is([aria-pressed="true"], [aria-expanded="true"], [aria-current="true"], [aria-checked="true"], :has(.rm-choice__input:checked)) {
     outline: 2px solid Highlight;
     outline-offset: -2px;
+  }
+
+  /* Stepper: the current step is a filled Highlight disc with a ring, a done
+     step shows only its check mark, and an upcoming step keeps its number.
+     The connector is darker once its step is done. */
+  .rm-stepper__item[aria-current="step"] .rm-stepper__marker {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+    box-shadow: none;
+    outline: 2px solid CanvasText;
+    outline-offset: 2px;
+    forced-color-adjust: none;
+  }
+
+  .rm-stepper__item[data-state="done"] .rm-stepper__marker {
+    border-color: CanvasText;
+    background: Canvas;
+    color: transparent;
+    forced-color-adjust: none;
+  }
+
+  .rm-stepper__item:not(:last-child)::after {
+    background: GrayText;
+    forced-color-adjust: none;
+  }
+
+  .rm-stepper__item[data-state="done"]:not(:last-child)::after {
+    background: CanvasText;
   }
 }
 

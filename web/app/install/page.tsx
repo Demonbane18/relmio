@@ -76,7 +76,7 @@ export default function InstallPage() {
             <h2 className={styles.assistantTitle} id="assistant-launch-title">
               Launch its own local wizard
             </h2>
-            <Link className={`rm-link ${styles.guideLink}`} href="/docs/ai-assistant">
+            <Link className={`rm-link rm-link--standalone ${styles.guideLink}`} href="/docs/ai-assistant">
               Read the guide
               <span className="rm-visually-hidden"> for the n8n AI Assistant</span>
               <Icon name="arrow-right" size="xs" />
@@ -173,10 +173,10 @@ export default function InstallPage() {
             Back to Relmio
           </Link>
           <div className={styles.closingLinks}>
-            <Link className="rm-link" href="/#security">
+            <Link className="rm-link rm-link--standalone" href="/#security">
               Review the safety boundary
             </Link>
-            <Link className="rm-link" href="/docs/getting-started">
+            <Link className="rm-link rm-link--standalone" href="/docs/getting-started">
               Follow the setup guide
             </Link>
           </div>

@@ -678,7 +678,7 @@
                                 <span>I reviewed this SearXNG-only update. Relmio may change only its owned Assistant companion. It will not change n8n or rotate the sandbox key.</span>
                               </label>
                               <div class="managed-companion-edit-actions">
-                                <button id="enable-assistant-searxng-button" class="rm-button rm-button--primary rm-button--sm" type="button" disabled>
+                                <button id="enable-assistant-searxng-button" class="rm-button rm-button--primary" type="button" disabled>
                                   Enable SearXNG on owned Assistant tools
                                 </button>
                                 <p id="assistant-searxng-edit-result" class="rm-small" role="status" aria-live="polite"></p>
@@ -1134,7 +1134,7 @@
                 <section id="codex-login" class="rm-card rm-card--flat rm-card--compact codex-login" aria-labelledby="codex-login-title" hidden>
                   <h3 id="codex-login-title" class="rm-h3">Sign the container in to ChatGPT</h3>
                   <p class="rm-small rm-muted">Uses the official Codex device-code flow. The ChatGPT credential stays in the isolated Codex volume and is not a Platform API key. Codex may write a login log; Relmio does not know how long it is kept.</p>
-                  <button id="codex-login-button" class="rm-button rm-button--primary rm-button--sm" type="button">
+                  <button id="codex-login-button" class="rm-button rm-button--primary" type="button">
                     Start ChatGPT sign-in
                   </button>
 
@@ -1176,13 +1176,13 @@
                   <p class="rm-small rm-muted">Removes only this Relmio-owned stack, its containers, networks, volumes, and managed files. Existing n8n is not changed.</p>
                   <p class="rm-small removal-danger"><strong>This permanently deletes the owned n8n data, including workflows and credentials. Export what you need first.</strong></p>
                   <label class="rm-check check-row"><input id="remove-n8n-stack-confirm" type="checkbox" /><span>I understand this permanent data loss and authorize Relmio to remove only this owned n8n + ngrok stack. Existing n8n stays untouched.</span></label>
-                  <div class="sidecar-removal-actions"><button id="remove-n8n-stack-button" class="rm-button rm-button--danger rm-button--sm" type="button" disabled>Remove owned stack</button><p id="remove-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack remains installed until this separate confirmation is checked.</p></div>
+                  <div class="sidecar-removal-actions"><button id="remove-n8n-stack-button" class="rm-button rm-button--danger" type="button" disabled>Remove owned stack</button><p id="remove-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack remains installed until this separate confirmation is checked.</p></div>
                 </section>
 
                 <section id="n8n-stack-resume" class="rm-card rm-card--flat rm-card--compact n8n-sidecar-removal" aria-labelledby="n8n-stack-resume-title" hidden>
                   <h3 id="n8n-stack-resume-title" class="rm-h3">Resume stopped local n8n + ngrok</h3>
                   <p class="rm-small rm-muted">Resume starts only the existing stopped n8n, ngrok, and selected Assistant containers. It does not create, rebuild, or remove anything. Your n8n data stays in place.</p>
-                  <div class="sidecar-removal-actions"><button id="resume-n8n-stack-button" class="rm-button rm-button--primary rm-button--sm" type="button">Resume owned stack</button><p id="resume-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack is stopped and can be resumed safely.</p></div>
+                  <div class="sidecar-removal-actions"><button id="resume-n8n-stack-button" class="rm-button rm-button--primary" type="button">Resume owned stack</button><p id="resume-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack is stopped and can be resumed safely.</p></div>
                 </section>
 
                 <details
@@ -1251,7 +1251,7 @@
                           </label>
                         </div>
                       </fieldset>
-                      <button id="chat-tester-secure" class="rm-button rm-button--primary rm-button--sm" type="submit">
+                      <button id="chat-tester-secure" class="rm-button rm-button--primary" type="submit">
                         Secure credential for this test
                       </button>
                     </form>
@@ -1269,7 +1269,7 @@
                         ></textarea>
                       </label>
                       <div class="rm-cluster chat-tester-message-actions">
-                        <button id="chat-tester-send" class="rm-button rm-button--primary rm-button--sm" type="submit">
+                        <button id="chat-tester-send" class="rm-button rm-button--primary" type="submit">
                           Send test message
                         </button>
                         <button
@@ -1305,7 +1305,7 @@
                   <summary>Rotate the local key</summary>
                   <div class="rm-disclosure__body">
                     <p class="rm-small rm-muted">Relmio shows the replacement first, then activates and checks it. The old key stops working only after that succeeds. Copy the replacement before you leave.</p>
-                    <button id="rotate-credential-button" class="rm-button rm-button--sm" type="button">
+                    <button id="rotate-credential-button" class="rm-button" type="button">
                       <span class="rm-icon rm-icon--refresh rm-icon--sm" aria-hidden="true"></span>Rotate local capability
                     </button>
                   </div>
@@ -1329,7 +1329,7 @@
                     <p id="local-model-action-detail" class="rm-small"></p>
                     <label class="rm-check check-row"><input id="local-model-action-confirm" type="checkbox" /><span>I approve the exact reviewed action for this owned model only.</span></label>
                     <label id="local-model-cache-confirm-row" class="rm-check check-row" hidden><input id="local-model-cache-confirm" type="checkbox" /><span>I separately approve permanent deletion of this owned model cache and downloaded weights.</span></label>
-                    <div class="rm-cluster actions"><button id="local-model-apply" class="rm-button rm-button--primary rm-button--sm" type="button" disabled>Apply reviewed action</button><button id="local-model-cancel" class="rm-button rm-button--ghost rm-button--sm" type="button">Cancel review</button></div>
+                    <div class="rm-cluster actions"><button id="local-model-apply" class="rm-button rm-button--primary" type="button" disabled>Apply reviewed action</button><button id="local-model-cancel" class="rm-button rm-button--ghost rm-button--sm" type="button">Cancel review</button></div>
                   </section>
                 </section>
 
@@ -1350,7 +1350,7 @@
                   <div class="sidecar-removal-actions">
                     <button
                       id="remove-bridge-button"
-                      class="rm-button rm-button--danger rm-button--sm"
+                      class="rm-button rm-button--danger"
                       type="button"
                       disabled
                     >
@@ -1378,7 +1378,7 @@
                     <span>I authorize Relmio to remove only this SuperGrok sidecar and its private files. Leave n8n and its Docker network unchanged.</span>
                   </label>
                   <div class="sidecar-removal-actions">
-                    <button id="remove-supergrok-button" class="rm-button rm-button--danger rm-button--sm" type="button" disabled>
+                    <button id="remove-supergrok-button" class="rm-button rm-button--danger" type="button" disabled>
                       Remove SuperGrok for n8n
                     </button>
                     <p id="remove-supergrok-status" class="rm-small" role="status" aria-live="polite">
@@ -1405,7 +1405,7 @@
                   <div class="sidecar-removal-actions">
                     <button
                       id="remove-assistant-button"
-                      class="rm-button rm-button--danger rm-button--sm"
+                      class="rm-button rm-button--danger"
                       type="button"
                       disabled
                     >
