@@ -1460,7 +1460,8 @@
           </div>
 
           <div class="setup-safety">
-            <p id="local-footer-provider" class="setup-safety__fact"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>Provider sign-in stays in its runtime. ChatGPT for n8n is the exception: after you approve, Relmio copies the saved credential file into the bridge's private volume. A local key is separate and is not a Platform API key.</span></p>
+            <p id="local-footer-provider" class="setup-safety__fact"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>Provider sign-in stays in its runtime. A local key is separate and is not a Platform API key.</span></p>
+            <p id="local-footer-chatgpt" class="setup-safety__fact" hidden><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>After you approve, Relmio copies the saved ChatGPT credential file into the bridge's private volume. The credential is not a Platform API key.</span></p>
             <p id="local-footer-model" class="setup-safety__fact" hidden><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>This model uses no provider sign-in or API key. Other containers on its Docker network can still reach the model API.</span></p>
             <details class="rm-disclosure rm-disclosure--plain setup-help" aria-label="Connection privacy">
               <summary><strong id="boundary-title">This computer only</strong></summary>

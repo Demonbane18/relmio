@@ -81,9 +81,21 @@
     grid-area: 1 / 2 / 3 / 3;
   }
 
+  /* Like /local: a long error or an opened disclosure scrolls inside the
+     notes, so the step panel and its footer actions stay put. The padding
+     keeps the focused error's outline inside the scroll box. */
   .assistant-aside {
     grid-area: 2 / 1;
-    align-self: start;
+    min-height: 0;
+    margin: -0.25rem;
+    padding: 0.25rem;
+    overflow-y: auto;
+  }
+
+  /* The review header shows the same verified identity, so the rail keeps
+     only its Disconnect control on that step. */
+  .assistant-wizard[data-current-step="3"]:has(#ssh-review-identity:not(:empty)) .assistant-session__text {
+    display: none;
   }
 }
 
@@ -523,4 +535,10 @@
     grid-row: auto;
     grid-column: auto;
   }
+}
+
+/* While an operation runs the consent is already given and locked; the plan
+   and the progress card carry the state, so the footer keeps one row. */
+.assistant-wizard[data-operation-busy="true"] .assistant-consent {
+  display: none;
 }

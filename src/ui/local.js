@@ -3049,7 +3049,9 @@ function updateManagedBridgeRuntimeControls() {
 
 function renderFooterForTarget(target) {
   const localModel = isN8nLocalModel(target);
-  element("local-footer-provider").hidden = localModel;
+  const chatGptBridge = isN8nSidecar(target);
+  element("local-footer-provider").hidden = localModel || chatGptBridge;
+  element("local-footer-chatgpt").hidden = !chatGptBridge;
   element("local-footer-model").hidden = !localModel;
 }
 

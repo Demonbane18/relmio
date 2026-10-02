@@ -1798,19 +1798,14 @@ element("install-button").addEventListener("click", async (event) => {
       : "The private bridge is ready";
     element("done-detail").textContent = assistant
       ? assistantResult.includeSearxng
-        ? `Code Sandbox and private SearXNG were checked. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
-        : `Code Sandbox was checked without SearXNG. ${ASSISTANT_N8N_SETTINGS_NOTE} Relmio did not restart n8n.`
+        ? "Code Sandbox and private SearXNG were checked. Relmio did not restart n8n."
+        : "Code Sandbox was checked without SearXNG. Relmio did not restart n8n."
       : result.deploymentMode === "updated"
         // The status message names what was updated; the lead keeps the check.
         ? "The update was checked. Copy these values into n8n on the same private network."
         : "Copy these values into n8n on the same private network.";
     element("assistant-result").hidden = !assistant;
     element("sidecar-ready-content").hidden = assistant;
-    element("assistant-result-detail").textContent = assistant
-      ? assistantResult.includeSearxng
-        ? `Code Sandbox and the optional private SearXNG companion were verified. ${ASSISTANT_N8N_SETTINGS_NOTE}`
-        : `Code Sandbox was verified without SearXNG. ${ASSISTANT_N8N_SETTINGS_NOTE}`
-      : "";
     showStep(5);
     setMessage(
       assistant
