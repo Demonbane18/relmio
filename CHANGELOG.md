@@ -7,6 +7,11 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.2] - 2026-10-03
+
+Relmio 0.18.2 fits the remaining wizard steps on one screen at laptop and
+desktop sizes, including SSH sign-in, review, install and failure states.
+
 ### Fixed
 
 - On `/local` and `/assistant`, a long error or an opened rail disclosure no
@@ -1397,6 +1402,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.18.2]: https://github.com/Demonbane18/relmio/compare/v0.18.1...v0.18.2
 [0.18.1]: https://github.com/Demonbane18/relmio/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0
 [0.18.0-experimental.1]: https://github.com/Demonbane18/relmio/compare/v0.17.5...v0.18.0-experimental.1

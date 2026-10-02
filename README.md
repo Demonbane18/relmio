@@ -29,7 +29,7 @@ encrypted session in browser IndexedDB and sends each prompt with the access tok
 to Relmio's Vercel server for forwarding to OpenAI. See the
 [hosted chat security notes](docs/security.md#hosted-chat-demo).
 
-Relmio 0.18.1 is the current stable release. The redesigned five-step wizard
+Relmio 0.18.2 is the current stable release. The redesigned five-step wizard
 is available through npm `latest` and the hosted installers.
 
 See the [2026-09-29 source review and wizard consent correction](docs/openai-source-check-2026-09-29.md), the [2026-09-28 source review follow-up, data flows, and unknowns](docs/security.md#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](docs/security.md#2026-09-27-openai-and-hosting-source-review).
@@ -64,7 +64,7 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-`@latest` selects stable 0.18.1, including the redesigned chooser. Hosted
+`@latest` selects stable 0.18.2, including the redesigned chooser. Hosted
 installers use the same stable default.
 
 

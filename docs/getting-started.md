@@ -31,7 +31,7 @@ npx --yes --ignore-scripts relmio@latest
 ```
 
 The `@latest` command opens the **ChatGPT on my server** route in a foreground
-browser wizard. Relmio 0.18.1 is the current stable release, and hosted
+browser wizard. Relmio 0.18.2 is the current stable release, and hosted
 installers use the same version by default.
 
 
