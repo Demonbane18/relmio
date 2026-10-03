@@ -26,6 +26,20 @@ export function clearFieldError(input, errorId) {
   else input.removeAttribute("aria-describedby");
 }
 
+const REJECTED_FIELDS = [["Hostname", "host"], ["Port", "port"], ["Username", "username"], ["Password", "password"]];
+
+// The server names fields technically ("Hostname is invalid."). Marks the
+// matching field invalid and returns the message using the field's visible
+// label, for example "Server address is invalid.". Other messages pass through.
+export function markRejectedField(text, find, errorId) {
+  const match = REJECTED_FIELDS.find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
+  if (!match) return text;
+  const input = find(match[1]);
+  setFieldError(input, errorId);
+  const label = input.closest?.(".rm-field")?.querySelector(".rm-field__label")?.textContent.trim();
+  return label ? `${label}${text.slice(match[0].length)}` : text;
+}
+
 export function validateSshIdentity(identity) {
   if (!identity || typeof identity.host !== "string" || !identity.host ||
     !Number.isSafeInteger(identity.port) || identity.port < 1 || identity.port > 65535 ||

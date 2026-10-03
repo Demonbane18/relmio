@@ -1,6 +1,6 @@
 import { bindWizardNavigation, readWizardSession } from "./session.js";
 import { initWizardTopbar } from "./topbar.js";
-import { bindSshAuthentication, clearFieldError, readSshIdentity, sameSshIdentity, setFieldError, validateSshIdentity } from "./ssh-form.js";
+import { bindSshAuthentication, clearFieldError, markRejectedField, readSshIdentity, sameSshIdentity, setFieldError, validateSshIdentity } from "./ssh-form.js";
 import { HOSTING_PROVIDERS, getHostingProvider } from "../domain/hosting-providers.js";
 
 const token = readWizardSession();
@@ -37,10 +37,7 @@ bindWizardNavigation(el("hosting-guide-link"), "/hosting", token);
 
 function message(text) { el("message").textContent = text; }
 function error(text) {
-  const rejected = [["Hostname", "host"], ["Port", "port"], ["Username", "username"], ["Password", "password"]]
-    .find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
-  if (rejected) setFieldError(el(rejected[1]), "error");
-  el("error").textContent = text;
+  el("error").textContent = markRejectedField(text, el, "error");
   el("error").hidden = false;
   el("error").focus();
 }

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
-import { clearFieldError, setFieldError } from "../src/ui/ssh-form.js";
+import { clearFieldError, markRejectedField, setFieldError } from "../src/ui/ssh-form.js";
 
 const pages = [
   ["assistant.js", "showError", "global-error-text"],
@@ -19,7 +19,8 @@ for (const [file, handler, errorId] of pages) {
     const nodes = new Map();
     const element = (id) => {
       if (!nodes.has(id)) nodes.set(id, {
-        attributes: new Map(), hidden: true, textContent: "",
+        attributes: new Map(), hidden: true, textContent: "", label: null,
+        closest() { return this.label ? { querySelector: () => ({ textContent: ` ${this.label} ` }) } : null; },
         getAttribute(name) { return this.attributes.get(name) ?? null; },
         setAttribute(name, value) { this.attributes.set(name, value); },
         removeAttribute(name) { this.attributes.delete(name); },
@@ -28,15 +29,18 @@ for (const [file, handler, errorId] of pages) {
       return nodes.get(id);
     };
     element("host").setAttribute("aria-describedby", "host-hint");
+    element("host").label = "Server address";
     const report = runInNewContext(`${script.slice(start, end)}; ${handler}`, {
       element, el: element, errorBox: element("global-error"), errorMessage: element("global-error-text"),
-      clearFieldError, setFieldError,
+      clearFieldError, markRejectedField, setFieldError,
     });
     for (const [message, field] of [["Hostname is invalid.", "host"], ["Port is invalid.", "port"], ["Username is invalid.", "username"], ["Password is invalid.", "password"]]) {
       report(handler === "error" ? message : new Error(message));
       assert.equal(element(field).getAttribute("aria-invalid"), "true");
       assert.ok(element(field).getAttribute("aria-describedby").split(" ").includes(errorId));
       assert.equal(element(file === "assistant.js" ? "global-error" : errorId).hidden, false);
+      // The message uses the field's visible label when the page shows one.
+      assert.equal(element(errorId).textContent, field === "host" ? "Server address is invalid." : message);
       clearFieldError(element(field), errorId);
       assert.equal(element(field).getAttribute("aria-invalid"), null);
     }
@@ -76,7 +80,7 @@ for (const [file, handler, errorId] of pages) {
     };
     const clearError = () => { element(assistant ? "global-error" : "error-message").hidden = true; };
     runInNewContext(`${script.slice(first, last)}\n${script.slice(start, end)}`, {
-      element, el: element, clearError, clearFieldError, setFieldError,
+      element, el: element, clearError, clearFieldError, markRejectedField, setFieldError,
       errorBox: element("global-error"), errorMessage: element("global-error-text"),
       invalidateReviewedPlan() {}, resetFingerprint() {}, resetHost() {}, invalidate() {}, syncTrust() {},
     });

@@ -705,7 +705,7 @@ test("setup fingerprint result reveals confirmation after rendering without stea
         });
       },
       setCredentialInputsEnabled() {},
-      setFieldError() {},
+      markRejectedField: (text) => text,
       setMessage() {},
       state,
     });

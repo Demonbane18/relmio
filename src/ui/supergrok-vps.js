@@ -1,4 +1,4 @@
-import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, setFieldError } from "./ssh-form.js";
+import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, markRejectedField } from "./ssh-form.js";
 import { readWizardSession } from "./session.js";
 import { initWizardTopbar } from "./topbar.js";
 
@@ -39,10 +39,7 @@ function setMessage(text) {
 }
 
 function showError(error) {
-  const text = error?.message ?? "The operation could not be completed.";
-  const rejected = [["Hostname", "host"], ["Port", "port"], ["Username", "username"], ["Password", "password"]]
-    .find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
-  if (rejected) setFieldError(element(rejected[1]), "error-message");
+  const text = markRejectedField(error?.message ?? "The operation could not be completed.", element, "error-message");
   element("error-message").textContent = text;
   element("error-message").hidden = false;
   element("error-message").focus();

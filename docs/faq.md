@@ -40,10 +40,10 @@ that does not rule out separately configured external endpoints.
 ## How long does a ChatGPT/Codex sign-in token last?
 
 The Codex authentication guide describes automatic refresh but does not give a
-fixed token lifetime. Relmio's private bridge and hosted chat demo each refresh
-their own credential copies. OpenAI's one-hour access-token and rotating
-30-day refresh-token lifetimes describe the separate Sign in with ChatGPT
-plan-usage flow, not Relmio's pinned Codex flow.
+fixed token lifetime. Relmio's private bridge refreshes its own credential
+copy. OpenAI's one-hour access-token and rotating 30-day refresh-token
+lifetimes describe the separate Sign in with ChatGPT plan-usage flow, not
+Relmio's pinned Codex flow.
 
 ## Can I expose local endpoints on my network?
 

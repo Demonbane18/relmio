@@ -1,9 +1,8 @@
 import { headers } from "next/headers";
 import Link from "next/link";
-import { ChatConsole } from "./components/ChatConsole";
+import { SavedSignInCleanup } from "./components/SavedSignInCleanup";
 import { DoorwayHero } from "./components/relay/DoorwayHero";
 import { SignalPlotter } from "./components/relay/SignalPlotter";
-import { Callout } from "./components/ui/Callout";
 import { classNames } from "./components/ui/classNames";
 import { Icon } from "./components/ui/Icon";
 import { creatorLinks } from "./components/ui/SiteFooter";
@@ -26,13 +25,9 @@ const boundaries = [
   },
   {
     title: "Your own sign-in",
-    text: "No subscription pool or OpenAI Platform API key. Hosted chat route code does not log OAuth tokens.",
+    text: "No subscription pool or OpenAI Platform API key. ChatGPT sign-in runs in the local wizard.",
   },
 ];
-
-const chromeExtensionUrl =
-  "https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna";
-const firefoxExtensionUrl = "https://addons.mozilla.org/firefox/addon/sign-in-with-chatgpt/";
 
 // Night-sky decoration for the safety band, in the doorway scene's star shape.
 const stars = [
@@ -42,10 +37,6 @@ const stars = [
   [530, 70, 0.6],
   [610, 18, 1],
 ] as const;
-
-function NewTabNote() {
-  return <span className="rm-visually-hidden"> (opens in a new tab)</span>;
-}
 
 const home = new URL("/", canonicalOrigin).href;
 const creatorId = `${home}#creator`;
@@ -98,10 +89,6 @@ export default async function Home() {
                 Install Relmio
                 <Icon name="arrow-right" size="sm" />
               </Link>
-              <a className={`rm-button ${styles.cta}`} href="#chat">
-                <Icon name="message" size="sm" />
-                Try the chat
-              </a>
               <Link className={`rm-button rm-button--ghost ${styles.cta}`} href="/docs">
                 <Icon name="book" size="sm" />
                 Read the docs
@@ -119,59 +106,37 @@ export default async function Home() {
           <div className={classNames(styles.chatCopy, site.reveal)}>
             <p className="rm-eyebrow">Hosted chat</p>
             <h2 id="chat-title" className={site.sectionTitle}>
-              Connect, then ask.
+              Hosted chat is off.
             </h2>
             <p className="rm-lede">
-              Each message sends your prompt and access token to Relmio on Vercel, then to
-              OpenAI. Refresh and ID tokens stay in this browser and go only to OpenAI.
+              Relmio turned off chat and ChatGPT sign-in on this site while it applies to OpenAI
+              for access. For now, sign-in works only in the local wizard on your own computer.
             </p>
-            <Callout title="Before you connect: install the browser extension">
-              The hosted chat needs the third-party Sign in with ChatGPT extension to complete
-              the OAuth handoff. Install it for{" "}
-              <a className="rm-link" href={chromeExtensionUrl} target="_blank" rel="noopener noreferrer">
-                Chrome
-                <Icon name="external" size="xs" className={styles.externalIcon} />
-                <NewTabNote />
-              </a>{" "}
-              or{" "}
-              <a className="rm-link" href={firefoxExtensionUrl} target="_blank" rel="noopener noreferrer">
-                Firefox
-                <Icon name="external" size="xs" className={styles.externalIcon} />
-                <NewTabNote />
-              </a>
-              , reload this page, then connect again.
-            </Callout>
-            <ul className={styles.notes}>
-              <li>
-                <Icon name="laptop" size="sm" className={styles.noteIcon} />
-                <span>
-                  Using the local npm wizard? It handles its own localhost callback. If an OAuth
-                  extension intercepts that callback, temporarily disable it during local sign-in.
-                </span>
-              </li>
-              <li>
-                <Icon name="lock" size="sm" className={styles.noteIcon} />
-                <span>
-                  Your session is encrypted in this browser&apos;s IndexedDB, but this site&apos;s
-                  code can read it. A compromised browser, extension or site can too. Sign out
-                  removes the local session, not access at OpenAI.
-                </span>
-              </li>
-            </ul>
+            <p className={styles.chatNote}>
+              Relmio never used an OpenAI Platform API key for ChatGPT sign-in.
+            </p>
+            <Link className="rm-link rm-link--standalone" href="/install">
+              Install the local wizard
+              <Icon name="arrow-right" size="xs" />
+            </Link>
           </div>
-          {/* No transform or isolation here: the sign-in component renders its
-              fixed, full-viewport extension dialog inline inside this subtree. */}
-          <div className={styles.console}>
+          <div className={`rm-card ${styles.cleanup}`}>
+            <h3 className="rm-h3">Signed in here before?</h3>
+            <p className={styles.cleanupText}>
+              If you used the hosted chat, an encrypted copy of your sign-in may still be saved in
+              this browser.
+            </p>
             <noscript>
-              <p className="rm-callout">
-                Chat needs JavaScript to sign in and send messages. You can still read the{" "}
-                <Link className="rm-link" href="/docs">
-                  docs
-                </Link>
-                .
+              <p className={styles.cleanupText}>
+                Removing it needs JavaScript. You can also clear this site&apos;s data in your
+                browser settings.
               </p>
             </noscript>
-            <ChatConsole />
+            <SavedSignInCleanup />
+            <p className="rm-small rm-muted">
+              This does not revoke access at OpenAI. To end it there, sign out of your other
+              sessions in ChatGPT under Settings &gt; Security and login.
+            </p>
           </div>
         </div>
       </section>
@@ -202,8 +167,7 @@ export default async function Home() {
               The n8n bridge stays private.
             </h2>
             <p className={styles.safetyLede}>
-              The hosted chat is only a browser demo. Setup for n8n runs in the local wizard
-              on your own computer.
+              Setup for n8n runs in the local wizard on your own computer.
             </p>
             <Link className="rm-link rm-link--standalone" href="/docs/security">
               Read the security guide

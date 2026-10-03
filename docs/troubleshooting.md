@@ -31,12 +31,12 @@ attended CLI flow.
 
 ChatGPT/Codex sign-in tokens expire. The Codex authentication guide describes
 automatic refresh but does not give a fixed lifetime. Relmio's private bridge
-and hosted chat demo each refresh their own credential copies. OpenAI's one-hour
-access-token and rotating 30-day refresh-token lifetimes describe the separate
-Sign in with ChatGPT plan-usage flow, not Relmio's pinned Codex flow. If Relmio
-reports that a credential is invalid or refresh no longer succeeds, select
-**Refresh ChatGPT sign-in** in the active local wizard. Without a saved
-credential, the same button reads **Sign in with ChatGPT**.
+refreshes its own credential copy. OpenAI's one-hour access-token and rotating
+30-day refresh-token lifetimes describe the separate Sign in with ChatGPT
+plan-usage flow, not Relmio's pinned Codex flow. If Relmio reports that a
+credential is invalid or refresh no longer succeeds, select **Refresh ChatGPT
+sign-in** in the active local wizard. Without a saved credential, the same
+button reads **Sign in with ChatGPT**.
 
 ## Local image build failed
 
@@ -49,22 +49,15 @@ managed endpoint or rebuild unrelated containers as a workaround.
 
 ## Hosted chat browser extension
 
-The hosted demo at [relmio.jpfusin.tech/#chat](https://relmio.jpfusin.tech/#chat) needs the
-open-source **Sign in with ChatGPT** extension to complete the OAuth handoff:
+The hosted chat demo is turned off, so the website no longer uses the
+third-party **Sign in with ChatGPT** browser extension. If you installed it
+only for Relmio, you can remove it. To remove the old hosted sign-in from your
+browser, see the [hosted chat security notes](security.md#hosted-chat-demo).
 
-- [Install for Chrome](https://chromewebstore.google.com/detail/sign-in-with-chatgpt/odbgboachaefbbbdiffcefhpkekhfcna)
-- [Install for Firefox](https://addons.mozilla.org/firefox/addon/sign-in-with-chatgpt/)
-
-After installation, reload Relmio and select **Sign in with ChatGPT** again. If the
-chat still shows **Not connected**, confirm the extension is enabled, close
-stale ChatGPT authorization tabs, and start one fresh connection from Relmio.
-The hosted sign-in component also displays its extension install screen when
-it detects that the extension is missing.
-
-This requirement applies to the hosted chat, not the local npm wizard. The
-local sign-in is launched by the official Codex CLI in the system browser; the
-local wizard does not construct or display an authorization URL. Do not
-disable browser or security extensions based only on a sign-in error.
+The local npm wizard never needed the extension. Its sign-in is launched by
+the official Codex CLI in the system browser; the local wizard does not
+construct or display an authorization URL. Do not disable browser or security
+extensions based only on a sign-in error.
 
 ## Confirm the local package first
 

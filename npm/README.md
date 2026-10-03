@@ -20,10 +20,8 @@ credential JSON into its selected private sidecar after confirmation. API-key
 connections and operator-generated hosting artifacts are configured separately
 in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
 SuperGrok setup does not require or read ChatGPT/Codex credentials.
-Hosted chat is separate: its unofficial, policy-uncertain demo uses a third-party
-Codex flow, not OpenAI's documented Sign in with ChatGPT integration. It stores an
-encrypted session in browser IndexedDB and sends each prompt with the access token
-to Relmio's Vercel server for forwarding to OpenAI. See the
+The hosted chat demo on the website is turned off while Relmio applies to
+OpenAI for access. ChatGPT sign-in now works only in the local wizard. See the
 [hosted chat security notes](https://relmio.jpfusin.tech/docs/security#hosted-chat-demo).
 
 Relmio 0.18.2 is the current stable release. The redesigned five-step wizard
@@ -32,13 +30,13 @@ is available through npm `latest` and the hosted installers.
 See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md), the [2026-09-29 source review and wizard consent correction](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-09-29.md), the [2026-09-28 source review follow-up](https://relmio.jpfusin.tech/docs/security#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
 
 
-The hosted chat and the browser wizard's **Test AI Chat** console keep partial
-response text visible while it streams. Their status distinguishes connection
-setup, waiting for the first words, active streaming, completion, interruption,
-and failure without announcing every token to assistive technology. **Stop
-response** preserves text already received, and reduced-motion preferences keep
-the same state cues without animation. This presentation does not change the
-Chat Adapter protocol or external clients such as n8n.
+The browser wizard's **Test AI Chat** console keeps partial response text
+visible while it streams. Its status distinguishes connection setup, waiting
+for the first words, active streaming, completion, interruption, and failure
+without announcing every token to assistive technology. **Stop response**
+preserves text already received, and reduced-motion preferences keep the same
+state cues without animation. This presentation does not change the Chat
+Adapter protocol or external clients such as n8n.
 
 SuperGrok is a first-class local and VPS setup option in 0.14.0, but the adapter
 remains experimental. Live Windows checks covered fresh sign-in, model discovery,
@@ -415,11 +413,11 @@ default. The dashboard never returns or re-shows a stored secret.
 ## Sign-in lifetime
 
 The Codex authentication guide describes automatic credential refresh but does
-not give a fixed token lifetime. Relmio's private bridge and hosted chat demo
-each refresh their own credential copies. OpenAI's one-hour access-token and
-rotating 30-day refresh-token lifetimes describe the separate Sign in with
-ChatGPT plan-usage flow, not Relmio's pinned Codex flow. The local capability
-remains valid until you rotate it.
+not give a fixed token lifetime. Relmio's private bridge refreshes its own
+credential copy. OpenAI's one-hour access-token and rotating 30-day
+refresh-token lifetimes describe the separate Sign in with ChatGPT plan-usage
+flow, not Relmio's pinned Codex flow. The local capability remains valid until
+you rotate it.
 
 ## Common problems
 

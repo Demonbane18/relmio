@@ -9,26 +9,34 @@ Read this page before you offer the wizard to another person.
 ## ChatGPT/Codex sign-in lifetime
 
 OpenAI's Codex authentication guide describes automatic credential refresh but
-does not publish a fixed lifetime. The private bridge and hosted chat demo each
-refresh their own credential copies. The one-hour access-token and rotating
-30-day refresh-token lifetimes documented for the separate Sign in with ChatGPT
-plan-usage flow do not establish lifetimes for Relmio's pinned Codex flow.
-Relmio's local capabilities remain valid until you rotate them.
+does not publish a fixed lifetime. The private bridge refreshes its own
+credential copy. The one-hour access-token and rotating 30-day refresh-token
+lifetimes documented for the separate Sign in with ChatGPT plan-usage flow do
+not establish lifetimes for Relmio's pinned Codex flow. Relmio's local
+capabilities remain valid until you rotate them.
 
 ## Hosted chat demo
 
-The demo at [relmio.jpfusin.tech/#chat](https://relmio.jpfusin.tech/#chat) uses
-the third-party `openai-oauth` Codex sign-in flow. It is not OpenAI's documented
-Sign in with ChatGPT integration. The flow is unofficial and policy-uncertain.
+The hosted chat demo on relmio.jpfusin.tech is turned off until OpenAI
+approves access; see
+[issue #95](https://github.com/Demonbane18/relmio/issues/95). `/api/chat`
+answers every request with `410 Gone`. It does not read credentials or call
+OpenAI. The site no longer loads sign-in code, and its Content Security Policy
+no longer allows connections to `auth.openai.com`. ChatGPT sign-in now works
+only in the local wizard.
 
-The browser keeps an encrypted session in IndexedDB, where the site's own code
-can read it. Each message sends the prompt and access token to Relmio's server
-on Vercel, which forwards them to OpenAI. ID and refresh tokens stay in the
-browser and are sent only to OpenAI.
+The demo used the third-party `openai-oauth` Codex sign-in flow, not OpenAI's
+documented Sign in with ChatGPT integration. It kept an encrypted session in
+the browser's IndexedDB and sent each prompt with the access token through
+Relmio's server on Vercel to OpenAI. It never used an OpenAI Platform API key.
+Its route code did not log prompts or tokens; hosting-platform and provider
+logs and retention from that period are unknown.
 
-Relmio's chat route code does not log prompts or tokens. Hosting-platform and
-provider logs and retention are unknown. Signing out removes the browser
-session only; it does not revoke access at OpenAI.
+If you signed in to the demo, the encrypted session may still be in your
+browser. Select **Remove saved sign-in from this browser** in the hosted chat
+section of the home page, or clear the site's data in your browser settings.
+Removing it does not revoke access at OpenAI. To end that access, sign out of
+your other sessions in ChatGPT under **Settings > Security and login**.
 
 ## Provider authentication boundaries
 

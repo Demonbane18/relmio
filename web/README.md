@@ -1,8 +1,8 @@
 # Relmio Web
 
-The hosted Relmio product page and authenticated chat demo. It presents the
-relay model, explains its safety boundaries, and lets a visitor connect a
-supported ChatGPT account before making a request.
+The hosted Relmio product page and documentation. It presents the relay model,
+explains its safety boundaries, and links to the local install. Hosted chat and
+its ChatGPT sign-in are turned off while Relmio applies to OpenAI for access.
 
 ## Local development
 
@@ -24,18 +24,14 @@ npm audit --omit=dev --audit-level=high
 ```
 
 `npm test` performs a production build and verifies the rendered landing page,
-request-bound chat integration, security headers, and starter-template cleanup.
+the turned-off chat route, security headers, and starter-template cleanup.
 
-## Chat request path
+## Chat route
 
-1. `SignInWithChatGPT` connects the visitor in their browser.
-2. `openaiAuthHeaders()` attaches request-bound credentials to `/api/chat`.
-3. The server route reads those credentials directly from the incoming request.
-4. The AI SDK streams the completion back to the browser.
-
-The route does not log credentials or create an OpenAI Platform API key. It
-rejects empty prompts, caps prompt and response sizes, disables response caching,
-and returns generic authentication errors.
+`/api/chat` answers every method with `410 Gone` and `Cache-Control: no-store`.
+It does not read the request, use credentials, call OpenAI, or log anything.
+The home page's `#chat` section explains the change and can delete the old
+hosted sign-in (IndexedDB database `openai-oauth`) from the visitor's browser.
 
 ## Deployment
 

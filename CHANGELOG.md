@@ -7,6 +7,30 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- The hosted chat and its ChatGPT sign-in are turned off while Relmio applies
+  to OpenAI for access. The home page's chat section now says so, links to the
+  local wizard and offers **Remove saved sign-in from this browser** for people
+  who signed in before. The top bar and footer no longer link to the chat, and
+  `/chat` still redirects to the notice at `/#chat`. ChatGPT sign-in now works
+  only in the local wizard.
+
+### Fixed
+
+- SSH setup errors name the field by its visible label, for example "Server
+  address is invalid." instead of "Hostname is invalid.", on the home server
+  route, `/assistant`, `/supergrok-vps` and `/local-model-vps`.
+
+### Security
+
+- `/api/chat` no longer reads credentials or forwards anything to OpenAI.
+  Every request gets `410 Gone` with `Cache-Control: no-store`. The site no
+  longer ships the hosted sign-in packages, and its Content Security Policy no
+  longer allows connections to `auth.openai.com` or the Firefox extension
+  frame on `localhost:1455`. Removing the saved sign-in clears it from the
+  browser only; it does not revoke access at OpenAI.
+
 ## [0.18.2] - 2026-10-03
 
 Relmio 0.18.2 fits the remaining wizard steps on one screen at laptop and

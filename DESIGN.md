@@ -35,9 +35,9 @@ CI. Edit only the source file.
 | Local dashboard | `src/ui/local.html` (`/local`) | See and manage connections on this computer |
 | Route wizards | `/supergrok-vps`, `/local-model-vps`, `/assistant` | Provider or companion setup on a server |
 | Hosting options | `/hosting` | Compare hosts and build a plan without remote changes |
-| Home | `web/app/page.tsx` (`/`) | Explain Relmio, show the routes, host the chat demo and start the install |
+| Home | `web/app/page.tsx` (`/`) | Explain Relmio, show the routes and start the install |
 | Install | `/install` | Pick a terminal and copy the command |
-| Chat | `/#chat`, a section of the home page (`/chat` redirects there) | Try the hosted chat demo |
+| Hosted chat notice | `/#chat`, a section of the home page (`/chat` redirects there) | Say hosted chat is off and remove an old saved sign-in |
 | Docs | `/docs`, `/docs/[slug]` | Find and read a guide |
 | Changelog | `/changelog` | Read release notes |
 
@@ -58,9 +58,11 @@ without a page scrollbar or a panel scrollbar at these window sizes:
 - 1024 x 768
 
 The rule covers every default, busy and error state. When a person opens an
-optional disclosure, the panel body may scroll; the footer actions stay
-visible. A chat transcript and an activity log may scroll inside their own
-region.
+optional disclosure, the panel body or the rail notes may scroll; the page and
+the main area never scroll, and the footer actions stay visible. Owner
+decision, 2026-10-03: optional explanations may stay in disclosures that
+scroll this way, so they do not have to move to separate help views. A chat
+transcript and an activity log may scroll inside their own region.
 
 The shell makes this possible: put `rm-app rm-app--fit` on `<body>`. From
 1024 x 600 the shell is exactly one window tall and `.rm-app__main` is the only
@@ -96,30 +98,37 @@ tokens, kit components, top bar and themes as the wizard.
 
 - The root layout renders `rm-app` without `rm-app--fit`, then the top bar,
   the page's `main` and the shared `SiteFooter`. Never lock a page to the
-  window height. Only the chat transcript keeps its own bounded scroll
-  region.
+  window height.
 - Home runs top to bottom: the hero with the Doorway scene, How it works
-  (`#how-it-works`), the hosted chat (`#chat`), the safety boundary
-  (`#security`), then the footer. Install, docs, changelog and the 404 page
-  follow the same rhythm: a large title, generous sections, the footer. Docs
-  and changelog keep their sidebar in view while the page scrolls.
+  (`#how-it-works`), the hosted chat notice (`#chat`), the safety boundary
+  (`#security`), then the footer. Hosted chat and its ChatGPT sign-in stay off
+  until OpenAI approves access; see
+  [issue #95](https://github.com/Demonbane18/relmio/issues/95). The notice links
+  to the local wizard and offers to remove an old saved sign-in from the
+  browser. Install, docs, changelog and the 404 page follow the same rhythm: a
+  large title, generous sections, the footer. Docs and changelog keep their
+  sidebar in view while the page scrolls.
 - Full-width bands carry the sections. A soft hill edge joins one band to the
   next. The safety boundary is a night band that re-points the ink, accent
   and focus tokens to the terminal values, which stay dark in both themes.
 - Depth comes from kit shadows and a tilted `--rm-accent-soft` sheet behind a
-  key surface, such as the scene, the chat console or the install toolbox.
+  key surface, such as the scene, the notice's cleanup card or the install
+  toolbox.
 - Brand teal and cream are illustration accents only: the doorway and mascot,
   and the teal wavy underline in the home headline. They never mark state.
 - Sections may rise into view with scroll-driven animation
   (`animation-timeline: view()`). Content stays visible without support and
   with reduced motion. Animate transform and opacity only.
 - Every page ends with the footer: brand and one-line description, product
-  links (Install, Docs, Changelog, Chat, npm, GitHub), the creator's profiles
-  with icon and visible handle, the openai-oauth credit and the line
+  links (Install, Docs, Changelog, npm, GitHub), the creator's profiles with
+  icon and visible handle, and the line
   `© <year> John Paul Fusin. Relmio is released under the Apache-2.0 license.`
   The year is computed, never typed.
 - Pages never scroll sideways at 320 px, keep 24 px targets and AA contrast in
-  both themes, and hide decoration in forced colors.
+  both themes, and hide decoration in forced colors. The home Doorway scene is
+  the one exception: it keeps its colors in forced colors because it is the
+  hero artwork and hiding it leaves an empty frame (owner decision,
+  2026-10-03).
 
 ## Layout
 
@@ -156,7 +165,7 @@ differ.
 | App | Primary links | Actions |
 | --- | --- | --- |
 | Wizard | Setup (`/`), This computer (`/local`), Hosting options (`/hosting`), Docs (external, new tab) | Theme switch, GitHub chip with version, Ko-fi support |
-| Web | Home, Install, Docs, Changelog, Chat | Theme switch, GitHub chip with stars and version, Ko-fi support |
+| Web | Home, Install, Docs, Changelog | Theme switch, GitHub chip with stars and version, Ko-fi support |
 
 Rules:
 
@@ -376,7 +385,9 @@ characters per line. Use sentence case for headings, buttons and labels.
   provides static fallbacks.
 - The home illustration may loop. It needs a visible pause control, pauses
   offscreen, and shows a complete still scene for reduced motion or missing
-  SVG animation support.
+  SVG animation support. Owner decision, 2026-10-03: the Doorway keeps
+  looping; the Pause control meets WCAG 2.2.2. Other decorative motion stops
+  within 5 seconds.
 - Hosted-site sections may rise into view as they scroll in. With reduced
   motion they are simply there.
 
@@ -391,13 +402,15 @@ characters per line. Use sentence case for headings, buttons and labels.
 - The ChatGPT bridge is unofficial, private and policy-uncertain; say so where
   the user chooses it. Sign-in is never an OpenAI Platform API key.
 - Never imply a capability, permission or test result that has no recorded
-  evidence. Hosted chat has no tools, files, commands or browsing.
+  evidence. Hosted chat is off; never describe it as available.
 - Prerelease builds show an `rm-notice` whose summary names the version and
   says "Use a test setup". The details hold the stable fallback command.
   Stable releases show no release notice.
 - Label each experimental feature or provider with an `Experimental` badge
   (`rm-badge rm-badge--accent`) beside its name and one short warning that
   names the untested part. Do not repeat the warning on the same screen.
+- Field errors name the field with its visible label, for example "Server
+  address is invalid.", never an internal name such as "Hostname".
 
 ## Accessibility floor
 
@@ -412,7 +425,10 @@ characters per line. Use sentence case for headings, buttons and labels.
   padding; check heading focus, skip links and both Tab directions on phones.
 - Modal dialogs move focus inside on open, keep Tab and Shift+Tab inside,
   close on Escape through their cancel action, and return focus to the trigger.
-- Targets at least 24 x 24 px; primary controls 40 px or taller.
+- Targets at least 24 x 24 px; primary controls 40 px or taller. A checkbox or
+  radio may be smaller than 24 px when its whole visible label is clickable and
+  that label meets the target size, as on the `/assistant` consent (owner
+  decision, 2026-10-03).
 - Do not disable zoom. Content reflows at 320 px wide without sideways
   scrolling.
 - Respect `prefers-reduced-motion`, `forced-colors` and `prefers-color-scheme`.
@@ -445,10 +461,9 @@ Web (`web/`):
 - Keep install commands and security attributes exact; tests guard them.
 - `web/proxy.ts` sends a Content Security Policy with a fresh nonce on every
   page: scripts need the nonce (`'strict-dynamic'`), styles may be inline,
-  and images, fonts and connections stay on the site, except the ChatGPT
-  token exchange at `https://auth.openai.com`. The only permitted frame is the
-  Firefox extension probe at `http://localhost:1455/openai-oauth/installed`;
-  do not broaden this to other loopback paths, ports or extension origins.
+  and images, fonts, connections and frames stay on the site. Hosted ChatGPT
+  sign-in is off until OpenAI approves access (issue #95), so add no OpenAI
+  origin, loopback frame or extension exception before then.
   An inline `<script>` reads the nonce from the `x-nonce` request header;
   never add `'unsafe-inline'` to `script-src`.
 
