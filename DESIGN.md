@@ -58,9 +58,11 @@ without a page scrollbar or a panel scrollbar at these window sizes:
 - 1024 x 768
 
 The rule covers every default, busy and error state. When a person opens an
-optional disclosure, the panel body may scroll; the footer actions stay
-visible. A chat transcript and an activity log may scroll inside their own
-region.
+optional disclosure, the panel body or the rail notes may scroll; the page and
+the main area never scroll, and the footer actions stay visible. Owner
+decision, 2026-10-03: optional explanations may stay in disclosures that
+scroll this way, so they do not have to move to separate help views. A chat
+transcript and an activity log may scroll inside their own region.
 
 The shell makes this possible: put `rm-app rm-app--fit` on `<body>`. From
 1024 x 600 the shell is exactly one window tall and `.rm-app__main` is the only
@@ -119,7 +121,10 @@ tokens, kit components, top bar and themes as the wizard.
   `© <year> John Paul Fusin. Relmio is released under the Apache-2.0 license.`
   The year is computed, never typed.
 - Pages never scroll sideways at 320 px, keep 24 px targets and AA contrast in
-  both themes, and hide decoration in forced colors.
+  both themes, and hide decoration in forced colors. The home Doorway scene is
+  the one exception: it keeps its colors in forced colors because it is the
+  hero artwork and hiding it leaves an empty frame (owner decision,
+  2026-10-03).
 
 ## Layout
 
@@ -376,7 +381,9 @@ characters per line. Use sentence case for headings, buttons and labels.
   provides static fallbacks.
 - The home illustration may loop. It needs a visible pause control, pauses
   offscreen, and shows a complete still scene for reduced motion or missing
-  SVG animation support.
+  SVG animation support. Owner decision, 2026-10-03: the Doorway keeps
+  looping; the Pause control meets WCAG 2.2.2. Other decorative motion stops
+  within 5 seconds.
 - Hosted-site sections may rise into view as they scroll in. With reduced
   motion they are simply there.
 
@@ -398,6 +405,8 @@ characters per line. Use sentence case for headings, buttons and labels.
 - Label each experimental feature or provider with an `Experimental` badge
   (`rm-badge rm-badge--accent`) beside its name and one short warning that
   names the untested part. Do not repeat the warning on the same screen.
+- Field errors name the field with its visible label, for example "Server
+  address is invalid.", never an internal name such as "Hostname".
 
 ## Accessibility floor
 
@@ -412,7 +421,10 @@ characters per line. Use sentence case for headings, buttons and labels.
   padding; check heading focus, skip links and both Tab directions on phones.
 - Modal dialogs move focus inside on open, keep Tab and Shift+Tab inside,
   close on Escape through their cancel action, and return focus to the trigger.
-- Targets at least 24 x 24 px; primary controls 40 px or taller.
+- Targets at least 24 x 24 px; primary controls 40 px or taller. A checkbox or
+  radio may be smaller than 24 px when its whole visible label is clickable and
+  that label meets the target size, as on the `/assistant` consent (owner
+  decision, 2026-10-03).
 - Do not disable zoom. Content reflows at 320 px wide without sideways
   scrolling.
 - Respect `prefers-reduced-motion`, `forced-colors` and `prefers-color-scheme`.

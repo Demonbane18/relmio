@@ -1,5 +1,5 @@
 import { bindWizardNavigation, readWizardSession } from "./session.js";
-import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, setFieldError } from "./ssh-form.js";
+import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, markRejectedField } from "./ssh-form.js";
 import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
@@ -55,10 +55,7 @@ function clearError() {
 }
 
 function showError(error) {
-  const text = error?.message ?? "The request could not be completed.";
-  const rejected = [["Hostname", "host"], ["Port", "port"], ["Username", "username"], ["Password", "password"]]
-    .find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
-  if (rejected) setFieldError(element(rejected[1]), "global-error-text");
+  const text = markRejectedField(error?.message ?? "The request could not be completed.", element, "global-error-text");
   errorMessage.textContent = text;
   errorBox.hidden = false;
   errorBox.focus();

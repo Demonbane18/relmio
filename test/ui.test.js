@@ -8,7 +8,7 @@ import {
   readWizardSession,
 } from "../src/ui/session.js";
 import { formatAuthUpdatedAt } from "../src/ui/time.js";
-import { clearFieldError, createCredentialSshGuard, sameSshIdentity, setFieldError } from "../src/ui/ssh-form.js";
+import { clearFieldError, createCredentialSshGuard, markRejectedField, sameSshIdentity } from "../src/ui/ssh-form.js";
 
 const rootIdentity = {
   host: "new.example", port: 22, username: "root",
@@ -764,7 +764,7 @@ test("wizard errors and completed cancellation move focus to visible recovery co
     ${script.slice(errorStart, errorEnd)}
     ${script.slice(stopStart, stopEnd)}
     ({ showError, setOAuthStopControlVisible, finishOAuthCancellation });`, {
-    element, state, document,
+    element, state, document, markRejectedField,
     errorMessage: element("global-error-text"), errorBox: element("global-error"),
     setMessage: text => { element("global-message-text").textContent = text; },
   });
@@ -798,6 +798,8 @@ test("server-rejected connection fields are marked invalid until the person edit
     if (!nodes.has(id)) nodes.set(id, {
       hidden: true, textContent: "", listeners: new Map(),
       attributes: new Map([["aria-describedby", `${id}-hint`]]),
+      label: { host: "Server address", port: "Connection port" }[id],
+      closest() { return this.label ? { querySelector: () => ({ textContent: this.label }) } : null; },
       getAttribute(name) { return this.attributes.get(name) ?? null; },
       setAttribute(name, value) { this.attributes.set(name, value); },
       removeAttribute(name) { this.attributes.delete(name); },
@@ -811,7 +813,7 @@ test("server-rejected connection fields are marked invalid until the person edit
     ${script.slice(errorStart, errorEnd)}
     ${script.slice(inputStart, inputEnd)}
     ({ showError });`, {
-    element, setFieldError, clearFieldError,
+    element, markRejectedField, clearFieldError,
     errorMessage: element("global-error-text"), errorBox: element("global-error"),
   });
   const described = id => element(id).getAttribute("aria-describedby");
@@ -821,9 +823,10 @@ test("server-rejected connection fields are marked invalid until the person edit
   ui.showError(new Error("Hostname is invalid."));
   assert.equal(element("host").getAttribute("aria-invalid"), "true");
   assert.equal(described("host"), "host-hint global-error-text");
-  assert.equal(element("global-error-text").textContent, "Hostname is invalid.");
+  assert.equal(element("global-error-text").textContent, "Server address is invalid.");
   ui.showError(new Error("Port is invalid."));
   assert.equal(element("port").getAttribute("aria-invalid"), "true");
+  assert.equal(element("global-error-text").textContent, "Connection port is invalid.");
   element("host").listeners.get("input")();
   assert.equal(element("host").getAttribute("aria-invalid"), null);
   assert.equal(described("host"), "host-hint");

@@ -1,6 +1,6 @@
 import { formatAuthUpdatedAt } from "./time.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
-import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, sameSshIdentity, setFieldError } from "./ssh-form.js";
+import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, markRejectedField, sameSshIdentity } from "./ssh-form.js";
 import { initWizardTopbar } from "./topbar.js";
 
 const token = readWizardSession();
@@ -125,10 +125,7 @@ function setMessage(text) {
 }
 
 function showError(error, { focus = true } = {}) {
-  const text = error.message ?? "Something went wrong.";
-  const rejected = [["Hostname", "host"], ["Port", "port"], ["Username", "username"]]
-    .find(([prefix]) => text.startsWith(`${prefix} is invalid.`));
-  if (rejected) setFieldError(element(rejected[1]), "global-error-text");
+  const text = markRejectedField(error.message ?? "Something went wrong.", element, "global-error-text");
   errorMessage.textContent = text;
   errorBox.hidden = false;
   if (focus) focusVisible(errorBox);

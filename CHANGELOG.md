@@ -7,6 +7,12 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- SSH setup errors name the field by its visible label, for example "Server
+  address is invalid." instead of "Hostname is invalid.", on the home server
+  route, `/assistant`, `/supergrok-vps` and `/local-model-vps`.
+
 ## [0.18.2] - 2026-10-03
 
 Relmio 0.18.2 fits the remaining wizard steps on one screen at laptop and
