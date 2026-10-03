@@ -21,7 +21,7 @@ CI. Edit only the source file.
    click. Background and technical detail sits behind a labelled disclosure.
 3. Same parts everywhere. A button, field, notice or top bar looks and behaves
    the same in the wizard and on the website.
-4. Two themes, one accent. Light is pastel yellow, dark is black. The accent
+4. Two themes, one accent. Light is pastel green, dark is black. The accent
    (black in light, yellow in dark) marks the primary action, the current
    place and selection.
 5. Plain words. Short sentences, sentence case, no jargon without a hint. See
@@ -340,10 +340,12 @@ BRANDKIT.md.
 | `--rm-terminal-hover` | Terminal copy-button hover in both themes |
 | `--rm-brand-*` | Logo colors for illustration only, never for UI state |
 
-Light theme: pastel yellow surfaces, warm black ink, black primary buttons
-with yellow text. Dark theme: black surfaces with no green tint, warm white
+Light theme: pastel green surfaces, warm black ink, black primary buttons
+with pale green text. Dark theme: black surfaces with no green tint, warm white
 ink, yellow primary buttons with black text. Orange is only for warnings, red
-only for failures and destructive actions, green only for success. Teal
+only for failures and destructive actions, and the success green only for
+success. In the light theme that success green is cooler than the yellow-green
+surfaces and accent, so status never blends into the page. Teal
 appears only in the logo and mascot artwork, plus the hosted site's
 illustration accents described above. No purple AI gradients, neon glows,
 glass panels or decorative gradients.
@@ -492,8 +494,8 @@ doorway, a VPS cloud and a local workshop, drawn as original vectors. It is
 the hero of the scrolling home page, a wide framed window below the headline
 and the install action.
 Preserve the original logo files exactly; the scene is separate artwork. Its
-backdrop follows the theme: pastel yellow sky and ochre hills by day, black
-sky and charcoal hills by night. Night mode may add a moon, stars, a lit
+backdrop follows the theme: pastel green sky and darker green hills by day,
+black sky and charcoal hills by night. Night mode may add a moon, stars, a lit
 window and the mascot's sleep cap. Keep the pause control and the still
 fallback described under Motion.
 

@@ -1,5 +1,5 @@
-/* Home Doorway scene. Day: a pastel yellow sky (the page canvas) over warm
-   ochre hills. Night: a charcoal sky and hills with a yellow moon, stars and
+/* Home Doorway scene. Day: a pastel green sky (the panel surface) over soft
+   green hills. Night: a charcoal sky and hills with a yellow moon, stars and
    lit window. Scene roles reuse kit tokens where one fits; the rest are
    illustration-only values. The mascot teal and the doorway cream are brand
    constants and never change (BRANDKIT.md). light-dark() follows the kit's
@@ -25,8 +25,8 @@
   --doorway-cap: oklch(58% 0.08 230);
   --doorway-coral: light-dark(oklch(62% 0.17 40), oklch(74% 0.14 50));
   --doorway-butter: light-dark(oklch(82% 0.14 88), oklch(84% 0.13 92));
-  --doorway-hill-back: light-dark(oklch(80% 0.12 80), oklch(32% 0.006 85));
-  --doorway-hill-front: light-dark(oklch(88% 0.11 90), oklch(26% 0.005 85));
+  --doorway-hill-back: light-dark(oklch(80% 0.085 130), oklch(32% 0.006 85));
+  --doorway-hill-front: light-dark(oklch(88% 0.07 124), oklch(26% 0.005 85));
   --doorway-shadow: light-dark(oklch(23% 0.012 85 / 0.16), oklch(0% 0 0 / 0.45));
 
   position: relative;

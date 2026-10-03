@@ -7,6 +7,18 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.18.5] - 2026-10-03
+
+Relmio 0.18.5 changes the light theme from pastel yellow to pastel green.
+
+### Changed
+
+- The light theme of the local wizard and the website is now pastel green
+  instead of pastel yellow. Pages, panels, lines, selected items and the home
+  page's day scene use the new greens, and success messages use a cooler green
+  so they stay distinct from the page. Text contrast still meets WCAG AA. The
+  dark theme is unchanged.
+
 ## [0.18.4] - 2026-10-03
 
 Relmio 0.18.4 restores browser format checks on the `/hosting` plan details.
@@ -1443,6 +1455,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.18.5]: https://github.com/Demonbane18/relmio/compare/v0.18.4...v0.18.5
 [0.18.4]: https://github.com/Demonbane18/relmio/compare/v0.18.3...v0.18.4
 [0.18.3]: https://github.com/Demonbane18/relmio/compare/v0.18.2...v0.18.3
 [0.18.2]: https://github.com/Demonbane18/relmio/compare/v0.18.1...v0.18.2
