@@ -7,6 +7,13 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- Hosting plan detail fields on `/hosting` check their format in the browser
+  again. Most field patterns used characters that browsers reject, so the
+  browser skipped the check and a malformed value only failed later with a
+  general error. Accepted values are unchanged.
+
 ## [0.18.3] - 2026-10-03
 
 Relmio 0.18.3 names SSH fields by their visible labels in setup errors, and

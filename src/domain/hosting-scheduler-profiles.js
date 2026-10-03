@@ -1,22 +1,25 @@
 import { LOCAL_MODEL_RUNTIME_IMAGE } from "./local-n8n-model.js";
 import { modelEnvironment, searchEnvironment, createSearchImageFiles } from "./hosting-deployment-common.js";
 
-const DNS_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
+// Field patterns also become HTML pattern attributes, which browsers compile
+// with the `v` flag. Escape `-`, `(`, `)` and `/` inside character classes so
+// both the `u` and `v` flags accept them.
+const DNS_LABEL = "[a-z0-9](?:[a-z0-9\\-]{0,61}[a-z0-9])?";
 const DNS_NAME = `^${DNS_LABEL}(?:\\.${DNS_LABEL})*$`;
 const ACCOUNT = "[0-9]{12}";
 const AWS_REGION = "[a-z]{2}(?:-gov)?-[a-z]+-[0-9]";
 const AWS_PARTITION = "aws(?:-us-gov|-cn)?";
-const ECS_CLUSTER_ARN = new RegExp(`^arn:(${AWS_PARTITION}):ecs:(${AWS_REGION}):(${ACCOUNT}):cluster/([A-Za-z0-9_-]{1,255})$`, "u");
-const IAM_ROLE_ARN = new RegExp(`^arn:(${AWS_PARTITION}):iam::(${ACCOUNT}):role/(?:[A-Za-z0-9+=,.@_-]+/)*[A-Za-z0-9+=,.@_-]{1,64}$`, "u");
+const ECS_CLUSTER_ARN = new RegExp(`^arn:(${AWS_PARTITION}):ecs:(${AWS_REGION}):(${ACCOUNT}):cluster/([A-Za-z0-9_\\-]{1,255})$`, "u");
+const IAM_ROLE_ARN = new RegExp(`^arn:(${AWS_PARTITION}):iam::(${ACCOUNT}):role/(?:[A-Za-z0-9+=,.@_\\-]+/)*[A-Za-z0-9+=,.@_\\-]{1,64}$`, "u");
 const DISCOVERY_ARN = new RegExp(`^arn:(${AWS_PARTITION}):servicediscovery:(${AWS_REGION}):(${ACCOUNT}):service/(srv-[A-Za-z0-9]{1,64})$`, "u");
-const SECRET_ARN = new RegExp(`^arn:(${AWS_PARTITION}):secretsmanager:(${AWS_REGION}):(${ACCOUNT}):secret:([A-Za-z0-9/_+=.@-]{1,512})$`, "u");
-const ECR_REPOSITORY = /^([0-9]{12})\.dkr\.ecr\.([a-z]{2}(?:-gov)?-[a-z]+-[0-9])\.amazonaws\.com\/([a-z0-9]+(?:[._/-][a-z0-9]+)*)$/u;
-const GAR_REPOSITORY = /^[a-z][a-z0-9-]*-docker\.pkg\.dev\/[a-z][a-z0-9-]{4,28}[a-z0-9]\/[a-z][a-z0-9-]{0,62}\/[a-z0-9]+(?:[._/-][a-z0-9]+)*$/u;
-const ACR_REPOSITORY = /^[a-z0-9]{5,50}\.azurecr\.io\/[a-z0-9]+(?:[._/-][a-z0-9]+)*$/u;
+const SECRET_ARN = new RegExp(`^arn:(${AWS_PARTITION}):secretsmanager:(${AWS_REGION}):(${ACCOUNT}):secret:([A-Za-z0-9\\/_+=.@\\-]{1,512})$`, "u");
+const ECR_REPOSITORY = /^([0-9]{12})\.dkr\.ecr\.([a-z]{2}(?:-gov)?-[a-z]+-[0-9])\.amazonaws\.com\/([a-z0-9]+(?:[._\/\-][a-z0-9]+)*)$/u;
+const GAR_REPOSITORY = /^[a-z][a-z0-9\-]*-docker\.pkg\.dev\/[a-z][a-z0-9\-]{4,28}[a-z0-9]\/[a-z][a-z0-9\-]{0,62}\/[a-z0-9]+(?:[._\/\-][a-z0-9]+)*$/u;
+const ACR_REPOSITORY = /^[a-z0-9]{5,50}\.azurecr\.io\/[a-z0-9]+(?:[._\/\-][a-z0-9]+)*$/u;
 const NAME_RE = new RegExp(DNS_NAME, "u");
 const NAMESPACE_RE = new RegExp(`^${DNS_LABEL}$`, "u");
-const LABEL_KEY_RE = /^(?:(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\/)?[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$/u;
-const LABEL_VALUE_RE = /^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,61}[A-Za-z0-9])?$/u;
+const LABEL_KEY_RE = /^(?:(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\/)?[A-Za-z0-9](?:[A-Za-z0-9_.\-]{0,61}[A-Za-z0-9])?$/u;
+const LABEL_VALUE_RE = /^[A-Za-z0-9](?:[A-Za-z0-9_.\-]{0,61}[A-Za-z0-9])?$/u;
 const AWS_ID = /^(?:fs|fsap|subnet|sg)-[0-9a-f]{8}(?:[0-9a-f]{9})?$/u;
 const FILE = (name, value) => ({ name, content: `${JSON.stringify(value, null, 2)}\n`, mediaType: "application/json" });
 const text = (name, label, pattern, description) => ({ name, label, type: "text", required: true, pattern, description });
@@ -182,7 +185,7 @@ const kubeSearchFields = (providerId) => [
   text("searchSecretName", "Existing Kubernetes Secret name", NAME_RE.source, "Secret with key SEARXNG_SECRET in the destination namespace; secret contents stay outside generated files."),
 ];
 const fargateFields = [
-  text("fargateProfileName", "Existing EKS Fargate profile name", "^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9])?$", "The approved existing Fargate profile must select this namespace and generated companion Pod label."),
+  text("fargateProfileName", "Existing EKS Fargate profile name", "^[A-Za-z0-9](?:[A-Za-z0-9_\\-]{0,61}[A-Za-z0-9])?$", "The approved existing Fargate profile must select this namespace and generated companion Pod label."),
   text("fargateSecurityGroupId", "Existing companion Pod security group ID", "^sg-[0-9a-f]{8}(?:[0-9a-f]{9})?$", "Dedicated existing security group whose inbound service port is restricted to the approved n8n caller security group."),
   text("n8nCallerSecurityGroupId", "Existing n8n caller security group ID", "^sg-[0-9a-f]{8}(?:[0-9a-f]{9})?$", "Existing group assigned to the actual n8n backend Pod ENI, used to review the companion security group's ingress rule."),
 ];
