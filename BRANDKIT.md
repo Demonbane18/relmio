@@ -2,9 +2,10 @@
 
 Relmio opens a door between the AI accounts people already use and the tools
 where they work. The brand is friendly and calm: a small green character in a
-cream doorway, set on soft sage. The interface pairs pastel yellow with warm
-black: a yellow light theme and a black dark theme. Use this kit with
-[DESIGN.md](DESIGN.md), which explains how the interface uses these values.
+cream doorway, set on soft sage. The interface pairs pastel green with warm
+black: a pastel green light theme and a black dark theme with a yellow accent.
+Use this kit with [DESIGN.md](DESIGN.md), which explains how the interface uses
+these values.
 
 ## Name
 
@@ -51,9 +52,10 @@ outside it.
   study in `design-system/relmio/assets/relmio-banner-imagegen-source.png`.
 - Scenes use the doorway, a VPS cloud and a local workshop. Keep shapes soft
   and rounded, with a dark pine outline.
-- Scene backdrops follow the interface: a pastel yellow sky with warm ochre
-  hills by day, a black sky with charcoal hills by night. The mascot stays teal
-  and the doorway stays cream in both.
+- Scene backdrops follow the interface: a pastel green sky over darker green
+  hills by day, a black sky with charcoal hills by night. Keep the day greens
+  on the yellow side of green so the teal mascot stands apart. The mascot stays
+  teal and the doorway stays cream in both.
 - Night scenes may add a moon, stars, a lit window and a blue sleep cap with
   closed eyes. Day scenes use open, blinking eyes.
 - Illustration is decoration. Hide it from assistive technology and put any
@@ -74,31 +76,33 @@ in illustration, never for interface state.
 | Pine | `#12211f` | Ink and outlines |
 
 Interface palette. CSS variables live in `src/ui/relmio-ui.css`. The light
-theme is pastel yellow with warm black ink. The dark theme is black with warm
+theme is pastel green with warm black ink. The dark theme is black with warm
 white ink and no green tint. The accent swaps between them: black buttons with
-yellow text in light, yellow buttons with black text in dark. Teal is reserved
-for the logo and mascot.
+pale green text in light, yellow buttons with black text in dark. In the light
+theme, success uses a cooler green than the surfaces and the accent, so a
+success notice does not look like an info notice. Teal is reserved for the
+logo and mascot.
 
 | Token | Light | Dark |
 | --- | --- | --- |
-| `--rm-canvas` | `#faeeb4` | `#0c0c0b` |
-| `--rm-surface` | `#fff6cc` | `#171715` |
-| `--rm-surface-muted` | `#f5e5a2` | `#21201d` |
-| `--rm-surface-sunken` | `#efdc8e` | `#070706` |
+| `--rm-canvas` | `#e5f4ce` | `#0c0c0b` |
+| `--rm-surface` | `#f4fbe3` | `#171715` |
+| `--rm-surface-muted` | `#dcedc0` | `#21201d` |
+| `--rm-surface-sunken` | `#d1e6b2` | `#070706` |
 | `--rm-ink` | `#1d1b16` | `#f6f3e8` |
-| `--rm-ink-muted` | `#57503f` | `#b9b4a6` |
-| `--rm-ink-subtle` | `#665e4b` | `#948f81` |
-| `--rm-line` | `#e8d48a` | `#2b2a26` |
-| `--rm-line-strong` | `#d2bb68` | `#3e3c37` |
-| `--rm-field-line` | `#857650` | `#757164` |
+| `--rm-ink-muted` | `#515242` | `#b9b4a6` |
+| `--rm-ink-subtle` | `#5f614d` | `#948f81` |
+| `--rm-line` | `#cadfac` | `#2b2a26` |
+| `--rm-line-strong` | `#afc88d` | `#3e3c37` |
+| `--rm-field-line` | `#727959` | `#757164` |
 | `--rm-accent` | `#1d1b16` | `#ffe17a` |
 | `--rm-accent-hover` | `#36322a` | `#ffe994` |
-| `--rm-on-accent` | `#fff1b3` | `#161512` |
-| `--rm-accent-soft` | `#f6dc7c` | `#2c2611` |
-| `--rm-accent-line` | `#c4a23a` | `#6e5c1f` |
-| `--rm-accent-ink` | `#6b4f00` | `#ffe17a` |
+| `--rm-on-accent` | `#ebf8cf` | `#161512` |
+| `--rm-accent-soft` | `#cae7a3` | `#2c2611` |
+| `--rm-accent-line` | `#8bae5d` | `#6e5c1f` |
+| `--rm-accent-ink` | `#41591d` | `#ffe17a` |
 | `--rm-focus` | `#1d1b16` | `#ffe17a` |
-| `--rm-success` / soft | `#2e6b34` / `#dcefcd` | `#86d39a` / `#13241a` |
+| `--rm-success` / soft | `#186739` / `#d9f6e0` | `#86d39a` / `#13241a` |
 | `--rm-warning` / soft | `#9a4a00` / `#ffdfc0` | `#ffb36b` / `#2e1f10` |
 | `--rm-danger` / soft | `#b42318` / `#fde0dc` | `#ff9a8f` / `#2e1615` |
 | `--rm-terminal-bg` / fg / prompt | `#141413` / `#f5f1e3` / `#ffd54a` | same |
@@ -107,16 +111,16 @@ Measured contrast (WCAG 2.2 ratio):
 
 | Pair | Light | Dark |
 | --- | --- | --- |
-| Ink on canvas | 14.71 | 17.62 |
-| Muted ink on surface | 7.36 | 8.67 |
-| Muted ink on canvas | 6.84 | 9.45 |
-| Subtle ink on surface | 5.91 | 5.56 |
-| Form control border on surface | 4.10 | 3.68 |
-| Primary button on surface | 15.82 | 13.94 |
-| Text on primary button | 15.14 | 14.18 |
-| Accent ink on accent soft | 5.63 | 11.71 |
-| Focus ring on canvas | 14.71 | 15.19 |
-| Success on success soft | 5.28 | 9.11 |
+| Ink on canvas | 14.88 | 17.62 |
+| Muted ink on surface | 7.50 | 8.67 |
+| Muted ink on canvas | 6.89 | 9.45 |
+| Subtle ink on surface | 5.98 | 5.56 |
+| Form control border on surface | 4.30 | 3.68 |
+| Primary button on surface | 16.18 | 13.94 |
+| Text on primary button | 15.45 | 14.18 |
+| Accent ink on accent soft | 5.79 | 11.71 |
+| Focus ring on canvas | 14.88 | 15.19 |
+| Success on success soft | 5.99 | 9.11 |
 | Warning on warning soft | 4.94 | 9.03 |
 | Danger on danger soft | 5.28 | 8.27 |
 | Terminal text on terminal | 16.30 | 16.30 |

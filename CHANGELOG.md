@@ -7,6 +7,14 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- The light theme of the local wizard and the website is now pastel green
+  instead of pastel yellow. Pages, panels, lines, selected items and the home
+  page's day scene use the new greens, and success messages use a cooler green
+  so they stay distinct from the page. Text contrast still meets WCAG AA. The
+  dark theme is unchanged.
+
 ## [0.18.4] - 2026-10-03
 
 Relmio 0.18.4 restores browser format checks on the `/hosting` plan details.
