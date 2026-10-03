@@ -24,7 +24,7 @@ The hosted chat demo on the website is turned off while Relmio applies to
 OpenAI for access. ChatGPT sign-in now works only in the local wizard. See the
 [hosted chat security notes](https://relmio.jpfusin.tech/docs/security#hosted-chat-demo).
 
-Relmio 0.18.2 is the current stable release. The redesigned five-step wizard
+Relmio 0.18.3 is the current stable release. The redesigned five-step wizard
 is available through npm `latest` and the hosted installers.
 
 See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md), the [2026-09-29 source review and wizard consent correction](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-09-29.md), the [2026-09-28 source review follow-up](https://relmio.jpfusin.tech/docs/security#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
@@ -59,7 +59,7 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-This command selects stable Relmio 0.18.2, including the redesigned chooser.
+This command selects stable Relmio 0.18.3, including the redesigned chooser.
 Hosted installers use the same stable default.
 
 
