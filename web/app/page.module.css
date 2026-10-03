@@ -1,6 +1,6 @@
 /* Home: a scrolling page of full-width sections. Hero with the Doorway scene,
-   How it works, the hosted chat, then the safety boundary as a night band.
-   Hill edges join the bands. Kit tokens only. */
+   How it works, the hosted chat notice, then the safety boundary as a night
+   band. Hill edges join the bands. Kit tokens only. */
 
 /* Hero --------------------------------------------------------------------- */
 
@@ -83,7 +83,7 @@
   background: var(--rm-surface-muted);
 }
 
-/* Hosted chat -------------------------------------------------------------- */
+/* Hosted chat notice ------------------------------------------------------- */
 
 .chat {
   padding-block: clamp(3rem, 7vw, 6rem) clamp(4.5rem, 9vw, 8rem);
@@ -103,34 +103,26 @@
   min-width: 0;
 }
 
-.notes {
-  display: grid;
-  gap: var(--rm-space-3);
+.chatNote {
   margin: 0;
-  padding: 0;
   color: var(--rm-ink-muted);
-  font-size: var(--rm-text-md);
-  list-style: none;
 }
 
-.notes li {
+/* The cleanup card for old browser sign-ins. */
+.cleanup {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
-  gap: var(--rm-space-3);
-}
-
-.noteIcon {
-  margin-top: 0.1875rem;
-  color: var(--rm-accent-ink);
-}
-
-.externalIcon {
-  margin-inline-start: 0.25rem;
-}
-
-.console {
+  justify-items: start;
+  gap: var(--rm-space-4);
   min-width: 0;
+}
+
+.cleanup > * {
+  margin: 0;
+}
+
+.cleanupText {
+  margin: 0;
+  color: var(--rm-ink-muted);
 }
 
 /* Safety boundary: a night band in the scene's night colors ------------------ */
@@ -233,14 +225,12 @@
 
 @media (min-width: 64rem) {
   .chatGrid {
-    grid-template-columns: minmax(18rem, 0.8fr) minmax(0, 1.3fr);
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
     gap: var(--rm-space-12);
   }
 
-  /* A second sheet peeks out behind the console. A shadow, not a transformed
-     pseudo-element, so the sign-in dialog inside stays viewport-fixed. */
-  .console {
-    border-radius: var(--rm-radius-xl);
+  /* A second sheet peeks out behind the cleanup card. */
+  .cleanup {
     box-shadow:
       0.75rem 0.75rem 0 -1px var(--rm-accent-soft),
       0.75rem 0.75rem 0 0 var(--rm-accent-line);
@@ -291,7 +281,7 @@
     display: none;
   }
 
-  .console {
+  .cleanup {
     box-shadow: none;
   }
 

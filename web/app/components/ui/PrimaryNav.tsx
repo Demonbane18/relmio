@@ -8,7 +8,6 @@ const primaryNavigation = [
   { href: "/install", label: "Install" },
   { href: "/docs", label: "Docs" },
   { href: "/changelog", label: "Changelog" },
-  { href: "/#chat", label: "Chat" },
 ] as const;
 
 function currentState(pathname: string, href: string) {

@@ -35,9 +35,9 @@ CI. Edit only the source file.
 | Local dashboard | `src/ui/local.html` (`/local`) | See and manage connections on this computer |
 | Route wizards | `/supergrok-vps`, `/local-model-vps`, `/assistant` | Provider or companion setup on a server |
 | Hosting options | `/hosting` | Compare hosts and build a plan without remote changes |
-| Home | `web/app/page.tsx` (`/`) | Explain Relmio, show the routes, host the chat demo and start the install |
+| Home | `web/app/page.tsx` (`/`) | Explain Relmio, show the routes and start the install |
 | Install | `/install` | Pick a terminal and copy the command |
-| Chat | `/#chat`, a section of the home page (`/chat` redirects there) | Try the hosted chat demo |
+| Hosted chat notice | `/#chat`, a section of the home page (`/chat` redirects there) | Say hosted chat is off and remove an old saved sign-in |
 | Docs | `/docs`, `/docs/[slug]` | Find and read a guide |
 | Changelog | `/changelog` | Read release notes |
 
@@ -98,26 +98,30 @@ tokens, kit components, top bar and themes as the wizard.
 
 - The root layout renders `rm-app` without `rm-app--fit`, then the top bar,
   the page's `main` and the shared `SiteFooter`. Never lock a page to the
-  window height. Only the chat transcript keeps its own bounded scroll
-  region.
+  window height.
 - Home runs top to bottom: the hero with the Doorway scene, How it works
-  (`#how-it-works`), the hosted chat (`#chat`), the safety boundary
-  (`#security`), then the footer. Install, docs, changelog and the 404 page
-  follow the same rhythm: a large title, generous sections, the footer. Docs
-  and changelog keep their sidebar in view while the page scrolls.
+  (`#how-it-works`), the hosted chat notice (`#chat`), the safety boundary
+  (`#security`), then the footer. Hosted chat and its ChatGPT sign-in stay off
+  until OpenAI approves access; see
+  [issue #95](https://github.com/Demonbane18/relmio/issues/95). The notice links
+  to the local wizard and offers to remove an old saved sign-in from the
+  browser. Install, docs, changelog and the 404 page follow the same rhythm: a
+  large title, generous sections, the footer. Docs and changelog keep their
+  sidebar in view while the page scrolls.
 - Full-width bands carry the sections. A soft hill edge joins one band to the
   next. The safety boundary is a night band that re-points the ink, accent
   and focus tokens to the terminal values, which stay dark in both themes.
 - Depth comes from kit shadows and a tilted `--rm-accent-soft` sheet behind a
-  key surface, such as the scene, the chat console or the install toolbox.
+  key surface, such as the scene, the notice's cleanup card or the install
+  toolbox.
 - Brand teal and cream are illustration accents only: the doorway and mascot,
   and the teal wavy underline in the home headline. They never mark state.
 - Sections may rise into view with scroll-driven animation
   (`animation-timeline: view()`). Content stays visible without support and
   with reduced motion. Animate transform and opacity only.
 - Every page ends with the footer: brand and one-line description, product
-  links (Install, Docs, Changelog, Chat, npm, GitHub), the creator's profiles
-  with icon and visible handle, the openai-oauth credit and the line
+  links (Install, Docs, Changelog, npm, GitHub), the creator's profiles with
+  icon and visible handle, and the line
   `© <year> John Paul Fusin. Relmio is released under the Apache-2.0 license.`
   The year is computed, never typed.
 - Pages never scroll sideways at 320 px, keep 24 px targets and AA contrast in
@@ -161,7 +165,7 @@ differ.
 | App | Primary links | Actions |
 | --- | --- | --- |
 | Wizard | Setup (`/`), This computer (`/local`), Hosting options (`/hosting`), Docs (external, new tab) | Theme switch, GitHub chip with version, Ko-fi support |
-| Web | Home, Install, Docs, Changelog, Chat | Theme switch, GitHub chip with stars and version, Ko-fi support |
+| Web | Home, Install, Docs, Changelog | Theme switch, GitHub chip with stars and version, Ko-fi support |
 
 Rules:
 
@@ -398,7 +402,7 @@ characters per line. Use sentence case for headings, buttons and labels.
 - The ChatGPT bridge is unofficial, private and policy-uncertain; say so where
   the user chooses it. Sign-in is never an OpenAI Platform API key.
 - Never imply a capability, permission or test result that has no recorded
-  evidence. Hosted chat has no tools, files, commands or browsing.
+  evidence. Hosted chat is off; never describe it as available.
 - Prerelease builds show an `rm-notice` whose summary names the version and
   says "Use a test setup". The details hold the stable fallback command.
   Stable releases show no release notice.
@@ -457,10 +461,9 @@ Web (`web/`):
 - Keep install commands and security attributes exact; tests guard them.
 - `web/proxy.ts` sends a Content Security Policy with a fresh nonce on every
   page: scripts need the nonce (`'strict-dynamic'`), styles may be inline,
-  and images, fonts and connections stay on the site, except the ChatGPT
-  token exchange at `https://auth.openai.com`. The only permitted frame is the
-  Firefox extension probe at `http://localhost:1455/openai-oauth/installed`;
-  do not broaden this to other loopback paths, ports or extension origins.
+  and images, fonts, connections and frames stay on the site. Hosted ChatGPT
+  sign-in is off until OpenAI approves access (issue #95), so add no OpenAI
+  origin, loopback frame or extension exception before then.
   An inline `<script>` reads the nonce from the `x-nonce` request header;
   never add `'unsafe-inline'` to `script-src`.
 

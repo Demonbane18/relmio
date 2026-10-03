@@ -7,7 +7,6 @@ const productLinks = [
   { href: "/install", label: "Install" },
   { href: "/docs", label: "Docs" },
   { href: "/changelog", label: "Changelog" },
-  { href: "/#chat", label: "Chat" },
   { href: "https://www.npmjs.com/package/relmio", label: "npm", external: true },
   { href: "https://github.com/Demonbane18/relmio", label: "GitHub", external: true },
 ] as const;
@@ -74,20 +73,6 @@ export function SiteFooter() {
             </Link>
             <p className={styles.tagline}>
               Guided setup for n8n and local tools that keeps every credential where it belongs.
-            </p>
-            <p className={styles.credit}>
-              Hosted sign-in uses the{" "}
-              <a
-                className="rm-link"
-                href="https://github.com/EvanZhouDev/openai-oauth"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                openai-oauth method by Evan Zhou Dev
-                <Icon name="external" size="xs" className={styles.externalIcon} />
-                <NewTabNote />
-              </a>
-              .
             </p>
           </div>
 

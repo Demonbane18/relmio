@@ -96,10 +96,6 @@
   line-height: 1.5;
 }
 
-.credit {
-  font-size: var(--rm-text-sm);
-}
-
 .externalIcon {
   margin-inline-start: 0.25rem;
 }

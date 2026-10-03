@@ -43,7 +43,7 @@ function assertSharedTopBar(html, currentLabel) {
   }
 
   const links = headerLinks(html);
-  for (const [href, label] of [["/", "Home"], ["/install", "Install"], ["/docs", "Docs"], ["/changelog", "Changelog"], ["/#chat", "Chat"]]) {
+  for (const [href, label] of [["/", "Home"], ["/install", "Install"], ["/docs", "Docs"], ["/changelog", "Changelog"]]) {
     const link = links.find((candidate) => candidate.text === label && candidate.attributes.includes(`href="${href}"`));
     assert.ok(link, `missing top-bar link ${label}`);
     assert.equal(
@@ -68,7 +68,6 @@ const footerPages = ["/", "/install", "/docs", "/docs/local-endpoints", "/change
 const footerExternalLinks = [
   ["https://www.npmjs.com/package/relmio", "npm"],
   ["https://github.com/Demonbane18/relmio", "GitHub"],
-  ["https://github.com/EvanZhouDev/openai-oauth", "openai-oauth method by Evan Zhou Dev"],
   ["https://github.com/Demonbane18", "Demonbane18"],
   ["https://x.com/fusheenn", "@fusheenn"],
   ["https://www.linkedin.com/in/john-paul-fusin-35846714a/", "in/john-paul-fusin-35846714a"],
@@ -83,7 +82,7 @@ function assertSiteFooter(html, path) {
     attributes,
     text: inner.replace(/<[^>]*>/gu, ""),
   }));
-  for (const [href, label] of [["/install", "Install"], ["/docs", "Docs"], ["/changelog", "Changelog"], ["/#chat", "Chat"]]) {
+  for (const [href, label] of [["/install", "Install"], ["/docs", "Docs"], ["/changelog", "Changelog"]]) {
     assert.ok(
       links.some((link) => link.attributes.includes(`href="${href}"`) && link.text.trim() === label),
       `${path}: missing footer link ${label}`,
@@ -138,17 +137,13 @@ test("server-renders the Relmio home page with the shared top bar", async () => 
   }
   assert.match(html, /href="\/install"[^>]*>[\s\S]*?Install Relmio/u);
   assert.match(text, /does not edit the existing n8n container, image, or workflows/u);
-  assert.match(html, /<section[^>]*id="chat"/u);
-  assert.match(text, /Connect, then ask\./u);
-  assert.match(text, /Before you connect: install the browser extension/u);
-  assert.match(
-    html,
-    /https:\/\/chromewebstore\.google\.com\/detail\/sign-in-with-chatgpt\/odbgboachaefbbbdiffcefhpkekhfcna/,
-  );
-  assert.match(html, /https:\/\/addons\.mozilla\.org\/firefox\/addon\/sign-in-with-chatgpt\//);
-  assert.match(text, /temporarily disable it during local sign-in/u);
-  assert.match(html, /<noscript>[\s\S]*?Chat needs JavaScript[\s\S]*?<\/noscript>/u);
-  assert.match(html, /aria-label="Hosted chat console"/u);
+  const notice = html.match(/<section[^>]*id="chat"[\s\S]*?<\/section>/u)?.[0] ?? "";
+  assert.ok(notice, "the #chat anchor still lands on a section");
+  assert.match(notice, /href="\/install"/u);
+  assert.match(notice, /<button[^>]*type="button"[^>]*>Remove saved sign-in from this browser<\/button>/u);
+  assert.match(notice, /role="status"[^>]*aria-live="polite"/u);
+  assert.doesNotMatch(html, /Hosted chat console|chromewebstore\.google\.com|addons\.mozilla\.org|EvanZhouDev\/openai-oauth/u);
+  assert.doesNotMatch(html, /href="\/#chat"/u, "no link points at the retired chat");
   assert.doesNotMatch(html, /data-astryx-theme|codex-preview|Your site is taking shape/u);
 });
 
@@ -172,8 +167,8 @@ test("every page enforces a fresh script nonce that its theme bootstrap and othe
     assert.ok(nonce, `${path}: ${policy}`);
     assert.match(policy, /(?:^|; )default-src 'self'(?:;|$)/u, path);
     assert.equal(response.headers.get("content-security-policy-report-only"), null, path);
-    const frameSources = policy.match(/(?:^|; )frame-src ([^;]+)/u)?.[1].split(/\s+/u);
-    assert.deepEqual(frameSources, ["http://localhost:1455/openai-oauth/installed"], `${path}: only the Firefox extension probe may be framed`);
+    assert.doesNotMatch(policy, /(?:^|; )frame-src /u, `${path}: no frame exceptions`);
+    assert.match(policy, /(?:^|; )connect-src 'self'(?:;|$)/u, `${path}: connections stay on the site`);
     nonces.add(nonce);
 
     const html = await response.text();
@@ -256,7 +251,7 @@ test("loopback hosts keep their own HTTP origin despite forwarded headers", asyn
   }
 });
 
-test("the old /chat address redirects permanently to the chat on the home page", async () => {
+test("the old /chat address redirects permanently to the hosted chat notice on the home page", async () => {
   const response = await requestApp("/chat");
   assert.equal(response.status, 308);
   const location = new URL(response.headers.get("location") ?? "", "http://localhost");
@@ -464,250 +459,27 @@ test("malformed metadata keeps the public installer on a stable release", async 
   assert.match(metadata.version, /^\d+\.\d+\.\d+$/u);
 });
 
+test("the retired chat API answers 410 for every method without forwarding or logging", async (t) => {
+  const upstream = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("The chat API must not call any upstream.");
+  });
+  const logs = ["log", "info", "warn", "error"].map((level) => t.mock.method(console, level, () => {}));
 
-test("rejects invalid chat prompts without caching their responses", async () => {
-  for (const [body, status] of [
-    ["{", 400],
-    [JSON.stringify({ prompt: { unexpected: true } }), 400],
-    [JSON.stringify({ prompt: "  " }), 400],
-    [JSON.stringify({ prompt: "x".repeat(3001) }), 413],
-  ]) {
+  for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
     const response = await requestApp("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body,
-    });
-    assert.equal(response.status, status);
-    assert.equal(response.headers.get("cache-control"), "no-store");
-  }
-});
-
-test("returns a streaming error event instead of an empty completion", async (t) => {
-  t.mock.method(globalThis, "fetch", async () =>
-    Response.json(
-      { error: { message: "private upstream detail" } },
-      { status: 401 },
-    ),
-  );
-  t.mock.method(console, "error", () => {});
-
-  const response = await requestApp("/api/chat", {
-    method: "POST",
-    headers: {
-      authorization: "Bearer test-token",
-      "chatgpt-account-id": "test-account",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ prompt: "hello" }),
-  });
-
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get("content-type"), "text/event-stream");
-  assert.equal(response.headers.get("content-encoding"), "none");
-  assert.equal(response.headers.get("x-relmio-stream"), "v1");
-
-  const stream = await response.text();
-  assert.match(stream, /event: error/u);
-  assert.match(
-    stream,
-    /"code":"upstream_failed"/u,
-  );
-  assert.match(stream, /event: terminal\ndata: \{"outcome":"failed"\}/u);
-  assert.doesNotMatch(stream, /private upstream detail/u);
-});
-
-test("identifies a ChatGPT challenge against the hosting network", async (t) => {
-  t.mock.method(globalThis, "fetch", async () =>
-    new Response("<html>private challenge body</html>", {
-      status: 403,
-      headers: {
-        "cf-mitigated": "challenge",
-        "content-type": "text/html",
-      },
-    }),
-  );
-  t.mock.method(console, "error", () => {});
-
-  const response = await requestApp("/api/chat", {
-    method: "POST",
-    headers: {
-      authorization: "Bearer test-token",
-      "chatgpt-account-id": "test-account",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ prompt: "hello" }),
-  });
-
-  assert.equal(response.status, 200);
-  const stream = await response.text();
-  assert.match(stream, /event: error/u);
-  assert.match(
-    stream,
-    /"code":"hosting_network_blocked"/u,
-  );
-  assert.doesNotMatch(stream, /private challenge body|test-token/u);
-});
-
-test("forwards incremental model text as separate chat stream events", async (t) => {
-  let upstreamRequestBody;
-  const upstreamEvents = [
-    {
-      type: "response.created",
-      response: { id: "response-test", created_at: 1, model: "gpt-5.4-mini" },
-    },
-    {
-      type: "response.output_item.added",
-      output_index: 0,
-      item: { type: "message", id: "message-test", phase: "final_answer" },
-    },
-    {
-      type: "response.output_text.delta",
-      item_id: "message-test",
-      delta: "Hello",
-    },
-    {
-      type: "response.output_text.delta",
-      item_id: "message-test",
-      delta: " world",
-    },
-    {
-      type: "response.output_item.done",
-      output_index: 0,
-      item: { type: "message", id: "message-test", phase: "final_answer" },
-    },
-    {
-      type: "response.completed",
-      response: {
-        usage: {
-          input_tokens: 1,
-          input_tokens_details: { cached_tokens: 0 },
-          output_tokens: 2,
-          output_tokens_details: { reasoning_tokens: 0 },
-        },
-      },
-    },
-  ];
-  const upstreamStream = `${upstreamEvents
-    .map((event) => `data: ${JSON.stringify(event)}\n\n`)
-    .join("")}data: [DONE]\n\n`;
-
-  t.mock.method(globalThis, "fetch", async (input, init) => {
-    if (String(input).includes("/responses")) {
-      const body =
-        init?.body ?? (input instanceof Request ? await input.clone().text() : "");
-      upstreamRequestBody = JSON.parse(String(body));
-      return new Response(upstreamStream, {
-        headers: { "content-type": "text/event-stream" },
-      });
-    }
-    return Response.json(
-      { error: { message: "Model catalog unavailable in this test." } },
-      { status: 503 },
-    );
-  });
-
-  const response = await requestApp("/api/chat", {
-    method: "POST",
-    headers: {
-      authorization: "Bearer test-token",
-      "chatgpt-account-id": "test-account",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ prompt: "hello" }),
-  });
-
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get("content-encoding"), "none");
-  assert.equal(response.headers.get("cache-control"), "no-store");
-  const stream = await response.text();
-  assert.equal(upstreamRequestBody.model, "gpt-5.6-luna");
-  assert.match(stream, /event: delta\ndata: \{"text":"Hello"\}/u);
-  assert.match(stream, /event: delta\ndata: \{"text":" world"\}/u);
-  assert.ok(stream.indexOf('"text":"Hello"') < stream.indexOf('"text":" world"'));
-  assert.match(stream, /event: terminal\ndata: \{"outcome":"completed"\}/u);
-  assert.doesNotMatch(stream, /response-test|message-test/u);
-});
-
-for (const terminalType of [
-  "response.failed",
-  "response.incomplete",
-  "response.cancelled",
-  "response.canceled",
-]) {
-  test(`turns ${terminalType} into one redacted failed terminal outcome`, async (t) => {
-    const privateDetail = `private-${terminalType}-detail`;
-    const upstreamStream = [
-      `data: ${JSON.stringify({
-        type: "response.created",
-        response: { id: "response-private", created_at: 1, model: "gpt-5.4-mini" },
-      })}\n\n`,
-      `data: ${JSON.stringify({
-        type: terminalType,
-        response: {
-          id: "response-private",
-          status: terminalType.slice("response.".length),
-          error: { message: privateDetail },
-          incomplete_details: { reason: privateDetail },
-        },
-      })}\n\n`,
-      "data: [DONE]\n\n",
-    ].join("");
-
-    t.mock.method(globalThis, "fetch", async (input) =>
-      String(input).includes("/responses")
-        ? new Response(upstreamStream, {
-            headers: { "content-type": "text/event-stream" },
-          })
-        : Response.json({ data: [] }),
-    );
-
-    const response = await requestApp("/api/chat", {
-      method: "POST",
+      method,
       headers: {
         authorization: "Bearer test-token",
         "chatgpt-account-id": "test-account",
         "content-type": "application/json",
       },
-      body: JSON.stringify({ prompt: "What is a robot?" }),
+      body: method === "GET" ? undefined : JSON.stringify({ prompt: "hello" }),
     });
+    assert.equal(response.status, 410, method);
+    assert.equal(response.headers.get("cache-control"), "no-store", method);
+    assert.deepEqual(await response.json(), { error: "Hosted chat is turned off." }, method);
+  }
 
-    assert.equal(response.status, 200);
-    const stream = await response.text();
-    assert.equal((stream.match(/event: error/gu) ?? []).length, 1);
-    assert.equal((stream.match(/event: terminal/gu) ?? []).length, 1);
-    assert.match(stream, /"code":"upstream_failed"/u);
-    assert.match(stream, /"outcome":"failed"/u);
-    assert.doesNotMatch(stream, new RegExp(privateDetail, "u"));
-    assert.doesNotMatch(stream, /response-private|test-token/u);
-  });
-}
-
-test("fails a terminal-less upstream stream instead of reporting empty success", async (t) => {
-  t.mock.method(globalThis, "fetch", async (input) =>
-    String(input).includes("/responses")
-      ? new Response(
-          `data: ${JSON.stringify({
-            type: "response.created",
-            response: { id: "private-id", created_at: 1, model: "gpt-5.4-mini" },
-          })}\n\n`,
-          { headers: { "content-type": "text/event-stream" } },
-        )
-      : Response.json({ data: [] }),
-  );
-
-  const response = await requestApp("/api/chat", {
-    method: "POST",
-    headers: {
-      authorization: "Bearer test-token",
-      "chatgpt-account-id": "test-account",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({ prompt: "What is love?" }),
-  });
-
-  const stream = await response.text();
-  assert.match(stream, /event: error/u);
-  assert.match(stream, /"code":"upstream_failed"/u);
-  assert.match(stream, /event: terminal\ndata: \{"outcome":"failed"\}/u);
-  assert.doesNotMatch(stream, /private-id/u);
+  assert.equal(upstream.mock.callCount(), 0);
+  for (const log of logs) assert.equal(log.mock.callCount(), 0);
 });

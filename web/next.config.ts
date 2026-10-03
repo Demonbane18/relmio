@@ -18,7 +18,7 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return [{ source: "/favicon.ico", destination: "/relmio-icon-96.png" }];
   },
-  // The hosted chat lives on the home page again.
+  // The old chat address lands on the home page's notice that hosted chat is off.
   async redirects() {
     return [{ source: "/chat", destination: "/#chat", permanent: true }];
   },
