@@ -2,16 +2,19 @@ import { createSearxngSettings, ASSISTANT_COMPANION_IMAGES } from "./assistant-t
 import { LOCAL_MODEL_RUNTIME_IMAGE } from "./local-n8n-model.js";
 import { createSearchImageFiles, modelEnvironment, searchEnvironment } from "./hosting-deployment-common.js";
 
+// Field patterns also become HTML pattern attributes, which browsers compile
+// with the `v` flag. Escape `-`, `(`, `)` and `/` inside character classes so
+// both the `u` and `v` flags accept them.
 const subscription = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
-const azureName = "[A-Za-z0-9][A-Za-z0-9_.()\\-]{0,88}";
+const azureName = "[A-Za-z0-9][A-Za-z0-9_.\\(\\)\\-]{0,88}";
 const azurePrefix = `/subscriptions/${subscription}/resourceGroups/${azureName}/providers/`;
-const environmentPattern = `^${azurePrefix}Microsoft\\.App/managedEnvironments/[A-Za-z0-9][A-Za-z0-9-]{0,31}$`;
+const environmentPattern = `^${azurePrefix}Microsoft\\.App/managedEnvironments/[A-Za-z0-9][A-Za-z0-9\\-]{0,31}$`;
 const subnetPattern = `^${azurePrefix}Microsoft\\.Network/virtualNetworks/${azureName}/subnets/${azureName}$`;
 const identityPattern = `^${azurePrefix}Microsoft\\.ManagedIdentity/userAssignedIdentities/${azureName}$`;
-const gcpEmail = "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$";
-const locationPattern = "^[a-z][a-z0-9-]{1,30}$";
-const imagePattern = "^(?::[a-z0-9][a-z0-9-]{0,61}\\.[a-z0-9][a-z0-9-]{0,61}\\.[1-9][0-9]*|[a-z0-9][a-z0-9./_-]+@sha256:[0-9a-f]{64})$";
-const vaultSecretPattern = "^https://[a-z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+/[0-9a-fA-F]{32}$";
+const gcpEmail = "^[a-z][a-z0-9\\-]{4,28}[a-z0-9]@[a-z][a-z0-9\\-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$";
+const locationPattern = "^[a-z][a-z0-9\\-]{1,30}$";
+const imagePattern = "^(?::[a-z0-9][a-z0-9\\-]{0,61}\\.[a-z0-9][a-z0-9\\-]{0,61}\\.[1-9][0-9]*|[a-z0-9][a-z0-9.\\/_\\-]+@sha256:[0-9a-f]{64})$";
+const vaultSecretPattern = "^https://[a-z0-9\\-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9\\-]+/[0-9a-fA-F]{32}$";
 
 const field = (name, label, pattern, description) => ({ name, label, type: "text", required: true, pattern, description });
 const cloudFields = [
@@ -21,13 +24,13 @@ const cloudFields = [
   field("callerServiceAccountEmail", "Existing n8n caller service account", gcpEmail, "Must already be attached to an approved Google-hosted n8n runtime with internal routing."),
 ];
 const azureAppFields = [
-  field("resourceGroup", "Existing deployment resource group", "^[A-Za-z0-9][A-Za-z0-9._-]{0,88}$", "Actual resource group where only the new app will be created."),
+  field("resourceGroup", "Existing deployment resource group", "^[A-Za-z0-9][A-Za-z0-9._\\-]{0,88}$", "Actual resource group where only the new app will be created."),
   field("environmentId", "Existing Container Apps environment resource ID", environmentPattern, "Use the actual managed environment resource ID; this plan does not create or change it."),
   field("location", "Azure resource region", locationPattern, "Same region as the existing Container Apps environment."),
 ];
 const aciFields = [
   field("location", "Azure resource region", locationPattern, "Same region as the existing delegated subnet and approved storage."),
-  field("resourceGroup", "Existing deployment resource group", "^[A-Za-z0-9][A-Za-z0-9._-]{0,88}$", "Actual resource group where only the new container group will be created."),
+  field("resourceGroup", "Existing deployment resource group", "^[A-Za-z0-9][A-Za-z0-9._\\-]{0,88}$", "Actual resource group where only the new container group will be created."),
   field("subnetId", "Existing ACI-delegated subnet resource ID", subnetPattern, "Must be delegated to Microsoft.ContainerInstance/containerGroups; confirm private n8n routing and NAT."),
 ];
 
@@ -140,9 +143,9 @@ function cloudRunModel(context) {
   };
 }
 
-const cloudModelFields = [field("bucketName", "Existing prepopulated model cache bucket", "^[a-z0-9][a-z0-9._-]{2,61}[a-z0-9]$", "Only exact Ollama cache layout; prepopulated read-only mounted model directory.")];
+const cloudModelFields = [field("bucketName", "Existing prepopulated model cache bucket", "^[a-z0-9][a-z0-9._\\-]{2,61}[a-z0-9]$", "Only exact Ollama cache layout; prepopulated read-only mounted model directory.")];
 const cloudSearchFields = [
-  field("secretName", "Existing runtime SearXNG Secret Manager secret", "^[a-zA-Z][a-zA-Z0-9_-]{0,254}$", "Existing secret with the actual server secret; not the generated settings file."),
+  field("secretName", "Existing runtime SearXNG Secret Manager secret", "^[a-zA-Z][a-zA-Z0-9_\\-]{0,254}$", "Existing secret with the actual server secret; not the generated settings file."),
   field("secretVersion", "Secret Manager version number", "^[1-9][0-9]{0,12}$", "Pin a specific existing version; do not provide a secret value."),
 ];
 
@@ -224,8 +227,8 @@ function azureApps(context) {
 }
 
 const acaModelFields = [
-  field("storageName", "Existing environment Azure Files storage name", "^[a-zA-Z][a-zA-Z0-9-]{0,30}$", "Pre-registered classic SMB share; model storage must be writable."),
-  { ...field("workloadProfileName", "Existing dedicated workload profile (required above 4 GiB)", "^[A-Za-z][A-Za-z0-9-]{0,30}$", "An existing dedicated profile with enough free vCPU/RAM for this model; leave blank only for the small Consumption model."), required: false },
+  field("storageName", "Existing environment Azure Files storage name", "^[a-zA-Z][a-zA-Z0-9\\-]{0,30}$", "Pre-registered classic SMB share; model storage must be writable."),
+  { ...field("workloadProfileName", "Existing dedicated workload profile (required above 4 GiB)", "^[A-Za-z][A-Za-z0-9\\-]{0,30}$", "An existing dedicated profile with enough free vCPU/RAM for this model; leave blank only for the small Consumption model."), required: false },
 ];
 const acaSearchFields = [
   field("identityId", "Existing user-assigned identity ID", identityPattern, "Identity with read access to the specified Key Vault secret."),
@@ -287,7 +290,7 @@ function azureInstances(context) {
 
 const aciModelFields = [
   field("storageAccountName", "Existing Azure Storage account name", "^[a-z0-9]{3,24}$", "Existing account for classic Azure Files; no key here."),
-  field("shareName", "Existing Azure Files share", "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", "Existing share for persistent Ollama cache."),
+  field("shareName", "Existing Azure Files share", "^[a-z0-9][a-z0-9\\-]{1,61}[a-z0-9]$", "Existing share for persistent Ollama cache."),
 ];
 
 const aciSearchFields = [
@@ -296,7 +299,7 @@ const aciSearchFields = [
 ];
 
 const lightsailFields = [
-  field("serviceName", "Existing Lightsail container service name", "^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$", "Operator-owned service in same AWS Region as n8n's approved Lightsail caller."),
+  field("serviceName", "Existing Lightsail container service name", "^[a-z0-9][a-z0-9\\-]{0,61}[a-z0-9]$", "Operator-owned service in same AWS Region as n8n's approved Lightsail caller."),
   field("imageRef", "Actual operator-built SearXNG image reference", imagePattern, "Build supplied files and push first; use actual immutable digest or Lightsail service image reference."),
 ];
 

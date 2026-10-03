@@ -9,7 +9,7 @@ const endpointFields = [{
   label: "Existing authenticated model HTTPS origin",
   type: "text",
   required: true,
-  pattern: "https://[A-Za-z0-9.-]+",
+  pattern: "https://[A-Za-z0-9.\\-]+",
   description: "Origin only, without a path, query, credentials, IP literal, or port. The gateway always calls /v1/chat/completions.",
 }];
 
