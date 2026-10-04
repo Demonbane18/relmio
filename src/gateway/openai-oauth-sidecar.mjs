@@ -17,6 +17,28 @@ function requestError(message, param, status = 400) {
   }, { status });
 }
 
+// Cap buffered request bodies to prevent memory exhaustion from oversized or
+// unbounded uploads before they are fully read into memory by request.json().
+const maxJsonBodyBytes = 25 * 1024 * 1024;
+
+async function readLimitedJson(request, maxBytes) {
+  const reader = request.body.getReader();
+  const chunks = [];
+  let received = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      received += value.byteLength;
+      if (received > maxBytes) throw new RangeError("Request body too large.");
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return JSON.parse(Buffer.concat(chunks.map((chunk) => Buffer.from(chunk))).toString("utf8"));
+}
+
 const unsupportedRoutes = [
   {
     pattern: /^\/v1\/audio(?:\/|$)/u,
