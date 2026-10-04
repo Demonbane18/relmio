@@ -1008,7 +1008,7 @@
 
 .rm-segmented__item:is([aria-checked="true"], [aria-pressed="true"], :has(> .rm-segmented__input:checked)) {
   background: var(--rm-surface);
-  box-shadow: inset 0 0 0 1px var(--rm-line), var(--rm-shadow-sm);
+  box-shadow: inset 0 0 0 2px var(--rm-accent), var(--rm-shadow-sm);
   color: var(--rm-ink);
 }
 
@@ -2522,10 +2522,19 @@ a.rm-chip:hover {
   .rm-menu__link:is([aria-current="page"], [aria-current="true"]),
   .rm-sidebar__link:is([aria-current="page"], [aria-current="true"], [aria-selected="true"]),
   .rm-tabs__tab[aria-selected="true"],
-  .rm-segmented__item:is([aria-checked="true"], [aria-pressed="true"], :has(> .rm-segmented__input:checked)),
   .rm-choice:is([aria-pressed="true"], [aria-expanded="true"], [aria-current="true"], [aria-checked="true"], :has(.rm-choice__input:checked)) {
     outline: 2px solid Highlight;
     outline-offset: -2px;
+  }
+
+  /* Keep selection separate from the keyboard-focus outline. */
+  .rm-segmented__item:is([aria-checked="true"], [aria-pressed="true"], :has(> .rm-segmented__input:checked))::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid Highlight;
+    border-radius: inherit;
+    pointer-events: none;
   }
 
   /* Stepper: the current step is a filled Highlight disc with a ring, a done

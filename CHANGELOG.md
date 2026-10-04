@@ -7,6 +7,13 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- The selected theme in the local wizard and website has a high-contrast inset
+  ring in both themes, so it stays visible after focus moves away. In forced
+  colors, selection and keyboard focus have separate indicators. Theme behavior
+  and control sizes are unchanged.
+
 ## [0.18.5] - 2026-10-03
 
 Relmio 0.18.5 changes the light theme from pastel yellow to pastel green.

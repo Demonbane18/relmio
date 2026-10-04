@@ -283,6 +283,11 @@ Component rules:
   `aria-hidden="true"`.
 - Choices are real controls: a `<button>` with `aria-pressed` or
   `aria-expanded`, a link, or a `<label>` around `rm-choice__input`.
+- Selected controls keep a persistent non-text indicator with at least 3:1
+  contrast against adjacent colors in both themes, even without focus.
+  Segmented controls use a 2 px inset `--rm-accent` ring without changing their
+  size. Keep the outer keyboard-focus ring separate. In forced colors, an inset
+  `Highlight` border marks selection without replacing the focus outline.
 - Fields keep a visible label. Hints and errors connect through
   `aria-describedby`; invalid fields set `aria-invalid="true"`.
 - Status never relies on color: a status dot always sits next to text, and
