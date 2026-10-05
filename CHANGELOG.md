@@ -42,6 +42,9 @@ checks the registry separately after publication.
 
 ### Fixed
 
+- Sign-in no longer fails after you allow access. OpenAI sends the ID
+  token's audience as a one-element list, which Relmio wrongly rejected. Found
+  in a live sign-in test.
 - Sign-in no longer fails when OpenAI's callback includes its documented
   optional `scope`. An `iss` value, when present, must match the issuer.
 - Declining in ChatGPT now shows a declined message instead of a generic

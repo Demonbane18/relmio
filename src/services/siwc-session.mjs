@@ -648,7 +648,11 @@ export async function verifySiwcIdToken(idToken, { clientId, nonce, subject, met
     requiredClaims: ['sub', 'exp', 'iat', ...(nonce === undefined ? [] : ['nonce'])],
     algorithms: ['RS256', 'ES256'],
   });
-  if (payload.aud !== clientId || typeof payload.sub !== 'string' || !payload.sub ||
+  // OpenAI issues aud as a one-element array. OIDC Core 3.1.3.7: aud must
+  // contain the client; with several audiences, azp must name the client.
+  const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+  if (!audiences.includes(clientId) || audiences.length > 1 && payload.azp !== clientId ||
+      typeof payload.sub !== 'string' || !payload.sub ||
       payload.sub.length > 512 || !Number.isInteger(payload.iat) ||
       payload.iat > Math.floor(cfg.now() / 1000) + 5 ||
       nonce !== undefined && payload.nonce !== nonce ||

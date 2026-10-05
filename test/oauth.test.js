@@ -19,7 +19,7 @@ const tokenFixture = scope => ({ access_token: 'opaque-secret-access', refresh_t
   expires_in: 3600, token_type: 'Bearer', scope });
 
 async function fixture(t, { grant = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct',
-  changeNonce = false, changeSubject = false, wrongAudience = false,
+  changeNonce = false, changeSubject = false, wrongAudience = false, audience, azp,
   wrongIssuer = false, badSignature = false, futureIssuedAt = false, wrongTokenClient = false,
   expired = false, returnedClient = clientId, tokenDelay, tokenError,
   callbackParams = [], callbackError, beforeCallback } = {}) {
@@ -46,9 +46,10 @@ async function fixture(t, { grant = 'openid profile email offline_access resourc
       if (tokenDelay) await tokenDelay();
       const issuedAt = Math.floor(Date.now() / 1000);
       const signer = badSignature ? (await generateKeyPair('RS256')).privateKey : privateKey;
-      const token = await new SignJWT({ nonce: changeNonce ? 'wrong-nonce' : authorization.searchParams.get('nonce'), email: 'person@example.test' })
+      const token = await new SignJWT({ nonce: changeNonce ? 'wrong-nonce' : authorization.searchParams.get('nonce'), email: 'person@example.test',
+        ...(azp ? { azp } : {}) })
         .setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).setIssuer(wrongIssuer ? 'https://wrong.example' : issuer)
-        .setAudience(wrongAudience ? 'another-client' : clientId)
+        .setAudience(wrongAudience ? 'another-client' : audience ?? clientId)
         .setSubject(changeSubject ? 'other-subject' : issuedSubject)
         .setIssuedAt(futureIssuedAt ? issuedAt + 3600 : issuedAt)
         .setExpirationTime(expired ? issuedAt - 60 : issuedAt + 7200)
@@ -119,6 +120,26 @@ test('documented callback scope is ignored for plan permission and exact issuer 
     assert.deepEqual((await readRegistration({ storageRoot: f.storageRoot, registrationId: account.registrationId })).session.scopes,
       variant.grant.split(' '));
     assert.equal((await f.callbackPage()).includes('opaque-secret'), false);
+  }
+});
+
+test('ID token audience accepts OpenAI\'s one-element array and requires azp for several audiences', async t => {
+  for (const variant of [
+    { audience: [clientId], verified: true },
+    { audience: [clientId, 'another-client'], azp: clientId, verified: true },
+    { audience: [clientId, 'another-client'], verified: false },
+    { audience: [clientId, 'another-client'], azp: 'another-client', verified: false },
+    { audience: ['another-client'], verified: false },
+  ]) {
+    const f = await fixture(t, { audience: variant.audience, azp: variant.azp });
+    const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+    if (variant.verified) {
+      assert.equal((await attempt.completion).identity, 'verified');
+    } else {
+      await assert.rejects(attempt.completion, /could not be verified/u);
+      assert.equal((await listAuthRegistrations({ storageRoot: f.storageRoot }))
+        .some(account => account.identity === 'verified'), false);
+    }
   }
 });
 
