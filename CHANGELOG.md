@@ -61,6 +61,10 @@ checks the registry separately after publication.
   rotated token is saved. Keep the SIWC store on a local disk used by one
   kernel, not on a synced folder or network share. Windows cannot flush a
   folder to disk, so on Windows the lock skips that step and relies on NTFS.
+- ChatGPT session operations on Windows start far fewer PowerShell checks.
+  Relmio checks its own process identity once per run. It also stops
+  rechecking files it locked down itself, until a file's change time or
+  contents change. Files it did not create are checked every time.
 - The Codex App Server's live model check now runs inside the running
   container instead of a one-off helper container.
 - Status and sign-out for a completed VPS install keep working after n8n is

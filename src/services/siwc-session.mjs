@@ -2,7 +2,9 @@ import * as fs from 'node:fs/promises';
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { lockDownLocalPath } from '../infrastructure/local-process.js';
+import {
+  lockDownLocalPath, recallWindowsLockdown, refreshWindowsLockdown, rememberWindowsLockdown,
+} from '../infrastructure/local-process.js';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { acquireLocalIntegrationLifecycleLock } from './local-integration-lifecycle-lock.js';
 
@@ -66,10 +68,18 @@ const rootOf = storageRoot => {
 };
 const fileOf = (root, id) => join(root, 'registrations', `${validateSiwcRegistrationId(id)}.json`);
 const uid = () => typeof process.getuid === 'function' ? process.getuid() : null;
-async function assertSafePath(path, kind, { fileSystem: io, platform, lockDownPath }) {
+// Each Windows ACL check spawns PowerShell. An unchanged inode this process locked
+// down itself skips the repeat check; foreign, replaced or changed inodes do not.
+async function verifyWindowsAcl(path, kind, stat, contents, cfg) {
+  if (contents !== null && recallWindowsLockdown(cfg.lockDownPath, stat, contents)) return;
+  await cfg.lockDownPath(path, { platform: cfg.platform, kind, verifyOnly: true });
+  if (contents !== null) refreshWindowsLockdown(cfg.lockDownPath, stat, contents);
+}
+async function assertSafePath(path, kind, cfg, { windowsAclChecked = false } = {}) {
+  const { fileSystem: io, platform } = cfg;
   const stat = await io.lstat(path);
   if (stat.isSymbolicLink() || (kind === 'file' ? !stat.isFile() || stat.nlink !== 1 : !stat.isDirectory())) throw new Error('Unsafe SIWC storage entry.');
-  if (platform === 'win32') await lockDownPath(path, { platform, kind, verifyOnly: true });
+  if (platform === 'win32') { if (!windowsAclChecked) await verifyWindowsAcl(path, kind, stat, '', cfg); }
   else if ((uid() !== null && stat.uid !== uid()) || (stat.mode & (kind === 'file' ? 0o077 : 0o077)) !== 0) throw new Error('Insecure SIWC storage permissions.');
   return stat;
 }
@@ -79,8 +89,15 @@ async function directory(path, cfg) {
   catch (error) { if (error?.code !== 'EEXIST') throw error; }
   const stat = await cfg.fileSystem.lstat(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('Unsafe SIWC storage entry.');
-  if (cfg.platform === 'win32') await cfg.lockDownPath(path, { platform: cfg.platform, kind: 'directory' });
-  await assertSafePath(path, 'directory', cfg);
+  if (cfg.platform !== 'win32') {
+    await assertSafePath(path, 'directory', cfg);
+    return;
+  }
+  // The first use in each process, and any change since, locks the directory down again.
+  if (recallWindowsLockdown(cfg.lockDownPath, stat, '')) return;
+  await cfg.lockDownPath(path, { platform: cfg.platform, kind: 'directory' });
+  // The lockdown reads its owner-only DACL back, so no separate verify-only spawn follows.
+  rememberWindowsLockdown(cfg.lockDownPath, await assertSafePath(path, 'directory', cfg, { windowsAclChecked: true }), '');
 }
 async function ensureRoot(root, cfg) {
   await directory(root, cfg);
@@ -89,7 +106,8 @@ async function ensureRoot(root, cfg) {
 async function readFile(path, cfg, missing = null) {
   cfg.checkLock?.();
   let stat;
-  try { stat = await assertSafePath(path, 'file', cfg); }
+  // The Windows ACL check runs below, once the contents are known and before they are used.
+  try { stat = await assertSafePath(path, 'file', cfg, { windowsAclChecked: true }); }
   catch (error) { if (error?.code === 'ENOENT') return missing; throw error; }
   if (stat.size > MAX_FILE || stat.size === 0) throw new Error('Invalid SIWC storage file.');
   const handle = await cfg.fileSystem.open(path, 'r');
@@ -98,6 +116,7 @@ async function readFile(path, cfg, missing = null) {
     if (opened.ino !== stat.ino || opened.dev !== stat.dev || !opened.isFile()) throw new Error('SIWC storage changed during read.');
     const bytes = await handle.readFile();
     if (bytes.length !== stat.size || bytes.length > MAX_FILE) throw new Error('Invalid SIWC storage file.');
+    if (cfg.platform === 'win32') await verifyWindowsAcl(path, 'file', stat, bytes, cfg);
     try { return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)); }
     catch { throw new Error('Invalid SIWC storage file.'); }
   } finally { await handle.close(); }
@@ -117,9 +136,16 @@ async function atomicFile(path, value, cfg, beforeRename = () => {}) {
       await handle.writeFile(contents);
       await handle.sync();
     } finally { await handle.close(); }
-    await assertSafePath(temp, 'file', cfg);
-    try { await assertSafePath(path, 'file', cfg); }
-    catch (error) { if (error?.code !== 'ENOENT') throw error; }
+    // The Windows lockdown above already read the staged file's owner-only DACL back.
+    const staged = await assertSafePath(temp, 'file', cfg, { windowsAclChecked: true });
+    if (cfg.platform === 'win32') rememberWindowsLockdown(cfg.lockDownPath, staged, contents);
+    try {
+      const existing = await assertSafePath(path, 'file', cfg, { windowsAclChecked: true });
+      if (cfg.platform === 'win32') {
+        await verifyWindowsAcl(path, 'file', existing,
+          existing.size > 0 && existing.size <= MAX_FILE ? await cfg.fileSystem.readFile(path) : null, cfg);
+      }
+    } catch (error) { if (error?.code !== 'ENOENT') throw error; }
     beforeRename();
     cfg.checkLock?.();
     await cfg.fileSystem.rename(temp, path);

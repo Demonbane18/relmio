@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { lockDownLocalPath, validateLocalDockerHost } from "../infrastructure/local-process.js";
+import {
+  lockDownLocalPath, recallWindowsLockdown, refreshWindowsLockdown, rememberWindowsLockdown, validateLocalDockerHost,
+} from "../infrastructure/local-process.js";
 import { getLocalProcessIdentity, getLocalPidNamespaceIdentity } from "../infrastructure/process-identity.js";
 
 const OWNER_FILE = ".owner.json";
@@ -13,6 +15,8 @@ const MAX_OWNER_BYTES = 4 * 1024;
 const MAX_PROCESS_ID = 2_147_483_647;
 const MAX_IDENTITY_BYTES = 512;
 const failedAtomicReleases = new Map();
+// A process's own start identity never changes, so each identity adapter is asked once per platform.
+const verifiedSelfIdentities = new WeakMap();
 
 function failure(label, message, code) {
   const error = new Error(`Relmio ${message} ${label}.`);
@@ -167,6 +171,23 @@ function validProcessIdentity(identity) {
       !/[\0\r\n]/u.test(identity.startIdentity)
     ))
   );
+}
+
+// Only a verified active identity is kept; a failed or ambiguous query is asked again next time.
+async function currentProcessIdentity(getProcessIdentity, platform) {
+  const cached = verifiedSelfIdentities.get(getProcessIdentity)?.get(platform);
+  if (cached) return cached;
+  let identity;
+  try { identity = await getProcessIdentity(process.pid, { platform }); } catch { return null; }
+  if (!validProcessIdentity(identity) || identity.state !== "active") return null;
+  const verified = Object.freeze({ state: "active", startIdentity: identity.startIdentity });
+  let byPlatform = verifiedSelfIdentities.get(getProcessIdentity);
+  if (!byPlatform) {
+    byPlatform = new Map();
+    verifiedSelfIdentities.set(getProcessIdentity, byPlatform);
+  }
+  byPlatform.set(platform, verified);
+  return verified;
 }
 
 async function inspectClaim({ fileSystem, lockPath, lockDownPath, platform, label }) {
@@ -563,19 +584,15 @@ async function reclaimStale({
   }
 }
 
-async function inspectAtomicClaim({ fileSystem, lockPath, lockDownPath, platform, label }) {
-  let metadata = await lstatIfExists(fileSystem, lockPath, label);
+// `identityOnly` is only for deciding whether to unlink this process's own name for
+// an inode that must still equal a claim verified moments earlier; deleting it needs no ACL trust.
+async function inspectAtomicClaim({ fileSystem, lockPath, lockDownPath, platform, label, identityOnly = false }) {
+  const metadata = await lstatIfExists(fileSystem, lockPath, label);
   if (!metadata) return null;
   assertPrivateOwner(metadata, { label, platform });
   if (![1, 2].includes(metadata.nlink)) throw failure(label, "refuses an unsafe owner for the");
   if (platform !== "win32" && metadata.uid !== process.getuid()) {
     throw failure(label, "refuses an unsafe owner for the");
-  }
-  if (platform === "win32") {
-    await lockDownPath(lockPath, { platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true });
-    metadata = await lstatIfExists(fileSystem, lockPath, label);
-    if (!metadata) throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
-    assertPrivateOwner(metadata, { label, platform });
   }
   let raw;
   try { raw = await fileSystem.readFile(lockPath, "utf8"); }
@@ -589,6 +606,18 @@ async function inspectAtomicClaim({ fileSystem, lockPath, lockDownPath, platform
   const fingerprint = ownerFingerprint(metadata, raw);
   if (!sameOwnerFingerprint(fingerprint, ownerFingerprint(after, raw))) {
     throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
+  }
+  // Each Windows ACL check spawns PowerShell. Only an unchanged inode this process
+  // locked down itself skips it; foreign or changed inodes are always verified.
+  if (platform === "win32" && !identityOnly && !recallWindowsLockdown(lockDownPath, metadata, raw)) {
+    await lockDownPath(lockPath, { platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true });
+    const verified = await lstatIfExists(fileSystem, lockPath, label);
+    if (!verified) throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
+    assertPrivateOwner(verified, { label, platform });
+    if (!sameOwnerFingerprint(fingerprint, ownerFingerprint(verified, raw))) {
+      throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
+    }
+    refreshWindowsLockdown(lockDownPath, metadata, raw);
   }
   let publication;
   try { publication = JSON.parse(raw); } catch { /* Preserve malformed claims. */ }
@@ -627,12 +656,14 @@ async function publishAtomicClaim({ fileSystem, lockPath, ownerPublication, lock
     await handle.sync();
     metadata = await handle.stat();
     assertPrivateOwner(metadata, { label, platform });
+    if (platform === "win32") rememberWindowsLockdown(lockDownPath, metadata, raw);
     await handle.close();
     handle = null;
     // link is exclusive for files, directories and symlinks, unlike POSIX rename.
     await fileSystem.link(temporaryPath, lockPath);
     linked = true;
-    const temporary = await inspectAtomicClaim({ fileSystem, lockPath: temporaryPath, lockDownPath, platform, label });
+    const temporary = await inspectAtomicClaim({ fileSystem, lockPath: temporaryPath, lockDownPath, platform, label,
+      identityOnly: true });
     if (temporary?.fingerprint.dev !== metadata.dev || temporary?.fingerprint.ino !== metadata.ino ||
         temporary?.fingerprint.raw !== raw) {
       throw failure(label, "detected a changed publication for the", "RELMIO_LOCK_CHANGED");
@@ -665,7 +696,8 @@ async function removeAtomicClaim({ fileSystem, lockPath, expected, lockDownPath,
   if (!sameAtomicClaim(current, expected)) throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
   const detachedPath = `${lockPath}.released-${randomUUID()}`;
   await fileSystem.rename(lockPath, detachedPath);
-  const detached = await inspectAtomicClaim({ fileSystem, lockPath: detachedPath, lockDownPath, platform, label });
+  const detached = await inspectAtomicClaim({ fileSystem, lockPath: detachedPath, lockDownPath, platform, label,
+    identityOnly: true });
   if (!sameAtomicClaim(detached, expected)) {
     try {
       await fileSystem.link(detachedPath, lockPath);
@@ -863,9 +895,8 @@ export async function acquireLocalIntegrationLifecycleLock({
     throw new TypeError("The local integration lifecycle lock adapter is invalid.");
   }
   const inspectProcessIdentity = (pid) => getProcessIdentity(pid, { platform });
-  let selfIdentity;
-  try { selfIdentity = await inspectProcessIdentity(process.pid); } catch { selfIdentity = null; }
-  if (!validProcessIdentity(selfIdentity) || selfIdentity.state !== "active") {
+  const selfIdentity = await currentProcessIdentity(getProcessIdentity, platform);
+  if (!selfIdentity) {
     throw failure(label, "could not verify this process identity for the", "RELMIO_LOCK_IDENTITY_UNAVAILABLE");
   }
   let processNamespaceIdentity;

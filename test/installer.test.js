@@ -55,6 +55,9 @@ async function fixture(t) {
   return { registration, destinationRoot, authBinding };
 }
 
+// The fake container's destination store runs only in the Linux container in production,
+// where there is no Windows ACL step; host-side storage keeps its real ACL checks.
+const fakeContainerSessionDeps = process.platform === "win32" ? { lockDownPath: async () => {} } : {};
 const fakeRevocationProvider = async url => {
   if (url.endsWith("/.well-known/openid-configuration")) {
     return Response.json({
@@ -118,7 +121,7 @@ function fakeRemote({ destinationRoot, rejectAccept = false, managed = false, le
       command, storageRoot: destinationRoot, runtimeId, registrationId: selected,
       input: Readable.from(contents ? [Buffer.from(contents)] : []),
       output: { write(value) { stdout += value; } },
-      sessionDeps: { fetchImpl: fakeRevocationProvider },
+      sessionDeps: { fetchImpl: fakeRevocationProvider, ...fakeContainerSessionDeps },
     });
     return { code: 0, stdout };
   };

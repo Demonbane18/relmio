@@ -10,6 +10,8 @@ const MAX_ARGUMENT_BYTES = 16 * 1024;
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_DOCKER_HOST_BYTES = 4 * 1024;
 const WINDOWS_ACL_TIMEOUT_MS = 60_000;
+const WINDOWS_LOCKDOWN_MEMORY_LIMIT = 256;
+const windowsLockdownMemories = new WeakMap();
 const WINDOWS_ACL_MAX_OUTPUT_BYTES = 4 * 1024;
 const WINDOWS_SECURITY_TOOL_ERROR =
   "Windows could not locate the built-in security tool required to protect local Relmio files.";
@@ -459,6 +461,62 @@ export async function lockDownLocalPath(
     );
   } catch {
     throw new Error(WINDOWS_PATH_PROTECTION_ERROR);
+  }
+}
+
+function windowsLockdownIdentity(metadata) {
+  return [metadata?.dev, metadata?.ino, metadata?.birthtimeMs, metadata?.ctimeMs].every(Number.isFinite)
+    ? `${metadata.dev}:${metadata.ino}:${metadata.birthtimeMs}`
+    : null;
+}
+
+function windowsLockdownDigest(contents) {
+  return createHash("sha256").update(contents).digest("hex");
+}
+
+/**
+ * Remembers, for this process only, an inode that this process has just locked
+ * down with `lockDownPath`; that lockdown reads the owner-only DACL back. The
+ * key is device, inode and birth time. A later match also needs the same change
+ * time and contents (use "" for a directory). NTFS updates the change time when
+ * a security descriptor changes, so an ACL edit forces full verification again.
+ * Memory is per lockdown adapter and bounded; the oldest entries are evicted.
+ */
+export function rememberWindowsLockdown(lockDownPath, metadata, contents) {
+  const identity = windowsLockdownIdentity(metadata);
+  if (typeof lockDownPath !== "function" || !identity) return;
+  let memory = windowsLockdownMemories.get(lockDownPath);
+  if (!memory) {
+    memory = new Map();
+    windowsLockdownMemories.set(lockDownPath, memory);
+  }
+  memory.delete(identity);
+  memory.set(identity, { ctimeMs: metadata.ctimeMs, digest: windowsLockdownDigest(contents) });
+  if (memory.size > WINDOWS_LOCKDOWN_MEMORY_LIMIT) memory.delete(memory.keys().next().value);
+}
+
+/**
+ * Returns true only for an unchanged inode this process locked down itself.
+ * Foreign, replaced, changed or evicted inodes return false and need full verification.
+ */
+export function recallWindowsLockdown(lockDownPath, metadata, contents) {
+  const identity = windowsLockdownIdentity(metadata);
+  const remembered = identity && typeof lockDownPath === "function"
+    ? windowsLockdownMemories.get(lockDownPath)?.get(identity)
+    : undefined;
+  return remembered !== undefined && remembered.ctimeMs === metadata.ctimeMs &&
+    remembered.digest === windowsLockdownDigest(contents);
+}
+
+/**
+ * After a full verify-only check succeeds, records the new change time of an
+ * inode this process locked down earlier (a link or rename can change it).
+ * An inode this process never locked down is never added.
+ */
+export function refreshWindowsLockdown(lockDownPath, metadata, contents) {
+  const identity = windowsLockdownIdentity(metadata);
+  if (identity && windowsLockdownMemories.get(lockDownPath)?.has(identity)) {
+    rememberWindowsLockdown(lockDownPath, metadata, contents);
   }
 }
 

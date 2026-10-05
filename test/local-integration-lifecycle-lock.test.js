@@ -338,6 +338,8 @@ test("missing lease timestamp or boot proof cannot enable ambiguous age reclamat
 test("atomic claims publish only a durable complete private owner and expose the original acquisition clock", async (t) => {
   const { lockPath } = await createFixture(t);
   const synchronized = new Set(), protectedFiles = new Set();
+  // An ACL belongs to the file, so the hard-linked lock path shares its temp file's protection.
+  const inode = async path => { const { dev, ino } = await fileSystem.lstat(path); return `${dev}:${ino}`; };
   let linked = false, parentSynced = false;
   const atomicFileSystem = { ...fileSystem,
     async open(path, flags, ...args) {
@@ -354,7 +356,7 @@ test("atomic claims publish only a durable complete private owner and expose the
     },
     async link(from, to) {
       assert.equal(synchronized.has(from), true);
-      assert.equal(protectedFiles.has(from), true);
+      assert.equal(protectedFiles.has(await inode(from)), true);
       if (to === lockPath) {
         await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
         linked = true;
@@ -366,8 +368,8 @@ test("atomic claims publish only a durable complete private owner and expose the
     ...lockOptions(lockPath), atomicPublication: true, leaseNow: () => 1234,
     fileSystem: atomicFileSystem,
     lockDownPath: async (path, options = {}) => {
-      if (options.verifyOnly) assert.equal(protectedFiles.has(path), true);
-      else protectedFiles.add(path);
+      if (options.verifyOnly) assert.equal(protectedFiles.has(await inode(path)), true);
+      else protectedFiles.add(await inode(path));
     },
   });
   try {
@@ -392,14 +394,15 @@ test("Windows publishes without its unsupported directory fsync while POSIX stil
   });
   await t.test("win32", async (subtest) => {
     const { lockPath } = await createFixture(subtest);
-    const verified = new Set();
+    const secured = [];
     const release = await acquireLocalIntegrationLifecycleLock({
       ...lockOptions(lockPath), atomicPublication: true, platform: "win32",
       fileSystem: unsupportedDirectorySync(lockPath),
-      lockDownPath: async (path, options = {}) => { if (options.verifyOnly) verified.add(path); },
+      lockDownPath: async (path, options = {}) => { if (!options.verifyOnly) secured.push(path); },
     });
     assert.equal((await fileSystem.lstat(lockPath)).isFile(), true);
-    assert.equal(verified.has(lockPath), true);
+    assert.equal(secured.some(path => path.startsWith(`${lockPath}.publication-`) &&
+      !path.startsWith(`${lockPath}.publication-lock`)), true);
     await release();
     await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
   });
@@ -410,6 +413,87 @@ test("Windows publishes without its unsupported directory fsync while POSIX stil
     }), error => error.code === "RELMIO_LOCK_UNAVAILABLE");
     await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
   });
+});
+
+// Each identity query and verify-only ACL check is one PowerShell process on Windows.
+function windowsSpawnCounter(lockPath, { ctimeShift = () => 0 } = {}) {
+  const counts = { identity: 0, lockVerifies: 0, lockdowns: 0, ownNameVerifies: 0 };
+  return {
+    counts,
+    options: {
+      ...lockOptions(lockPath), atomicPublication: true, platform: "win32",
+      fileSystem: { ...fileSystem, async lstat(path) {
+        const metadata = await fileSystem.lstat(path);
+        if (path !== lockPath || !ctimeShift()) return metadata;
+        return Object.assign(Object.create(Object.getPrototypeOf(metadata)), metadata,
+          { ctimeMs: metadata.ctimeMs + ctimeShift() });
+      } },
+      async getProcessIdentity(pid) {
+        if (pid === process.pid) counts.identity++;
+        return { state: "active", startIdentity: "test:self" };
+      },
+      async lockDownPath(path, options = {}) {
+        if (!options.verifyOnly) counts.lockdowns++;
+        else if (path === lockPath) counts.lockVerifies++;
+        else if (/\.(?:publication|released)-[0-9a-f-]{36}$/u.test(path)) counts.ownNameVerifies++;
+      },
+    },
+  };
+}
+
+test("an uncontended Windows owner queries its identity once and does not re-verify its own claim", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const { counts, options } = windowsSpawnCounter(lockPath);
+  const acquisitions = 4;
+  for (let index = 0; index < acquisitions; index += 1) {
+    const release = await acquireLocalIntegrationLifecycleLock(options);
+    await release();
+  }
+  assert.equal(counts.identity, 1);
+  // A remembered inode is verified at most once, after its temp name is unlinked.
+  assert.ok(counts.lockVerifies <= acquisitions, `${counts.lockVerifies} lock-path verifications`);
+  assert.equal(counts.lockdowns, acquisitions * 3);
+  // Temp and detached names are only unlinked after an exact identity match.
+  assert.equal(counts.ownNameVerifies, 0);
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("a changed Windows change time or replaced inode is verified before use", async (t) => {
+  await t.test("change time", async (subtest) => {
+    const { lockPath } = await createFixture(subtest);
+    let shift = 0;
+    const { counts, options } = windowsSpawnCounter(lockPath, { ctimeShift: () => shift });
+    const release = await acquireLocalIntegrationLifecycleLock(options);
+    const verifiedBefore = counts.lockVerifies;
+    shift = 1;
+    await release();
+    assert.ok(counts.lockVerifies > verifiedBefore);
+    await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+  });
+  await t.test("inode", async (subtest) => {
+    const { lockPath } = await createFixture(subtest);
+    const { counts, options } = windowsSpawnCounter(lockPath);
+    const release = await acquireLocalIntegrationLifecycleLock(options);
+    const original = await readFile(lockPath, "utf8");
+    await fileSystem.rename(lockPath, `${lockPath}.original`);
+    await writeFile(lockPath, original, { mode: 0o600 });
+    const verifiedBefore = counts.lockVerifies;
+    await assert.rejects(release, /replaced/u);
+    assert.ok(counts.lockVerifies > verifiedBefore);
+    assert.equal(await readFile(lockPath, "utf8"), original);
+  });
+});
+
+test("a foreign Windows claim is ACL-verified on every inspection", async (t) => {
+  const { lockPath } = await createFixture(t);
+  await writeFile(lockPath, JSON.stringify(publication({ pid: 703, startIdentity: "test:live", acquiredAt: 1 })), { mode: 0o600 });
+  const { counts, options } = windowsSpawnCounter(lockPath);
+  options.getProcessIdentity = async pid => pid === 703
+    ? { state: "active", startIdentity: "test:live" } : { state: "active", startIdentity: "test:self" };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock(options), error => error.code === "RELMIO_LOCK_BUSY");
+  }
+  assert.equal(counts.lockVerifies, 2);
 });
 
 test("an interrupted unpublished atomic record never reserves the lock or falls back to a directory", async (t) => {

@@ -12,6 +12,9 @@ import {
   attestLocalDockerBuilder,
   createLocalDockerEnvironment,
   lockDownLocalPath,
+  recallWindowsLockdown,
+  refreshWindowsLockdown,
+  rememberWindowsLockdown,
   runWindowsAclCommand,
   runLocalProcess,
   verifyWindowsDockerConfigPath,
@@ -22,6 +25,35 @@ const LOCAL_DOCKER_HOST = "unix:///var/run/docker.sock";
 const WINDOWS_DOCKER_HOST = "npipe:////./pipe/dockerDesktopLinuxEngine";
 const RUNNER_DOCKER_HOST =
   process.platform === "win32" ? WINDOWS_DOCKER_HOST : LOCAL_DOCKER_HOST;
+
+test("Windows lockdown memory skips only unchanged inodes this process locked down itself", () => {
+  const adapter = async () => {};
+  const locked = { dev: 7, ino: 11, birthtimeMs: 1000.5, ctimeMs: 2000.25 };
+  rememberWindowsLockdown(adapter, locked, "owner-record");
+  assert.equal(recallWindowsLockdown(adapter, { ...locked }, "owner-record"), true);
+  assert.equal(recallWindowsLockdown(adapter, { ...locked }, Buffer.from("owner-record")), true);
+  for (const changed of [{ ctimeMs: 2001 }, { ino: 12 }, { dev: 8 }, { birthtimeMs: 1001 }, { ctimeMs: undefined }]) {
+    assert.equal(recallWindowsLockdown(adapter, { ...locked, ...changed }, "owner-record"), false);
+  }
+  assert.equal(recallWindowsLockdown(adapter, locked, "changed-record"), false);
+  assert.equal(recallWindowsLockdown(async () => {}, locked, "owner-record"), false);
+
+  const foreign = { dev: 7, ino: 99, birthtimeMs: 1000, ctimeMs: 2000 };
+  refreshWindowsLockdown(adapter, foreign, "foreign-record");
+  assert.equal(recallWindowsLockdown(adapter, foreign, "foreign-record"), false);
+
+  const linked = { ...locked, ctimeMs: 3000 };
+  refreshWindowsLockdown(adapter, linked, "owner-record");
+  assert.equal(recallWindowsLockdown(adapter, linked, "owner-record"), true);
+  assert.equal(recallWindowsLockdown(adapter, locked, "owner-record"), false);
+
+  const bounded = async () => {};
+  const entry = index => ({ dev: 1, ino: index, birthtimeMs: 1, ctimeMs: 1 });
+  for (let index = 0; index <= 256; index += 1) rememberWindowsLockdown(bounded, entry(index), "");
+  assert.equal(recallWindowsLockdown(bounded, entry(0), ""), false);
+  assert.equal(recallWindowsLockdown(bounded, entry(1), ""), true);
+  assert.equal(recallWindowsLockdown(bounded, entry(256), ""), true);
+});
 
 function inspectWindowsAcl(path) {
   return new Promise((resolve, reject) => {
