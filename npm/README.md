@@ -269,6 +269,10 @@ transfer completion cannot be confirmed, the session stays frozen until you
 inspect the destination. Relmio does not restore the sender's old tokens or
 restart an old writer automatically.
 
+If SSH connects but the read-only Docker or n8n check fails, the wizard keeps
+the verified connection and offers **Retry discovery** without asking for the
+password again. Changing the server details requires a fresh identity check.
+
 If a local or VPS install stops partway, status shows it as staged. Select the
 account, then review and confirm the resume in the wizard. It continues the
 same installation without deleting data or starting a second refresh writer;
@@ -295,16 +299,20 @@ API key: <one-time Relmio bearer shown by the wizard>
 Use Responses API: On
 ```
 
-Relmio sends supported requests to `/v1/responses`. The
+Relmio sends supported requests to `/v1/responses`. OpenAI filters the model
+catalog by an undocumented `client_version` parameter, so Relmio sends its
+pinned Codex version (0.160.0). OpenAI could change this behavior. The
 `/v1/chat/completions` compatibility route translates text messages and
 function tools into a Responses request. Function tools go upstream in one
 `additional_tools` item, and n8n runs the tools itself. The route allows up to
 32 tool calls, 128 KiB of arguments per call, and 2 MiB of streamed arguments
 in total. It rejects a named `tool_choice`, tool namespaces, custom tools in
-streamed requests, system messages, and inputs it cannot preserve. Reasoning
-items in the response are not passed to Chat Completions clients. Tool
-roundtrips were tested only against a fake provider; whether OpenAI accepts
-these tools on the SIWC route is unverified. Image generation/editing, audio,
+streamed requests, system messages, and inputs it cannot preserve. Chat
+clients receive only final-answer text; reasoning items and intermediate
+commentary are not passed on. The Responses route passes OpenAI's events
+unchanged. On 2026-10-05 a two-turn LangChain tool test passed through the
+real gateway on one ChatGPT account, streaming over both routes. That is not a
+guarantee for other accounts or models. Image generation/editing, audio,
 video, Files routes, stored conversations, moderation, and unsupported
 parameters are rejected without a fallback.
 

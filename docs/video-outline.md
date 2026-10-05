@@ -71,8 +71,10 @@ in the recording.
 - The sidecar exposes `/v1/models` and `/v1/responses`, plus a Chat
   Completions compatibility route that carries function tools through
   `additional_tools` (32 tool calls, 128 KiB per call, 2 MiB streamed in
-  total). n8n runs the tools. Tool roundtrips were tested only against a fake
-  provider; do not present live tool calling as verified.
+  total). n8n runs the tools. A two-turn tool test passed live on one ChatGPT
+  account on 2026-10-05 (streaming, local macOS). Do not present it as
+  verified for every account, model, or a VPS install.
+- Chat clients receive only final-answer text, not reasoning or commentary.
 - Image generation/editing, audio, video, Files management, Moderations,
   stored conversations, and unsupported fields/tool types are rejected.
 - Usage limits direct the user to ChatGPT **Manage usage**; errors do not switch

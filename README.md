@@ -243,6 +243,10 @@ the only refresh owner for the selected registration. A transfer that cannot
 be confirmed stays frozen for inspection. Relmio does not resume both copies,
 restore the sender's old tokens, or restart an old writer automatically.
 
+If SSH connects but the read-only Docker or n8n check fails, the wizard keeps
+the verified connection and offers **Retry discovery** without asking for the
+password again. Changing the server details requires a fresh identity check.
+
 If a local or VPS install stops partway, status shows it as staged. Select the
 account, then review and confirm the resume in the wizard. It continues the
 same installation without deleting data or starting a second refresh writer;
@@ -270,18 +274,22 @@ Use Responses API: On
 ```
 
 The gateway discovers the selected account's model catalog and sends
-supported requests to `/v1/responses`. The `/v1/chat/completions`
-compatibility route translates text messages and function tools into a
-Responses request. Function tools go upstream in one `additional_tools` item,
-and n8n runs the tools itself. The route allows up to 32 tool calls, 128 KiB
-of arguments per call, and 2 MiB of streamed arguments in total. It rejects a
-named `tool_choice`, tool namespaces, custom tools in streamed requests,
-system messages, and inputs it cannot preserve. Reasoning items in the
-response are not passed to Chat Completions clients. Tool roundtrips were
-tested only against a fake provider; whether OpenAI accepts these tools on
-the SIWC route is unverified. Image generation/editing, audio, video,
-file-management routes, stored responses/conversations, moderation, and
-unsupported parameters are rejected; there is no automatic fallback.
+supported requests to `/v1/responses`. OpenAI filters that catalog by an
+undocumented `client_version` parameter, so Relmio sends its pinned Codex
+version (0.160.0). OpenAI could change this behavior. The
+`/v1/chat/completions` compatibility route translates text messages and
+function tools into a Responses request. Function tools go upstream in one
+`additional_tools` item, and n8n runs the tools itself. The route allows up to
+32 tool calls, 128 KiB of arguments per call, and 2 MiB of streamed arguments
+in total. It rejects a named `tool_choice`, tool namespaces, custom tools in
+streamed requests, system messages, and inputs it cannot preserve. Chat
+clients receive only final-answer text; reasoning items and intermediate
+commentary are not passed on. The Responses route passes OpenAI's events
+unchanged. On 2026-10-05 a two-turn LangChain tool test passed through the
+real gateway on one ChatGPT account, streaming over both routes. That is not a
+guarantee for other accounts or models. Image generation/editing, audio,
+video, file-management routes, stored responses/conversations, moderation,
+and unsupported parameters are rejected; there is no automatic fallback.
 
 Installing on a server also requires express consent for n8n background
 workflows. The wizard does not edit n8n's credentials or Compose configuration.

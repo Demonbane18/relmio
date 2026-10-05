@@ -2,7 +2,7 @@
 
 Review date: 2026-10-05
 
-This review compares today's OpenAI Sign in with ChatGPT (SIWC) sources with the uncommitted `feature/documented-siwc` worktree. It is not legal advice, provider approval, Terms-compliance proof, or a runtime test. No sign-in, credential access, provider API call, form submission, SSH session, Docker command, browser QA, build or test was run for the review itself. File and line references describe the worktree at review time. Later fixes in this change moved some lines; see [Resolved in this change](#resolved-in-this-change) and [Still open](#still-open).
+This review compares today's OpenAI Sign in with ChatGPT (SIWC) sources with the uncommitted `feature/documented-siwc` worktree. It is not legal advice, provider approval, Terms-compliance proof, or a runtime test. No sign-in, credential access, provider API call, form submission, SSH session, Docker command, browser QA, build or test was run for the review itself. A separate live run on the same day is recorded under [Live verification](#live-verification-2026-10-05). File and line references describe the worktree at review time. Later fixes in this change moved some lines; see [Resolved in this change](#resolved-in-this-change) and [Still open](#still-open).
 
 Labels:
 
@@ -11,6 +11,7 @@ Labels:
 - **Provisional:** non-OpenAI evidence, or an OpenAI-adjacent page whose authority is unclear.
 - **Open:** today's sources and the code review do not settle it.
 - **[INFERENCE]:** reasoning that no source or run confirms.
+- **Live:** seen in the separate live run on one account. Not documented by OpenAI unless stated.
 
 ## Sources fetched (2026-10-05)
 
@@ -86,7 +87,7 @@ Compared with the [2026-10-04 source check](openai-source-check-2026-10-04.md) a
 - **Observed:** The rejected-field set matches and adds `previous_response_id` (`openai-oauth-sidecar.mjs:13`). `background` is accepted only as `false` and then deleted (`:169`, `:597`). There is an allowlist of top-level fields (`:15`), a set of unsupported tools (`:14`), and system, audio and video input is rejected (`:120-121`).
 - **Confirmed, `additional_tools`:** The SIWC guide's exact wording is "**Supported tools:** Group function/custom tools in namespaces or supply them through `additional_tools` input items." (preview-limitations.md). The SIWC guides do not use the words "developer" or "flat function" for this item. The Responses API reference defines `AdditionalTools object { role, tools, type, id }` with `role: "developer"` ("The role that provided the additional tools. Only `developer` is supported.") and `tools` that include `Function object { name, parameters, strict, … }` (create.md, around lines 2447-2530).
 - **Observed:** Flat top-level function and custom tools are moved into `{type:"additional_tools", role:"developer", tools}` (`openai-oauth-sidecar.mjs:152-164`). The chat translation builds the same item (`:528`). Incoming items are validated (`:122-131`).
-- **Observed at review time, L2:** In the reference, `parameters` and `strict` have no `optional` marker (both are nullable). Relmio allowed both to be omitted for nested and flat function tools (`openai-oauth-sidecar.mjs:90-93`). **Resolved in this change** for the request shape. Whether the SIWC route accepts flat tools at all has not been tested live.
+- **Observed at review time, L2:** In the reference, `parameters` and `strict` have no `optional` marker (both are nullable). Relmio allowed both to be omitted for nested and flat function tools (`openai-oauth-sidecar.mjs:90-93`). **Resolved in this change** for the request shape. The live run below completed two-turn tool calls with flat function tools.
 - **Confirmed, Chat Completions:** No SIWC page documents an upstream Chat Completions route. errors-and-recovery.md says that for `subscription_sharing_route_not_supported` (403) "support for another client type or route is not permission to use it here." **Observed:** `/v1/chat/completions` exists only as a local route that translates to Responses (`openai-oauth-sidecar.mjs:577,583-588,494-566`). It is never forwarded upstream as Chat Completions. No contradiction.
 - **Observed at review time, D1:** The FAQ and README described the chat route as text-only and tool-rejecting. The code accepts `tools`, `tool_choice`, `parallel_tool_calls` and `stream_options`, plus tool-call roundtrips (`openai-oauth-sidecar.mjs:496-566`). **Resolved in this change** by the documentation update.
 - **Confirmed, Codex app-server:** The provider config is `openai_chatgpt_plan` with `base_url=https://api.openai.com/v1`, `env_key="ACCESS_TOKEN"`, `wire_api="responses"`, `requires_openai_auth=false` and `supports_websockets=false`. `clientInfo.name` should match `agent_name_hint`. Only `turn/completed` with status `completed` counts as success. To renew, restart the child and call `thread/resume`. `model/list` is a catalog, not an entitlement check. [codex-app-server.md; preview-limitations.md]
@@ -124,7 +125,26 @@ OAuth scopes requested: `openid profile email offline_access resource.invoke cha
 - **L2, nullable function fields:** When a function tool omits `parameters` or `strict`, the Responses and Chat Completions translations now send `parameters: null` and `strict: null`. Supplied values, including `strict: false`, are unchanged. Existing `additional_tools` items get the same normalization. Namespace children and custom tools are unchanged.
 - **D1, chat route disclosure:** README, FAQ and the related guides now describe function-tool support through `additional_tools` and its limits.
 
-These fixes were checked with injected provider responses and a fake local upstream only.
+These fixes were checked with injected provider responses and a fake local upstream. The live run below also completed sign-in with plan consent and tool calls on one real account.
+
+## Live verification (2026-10-05)
+
+On one real ChatGPT account, on macOS with a local SIWC store, these passed through the real Relmio gateway:
+
+- Sign-in with plan consent.
+- The model list.
+- A Responses text request.
+- A two-turn LangChain function-tool exchange over Chat Completions (streaming) and over Responses (streaming).
+- Inference with `gpt-6.1-sol`, `gpt-6-sol` and `gpt-6-luna`.
+
+The live run also found these provider behaviors. They are **Live** findings, not documented by OpenAI, and could change:
+
+- The ID token's `aud` claim is a one-element array. Relmio rejected it before the fix.
+- The final `response.completed` event can carry an empty `output`. The gateway now rebuilds the output from `response.output_item.done` events for non-streaming requests and Chat translation. Streamed Responses events pass through unchanged.
+- Message items carry a `phase`, such as `commentary` or `final_answer`. Chat Completions clients now receive only text with phase `final_answer` or no phase. The Responses route passes `phase` through unchanged.
+- `GET /v1/models` filters the catalog by an undocumented `client_version` query parameter. Relmio now sends its pinned Codex version, `CODEX_CLI_VERSION` 0.160.0 in `src/gateway/openai-oauth-sidecar.mjs` (previously 0.147.0). With it, GPT-6.1-Sol, GPT-6-Sol and GPT-6-Luna appear in the catalog.
+
+Not exercised live: a VPS or Docker install, refresh after the one-hour access token expires, revocation, usage-limit responses, non-streaming tool calls, other accounts or plans, and Windows.
 
 ## Still open
 
@@ -133,8 +153,9 @@ These fixes were checked with injected provider responses and a fake local upstr
 - **Terms §1:** Persistent VPS token storage may conflict with the "local and under the user's control" wording. Relmio makes no provider-approval claim for VPS use.
 - **Terms §2:** Whether an OpenAI-compatible endpoint for n8n fits "connected application only" and "no general-purpose API access" needs an answer from OpenAI.
 - **Partner directory:** Relmio is not listed. Whether it counts as a "supported open source tool" or "open-source partner" is not defined.
-- **Flat tools on the live route:** Whether the SIWC route accepts `additional_tools` with flat function tools has not been tested. Only the generic Responses reference documents the shape.
+- **Flat tools beyond the live run:** Flat function tools in `additional_tools` worked for one account in streaming requests. Other accounts, models and non-streaming tool calls were not tested, and only the generic Responses reference documents the shape.
+- **`client_version`:** The catalog depends on an undocumented parameter. A future OpenAI change could hide or add models for the pinned version.
 - **Other unknowns:** semantics of `earliest_refresh_at`; whether OpenAI sends `iss` in the callback.
-- **Live verification:** Live eligibility, admission region, account catalog, completed inference, tool-call roundtrips with OpenAI, refresh rotation, revocation effect, Windows ACL behavior, real Docker or VM transfer, and deployment-specific logs and retention were not exercised.
+- **Live verification gaps:** Eligibility for other accounts and plans, admission region, refresh rotation after expiry, revocation effect, usage-limit responses, Windows ACL behavior, real Docker or VM transfer, and deployment-specific logs and retention were not exercised.
 
 Nothing in this check is evidence of Terms compliance, provider approval, or TTS or model entitlement.

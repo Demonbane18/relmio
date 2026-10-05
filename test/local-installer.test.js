@@ -16,6 +16,7 @@ import {
   reviewLocalSiwcResume, reconcileLocalSiwcHandoff,
 } from "../src/services/local-installer.js";
 import { runSiwcHandoffCli } from "../src/services/siwc-handoff.mjs";
+import { CODEX_CLI_VERSION } from "../src/gateway/openai-oauth-sidecar.mjs";
 import {
   commitAuthorization, getAccessToken, listRegistrations, setPlanEnabled, readRegistration,
 } from "../src/services/siwc-session.mjs";
@@ -66,7 +67,7 @@ const fakeRevocationProvider = async url => {
     });
   }
   if (url.endsWith("/api/accounts/oauth/revoke")) return new Response(null, { status: 200 });
-  if (url === "https://api.openai.com/v1/models") return Response.json({
+  if (url === `https://api.openai.com/v1/models?client_version=${CODEX_CLI_VERSION}`) return Response.json({
     models: [{ slug: "selected-model", display_name: "Selected model", visibility: "list" }],
   });
   throw new Error("Unexpected provider request in local fixture.");

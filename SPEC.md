@@ -122,7 +122,11 @@ n8n installation requires a separate, explicit approval for background
 workflow use plus confirmation of the reviewed installation. Neither approval
 substitutes for the other. For VPS writes, Relmio verifies the SSH host key
 before authentication and requires a final human confirmation after showing the
-verified server identity and exact plan.
+verified server identity and exact plan. If SSH connects but the read-only
+Docker or n8n discovery fails, the wizard keeps the verified connection and
+offers **Retry discovery** without asking for the password again. Changing the
+host, port, username, or authentication method requires a fresh identity
+check.
 
 ## Local public APIs
 
@@ -133,8 +137,15 @@ The sidecar requires a generated Relmio bearer and serves:
 - `GET /health` for liveness.
 - `GET /v1/models` for the selected account catalog, filtered to
   `visibility == "list"` and retaining provider order, display names, and slugs.
+  Relmio requests the catalog with `client_version` set to its pinned Codex
+  version (`CODEX_CLI_VERSION`, 0.160.0). OpenAI filters the catalog by this
+  parameter but does not document it, so the behavior could change.
 - `POST /v1/responses` for validated Responses requests. Upstream requests set
   `store:false` and `stream:true`; only `response.completed` is success.
+  Streamed events, including any `phase`, pass through unchanged. OpenAI's
+  final `response.completed` event can carry an empty `output`; for
+  non-streaming requests and Chat translation, Relmio rebuilds the output from
+  the `response.output_item.done` events.
 - `POST /v1/chat/completions` as a compatibility route translated into a
   Responses request. It accepts `model`, `messages`, `tools`, `tool_choice`
   (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, and
@@ -146,8 +157,9 @@ The sidecar requires a generated Relmio bearer and serves:
   tools or tool calls, 128 KiB of arguments per call, and 2 MiB of streamed
   arguments in total. A named `tool_choice`, tool namespaces, custom tools in
   streamed requests, system messages, and fields it cannot preserve are
-  rejected. Reasoning output items are skipped and never returned to Chat
-  Completions clients. The gateway never executes tools.
+  rejected. Reasoning output items are skipped. Only message text with phase
+  `final_answer`, or no phase, reaches Chat Completions clients; `commentary`
+  text is dropped. The gateway never executes tools.
 
 All inference requests use the selected SIWC registration and public
 `https://api.openai.com/v1/responses`. Errors preserve safe status, code,
@@ -165,8 +177,10 @@ Responses request is usable only when supported by the selected model; this
 never enables the Files API. Flat function and custom tools in a Responses
 request are moved into the same `additional_tools` item. Tool use remains
 conditional on the exact accepted Responses input, model, account, and
-workspace policy. Tool roundtrips are tested only against a fake provider;
-live acceptance of flat tools on the SIWC route is unverified.
+workspace policy. On 2026-10-05 a two-turn LangChain function-tool test
+passed through the real gateway on one ChatGPT account, streaming over both
+the Chat Completions and Responses routes. Other accounts, models, and
+non-streaming tool calls were not tested live.
 
 For n8n, the result screen returns a private base URL and a one-time Relmio
 bearer. The owner enters both manually in n8n; the bearer is not an OpenAI key.
@@ -301,7 +315,10 @@ route status and the distinct local OSS SIWC evidence.
 
 The source implementation is not evidence that a live OpenAI account can
 connect, receive the needed grant, list entitled models, reach an admitted host,
-or complete inference. Native Windows ACL/runtime acceptance, real Docker/n8n
-installation, real VPS transfer, provider revocation, and browser interaction
-must be reported only when separately exercised. Fake-provider fixtures do not
-prove live provider capability, permission, policy, or Terms compliance.
+or complete inference. The live checks recorded in the
+[2026-10-05 source check](docs/openai-source-check-2026-10-05.md) cover one
+account on macOS with a local store. Native Windows ACL/runtime acceptance,
+real Docker/n8n installation, real VPS transfer, refresh after expiry, provider
+revocation, usage limits, and browser interaction must be reported only when
+separately exercised. Fake-provider fixtures do not prove live provider
+capability, permission, policy, or Terms compliance.

@@ -45,16 +45,19 @@ and tool results. Function tools go upstream in one `additional_tools` item;
 n8n runs the tools, not the gateway. Limits are 32 tool calls, 128 KiB of
 arguments per call, and 2 MiB of streamed arguments in total. The route
 rejects a named `tool_choice`, tool namespaces, custom tools in streamed
-requests, system messages, and other fields it cannot preserve. Tool
-roundtrips were tested only against a fake provider; whether OpenAI accepts
-these tools on the SIWC route is unverified.
+requests, system messages, and other fields it cannot preserve. Chat clients
+get only final-answer text. On 2026-10-05 a two-turn LangChain tool test
+passed through the real gateway on one ChatGPT account, streaming over both
+routes. That is not a guarantee for other accounts or models.
 
 Image generation and editing, audio, video, Files API routes, stored
 responses/conversations, moderation, and unsupported Responses parameters are
-not implemented. Audio input and transcription are unsupported. A model shown
-in discovery is not an entitlement promise. The gateway reports unsupported
-operations and provider errors; it has no alternative provider or account
-fallback.
+not implemented. Audio input and transcription are unsupported. Relmio asks
+for the model list with its pinned Codex version (0.160.0), because OpenAI
+filters the catalog by an undocumented `client_version` parameter. A model
+shown in discovery is not an entitlement promise. The gateway reports
+unsupported operations and provider errors; it has no alternative provider or
+account fallback.
 
 ## How do I connect n8n?
 

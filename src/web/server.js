@@ -5140,9 +5140,9 @@ async function handleApi(request, response, path, state) {
         scannedHost.port !== port ||
         !tokenMatches(body.expectedFingerprint, scannedHost.fingerprint)
       ) {
-        throw new Error(
-          "The VPS identity confirmation is missing or no longer matches. Check it again.",
-        );
+        throw Object.assign(new Error(
+          "This server identity check was already used or no longer matches. Check and confirm the server identity again before connecting."),
+        { code: "ssh_identity_review_required", recovery: "review-again" });
       }
 
       connectionOperation = acquireVpsConnectionOperation(state);

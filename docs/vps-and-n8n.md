@@ -62,7 +62,11 @@ ChatGPT sign-in. It is available from stable `@latest` and hosted installers.
    management and common read-only discovery.
 4. Select a running official n8n container and one eligible existing Docker
    network. Rootful Docker Engine, Compose v2 and Buildx must use the same
-   local daemon in the selected administrative context.
+   local daemon in the selected administrative context. If SSH connected but
+   this read-only check fails, fix the problem on the server and choose
+   **Retry discovery**. The wizard keeps the verified connection and does not
+   ask for the password again. Changing the server details requires a fresh
+   identity check.
 5. Review the selected registration, verified SSH identity, target, and exact
    write plan. Confirm the SSH fingerprint before authentication and separately
    confirm the final remote write. Explicitly approve background n8n use.
@@ -181,6 +185,7 @@ The Chat Completions compatibility route accepts function tools through
 `additional_tools`, with limits of 32 tool calls, 128 KiB of arguments per
 call, and 2 MiB of streamed arguments in total. It rejects a named
 `tool_choice`, tool namespaces, custom tools in streamed requests, and system
-messages. Tool roundtrips were tested only against a fake provider. Discovery
-does not establish account access. See [Configure n8n nodes](n8n-configuration.md)
-and the [dated source check](openai-source-check-2026-10-05.md).
+messages. Tool roundtrips passed live on one ChatGPT account on a local macOS
+setup on 2026-10-05; a VPS install was not tested live. Discovery does not
+establish account access. See [Configure n8n nodes](n8n-configuration.md) and
+the [dated source check](openai-source-check-2026-10-05.md).

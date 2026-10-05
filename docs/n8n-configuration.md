@@ -33,9 +33,9 @@ entitlement or host admission.
 
 | Route | Behavior |
 | --- | --- |
-| `GET /v1/models` | Returns the selected account's public model catalog (`visibility == "list"`) in provider order, with model slugs and display names. |
-| `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false` and requests streaming; only a completed response counts as success. |
-| `POST /v1/chat/completions` | Compatibility route translated into a Responses request. It accepts `model`, `messages`, `tools`, `tool_choice` (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, and `stream_options.include_usage`. Messages are text `user`, `assistant`, or `developer` messages, assistant tool calls, and `tool` results. |
+| `GET /v1/models` | Returns the selected account's public model catalog (`visibility == "list"`) in provider order, with model slugs and display names. Relmio sends its pinned Codex version (0.160.0) as OpenAI's undocumented `client_version` parameter, which filters the catalog; OpenAI could change this. |
+| `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false` and requests streaming; only a completed response counts as success. Streamed events, including `phase`, pass through unchanged. |
+| `POST /v1/chat/completions` | Compatibility route translated into a Responses request. It accepts `model`, `messages`, `tools`, `tool_choice` (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, and `stream_options.include_usage`. Messages are text `user`, `assistant`, or `developer` messages, assistant tool calls, and `tool` results. Only final-answer text is returned. |
 
 For a basic OpenAI Chat Model workflow, select a catalog model and begin with
 a simple text prompt. A Responses request uses the full input array; send
@@ -82,13 +82,14 @@ Limits:
 
 The Chat Completions route rejects a named `tool_choice`, tool namespaces,
 custom tools in streamed requests, and system messages. Responses requests
-can use namespaces and `additional_tools` items directly. Reasoning items in
-the model's output are skipped on the Chat Completions route and never
-returned to its clients.
+can use namespaces and `additional_tools` items directly. On the Chat
+Completions route, reasoning items and `commentary` text are skipped; clients
+receive only message text with phase `final_answer` or no phase.
 
-Tool roundtrips were tested only against a fake provider. Whether OpenAI's
-SIWC route accepts flat function tools has not been verified with a live
-account; the SIWC guide names `additional_tools`, but only the general
+On 2026-10-05 a two-turn LangChain function-tool test passed through the real
+gateway on one ChatGPT account, streaming over both Chat Completions and
+Responses. Other accounts, models, and non-streaming tool calls were not
+tested live. The SIWC guide names `additional_tools`, but only the general
 Responses reference documents its shape.
 
 ## Limits and recovery

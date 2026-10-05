@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { createSidecarHandler } from "../src/gateway/openai-oauth-sidecar.mjs";
+import { CODEX_CLI_VERSION, createSidecarHandler } from "../src/gateway/openai-oauth-sidecar.mjs";
 
 const imageModels = ["gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"];
 const credential = "image_route_local_credential_123456";
@@ -43,7 +43,7 @@ test("model discovery never invents GPT Image 2 entitlement", async () => {
   }));
   assert.equal(response.status, 200);
   assert.deepEqual((await response.json()).data.map(({ id }) => id), ["gpt-6-astra"]);
-  assert.deepEqual(calls.map(({ url }) => url), ["https://api.openai.com/v1/models"]);
+  assert.deepEqual(calls.map(({ url }) => url), [`https://api.openai.com/v1/models?client_version=${CODEX_CLI_VERSION}`]);
 });
 
 test("all former image-generation models are rejected before any provider request", async () => {

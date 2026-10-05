@@ -11,6 +11,8 @@ import { formatAuthUpdatedAt } from "../src/ui/time.js";
 import { clearFieldError, createCredentialSshGuard, markRejectedField, sameSshIdentity } from "../src/ui/ssh-form.js";
 import { siwcAccount, siwcInstallResult } from "./helpers/siwc-wizard.js";
 import { accountUiState, normalizeSiwcAccount, siwcErrorFromResponse, siwcErrorText } from "../src/ui/siwc-controls.js";
+import { startIsolatedWizard } from "./helpers/siwc-wizard.js";
+import { verifiedSshFixture } from "./helpers/ssh-session.js";
 
 const rootIdentity = {
   host: "new.example", port: 22, username: "root",
@@ -658,7 +660,9 @@ test("fingerprint check validates address and port before unlocking authenticati
     sshAuthentication: { sync({ trusted }) { element("password").disabled = !trusted; } },
     setMessage() {}, showError(error) { throw error; },
   };
-  vm.runInNewContext(script.slice(start, end), context);
+  const resetStart = script.indexOf("function resetFingerprint()");
+  const resetEnd = script.indexOf("\nfunction handleVpsConnectionInput", resetStart);
+  vm.runInNewContext(`${script.slice(resetStart, resetEnd)}\n${script.slice(start, end)}`, context);
   element("host").value = "new.example";
   element("port").value = "0";
   element("port").valid = false;
@@ -1580,4 +1584,172 @@ test("SuperGrok device polling defers while another VPS read is active", async (
   state.busy = false;
   loginState = "expired";
   await context.pollLogin("fixture-install", state.loginGeneration);
+});
+
+async function connectedDiscoveryHarness(t, failurePhase) {
+  const sessionToken = "ui-discovery-test-token-123456789012345678";
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, {
+      value: "", textContent: "", hidden: false, disabled: false, checked: false, required: false,
+      dataset: {}, handlers: new Map(), attributes: new Map(),
+      addEventListener(event, handler) { this.handlers.set(event, handler); },
+      setAttribute(name, value) { this.attributes.set(name, value); },
+      getAttribute(name) { return this.attributes.get(name) ?? null; },
+      removeAttribute(name) { this.attributes.delete(name); },
+      replaceChildren() {}, focus() {},
+    });
+    return nodes.get(id);
+  };
+  let connects = 0;
+  let discovers = 0;
+  let networks = 0;
+  const wizard = await startIsolatedWizard({ sessionToken, services: {
+    async scanHostFingerprint() { return rootIdentity.fingerprint; },
+    async connectVerified(request) { connects++; return verifiedSshFixture(request); },
+    async discoverN8n() {
+      discovers++;
+      if (failurePhase === "discover" && discovers === 1) throw new Error("Read-only Docker discovery failed.");
+      return { containers: [{ id: "a".repeat(64), name: "fixture-n8n", image: "n8nio/n8n", state: "running" }] };
+    },
+    async discoverNetworks() {
+      networks++;
+      if (failurePhase === "networks" && networks === 1) throw new Error("Read-only Docker network discovery failed.");
+      return { networks: ["fixture-network"], recommended: "fixture-network" };
+    },
+  } });
+  const previous = { document: globalThis.document, fetch: globalThis.fetch };
+  const requests = [];
+  const transport = async (path, options = {}) => {
+    requests.push(path);
+    return previous.fetch(new URL(path, wizard.origin), { ...options, headers: {
+      ...options.headers, "X-Setup-Token": sessionToken, Origin: wizard.origin,
+    } });
+  };
+  globalThis.document = { getElementById: element };
+  globalThis.fetch = transport;
+  t.after(async () => {
+    if (previous.document === undefined) delete globalThis.document;
+    else globalThis.document = previous.document;
+    globalThis.fetch = previous.fetch;
+    await wizard.close();
+  });
+  const state = { operationBusy: false, vpsReconnectRequired: false, fingerprint: null };
+  const errors = [];
+  const guard = createCredentialSshGuard({ token: sessionToken, onMismatch() { state.fingerprint = null; } });
+  const script = await readFile("src/ui/app.js", "utf8");
+  const sections = [
+    script.slice(script.indexOf("function resetFingerprint()"), script.indexOf("\nfunction setMessage(")),
+    script.slice(script.indexOf("async function api("), script.indexOf("\nfunction resetVpsOwner")),
+    script.slice(script.indexOf("async function loadNetworks("), script.indexOf("\nfunction renderNetworks")),
+    script.slice(script.indexOf("async function discover()"), script.indexOf("\nfunction renderDiscovery")),
+    script.slice(script.indexOf('element("vps-form").addEventListener("submit"'), script.indexOf("\nasync function disconnectVpsSession")),
+  ];
+  const controls = vm.runInNewContext(`${sections.join("\n")}\n({api, handleVpsDestinationInput, handleVpsConnectionInput});`, {
+    state, element, token: sessionToken, sshSession: guard, siwcErrorFromResponse, fetch: transport,
+    clearError() { element("error").textContent = ""; },
+    invalidateReviewedPlan() {}, clearFieldError,
+    setMessage() {}, showError(error) { errors.push(error); element("error").textContent = error.message; },
+    setCredentialInputsEnabled(enabled) {
+      element("username").disabled = element("ssh-authentication").disabled = !enabled;
+    },
+    renderDiscovery(result) { state.discovery = result.discovery; state.step = 3; },
+    async runOperation(_button, _label, action) { return action(); },
+    sshAuthentication: { request(expectedFingerprint) {
+      const useAgent = element("ssh-authentication").value === "agent";
+      const body = { host: element("host").value, port: Number(element("port").value),
+        username: element("username").value, useAgent, privilege: "root", expectedFingerprint,
+        ...(useAgent ? {} : { password: element("password").value }) };
+      element("password").value = "";
+      return body;
+    } },
+  });
+  element("host").value = rootIdentity.host;
+  element("port").value = "22";
+  element("username").value = "root";
+  element("ssh-authentication").value = "password";
+  element("connect-button").textContent = "Connect";
+  const checked = await controls.api("/api/ssh/fingerprint", { method: "POST",
+    body: { host: element("host").value, port: 22 } });
+  state.fingerprint = checked.fingerprint;
+  element("fingerprint-confirm").checked = true;
+  element("password").value = "fixture-password-for-approved-connection";
+  element("password").required = true;
+  return { ...controls, state, errors, element, guard, requests, connects: () => connects,
+    submit: () => element("vps-form").handlers.get("submit")({ preventDefault() {} }) };
+}
+
+test("discovery failure after SSH connect retries only discovery without another password or authentication", async (t) => {
+  for (const phase of ["discover", "networks"]) {
+    await t.test(phase, async (subtest) => {
+      const harness = await connectedDiscoveryHarness(subtest, phase);
+      const originalLabel = harness.element("connect-button").textContent;
+      await harness.submit();
+      assert.equal(harness.connects(), 1);
+      assert.equal(harness.errors.length, 1);
+      assert.equal(harness.guard.adoptedIdentity().host, rootIdentity.host);
+      assert.equal(harness.element("ssh-disconnect").hidden, false);
+      assert.equal(harness.element("password").value, "");
+      assert.equal(harness.element("password").required, false);
+      assert.equal(harness.element("password").disabled, true);
+      assert.equal(harness.element("connect-button").disabled, false);
+      assert.notEqual(harness.element("connect-button").textContent, originalLabel);
+      assert.equal(harness.element("error").textContent, harness.errors[0].message);
+      await harness.submit();
+      assert.equal(harness.connects(), 1);
+      assert.equal(harness.requests.filter((path) => path === "/api/ssh/connect").length, 1);
+      assert.equal(harness.state.step, 3);
+      assert.equal(harness.errors.length, 1);
+    });
+  }
+});
+
+test("changing a connected host or authentication details requires a fresh confirmed identity check", async (t) => {
+  const harness = await connectedDiscoveryHarness(t, "discover");
+  await harness.submit();
+  harness.element("host").value = "replacement.example";
+  harness.handleVpsDestinationInput();
+  assert.equal(harness.element("connect-button").disabled, true);
+  assert.equal(harness.element("fingerprint-confirm").checked, false);
+  await harness.submit();
+  assert.equal(harness.connects(), 1);
+  const scan = await harness.api("/api/ssh/fingerprint", { method: "POST",
+    body: { host: "replacement.example", port: 22 } });
+  harness.state.fingerprint = scan.fingerprint;
+  harness.element("fingerprint-confirm").checked = true;
+  harness.element("password").value = "fixture-new-password-after-identity-check";
+  await harness.submit();
+  assert.equal(harness.connects(), 2);
+  assert.equal(harness.guard.adoptedIdentity().host, "replacement.example");
+  assert.equal(harness.element("password").value, "");
+  harness.element("ssh-authentication").value = "agent";
+  harness.handleVpsConnectionInput();
+  await harness.submit();
+  assert.equal(harness.connects(), 2);
+  assert.equal(harness.element("fingerprint-confirm").checked, false);
+  assert.equal(harness.element("password").value, "");
+});
+
+test("connected port, username and authentication edits invalidate the prior identity confirmation", async (t) => {
+  for (const [field, value] of [["port", "2222"], ["username", "operator"], ["ssh-authentication", "agent"]]) {
+    await t.test(field, async (subtest) => {
+      const harness = await connectedDiscoveryHarness(subtest, "discover");
+      await harness.submit();
+      let interrupted = false;
+      Object.defineProperty(harness.element(field), "disabled", {
+        configurable: true, get() { return false; },
+        set(value) { if (value) interrupted = true; },
+      });
+      harness.element(field).value = value;
+      if (field === "port") harness.handleVpsDestinationInput();
+      else harness.handleVpsConnectionInput();
+      assert.equal(interrupted, false);
+      assert.equal(harness.element("fingerprint-confirm").checked, false);
+      assert.equal(harness.element("connect-button").disabled, true);
+      await harness.submit();
+      assert.equal(harness.connects(), 1);
+      assert.equal(harness.requests.filter((path) => path === "/api/ssh/connect").length, 1);
+      assert.equal(harness.element("password").value, "");
+    });
+  }
 });

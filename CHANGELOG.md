@@ -14,7 +14,8 @@ checks the registry separately after publication.
   one `additional_tools` item, and n8n still runs the tools. Limits are 32 tool
   calls, 128 KiB of arguments per call and 2 MiB of streamed arguments. A named
   `tool_choice`, tool namespaces and custom tools in streamed requests are
-  rejected. Tool roundtrips were tested only against a fake provider.
+  rejected. A two-turn LangChain tool test passed live on one ChatGPT account
+  on 2026-10-05, streaming over both Chat Completions and Responses.
 - An interrupted local or VPS ChatGPT install shows as staged and can be
   resumed after a review that names the selected account, without deleting
   data or starting a second refresh writer. Turning plan use on or off, or a
@@ -45,6 +46,20 @@ checks the registry separately after publication.
 - Sign-in no longer fails after you allow access. OpenAI sends the ID
   token's audience as a one-element list, which Relmio wrongly rejected. Found
   in a live sign-in test.
+- Non-streaming requests and Chat tool streams no longer fail on live OpenAI
+  responses. OpenAI's final `response.completed` event can have an empty
+  `output`, so the gateway now rebuilds it from the
+  `response.output_item.done` events. Chat Completions clients get only
+  final-answer text, not intermediate `commentary`. The Responses route passes
+  events and `phase` through unchanged.
+- The model list now includes the account's current models. On the tested
+  account that added GPT-6.1-Sol, GPT-6-Sol and GPT-6-Luna. OpenAI filters the
+  catalog by an undocumented `client_version` parameter, so Relmio sends its
+  pinned Codex version. The Codex runtime pin moved from 0.147.0 to 0.160.0.
+- If SSH connects but the read-only Docker or n8n check fails, the VPS wizard
+  keeps the verified connection and offers Retry discovery without asking for
+  the password again. Changing the server details still needs a fresh identity
+  check.
 - Sign-in no longer fails when OpenAI's callback includes its documented
   optional `scope`. An `iss` value, when present, must match the issuer.
 - Declining in ChatGPT now shows a declined message instead of a generic

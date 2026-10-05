@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { CODEX_CLI_VERSION } from "../src/gateway/openai-oauth-sidecar.mjs";
 
 import {
-  CODEX_CLI_VERSION, GROK_BUILD_CLI_VERSION,
+  GROK_BUILD_CLI_VERSION,
   createCodexChatComposeFile, createCodexChatConfig, createCodexChatDockerfile,
   createCodexComposeFile, createCodexConfig, createCodexDockerfile,
   createGrokBuildComposeFile, createGrokBuildDockerfile,

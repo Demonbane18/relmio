@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import test from "node:test";
-import { createSidecarHandler, createSidecarServer, listSiwcModels } from "../src/gateway/openai-oauth-sidecar.mjs";
+import { CODEX_CLI_VERSION, createSidecarHandler, createSidecarServer, listSiwcModels } from "../src/gateway/openai-oauth-sidecar.mjs";
 
 const credential = "local_client_credential_123456789";
 const verifier = createHash("sha256").update(credential).digest();
@@ -56,21 +56,39 @@ test("private Host and no-Origin admission precedes token and provider access", 
   assert.equal(tokenCalls.length, 1);
 });
 
-test("catalog preserves listed server order and display names without synthetic image models", async () => {
-  const provider = () => Response.json({ models: [
-    { slug: "z-model", display_name: "Z model", visibility: "list" },
-    { slug: "private", visibility: "hidden" },
-    { slug: "a-model", display_name: "A model", visibility: "list" },
-  ] });
+test("catalog sends the pinned client version and preserves listed model order without inventing entitlement", async () => {
+  const catalog = [
+    { slug: "gpt-6.1-sol", display_name: "GPT 6.1 Sol", visibility: "list", minimal_client_version: "0.153.0" },
+    { slug: "private", visibility: "hidden", minimal_client_version: "0.100.0" },
+    { slug: "gpt-6-sol", display_name: "GPT 6 Sol", visibility: "list", minimal_client_version: "0.155.0" },
+    { slug: "gpt-6-luna", display_name: "GPT 6 Luna", visibility: "list", minimal_client_version: "0.155.0" },
+    { slug: "other-listed", visibility: "list" },
+  ];
+  const catalogRequests = [];
+  const provider = (url, options) => {
+    const parsed = new URL(url);
+    assert.equal(parsed.origin, "https://api.openai.com");
+    assert.equal(parsed.pathname, "/v1/models");
+    assert.deepEqual([...parsed.searchParams], [["client_version", CODEX_CLI_VERSION]]);
+    assert.equal(options.headers.authorization, "Bearer provider-token");
+    catalogRequests.push(url);
+    return Response.json({ models: catalog });
+  };
   const { handler } = fake(provider);
-  const response = await handler(request("/v1/models"));
+  const response = await handler(request("/v1/models?client_version=0.147.0"));
   assert.deepEqual((await response.json()).data, [
-    { id: "z-model", object: "model", display_name: "Z model" },
-    { id: "a-model", object: "model", display_name: "A model" },
+    { id: "gpt-6.1-sol", object: "model", display_name: "GPT 6.1 Sol" },
+    { id: "gpt-6-sol", object: "model", display_name: "GPT 6 Sol" },
+    { id: "gpt-6-luna", object: "model", display_name: "GPT 6 Luna" },
+    { id: "other-listed", object: "model", display_name: "other-listed" },
   ]);
   assert.deepEqual(await listSiwcModels({ ...registration, runtimeId: "runtime-1", getToken: async () => ({ accessToken: "provider-token" }), fetchImpl: provider }), [
-    { slug: "z-model", display_name: "Z model" }, { slug: "a-model", display_name: "A model" },
+    { slug: "gpt-6.1-sol", display_name: "GPT 6.1 Sol" },
+    { slug: "gpt-6-sol", display_name: "GPT 6 Sol" },
+    { slug: "gpt-6-luna", display_name: "GPT 6 Luna" },
+    { slug: "other-listed", display_name: "other-listed" },
   ]);
+  assert.equal(catalogRequests.length, 2);
 });
 
 test("rejects unsupported parameters, tools, routes, and storage before provider dispatch", async () => {
@@ -173,8 +191,10 @@ test("provider detail admission and post-delta chat limits stay safe and termina
   assert.equal(error.status, 403);
   assert.deepEqual((await error.json()).upstream, { status: 403, body: { detail: "Serving region is unavailable." }, requestId: "req_region" });
 
-  const textDelta = { type: "response.output_text.delta", delta: "partial" };
-  const failed = fake(() => new Response(`event: response.output_text.delta\ndata: ${JSON.stringify(textDelta)}\n\n${terminal("response.failed", { error: { code: "subscription_sharing_usage_limit_exceeded", message: "Limit" } })}`, { headers: { "x-request-id": "req_limit" } }));
+  const textDelta = { type: "response.output_text.delta", output_index: 0, item_id: "msg_partial", content_index: 0, delta: "partial", logprobs: [] };
+  const added = { type: "response.output_item.added", output_index: 0,
+    item: { type: "message", id: "msg_partial", role: "assistant", status: "in_progress", phase: "final_answer", content: [] } };
+  const failed = fake(() => new Response(`${event(added)}${event(textDelta)}${terminal("response.failed", { error: { code: "subscription_sharing_usage_limit_exceeded", message: "Limit" } })}`, { headers: { "x-request-id": "req_limit" } }));
   const stream = await failed.handler(request("/v1/chat/completions", { model: "gpt-6.1-sol", messages: [{ role: "user", content: "Hi" }], stream: true }));
   const events = await stream.text();
   const [partial, limit] = events.trim().split("\n\n").map((block) =>
@@ -720,6 +740,160 @@ test("Chat streams skip reasoning items and summaries before text and function a
     else {
       assert.equal(parsed[0].choices[0].delta.tool_calls[0].id, item.call_id);
       assert.equal(parsed[1].choices[0].delta.tool_calls[0].function.arguments, item.arguments);
+    }
+  }
+});
+
+const finalMessage = (text, extra = {}) => ({ type: "message", id: "msg_live", role: "assistant",
+  status: "completed", phase: "final_answer", content: [{ type: "output_text", text, annotations: [] }], ...extra });
+function liveOutputEvents(items) {
+  const events = [];
+  for (const [output_index, item] of items.entries()) {
+    events.push({ type: "response.output_item.added", output_index, item: { ...item, status: "in_progress",
+      ...(item.type === "message" ? { content: [] } : item.type === "function_call" ? { arguments: "" } : {}) } });
+    if (item.type === "message") events.push({ type: "response.output_text.delta", output_index,
+      item_id: item.id, content_index: 0, delta: item.content[0].text, logprobs: [] });
+    if (item.type === "function_call") {
+      events.push({ type: "response.function_call_arguments.delta", output_index, item_id: item.id, delta: item.arguments });
+      events.push({ type: "response.function_call_arguments.done", output_index, item_id: item.id, arguments: item.arguments });
+    }
+    events.push({ type: "response.output_item.done", output_index, item });
+  }
+  return [...events, { type: "response.completed", response: toolResponse([]) }];
+}
+
+test("empty terminal output aggregates completed text and parallel calls without losing phase or ids", async () => {
+  for (const output of [[finalMessage("Live final text")], [functionCall("live1"), functionCall("live2")]]) {
+    for (const path of ["/v1/responses", "/v1/chat/completions"]) {
+      const { handler } = fake(() => new Response(liveOutputEvents(output).map(event).join("")));
+      const response = await handler(request(path, path === "/v1/responses"
+        ? { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }] } : chatBody()));
+      assert.equal(response.status, 200);
+      const body = await response.json();
+      if (path === "/v1/responses") assert.deepEqual(body.output, output);
+      else if (output[0].type === "message") {
+        assert.equal(body.choices[0].message.content, "Live final text");
+        assert.equal(body.choices[0].finish_reason, "stop");
+      } else {
+        assert.deepEqual(body.choices[0].message.tool_calls, output.map((call) => ({
+          id: call.call_id, type: "function", function: { name: call.name, arguments: call.arguments },
+        })));
+        assert.equal(body.choices[0].finish_reason, "tool_calls");
+      }
+    }
+  }
+});
+
+test("Chat streams text and a genuine two-turn tool roundtrip with empty terminal output", async () => {
+  const calls = [functionCall("live1"), functionCall("live2")];
+  let turn = 0;
+  const fixture = fake(() => new Response(liveOutputEvents(++turn === 1 ? calls : [finalMessage("Tool results received")]).map(event).join("")));
+  const first = await fixture.handler(request("/v1/chat/completions", chatBody({ stream: true })));
+  const parsed = parseEvents(await first.text());
+  assert.equal(parsed.at(-1), "[DONE]");
+  assert.equal(parsed.at(-2).choices[0].finish_reason, "tool_calls");
+  const tool_calls = calls.map((call) => ({ id: call.call_id, type: "function", function: { name: call.name, arguments: call.arguments } }));
+  for (const [index, call] of calls.entries()) {
+    const chunks = parsed.flatMap((chunk) => chunk.choices?.[0]?.delta?.tool_calls ?? []).filter((chunk) => chunk.index === index);
+    assert.equal(chunks[0].id, call.call_id);
+    assert.equal(chunks.map((chunk) => chunk.function.arguments ?? "").join(""), call.arguments);
+  }
+  const second = await fixture.handler(request("/v1/chat/completions", chatBody({ stream: true, messages: [
+    { role: "user", content: "Hi" }, { role: "assistant", content: null, tool_calls },
+    { role: "tool", tool_call_id: "call_live2", content: "Rome" }, { role: "tool", tool_call_id: "call_live1", content: "Paris" },
+  ] })));
+  const secondParsed = parseEvents(await second.text());
+  assert.equal(secondParsed[0].choices[0].delta.content, "Tool results received");
+  assert.equal(secondParsed.at(-2).choices[0].finish_reason, "stop");
+  assert.equal(secondParsed.at(-1), "[DONE]");
+  assert.deepEqual(JSON.parse(fixture.calls[1].options.body).input.filter((item) => item.type === "function_call_output")
+    .map((item) => item.call_id), ["call_live2", "call_live1"]);
+});
+
+test("done items are ordered by output index and empty output never invents unfinished items", async () => {
+  const items = [functionCall("ordered1"), functionCall("ordered2")];
+  const reversed = [{ type: "response.output_item.done", output_index: 1, item: items[1] },
+    { type: "response.output_item.done", output_index: 0, item: items[0] },
+    { type: "response.completed", response: toolResponse([]) }];
+  const { handler } = fake(() => new Response(reversed.map(event).join("")));
+  const response = await handler(request("/v1/responses", { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }] }));
+  assert.deepEqual((await response.json()).output, items);
+  for (const path of ["/v1/responses", "/v1/chat/completions"]) {
+    const fixture = fake(() => new Response(terminal("response.completed", toolResponse([]))));
+    const body = path === "/v1/responses" ? { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }] } : chatBody();
+    const empty = await fixture.handler(request(path, body));
+    assert.equal(empty.status, 200);
+    const emptyBody = await empty.json();
+    if (path === "/v1/responses") assert.deepEqual(emptyBody.output, []);
+    else assert.equal(emptyBody.choices[0].message.content, "");
+  }
+});
+
+test("duplicate or conflicting output indexes and added/done identities never produce successful output", async () => {
+  const item = finalMessage("Final");
+  const added = { type: "response.output_item.added", output_index: 0, item: { ...item, status: "in_progress", content: [] } };
+  const done = { type: "response.output_item.done", output_index: 0, item };
+  for (const events of [
+    [done, done],
+    [done, { ...done, item: finalMessage("Different") }],
+    [added, { ...done, item: { ...item, id: "msg_other" } }],
+    [added, { ...done, item: { ...item, phase: "commentary" } }],
+    [{ ...done, output_index: -1 }],
+    [{ ...done, output_index: 256 }],
+    [done, { type: "response.completed", response: toolResponse([finalMessage("Conflicting terminal")]) }],
+  ]) {
+    const wire = [...events, ...(events.at(-1).type === "response.completed" ? [] : [{ type: "response.completed", response: toolResponse([]) }])].map(event).join("");
+    for (const path of ["/v1/responses", "/v1/chat/completions"]) {
+      const fixture = fake(() => new Response(wire));
+      const response = await fixture.handler(request(path, path === "/v1/responses"
+        ? { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }] } : chatBody()));
+      assert.notEqual(response.status, 200);
+    }
+    const fixture = fake(() => new Response(wire));
+    const response = await fixture.handler(request("/v1/chat/completions", chatBody({ stream: true })));
+    const parsed = parseEvents(await response.text());
+    assert.equal(parsed.at(-1).error.code, "unsupported_output");
+    assert.equal(parsed.includes("[DONE]"), false);
+  }
+});
+
+test("Chat commentary never reaches content even when text precedes phase metadata", async () => {
+  const commentary = finalMessage("private-commentary", { id: "msg_commentary", phase: "commentary" });
+  const final = finalMessage("Final only");
+  for (const delayedPhase of [false, true]) {
+    const events = liveOutputEvents([commentary, final]);
+    if (delayedPhase) [events[0], events[1]] = [events[1], events[0]];
+    for (const stream of [false, true]) {
+      const fixture = fake(() => new Response(events.map(event).join("")));
+      const response = await fixture.handler(request("/v1/chat/completions", chatBody({ stream })));
+      assert.equal(response.status, 200);
+      const wire = await response.text();
+      assert.doesNotMatch(wire, /private-commentary|msg_commentary/u);
+      if (stream) {
+        const parsed = parseEvents(wire);
+        assert.equal(parsed[0].choices[0].delta.content, "Final only");
+        assert.equal(parsed.at(-1), "[DONE]");
+      } else assert.equal(JSON.parse(wire).choices[0].message.content, "Final only");
+    }
+  }
+  const fixture = fake(() => new Response(liveOutputEvents([commentary, final]).map(event).join("")));
+  const native = await fixture.handler(request("/v1/responses", { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }] }));
+  assert.deepEqual((await native.json()).output, [commentary, final]);
+});
+
+test("Chat buffers unknown-phase text until done or populated terminal items establish final content", async () => {
+  for (const phase of ["commentary", "final_answer", undefined, null]) {
+    const item = finalMessage("Phase-bound text", { phase });
+    for (const useDone of [true, false]) {
+      const events = [{ type: "response.output_text.delta", output_index: 0, item_id: item.id, content_index: 0, delta: "Phase-bound text", logprobs: [] },
+        ...(useDone ? [{ type: "response.output_item.done", output_index: 0, item }] : []),
+        { type: "response.completed", response: toolResponse(useDone ? [] : [item]) }];
+      const fixture = fake(() => new Response(events.map(event).join("")));
+      const response = await fixture.handler(request("/v1/chat/completions", chatBody({ stream: true })));
+      const parsed = parseEvents(await response.text());
+      assert.equal(parsed.at(-1), "[DONE]");
+      const content = parsed.map((chunk) => chunk.choices?.[0]?.delta?.content ?? "").join("");
+      assert.equal(content, phase === "commentary" ? "" : "Phase-bound text");
     }
   }
 });

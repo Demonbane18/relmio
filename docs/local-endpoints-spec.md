@@ -83,15 +83,22 @@ The sidecar accepts a Relmio bearer and forwards only `GET /v1/models`,
 `POST /v1/responses`, and a compatibility `POST /v1/chat/completions` route.
 Responses requests are bound to the selected registration and public
 `api.openai.com/v1/responses`; only a completed provider response is success.
+Streamed Responses events pass through unchanged. When OpenAI's final event
+has an empty `output`, non-streaming and Chat responses are rebuilt from the
+`response.output_item.done` events. The model catalog request sends
+`client_version` with the pinned Codex version (0.160.0); OpenAI filters by
+this undocumented parameter, so the behavior could change.
+
 The compatibility route accepts text user, assistant, and developer messages,
 assistant tool calls, and matching tool results. Function tools go upstream in
 one developer `additional_tools` input item; n8n executes them, not the
 gateway. Limits are 32 tool calls, 128 KiB of arguments per call, and 2 MiB of
 streamed arguments in total. A named `tool_choice`, tool namespaces, custom
-tools in streamed requests, and system messages are rejected. Reasoning output
-items are never returned to Chat Completions clients. Roundtrips are tested
-only against a fake provider; live acceptance of flat tools on the SIWC route
-is unverified.
+tools in streamed requests, and system messages are rejected. Chat clients
+receive only final-answer text; reasoning items and `commentary` text are not
+passed on. On 2026-10-05 a two-turn LangChain tool test passed through the
+real gateway on one ChatGPT account, streaming over both routes; other
+accounts, models, and non-streaming tool calls were not tested live.
 
 Unsupported request fields and tool types, background requests, stored response
 or conversation IDs, audio/video, image-generation/edit routes, audio endpoints,

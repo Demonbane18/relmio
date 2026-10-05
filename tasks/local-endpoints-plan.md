@@ -90,5 +90,5 @@ Checkpoint: server integration and static UI tests pass.
   also persists only its local verifier; its upstream Platform key is passed
   over stdin to a transient, network-disabled helper and stored in a private,
   labeled named volume rather than a host source file.
-- App Server is pinned to `@openai/codex@0.147.0` and its experimental status is
+- App Server is pinned to `@openai/codex@0.160.0` and its experimental status is
   a user-visible product constraint.

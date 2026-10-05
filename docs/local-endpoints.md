@@ -227,18 +227,20 @@ Use Responses API: On
 
 The n8n bearer authorizes the local sidecar; it is not an OpenAI credential.
 The provider access token stays in the sidecar's protected SIWC registration.
-Requests use `GET /v1/models` and `POST /v1/responses`. The sidecar also has a
+Requests use `GET /v1/models` and `POST /v1/responses`. The model list is
+requested with the pinned Codex version (0.160.0) as OpenAI's undocumented
+`client_version` parameter, which OpenAI could change. The sidecar also has a
 Chat Completions compatibility path that accepts text messages and function
 tools. Function tools go upstream in one `additional_tools` item, and n8n runs
 the tools itself. Limits are 32 tool calls, 128 KiB of arguments per call, and
 2 MiB of streamed arguments in total. It rejects a named `tool_choice`, tool
 namespaces, custom tools in streamed requests, system messages, and
-unsupported request fields. Reasoning items in the response are not passed to
-Chat Completions clients. Tool roundtrips were tested only against a fake
-provider; live acceptance on the SIWC route is unverified. There is no account
-rotation or Platform API fallback. Image generation/edit, audio, video, Files
-API management, stored responses/conversations, and moderation are
-unsupported.
+unsupported request fields. Chat clients receive only final-answer text;
+reasoning items and intermediate commentary are not passed on. On 2026-10-05
+a two-turn LangChain tool test passed through the real gateway on one ChatGPT
+account, streaming over both routes. There is no account rotation or Platform
+API fallback. Image generation/edit, audio, video, Files API management,
+stored responses/conversations, and moderation are unsupported.
 
 Legacy installations are not silently adopted or overwritten. The wizard
 requires fresh SIWC sign-in and a separately reviewed migration. A successful

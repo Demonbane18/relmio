@@ -3123,3 +3123,86 @@ test("VPS resume mode cannot substitute unreviewed migration or replacement meta
     });
   }
 });
+
+test("read-only discovery failures retain the verified connection for retry without another SSH authentication", async (t) => {
+  for (const phase of ["discover", "networks"]) {
+    await t.test(phase, async (subtest) => {
+      const { services } = createServices();
+      let connects = 0;
+      let discovers = 0;
+      let networks = 0;
+      services.connectVerified = async (request) => { connects++; return verifiedSshFixture(request); };
+      services.discoverN8n = async () => {
+        discovers++;
+        if (phase === "discover" && discovers === 1) throw new Error("Read-only discovery failed.");
+        return { containers: [{ id: "a".repeat(64), name: "fixture-n8n", image: "n8nio/n8n", state: "running" }] };
+      };
+      services.discoverNetworks = async () => {
+        networks++;
+        if (phase === "networks" && networks === 1) throw new Error("Read-only network discovery failed.");
+        return { networks: ["fixture-network"] };
+      };
+      const wizard = await startWizardServer({ sessionToken, services });
+      subtest.after(() => wizard.close());
+      const headers = { Origin: wizard.origin };
+      const fingerprint = await (await api(wizard.origin, "/api/ssh/fingerprint", {
+        method: "POST", headers, body: JSON.stringify({ host: exampleHost, port: 22 }),
+      })).json();
+      assert.equal((await api(wizard.origin, "/api/ssh/connect", { method: "POST", headers,
+        body: JSON.stringify({ host: exampleHost, port: 22, username: "root", useAgent: false,
+          privilege: "root", password: fixturePassword, expectedFingerprint: fingerprint.fingerprint }),
+      })).status, 200);
+      const identity = await (await api(wizard.origin, "/api/ssh/connection")).json();
+      const first = await api(wizard.origin, "/api/discover", { method: "POST", headers, body: "{}" });
+      if (phase === "discover") assert.equal(first.status, 400);
+      else {
+        assert.equal(first.status, 200);
+        assert.equal((await api(wizard.origin, "/api/networks", { method: "POST", headers,
+          body: JSON.stringify({ containerName: "fixture-n8n" }),
+        })).status, 400);
+      }
+      assert.deepEqual(await (await api(wizard.origin, "/api/ssh/connection")).json(), identity);
+      assert.equal((await api(wizard.origin, "/api/discover", { method: "POST", headers, body: "{}" })).status, 200);
+      assert.equal((await api(wizard.origin, "/api/networks", { method: "POST", headers,
+        body: JSON.stringify({ containerName: "fixture-n8n" }),
+      })).status, 200);
+      assert.equal(connects, 1);
+    });
+  }
+});
+
+test("a changed host cannot authenticate with a consumed scan and must obtain a new identity check", async (t) => {
+  const { services } = createServices();
+  let connects = 0;
+  services.connectVerified = async (request) => { connects++; return verifiedSshFixture(request); };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const headers = { Origin: wizard.origin };
+  const original = await (await api(wizard.origin, "/api/ssh/fingerprint", { method: "POST", headers,
+    body: JSON.stringify({ host: exampleHost, port: 22 }),
+  })).json();
+  const request = { host: exampleHost, port: 22, username: "root", useAgent: false, privilege: "root",
+    password: fixturePassword, expectedFingerprint: original.fingerprint };
+  assert.equal((await api(wizard.origin, "/api/ssh/connect", {
+    method: "POST", headers, body: JSON.stringify(request),
+  })).status, 200);
+  request.host = "replacement.example";
+  const rejected = await api(wizard.origin, "/api/ssh/connect", {
+    method: "POST", headers, body: JSON.stringify(request),
+  });
+  assert.equal(rejected.status, 400);
+  const failure = await rejected.json();
+  assert.equal(failure.code, "ssh_identity_review_required");
+  assert.equal(failure.recovery, "review-again");
+  assert.equal(connects, 1);
+  assert.equal((await (await api(wizard.origin, "/api/ssh/connection")).json()).host, exampleHost);
+  const fresh = await (await api(wizard.origin, "/api/ssh/fingerprint", { method: "POST", headers,
+    body: JSON.stringify({ host: request.host, port: 22 }),
+  })).json();
+  request.expectedFingerprint = fresh.fingerprint;
+  assert.equal((await api(wizard.origin, "/api/ssh/connect", {
+    method: "POST", headers, body: JSON.stringify(request),
+  })).status, 200);
+  assert.equal(connects, 2);
+  assert.equal((await (await api(wizard.origin, "/api/ssh/connection")).json()).host, request.host);
+});

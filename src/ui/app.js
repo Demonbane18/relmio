@@ -38,6 +38,7 @@ const state = {
   vpsOwner: null,
   planMigrationRequired: false,
   planReplacementRequired: false,
+  vpsReconnectRequired: false,
 };
 
 const element = (id) => document.getElementById(id);
@@ -54,7 +55,7 @@ const errorBox = element("global-error");
 const errorMessage = element("global-error-text");
 const toastTimers = new WeakMap();
 let sshIdentityDecision = 0;
-const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
+const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: handleVpsConnectionInput, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
 const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateReviewedPlan();
   clearEndedVpsConnectionState();
@@ -112,13 +113,52 @@ function setCredentialInputsEnabled(enabled) {
 
 function resetFingerprint() {
   invalidateReviewedPlan();
+  clearVpsFingerprintReview();
+  setCredentialInputsEnabled(false);
+}
+
+function clearVpsFingerprintReview() {
+  state.vpsReconnectRequired = true;
   state.fingerprint = null;
   element("fingerprint-box").hidden = true;
   element("fingerprint-confirm").checked = false;
   element("password").value = "";
   element("password").disabled = true;
-  setCredentialInputsEnabled(false);
   element("connect-button").disabled = true;
+  element("connect-button").textContent = "Connect";
+}
+
+function handleVpsConnectionInput() {
+  invalidateReviewedPlan();
+  if (!sshSession.adoptedIdentity()) return;
+  if (!state.vpsReconnectRequired) clearVpsFingerprintReview();
+  setMessage("Connection details changed. Check and confirm the server identity again before reconnecting.");
+}
+
+function handleVpsDestinationInput() {
+  resetFingerprint();
+  if (sshSession.adoptedIdentity()) setMessage(
+    "Connection details changed. Check and confirm the server identity again before reconnecting.");
+}
+
+function vpsConnectionMatchesForm(identity) {
+  return identity.host === element("host").value &&
+    identity.port === Number(element("port").value) &&
+    identity.username === element("username").value &&
+    identity.authentication === element("ssh-authentication").value;
+}
+
+function syncVpsConnectAction() {
+  const identity = sshSession.adoptedIdentity();
+  const retry = identity && !state.vpsReconnectRequired && vpsConnectionMatchesForm(identity);
+  const button = element("connect-button");
+  button.textContent = retry ? "Retry discovery" : "Connect";
+  button.disabled = !retry && !(state.fingerprint && element("fingerprint-confirm").checked);
+  if (retry) {
+    element("password").value = "";
+    element("password").disabled = true;
+    element("password").required = false;
+  }
 }
 
 function setMessage(text) {
@@ -1478,7 +1518,7 @@ element("signin-next").addEventListener("click", () => {
 element("fingerprint-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
-  invalidateReviewedPlan();
+  resetFingerprint();
   for (const id of ["host", "port"]) {
     const input = element(id);
     if (!input.checkValidity()) {
@@ -1535,8 +1575,8 @@ element("fingerprint-confirm").addEventListener("change", (event) => {
   }
 });
 
-element("host").addEventListener("input", resetFingerprint);
-element("port").addEventListener("input", resetFingerprint);
+element("host").addEventListener("input", handleVpsDestinationInput);
+element("port").addEventListener("input", handleVpsDestinationInput);
 for (const id of ["host", "port", "username"]) {
   element(id).addEventListener("input", () => clearFieldError(element(id), "global-error-text"));
 }
@@ -1545,23 +1585,43 @@ element("password").addEventListener("input", invalidateReviewedPlan);
 element("vps-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = element("connect-button");
+  if (state.operationBusy) return;
   clearError();
   invalidateReviewedPlan();
-  setMessage("Connecting, then inspecting Docker with read-only commands…");
+  const identity = sshSession.adoptedIdentity();
+  const retry = identity && !state.vpsReconnectRequired;
+  if ((retry && !vpsConnectionMatchesForm(identity)) ||
+      (!retry && (!state.fingerprint || !element("fingerprint-confirm").checked))) {
+    resetFingerprint();
+    showError(new Error("Check and confirm the server identity again before connecting with these details."));
+    return;
+  }
+  setMessage(retry ? "Retrying Docker discovery on the verified connection…" :
+    "Connecting, then inspecting Docker with read-only commands…");
   try {
     const discovered = await runOperation(
       button,
-      "Connecting and inspecting Docker…",
+      retry ? "Inspecting Docker…" : "Connecting and inspecting Docker…",
       async () => {
-        await api("/api/ssh/connect", {
-          method: "POST",
-          body: sshAuthentication.request(state.fingerprint),
-        });
+        if (!retry) {
+          await api("/api/ssh/connect", {
+            method: "POST",
+            body: sshAuthentication.request(state.fingerprint),
+          });
+          state.vpsReconnectRequired = false;
+          state.fingerprint = null;
+          element("fingerprint-box").hidden = true;
+          element("fingerprint-confirm").checked = false;
+          element("password").value = "";
+          element("password").disabled = true;
+          element("password").required = false;
+        }
         return discover();
       },
       {
-        progressNote:
-          "Relmio is opening the verified SSH connection and inspecting Docker with read-only commands. Timing varies with your VPS and network. Keep this page open.",
+        progressNote: retry
+          ? "Relmio is reusing the verified SSH connection for read-only Docker discovery. No new authentication or password is needed."
+          : "Relmio is opening the verified SSH connection and inspecting Docker with read-only commands. Timing varies with your VPS and network. Keep this page open.",
       },
     );
     if (!discovered) return;
@@ -1572,8 +1632,11 @@ element("vps-form").addEventListener("submit", async (event) => {
       "n8n was found. Choose its network, then install or manage a Relmio-owned companion.",
     );
   } catch (error) {
-    element("password").value = "";
+    if (error.code === "ssh_identity_review_required") resetFingerprint();
     showError(error);
+  } finally {
+    element("password").value = "";
+    syncVpsConnectAction();
   }
 });
 

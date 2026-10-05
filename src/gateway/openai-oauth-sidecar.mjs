@@ -3,13 +3,17 @@ import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 import { getAccessToken, resolveSiwcStorageRoot } from "../services/siwc-session.mjs";
 
+export const CODEX_CLI_VERSION = "0.160.0";
 const BASE_URL = "https://api.openai.com/v1";
+const MODEL_CATALOG_PATH = `/models?client_version=${CODEX_CLI_VERSION}`;
 const MAX_BODY = 2 * 1024 * 1024;
 const MAX_EVENT = 2 * 1024 * 1024;
 const MAX_TOOL_CALLS = 32;
 const MAX_TOOL_ARGUMENT_BYTES = 128 * 1024;
+const MAX_OUTPUT_ITEMS = 256;
 const unsupportedFields = new Set(["conversation", "max_output_tokens", "max_tool_calls", "metadata", "moderation", "multi_agent", "prompt", "prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs", "top_p", "truncation", "user", "previous_response_id"]);
 const unsupportedTools = new Set(["image_generation", "file_search", "code_interpreter", "computer", "computer_use", "mcp", "tool_search", "programmatic_tool_calling"]);
 const allowedFields = new Set(["model", "input", "instructions", "store", "stream", "background", "tools", "tool_choice", "parallel_tool_calls", "reasoning", "text", "include"]);
@@ -256,6 +260,51 @@ async function* sseEvents(stream, reader = stream.getReader()) {
     reader.releaseLock();
   }
 }
+function outputState() {
+  return { added: new Map(), done: new Map(), ids: new Map(), bytes: 0 };
+}
+function consistentOutputItem(initial, final) {
+  if (["type", "id", "call_id", "name", "namespace", "phase", "role"].some((key) => initial[key] !== final[key])) return false;
+  const field = initial.type === "function_call" ? "arguments" : initial.type === "custom_tool_call" ? "input" : null;
+  return !field || initial[field] === undefined || typeof final[field] === "string" && final[field].startsWith(initial[field]);
+}
+function trackOutputItem(state, value) {
+  if (!["response.output_item.added", "response.output_item.done"].includes(value.type)) return;
+  const index = value.output_index;
+  const item = value.item;
+  const added = value.type === "response.output_item.added";
+  const target = added ? state.added : state.done;
+  if (!Number.isInteger(index) || index < 0 || index >= MAX_OUTPUT_ITEMS || !isObject(item) || typeof item.type !== "string" ||
+      target.has(index) || added && state.done.has(index) ||
+      item.id !== undefined && (!validCallId(item.id) || state.ids.has(item.id) && state.ids.get(item.id) !== index)) throw new Error("unsupported_output");
+  const initial = state.added.get(index);
+  if (!added && initial && !consistentOutputItem(initial, item)) throw new Error("unsupported_output");
+  state.bytes += Buffer.byteLength(JSON.stringify(item));
+  if (state.bytes > MAX_EVENT) throw new Error("unsupported_output");
+  target.set(index, item);
+  if (item.id !== undefined) state.ids.set(item.id, index);
+}
+function resolvedOutput(response, state) {
+  if (!isObject(response) || !Array.isArray(response.output) || response.output.length > MAX_OUTPUT_ITEMS ||
+      Buffer.byteLength(JSON.stringify(response)) > MAX_EVENT) throw new Error("unsupported_output");
+  if (response.output.length) {
+    for (const [index, item] of state.done) {
+      if (!isDeepStrictEqual(response.output[index], item)) throw new Error("unsupported_output");
+    }
+    for (const [index, item] of state.added) {
+      if (!isObject(response.output[index]) || !consistentOutputItem(item, response.output[index])) throw new Error("unsupported_output");
+    }
+    return { response, byIndex: new Map(response.output.entries()) };
+  }
+  if ([...state.added.keys()].some((index) => !state.done.has(index))) throw new Error("unsupported_output");
+  const byIndex = new Map([...state.done].sort(([left], [right]) => left - right));
+  const completed = { ...response, output: [...byIndex.values()] };
+  if (Buffer.byteLength(JSON.stringify(completed)) > MAX_EVENT) throw new Error("unsupported_output");
+  return { response: completed, byIndex };
+}
+const finalChatPhase = (item) => item.phase === undefined || item.phase === null || item.phase === "final_answer";
+const validChatPhase = (item) => finalChatPhase(item) || item.phase === "commentary";
+
 function streamResponse(upstream, chat, secrets) {
   const encoder = new TextEncoder();
   const id = `chatcmpl-${randomUUID()}`;
@@ -271,6 +320,8 @@ function streamResponse(upstream, chat, secrets) {
   let argumentBytes = 0;
   const textParts = [];
   let textBytes = 0;
+  const output = chat ? outputState() : null;
+  const pendingText = new Map();
   const body = new ReadableStream({
     async pull(controller) {
       if (closed) return;
@@ -295,6 +346,18 @@ function streamResponse(upstream, chat, secrets) {
         }
         return Boolean(suffix);
       };
+      const flushText = (index, item) => {
+        const pending = pendingText.get(index);
+        if (!pending) return false;
+        if (item?.type !== "message" || !validChatPhase(item) ||
+            pending.itemId !== undefined && pending.itemId !== item.id) throw new Error("unsupported_output");
+        pendingText.delete(index);
+        if (!finalChatPhase(item)) return false;
+        const text = pending.parts.join("");
+        textParts.push(text);
+        chatChunk({ content: text });
+        return true;
+      };
       const finish = () => {
         closed = true;
         controller.close();
@@ -312,11 +375,29 @@ function streamResponse(upstream, chat, secrets) {
           }
           const value = next.value.value;
           if (typeof value?.type !== "string") throw new Error("invalid_event");
+          if (chat && ["response.output_item.added", "response.output_item.done"].includes(value.type)) {
+            trackOutputItem(output, value);
+            if (value.item.type === "message" && !validChatPhase(value.item)) throw new Error("unsupported_output");
+            if (flushText(value.output_index, value.item)) return;
+          }
           if (chat && value.type === "response.output_text.delta") {
-            if (typeof value.delta !== "string") throw new Error("invalid_delta");
-            textParts.push(value.delta);
+            if (typeof value.delta !== "string" || !Number.isInteger(value.output_index) ||
+                value.output_index < 0 || value.output_index >= MAX_OUTPUT_ITEMS) throw new Error("unsupported_output");
             textBytes += Buffer.byteLength(value.delta);
             if (textBytes > MAX_EVENT) throw new Error("unsupported_output");
+            const item = output.added.get(value.output_index) ?? output.done.get(value.output_index);
+            if (!item) {
+              const pending = pendingText.get(value.output_index) ?? { itemId: value.item_id, parts: [] };
+              if (pending.itemId !== value.item_id) throw new Error("unsupported_output");
+              pending.parts.push(value.delta);
+              pendingText.set(value.output_index, pending);
+              if (++skipped > 1000) throw new Error("too_many_events");
+              continue;
+            }
+            if (item.type !== "message" || !validChatPhase(item) ||
+                value.item_id !== undefined && value.item_id !== item.id) throw new Error("unsupported_output");
+            if (!finalChatPhase(item)) { if (++skipped > 1000) throw new Error("too_many_events"); continue; }
+            textParts.push(value.delta);
             chatChunk({ content: value.delta });
             return;
           }
@@ -377,13 +458,15 @@ function streamResponse(upstream, chat, secrets) {
             if (value.type === "response.completed" && value.response?.status && value.response.status !== "completed") throw new Error("invalid_terminal");
             if (chat) {
               if (value.type === "response.completed") {
-                if (Buffer.byteLength(JSON.stringify(value.response)) > MAX_EVENT) throw new Error("unsupported_output");
-                const converted = chatOutput(value.response?.output);
+                const resolved = resolvedOutput(value.response, output);
+                const converted = chatOutput(resolved.response.output);
+                if (!converted) throw new Error("unsupported_output");
+                for (const index of pendingText.keys()) flushText(index, resolved.byIndex.get(index));
                 const textEmitted = textParts.join("");
                 if (!converted || converted.toolCalls.some((call) => call.type !== "function") ||
                     !converted.text.startsWith(textEmitted) || toolCalls.length > converted.toolCalls.length) throw new Error("unsupported_output");
                 for (const prior of toolCalls) {
-                  const item = value.response.output[prior.outputIndex];
+                  const item = resolved.byIndex.get(prior.outputIndex);
                   if (!item || item.type !== "function_call" || item.call_id !== prior.id || item.name !== prior.name ||
                       item.id !== prior.itemId || !item.arguments.startsWith(prior.parts.join("")) ||
                       prior.done && item.arguments !== prior.parts.join("")) throw new Error("unsupported_output");
@@ -391,7 +474,7 @@ function streamResponse(upstream, chat, secrets) {
                 const remainingText = converted.text.slice(textEmitted.length);
                 if (remainingText) chatChunk({ content: remainingText });
                 let nextIndex = toolCalls.length;
-                for (const [outputIndex, item] of value.response.output.entries()) {
+                for (const [outputIndex, item] of resolved.byIndex) {
                   if (item.type !== "function_call") continue;
                   const prior = callByOutput.get(outputIndex);
                   if (prior) appendArguments(prior, item.arguments);
@@ -458,9 +541,9 @@ function chatOutput(output) {
     }
     if (item.type === "reasoning") continue;
     if (item.type === "message") {
-      if (item.role !== undefined && item.role !== "assistant" || !Array.isArray(item.content) ||
+      if (item.role !== undefined && item.role !== "assistant" || !validChatPhase(item) || !Array.isArray(item.content) ||
           item.content.some((part) => part?.type !== "output_text" || typeof part.text !== "string")) return null;
-      for (const part of item.content) text.push(part.text);
+      if (finalChatPhase(item)) for (const part of item.content) text.push(part.text);
     } else if (["function_call", "custom_tool_call"].includes(item.type)) {
       const call = chatToolCall(item);
       if (!call || ids.has(call.id)) return null;
@@ -479,16 +562,22 @@ function chatUsage(usage) {
 }
 async function aggregate(upstream, chat, model, secrets) {
   let completed;
+  const output = outputState();
   try {
     for await (const { value } of sseEvents(upstream.body)) {
       if (completed || typeof value?.type !== "string") throw new Error("invalid_event");
-      if (value.type === "response.completed") { completed = value.response; break; }
+      trackOutputItem(output, value);
+      if (value.type === "response.completed") { completed = resolvedOutput(value.response, output).response; break; }
       if (value.type === "response.failed" || value.type === "response.incomplete") {
         const result = terminalFailure(value, eventRequestId(value, upstream), secrets);
         return Response.json(result, { status: result.status });
       }
     }
-  } catch { return failure("The upstream stream was interrupted.", null, 502, "stream_interrupted"); }
+  } catch (error) {
+    if (error?.message === "unsupported_output") return failure("The upstream output items were invalid.", "output",
+      chat ? 422 : 502, "unsupported_output", "fix-request");
+    return failure("The upstream stream was interrupted.", null, 502, "stream_interrupted");
+  }
   if (!completed || completed.status && completed.status !== "completed") return failure("The upstream stream ended before completion.", null, 502, "stream_interrupted");
   const serialized = JSON.stringify(completed);
   if (Buffer.byteLength(serialized) > MAX_EVENT) return failure("The response was too large to aggregate.", null, 502, "response_too_large");
@@ -621,7 +710,7 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
     }
     let upstream;
     try {
-      upstream = await fetchImpl(`${baseUrl}${path === "/v1/models" ? "/models" : "/responses"}`, {
+      upstream = await fetchImpl(`${baseUrl}${path === "/v1/models" ? MODEL_CATALOG_PATH : "/responses"}`, {
         method: path === "/v1/models" ? "GET" : "POST",
         headers: { authorization: `Bearer ${lease.accessToken}`, ...(body && { "content-type": "application/json" }) },
         ...(body && { body: JSON.stringify(body) }), signal: request.signal,
@@ -641,7 +730,7 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
 }
 export async function listSiwcModels({ storageRoot, registrationId, runtimeId, fetchImpl = fetch, getToken = getAccessToken, signal } = {}) {
   const lease = await getToken({ storageRoot, registrationId }, { runtimeId, minValidityMs: 60_000, signal });
-  const response = await fetchImpl(`${BASE_URL}/models`, {
+  const response = await fetchImpl(`${BASE_URL}${MODEL_CATALOG_PATH}`, {
     headers: { authorization: `Bearer ${lease.accessToken}` }, signal,
   });
   if (!response.ok) {
