@@ -95,8 +95,8 @@ export default async function Home() {
               </Link>
             </div>
           </div>
-          <DoorwayHero className={styles.scene} />
         </div>
+        <DoorwayHero className={styles.scene} />
       </section>
 
       <SignalPlotter className={classNames(site.hillEdge, styles.how)} />

@@ -7,6 +7,12 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- The website's Doorway illustration is unframed again, spanning the page
+  against its background instead of sitting inside a rounded, layered card.
+  The current colors, animation and Pause control are preserved.
+
 ## [0.18.6] - 2026-10-04
 
 Relmio 0.18.6 makes the selected theme and keyboard focus easier to distinguish.

@@ -111,9 +111,9 @@ tokens, kit components, top bar and themes as the wizard.
 - Full-width bands carry the sections. A soft hill edge joins one band to the
   next. The safety boundary is a night band that re-points the ink, accent
   and focus tokens to the terminal values, which stay dark in both themes.
-- Depth comes from kit shadows and a tilted `--rm-accent-soft` sheet behind a
-  key surface, such as the scene, the notice's cleanup card or the install
-  toolbox.
+- Kit shadows and tilted `--rm-accent-soft` sheets add depth to cards such as
+  the notice's cleanup card and the install toolbox. The home illustration
+  stays unframed on the page canvas.
 - Brand teal and cream are illustration accents only: the doorway and mascot,
   and the teal wavy underline in the home headline. They never mark state.
 - Sections may rise into view with scroll-driven animation
@@ -127,7 +127,7 @@ tokens, kit components, top bar and themes as the wizard.
 - Pages never scroll sideways at 320 px, keep 24 px targets and AA contrast in
   both themes, and hide decoration in forced colors. The home Doorway scene is
   the one exception: it keeps its colors in forced colors because it is the
-  hero artwork and hiding it leaves an empty frame (owner decision,
+  hero artwork and hiding it leaves empty space (owner decision,
   2026-10-03).
 
 ## Layout
@@ -496,8 +496,11 @@ For each changed view, before handing off:
 
 The home page keeps the Doorway scene: the green two-eyed mascot, its cream
 doorway, a VPS cloud and a local workshop, drawn as original vectors. It is
-the hero of the scrolling home page, a wide framed window below the headline
-and the install action.
+the hero of the scrolling home page, an unboxed landscape below the headline
+and the install action. Let it span the page width and blend into the canvas,
+without a card background, border, rounded clipping, shadow or backing sheet
+(owner decision, 2026-10-04). Keep the headline and actions in their content
+container. On phones, place Pause above the artwork so it does not cover it.
 Preserve the original logo files exactly; the scene is separate artwork. Its
 backdrop follows the theme: pastel green sky and darker green hills by day,
 black sky and charcoal hills by night. Night mode may add a moon, stars, a lit
