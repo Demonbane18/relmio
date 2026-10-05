@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 
 import {
-  lockDownLocalPath, recallWindowsLockdown, refreshWindowsLockdown, rememberWindowsLockdown, validateLocalDockerHost,
+  lockDownLocalPath, recallWindowsLockdown, refreshWindowsLockdown, rememberWindowsLockdown,
+  retryWindowsFileSharing, validateLocalDockerHost,
 } from "../infrastructure/local-process.js";
 import { getLocalProcessIdentity, getLocalPidNamespaceIdentity } from "../infrastructure/process-identity.js";
 
@@ -15,6 +16,7 @@ const MAX_OWNER_BYTES = 4 * 1024;
 const MAX_PROCESS_ID = 2_147_483_647;
 const MAX_IDENTITY_BYTES = 512;
 const failedAtomicReleases = new Map();
+const WINDOWS_ACL_RETRY_DELAYS_MS = Object.freeze([20, 80]);
 // A process's own start identity never changes, so each identity adapter is asked once per platform.
 const verifiedSelfIdentities = new WeakMap();
 
@@ -188,6 +190,15 @@ async function currentProcessIdentity(getProcessIdentity, platform) {
   }
   byPlatform.set(platform, verified);
   return verified;
+}
+
+// Another process's antivirus scan or ACL check can briefly refuse a claim file on
+// Windows; only those refusals are retried, for a bounded time.
+function withWindowsSharingRetry(fileSystem, platform) {
+  if (platform !== "win32") return fileSystem;
+  const retried = method => (...args) => retryWindowsFileSharing(() => fileSystem[method](...args), { platform });
+  return { ...fileSystem, lstat: retried("lstat"), readFile: retried("readFile"), link: retried("link"),
+    rename: retried("rename"), unlink: retried("unlink") };
 }
 
 async function inspectClaim({ fileSystem, lockPath, lockDownPath, platform, label }) {
@@ -607,15 +618,25 @@ async function inspectAtomicClaim({ fileSystem, lockPath, lockDownPath, platform
   if (!sameOwnerFingerprint(fingerprint, ownerFingerprint(after, raw))) {
     throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
   }
-  // Each Windows ACL check spawns PowerShell. Only an unchanged inode this process
-  // locked down itself skips it; foreign or changed inodes are always verified.
+  // Only an unchanged inode this process locked down itself skips the Windows ACL
+  // check; foreign or changed inodes are always verified.
   if (platform === "win32" && !identityOnly && !recallWindowsLockdown(lockDownPath, metadata, raw)) {
-    await lockDownPath(lockPath, { platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true });
-    const verified = await lstatIfExists(fileSystem, lockPath, label);
-    if (!verified) throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
-    assertPrivateOwner(verified, { label, platform });
-    if (!sameOwnerFingerprint(fingerprint, ownerFingerprint(verified, raw))) {
-      throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
+    for (let attempt = 0; ; attempt += 1) {
+      let verifyError = null;
+      try {
+        await lockDownPath(lockPath, { platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true });
+      } catch (error) { verifyError = error; }
+      // A claim renamed, removed or rewritten during the check is a changed claim to inspect again.
+      const verified = await lstatIfExists(fileSystem, lockPath, label);
+      if (!verified) throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
+      assertPrivateOwner(verified, { label, platform });
+      if (!sameOwnerFingerprint(fingerprint, ownerFingerprint(verified, raw))) {
+        throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
+      }
+      if (!verifyError) break;
+      // Another process can hold an unchanged claim exclusively for a moment; it fails closed after that.
+      if (attempt >= WINDOWS_ACL_RETRY_DELAYS_MS.length) throw verifyError;
+      await new Promise(resolve => setTimeout(resolve, WINDOWS_ACL_RETRY_DELAYS_MS[attempt]));
     }
     refreshWindowsLockdown(lockDownPath, metadata, raw);
   }
@@ -915,8 +936,8 @@ export async function acquireLocalIntegrationLifecycleLock({
   });
   if (atomicPublication) {
     return acquireAtomicLifecycleLock({
-      fileSystem, lockPath, ownerPublication, lockDownPath, platform, label, now, leaseMs, leaseNow, releaseWaitMs,
-      getProcessIdentity: inspectProcessIdentity, processNamespaceIdentity,
+      fileSystem: withWindowsSharingRetry(fileSystem, platform), lockPath, ownerPublication, lockDownPath, platform,
+      label, now, leaseMs, leaseNow, releaseWaitMs, getProcessIdentity: inspectProcessIdentity, processNamespaceIdentity,
     });
   }
   for (let attempt = 0; attempt < MAX_RECLAIM_ATTEMPTS; attempt += 1) {

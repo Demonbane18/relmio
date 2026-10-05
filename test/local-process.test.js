@@ -11,10 +11,12 @@ import test from "node:test";
 import {
   attestLocalDockerBuilder,
   createLocalDockerEnvironment,
+  createWindowsAclHelper,
   lockDownLocalPath,
   recallWindowsLockdown,
   refreshWindowsLockdown,
   rememberWindowsLockdown,
+  retryWindowsFileSharing,
   runWindowsAclCommand,
   runLocalProcess,
   verifyWindowsDockerConfigPath,
@@ -53,6 +55,32 @@ test("Windows lockdown memory skips only unchanged inodes this process locked do
   assert.equal(recallWindowsLockdown(bounded, entry(0), ""), false);
   assert.equal(recallWindowsLockdown(bounded, entry(1), ""), true);
   assert.equal(recallWindowsLockdown(bounded, entry(256), ""), true);
+});
+
+test("Windows sharing refusals are retried briefly; other errors and platforms run once", async () => {
+  const refusal = code => Object.assign(new Error(code), { code });
+  const run = (codes, platform = "win32") => {
+    const waits = [];
+    let calls = 0;
+    const result = retryWindowsFileSharing(async () => {
+      const code = codes[calls++];
+      if (code) throw refusal(code);
+      return "done";
+    }, { platform, wait: async milliseconds => { waits.push(milliseconds); } });
+    return { result, waits, calls: () => calls };
+  };
+  const transient = run(["EBUSY", "EPERM", "EACCES"]);
+  assert.equal(await transient.result, "done");
+  assert.deepEqual(transient.waits, [10, 20, 40]);
+  for (const [codes, platform] of [[["ENOENT"], "win32"], [["EBUSY"], "linux"], [["EPERM"], "darwin"]]) {
+    const once = run(codes, platform);
+    await assert.rejects(once.result, { code: codes[0] });
+    assert.equal(once.calls(), 1);
+  }
+  const persistent = run(Array(20).fill("EPERM"));
+  await assert.rejects(persistent.result, { code: "EPERM" });
+  assert.equal(persistent.calls(), 8);
+  assert.equal(persistent.waits.reduce((sum, value) => sum + value, 0), 1270);
 });
 
 function inspectWindowsAcl(path) {
@@ -646,54 +674,53 @@ test("local process runner permits an unpinned initial Docker context inspection
   assert.deepEqual(invocation.options.env, { PATH: "/usr/bin" });
 });
 
+function capturingAclHelper(answer = true) {
+  const requests = [];
+  return { requests, async check(request) { requests.push(request); return answer; } };
+}
+
 test("Windows managed paths are ACL-locked to the current account before use", async () => {
-  const calls = [];
+  const aclHelper = capturingAclHelper();
   await lockDownLocalPath("C:\\Users\\test\\.relmio", {
     platform: "win32",
     systemRoot: "C:\\Windows",
-    async runAclCommand(file, args, options) {
-      calls.push({ file, args, options });
-      return { stdout: "" };
-    },
+    aclHelper,
   });
-  assert.equal(calls.length, 1);
-  assert.equal(
-    calls[0].file,
-    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-  );
-  assert.doesNotMatch(calls[0].file, /^powershell(?:\.exe)?$/iu);
-  assert.deepEqual(calls[0].args.slice(0, 4), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]);
-  assert.equal(calls[0].options.input, "C:\\Users\\test\\.relmio");
-  assert.match(calls[0].args[4], /\$identity=\[System\.Security\.Principal\.WindowsIdentity\]::GetCurrent\(\)/u);
-  assert.match(calls[0].args[4], /\$beforeOwner=\$before\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)/u);
-  assert.match(calls[0].args[4], /BuiltinAdministratorsSid/u);
-  assert.match(calls[0].args[4], /WindowsBuiltInRole\]::Administrator/u);
-  assert.match(calls[0].args[4], /\$beforeOwner\.Value -ne \$sid\.Value -and \(-not \(\$beforeOwner\.Value -eq \$administratorsSid\.Value/u);
-  assert.match(calls[0].args[4], /if\(\$normalizeOwner\)\{\$acl\.SetOwner\(\$sid\)\}/u);
-  assert.match(calls[0].args[4], /SetAccessRuleProtection\(\$true,\$false\)/u);
-  assert.match(calls[0].args[4], /ContainerInherit[^;]*ObjectInherit/u);
-  assert.match(calls[0].args[4], /\$rules\.Count -ne 1/u);
-  assert.match(calls[0].args[4], /FileSystemRights -ne \[System\.Security\.AccessControl\.FileSystemRights\]::FullControl/u);
-  assert.match(calls[0].args[4], /PropagationFlags -ne \[System\.Security\.AccessControl\.PropagationFlags\]::None/u);
-  assert.match(calls[0].args[4], /\.IsInherited/u);
-  assert.match(calls[0].args[4], /\$actual\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)/u);
-  assert.match(calls[0].args[4], /\$owner\.Value -ne \$sid\.Value/u);
+  assert.equal(aclHelper.requests.length, 1);
+  const [{ powershell, script, path }] = aclHelper.requests;
+  assert.equal(powershell, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  assert.equal(path, "C:\\Users\\test\\.relmio");
+  assert.equal(script.includes(path), false);
+  assert.match(script, /\$identity=\[System\.Security\.Principal\.WindowsIdentity\]::GetCurrent\(\)/u);
+  assert.match(script, /\$beforeOwner=\$before\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)/u);
+  assert.match(script, /BuiltinAdministratorsSid/u);
+  assert.match(script, /WindowsBuiltInRole\]::Administrator/u);
+  assert.match(script, /\$beforeOwner\.Value -ne \$sid\.Value -and \(-not \(\$beforeOwner\.Value -eq \$administratorsSid\.Value/u);
+  assert.match(script, /if\(\$normalizeOwner\)\{\$acl\.SetOwner\(\$sid\)\}/u);
+  assert.match(script, /SetAccessRuleProtection\(\$true,\$false\)/u);
+  assert.match(script, /ContainerInherit[^;]*ObjectInherit/u);
+  assert.match(script, /\$rules\.Count -ne 1/u);
+  assert.match(script, /FileSystemRights -ne \[System\.Security\.AccessControl\.FileSystemRights\]::FullControl/u);
+  assert.match(script, /PropagationFlags -ne \[System\.Security\.AccessControl\.PropagationFlags\]::None/u);
+  assert.match(script, /\.IsInherited/u);
+  assert.match(script, /\$actual\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)/u);
+  assert.match(script, /\$owner\.Value -ne \$sid\.Value/u);
+  assert.match(script, /return \$true$/u);
 });
 
 test("Windows managed paths can verify an exact ACL without rewriting it", async () => {
-  let script = "";
+  const aclHelper = capturingAclHelper();
   await lockDownLocalPath("C:\\Users\\test\\.relmio", {
     platform: "win32",
     systemRoot: "C:\\Windows",
     verifyOnly: true,
-    async runAclCommand(_file, args) {
-      script = args[4];
-    },
+    aclHelper,
   });
+  const [{ script }] = aclHelper.requests;
   assert.match(script, /\$actual=\$before/u);
   assert.doesNotMatch(script, /SetAccessControl|SetAccessRuleProtection|SetOwner|New-Object/u);
   assert.doesNotMatch(script, /BuiltinAdministratorsSid|WindowsBuiltInRole/u);
-  assert.match(script, /if\(\$owner\.Value -ne \$sid\.Value\)\{exit 1\}/u);
+  assert.match(script, /if\(\$owner\.Value -ne \$sid\.Value\)\{return \$false\}/u);
   assert.match(script, /\$rules\.Count -ne 1/u);
   assert.match(script, /AreAccessRulesProtected/u);
   await assert.rejects(
@@ -701,24 +728,29 @@ test("Windows managed paths can verify an exact ACL without rewriting it", async
       platform: "win32",
       systemRoot: "C:\\Windows",
       verifyOnly: "yes",
-      async runAclCommand() {},
+      aclHelper,
     }),
     /verification mode is invalid/u,
+  );
+  await assert.rejects(
+    () => lockDownLocalPath("C:\\Users\\test\\.relmio", {
+      platform: "win32", systemRoot: "C:\\Windows", verifyOnly: true, aclHelper: capturingAclHelper(false),
+    }),
+    /owner-only protection/u,
   );
 });
 
 test("Windows legacy verification accepts only an inherited effective owner-only file ACL", async () => {
-  let script = "";
+  const aclHelper = capturingAclHelper();
   await lockDownLocalPath("C:\\Users\\test\\.relmio\\managed.json", {
     platform: "win32",
     systemRoot: "C:\\Windows",
     kind: "file",
     verifyOnly: true,
     verifyEffectiveOwnerOnly: true,
-    async runAclCommand(_file, args) {
-      script = args[4];
-    },
+    aclHelper,
   });
+  const [{ script }] = aclHelper.requests;
 
   assert.doesNotMatch(script, /SetAccessControl|SetAccessRuleProtection|SetOwner|New-Object/u);
   assert.match(script, /\$rules\.Count -ne 1/u);
@@ -731,14 +763,14 @@ test("Windows legacy verification accepts only an inherited effective owner-only
     script,
     /\$trustedLegacyAdministratorsOwner=\$legacyInheritedOwnerOnly -and \$owner\.Value -eq \$administratorsSid\.Value -and \$principal\.IsInRole/u,
   );
-  assert.match(script, /if\(\$owner\.Value -ne \$sid\.Value -and \(-not \$trustedLegacyAdministratorsOwner\)\)\{exit 1\}/u);
+  assert.match(script, /if\(\$owner\.Value -ne \$sid\.Value -and \(-not \$trustedLegacyAdministratorsOwner\)\)\{return \$false\}/u);
   assert.match(script, /\$strictOwnerOnly/u);
   assert.match(script, /\$legacyInheritedOwnerOnly/u);
   assert.match(
     script,
     /\(-not \$actual\.AreAccessRulesProtected\) -and \$rules\[0\]\.IsInherited/u,
   );
-  assert.match(script, /if\(-not \(\$strictOwnerOnly -or \$legacyInheritedOwnerOnly\)\)\{exit 1\}/u);
+  assert.match(script, /if\(-not \(\$strictOwnerOnly -or \$legacyInheritedOwnerOnly\)\)\{return \$false\}/u);
 
   for (const invalid of [
     { kind: "directory", verifyOnly: true, verifyEffectiveOwnerOnly: true },
@@ -749,7 +781,7 @@ test("Windows legacy verification accepts only an inherited effective owner-only
       () => lockDownLocalPath("C:\\Users\\test\\.relmio\\managed.json", {
         platform: "win32",
         systemRoot: "C:\\Windows",
-        async runAclCommand() {},
+        aclHelper,
         ...invalid,
       }),
       /effective owner-only verification mode is invalid/u,
@@ -769,19 +801,17 @@ test("Windows ACL lockdown rejects malformed system roots before invoking a proc
     "C:\\Windows\0untrusted",
   ];
   for (const systemRoot of invalidSystemRoots) {
-    let invoked = false;
+    const aclHelper = capturingAclHelper();
     await assert.rejects(
       () =>
         lockDownLocalPath("C:\\Users\\test\\.relmio", {
           platform: "win32",
           systemRoot,
-          async runAclCommand() {
-            invoked = true;
-          },
+          aclHelper,
         }),
       /built-in security tool/iu,
     );
-    assert.equal(invoked, false);
+    assert.equal(aclHelper.requests.length, 0);
   }
 });
 
@@ -792,9 +822,7 @@ test("Windows ACL lockdown sanitizes PowerShell launch and proof failures", asyn
       lockDownLocalPath("C:\\Users\\test\\.relmio", {
         platform: "win32",
         systemRoot: "D:\\Windows",
-        async runAclCommand() {
-          throw new Error(privateDetail);
-        },
+        aclHelper: { async check() { throw new Error(privateDetail); } },
       }),
     (error) => {
       assert.match(error.message, /owner-only protection/iu);
@@ -803,6 +831,145 @@ test("Windows ACL lockdown sanitizes PowerShell launch and proof failures", asyn
       return true;
     },
   );
+});
+
+function createHelperChild(reply = (request, child) => {
+  child.stdout.write(`{"id":${request.id},"ok":true}\r\n`);
+}) {
+  const child = createFakeChild();
+  child.requests = [];
+  child.refs = [];
+  for (const name of ["ref", "unref"]) child[name] = () => child.refs.push(name);
+  let buffered = "";
+  child.stdin.on("data", (chunk) => {
+    buffered += chunk.toString("utf8");
+    let newline;
+    while ((newline = buffered.indexOf("\n")) >= 0) {
+      const line = buffered.slice(0, newline);
+      buffered = buffered.slice(newline + 1);
+      child.lines = [...(child.lines ?? []), line];
+      const request = JSON.parse(line);
+      child.requests.push(request);
+      reply(request, child);
+    }
+  });
+  return child;
+}
+
+async function captureAclScript(options) {
+  const aclHelper = capturingAclHelper();
+  await lockDownLocalPath("C:\\Users\\test\\.relmio\\managed.json", {
+    platform: "win32", systemRoot: "C:\\Windows", aclHelper, ...options,
+  });
+  return aclHelper.requests[0].script;
+}
+
+test("Windows ACL helper reuses one PowerShell process and frames each path as JSON data", async () => {
+  const spawned = [];
+  const exitListeners = new Set();
+  const helper = createWindowsAclHelper({
+    spawnProcess(file, args, options) {
+      const child = createHelperChild();
+      spawned.push({ file, args, options, child });
+      return child;
+    },
+    onProcessExit(listener) { exitListeners.add(listener); return () => exitListeners.delete(listener); },
+  });
+  const powershell = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe";
+  const script = await captureAclScript({ kind: "file", verifyOnly: true });
+  const unicodePath = "C:\\Users\\tést\\.relmio\\\"quoted\" 𝔘.json";
+  assert.deepEqual(await Promise.all([
+    helper.check({ powershell, script, path: "C:\\Users\\test\\a.json" }),
+    helper.check({ powershell, script, path: unicodePath }),
+  ]), [true, true]);
+  assert.equal(spawned.length, 1);
+  const [{ file, args, options, child }] = spawned;
+  assert.equal(file, powershell);
+  assert.deepEqual(args.slice(0, 4), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]);
+  assert.equal(options.shell, false);
+  assert.equal(options.windowsHide, true);
+  assert.equal(args[4].includes('"'), false);
+  assert.equal(args[4].includes("tést"), false);
+  assert.match(args[4], /ConvertFrom-Json/u);
+  assert.equal(args[4].includes(script), true);
+  assert.deepEqual(child.requests.map(({ path }) => path), ["C:\\Users\\test\\a.json", unicodePath]);
+  assert.equal(child.requests[0].check, child.requests[1].check);
+  assert.ok(child.requests[1].id > child.requests[0].id);
+  assert.ok(child.lines.every((line) => /^[\x20-\x7e]+$/u.test(line)));
+  assert.equal(child.refs.at(-1), "unref");
+  assert.equal(exitListeners.size, 1);
+  [...exitListeners][0]();
+  assert.deepEqual(child.killCalls, ["SIGKILL"]);
+});
+
+test("Windows ACL helper answers requests one at a time and reports a refused check", async () => {
+  let release;
+  const child = createHelperChild((request, spawned) => {
+    if (request.id === 1) release = () => spawned.stdout.write(`{"id":1,"ok":false}\n`);
+    else spawned.stdout.write(`{"id":${request.id},"ok":true}\n`);
+  });
+  const helper = createWindowsAclHelper({ spawnProcess: () => child, onProcessExit: () => () => {} });
+  const request = { powershell: "C:\\Windows\\powershell.exe", script: await captureAclScript({ kind: "file" }) };
+  const first = helper.check({ ...request, path: "C:\\one" });
+  const second = helper.check({ ...request, path: "C:\\two" });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(child.requests.length, 1);
+  await assertPromisePending(second);
+  release();
+  assert.equal(await first, false);
+  assert.equal(await second, true);
+  assert.equal(child.requests.length, 2);
+});
+
+test("Windows ACL helper fails a timed-out, crashed or malformed request closed and restarts", async (t) => {
+  const request = { powershell: "C:\\Windows\\powershell.exe", script: await captureAclScript({ kind: "file", verifyOnly: true }) };
+  for (const [name, fault] of [
+    ["timeout", null],
+    ["crash", (_request, child) => closeChild(child, 1)],
+    ["unexpected id", (requested, child) => child.stdout.write(`{"id":${requested.id + 1},"ok":true}\n`)],
+    ["malformed", (_request, child) => child.stdout.write("ok\n")],
+    ["oversized", (_request, child) => child.stdout.write("x".repeat(64))],
+  ]) {
+    await t.test(name, async () => {
+      const timers = createManualTimers();
+      const children = [];
+      const detached = [];
+      const helper = createWindowsAclHelper({
+        spawnProcess() {
+          const child = createHelperChild(children.length === 0
+            ? (requested, spawned) => fault?.(requested, spawned)
+            : undefined);
+          children.push(child);
+          return child;
+        },
+        onProcessExit: () => () => detached.push(children.length),
+        setTimer: timers.setTimer,
+        clearTimer: timers.clearTimer,
+        maxResponseBytes: 32,
+      });
+      const failed = helper.check({ ...request, path: "C:\\first" });
+      await new Promise((resolve) => setImmediate(resolve));
+      if (name === "timeout") timers.fire(60_000);
+      await assert.rejects(failed);
+      assert.equal(children[0].killCalls.length, 1);
+      assert.equal(detached.length, 1);
+      assert.equal(await helper.check({ ...request, path: "C:\\second" }), true);
+      assert.equal(children.length, 2);
+      assert.deepEqual(children[1].requests.map(({ path }) => path), ["C:\\second"]);
+    });
+  }
+});
+
+test("Windows ACL helper rejects unknown checks and malformed paths without starting PowerShell", async () => {
+  let spawned = 0;
+  const helper = createWindowsAclHelper({ spawnProcess: () => { spawned++; return createHelperChild(); } });
+  const script = await captureAclScript({ kind: "file" });
+  for (const request of [
+    { powershell: "C:\\Windows\\powershell.exe", script: `${script};Remove-Item $path`, path: "C:\\one" },
+    { powershell: "C:\\Windows\\powershell.exe", script, path: "C:\\\ud800broken" },
+    { powershell: "C:\\Windows\\powershell.exe", script, path: 7 },
+  ]) await assert.rejects(() => helper.check(request), TypeError);
+  assert.equal(spawned, 0);
 });
 
 test("Windows ACL runner bounds stalled and overlong security subprocesses", async (t) => {

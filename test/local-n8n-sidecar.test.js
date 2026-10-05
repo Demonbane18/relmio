@@ -68,9 +68,6 @@ async function fixture(t) {
   return { homeDirectory, registration, destinationRoot, authBinding, plan };
 }
 
-// The fake container's destination store runs only in the Linux container in production,
-// where there is no Windows ACL step; host-side storage keeps its real ACL checks.
-const fakeContainerSessionDeps = process.platform === "win32" ? { lockDownPath: async () => {} } : {};
 const fakeRevocationProvider = async url => {
   if (url.endsWith("/.well-known/openid-configuration")) {
     return Response.json({
@@ -135,7 +132,7 @@ function fakeDocker(destinationRoot, {
         ? spec.args.find(arg => arg.startsWith("RELMIO_REGISTRATION_ID="))?.split("=")[1] : selectedRegistrationId,
       input: Readable.from(spec.input ? [spec.input] : []),
       output: { write(value) { stdout += value; } },
-      sessionDeps: { fetchImpl: fakeRevocationProvider, ...fakeContainerSessionDeps },
+      sessionDeps: { fetchImpl: fakeRevocationProvider },
     });
     return { code: 0, stdout };
   };
@@ -806,7 +803,7 @@ test("local n8n staging precedes directory creation and reviewed retry retains d
   const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
   const runner = fakeDocker(destinationRoot);
   const fileSystem = { ...fs, mkdir: async (path, options) => {
-    if (path.endsWith("local/n8n-openai-oauth")) {
+    if (path.endsWith(join("local", "n8n-openai-oauth"))) {
       const staged = JSON.parse(await readFile(join(homeDirectory, ".relmio-local-n8n-openai-oauth.siwc-staging.json"), "utf8"));
       assert.equal(staged.installId, installId);
       throw new Error("Interrupted before managed directory");

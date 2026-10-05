@@ -55,9 +55,6 @@ async function fixture(t) {
   return { registration, destinationRoot, authBinding };
 }
 
-// The fake container's destination store runs only in the Linux container in production,
-// where there is no Windows ACL step; host-side storage keeps its real ACL checks.
-const fakeContainerSessionDeps = process.platform === "win32" ? { lockDownPath: async () => {} } : {};
 const fakeRevocationProvider = async url => {
   if (url.endsWith("/.well-known/openid-configuration")) {
     return Response.json({
@@ -121,7 +118,7 @@ function fakeRemote({ destinationRoot, rejectAccept = false, managed = false, le
       command, storageRoot: destinationRoot, runtimeId, registrationId: selected,
       input: Readable.from(contents ? [Buffer.from(contents)] : []),
       output: { write(value) { stdout += value; } },
-      sessionDeps: { fetchImpl: fakeRevocationProvider, ...fakeContainerSessionDeps },
+      sessionDeps: { fetchImpl: fakeRevocationProvider },
     });
     return { code: 0, stdout };
   };
@@ -884,7 +881,11 @@ test("silent acceptance and build deadlines preserve uncertainty without automat
   });
 });
 
-test("legacy and replacement child links reject without changing outside inode", async t => {
+// The guard is the remote VPS /bin/sh script. Windows paths carry backslashes and drive
+// letters that a POSIX shell cannot treat as the Linux paths the guard checks.
+test("legacy and replacement child links reject without changing outside inode", {
+  skip: process.platform === "win32" && "the guard is a remote Linux /bin/sh script over Linux paths",
+}, async t => {
   for (const flow of ["legacy", "replacement"]) for (const target of ["compose-hardlink", "asset-symlink"]) {
     await t.test(`${flow}/${target}`, async t => {
       const { registration, destinationRoot, authBinding } = await fixture(t);

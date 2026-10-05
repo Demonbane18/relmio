@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import test from 'node:test';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { getAuthStatus, listAuthRegistrations, startOAuthLogin } from '../src/services/oauth.js';
@@ -331,7 +331,7 @@ test('cancellation during atomic commit clears any committed tokens before it co
   const fileSystem = {
     ...fs,
     async rename(source, destination) {
-      if (!held && destination.includes('/registrations/') && destination.endsWith('.json') &&
+      if (!held && destination.includes(`${sep}registrations${sep}`) && destination.endsWith('.json') &&
           (await fs.readFile(source, 'utf8')).includes('opaque-secret-access')) {
         held = true;
         entered();

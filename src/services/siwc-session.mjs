@@ -3,7 +3,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import {
-  lockDownLocalPath, recallWindowsLockdown, refreshWindowsLockdown, rememberWindowsLockdown,
+  lockDownLocalPath, recallWindowsLockdown, refreshWindowsLockdown, rememberWindowsLockdown, retryWindowsFileSharing,
 } from '../infrastructure/local-process.js';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { acquireLocalIntegrationLifecycleLock } from './local-integration-lifecycle-lock.js';
@@ -68,8 +68,8 @@ const rootOf = storageRoot => {
 };
 const fileOf = (root, id) => join(root, 'registrations', `${validateSiwcRegistrationId(id)}.json`);
 const uid = () => typeof process.getuid === 'function' ? process.getuid() : null;
-// Each Windows ACL check spawns PowerShell. An unchanged inode this process locked
-// down itself skips the repeat check; foreign, replaced or changed inodes do not.
+// An unchanged inode this process locked down itself skips the repeat Windows ACL
+// check; foreign, replaced or changed inodes do not.
 async function verifyWindowsAcl(path, kind, stat, contents, cfg) {
   if (contents !== null && recallWindowsLockdown(cfg.lockDownPath, stat, contents)) return;
   await cfg.lockDownPath(path, { platform: cfg.platform, kind, verifyOnly: true });
@@ -85,18 +85,31 @@ async function assertSafePath(path, kind, cfg, { windowsAclChecked = false } = {
 }
 async function directory(path, cfg) {
   cfg.checkLock?.();
+  let created = true;
   try { await cfg.fileSystem.mkdir(path, { mode: 0o700 }); }
-  catch (error) { if (error?.code !== 'EEXIST') throw error; }
+  catch (error) { if (error?.code !== 'EEXIST') throw error; created = false; }
   const stat = await cfg.fileSystem.lstat(path);
   if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('Unsafe SIWC storage entry.');
   if (cfg.platform !== 'win32') {
     await assertSafePath(path, 'directory', cfg);
     return;
   }
-  // The first use in each process, and any change since, locks the directory down again.
   if (recallWindowsLockdown(cfg.lockDownPath, stat, '')) return;
+  // Rewriting a directory DACL re-propagates to every child and races other processes
+  // using them, so an existing directory that already verifies owner-only is kept as is.
+  if (!created) {
+    let verified = false;
+    try {
+      await cfg.lockDownPath(path, { platform: cfg.platform, kind: 'directory', verifyOnly: true });
+      verified = true;
+    } catch { /* Repair it below, exactly like a new directory. */ }
+    if (verified) {
+      refreshWindowsLockdown(cfg.lockDownPath, await assertSafePath(path, 'directory', cfg, { windowsAclChecked: true }), '');
+      return;
+    }
+  }
   await cfg.lockDownPath(path, { platform: cfg.platform, kind: 'directory' });
-  // The lockdown reads its owner-only DACL back, so no separate verify-only spawn follows.
+  // The lockdown reads its owner-only DACL back, so no separate verify-only check follows.
   rememberWindowsLockdown(cfg.lockDownPath, await assertSafePath(path, 'directory', cfg, { windowsAclChecked: true }), '');
 }
 async function ensureRoot(root, cfg) {
@@ -148,7 +161,7 @@ async function atomicFile(path, value, cfg, beforeRename = () => {}) {
     } catch (error) { if (error?.code !== 'ENOENT') throw error; }
     beforeRename();
     cfg.checkLock?.();
-    await cfg.fileSystem.rename(temp, path);
+    await retryWindowsFileSharing(() => cfg.fileSystem.rename(temp, path), { platform: cfg.platform });
     if (cfg.platform !== 'win32') {
       const directoryHandle = await cfg.fileSystem.open(dirname(path), 'r');
       try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }

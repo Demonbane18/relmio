@@ -55,9 +55,6 @@ async function fixture(t, target = "codex-chat") {
   return { homeDirectory, registration, destinationRoot, authBinding, plan };
 }
 
-// The fake container's destination store runs only in the Linux container in production,
-// where there is no Windows ACL step; host-side storage keeps its real ACL checks.
-const fakeContainerSessionDeps = process.platform === "win32" ? { lockDownPath: async () => {} } : {};
 const fakeRevocationProvider = async url => {
   if (url.endsWith("/.well-known/openid-configuration")) {
     return Response.json({
@@ -105,7 +102,7 @@ function fakeDocker({
         ? spec.args.find(arg => arg.startsWith("RELMIO_REGISTRATION_ID="))?.split("=")[1] : selectedRegistrationId,
       input: Readable.from(spec.input ? [spec.input] : []),
       output: { write(value) { stdout += value; } },
-      sessionDeps: { fetchImpl: fakeRevocationProvider, ...fakeContainerSessionDeps },
+      sessionDeps: { fetchImpl: fakeRevocationProvider },
     });
     return { code: 0, stdout };
   };
@@ -702,7 +699,7 @@ test("Codex staging precedes directory writes and reviewed resume retains one pr
   const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
   const runner = fakeDocker({ target: plan.target, destinationRoot });
   const fileSystem = { ...fs, mkdir: async (path, options) => {
-    if (path.endsWith(`local/${plan.target}`)) {
+    if (path.endsWith(join("local", plan.target))) {
       const staged = JSON.parse(await readFile(join(homeDirectory, `.relmio-local-${plan.target}.siwc-staging.json`), "utf8"));
       assert.equal(staged.registrationId, registrationId);
       assert.equal(staged.installId, installId);

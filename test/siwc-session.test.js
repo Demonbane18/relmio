@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import { chmod, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -14,6 +14,7 @@ import { runSiwcHandoffCli } from '../src/services/siwc-handoff.mjs';
 import { acquireLocalIntegrationLifecycleLock } from '../src/services/local-integration-lifecycle-lock.js';
 import { createSidecarHandler, createSidecarServer } from '../src/gateway/openai-oauth-sidecar.mjs';
 import { getLocalPidNamespaceIdentity, getLocalProcessIdentity } from '../src/infrastructure/process-identity.js';
+import { lockDownLocalPath } from '../src/infrastructure/local-process.js';
 import {
   acceptAuthHandoff, acknowledgePlanUse, commitAuthorization, ensureSiwcHost, finishAuthHandoff,
   getAccessToken, getSelectedRegistration, listRegistrations, listSiwcThreadBindings, prepareAuthHandoff,
@@ -272,7 +273,12 @@ test('missing, malformed and uncertain lock ownership is never reclaimed because
   }
 });
 
-test('young foreign PID namespaces keep an absent or reused-looking owner frozen until its lease expires', async t => {
+// PID-namespace leases only arise when Linux containers share one SIWC store. These
+// tests run that logic as platform 'linux', whose POSIX mode checks cannot pass on NTFS.
+const linuxNamespaceSkip = process.platform === 'win32' &&
+  'Linux PID-namespace leases exist only in container storage; NTFS has no POSIX modes';
+
+test('young foreign PID namespaces keep an absent or reused-looking owner frozen until its lease expires', { skip: linuxNamespaceSkip }, async t => {
   const bootId = '12345678-1234-1234-1234-123456789abc';
   const foreignNamespace = `linux:${bootId}:pid:4026532001`;
   const localNamespace = `linux:${bootId}:pid:4026532002`;
@@ -310,7 +316,7 @@ test('young foreign PID namespaces keep an absent or reused-looking owner frozen
   }
 });
 
-test('an expired foreign namespace lease is reclaimed before a healthy refresh', async t => {
+test('an expired foreign namespace lease is reclaimed before a healthy refresh', { skip: linuxNamespaceSkip }, async t => {
   const storageRoot = await root(t);
   const first = await registration(storageRoot);
   const source = { storageRoot, registrationId: first.registrationId };
@@ -343,7 +349,7 @@ test('an expired foreign namespace lease is reclaimed before a healthy refresh',
   await assert.rejects(fs.access(lockPath), { code: 'ENOENT' });
 });
 
-test('expired foreign lease recovery never replays a refresh whose freeze was persisted before a crash', async t => {
+test('expired foreign lease recovery never replays a refresh whose freeze was persisted before a crash', { skip: linuxNamespaceSkip }, async t => {
   const storageRoot = await root(t);
   const first = await registration(storageRoot);
   const source = { storageRoot, registrationId: first.registrationId };
@@ -829,8 +835,10 @@ test('a copied registration cannot refresh or appear connected on a different ho
   const originalHost = await readSiwcHost({ storageRoot, runtimeId: 'local' });
   const destinationHost = await ensureSiwcHost({ storageRoot: copiedRoot, runtimeId: 'local' });
   assert.notEqual(originalHost.hostId, destinationHost.hostId);
-  await fs.copyFile(join(storageRoot, 'registrations', `${first.registrationId}.json`),
-    join(copiedRoot, 'registrations', `${first.registrationId}.json`));
+  const copiedPath = join(copiedRoot, 'registrations', `${first.registrationId}.json`);
+  await fs.copyFile(join(storageRoot, 'registrations', `${first.registrationId}.json`), copiedPath);
+  // A faithful copy is owner-only too; on Windows copyFile inherits the folder ACL instead.
+  if (process.platform === 'win32') await lockDownLocalPath(copiedPath, { platform: 'win32', kind: 'file' });
   const copied = { storageRoot: copiedRoot, registrationId: first.registrationId };
   await assert.rejects(getAccessToken(copied, { runtimeId: 'local' }, {
     fetchImpl: async () => { throw new Error('Network must not be used.'); },
@@ -907,7 +915,7 @@ test('post-rotation write, sync and rename failures never expose R0 to a fresh p
         ...fs,
         async open(path, flags, mode) {
           const handle = await fs.open(path, flags, mode);
-          if (flags !== 'wx' || !path.includes('/registrations/')) return handle;
+          if (flags !== 'wx' || !path.includes(`${sep}registrations${sep}`)) return handle;
           let replacement = false;
           return {
             stat: () => handle.stat(), readFile: () => handle.readFile(), close: () => handle.close(),
@@ -924,7 +932,7 @@ test('post-rotation write, sync and rename failures never expose R0 to a fresh p
           };
         },
         async rename(source, destination) {
-          if (failureAt === 'rename' && destination.includes('/registrations/') && destination.endsWith('.json') &&
+          if (failureAt === 'rename' && destination.includes(`${sep}registrations${sep}`) && destination.endsWith('.json') &&
               (await fs.readFile(source, 'utf8')).includes('private-access-rotated'))
             throw new Error('injected rename failure');
           await fs.rename(source, destination);
@@ -962,7 +970,7 @@ test('a replacement that becomes shorter than the requested lease remains frozen
   const fileSystem = {
     ...fs,
     async rename(source, destination) {
-      if (destination.includes('/registrations/') && destination.endsWith('.json') &&
+      if (destination.includes(`${sep}registrations${sep}`) && destination.endsWith('.json') &&
           (await fs.readFile(source, 'utf8')).includes('private-access-rotated'))
         now += 2000;
       await fs.rename(source, destination);
@@ -1743,6 +1751,32 @@ test('Windows path protection rejects a symlink before touching its target ACL',
     platform: 'win32', lockDownPath: async () => { aclCalls++; },
   }));
   assert.equal(aclCalls, 0);
+});
+
+test('Windows keeps an existing owner-only SIWC directory and rewrites only one that fails verification', async t => {
+  const storageRoot = await root(t);
+  const registrations = join(storageRoot, 'registrations');
+  const protectedDirectories = new Set(), rewrites = [];
+  const aclAdapter = async (path, { kind, verifyOnly }) => {
+    if (kind !== 'directory') return;
+    if (verifyOnly) {
+      if (!protectedDirectories.has(path)) throw new Error('Windows could not apply and verify owner-only protection for local Relmio files.');
+      return;
+    }
+    rewrites.push(path);
+    protectedDirectories.add(path);
+  };
+  // Each wrapper is a distinct adapter, so it starts with no remembered inodes, like a new process.
+  const freshProcess = () => ({ platform: 'win32', lockDownPath: (...args) => aclAdapter(...args),
+    getProcessIdentity: async () => ({ state: 'active', startIdentity: 'fixture-windows-process' }) });
+  const host = await ensureSiwcHost({ storageRoot, runtimeId: 'local' }, freshProcess());
+  assert.deepEqual(rewrites, [storageRoot, registrations]);
+  rewrites.length = 0;
+  assert.deepEqual(await ensureSiwcHost({ storageRoot, runtimeId: 'local' }, freshProcess()), host);
+  assert.deepEqual(rewrites, []);
+  protectedDirectories.delete(registrations);
+  await ensureSiwcHost({ storageRoot, runtimeId: 'local' }, freshProcess());
+  assert.deepEqual(rewrites, [registrations]);
 });
 
 test('thread ownership persists only for the verified active registration and model', async t => {

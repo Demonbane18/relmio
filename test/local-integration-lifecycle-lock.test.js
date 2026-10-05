@@ -415,7 +415,7 @@ test("Windows publishes without its unsupported directory fsync while POSIX stil
   });
 });
 
-// Each identity query and verify-only ACL check is one PowerShell process on Windows.
+// Counts identity queries and ACL checks, each a helper round trip on Windows.
 function windowsSpawnCounter(lockPath, { ctimeShift = () => 0 } = {}) {
   const counts = { identity: 0, lockVerifies: 0, lockdowns: 0, ownNameVerifies: 0 };
   return {
@@ -494,6 +494,60 @@ test("a foreign Windows claim is ACL-verified on every inspection", async (t) =>
     await assert.rejects(() => acquireLocalIntegrationLifecycleLock(options), error => error.code === "RELMIO_LOCK_BUSY");
   }
   assert.equal(counts.lockVerifies, 2);
+});
+
+test("a Windows sharing refusal on the claim file is retried and the release completes", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const { options } = windowsSpawnCounter(lockPath);
+  const refusals = { rename: 2, unlink: 1, link: 1 };
+  const refused = [];
+  options.fileSystem = { ...options.fileSystem };
+  for (const method of Object.keys(refusals)) {
+    options.fileSystem[method] = async (...args) => {
+      if (refusals[method]-- > 0) {
+        refused.push(method);
+        throw Object.assign(new Error(`${method} sharing violation`), { code: method === "unlink" ? "EPERM" : "EBUSY" });
+      }
+      return fileSystem[method](...args);
+    };
+  }
+  const release = await acquireLocalIntegrationLifecycleLock(options);
+  await release();
+  assert.deepEqual(refused.sort(), ["link", "rename", "rename", "unlink"]);
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("a Windows ACL check racing a claim replacement retries, but an unchanged unprotected claim fails closed", async (t) => {
+  await t.test("replaced during the check", async (subtest) => {
+    const { lockPath } = await createFixture(subtest);
+    const owner = publication({ pid: 703, startIdentity: "test:live", acquiredAt: 1 });
+    await writeFile(lockPath, JSON.stringify(owner), { mode: 0o600 });
+    const { options } = windowsSpawnCounter(lockPath);
+    options.lockDownPath = async (path, { verifyOnly } = {}) => {
+      if (verifyOnly && path === lockPath) {
+        await fileSystem.unlink(lockPath);
+        throw new Error("Windows could not apply and verify owner-only protection for local Relmio files.");
+      }
+    };
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock(options), error => error.code === "RELMIO_LOCK_CHANGED");
+  });
+  await t.test("unchanged", async (subtest) => {
+    const { lockPath } = await createFixture(subtest);
+    const owner = JSON.stringify(publication({ pid: 703, startIdentity: "test:live", acquiredAt: 1 }));
+    await writeFile(lockPath, owner, { mode: 0o600 });
+    const { options } = windowsSpawnCounter(lockPath);
+    let checks = 0;
+    options.lockDownPath = async (path, { verifyOnly } = {}) => {
+      if (verifyOnly && path === lockPath) {
+        checks++;
+        throw new Error("Windows could not apply and verify owner-only protection for local Relmio files.");
+      }
+    };
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock(options),
+      error => /owner-only protection/u.test(error.message) && error.code === undefined);
+    assert.equal(checks, 3);
+    assert.equal(await readFile(lockPath, "utf8"), owner);
+  });
 });
 
 test("an interrupted unpublished atomic record never reserves the lock or falls back to a directory", async (t) => {
