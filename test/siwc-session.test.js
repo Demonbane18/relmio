@@ -1648,7 +1648,7 @@ test('failed persistence of a wrong-client R1 cannot activate it in a fresh proc
   const fileSystem = {
     ...fs,
     async rename(source, destination) {
-      if (destination.includes('/registrations/') && destination.endsWith('.json') &&
+      if (destination.includes(`${sep}registrations${sep}`) && destination.endsWith('.json') &&
           (await fs.readFile(source, 'utf8')).includes('private-access-rotated'))
         throw Object.assign(new Error('replacement write unavailable'), { code: 'ENOSPC' });
       await fs.rename(source, destination);
@@ -1728,18 +1728,20 @@ test('Windows ACL adapter protects each new credential file before writing secre
     async rename(source, destination) {
       await fs.rename(source, destination);
       for (const path of [...protectedPaths]) {
-        if (path === source || path.startsWith(`${source}/`)) {
+        if (path === source || path.startsWith(`${source}${sep}`)) {
           protectedPaths.delete(path);
           protectedPaths.add(`${destination}${path.slice(source.length)}`);
         }
       }
     },
   };
+  // Every access uses the injected adapter; the native Windows adapter never protected these files.
+  const windowsDeps = { fileSystem, platform: 'win32', lockDownPath,
+    getProcessIdentity: async () => ({ state: 'active', startIdentity: 'fixture-windows-process' }) };
   const account = await commitAuthorization({ storageRoot, clientId: 'oaiapp_first', runtimeId: 'local',
-    identity: { issuer: discovery.issuer, subject: 'subject-first' }, tokens: tokens('first') },
-  { fileSystem, platform: 'win32', lockDownPath,
-    getProcessIdentity: async () => ({ state: 'active', startIdentity: 'fixture-windows-process' }) });
-  assert.equal((await readRegistration({ storageRoot, registrationId: account.registrationId })).session.accessToken, 'private-access-first');
+    identity: { issuer: discovery.issuer, subject: 'subject-first' }, tokens: tokens('first') }, windowsDeps);
+  assert.equal((await readRegistration({ storageRoot, registrationId: account.registrationId }, windowsDeps))
+    .session.accessToken, 'private-access-first');
 });
 
 test('Windows path protection rejects a symlink before touching its target ACL', async t => {

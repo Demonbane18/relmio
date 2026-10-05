@@ -960,6 +960,51 @@ test("Windows ACL helper fails a timed-out, crashed or malformed request closed 
   }
 });
 
+test("a stalled read-only ACL check on a ready helper times out in 5 s and the next check starts fresh", async () => {
+  const timers = createManualTimers();
+  const requested = [];
+  const children = [];
+  let stall = false;
+  const helper = createWindowsAclHelper({
+    spawnProcess() {
+      const child = createHelperChild((request, spawned) => {
+        if (!(stall && children.indexOf(spawned) === 0)) spawned.stdout.write(`{"id":${request.id},"ok":true}\n`);
+      });
+      children.push(child);
+      return child;
+    },
+    onProcessExit: () => () => {},
+    setTimer(callback, milliseconds) { requested.push(milliseconds); return timers.setTimer(callback, milliseconds); },
+    clearTimer: timers.clearTimer,
+  });
+  const powershell = "C:\\Windows\\powershell.exe";
+  const verify = { powershell, script: await captureAclScript({ kind: "file", verifyOnly: true }) };
+  const lockdown = { powershell, script: await captureAclScript({ kind: "file" }) };
+  const scheduled = async request => {
+    requested.length = 0;
+    const result = helper.check(request);
+    await new Promise(resolve => setImmediate(resolve));
+    return { result, milliseconds: [...requested] };
+  };
+  // The first request covers PowerShell startup, so even a read-only check gets the long timeout.
+  const first = await scheduled({ ...verify, path: "C:\\first" });
+  assert.deepEqual(first.milliseconds, [60_000]);
+  assert.equal(await first.result, true);
+  const applied = await scheduled({ ...lockdown, path: "C:\\applied" });
+  assert.deepEqual(applied.milliseconds, [60_000]);
+  assert.equal(await applied.result, true);
+  stall = true;
+  const stalled = await scheduled({ ...verify, path: "C:\\stalled" });
+  assert.deepEqual(stalled.milliseconds, [5_000]);
+  const queued = helper.check({ ...verify, path: "C:\\queued" });
+  timers.fire(5_000);
+  await assert.rejects(stalled.result, /timed out/u);
+  assert.deepEqual(children[0].killCalls, ["SIGKILL"]);
+  assert.equal(await queued, true);
+  assert.equal(children.length, 2);
+  assert.deepEqual(children[1].requests.map(({ path }) => path), ["C:\\queued"]);
+});
+
 test("Windows ACL helper rejects unknown checks and malformed paths without starting PowerShell", async () => {
   let spawned = 0;
   const helper = createWindowsAclHelper({ spawnProcess: () => { spawned++; return createHelperChild(); } });

@@ -10,6 +10,7 @@ const MAX_ARGUMENT_BYTES = 16 * 1024;
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_DOCKER_HOST_BYTES = 4 * 1024;
 const WINDOWS_ACL_TIMEOUT_MS = 60_000;
+const WINDOWS_ACL_VERIFY_TIMEOUT_MS = 5_000;
 const WINDOWS_LOCKDOWN_MEMORY_LIMIT = 256;
 const windowsLockdownMemories = new WeakMap();
 const WINDOWS_ACL_MAX_OUTPUT_BYTES = 4 * 1024;
@@ -411,13 +412,14 @@ function windowsAclCheckScript({ kind, verifyOnly, verifyEffectiveOwnerOnly }) {
 }
 
 // Every valid check, in a fixed order; a request names its check by index only.
-const WINDOWS_ACL_CHECKS = Object.freeze([
+const WINDOWS_ACL_CHECK_OPTIONS = Object.freeze([
   { kind: "directory", verifyOnly: false, verifyEffectiveOwnerOnly: false },
   { kind: "directory", verifyOnly: true, verifyEffectiveOwnerOnly: false },
   { kind: "file", verifyOnly: false, verifyEffectiveOwnerOnly: false },
   { kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: false },
   { kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true },
-].map(windowsAclCheckScript));
+]);
+const WINDOWS_ACL_CHECKS = Object.freeze(WINDOWS_ACL_CHECK_OPTIONS.map(windowsAclCheckScript));
 
 // Static helper: reads one JSON request per line as strict UTF-8 and answers
 // {"id":N,"ok":true|false}. Paths arrive only as JSON data. Any exception answers
@@ -445,10 +447,14 @@ function asciiJsonLine(value) {
  * malformed or out-of-order reply, exit or spawn failure fails that request closed and
  * retires the helper; the next request starts a fresh one. An idle helper does not keep
  * Node alive and is killed when Node exits.
+ * A read-only check on a helper that has already answered gets `verifyTimeoutMs`, so a
+ * stalled check holds later checks back only briefly. A helper's first request covers
+ * PowerShell startup, and a lockdown writes a DACL, so both keep the longer `timeoutMs`.
  */
 export function createWindowsAclHelper({
   spawnProcess = spawn,
   timeoutMs = WINDOWS_ACL_TIMEOUT_MS,
+  verifyTimeoutMs = WINDOWS_ACL_VERIFY_TIMEOUT_MS,
   maxResponseBytes = WINDOWS_ACL_MAX_OUTPUT_BYTES,
   onProcessExit = (listener) => {
     process.once("exit", listener);
@@ -499,6 +505,7 @@ export function createWindowsAclHelper({
         return;
       }
       current.pending = null;
+      current.ready = true;
       clearTimer(pending.timer);
       setActive(current, false);
       pending.resolve(match[2] === "true");
@@ -514,7 +521,7 @@ export function createWindowsAclHelper({
       ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_ACL_HELPER_SCRIPT],
       { shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
     );
-    const current = { child, powershell, buffer: "", pending: null, retired: false };
+    const current = { child, powershell, buffer: "", pending: null, retired: false, ready: false };
     const fail = (message) => () => retire(current, new Error(message));
     child.stdout.on("data", (chunk) => receive(current, chunk));
     child.stderr.on("data", () => {}); // Never surface helper diagnostics.
@@ -540,10 +547,12 @@ export function createWindowsAclHelper({
     }
     worker = current;
     const id = ++nextId;
+    const requestTimeoutMs = current.ready && WINDOWS_ACL_CHECK_OPTIONS[check].verifyOnly
+      ? verifyTimeoutMs : timeoutMs;
     return new Promise((resolve, reject) => {
       const timer = setTimer(
         () => retire(current, new Error("Windows ACL helper timed out.")),
-        timeoutMs,
+        requestTimeoutMs,
       );
       current.pending = { id, resolve, reject, timer };
       setActive(current, true);
