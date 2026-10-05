@@ -5582,8 +5582,13 @@ async function handleApi(request, response, path, state) {
         existingBinding = Object.freeze({ ...bound, ownerHostId: previous.account.ownerHostId,
           expectedGeneration: previous.account.generation });
       } else if (installed?.state !== "absent") {
-        throw Object.assign(new Error("The installed sidecar must be signed out or manually recovered before another write."),
-          { statusCode: 409, recovery: "review-again" });
+        const detail = {
+          staged: "An earlier installation on this server was interrupted. Open Recover a transfer or staged installation to resume it.",
+          partial: "An earlier migration on this server started but did not finish. Open Recover a transfer or staged installation.",
+          owned: "A ChatGPT plan sidecar is already installed and running here. Manage it, or sign it out before replacing it.",
+        }[installed?.state] ?? "The installed sidecar must be signed out or manually recovered before another write.";
+        throw Object.assign(new Error(detail),
+          { statusCode: 409, recovery: "review-again", code: `vps_sidecar_${installed?.state ?? "unknown"}` });
       }
       requireCurrentVpsCredentialOperation(
         state,
