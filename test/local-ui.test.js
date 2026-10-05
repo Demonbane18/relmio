@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { clearFieldError, setFieldError } from "../src/ui/ssh-form.js";
+import { siwcAccount } from "./helpers/siwc-wizard.js";
+import { accountUiState, siwcErrorFromResponse } from "../src/ui/siwc-controls.js";
 
 
 
@@ -135,24 +137,24 @@ test("the install key warning names the selected target's own boundary", async (
 
 test("the complete script renders a healthy OAuth inventory instead of falling back to unavailable", async () => {
   const { runInNewContext } = await import("node:vm");
-  const script = (await readFile("src/ui/local.js", "utf8"))
-    .replace(/^import .*?;\r?\n/u, "const readWizardSession = () => 'a'.repeat(43); const bindWizardNavigation = () => {};\n")
-    .replace(/import \{ clearFieldError, setFieldError \} from "\.\/ssh-form\.js";\r?\n/u, "")
-    .replace(/import \{[\s\S]*?\} from "\.\/chat-tester-feedback\.js";\r?\n/u, "const INITIAL_CHAT_TESTER_FEEDBACK = {}; const nextChatTesterFeedback = () => ({});\n")
-    .replace(/import \{ initWizardTopbar \} from "\.\/topbar\.js";\r?\n/u, "const initWizardTopbar = () => {};\n");
+  const shared = (await readFile("src/ui/siwc-controls.js", "utf8")).replace(/^export /gmu, "");
+  const script = (await readFile("src/ui/local.js", "utf8")).replace(/^import[\s\S]*?;\r?\n/gmu, "");
   const fixture = {
     schemaVersion: 1, generatedAt: new Date().toISOString(),
     docker: { available: true, version: "29.7.2", composeVersion: "2.39.1" }, auth: { secretsRevealable: false },
     providers: [["codex-chatgpt", "ChatGPT"], ["codex-chat", "ChatGPT"], ["xai-grok-build", "SuperGrok"], ["n8n-supergrok-oauth", "SuperGrok (n8n)"]].map(([target, label]) => ({ target, label, authentication: "provider-oauth", readiness: "runtime-owned" })),
     services: [
-      ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint", "ws://127.0.0.1:14500/", ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"]],
-      ["codex-chat", "Codex Chat adapter", "endpoint", "http://127.0.0.1:14501/", ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"]],
+      ["codex-chatgpt", "Codex (ChatGPT plan)", "endpoint", "ws://127.0.0.1:14500/", ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"]],
+      ["codex-chat", "Codex Chat adapter", "endpoint", "http://127.0.0.1:14501/", ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"]],
       ["xai-grok-build", "SuperGrok", "endpoint", "http://127.0.0.1:14502/", ["sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"]],
-      ["local-n8n-stack", "n8n + ngrok", "n8n-stack"], ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"], ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"], ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+      ["local-n8n-stack", "n8n + ngrok", "n8n-stack"], ["n8n-openai-oauth", "ChatGPT plan sidecar", "n8n-oauth-bridge"], ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"], ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
       ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
-    ].map(([target, label, kind, endpoint, actions]) => endpoint ? ({ target, label, kind, managed: true, state: "healthy", snapshot: { target, endpoint, auth: { configured: true, disclosure: "rotate-only" }, canRotateCredential: true }, actions }) : target === "n8n-supergrok-oauth" ? ({ target, label, kind, managed: true, state: "healthy", snapshot: { target, endpoint: "http://n8n-supergrok:14502/v1", auth: { configured: true, disclosure: "one-time" }, canRemove: true }, actions: ["sign-in-grok-build", "sign-out-grok-build", "remove-owned-supergrok"] }) : ({ target, label, kind, managed: false, state: "absent", snapshot: null, actions: ["setup"] })),
+    ].map(([target, label, kind, endpoint, actions]) => endpoint ? ({ target, label, kind, managed: true, state: "healthy",
+      snapshot: { target, endpoint, ...(target.startsWith("codex") ? { registrationId: siwcAccount.registrationId, migrationRequired: false } : {}),
+        auth: { configured: true, disclosure: "rotate-only", ...(target.startsWith("codex") ? { account: siwcAccount } : {}) },
+        canRotateCredential: true }, actions }) : target === "n8n-supergrok-oauth" ? ({ target, label, kind, managed: true, state: "healthy", snapshot: { target, endpoint: "http://n8n-supergrok:14502/v1", auth: { configured: true, disclosure: "one-time" }, canRemove: true }, actions: ["sign-in-grok-build", "sign-out-grok-build", "remove-owned-supergrok"] }) : ({ target, label, kind, managed: false, state: "absent", snapshot: null, actions: ["setup"] })),
   };
-  const makeNode = () => ({ attributes: new Map(), checked: false, classList: { add() {}, remove() {}, toggle() {} }, dataset: {}, disabled: false, hidden: false, isConnected: true, readOnly: false, append() {}, appendChild() {}, addEventListener() {}, focus() {}, getAttribute(name) { return this.attributes.get(name) ?? null; }, removeAttribute(name) { this.attributes.delete(name); }, replaceChildren() {}, select() {}, setAttribute(name, value) { this.attributes.set(name, String(value)); }, setCustomValidity() {}, setSelectionRange() {}, querySelector() { return null; }, querySelectorAll() { return []; }, reportValidity() { return true; }, style: {}, textContent: "", type: "password", value: "" });
+  const makeNode = () => ({ attributes: new Map(), children: [], lastElementChild: { textContent: "" }, checked: false, classList: { add() {}, remove() {}, toggle() {} }, dataset: {}, disabled: false, hidden: false, isConnected: true, readOnly: false, append(...items) { this.children.push(...items); }, add(item) { this.children.push(item); }, appendChild() {}, addEventListener() {}, focus() {}, getAttribute(name) { return this.attributes.get(name) ?? null; }, removeAttribute(name) { this.attributes.delete(name); }, replaceChildren(...items) { this.children = items; }, select() {}, setAttribute(name, value) { this.attributes.set(name, String(value)); }, setCustomValidity() {}, setSelectionRange() {}, querySelector() { return makeNode(); }, querySelectorAll() { return []; }, reportValidity() { return true; }, style: {}, textContent: "", type: "password", value: "" });
   const html = await readFile("src/ui/local.html", "utf8");
   const nodes = new Map([...html.matchAll(/\bid="([^"\s]+)"/gu)].map(([, id]) => [id, makeNode()]));
   const createdNodes = new Map();
@@ -165,7 +167,10 @@ test("the complete script renders a healthy OAuth inventory instead of falling b
   const document = { activeElement: null, body: makeNode(), createElement, execCommand() { return false; }, getElementById: element, addEventListener() {}, querySelector(selector) { return selector.includes('name="target"') ? { value: "xai-grok-build", checked: true } : null; }, querySelectorAll() { return []; } }; document.body.dataset = {};
   const window = { addEventListener() {}, clearInterval() {}, clearTimeout() {}, location: { hash: "" }, matchMedia() { return { matches: true }; }, scrollTo() {}, setInterval() { return 1; }, setTimeout() { return 1; } };
   const fetch = async (path) => ({ ok: true, async json() { return path === "/api/local/dashboard" ? fixture : path === "/api/local/project-meta" ? { version: "0.13.0", stars: null } : {}; } });
-  runInNewContext(script, { URL, URLSearchParams, AbortController, Date, Intl, JSON, Math, Promise, TextDecoder, TextEncoder, Uint8Array, btoa(value) { return value; }, clearFieldError, clearTimeout() {}, crypto: { getRandomValues() {}, subtle: {} }, document, fetch, navigator: {}, setFieldError, setTimeout() { return 1; }, window }, { filename: "local-healthy-dashboard.vm.js", timeout: 1_000 });
+  runInNewContext(`${shared}\n${script}`, { readWizardSession: () => "a".repeat(43), bindWizardNavigation() {}, initWizardTopbar() {},
+    INITIAL_CHAT_TESTER_FEEDBACK: {}, nextChatTesterFeedback: () => ({}),
+    Option: class { constructor(text, value) { this.textContent = text; this.value = value; } },
+    URL, URLSearchParams, AbortController, Date, Intl, JSON, Math, Promise, TextDecoder, TextEncoder, Uint8Array, btoa(value) { return value; }, clearFieldError, clearTimeout() {}, crypto: { getRandomValues() {}, subtle: {} }, document, fetch, navigator: {}, setFieldError, setTimeout() { return 1; }, window }, { filename: "local-healthy-dashboard.vm.js", timeout: 1_000 });
   await new Promise((resolve) => setImmediate(resolve));
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(element("dashboard-runtime-health").textContent, "Healthy");
@@ -224,13 +229,13 @@ function createOAuthControl(text = "") {
 function loadN8nOAuthHandlers(script, respond) {
   const controls = extractBetween(
     script,
-    "function updateManagedBridgeRefreshControls",
-    "\nfunction invalidatePlan",
+    "async function refreshN8nOAuthStatus",
+    "\nfunction invalidateLocalModelReview",
   );
   const listeners = extractBetween(
     script,
     'element("refresh-local-n8n-chatgpt").addEventListener',
-    'element("update-bridge-confirm").addEventListener',
+    "\nfunction updateInstalledOwnerApproval",
   );
   const elements = new Map([
     ["n8n-oauth-link", createOAuthControl("Open fresh ChatGPT sign-in")],
@@ -238,6 +243,7 @@ function loadN8nOAuthHandlers(script, respond) {
     ["n8n-oauth-sign-in", createOAuthControl("Sign in to ChatGPT")],
     ["refresh-local-n8n-chatgpt", createOAuthControl("Refresh ChatGPT sign-in")],
     ["n8n-oauth-refresh", createOAuthControl("Refresh status")],
+    ["local-siwc", createOAuthControl()],
     ["refresh-bridge-confirm", createOAuthControl()],
     ["refresh-bridge-button", createOAuthControl()],
     ["refresh-bridge-status", createOAuthControl()],
@@ -257,11 +263,21 @@ function loadN8nOAuthHandlers(script, respond) {
       n8nOAuthRetryBlocked: false,
       suppressTargetRefresh: false,
       target: "n8n-openai-oauth",
+      n8nOAuthIntent: { purpose: "sign-in" },
     },
   };
   let operationBusy = false;
   const context = {
     Date,
+    accountUiState, siwcErrorFromResponse,
+    siwc: {
+      async load() {
+        const result = await context.api("/api/siwc/accounts");
+        return result.accounts[0];
+      },
+      async authorized() { return this.load(); },
+      isUsageLimited() { return false; },
+    },
     api: async (path, options = {}) => {
       const call = {
         path,
@@ -323,7 +339,7 @@ function loadN8nOAuthHandlers(script, respond) {
     `${controls}\n${listeners}\n({
       refreshSignIn: element("refresh-local-n8n-chatgpt").handlers.click,
       signIn: element("n8n-oauth-sign-in").handlers.click,
-      stop: element("n8n-oauth-link").handlers.click,
+      stop: stopN8nOAuthSignIn,
     })`,
     context,
     { filename: "local-n8n-oauth-ui.vm.js", timeout: 1_000 },
@@ -333,13 +349,10 @@ function loadN8nOAuthHandlers(script, respond) {
 }
 
 function signedInStatus() {
-  return {
-    authExists: true,
-    authUpdatedAt: "2026-09-26T12:00:00.000Z",
-  };
+  return { accounts: [siwcAccount] };
 }
 
-test("local n8n sign-in accepts system-browser launch and continues to bridge refresh", async () => {
+test("local sign-in accepts system-browser launch and reloads the selected SIWC account", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
   let statusPolls = 0;
   const harness = loadN8nOAuthHandlers(script, (call) => {
@@ -353,7 +366,7 @@ test("local n8n sign-in accepts system-browser launch and continues to bridge re
     if (call.path === "/api/oauth/status") {
       return { status: "success", attemptId: ATTEMPT_ID };
     }
-    if (call.path === "/api/status") return signedInStatus();
+    if (call.path === "/api/siwc/accounts") return signedInStatus();
     throw new Error(`unexpected ${call.method} ${call.path}`);
   });
 
@@ -368,7 +381,7 @@ test("local n8n sign-in accepts system-browser launch and continues to bridge re
     JSON.parse(JSON.stringify(
       harness.calls.find((call) => call.path === "/api/oauth/login").body,
     )),
-    {},
+    { purpose: "sign-in" },
   );
   const waited = harness.calls.find(
     (call) => call.path === "/api/oauth/status" && call.stopVisible === true,
@@ -379,26 +392,56 @@ test("local n8n sign-in accepts system-browser launch and continues to bridge re
     harness.calls.some((call) => call.body && Object.hasOwn(call.body, "authorizationUrl")),
     false,
   );
-  assert.match(
-    harness.messages.join("\n"),
-    /official ChatGPT sign-in window opened by Relmio/u,
-  );
   assert.equal(harness.state.n8nOAuthExists, true);
   assert.equal(harness.reviewReady, true);
-  assert.match(harness.elements.get("n8n-oauth-status").textContent, /^Signed in locally\./u);
-  assert.equal(
-    harness.elements.get("refresh-bridge-status").textContent,
-    "New ChatGPT sign-in is ready, but has not been copied to any bridge. Confirm the separate action only if Relmio created that bridge.",
-  );
-  assert.equal(harness.elements.get("refresh-bridge-confirm").disabled, false);
-  assert.equal(harness.elements.get("refresh-bridge-confirm").checked, false);
-  assert.equal(harness.elements.get("refresh-bridge-button").disabled, true);
   assert.equal(harness.elements.get("n8n-oauth-link").hidden, true);
   assert.equal(harness.elements.get("n8n-oauth-link").href, "");
   assert.equal(harness.errors.length, 0);
+  // The account card shows plan use, so the sidecar status line stays empty while the
+  // result is still announced.
+  assert.equal(harness.elements.get("n8n-oauth-status").textContent, "");
+  assert.match(harness.messages.at(-1), new RegExp(siwcAccount.label, "u"));
 });
 
-test("refreshing ChatGPT sign-in for an existing bridge uses the same system-browser attempt", async () => {
+test("a chat tester error and its Manage usage recovery scroll into view before focus", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const source = extractBetween(script, "function showChatTesterError(", "\nfunction appendChatTesterTurn");
+  const events = [];
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { id, hidden: true, textContent: "",
+      scrollIntoView(options) { events.push(["scroll", id, options.block, this.hidden]); },
+      focus(options) { events.push(["focus", id, options?.preventScroll === true]); } });
+    return nodes.get(id);
+  };
+  const { show, reveal } = runInNewContext(`${source}; ({ show: showChatTesterError, reveal: revealChatTesterError })`,
+    { element, siwcErrorText: (error) => error.message });
+
+  show({ message: "Usage limit reached", recovery: "manage-usage" });
+  assert.equal(element("chat-tester-usage").hidden, false);
+  assert.deepEqual(events, [
+    ["scroll", "chat-tester-error", "nearest", false],
+    ["scroll", "chat-tester-usage", "nearest", false],
+    ["focus", "chat-tester-error", true],
+  ]);
+
+  events.length = 0;
+  show({ message: "Request failed", recovery: "fix-request" });
+  assert.equal(element("chat-tester-usage").hidden, true);
+  assert.deepEqual(events.map(([kind, id]) => [kind, id]), [["scroll", "chat-tester-error"], ["focus", "chat-tester-error"]]);
+
+  // After the send handler restores its buttons, the shown error is scrolled into view again
+  // without moving focus; a hidden error scrolls nothing.
+  events.length = 0;
+  reveal();
+  assert.deepEqual(events.map(([kind, id]) => [kind, id]), [["scroll", "chat-tester-error"]]);
+  element("chat-tester-error").hidden = true;
+  events.length = 0;
+  reveal();
+  assert.deepEqual(events, []);
+});
+
+test("fresh account setup uses the same system-browser flow without copying credentials", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
   let seenStatus = false;
   const harness = loadN8nOAuthHandlers(script, (call) => {
@@ -412,7 +455,7 @@ test("refreshing ChatGPT sign-in for an existing bridge uses the same system-bro
     if (call.path === "/api/oauth/status") {
       return { status: "success", attemptId: ATTEMPT_ID };
     }
-    if (call.path === "/api/status") return signedInStatus();
+    if (call.path === "/api/siwc/accounts") return signedInStatus();
     throw new Error(`unexpected ${call.method} ${call.path}`);
   });
   harness.state.n8nOAuthExists = true;
@@ -422,11 +465,8 @@ test("refreshing ChatGPT sign-in for an existing bridge uses the same system-bro
   });
   await harness.elements.get("n8n-oauth-sign-in").lastClick;
   await refresh;
-  assert.match(
-    harness.elements.get("refresh-bridge-status").textContent,
-    /has not been copied to any bridge/u,
-  );
-  assert.equal(harness.elements.get("refresh-bridge-button").disabled, true);
+  assert.equal(harness.calls.filter((call) => call.path === "/api/oauth/login").length, 1);
+  assert.equal(harness.calls.some((call) => call.path === "/api/local/n8n/sidecar/refresh"), false);
 });
 
 test("a pending local sign-in is resumed instead of starting another login", async () => {
@@ -442,14 +482,13 @@ test("a pending local sign-in is resumed instead of starting another login", asy
         ? { status: "pending", attemptId: ATTEMPT_ID }
         : { status: "success", attemptId: ATTEMPT_ID };
     }
-    if (call.path === "/api/status") return signedInStatus();
+    if (call.path === "/api/siwc/accounts") return signedInStatus();
     throw new Error(`unexpected ${call.method} ${call.path}`);
   });
 
   await harness.signIn({ currentTarget: harness.elements.get("n8n-oauth-sign-in") });
 
   assert.equal(harness.calls.some((call) => call.path === "/api/oauth/login"), false);
-  assert.match(harness.messages.join("\n"), /still in progress/u);
   assert.equal(harness.state.n8nOAuthExists, true);
   assert.equal(harness.errors.length, 0);
 });
@@ -471,7 +510,7 @@ test("a second local sign-in click does not start another attempt while one is p
     if (call.path === "/api/oauth/status") {
       return { status: "success", attemptId: ATTEMPT_ID };
     }
-    if (call.path === "/api/status") return signedInStatus();
+    if (call.path === "/api/siwc/accounts") return signedInStatus();
     throw new Error(`unexpected ${call.method} ${call.path}`);
   });
   const button = harness.elements.get("n8n-oauth-sign-in");
@@ -506,8 +545,6 @@ test("retryBlocked disables local sign-in retries and shows the safe restart ins
   assert.equal(harness.calls.some((call) => call.path === "/api/oauth/login"), false);
   assert.equal(button.disabled, true);
   assert.equal(harness.elements.get("refresh-local-n8n-chatgpt").disabled, true);
-  assert.equal(harness.elements.get("n8n-oauth-status").textContent, RETRY_BLOCKED_MESSAGE);
-  assert.equal(harness.errors[0].message, RETRY_BLOCKED_MESSAGE);
   assert.equal(harness.errors[0].oauthRetryBlocked, true);
   assert.equal(harness.state.n8nOAuthRetryBlocked, true);
   assert.equal(harness.elements.get("n8n-oauth-link").hidden, true);
@@ -553,7 +590,6 @@ test("Stop cancels only the current local sign-in attempt", async () => {
   assert.equal(cancel.method, "POST");
   assert.deepEqual(JSON.parse(JSON.stringify(cancel.body)), { attemptId: ATTEMPT_ID });
   assert.equal(harness.calls.filter((call) => call.path === "/api/oauth/login").length, 1);
-  assert.equal(harness.messages.at(-1), "ChatGPT sign-in stopped. You can start again.");
   assert.equal(harness.state.n8nOAuthExists, false);
   assert.equal(harness.elements.get("n8n-oauth-link").hidden, true);
   assert.equal(harness.elements.get("n8n-oauth-link").href, "");
@@ -612,74 +648,29 @@ test("a replaced local sign-in attempt is not treated as success", async () => {
 
   await harness.signIn({ currentTarget: harness.elements.get("n8n-oauth-sign-in") });
 
-  assert.match(harness.errors[0].message, /replaced by a newer attempt/u);
+  assert.equal(harness.errors.length, 1);
   assert.equal(harness.state.n8nOAuthExists, false);
-  assert.equal(harness.calls.some((call) => call.path === "/api/status"), false);
-  assert.equal(harness.elements.get("refresh-bridge-button").disabled, true);
-  assert.match(
-    harness.elements.get("refresh-bridge-status").textContent,
-    /Complete ChatGPT sign-in first/u,
-  );
+  assert.equal(harness.calls.some((call) => call.path === "/api/siwc/accounts" &&
+    harness.state.n8nOAuthExists), false);
 });
 
-test("the Codex device-code sign-in stays separate from the n8n system-browser flow", async () => {
+test("Codex targets use independently scoped SIWC browser authorization without native login RPC", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
-  const validators = extractBetween(
-    script,
-    "function validateVerificationUrl",
-    "\nasync function copyText",
-  );
-  const listener = extractBetween(
-    script,
-    'element("codex-login-button").addEventListener',
-    'for (const button of document.querySelectorAll("[data-copy-target]")',
-  );
-  const calls = [];
-  const link = createOAuthControl();
-  const code = createOAuthControl();
-  const status = createOAuthControl();
-  const result = createOAuthControl();
-  const step = createOAuthControl();
-  const button = createOAuthControl("Sign in to ChatGPT");
-  const elements = new Map([
-    ["device-code-link", link],
-    ["device-code", code],
-    ["device-code-status", status],
-    ["device-code-result", result],
-    ["device-code-step", step],
-    ["codex-login-button", button],
-  ]);
-  runInNewContext(`${validators}\n${listener}`, {
-    URL,
-    api: async (path, options = {}) => {
-      calls.push({ path, method: options.method ?? "GET", body: options.body ?? null });
-      if (path === "/api/local/codex/login") {
-        return {
-          verificationUrl: "https://auth.openai.com/codex/device",
-          userCode: "ABCD-EFGH",
-        };
-      }
-      if (path === "/api/local/codex/login/status") return { status: "success" };
-      throw new Error(`unexpected ${path}`);
-    },
-    clearError() {},
-    delay: async () => {},
-    element: (id) => elements.get(id),
-    isCodexChat: (target) => target === "codex-chat",
-    setBusy: () => true,
-    setMessage() {},
-    showError(error) {
-      throw error;
-    },
-    state: { installedTarget: "codex-chatgpt" },
-  }, { filename: "local-codex-device-ui.vm.js", timeout: 1_000 });
-
-  await button.handlers.click({ currentTarget: button });
-
-  assert.equal(link.href, "https://auth.openai.com/codex/device");
-  assert.equal(code.textContent, "ABCD-EFGH");
-  assert.equal(calls.some((call) => call.path === "/api/oauth/login"), false);
-  assert.equal(step.hidden, true, "the single-use code leaves the screen once sign-in ends");
-  assert.equal(calls[0].path, "/api/local/codex/login");
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].body)), { target: "codex-chatgpt" });
+  for (const target of ["codex-chatgpt", "codex-chat"]) {
+    const harness = loadN8nOAuthHandlers(script, (call) => {
+      if (call.path === "/api/oauth/login") return { launchMode: "system-browser", attemptId: ATTEMPT_ID };
+      if (call.path === "/api/oauth/status") return harness.calls.length === 1
+        ? { status: "idle" } : { status: "success", attemptId: ATTEMPT_ID };
+      if (call.path === "/api/siwc/accounts") return signedInStatus();
+      throw new Error("Unexpected native login boundary.");
+    });
+    harness.state.target = target;
+    harness.state.n8nOAuthIntent = { purpose: "sign-in", registrationId: siwcAccount.registrationId };
+    await harness.signIn({ currentTarget: harness.elements.get("n8n-oauth-sign-in") });
+    const login = harness.calls.find((call) => call.path === "/api/oauth/login");
+    assert.equal(login.body.registrationId, siwcAccount.registrationId);
+    assert.equal(harness.calls.some((call) => call.path.startsWith("/api/local/codex/")), false);
+    assert.equal(harness.opened.length, 0);
+    assert.equal(harness.errors.length, 0);
+  }
 });

@@ -11,11 +11,11 @@ import {
   LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
   LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
 } from "../src/services/local-n8n-stack-installer.js";
-import { startWizardServer } from "../src/web/server.js";
+import { startIsolatedWizard as startWizardServer, siwcAccount, siwcInstallResult, installedChatStatus } from "./helpers/siwc-wizard.js";
+import { createLocalN8nSidecarPlan } from "../src/domain/local-n8n-sidecar.js";
 
 const sessionToken = "local-server-test-session-token-1234567890";
 const clientCredential = "local-client-credential-shown-once";
-const codexProjectName = `relmio-codex-chatgpt-${"01".repeat(16)}`;
 
 function dashboardProviders() {
   return [
@@ -321,12 +321,9 @@ test("persistent shutdown accepts terminal OAuth retry-blocked state", async (t)
     },
   });
 
-  const login = await postJson(wizard, "/api/oauth/login", {});
+  const login = await postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
   assert.equal(login.status, 400);
-  assert.deepEqual(await login.json(), {
-    error: "The ChatGPT sign-in result could not be confirmed.",
-    retryBlocked: true,
-  });
+  assert.equal((await login.json()).retryBlocked, true);
 
   const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
     method: "POST",
@@ -360,7 +357,7 @@ test("persistent shutdown still refuses an active OAuth attempt", async (t) => {
     },
   });
 
-  const login = await postJson(wizard, "/api/oauth/login", {});
+  const login = await postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
   assert.equal(login.status, 200);
 
   const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
@@ -391,7 +388,7 @@ test("persistent shutdown refuses OAuth startup and cancellation work", async (t
         await startGate;
         return {
           launchMode: "system-browser",
-          completion: Promise.resolve({ success: true }),
+          completion: Promise.resolve(siwcAccount),
           cancel() {},
         };
       },
@@ -403,7 +400,7 @@ test("persistent shutdown refuses OAuth startup and cancellation work", async (t
       },
     });
 
-    const login = postJson(wizard, "/api/oauth/login", {});
+    const login = postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
     await startEntered;
     const stopResponse = await fetch(`${wizard.origin}/__relmio/control/stop`, {
       method: "POST",
@@ -447,7 +444,7 @@ test("persistent shutdown refuses OAuth startup and cancellation work", async (t
       },
     });
 
-    const login = await postJson(wizard, "/api/oauth/login", {});
+    const login = await postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
     const { attemptId } = await login.json();
     const cancelling = postJson(wizard, "/api/oauth/cancel", { attemptId });
     await cancelEntered;
@@ -644,6 +641,7 @@ test("local Docker status exposes the native Windows support boundary", async (t
 
 test("local chat tester APIs keep the setup-token boundary and return no credentials", async (t) => {
   const received = [];
+  let adapterInstalled = false;
   const tester = {
     async issueKey() {
       return {
@@ -672,13 +670,18 @@ test("local chat tester APIs keep the setup-token boundary and return no credent
   };
   const wizard = await startLocalWizard(t, {
     localChatTest: tester,
+    async getManagedLocalEndpointStatus() {
+      return adapterInstalled ? installedChatStatus() : { managed: false, state: "absent" };
+    },
     async installLocalEndpoint() {
+      adapterInstalled = true;
       return {
         target: "codex-chat",
         endpoint: "http://127.0.0.1:14501",
         protocol: "relmio-codex-chat",
         clientCredential,
         credentialShownOnce: true,
+        account: siwcAccount, readiness: "verified", runtimeState: "running",
         models: [],
         deploymentMode: "installed",
         experimental: true,
@@ -689,7 +692,7 @@ test("local chat tester APIs keep the setup-token boundary and return no credent
 
   const notReady = await postJson(wizard, "/api/local/chat-test/key", {});
   assert.equal(notReady.status, 409);
-  assert.match((await notReady.json()).error, /Install the Codex Chat Adapter/iu);
+  assert.equal((await notReady.json()).recovery, "review-again");
 
   const planned = await createPlan(wizard, {
     target: "codex-chat",
@@ -804,16 +807,7 @@ test("local chat tester re-attests an installed adapter after the wizard restart
     async getManagedLocalEndpointStatus({ target }) {
       statusCalls += 1;
       assert.equal(target, "codex-chat");
-      return {
-        managed: true,
-        state: "healthy",
-        snapshot: {
-          target: "codex-chat",
-          endpoint: "http://127.0.0.1:14501",
-          auth: { configured: true, disclosure: "rotate-only" },
-          canRotateCredential: true,
-        },
-      };
+      return installedChatStatus();
     },
     localChatTest: {
       async issueKey() {
@@ -850,11 +844,7 @@ test("dashboard discard revokes a tester key that finishes issuing after the dis
 
   const wizard = await startLocalWizard(t, {
     async getManagedLocalEndpointStatus() {
-      return {
-        managed: true,
-        state: "healthy",
-        snapshot: { target: "codex-chat" },
-      };
+      return installedChatStatus();
     },
     localChatTest: {
       async issueKey() {
@@ -1134,10 +1124,8 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
   assert.equal(firstText.includes(authtoken), false);
   assert.equal(firstText.includes(password), false);
   assert.equal(firstText.includes(dockerHost), false);
-  assert.deepEqual(JSON.parse(firstText), {
-    error: ngrokSetupErrorMessage,
-    retryablePlan: true,
-    retryableNgrokSetup: true,
+  assert.partialDeepStrictEqual(JSON.parse(firstText), {
+    code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE, retryablePlan: true, retryableNgrokSetup: true,
   });
   const second = await attempt();
   assert.equal(second.status, 400);
@@ -1206,10 +1194,8 @@ test("safely cleaned non-ngrok startup failures preserve the reviewed plan witho
   const first = await postJson(wizard, "/api/local/install", body);
   assert.equal(first.status, 400);
   const text = await first.text();
-  assert.deepEqual(JSON.parse(text), {
-    error:
-      "The selected SearXNG service did not return a valid JSON search result. Relmio removed the failed owned resources.",
-    retryablePlan: true,
+  assert.partialDeepStrictEqual(JSON.parse(text), {
+    code: LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE, retryablePlan: true,
   });
   assert.equal(text.includes(authtoken), false);
   assert.equal(text.includes(password), false);
@@ -1478,7 +1464,7 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
     },
     auth: { secretsRevealable: false },
     services: [
-      absent("codex-chatgpt", "Codex (ChatGPT login)", "endpoint"),
+      absent("codex-chatgpt", "Codex (ChatGPT plan)", "endpoint"),
       absent("codex-chat", "Codex Chat adapter", "endpoint"),
       {
         target: "xai-grok-build",
@@ -1519,7 +1505,7 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
         },
         actions: ["resume", "remove"],
       },
-      absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
+      absent("n8n-openai-oauth", "ChatGPT plan sidecar", "n8n-oauth-bridge"),
       absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
       {
         target: "n8n-supergrok-oauth",
@@ -1570,9 +1556,10 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
     snapshot: {
       target,
       endpoint: endpointUrl,
-      auth: { configured: true, disclosure: "rotate-only" },
+      auth: { configured: true, disclosure: "rotate-only",
+        ...(target !== "xai-grok-build" ? { account: siwcAccount } : {}) },
+      ...(target !== "xai-grok-build" ? { registrationId: siwcAccount.registrationId, migrationRequired: false } : {}),
       canRotateCredential: true,
-      canSignIn: true,
       secret: canary,
     },
     actions,
@@ -1586,12 +1573,12 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
       endpoint(
         "codex-chatgpt",
         "ws://127.0.0.1:14500",
-        ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
+        ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"],
       ),
       endpoint(
         "codex-chat",
         "http://127.0.0.1:14501",
-        ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
+        ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"],
       ),
       endpoint(
         "xai-grok-build",
@@ -1618,8 +1605,8 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
   assert.deepEqual(
     [valid.services[0], valid.services[1], valid.services[2]].map(({ actions }) => actions),
     [
-      ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
-      ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
+      ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"],
+      ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"],
       ["sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"],
     ],
   );
@@ -1966,7 +1953,8 @@ test("local n8n startup errors expose recovery only for the exact attested parti
       if (!scenario.expectedManagedPartialStack) {
         assert.equal("managedPartialStack" in result, false);
       }
-      assert.equal("code" in result, false);
+      assert.equal(result.code, scenario.expectedManagedPartialStack
+        ? LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE : undefined);
       assert.equal(responseText.includes(installBody.ngrokAuthtoken), false);
       assert.equal(responseText.includes(installBody.basicAuthPassword), false);
       assert.equal(responseText.includes(dockerHost), false);
@@ -2163,13 +2151,7 @@ test("local n8n sidecar discovery and planning bind exact private Docker resourc
         ],
       };
     },
-    async getAuthStatus() {
-      return {
-        exists: true,
-        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
-        updatedAt: "2026-08-31T01:02:03.000Z",
-      };
-    },
+    async getAuthStatus() { return { ...siwcAccount, exists: true }; },
     prepareLocalN8nSidecarPlan(input) {
       prepared.push(input);
       return {
@@ -2181,7 +2163,7 @@ test("local n8n sidecar discovery and planning bind exact private Docker resourc
         n8nContainerName: input.n8nContainerName,
         dockerNetworkId: input.dockerNetworkId,
         networkName: input.networkName,
-        authGeneration: input.authGeneration,
+        authBinding: input.authBinding,
         endpoint: "http://n8n-openai-oauth:10531/v1",
         protocol: "openai-v1",
         upstreamAuth: "chatgpt-oauth",
@@ -2229,7 +2211,8 @@ test("local n8n sidecar discovery and planning bind exact private Docker resourc
       n8nContainerName: "relmio-test-n8n",
       dockerNetworkId: "b".repeat(64),
       networkName: "relmio-test_default",
-      authGeneration: "2026-08-31T01:02:03.000Z",
+      authBinding: { registrationId: siwcAccount.registrationId, clientId: "fixture-client",
+        generation: siwcAccount.generation, ownerHostId: siwcAccount.ownerHostId, ownerRuntimeId: "local" },
     },
   ]);
   const plannedText = JSON.stringify(planned);
@@ -2250,16 +2233,13 @@ test("local n8n sidecar discovery and planning bind exact private Docker resourc
     hostPublication: "none",
     managedPath: "~/.relmio/local/n8n-openai-oauth",
     disposableHarnessWarning: true,
+    account: siwcAccount,
   });
 });
 
 test("local n8n sidecar install is single-use, uses the server-side OAuth path, and returns only safe fields", async (t) => {
   const installCalls = [];
-  const authStatus = {
-    exists: true,
-    path: "/Users/fixture/.n8n-openai-oauth/auth.json",
-    updatedAt: "2026-08-31T01:02:03.000Z",
-  };
+  const authStatus = { ...siwcAccount, exists: true };
   const wizard = await startLocalWizard(t, {
     async discoverLocalN8nSidecarTargets() {
       return {
@@ -2305,8 +2285,8 @@ test("local n8n sidecar install is single-use, uses the server-side OAuth path, 
         endpoint: "http://n8n-openai-oauth:10531/v1",
         baseUrl: "http://n8n-openai-oauth:10531/v1",
         protocol: "openai-v1",
-        apiKeyPlaceholder: "local-only",
-        useResponsesApi: true,
+        clientCredential: "k".repeat(43), credentialShownOnce: true,
+        account: siwcAccount, readiness: "verified", runtimeState: "running",
         models: ["gpt-5.6-sol"],
         networkName: "relmio-test_default",
         n8nContainerName: "relmio-test-n8n",
@@ -2327,18 +2307,21 @@ test("local n8n sidecar install is single-use, uses the server-side OAuth path, 
   const malformedInstall = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
+    backgroundConsent: true,
     apiKey: "retired-api-key-field",
   });
   assert.equal(malformedInstall.status, 400);
-  assert.match((await malformedInstall.json()).error, /OAuth bridge install request/iu);
+  assert.equal((await malformedInstall.json()).recovery, "fix-request");
   assert.equal(installCalls.length, 0);
   const response = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
+    backgroundConsent: true,
   });
   assert.equal(response.status, 200);
   assert.equal(installCalls.length, 1);
-  assert.equal(installCalls[0].authPath, authStatus.path);
+  assert.equal(installCalls[0].registration.registrationId, siwcAccount.registrationId);
+  assert.equal("authPath" in installCalls[0], false);
   assert.equal("apiKey" in installCalls[0], false);
   assert.equal("authContents" in installCalls[0], false);
   assert.equal(installCalls[0].confirmed, true);
@@ -2350,14 +2333,13 @@ test("local n8n sidecar install is single-use, uses the server-side OAuth path, 
   assert.deepEqual(JSON.parse(responseText), {
     target: "n8n-openai-oauth",
     endpoint: "http://n8n-openai-oauth:10531/v1",
-    apiKeyPlaceholder: "local-only",
+    clientCredential: "k".repeat(43), credentialShownOnce: true,
+    account: siwcAccount, readiness: "verified", runtimeState: "running",
     protocol: "openai-v1",
     models: ["gpt-5.6-sol"],
     deploymentMode: "installed",
     networkName: "relmio-test_default",
     hostPublication: "none",
-    responsesApi: true,
-    unofficial: true,
   });
 
   const replay = await postJson(wizard, "/api/local/install", {
@@ -2819,12 +2801,7 @@ test("local n8n sidecar planning fails closed before storing a plan when ChatGPT
         ],
       };
     },
-    async getAuthStatus() {
-      return {
-        exists: false,
-        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
-      };
-    },
+    async getAuthStatus() { return { ...siwcAccount, exists: false }; },
     prepareLocalN8nSidecarPlan() {
       prepareCalls += 1;
       throw new Error("must not prepare without OAuth");
@@ -2840,8 +2817,8 @@ test("local n8n sidecar planning fails closed before storing a plan when ChatGPT
     n8nContainerId: "a".repeat(64),
     dockerNetworkId: "b".repeat(64),
   });
-  assert.equal(planned.status, 400);
-  assert.match((await planned.json()).error, /sign in with ChatGPT/iu);
+  assert.equal(planned.status, 409);
+  assert.equal((await planned.json()).recovery, "review-again");
   assert.equal(prepareCalls, 0);
 
   const install = await postJson(wizard, "/api/local/install", {
@@ -2886,13 +2863,7 @@ test("local n8n sidecar removal requires explicit confirmation and shares the lo
         ],
       };
     },
-    async getAuthStatus() {
-      return {
-        exists: true,
-        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
-        updatedAt: "2026-08-31T01:02:03.000Z",
-      };
-    },
+    async getAuthStatus() { return { ...siwcAccount, exists: true }; },
     prepareLocalN8nSidecarPlan(input) {
       return {
         kind: "n8n-sidecar",
@@ -2914,9 +2885,9 @@ test("local n8n sidecar removal requires explicit confirmation and shares the lo
         target: "n8n-openai-oauth",
         endpoint: "http://n8n-openai-oauth:10531/v1",
         protocol: "openai-v1",
-        apiKeyPlaceholder: "local-only",
-        useResponsesApi: true,
-        models: [],
+        clientCredential: "k".repeat(43), credentialShownOnce: true,
+        account: siwcAccount, readiness: "verified", runtimeState: "running",
+        models: ["listed-model"],
         networkName: "relmio-test_default",
         hostPublication: "none",
         deploymentMode: "installed",
@@ -2949,6 +2920,7 @@ test("local n8n sidecar removal requires explicit confirmation and shares the lo
   const installing = postJson(wizard, "/api/local/install", {
     planId: planned.planId,
     confirmed: true,
+    backgroundConsent: true,
   });
   await installStarted;
 
@@ -2959,7 +2931,7 @@ test("local n8n sidecar removal requires explicit confirmation and shares the lo
   assert.match((await concurrent.json()).error, /already in progress/iu);
   assert.equal(removeCalls, 0);
 
-  const concurrentOAuth = await postJson(wizard, "/api/oauth/login", {});
+  const concurrentOAuth = await postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
   assert.equal(concurrentOAuth.status, 409);
   assert.match((await concurrentOAuth.json()).error, /already in progress/iu);
   assert.equal(oauthLoginCalls, 0);
@@ -3127,7 +3099,6 @@ test("local n8n SuperGrok status and removal are sanitized, current, and mutatio
 
 test("pending ChatGPT OAuth blocks sidecar planning, installation, and removal without consuming the reviewed plan", async (t) => {
   let finishOAuth;
-  let authUpdatedAt = "2026-08-31T01:02:03.000Z";
   let discoveryCalls = 0;
   let installCalls = 0;
   let removeCalls = 0;
@@ -3156,13 +3127,7 @@ test("pending ChatGPT OAuth blocks sidecar planning, installation, and removal w
         ],
       };
     },
-    async getAuthStatus() {
-      return {
-        exists: true,
-        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
-        updatedAt: authUpdatedAt,
-      };
-    },
+    async getAuthStatus() { return { ...siwcAccount, exists: true }; },
     prepareLocalN8nSidecarPlan(input) {
       return {
         kind: "n8n-sidecar",
@@ -3201,7 +3166,7 @@ test("pending ChatGPT OAuth blocks sidecar planning, installation, and removal w
     dockerNetworkId: "b".repeat(64),
   });
   assert.equal(discoveryCalls, 1);
-  const oauth = await postJson(wizard, "/api/oauth/login", {});
+  const oauth = await postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
   assert.equal(oauth.status, 200);
 
   const install = await postJson(wizard, "/api/local/install", {
@@ -3225,8 +3190,7 @@ test("pending ChatGPT OAuth blocks sidecar planning, installation, and removal w
   assert.equal(replanning.status, 409);
   assert.equal(discoveryCalls, 1);
 
-  authUpdatedAt = "2026-08-31T01:02:04.000Z";
-  finishOAuth();
+  finishOAuth(siwcAccount);
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const status = await api(wizard, "/api/oauth/status");
     if ((await status.json()).status === "success") break;
@@ -3238,7 +3202,6 @@ test("pending ChatGPT OAuth blocks sidecar planning, installation, and removal w
     confirmed: true,
   });
   assert.equal(retried.status, 400);
-  assert.match((await retried.json()).error, /changed after plan review/iu);
   assert.equal(installCalls, 0);
 });
 
@@ -3263,6 +3226,7 @@ test("local credential rotation is setup-token protected, live-only, rate-limite
         models: [],
         tokenSha256: "a".repeat(64),
         deploymentMode: "staged",
+        registrationId: siwcAccount.registrationId, expectedGeneration: siwcAccount.generation,
         experimental: true,
         browserClients: false,
         upstreamChatGptCredential: "must-not-be-returned",
@@ -3362,7 +3326,7 @@ test("local credential rotation is setup-token protected, live-only, rate-limite
   assert.match((await disabled.json()).error, /disabled in sanitized preview mode/iu);
 });
 
-test("dashboard discard invalidates reviewed local state and clears safe installed-target state", async (t) => {
+test("dashboard discard invalidates plans and keys without treating the installed owner as signed out", async (t) => {
   const assistantReview = createAssistantSearxngEditReview();
   let installCalls = 0;
   let assistantEditCalls = 0;
@@ -3386,7 +3350,7 @@ test("dashboard discard invalidates reviewed local state and clears safe install
       },
     },
     async getManagedLocalEndpointStatus() {
-      return { managed: false, state: "absent", snapshot: null };
+      return installCalls ? installedChatStatus() : { managed: false, state: "absent", snapshot: null };
     },
     async installLocalEndpoint({ plan }) {
       installCalls += 1;
@@ -3396,6 +3360,7 @@ test("dashboard discard invalidates reviewed local state and clears safe install
         protocol: plan.protocol,
         clientCredential,
         credentialShownOnce: true,
+        account: siwcAccount, readiness: "verified", runtimeState: "running",
         models: [],
         deploymentMode: "installed",
         experimental: plan.experimental,
@@ -3424,6 +3389,7 @@ test("dashboard discard invalidates reviewed local state and clears safe install
         credentialShownOnce: true,
         models: [],
         deploymentMode: "staged",
+        registrationId: siwcAccount.registrationId, expectedGeneration: siwcAccount.generation,
         experimental: true,
         browserClients: false,
       };
@@ -3537,8 +3503,8 @@ test("dashboard discard invalidates reviewed local state and clears safe install
     "/api/local/chat-test/key",
     {},
   );
-  assert.equal(discardedInstalledTarget.status, 409);
-  assert.equal(chatKeyCalls, 1);
+  assert.equal(discardedInstalledTarget.status, 200);
+  assert.equal(chatKeyCalls, 2);
 });
 
 test("dashboard discard rejects an inventory read that finishes after the discard", async (t) => {
@@ -3624,13 +3590,7 @@ test("dashboard discard rejects a local plan that finishes discovery after the d
         ],
       };
     },
-    async getAuthStatus() {
-      return {
-        exists: true,
-        path: "/Users/fixture/.n8n-openai-oauth/auth.json",
-        updatedAt: "2026-09-04T01:02:03.000Z",
-      };
-    },
+    async getAuthStatus() { return { ...siwcAccount, exists: true }; },
     async installLocalN8nSidecar() {
       installCalls += 1;
       throw new Error("a discarded in-flight plan must not install");
@@ -3679,7 +3639,7 @@ test("dashboard discard leaves a running ChatGPT login helper attached", async (
     },
   });
 
-  const started = await postJson(wizard, "/api/oauth/login", {});
+  const started = await postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
   assert.equal(started.status, 200);
   const { attemptId } = await started.json();
   assert.equal((await postJson(wizard, "/api/local/discard", {})).status, 200);
@@ -3691,62 +3651,10 @@ test("dashboard discard leaves a running ChatGPT login helper attached", async (
   assert.equal(cancelCalls, 0);
 });
 
-test("dashboard discard leaves a running Codex login helper attached", async (t) => {
-  let finishLogin;
-  let cancelCalls = 0;
-  const completion = new Promise((resolve) => {
-    finishLogin = resolve;
-  });
-  const wizard = await startLocalWizard(t, {
-    async acquireLocalEndpointChangeLock() {
-      return async () => {};
-    },
-    resolveLocalInstallRoot() {
-      return "/Users/fixture/.relmio/local/codex-chatgpt";
-    },
-    async attestLocalCodexInstallation() {
-      return {
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName: codexProjectName,
-      };
-    },
-    async startCodexDeviceLogin() {
-      return {
-        verificationUrl: "https://auth.openai.com/codex/device",
-        userCode: "ABCD-EFGH",
-        completion,
-        cancel() {
-          cancelCalls += 1;
-        },
-      };
-    },
-    async restartLocalCodex() {},
-  });
-
-  assert.equal(
-    (await postJson(wizard, "/api/local/codex/login", {
-      target: "codex-chatgpt",
-    })).status,
-    200,
-  );
-  assert.equal((await postJson(wizard, "/api/local/discard", {})).status, 200);
-  assert.deepEqual(
-    await (await api(wizard, "/api/local/codex/login/status")).json(),
-    { status: "pending" },
-  );
-  assert.equal(cancelCalls, 0);
-
-  finishLogin();
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const status = await api(wizard, "/api/local/codex/login/status");
-    if ((await status.json()).status === "success") break;
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  assert.deepEqual(
-    await (await api(wizard, "/api/local/codex/login/status")).json(),
-    { status: "success" },
-  );
-  assert.equal(cancelCalls, 0);
+test("retired native Codex device login routes cannot create a second refresh owner", async (t) => {
+  const wizard = await startLocalWizard(t, {});
+  assert.equal((await postJson(wizard, "/api/local/codex/login", {})).status, 404);
+  assert.equal((await api(wizard, "/api/local/codex/login/status")).status, 405);
 });
 
 test("local installation rejects concurrent attempts and releases its lock after failure", async (t) => {
@@ -3858,6 +3766,7 @@ test("credential rotation blocks installation until the managed service change c
         credentialShownOnce: true,
         models: [],
         deploymentMode: "staged",
+        registrationId: siwcAccount.registrationId, expectedGeneration: siwcAccount.generation,
         experimental: true,
         browserClients: false,
       };
@@ -3882,7 +3791,8 @@ test("credential rotation blocks installation until the managed service change c
         clientCredential,
         credentialShownOnce: true,
         models: [],
-        deploymentMode: "updated",
+        deploymentMode: "installed",
+        account: siwcAccount, readiness: "verified", runtimeState: "running",
         experimental: plan.experimental,
         browserClients: plan.browserClients,
       };
@@ -3951,9 +3861,9 @@ test("a local plan is consumed before a failed install and errors redact secrets
     confirmed: true,
   });
   assert.equal(failed.status, 400);
-  assert.deepEqual(await failed.json(), {
-    error: "The request could not be completed safely.",
-  });
+  const failure = await failed.json();
+  assert.equal(failure.status, 400);
+  assert.equal(JSON.stringify(failure).includes("must-not-leak"), false);
 
   const replay = await postJson(wizard, "/api/local/install", {
     planId: planned.planId,
@@ -3963,472 +3873,174 @@ test("a local plan is consumed before a failed install and errors redact secrets
   assert.equal(installCalls, 1);
 });
 
-test("Codex device-code sign-in requires installation and restarts only its local service", async (t) => {
-  let finishLogin;
-  let cancelCalls = 0;
-  let restartInput;
-  const attestationCalls = [];
-  const completion = new Promise((resolve) => {
-    finishLogin = resolve;
-  });
+test("SIWC first-use acknowledgment gates installation and account switching invalidates review", async (t) => {
+  let selected = siwcAccount.registrationId;
+  let account = { ...siwcAccount, needsPlanWelcome: true };
+  const other = { ...siwcAccount, registrationId: "fixture_registration_2" };
+  let installs = 0;
   const wizard = await startLocalWizard(t, {
-    async installLocalEndpoint() {
-      return {
-        target: "codex-chatgpt",
-        endpoint: "ws://127.0.0.1:14500",
-        protocol: "codex-app-server-json-rpc",
-        clientCredential,
-        credentialShownOnce: true,
-        models: [],
-        deploymentMode: "installed",
-        experimental: true,
-        browserClients: false,
+    async listAuthRegistrations() { return [account, other]; },
+    async getSelectedRegistration() { return selected; },
+    async selectRegistration({ registrationId }) { selected = registrationId; },
+    async getAuthStatus({ registrationId }) { return { ...(registrationId === account.registrationId ? account : other), exists: true }; },
+    async readRegistration({ registrationId }) { return { clientId: "fixture-client",
+      generation: registrationId === account.registrationId ? account.generation : other.generation }; },
+    async acknowledgePlanUse() { account = { ...account, needsPlanWelcome: false }; return account; },
+    async installLocalEndpoint() { installs++; throw new Error("must not install stale plan"); },
+  });
+  assert.equal((await postJson(wizard, "/api/local/plan", { target: "codex-chat", port: 14501 })).status, 409);
+  assert.equal((await postJson(wizard, "/api/siwc/ack", { registrationId: account.registrationId,
+    expectedGeneration: account.generation })).status, 200);
+  const plan = await createPlan(wizard, { target: "codex-chat", port: 14501 });
+  assert.equal((await postJson(wizard, "/api/siwc/select", { registrationId: other.registrationId })).status, 200);
+  assert.equal((await postJson(wizard, "/api/local/install", { planId: plan.planId, confirmed: true })).status, 400);
+  assert.equal(installs, 0);
+});
+
+test("verified identity without plan grant remains visible but cannot review installation", async (t) => {
+  const account = { ...siwcAccount, planPermission: "not-granted", planEnabled: false };
+  const wizard = await startLocalWizard(t, {
+    async listAuthRegistrations() { return [account]; },
+  });
+  const accounts = await (await api(wizard, "/api/siwc/accounts")).json();
+  assert.equal(accounts.accounts[0].session, "connected");
+  assert.equal(accounts.accounts[0].planPermission, "not-granted");
+  assert.equal((await postJson(wizard, "/api/local/plan", { target: "codex-chat", port: 14501 })).status, 409);
+});
+
+test("local sign-out projects unconfirmed revocation and never exposes protected credentials", async (t) => {
+  const wizard = await startLocalWizard(t, {
+    async listAuthRegistrations() { return [{ ...siwcAccount, accessToken: "must-not-leak" }]; },
+    async signOut() { return { account: { ...siwcAccount, session: "signed-out", planEnabled: false },
+      revocation: "unconfirmed", refreshToken: "must-not-leak" }; },
+  });
+  const response = await postJson(wizard, "/api/siwc/logout", { registrationId: siwcAccount.registrationId,
+    expectedGeneration: siwcAccount.generation });
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  assert.equal(JSON.parse(text).revocation, "unconfirmed");
+  assert.equal(JSON.parse(text).account.session, "signed-out");
+  assert.equal(text.includes("must-not-leak"), false);
+});
+
+test("local pending handoffs require read-only review and final confirmation, consume review once", async (t) => {
+  for (const target of ["codex-chat", "codex-chatgpt", "n8n-openai-oauth"]) {
+    await t.test(target, async (subtest) => {
+      let calls = 0;
+      let account = { ...siwcAccount, ownership: "handoff-pending" };
+      const reconcile = async ({ registration, confirmed }) => {
+        assert.equal(confirmed, true);
+        assert.equal(registration.registrationId, account.registrationId);
+        calls++;
+        account = { ...account, ownership: "transferred", session: "signed-out", planEnabled: false };
+        return { outcome: "finished", account, receipt: "must-not-leak" };
       };
-    },
-    resolveLocalInstallRoot({ target }) {
-      assert.equal(target, "codex-chatgpt");
-      return "/Users/fixture/.relmio/local/codex-chatgpt";
-    },
-    async attestLocalCodexInstallation(input) {
-      attestationCalls.push(input);
-      if (attestationCalls.length === 1) {
-        throw new Error("Install the local Codex endpoint before signing in.");
-      }
-      return {
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName: codexProjectName,
-      };
-    },
-    async startCodexDeviceLogin(input) {
-      assert.deepEqual(input, {
-        installDirectory: "/Users/fixture/.relmio/local/codex-chatgpt",
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName: codexProjectName,
+      const wizard = await startLocalWizard(subtest, {
+        async listAuthRegistrations() { return [account]; },
+        reconcileLocalSiwcHandoff: reconcile, reconcileLocalN8nSiwcHandoff: reconcile,
       });
-      return {
-        verificationUrl: "https://auth.openai.com/codex/device",
-        userCode: "ABCD-EFGH",
-        completion,
-        cancel() {
-          cancelCalls += 1;
+      const review = await postJson(wizard, "/api/local/siwc/recovery/review", {
+        target, registrationId: account.registrationId, action: "reconcile" });
+      assert.equal(review.status, 200);
+      const body = await review.json();
+      assert.equal(calls, 0);
+      assert.equal((await postJson(wizard, "/api/local/siwc/recovery/reconcile", {
+        reviewId: body.reviewId, confirmed: false })).status, 409);
+      const response = await postJson(wizard, "/api/local/siwc/recovery/reconcile", {
+        reviewId: body.reviewId, confirmed: true });
+      assert.equal(response.status, 200);
+      const text = await response.text();
+      assert.equal(JSON.parse(text).outcome, "finished");
+      assert.equal(text.includes("must-not-leak"), false);
+      assert.equal(calls, 1);
+      assert.equal((await postJson(wizard, "/api/local/siwc/recovery/reconcile", {
+        reviewId: body.reviewId, confirmed: true })).status, 409);
+    });
+  }
+});
+
+test("local reconciliation preserves not-accepted and unknown outcomes without reporting success", async (t) => {
+  for (const unknown of [false, true]) {
+    await t.test(String(unknown), async (subtest) => {
+      const account = { ...siwcAccount, ownership: "handoff-pending" };
+      const wizard = await startLocalWizard(subtest, {
+        async listAuthRegistrations() { return [account]; },
+        async reconcileLocalSiwcHandoff() {
+          if (unknown) throw Object.assign(new Error("Destination outcome is unknown."), { remoteOutcomeUnknown: true });
+          return { outcome: "not-accepted", account };
         },
-      };
-    },
-    async restartLocalCodex(input, dependencies) {
-      restartInput = { input, dependencies };
-    },
-  });
-
-  const beforeInstall = await postJson(
-    wizard,
-    "/api/local/codex/login",
-    {},
-  );
-  assert.equal(beforeInstall.status, 400);
-  assert.match((await beforeInstall.json()).error, /install/iu);
-  assert.deepEqual(attestationCalls, [
-    { installDirectory: "/Users/fixture/.relmio/local/codex-chatgpt" },
-  ]);
-
-  const planned = await createPlan(wizard, {
-    target: "codex-chatgpt",
-    port: 14500,
-  });
-  const install = await postJson(wizard, "/api/local/install", {
-    planId: planned.planId,
-    confirmed: true,
-  });
-  assert.equal(install.status, 200);
-
-  const started = await postJson(
-    wizard,
-    "/api/local/codex/login",
-    {},
-  );
-  assert.equal(started.status, 200);
-  assert.deepEqual(attestationCalls, [
-    { installDirectory: "/Users/fixture/.relmio/local/codex-chatgpt" },
-    { installDirectory: "/Users/fixture/.relmio/local/codex-chatgpt" },
-  ]);
-  assert.deepEqual(await started.json(), {
-    verificationUrl: "https://auth.openai.com/codex/device",
-    userCode: "ABCD-EFGH",
-  });
-
-  const pending = await api(
-    wizard,
-    "/api/local/codex/login/status",
-  );
-  const pendingText = await pending.text();
-  assert.deepEqual(JSON.parse(pendingText), { status: "pending" });
-  assert.equal(pendingText.includes("ABCD-EFGH"), false);
-  assert.equal(pendingText.includes("/Users/"), false);
-
-  finishLogin({ success: true });
-  for (let attempt = 0; attempt < 10 && !restartInput; attempt += 1) {
-    await new Promise((resolve) => setImmediate(resolve));
+      });
+      const body = await (await postJson(wizard, "/api/local/siwc/recovery/review", {
+        target: "codex-chat", registrationId: account.registrationId, action: "reconcile" })).json();
+      const response = await postJson(wizard, "/api/local/siwc/recovery/reconcile", {
+        reviewId: body.reviewId, confirmed: true });
+      assert.equal(response.status, unknown ? 400 : 200);
+      const result = await response.json();
+      if (unknown) assert.equal(result.remoteOutcomeUnknown, true);
+      else assert.equal(result.outcome, "not-accepted");
+    });
   }
-  assert.deepEqual(restartInput, {
-    input: {
-      installDirectory: "/Users/fixture/.relmio/local/codex-chatgpt",
-    },
-    dependencies: { changeLockHeld: true },
-  });
-  const completed = await api(
-    wizard,
-    "/api/local/codex/login/status",
-  );
-  assert.deepEqual(await completed.json(), { status: "success" });
-  assert.equal(cancelCalls, 0);
 });
 
-test("pending Codex sign-in blocks installation and credential rotation in the same wizard", async (t) => {
-  let finishLogin;
-  let releases = 0;
-  let installCalls = 0;
-  let rotationCalls = 0;
-  const completion = new Promise((resolvePromise) => {
-    finishLogin = resolvePromise;
-  });
+test("reviewed local staged resume preserves exact checkpoint, plan and one-time key on finalization failure", async (t) => {
+  let account = { ...siwcAccount, ownership: "transferred", session: "signed-out", planEnabled: false };
+  const binding = { registrationId: account.registrationId, clientId: "fixture-client",
+    generation: "original_generation", ownerHostId: account.ownerHostId, ownerRuntimeId: "local" };
+  const plan = { target: "codex-chat", label: "Codex Chat Adapter", bindHost: "127.0.0.1",
+    port: 14501, endpoint: "http://127.0.0.1:14501", protocol: "relmio-codex-chat",
+    upstreamAuth: "relmio-siwc", browserClients: false, experimental: true,
+    managedPath: "~/.relmio/local/codex-chat", authBinding: binding };
+  const resume = { target: plan.target, installId: "fixture_install_1", registrationId: account.registrationId,
+    stage: "transferred", plan, checkpointSha256: "a".repeat(64), filesSha256: "b".repeat(64), resourcesSha256: "c".repeat(64) };
+  let calls = 0;
   const wizard = await startLocalWizard(t, {
-    async acquireLocalEndpointChangeLock() {
-      return async () => {
-        releases += 1;
-      };
-    },
-    resolveLocalInstallRoot() {
-      return "/Users/fixture/.relmio/local/codex-chatgpt";
-    },
-    async attestLocalCodexInstallation() {
-      return {
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName: codexProjectName,
-      };
-    },
-    async startCodexDeviceLogin() {
-      return {
-        verificationUrl: "https://auth.openai.com/codex/device",
-        userCode: "LOCK-CODE",
-        completion,
-        cancel() {},
-      };
-    },
-    async restartLocalCodex() {},
-    async installLocalEndpoint() {
-      installCalls += 1;
-    },
-    async prepareLocalClientCredentialRotation() {
-      rotationCalls += 1;
+    async listAuthRegistrations() { return [account]; },
+    async reviewLocalSiwcResume() { return resume; },
+    async installLocalEndpoint(input) {
+      assert.equal(input.resume, resume);
+      assert.equal(input.plan, plan);
+      calls++;
+      return siwcInstallResult({ target: plan.target, endpoint: plan.endpoint, protocol: plan.protocol,
+        deploymentMode: "partial", readiness: "unverified", experimental: true,
+        finalizationFailure: { error: "Journal finalization failed.", recovery: "review-again" } });
     },
   });
-  assert.equal(
-    (await postJson(wizard, "/api/local/codex/login", {})).status,
-    200,
-  );
-  const plan = await createPlan(wizard, {
-    target: "codex-chatgpt",
-    port: 14500,
-  });
-  const install = await postJson(wizard, "/api/local/install", {
-    planId: plan.planId,
-    confirmed: true,
-  });
-  assert.equal(install.status, 409);
-  const rotation = await postJson(
-    wizard,
-    "/api/local/client-credential/rotate",
-    { target: "codex-chatgpt" },
-  );
-  assert.equal(rotation.status, 409);
-  assert.equal(installCalls, 0);
-  assert.equal(rotationCalls, 0);
-
-  finishLogin({ success: true });
-  for (let attempt = 0; attempt < 10 && releases === 0; attempt += 1) {
-    await new Promise((resolvePromise) => setImmediate(resolvePromise));
-  }
-  assert.equal(releases, 1);
-});
-
-test("a fresh wizard server can sign in an attested existing Codex installation", async (t) => {
-  const installDirectory = "/Users/fixture/.relmio/local/codex-chatgpt";
-  const calls = [];
-  const wizard = await startLocalWizard(t, {
-    resolveLocalInstallRoot(input) {
-      calls.push(["resolve", input]);
-      return installDirectory;
-    },
-    async attestLocalCodexInstallation(input) {
-      calls.push(["attest", input]);
-      return {
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName: codexProjectName,
-      };
-    },
-    async startCodexDeviceLogin(input) {
-      calls.push(["login", input]);
-      return {
-        verificationUrl: "https://auth.openai.com/codex/device",
-        userCode: "FRESH-CODE",
-        completion: new Promise(() => {}),
-        cancel() {},
-      };
-    },
-  });
-
-  const response = await postJson(wizard, "/api/local/codex/login", {});
+  const review = await postJson(wizard, "/api/local/siwc/recovery/review", {
+    target: plan.target, registrationId: account.registrationId, action: "resume" });
+  assert.equal(review.status, 200);
+  const body = await review.json();
+  assert.equal(body.plan.resumeRequired, true);
+  assert.equal(calls, 0);
+  const response = await postJson(wizard, "/api/local/install", { planId: body.planId, confirmed: true });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {
-    verificationUrl: "https://auth.openai.com/codex/device",
-    userCode: "FRESH-CODE",
-  });
-  assert.deepEqual(calls, [
-    ["resolve", { target: "codex-chatgpt" }],
-    ["attest", { installDirectory }],
-    [
-      "login",
-      {
-        installDirectory,
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName: codexProjectName,
-      },
-    ],
-  ]);
+  const result = await response.json();
+  assert.equal(result.clientCredential, "k".repeat(43));
+  assert.equal(result.finalizationFailure.recovery, "review-again");
+  assert.equal((await postJson(wizard, "/api/local/install", { planId: body.planId, confirmed: true })).status, 400);
+  assert.equal(calls, 1);
 });
 
-test("Codex Chat sign-in attests and restarts only the adapter project", async (t) => {
-  const installDirectory = "/Users/fixture/.relmio/local/codex-chat";
-  const projectName = `relmio-codex-chat-${"02".repeat(16)}`;
-  const calls = [];
+test("recovery validates paths, setup-token, same origin and account generation before installer effects", async (t) => {
+  let account = { ...siwcAccount, ownership: "handoff-pending" };
+  let calls = 0;
   const wizard = await startLocalWizard(t, {
-    async acquireLocalEndpointChangeLock(input) {
-      calls.push(["lock", input]);
-      return async () => calls.push(["unlock"]);
-    },
-    resolveLocalInstallRoot(input) {
-      calls.push(["resolve", input]);
-      return installDirectory;
-    },
-    async attestLocalCodexInstallation(input) {
-      calls.push(["attest", input]);
-      return {
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName,
-      };
-    },
-    async startCodexDeviceLogin(input) {
-      calls.push(["login", input]);
-      return {
-        verificationUrl: "https://auth.openai.com/codex/device",
-        userCode: "CHAT-CODE",
-        completion: Promise.resolve({ success: true }),
-        cancel() {},
-      };
-    },
-    async restartLocalCodex(input, dependencies) {
-      calls.push(["restart", input, dependencies]);
-    },
+    async listAuthRegistrations() { return [account]; },
+    async readRegistration() { return { clientId: "fixture-client", generation: account.generation }; },
+    async reconcileLocalSiwcHandoff() { calls++; throw new Error("must not reconcile"); },
   });
-
-  const response = await postJson(wizard, "/api/local/codex/login", {
-    target: "codex-chat",
-  });
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {
-    verificationUrl: "https://auth.openai.com/codex/device",
-    userCode: "CHAT-CODE",
-  });
-  for (
-    let attempt = 0;
-    attempt < 10 && !calls.some(([name]) => name === "unlock");
-    attempt += 1
-  ) {
-    await new Promise((resolvePromise) => setImmediate(resolvePromise));
-  }
-  assert.deepEqual(calls, [
-    ["lock", { target: "codex-chat" }],
-    ["resolve", { target: "codex-chat" }],
-    ["attest", { installDirectory, target: "codex-chat" }],
-    [
-      "login",
-      {
-        installDirectory,
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName,
-      },
-    ],
-    [
-      "restart",
-      { installDirectory, target: "codex-chat" },
-      { changeLockHeld: true },
-    ],
-    ["unlock"],
-  ]);
-  assert.deepEqual(
-    await (await api(wizard, "/api/local/codex/login/status")).json(),
-    { status: "success" },
-  );
-});
-
-test("Codex sign-in rejects a concurrent start and releases its start lock", async (t) => {
-  const installDirectory = "/Users/fixture/.relmio/local/codex-chatgpt";
-  let releaseFirstAttestation;
-  let notifyFirstAttestationStarted;
-  let attestationCalls = 0;
-  let loginCalls = 0;
-  const firstAttestationStarted = new Promise((resolve) => {
-    notifyFirstAttestationStarted = resolve;
-  });
-  const firstAttestationGate = new Promise((resolve) => {
-    releaseFirstAttestation = resolve;
-  });
-  t.after(() => releaseFirstAttestation());
-
-  const wizard = await startLocalWizard(t, {
-    resolveLocalInstallRoot() {
-      return installDirectory;
-    },
-    async attestLocalCodexInstallation() {
-      attestationCalls += 1;
-      if (attestationCalls === 1) {
-        notifyFirstAttestationStarted();
-        await firstAttestationGate;
-        throw new Error("Deferred Codex attestation failed.");
-      }
-      return {
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName: codexProjectName,
-      };
-    },
-    async startCodexDeviceLogin() {
-      loginCalls += 1;
-      return {
-        verificationUrl: "https://auth.openai.com/codex/device",
-        userCode: "RETRY-CODE",
-        completion: new Promise(() => {}),
-        cancel() {},
-      };
-    },
-  });
-
-  const first = postJson(wizard, "/api/local/codex/login", {});
-  await firstAttestationStarted;
-
-  const concurrent = await postJson(wizard, "/api/local/codex/login", {});
-  assert.equal(concurrent.status, 409);
-  assert.match((await concurrent.json()).error, /already in progress/iu);
-  assert.equal(attestationCalls, 1);
-  assert.equal(loginCalls, 0);
-
-  releaseFirstAttestation();
-  assert.equal((await first).status, 400);
-
-  const retried = await postJson(wizard, "/api/local/codex/login", {});
-  assert.equal(retried.status, 200);
-  assert.deepEqual(await retried.json(), {
-    verificationUrl: "https://auth.openai.com/codex/device",
-    userCode: "RETRY-CODE",
-  });
-  assert.equal(attestationCalls, 2);
-  assert.equal(loginCalls, 1);
-});
-
-test("wizard shutdown waits for Codex sign-in startup and releases its project lock", async (t) => {
-  let releaseAcquisition;
-  let notifyAcquisitionStarted;
-  let lockReleases = 0;
-  let loginCalls = 0;
-  const acquisitionStarted = new Promise((resolvePromise) => {
-    notifyAcquisitionStarted = resolvePromise;
-  });
-  const acquisitionGate = new Promise((resolvePromise) => {
-    releaseAcquisition = resolvePromise;
-  });
-  const wizard = await startLocalWizard(t, {
-    async acquireLocalEndpointChangeLock() {
-      notifyAcquisitionStarted();
-      await acquisitionGate;
-      return async () => {
-        lockReleases += 1;
-      };
-    },
-    resolveLocalInstallRoot() {
-      return "/Users/fixture/.relmio/local/codex-chatgpt";
-    },
-    async attestLocalCodexInstallation() {
-      throw new Error("attestation must not run while closing");
-    },
-    async startCodexDeviceLogin() {
-      loginCalls += 1;
-    },
-  });
-  const login = postJson(wizard, "/api/local/codex/login", {});
-  await acquisitionStarted;
-  const closing = wizard.close();
-  releaseAcquisition();
-  await closing;
-  assert.equal((await login).status, 409);
-  assert.equal(lockReleases, 1);
-  assert.equal(loginCalls, 0);
-});
-
-test("Codex sign-in releases its start lock and preserves pending-login replacement", async (t) => {
-  const installDirectory = "/Users/fixture/.relmio/local/codex-chatgpt";
-  let rejectFirstCompletion;
-  let cancelCalls = 0;
-  let loginCalls = 0;
-  const firstCompletion = new Promise((_, reject) => {
-    rejectFirstCompletion = reject;
-  });
-  void firstCompletion.catch(() => {});
-
-  const wizard = await startLocalWizard(t, {
-    resolveLocalInstallRoot() {
-      return installDirectory;
-    },
-    async attestLocalCodexInstallation() {
-      return {
-        dockerHost: "unix:///Users/fixture/.docker/run/docker.sock",
-        projectName: codexProjectName,
-      };
-    },
-    async startCodexDeviceLogin() {
-      loginCalls += 1;
-      if (loginCalls === 1) {
-        return {
-          verificationUrl: "https://auth.openai.com/codex/device",
-          userCode: "FIRST-CODE",
-          completion: firstCompletion,
-          cancel() {
-            cancelCalls += 1;
-            rejectFirstCompletion(new Error("The first login was replaced."));
-          },
-        };
-      }
-      return {
-        verificationUrl: "https://auth.openai.com/codex/device",
-        userCode: "SECOND-CODE",
-        completion: new Promise(() => {}),
-        cancel() {},
-      };
-    },
-  });
-
-  const first = await postJson(wizard, "/api/local/codex/login", {});
-  assert.equal(first.status, 200);
-
-  const replacement = await postJson(wizard, "/api/local/codex/login", {});
-  assert.equal(replacement.status, 200);
-  assert.deepEqual(await replacement.json(), {
-    verificationUrl: "https://auth.openai.com/codex/device",
-    userCode: "SECOND-CODE",
-  });
-  assert.equal(cancelCalls, 1);
-  assert.equal(loginCalls, 2);
-  assert.deepEqual(
-    await (await api(wizard, "/api/local/codex/login/status")).json(),
-    { status: "pending" },
-  );
+  const route = "/api/local/siwc/recovery/review";
+  assert.equal((await postJson(wizard, route, { target: "../../outside",
+    registrationId: account.registrationId, action: "reconcile" })).status, 400);
+  const request = { target: "codex-chat", registrationId: account.registrationId, action: "reconcile" };
+  assert.equal((await fetch(`${wizard.origin}${route}`, { method: "POST",
+    headers: { "Content-Type": "application/json", Origin: wizard.origin }, body: JSON.stringify(request) })).status, 401);
+  assert.equal((await api(wizard, route, { method: "POST", headers: { Origin: "https://other.example" },
+    body: JSON.stringify(request) })).status, 403);
+  const body = await (await postJson(wizard, route, request)).json();
+  account = { ...account, generation: "changed_generation" };
+  assert.equal((await postJson(wizard, "/api/local/siwc/recovery/reconcile", {
+    reviewId: body.reviewId, confirmed: true })).status, 409);
+  assert.equal(calls, 0);
 });
 
 test("sanitized preview mode never invokes Docker, installation, or sign-in", async (t) => {
@@ -4457,12 +4069,7 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
       async removeLocalN8nSuperGrok() {
         calls.push("supergrok-remove");
       },
-      async startCodexDeviceLogin() {
-        calls.push("login");
-      },
-      async attestLocalCodexInstallation() {
-        calls.push("attest");
-      },
+      async startOAuthLogin() { calls.push("login"); },
     },
     { previewMode: true },
   );
@@ -4514,20 +4121,10 @@ test("sanitized preview mode never invokes Docker, installation, or sign-in", as
   );
   assert.equal(superGrokRemoval.status, 403);
 
-  const login = await postJson(
-    wizard,
-    "/api/local/codex/login",
-    {},
-  );
+  const login = await postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
   assert.equal(login.status, 403);
-  const status = await api(
-    wizard,
-    "/api/local/codex/login/status",
-  );
-  assert.deepEqual(await status.json(), {
-    status: "idle",
-    previewMode: true,
-  });
+  const status = await api(wizard, "/api/siwc/accounts");
+  assert.equal((await status.json()).previewMode, true);
   assert.deepEqual(calls, []);
 });
 
@@ -4567,41 +4164,10 @@ function createAssistantSearxngEditReview() {
 }
 
 test("managed local companion edits require review and confirmations, use the shared mutation guard, and sanitize every result", async (t) => {
-  const authPath = "/Users/fixture/.n8n-openai-oauth/auth.json";
   const review = createAssistantSearxngEditReview();
-  const refreshInputs = [];
   const editInputs = [];
   let editReturnsUnexpectedSecret = true;
-  let resolveRefresh;
-  let refreshStarted;
-  const refreshGate = new Promise((resolve) => {
-    resolveRefresh = resolve;
-  });
-  const refreshStart = new Promise((resolve) => {
-    refreshStarted = resolve;
-  });
-  t.after(() => resolveRefresh());
   const wizard = await startLocalWizard(t, {
-    async getAuthStatus() {
-      return {
-        exists: true,
-        path: authPath,
-        updatedAt: "2026-08-31T01:02:03.000Z",
-      };
-    },
-    async refreshLocalN8nSidecarCredential(input) {
-      refreshInputs.push(input);
-      refreshStarted();
-      await refreshGate;
-      return {
-        target: "n8n-openai-oauth",
-        credentialRefreshed: true,
-        models: ["gpt-5.6-sol"],
-        hostPublication: "none",
-        authPath,
-        authContents: "must-not-leak",
-      };
-    },
     async prepareLocalN8nAssistantSearxngUpdate({ includeSearxng }) {
       assert.equal(includeSearxng, true);
       return review;
@@ -4633,38 +4199,6 @@ test("managed local companion edits require review and confirmations, use the sh
     },
   });
 
-  const unconfirmedRefresh = await postJson(
-    wizard,
-    "/api/local/n8n/sidecar/refresh",
-    {},
-  );
-  assert.equal(unconfirmedRefresh.status, 400);
-  assert.equal(refreshInputs.length, 0);
-
-  const refreshing = postJson(wizard, "/api/local/n8n/sidecar/refresh", {
-    confirmed: true,
-  });
-  await refreshStart;
-  const concurrentReview = await postJson(
-    wizard,
-    "/api/local/n8n/assistant/searxng/review",
-    { includeSearxng: true },
-  );
-  assert.equal(concurrentReview.status, 409);
-  const concurrentSignIn = await postJson(wizard, "/api/oauth/login", {});
-  assert.equal(concurrentSignIn.status, 409);
-  resolveRefresh();
-  const refreshed = await refreshing;
-  assert.equal(refreshed.status, 200);
-  assert.deepEqual(refreshInputs, [{ authPath, confirmed: true }]);
-  const refreshedText = await refreshed.text();
-  assert.doesNotMatch(refreshedText, /Users|authContents|must-not-leak/iu);
-  assert.deepEqual(JSON.parse(refreshedText), {
-    target: "n8n-openai-oauth",
-    credentialRefreshed: true,
-    models: ["gpt-5.6-sol"],
-    hostPublication: "none",
-  });
 
   const reviewed = await postJson(
     wizard,
@@ -4764,9 +4298,9 @@ test("Assistant SearXNG review holds the shared local-change guard while attesti
       await reviewGate;
       return review;
     },
-    async refreshLocalN8nSidecarCredential() {
+    async reviewLocalSiwcResume() {
       refreshCalls += 1;
-      throw new Error("must not refresh while a review snapshot is in flight");
+      throw new Error("must not recover while a review snapshot is in flight");
     },
     async startOAuthLogin() {
       oauthCalls += 1;
@@ -4783,10 +4317,10 @@ test("Assistant SearXNG review holds the shared local-change guard while attesti
 
   const concurrentRefresh = await postJson(
     wizard,
-    "/api/local/n8n/sidecar/refresh",
-    { confirmed: true },
+    "/api/local/siwc/recovery/review",
+    { target: "codex-chat", registrationId: siwcAccount.registrationId, action: "resume" },
   );
-  const concurrentSignIn = await postJson(wizard, "/api/oauth/login", {});
+  const concurrentSignIn = await postJson(wizard, "/api/oauth/login", { purpose: "sign-in" });
   assert.equal(concurrentRefresh.status, 409);
   assert.equal(concurrentSignIn.status, 409);
   assert.equal(refreshCalls, 0);
@@ -4804,9 +4338,7 @@ test("local companion edit routes reject preview mode without calling services",
       async getAuthStatus() {
         calls.push("auth");
       },
-      async refreshLocalN8nSidecarCredential() {
-        calls.push("refresh");
-      },
+      async reviewLocalSiwcResume() { calls.push("resume"); },
       async prepareLocalN8nAssistantSearxngUpdate() {
         calls.push("review");
       },
@@ -4817,7 +4349,7 @@ test("local companion edit routes reject preview mode without calling services",
     { previewMode: true },
   );
   for (const [path, body] of [
-    ["/api/local/n8n/sidecar/refresh", { confirmed: true }],
+    ["/api/local/siwc/recovery/review", { target: "codex-chat", registrationId: siwcAccount.registrationId, action: "resume" }],
     ["/api/local/n8n/assistant/searxng/review", { includeSearxng: true }],
     ["/api/local/n8n/assistant/searxng/enable", { reviewId: "x", confirmed: true }],
   ]) {
@@ -4827,50 +4359,139 @@ test("local companion edit routes reject preview mode without calling services",
   assert.deepEqual(calls, []);
 });
 
-test("existing local bridge runtime update needs confirmation, preserves sign-in and serializes mutations", async (t) => {
-  const calls = [];
-  let release;
-  let started;
-  const gate = new Promise((resolve) => { release = resolve; });
-  const begin = new Promise((resolve) => { started = resolve; });
-  t.after(() => release());
-  const wizard = await startLocalWizard(t, {
-    async getAuthStatus() { assert.fail("runtime update must not read or replace the source sign-in"); },
-    async updateLocalN8nSidecarRuntime(input) {
-      calls.push(input);
-      started();
-      await gate;
-      return { target: "n8n-openai-oauth", runtimeUpdated: true, models: ["gpt-6-astra"], hostPublication: "none", n8nChanged: false, privateData: "must-not-leak" };
-    },
-  });
-  for (const body of [{}, { confirmed: false }, { confirmed: true, authPath: "/arbitrary" }]) {
-    assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/update", body)).status, 400);
+test("retired credential-copy and native-runtime update routes reject without installer effects", async (t) => {
+  const wizard = await startLocalWizard(t, {});
+  for (const path of ["/api/local/n8n/sidecar/refresh", "/api/local/n8n/sidecar/update"]) {
+    assert.equal((await postJson(wizard, path, { confirmed: true })).status, 404);
   }
-  assert.equal(calls.length, 0);
-  const updating = postJson(wizard, "/api/local/n8n/sidecar/update", { confirmed: true });
-  await begin;
-  assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/update", { confirmed: true })).status, 409);
-  assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/refresh", { confirmed: true })).status, 409);
-  assert.equal((await postJson(wizard, "/api/oauth/login", {})).status, 409);
-  release();
-  const response = await updating;
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { target: "n8n-openai-oauth", runtimeUpdated: true, models: ["gpt-6-astra"], hostPublication: "none", n8nChanged: false });
-  assert.deepEqual(calls, [{ confirmed: true }]);
 });
 
-test("local bridge update rejects preview and invalid results, and releases its mutation slot", async (t) => {
-  const preview = await startLocalWizard(t, { async updateLocalN8nSidecarRuntime() { assert.fail("preview write"); } }, { previewMode: true });
-  assert.equal((await postJson(preview, "/api/local/n8n/sidecar/update", { confirmed: true })).status, 403);
-  let attempts = 0;
+test("local n8n staged resume preserves exact review and one-time key through unknown finalization", async (t) => {
+  const authBinding = { registrationId: siwcAccount.registrationId, clientId: "fixture-client",
+    generation: siwcAccount.generation, ownerHostId: siwcAccount.ownerHostId, ownerRuntimeId: "local" };
+  const plan = createLocalN8nSidecarPlan({ dockerHost: "unix:///var/run/docker.sock",
+    n8nContainerId: "a".repeat(64), n8nContainerName: "fixture-n8n",
+    dockerNetworkId: "b".repeat(64), networkName: "fixture-network", authBinding });
+  const resume = { target: plan.target, installId: "fixture_install_1",
+    registrationId: siwcAccount.registrationId, stage: "built", plan,
+    checkpointSha256: "a".repeat(64), filesSha256: "b".repeat(64), resourcesSha256: "c".repeat(64) };
+  let calls = 0;
   const wizard = await startLocalWizard(t, {
-    async updateLocalN8nSidecarRuntime() {
-      attempts += 1;
-      if (attempts === 1) throw new Error("Simulated build failure");
-      return { target: "n8n-openai-oauth", runtimeUpdated: true, hostPublication: "none", n8nChanged: false, models: [] };
+    async reviewLocalN8nSiwcResume({ registration }) {
+      assert.equal(registration.registrationId, siwcAccount.registrationId);
+      return resume;
+    },
+    async installLocalN8nSidecar(input) {
+      assert.equal(input.resume, resume);
+      assert.equal(input.plan, plan);
+      assert.equal(input.backgroundConsent.noticeVersion, "siwc-local-2026-10-04");
+      calls++;
+      return siwcInstallResult({ target: plan.target, endpoint: plan.endpoint, protocol: "openai-v1",
+        networkName: plan.networkName, hostPublication: "unknown", runtimeState: "unknown",
+        readiness: "unverified", deploymentMode: "partial", models: [],
+        finalizationFailure: { error: "Stopping the owned runtime was not confirmed.", recovery: "review-again" } });
     },
   });
-  assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/update", { confirmed: true })).status, 400);
-  assert.equal((await postJson(wizard, "/api/local/n8n/sidecar/update", { confirmed: true })).status, 502);
-  assert.equal(attempts, 2);
+  const review = await postJson(wizard, "/api/local/siwc/recovery/review", {
+    target: plan.target, registrationId: siwcAccount.registrationId, action: "resume" });
+  assert.equal(review.status, 200);
+  const body = await review.json();
+  assert.equal(body.plan.staging.installId, resume.installId);
+  assert.equal(calls, 0);
+  assert.equal((await postJson(wizard, "/api/local/install", {
+    planId: body.planId, confirmed: false, backgroundConsent: true })).status, 400);
+  const response = await postJson(wizard, "/api/local/install", {
+    planId: body.planId, confirmed: true, backgroundConsent: true });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.clientCredential, "k".repeat(43));
+  assert.equal(result.hostPublication, "unknown");
+  assert.equal(result.finalizationFailure.recovery, "review-again");
+  assert.equal(calls, 1);
+});
+
+test("n8n resume reviews the selected recreated container and preserves the installer's exact returned plan", async (t) => {
+  const dockerHost = "unix:///var/run/docker.sock";
+  const target = "n8n-openai-oauth";
+  const n8nContainerId = "c".repeat(64);
+  const dockerNetworkId = "b".repeat(64);
+  const account = { ...siwcAccount, ownership: "transferred", session: "signed-out", planEnabled: false };
+  let resume;
+  let reviewedPlan;
+  let installs = 0;
+  const wizard = await startLocalWizard(t, {
+    async listAuthRegistrations() { return [account]; },
+    async discoverLocalN8nSidecarTargets() {
+      return { dockerAvailable: true, dockerHost, containers: [{
+        containerId: n8nContainerId, containerName: "recreated-n8n",
+        networks: [{ dockerNetworkId, networkName: "same-reviewed-network" }],
+      }] };
+    },
+    async reviewLocalN8nSiwcResume({ registration, plan }) {
+      assert.equal(registration.registrationId, account.registrationId);
+      assert.equal(plan.n8nContainerId, n8nContainerId);
+      assert.equal(plan.dockerNetworkId, dockerNetworkId);
+      assert.equal(plan.dockerHost, dockerHost);
+      assert.equal(plan.authBinding.generation, account.generation);
+      reviewedPlan = createLocalN8nSidecarPlan({ ...plan, authBinding: {
+        ...plan.authBinding, generation: "b6b68314-3d22-4b0b-bb05-1849d817ee99",
+      } });
+      resume = { target, installId: "fixture_install_1", registrationId: account.registrationId,
+        stage: "transferred", plan: reviewedPlan, checkpointSha256: "a".repeat(64),
+        filesSha256: "b".repeat(64), resourcesSha256: "c".repeat(64) };
+      return resume;
+    },
+    async installLocalN8nSidecar(input) {
+      installs++;
+      assert.equal(input.resume, resume);
+      assert.equal(input.plan, reviewedPlan);
+      return siwcInstallResult({ target, endpoint: reviewedPlan.endpoint, protocol: "openai-v1",
+        networkName: reviewedPlan.networkName });
+    },
+  });
+  const response = await postJson(wizard, "/api/local/siwc/recovery/review", {
+    target, registrationId: account.registrationId, action: "resume", n8nContainerId, dockerNetworkId });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.plan.n8nContainerId, n8nContainerId);
+  assert.equal(body.plan.dockerNetworkId, dockerNetworkId);
+  assert.equal(body.plan.n8nContainerName, "recreated-n8n");
+  assert.equal(body.plan.dockerHost, undefined);
+  assert.equal(body.plan.authBinding, undefined);
+  assert.equal(installs, 0);
+  const installed = await postJson(wizard, "/api/local/install", {
+    planId: body.planId, confirmed: true, backgroundConsent: true });
+  assert.equal(installed.status, 200);
+  assert.equal((await installed.json()).clientCredential, "k".repeat(43));
+  assert.equal(installs, 1);
+});
+
+test("n8n resume rejects malformed paired IDs and non-attached networks before installer review", async (t) => {
+  let discoveryCalls = 0;
+  let reviews = 0;
+  const wizard = await startLocalWizard(t, {
+    async discoverLocalN8nSidecarTargets() {
+      discoveryCalls++;
+      return { dockerAvailable: true, dockerHost: "unix:///var/run/docker.sock", containers: [{
+        containerId: "c".repeat(64), containerName: "recreated-n8n",
+        networks: [{ dockerNetworkId: "b".repeat(64), networkName: "same-reviewed-network" }],
+      }] };
+    },
+    async reviewLocalN8nSiwcResume() { reviews++; throw new Error("must not review an unverified target"); },
+  });
+  const body = { target: "n8n-openai-oauth", registrationId: siwcAccount.registrationId, action: "resume" };
+  for (const fields of [
+    { n8nContainerId: "c".repeat(64) },
+    { dockerNetworkId: "b".repeat(64) },
+    { n8nContainerId: "../../outside", dockerNetworkId: "b".repeat(64) },
+    { n8nContainerId: "c".repeat(64), dockerNetworkId: "b".repeat(64), dockerHost: "/untrusted" },
+  ]) {
+    assert.equal((await postJson(wizard, "/api/local/siwc/recovery/review", { ...body, ...fields })).status, 400);
+  }
+  assert.equal(discoveryCalls, 0);
+  assert.equal((await postJson(wizard, "/api/local/siwc/recovery/review", {
+    ...body, n8nContainerId: "c".repeat(64), dockerNetworkId: "d".repeat(64),
+  })).status, 409);
+  assert.equal(discoveryCalls, 1);
+  assert.equal(reviews, 0);
 });

@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { attachBrowserReopenOnEnter, openBrowser } from "../src/browser.js";
@@ -7,18 +8,50 @@ import { startWizardServer } from "../src/web/server.js";
 
 const SESSION_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 
-const previewCredentialUpdatedAt = new Date().toISOString();
+const previewRegistrationId = "preview_registration_1";
+const previewAccount = Object.freeze({
+  registrationId: previewRegistrationId, label: "Preview account",
+  email: "preview@example.test", identity: "verified", session: "connected",
+  planPermission: "granted", planEnabled: true, ownership: "owned",
+  generation: "68f572d8-2b56-4ef2-a6c2-7791078a1161",
+  ownerHostId: "urn:uuid:38031c97-8e16-402b-85f8-6c7eb17e72bb",
+  ownerRuntimeId: "local", needsPlanWelcome: false,
+});
 
-const services = {
-  async getAuthStatus() {
-    return {
-      exists: true,
-      path: "/preview/auth.json",
-      updatedAt: previewCredentialUpdatedAt,
-    };
+// Select sanitized UI state: RELMIO_PREVIEW_FIXTURE=signed-out|connected|reauthorize|
+// plan-not-granted|usage-limit|handoff-pending|staged node scripts/preview.js.
+export const PREVIEW_FIXTURES = Object.freeze([
+  "signed-out", "connected", "reauthorize", "plan-not-granted", "usage-limit", "handoff-pending", "staged",
+]);
+
+export function createPreviewServices(fixture = "connected") {
+  if (!PREVIEW_FIXTURES.includes(fixture)) throw new TypeError("Unknown sanitized preview fixture.");
+  const account = { ...previewAccount,
+    session: ["signed-out", "reauthorize"].includes(fixture) ? fixture : "connected",
+    planPermission: fixture === "plan-not-granted" ? "not-granted" : "granted",
+    planEnabled: !["signed-out", "reauthorize", "plan-not-granted"].includes(fixture),
+    ownership: fixture === "handoff-pending" ? "handoff-pending" : "owned",
+  };
+  return {
+  async listAuthRegistrations() { return [account]; },
+  async getSelectedRegistration() { return previewRegistrationId; },
+  async getAuthStatus({ registrationId }) {
+    return { ...account, exists: registrationId === previewRegistrationId && account.session === "connected" };
   },
-  async readAuthContents() {
-    return Buffer.from('{"preview":true}');
+  async readRegistration({ registrationId }) {
+    if (registrationId !== previewRegistrationId) throw new Error("Unknown preview account.");
+    return { registrationId, clientId: "preview-client", generation: account.generation };
+  },
+  async listSiwcModels() { return []; },
+  async getProjectMeta() {
+    return { version: "preview", stars: null, checkedAt: new Date().toISOString() };
+  },
+  async getSshCapabilities() { return { agent: { status: "unavailable", transport: null } }; },
+  async reviewVpsSiwcTarget() { return { n8nContainerId: "a".repeat(64), networkId: "b".repeat(64) }; },
+  async getVpsSiwcInstallationStatus() {
+    return fixture === "staged" ? { state: "staged", staging: {
+      installId: "preview_installation_1", registrationId: previewRegistrationId, stage: "prepared",
+    } } : { state: "absent" };
   },
   async scanHostFingerprint() {
     return "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -40,7 +73,7 @@ const services = {
       composeVersion: "2.38.2",
       containers: [
         {
-          id: "preview",
+          id: "a".repeat(64),
           image: "docker.n8n.io/n8nio/n8n",
           name: "n8n-n8n-1",
           state: "running",
@@ -52,15 +85,10 @@ const services = {
     return { networks: ["proxy"], recommended: "proxy" };
   },
   async installSidecar() {
-    return {
-      baseUrl: "http://n8n-openai-oauth:10531/v1",
-      apiKeyPlaceholder: "local-only",
-      useResponsesApi: true,
-      models: ["gpt-5.6-sol", "gpt-5.6-terra"],
-      deploymentMode: "created",
-    };
+    throw new Error("Sanitized preview cannot install a ChatGPT sidecar.");
   },
-};
+  };
+}
 
 export async function runPreview({
   env = process.env,
@@ -87,6 +115,8 @@ export async function runPreview({
   if (!SESSION_TOKEN_PATTERN.test(sessionToken)) {
     throw new Error("Relmio could not create a strong preview session.");
   }
+  const fixture = env.RELMIO_PREVIEW_FIXTURE ?? "connected";
+  const services = createPreviewServices(fixture);
   const browserHandoffRoot = await ensureBrowserLaunchRoot({ env });
   let wizard;
   let detachReopen = () => {};
@@ -110,8 +140,10 @@ export async function runPreview({
   try {
     wizard = await startServer({
       sessionToken,
+      storageRoot: join(browserHandoffRoot, "siwc-preview"),
       services,
       previewMode: true,
+      previewFixture: fixture,
       browserHandoffRoot,
     });
     const prepareLaunch = async () => await wizard.prepareBrowserLaunch("/");

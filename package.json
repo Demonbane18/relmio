@@ -56,10 +56,11 @@
     "check": "npm run lint && npm run release:check && npm test"
   },
   "dependencies": {
-    "ssh2": "1.17.0"
+    "jose": "6.2.12",
+    "ssh2": "1.17.0",
+    "ws": "8.22.0"
   },
   "devDependencies": {
-    "openai-oauth": "2.0.0",
     "zod": "4.1.8"
   }
 }

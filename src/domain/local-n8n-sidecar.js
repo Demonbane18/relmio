@@ -1,6 +1,7 @@
 import { validateLocalDockerHost } from "../infrastructure/local-process.js";
+import { validateSiwcAuthBinding, validateSiwcRegistrationId, validateSiwcRuntimeId } from "./safety.js";
 import { validateDockerName } from "./validation.js";
-import { validateInstallId } from "./local-endpoints.js";
+import { validateInstallId, validateSha256Verifier } from "./local-endpoints.js";
 
 export const LOCAL_N8N_SIDECAR_TARGET = "n8n-openai-oauth";
 export const LOCAL_N8N_SIDECAR_HOSTNAME = "n8n-openai-oauth";
@@ -18,19 +19,6 @@ export function validateDockerObjectId(value, label = "Docker object") {
   return value;
 }
 
-export function validateAuthGeneration(value) {
-  if (
-    typeof value !== "string" ||
-    Buffer.byteLength(value) > AUTH_GENERATION_MAX_BYTES
-  ) {
-    throw new TypeError("OAuth credential generation is invalid.");
-  }
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== value) {
-    throw new TypeError("OAuth credential generation is invalid.");
-  }
-  return value;
-}
 
 export function createLocalN8nSidecarPlan({
   dockerHost,
@@ -38,7 +26,7 @@ export function createLocalN8nSidecarPlan({
   n8nContainerName,
   dockerNetworkId,
   networkName,
-  authGeneration,
+  authBinding,
 }) {
   return {
     kind: "n8n-sidecar",
@@ -59,10 +47,10 @@ export function createLocalN8nSidecarPlan({
       "Docker network",
     ),
     networkName: validateDockerName(networkName),
-    authGeneration: validateAuthGeneration(authGeneration),
+    authBinding: validateSiwcAuthBinding(authBinding),
     managedPath: "~/.relmio/local/n8n-openai-oauth",
     hostPublication: "none",
-    unofficial: true,
+    unofficial: false,
   };
 }
 
@@ -76,10 +64,16 @@ export function normalizeLocalN8nSidecarPlan(value) {
     n8nContainerName: value.n8nContainerName,
     dockerNetworkId: value.dockerNetworkId,
     networkName: value.networkName,
-    authGeneration: value.authGeneration,
+    authBinding: value.authBinding,
   });
   for (const [name, expected] of Object.entries(normalized)) {
-    if (value[name] !== expected) {
+    if (name === "authBinding") {
+      for (const [field, bound] of Object.entries(expected)) {
+        if (value.authBinding?.[field] !== bound) {
+          throw new TypeError("The local n8n sidecar plan is invalid.");
+        }
+      }
+    } else if (value[name] !== expected) {
       throw new TypeError("The local n8n sidecar plan is invalid.");
     }
   }
@@ -88,34 +82,39 @@ export function normalizeLocalN8nSidecarPlan(value) {
 
 export function createLocalN8nSidecarDockerfile({ installId }) {
   const safeInstallId = validateInstallId(installId);
-  return `FROM node:22-bookworm-slim
+  return `FROM node:24-bookworm-slim
 
 ARG RELMIO_INSTALL_ID=${safeInstallId}
 LABEL io.relmio.managed="true" \\
       io.relmio.target="${LOCAL_N8N_SIDECAR_TARGET}" \\
       io.relmio.install="${safeInstallId}"
 
-RUN npm install --global --ignore-scripts openai-oauth@2.0.0 \\
-    && npm cache clean --force
-
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY --chown=node:node services/ ./services/
+COPY --chown=node:node gateway/ ./gateway/
+COPY --chown=node:node infrastructure/ ./infrastructure/
 USER node
-
-COPY --chown=node:node openai-oauth-sidecar.mjs /app/openai-oauth-sidecar.mjs
-
-ENTRYPOINT ["node", "/app/openai-oauth-sidecar.mjs"]
+ENTRYPOINT ["node", "/app/gateway/openai-oauth-sidecar.mjs"]
 `;
 }
 
 export function createLocalN8nSidecarDockerignore() {
-  return "**\n!Dockerfile\n!openai-oauth-sidecar.mjs\n";
+  return "**\n!Dockerfile\n!package.json\n!package-lock.json\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!gateway/\n!gateway/openai-oauth-sidecar.mjs\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n";
 }
 
 export function createLocalN8nSidecarComposeFile({
   installId,
   networkName,
+  registrationId,
+  tokenSha256,
 }) {
   const safeInstallId = validateInstallId(installId);
   const safeNetworkName = validateDockerName(networkName);
+  const safeRegistrationId = validateSiwcRegistrationId(registrationId);
+  const safeRuntimeId = validateSiwcRuntimeId(safeInstallId);
+  const safeVerifier = validateSha256Verifier(tokenSha256);
   const image = `relmio-n8n-openai-oauth-${safeInstallId}:local`;
 
   return `services:
@@ -132,8 +131,13 @@ export function createLocalN8nSidecarComposeFile({
         io.relmio.install: "${safeInstallId}"
     restart: unless-stopped
     init: true
+    environment:
+      N8N_OPENAI_OAUTH_HOME: /home/node/.relmio-siwc
+      RELMIO_REGISTRATION_ID: "${safeRegistrationId}"
+      RELMIO_RUNTIME_ID: "${safeRuntimeId}"
+      RELMIO_GATEWAY_TOKEN_SHA256: "${safeVerifier}"
     volumes:
-      - oauth-auth:/home/node/.codex
+      - siwc-store:/home/node/.relmio-siwc
     expose:
       - "10531"
     networks:
@@ -180,20 +184,16 @@ export function createLocalN8nSidecarComposeFile({
     command:
       - |
         set -eu
-        umask 077
-        trap 'rm -f -- /run/relmio-auth/.auth.json.next; chown 1000:1000 /run/relmio-auth' EXIT HUP INT TERM
-        chown 0:0 /run/relmio-auth
-        chmod 0700 /run/relmio-auth
-        rm -f -- /run/relmio-auth/.auth.json.next
-        cat > /run/relmio-auth/.auth.json.next
-        node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' /run/relmio-auth/.auth.json.next
-        chmod 0600 /run/relmio-auth/.auth.json.next
-        chown 1000:1000 /run/relmio-auth/.auth.json.next
-        mv -f -- /run/relmio-auth/.auth.json.next /run/relmio-auth/auth.json
-        chown 1000:1000 /run/relmio-auth
-        trap - EXIT HUP INT TERM
+        owner="$(stat -c '%u:%g:%a' /run/relmio-auth)"
+        if [ "$owner" = "0:0:755" ] || [ "$owner" = "0:0:700" ]; then
+          chmod 0700 /run/relmio-auth
+          chown 1000:1000 /run/relmio-auth
+        elif [ "$owner" != "1000:1000:700" ]; then
+          exit 1
+        fi
+        [ "$(stat -c '%u:%g:%a' /run/relmio-auth)" = "1000:1000:700" ]
     volumes:
-      - oauth-auth:/run/relmio-auth
+      - siwc-store:/run/relmio-auth
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -217,7 +217,7 @@ networks:
     name: ${safeNetworkName}
 
 volumes:
-  oauth-auth:
+  siwc-store:
     labels:
       io.relmio.managed: "true"
       io.relmio.target: "${LOCAL_N8N_SIDECAR_TARGET}"

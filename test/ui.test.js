@@ -9,6 +9,8 @@ import {
 } from "../src/ui/session.js";
 import { formatAuthUpdatedAt } from "../src/ui/time.js";
 import { clearFieldError, createCredentialSshGuard, markRejectedField, sameSshIdentity } from "../src/ui/ssh-form.js";
+import { siwcAccount, siwcInstallResult } from "./helpers/siwc-wizard.js";
+import { accountUiState, normalizeSiwcAccount, siwcErrorFromResponse, siwcErrorText } from "../src/ui/siwc-controls.js";
 
 const rootIdentity = {
   host: "new.example", port: 22, username: "root",
@@ -155,6 +157,7 @@ test("failed VPS install invalidates approval and returns to connection", async 
   const elements = new Map([
     ["install-button", { disabled: false, addEventListener: (_, handler) => handlers.set("install", handler) }],
     ["install-confirm", { checked: true }],
+    ["background-consent", { checked: true }],
     ["container-select", { value: "n8n" }],
     ["network-select", { value: "n8n_default" }],
     ["manage-vps-searxng", { checked: false }],
@@ -200,180 +203,80 @@ test("failed VPS install invalidates approval and returns to connection", async 
   assert.equal(elements.get("install-button").disabled, true);
 });
 
-test("rejected VPS bridge credential returns to fresh sign-in without retrying the update", async () => {
+test("a VPS finalization failure holds the one-time key and drops the plan badge", async () => {
   const script = await readFile("src/ui/app.js", "utf8");
-  const start = script.indexOf("function clearEndedVpsConnectionState()");
+  const start = script.indexOf('element("install-button").addEventListener');
   const end = script.indexOf('\nfor (const input of document.querySelectorAll', start);
-  assert.ok(start >= 0 && end > start, "missing VPS credential recovery boundary");
-
-  const calls = [];
-  const handlers = new Map();
-  const state = {
-    planId: "reviewed-plan",
-    reviewedIdentity: rootIdentity,
-    fingerprint: "SHA256:reviewed",
-    discovery: { containers: [{ name: "n8n" }] },
-    networks: { networks: ["n8n_default"] },
-    managingDetectedIntegration: true,
-    installAttempted: false,
-    oauthRetryBlocked: false,
+  assert.ok(start >= 0 && end > start, "missing VPS install handler");
+  const run = async (result) => {
+    const handlers = new Map();
+    const messages = [];
+    const nodes = new Map([
+      ["install-button", { disabled: false, addEventListener: (_, handler) => handlers.set("install", handler) }],
+      ["install-confirm", { checked: true }],
+      ["background-consent", { checked: true }],
+    ]);
+    const element = (id) => {
+      if (!nodes.has(id)) nodes.set(id, { hidden: false, disabled: false, textContent: "", className: "", value: "" });
+      return nodes.get(id);
+    };
+    const state = { planId: "reviewed-plan", reviewedIdentity: rootIdentity, catalogLabels: new Map() };
+    vm.runInNewContext(script.slice(start, end), {
+      state, element, sameSshIdentity, normalizeSiwcAccount, siwcErrorFromResponse, siwcErrorText,
+      sshSession: { adoptedIdentity: () => rootIdentity },
+      isAssistantIntegration: () => false, clearError() {}, invalidateReviewedPlan() {}, showError() {}, showStep() {},
+      setMessage: (message) => messages.push(message), fillSelect() {}, renderHttpRequestBody() {},
+      runOperation: async (_button, _label, work) => work(),
+      api: async () => ({ ...siwcInstallResult(), ...result }),
+    });
+    await handlers.get("install")({ currentTarget: element("install-button") });
+    return { element, messages };
   };
-  const elements = new Map([
-    ["install-button", { disabled: false, addEventListener: (_, handler) => handlers.set("install", handler) }],
-    ["install-confirm", { checked: true }],
-    ["container-select", { value: "n8n", replaceChildren: () => calls.push(["clear", "container-select"]) }],
-    ["network-select", { value: "n8n_default", replaceChildren: () => calls.push(["clear", "network-select"]) }],
-    ["manage-vps-searxng", { checked: false }],
-    ["fingerprint-box", { hidden: false }],
-    ["fingerprint-confirm", { checked: true }],
-    ["password", { value: "secret", disabled: false }],
-    ["connect-button", { disabled: false }],
-    ["username", { disabled: false }],
-    ["ssh-authentication", { disabled: false }],
-    ["detected-vps-integration-management", { hidden: false }],
-    ["auth-indicator", { classList: { remove: (name) => calls.push(["class-remove", name]) } }],
-    ["auth-title", { textContent: "Local credential found" }],
-    ["auth-detail", { textContent: "Continue uses it as-is." }],
-    ["login-button", {
-      disabled: true,
-      textContent: "Sign in with ChatGPT",
-      dataset: {},
-      focus: () => calls.push(["focus", "login-button"]),
-    }],
-    ["signin-next", { disabled: false }],
-  ]);
-  const apiStart = script.indexOf("async function api(");
-  const apiEnd = script.indexOf("\nfunction renderAuthUpdatedAt", apiStart);
-  assert.ok(apiStart >= 0 && apiEnd > apiStart, "missing browser API helper");
-  const api = vm.runInNewContext(`${script.slice(apiStart, apiEnd)}; api`, {
-    token: "setup-token",
-    sshSession: { async before() {}, async after() {} },
-    fetch: async (path) => {
-      calls.push(["api", path]);
-      return {
-        ok: false,
-        async json() {
-          return {
-            error: "The VPS rejected the ChatGPT credential.",
-            recoveryAction: "refresh-chatgpt-sign-in",
-          };
-        },
-      };
-    },
-  }, { filename: "vps-install-api.vm.js", timeout: 1_000 });
-  const context = {
-    state,
-    sshSession: { adoptedIdentity: () => rootIdentity },
-    sameSshIdentity,
-    selectChatGptSetup: () => calls.push(["select-chatgpt"]),
-    setSignInLeads() {},
-    setCredentialInputsEnabled(enabled) {
-      elements.get("username").disabled = !enabled;
-      elements.get("ssh-authentication").disabled = !enabled;
-    },
-    element: (id) => elements.get(id),
-    isAssistantIntegration: () => false,
-    clearError: () => calls.push(["clear-error"]),
-    invalidateReviewedPlan() {
-      calls.push(["invalidate-plan"]);
-      state.planId = null;
-      state.reviewedIdentity = null;
-      elements.get("install-confirm").checked = false;
-      elements.get("install-button").disabled = true;
-    },
-    setMessage: (message) => calls.push(["message", message]),
-    showError: (error) => calls.push(["error", error.message]),
-    showStep: (step) => calls.push(["step", step]),
-    runOperation: async (_button, _label, work) => work(),
-    api,
-    renderImageModelsForN8n(models) {
-      calls.push(["image-models", models]);
-    },
-  };
-  vm.runInNewContext(script.slice(start, end), context, {
-    filename: "vps-install-auth-recovery.vm.js",
-    timeout: 1_000,
-  });
-
-  await handlers.get("install")({ currentTarget: elements.get("install-button") });
-
-  assert.deepEqual(
-    calls.filter(([name]) => name === "api").map(([, path]) => path),
-    ["/api/install"],
-  );
-  assert.ok(calls.some(([name, value]) => name === "step" && value === 1));
-  assert.equal(state.planId, null);
-  assert.equal(state.fingerprint, null);
-  assert.equal(state.discovery, null);
-  assert.equal(state.networks, null);
-  assert.equal(elements.get("install-confirm").checked, false);
-  assert.equal(elements.get("install-button").disabled, true);
-  assert.equal(elements.get("fingerprint-box").hidden, true);
-  assert.equal(elements.get("fingerprint-confirm").checked, false);
-  assert.equal(elements.get("password").value, "");
-  assert.equal(elements.get("password").disabled, true);
-  assert.equal(elements.get("connect-button").disabled, true);
-  assert.equal(elements.get("username").disabled, true);
-  assert.equal(elements.get("ssh-authentication").disabled, true);
-  assert.equal(elements.get("detected-vps-integration-management").hidden, true);
-  assert.equal(elements.get("login-button").disabled, false);
-  assert.equal(elements.get("signin-next").disabled, true);
-  assert.ok(calls.some(([name, value]) => name === "focus" && value === "login-button"));
-  assert.equal(calls.some(([name, path]) => name === "api" && path === "/api/oauth/login"), false);
-
-  calls.length = 0;
-  state.planId = "another-reviewed-plan";
-  state.reviewedIdentity = rootIdentity;
-  state.oauthRetryBlocked = true;
-  elements.get("install-confirm").checked = true;
-  elements.get("install-button").disabled = false;
-  elements.get("login-button").disabled = true;
-  await handlers.get("install")({ currentTarget: elements.get("install-button") });
-  assert.equal(elements.get("login-button").disabled, true);
-  assert.equal(calls.some(([name]) => name === "focus"), false);
+  const ready = await run({});
+  const held = await run({ finalizationFailure: { error: "Final journal write failed", recovery: "review-again" } });
+  assert.equal(ready.element("result-plan-badge").hidden, false);
+  assert.equal(held.element("result-plan-badge").hidden, true);
+  assert.equal(ready.element("result-model-picker").disabled, false);
+  assert.equal(ready.element("copy-http-recipe").disabled, false);
+  assert.equal(held.element("result-model-picker").disabled, true);
+  assert.equal(held.element("copy-http-recipe").disabled, true);
+  const unknown = await run({ runtimeState: "unknown", hostPublication: "unknown", readiness: "unverified" });
+  assert.equal(unknown.element("result-plan-badge").hidden, true);
+  assert.equal(unknown.element("result-model-picker").disabled, true, "an unverified runtime keeps request tools off");
+  assert.equal(unknown.element("copy-http-recipe").disabled, true);
+  assert.equal(unknown.element("credential-title").textContent, held.element("credential-title").textContent);
+  assert.notEqual(held.element("done-detail").textContent, ready.element("done-detail").textContent);
+  assert.notEqual(held.element("credential-title").textContent, ready.element("credential-title").textContent,
+    "a held key is saved, not added to n8n");
+  assert.notEqual(held.messages.at(-1), ready.messages.at(-1));
+  assert.notEqual(held.element("result-readiness").className, ready.element("result-readiness").className,
+    "the readiness line is styled as a warning only when the key is held");
 });
 
-test("install API preserves only the exact fresh-sign-in recovery action", async () => {
+test("SIWC request recovery is allowlisted and never returns a provider redirect or credential", () => {
+  const error = siwcErrorFromResponse({ error: "Plan request blocked", status: 429,
+    recovery: "manage-usage", code: "subscription_sharing_usage_limit_exceeded",
+    redirectUrl: "https://untrusted.example", accessToken: "must-not-leak" }, 429);
+  assert.equal(error.recovery, "manage-usage");
+  assert.equal(error.code, "subscription_sharing_usage_limit_exceeded");
+  assert.equal(error.redirectUrl, undefined);
+  assert.equal(error.accessToken, undefined);
+});
+test("VPS API preserves safe SIWC error recovery without following arbitrary URLs", async () => {
   const script = await readFile("src/ui/app.js", "utf8");
   const start = script.indexOf("async function api(");
-  const end = script.indexOf("\nfunction renderAuthUpdatedAt", start);
-  assert.ok(start >= 0 && end > start, "missing browser API helper");
-  let responseBody = {
-    error: "request failed",
-    recoveryAction: "refresh-chatgpt-sign-in",
-    redirectUrl: "https://attacker.invalid/redirect",
-  };
+  const end = script.indexOf("\nfunction resetVpsOwner", start);
+  let result = { error: "Request failed", recovery: "reauthorize", redirectUrl: "https://untrusted.example" };
   const api = vm.runInNewContext(`${script.slice(start, end)}; api`, {
-    token: "setup-token",
+    token: "fixture", siwcErrorFromResponse,
     sshSession: { async before() {}, async after() {} },
-    fetch: async () => ({
-      ok: false,
-      async json() {
-        return responseBody;
-      },
-    }),
-  }, { filename: "vps-api-recovery-action.vm.js", timeout: 1_000 });
-
-  const installError = await api("/api/install", { method: "POST", body: {} }).catch((error) => error);
-  assert.equal(installError.recoveryAction, "refresh-chatgpt-sign-in");
-  assert.equal(installError.redirectUrl, undefined);
-
-  const getInstallError = await api("/api/install").catch((error) => error);
-  assert.equal(getInstallError.recoveryAction, undefined);
-
-  responseBody = {
-    error: "refresh-chatgpt-sign-in",
-    recoveryAction: "https://attacker.invalid/redirect",
-  };
-  const arbitraryActionError = await api("/api/install", { method: "POST", body: {} }).catch((error) => error);
-  assert.equal(arbitraryActionError.recoveryAction, undefined);
-
-  responseBody = {
-    error: "request failed",
-    recoveryAction: "refresh-chatgpt-sign-in",
-  };
-  const otherError = await api("/api/status").catch((error) => error);
-  assert.equal(otherError.recoveryAction, undefined);
+    fetch: async () => ({ ok: false, status: 401, async json() { return result; } }),
+  });
+  await assert.rejects(api("/api/install", { method: "POST", body: {} }),
+    (error) => error.recovery === "reauthorize" && error.redirectUrl === undefined);
+  result = { error: "Request failed", recovery: "https://untrusted.example" };
+  await assert.rejects(api("/api/install", { method: "POST", body: {} }),
+    (error) => error.recovery === "none" && error.redirectUrl === undefined);
 });
 
 test("failed Docker network refresh stays on selection and invalidates approval", async () => {
@@ -393,6 +296,7 @@ test("failed Docker network refresh stays on selection and invalidates approval"
   const context = {
     state,
     element: (id) => elements.get(id),
+    resetVpsOwner() {},
     clearError: () => calls.push(["clear-error"]),
     invalidateReviewedPlan() {
       calls.push(["invalidate-plan"]);
@@ -461,7 +365,9 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
         return { textContent: "" };
       },
       getElementById(id) {
-        return elements.get(id) ?? null;
+        if (!elements.has(id)) elements.set(id, { children: [], dataset: {}, textContent: "",
+          replaceChildren(...children) { this.children = children; } });
+        return elements.get(id);
       },
     },
   };
@@ -470,7 +376,8 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
      const element = (id) => document.getElementById(id);
      ${script.slice(functionStart, functionEnd)}
      ({ state, renderIntegrationReview });`,
-    { ...context, sshSession: { adoptedIdentity: () => rootIdentity }, sameSshIdentity },
+    { ...context, normalizeSiwcAccount, siwc: { selected: () => siwcAccount },
+      sshSession: { adoptedIdentity: () => rootIdentity }, sameSshIdentity },
   );
 
   review.renderIntegrationReview({
@@ -478,6 +385,7 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
     operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
     temporaryBuildStatePath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx",
     networkName: "n8n_default",
+    account: siwcAccount, containerName: "fixture-n8n", n8nContainerId: "a".repeat(64), networkId: "b".repeat(64),
   });
   review.state.integrationKind = "assistant";
   review.state.managingDetectedIntegration = true;
@@ -488,6 +396,7 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
     operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
     temporaryBuildStatePath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx",
     networkName: "n8n_default",
+    account: siwcAccount, containerName: "fixture-n8n", n8nContainerId: "a".repeat(64), networkId: "b".repeat(64),
   });
 
   assert.equal(elements.get("review-network").textContent, "n8n_default");
@@ -509,7 +418,7 @@ test("review recipient follows the adopted guard identity and refuses missing or
   const script = await readFile("src/ui/app.js", "utf8");
   const start = script.indexOf("function replaceReviewItems(");
   const end = script.indexOf("const ASSISTANT_SANDBOX_IMAGE", start);
-  const confirmStart = script.indexOf('element("install-confirm").addEventListener("change"');
+  const confirmStart = script.indexOf("function updateInstallApproval(");
   const confirmEnd = script.indexOf("function clearEndedVpsConnectionState", confirmStart);
   const elements = new Map();
   const element = id => {
@@ -546,12 +455,14 @@ test("review recipient follows the adopted guard identity and refuses missing or
     ${script.slice(start, end)}
     ${script.slice(confirmStart, confirmEnd)}
     ({ renderIntegrationReview });`,
-    { document, state, sshSession: guard, sameSshIdentity, invalidateReviewedPlan },
+    { document, state, normalizeSiwcAccount, siwc: { selected: () => siwcAccount },
+      sshSession: guard, sameSshIdentity, invalidateReviewedPlan },
   );
   const plan = {
     endpointHostname: "n8n-openai-oauth", networkName: "n8n_default",
     operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
     temporaryBuildStatePath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx",
+    account: siwcAccount, containerName: "fixture-n8n", n8nContainerId: "a".repeat(64), networkId: "b".repeat(64),
   };
   assert.throws(() => review.renderIntegrationReview(plan), /verified administrative SSH identity/u);
   await guard.after("/api/ssh/connect", { identity: rootIdentity });
@@ -561,6 +472,7 @@ test("review recipient follows the adopted guard identity and refuses missing or
   assert.match(element("install-confirm-copy").textContent, /root@new\.example:22/u);
   assert.doesNotMatch(element("install-confirm-copy").textContent, /No authenticated VPS session/u);
   element("install-confirm").checked = true;
+  element("background-consent").checked = true;
   element("install-confirm").handler({ currentTarget: element("install-confirm") });
   assert.equal(element("install-button").disabled, false);
   current = { ...rootIdentity, host: "replacement.example", generation: 2 };
@@ -652,14 +564,17 @@ test("route selection exposes ChatGPT setup and restores chooser focus", async (
     return nodes.get(id);
   };
   const state = { step: 1, operationBusy: false };
+  const welcomeChecks = [];
   vm.runInNewContext(script.slice(start, end), {
     element, state, clearError() {}, showStep() {},
+    siwc: { showWelcome() { welcomeChecks.push(element("chatgpt-setup").hidden); } },
   });
   element("openai-vps-route").click();
   assert.equal(element("setup-choices").hidden, true);
   assert.equal(element("chatgpt-setup").hidden, false);
   assert.equal(element("openai-vps-route").attributes.get("aria-expanded"), "true");
   assert.equal(focused.at(-1), "signin-title");
+  assert.deepEqual(welcomeChecks, [false], "a due plan welcome is checked only once the setup view is visible");
   element("change-setup-button").click();
   assert.equal(element("setup-choices").hidden, false);
   assert.equal(element("chatgpt-setup").hidden, true);
@@ -668,6 +583,37 @@ test("route selection exposes ChatGPT setup and restores chooser focus", async (
   state.operationBusy = true;
   element("openai-vps-route").click();
   assert.equal(element("chatgpt-setup").hidden, true);
+});
+
+test("ChatGPT header blocks the server check until the plan notice is confirmed and usage is available", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("function renderAuthStatus(");
+  const end = script.indexOf("async function refreshAuthStatus(", start);
+  assert.ok(start >= 0 && end > start);
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { textContent: "", hidden: true, disabled: false, classList: { toggle() {} } });
+    return nodes.get(id);
+  };
+  let usageLimited = false;
+  const render = vm.runInNewContext(`${script.slice(start, end)}; renderAuthStatus`, {
+    element, accountUiState, siwc: { isPreview: () => false, isUsageLimited: () => usageLimited },
+  });
+  render(siwcAccount);
+  assert.equal(element("signin-next").disabled, false);
+  const readyTitle = element("auth-title").textContent;
+  render({ ...siwcAccount, session: "signed-out" });
+  const signedOutTitle = element("auth-title").textContent;
+
+  render({ ...siwcAccount, needsPlanWelcome: true });
+  assert.equal(element("signin-next").disabled, true);
+  assert.notEqual(element("auth-title").textContent, signedOutTitle, "an unconfirmed plan is not reported as signed out");
+  assert.notEqual(element("auth-title").textContent, readyTitle);
+
+  usageLimited = true;
+  render(siwcAccount);
+  assert.equal(element("signin-next").disabled, true);
+  assert.notEqual(element("auth-title").textContent, readyTitle, "a usage limit is not reported as plan ready");
 });
 
 test("fingerprint check validates address and port before unlocking authentication", async () => {
@@ -1339,13 +1285,11 @@ test("VPS reload rehydrates and completes the server-owned pending OAuth attempt
   };
   const context = {
     state,
+    siwc: { async authorized() { calls.push(["authorized"]); return siwcAccount; } },
     async api(path) {
       calls.push(["api", path]);
       if (path === "/api/oauth/status") {
         return { attemptId: "a1b2c3d4-1234", status: "pending" };
-      }
-      if (path === "/api/status") {
-        return { authExists: true, authUpdatedAt: "2026-09-04T00:00:00.000Z" };
       }
       throw new Error(`Unexpected path: ${path}`);
     },
@@ -1359,7 +1303,7 @@ test("VPS reload rehydrates and completes the server-owned pending OAuth attempt
       return loginLink;
     },
     renderAuthStatus(status, options) {
-      calls.push(["render-auth", status.authExists, options.fresh]);
+      calls.push(["render-auth", status.registrationId, options.fresh]);
     },
     async runOperation(trigger, label, work, options) {
       calls.push(["operation", trigger, label, options.allowedSelector]);
@@ -1404,8 +1348,8 @@ test("VPS reload rehydrates and completes the server-owned pending OAuth attempt
       ["remove-attribute", "href"],
       ["stop-visible", true],
       ["wait", "a1b2c3d4-1234"],
-      ["api", "/api/status"],
-      ["render-auth", true, true],
+      ["authorized"],
+      ["render-auth", siwcAccount.registrationId, true],
       ["stop-visible", false],
     ],
   );

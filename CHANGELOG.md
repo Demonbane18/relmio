@@ -7,11 +7,109 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- The ChatGPT plan sidecar's `/v1/chat/completions` route now accepts function
+  tools, assistant tool calls and tool results. Function tools go to OpenAI in
+  one `additional_tools` item, and n8n still runs the tools. Limits are 32 tool
+  calls, 128 KiB of arguments per call and 2 MiB of streamed arguments. A named
+  `tool_choice`, tool namespaces and custom tools in streamed requests are
+  rejected. Tool roundtrips were tested only against a fake provider.
+- An interrupted local or VPS ChatGPT install shows as staged and can be
+  resumed after a review that names the selected account, without deleting
+  data or starting a second refresh writer. Turning plan use on or off, or a
+  token refresh, before resuming does not block it.
+- If the destination accepted a session but the acknowledgment was lost, a
+  reviewed reconcile finishes the handoff from the destination's receipt.
+  Without a receipt the sender stays frozen and needs a fresh sign-in.
+
 ### Changed
 
 - The website's Doorway illustration is unframed again, spanning the page
   against its background instead of sitting inside a rounded, layered card.
   The current colors, animation and Pause control are preserved.
+
+- Document the local SIWC account, permission, and model-access flow, including
+  protected per-registration credentials, private n8n/VPS transfer boundaries,
+  current unsupported capabilities, recovery, and unresolved provider limits.
+
+- A refresh that returns HTTP 503 `temporarily_unavailable` now keeps the
+  session from before the refresh instead of freezing it. This assumes OpenAI
+  did not rotate the token, which OpenAI does not document.
+- If ownership moves but a later finishing step fails, the result still shows
+  the one-time key once, with a warning not to use it until the issue is
+  resolved.
+
+### Fixed
+
+- Sign-in no longer fails when OpenAI's callback includes its documented
+  optional `scope`. An `iss` value, when present, must match the issuer.
+- Declining in ChatGPT now shows a declined message instead of a generic
+  verification failure. Declining plan use keeps the existing registration.
+- Function tools without `parameters` or `strict` now send both as `null`.
+- The chat route skips reasoning output items, so Chat Completions clients
+  never receive them.
+- A callback with the wrong state no longer cancels the sign-in in progress.
+- Session locks now record the holder's process namespace and boot. A lock
+  from an earlier boot is reclaimed at once, and one held from another
+  container on the same boot after a 10-minute lease. Holders stop after a
+  2-minute deadline, and waiters get 503 `siwc_lock_unavailable` after 2.5
+  minutes.
+- Session lock records are published atomically, so a crash cannot leave a
+  half-written lock, and release waits through short contention. A refresh
+  that has started is no longer cancelled when the caller disconnects, and the
+  rotated token is saved. Keep the SIWC store on a local disk used by one
+  kernel, not on a synced folder or network share.
+- The Codex App Server's live model check now runs inside the running
+  container instead of a one-off helper container.
+- Status and sign-out for a completed VPS install keep working after n8n is
+  recreated or the SSH login method changes. Completed installs bind only the
+  SSH host identity and Docker network ID; interrupted installs still bind the
+  full reviewed target.
+- The ChatGPT plan notice opens only once its view is visible. Escape closes
+  it without confirming, and Review plan notice opens it again.
+- At a usage limit, Manage usage is a readable primary button in both themes.
+  The account card hides Using ChatGPT plan and Pause plan use, and the wizard
+  keeps Check the server off.
+- ChatGPT account controls stay disabled in preview after a background check
+  ends. After Sign out, focus moves to the account status.
+- The ChatGPT account card fits one screen at laptop sizes in the wizard and
+  on This computer. It no longer repeats the selected account, and the plan
+  badge sits beside the status. Recovery lists show "owned here" and
+  "transfer pending" instead of internal state names.
+- When finalization fails after an install, or the runtime cannot be
+  verified, the Ready step says to save the one-time key and not use it yet.
+  It no longer shows Using ChatGPT plan or n8n setup wording, and the warning
+  sits in a callout. The model select, the server's model picker and its HTTP
+  recipe copy stay disabled.
+- The Ready step on This computer fits one screen at laptop sizes. Key safety
+  notes sit beside the account card, the installed account's session controls
+  are in a disclosure, and repeated key and URL guidance is gone. Opening the
+  chat tester no longer scrolls the whole page.
+- A chat tester error and its Manage usage button scroll into view before
+  focus moves to the error, and again once Send returns. Stop response is now
+  the same height as Send.
+- The VPS review shows the SSH host key once, under Host key and build
+  details, so the plan fits one screen. From 1024 to 1279 pixels, step 5 puts
+  the base URL and key under their labels at full width.
+- Checkbox and radio labels are at least 24 pixels tall.
+
+### Security
+
+- VPS installs bind the reviewed n8n container and network IDs and check them
+  again before writing and before the session transfer.
+- VPS SIWC files are published atomically under `/docker/n8n-openai-oauth`,
+  and unsafe parents or linked targets are rejected. Every SSH command has a
+  finite deadline: 45 minutes by default, 30 minutes for a build, 2 minutes for
+  handoff acceptance and 5 minutes for file publication. A timeout reports an
+  unknown outcome and is not retried.
+- Recovery never restarts an old writer automatically. Switching to a fresh
+  account after a "not accepted" result is refused if the original receipt
+  appears, and on a VPS while a one-off helper container is still present.
+- The docs now state plainly that the Codex App Server target is high trust.
+  Its relay forwards every client call except a short deny-list to an App
+  Server running as the same user as the SIWC store, so connect only trusted
+  local clients.
 
 ## [0.18.6] - 2026-10-04
 

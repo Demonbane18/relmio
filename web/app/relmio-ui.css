@@ -1881,13 +1881,15 @@ a.rm-chip:hover {
   font-size: 0.9375rem;
 }
 
-/* Checkbox or radio with its label. Add --boxed for a bordered option row. */
+/* Checkbox or radio with its label. Add --boxed for a bordered option row.
+   The whole label is the target, so it stays at least 24 px tall. */
 .rm-check {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 0.625rem;
   min-width: 0;
+  min-height: 1.5rem;
   color: var(--rm-ink);
   font-size: 0.9375rem;
   line-height: 1.45;

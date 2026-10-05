@@ -17,6 +17,9 @@ const MAX_INPUT_LENGTH = 8_192;
 const MAX_CONVERSATION_ID_LENGTH = 160;
 const MAX_RESPONSE_BYTES = 512 * 1_024;
 const MAX_OUTPUT_LENGTH = 12 * 1_024;
+const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u;
+const RECOVERY = new Set(["none", "retry-later", "reauthorize", "enable-plan", "manage-usage",
+  "fix-request", "fix-configuration", "review-again", "resolve-handoff"]);
 
 function requestError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -30,7 +33,8 @@ function expiredKeyError() {
 }
 
 function adapterError(statusCode = 502) {
-  return requestError("The local adapter test could not be completed.", statusCode);
+  return requestError("The local adapter test could not be completed.",
+    Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : 502);
 }
 
 function isPlainObject(value) {
@@ -64,41 +68,77 @@ export function parseLocalAdapterBaseUrl(value) {
   return `http://127.0.0.1:${port}`;
 }
 
-function validateMessageRequest(request) {
-  if (!isPlainObject(request)) {
-    throw requestError("Enter a valid local adapter test request.");
-  }
+function validateSessionRequest(request) {
+  if (!isPlainObject(request)) throw requestError("Enter a valid local adapter test request.");
   const endpointBaseUrl = parseLocalAdapterBaseUrl(request.endpointBaseUrl);
-  if (!isBoundedText(request.keyId, 128)) {
-    throw expiredKeyError();
-  }
-  if (
-    typeof request.encryptedCredential !== "string" ||
-    request.encryptedCredential.length < 32 ||
-    request.encryptedCredential.length > MAX_CIPHERTEXT_LENGTH ||
-    !/^[A-Za-z0-9+/]+={0,2}$/u.test(request.encryptedCredential)
-  ) {
+  if (!isBoundedText(request.keyId, 128)) throw expiredKeyError();
+  if (typeof request.encryptedCredential !== "string" ||
+      request.encryptedCredential.length < 32 ||
+      request.encryptedCredential.length > MAX_CIPHERTEXT_LENGTH ||
+      !/^[A-Za-z0-9+/]+={0,2}$/u.test(request.encryptedCredential)) {
     throw requestError("Secure the client credential again before testing.");
   }
-  if (!isBoundedText(request.input, MAX_INPUT_LENGTH)) {
-    throw requestError("Enter a shorter chat message.");
-  }
-  if (
-    request.conversationId !== undefined &&
-    !isBoundedText(request.conversationId, MAX_CONVERSATION_ID_LENGTH)
-  ) {
+  return { endpointBaseUrl, keyId: request.keyId, encryptedCredential: request.encryptedCredential };
+}
+
+function validateMessageRequest(request) {
+  const session = validateSessionRequest(request);
+  if (!isBoundedText(request.input, MAX_INPUT_LENGTH)) throw requestError("Enter a shorter chat message.");
+  if (request.conversationId !== undefined &&
+      !isBoundedText(request.conversationId, MAX_CONVERSATION_ID_LENGTH)) {
     throw requestError("Start a new conversation and try again.");
   }
-
+  if (request.model !== undefined && (typeof request.model !== "string" ||
+      !MODEL_PATTERN.test(request.model))) throw requestError("Choose a listed account model.");
   return {
-    endpointBaseUrl,
-    keyId: request.keyId,
-    encryptedCredential: request.encryptedCredential,
-    input: request.input,
-    ...(request.conversationId !== undefined
-      ? { conversationId: request.conversationId }
-      : {}),
+    ...session, input: request.input,
+    ...(request.conversationId !== undefined ? { conversationId: request.conversationId } : {}),
+    ...(request.model !== undefined ? { model: request.model } : {}),
   };
+}
+
+function requireAccountBinding(session, binding) {
+  if (!binding || typeof binding !== "object" || !session.accountBinding ||
+      ["registrationId", "generation", "ownerHostId", "ownerRuntimeId"]
+        .some((key) => binding[key] !== session.accountBinding[key])) {
+    throw requestError("The installed ChatGPT account changed. Secure a fresh test session.", 409);
+  }
+}
+
+function safeDiagnostic(value, status = 502) {
+  const source = isPlainObject(value?.error) ? value.error : value;
+  const safeIdentifier = (input) => typeof input === "string" &&
+    /^[A-Za-z0-9_.:\[\]-]{1,128}$/u.test(input) ? input : undefined;
+  const safeMessage = (input) => typeof input === "string" && input.length <= 240 &&
+    !/[\r\n]|Bearer\s+\S+|(?:sk-|eyJ)[A-Za-z0-9_.-]{12,}|\/(?:Users|home|private|tmp|docker)\//iu.test(input)
+    ? input : undefined;
+  const httpStatus = [value?.status, status].find((v) => Number.isInteger(v) && v >= 400 && v <= 599) ?? 502;
+  const code = safeIdentifier(source?.code);
+  const param = safeIdentifier(source?.param);
+  const requestId = safeIdentifier(value?.requestId ?? value?.upstream?.requestId);
+  const recovery = RECOVERY.has(value?.recovery) ? value.recovery
+    : code === "subscription_sharing_usage_limit_exceeded" ? "manage-usage"
+      : httpStatus === 503 ? "retry-later" : "none";
+  const message = safeMessage(source?.message) ?? "The local adapter test did not complete.";
+  const upstream = isPlainObject(value?.upstream) && Number.isInteger(value.upstream.status) &&
+    value.upstream.status >= 400 && value.upstream.status <= 599
+    ? {
+        status: value.upstream.status,
+        ...(safeMessage(value.upstream.body?.detail)
+          ? { body: { detail: safeMessage(value.upstream.body.detail) } }
+          : isPlainObject(value.upstream.body?.error)
+            ? { body: { error: {
+                ...(safeMessage(value.upstream.body.error.message) ? { message: safeMessage(value.upstream.body.error.message) } : {}),
+                ...(safeIdentifier(value.upstream.body.error.code) ? { code: value.upstream.body.error.code } : {}),
+                ...(safeIdentifier(value.upstream.body.error.param) ? { param: value.upstream.body.error.param } : {}),
+              } } } : {}),
+        ...(requestId ? { requestId } : {}),
+      } : undefined;
+  return Object.assign(new Error(message), {
+    statusCode: httpStatus, recovery, ...(code ? { code } : {}),
+    ...(param ? { param } : {}), ...(requestId ? { requestId } : {}),
+    ...(upstream?.body ? { upstream } : {}),
+  });
 }
 
 function decodeCiphertext(value) {
@@ -111,6 +151,26 @@ function decodeCiphertext(value) {
     throw requestError("Secure the client credential again before testing.");
   }
   return decoded;
+}
+
+function decryptClientCredential(session, ciphertext) {
+  const encrypted = decodeCiphertext(ciphertext);
+  let credential;
+  try {
+    credential = privateDecrypt({
+      key: session.privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256",
+    }, encrypted);
+  } catch {
+    throw requestError("Secure the client credential again before testing.");
+  } finally {
+    encrypted.fill(0);
+  }
+  if (credential.length === 0 || credential.length > 512 ||
+      /[\r\n\u0000]/u.test(credential.toString("utf8"))) {
+    credential.fill(0);
+    throw requestError("Secure the client credential again before testing.");
+  }
+  return credential;
 }
 
 async function readBoundedResponse(response) {
@@ -150,6 +210,15 @@ async function readBoundedResponse(response) {
       chunk.fill(0);
     }
     reader.releaseLock?.();
+  }
+}
+
+async function readAdapterFailure(response) {
+  try {
+    const parsed = JSON.parse(await readBoundedResponse(response));
+    return safeDiagnostic(parsed, response.status);
+  } catch {
+    return adapterError(response.status);
   }
 }
 
@@ -217,6 +286,8 @@ async function consumeAdapterStream(response, onEvent) {
   let bytes = 0;
   let conversationId;
   let failed = false;
+  let failure;
+  let outcome;
   let output = "";
   let terminal = false;
   const processBlock = (block) => {
@@ -224,6 +295,7 @@ async function consumeAdapterStream(response, onEvent) {
       return;
     }
     const { event, data } = parseEventBlock(block);
+    if (terminal) throw adapterError();
     if (event === "start") {
       return;
     }
@@ -246,18 +318,19 @@ async function consumeAdapterStream(response, onEvent) {
     }
     if (event === "error") {
       failed = true;
+      failure = safeDiagnostic(data, data.status);
+      failure.outcome = data.outcome === "interrupted" ? "interrupted" : "failed";
       return;
     }
     if (event === "terminal") {
-      if (terminal || !["completed", "failed"].includes(data.outcome)) {
+      if (!["completed", "failed", "interrupted", "incomplete"].includes(data.outcome)) {
         throw adapterError();
       }
       terminal = true;
-      failed ||= data.outcome !== "completed";
+      outcome = data.outcome;
+      failed ||= outcome !== "completed";
       if (!failed) {
-        if (!isBoundedText(data.conversationId, MAX_CONVERSATION_ID_LENGTH)) {
-          throw adapterError();
-        }
+        if (!isBoundedText(data.conversationId, MAX_CONVERSATION_ID_LENGTH)) throw adapterError();
         conversationId = data.conversationId;
       }
       return;
@@ -291,8 +364,14 @@ async function consumeAdapterStream(response, onEvent) {
     reader.releaseLock?.();
   }
 
+  if (failure) throw failure;
   if (failed || !terminal || !conversationId || output.length === 0) {
-    throw adapterError();
+    const reason = !terminal || outcome === "interrupted" ? "request_interrupted"
+      : outcome === "incomplete" ? "response_incomplete" : "upstream_failed";
+    throw Object.assign(adapterError(), {
+      code: reason, outcome: !terminal || outcome === "interrupted" ? "interrupted" : "failed",
+      recovery: "review-again",
+    });
   }
   return { conversationId, output };
 }
@@ -351,7 +430,11 @@ export function createLocalChatTestService({
   }
 
   return {
-    async issueKey() {
+    async issueKey({ accountBinding } = {}) {
+      if (!accountBinding || ["registrationId", "generation", "ownerHostId", "ownerRuntimeId"]
+        .some((key) => !isBoundedText(accountBinding[key], 160))) {
+        throw requestError("The installed ChatGPT account is not available for testing.", 409);
+      }
       const issueGeneration = sessionGeneration;
       discardExpiredSessions();
       if (sessions.size + pendingKeyIssuances >= maxSessions) {
@@ -377,6 +460,10 @@ export function createLocalChatTestService({
           expiryTimer: null,
           inFlight: false,
           privateKey,
+          accountBinding: Object.freeze({
+            registrationId: accountBinding.registrationId, generation: accountBinding.generation,
+            ownerHostId: accountBinding.ownerHostId, ownerRuntimeId: accountBinding.ownerRuntimeId,
+          }),
         };
         sessions.set(keyId, session);
         session.expiryTimer = setTimeout(
@@ -395,6 +482,47 @@ export function createLocalChatTestService({
       }
     },
 
+    async models(untrustedRequest, { accountBinding } = {}) {
+      const request = validateSessionRequest(untrustedRequest);
+      const session = getLiveSession(request.keyId);
+      requireAccountBinding(session, accountBinding);
+      if (session.inFlight) throw requestError("Wait for the current test request to finish.", 409);
+      session.inFlight = true;
+      let credential;
+      let timeout;
+      try {
+        credential = decryptClientCredential(session, request.encryptedCredential);
+        session.abortController = new AbortController();
+        timeout = setTimeout(() => session.abortController?.abort(), requestTimeoutMs);
+        let response;
+        try {
+          response = await fetchImpl(`${request.endpointBaseUrl}/models`, {
+            method: "GET",
+            headers: { Authorization: `Bearer ${credential.toString("utf8")}` },
+            redirect: "error", signal: session.abortController.signal,
+          });
+        } catch (error) {
+          throw Object.assign(adapterError(isTimeout(error) ? 504 : 502), {
+            code: "request_interrupted", recovery: "retry-later",
+          });
+        }
+        if (!response?.ok) throw response ? await readAdapterFailure(response) : adapterError();
+        let data;
+        try { data = JSON.parse(await readBoundedResponse(response)); } catch { throw adapterError(); }
+        if (!Array.isArray(data?.models) || data.models.length > 256 ||
+            data.models.some((model) => !MODEL_PATTERN.test(model?.slug ?? "") ||
+              typeof model.display_name !== "string" || model.display_name.length > 256)) {
+          throw adapterError();
+        }
+        return data.models.map(({ slug, display_name }) => ({ slug, display_name }));
+      } finally {
+        clearTimeout(timeout);
+        credential?.fill(0);
+        session.abortController = null;
+        session.inFlight = false;
+      }
+    },
+
     async message(untrustedRequest, options = {}) {
       const request = validateMessageRequest(untrustedRequest);
       const onEvent =
@@ -402,36 +530,17 @@ export function createLocalChatTestService({
       const externalSignal =
         options.signal instanceof AbortSignal ? options.signal : null;
       const session = getLiveSession(request.keyId);
+      requireAccountBinding(session, options.accountBinding);
       if (session.inFlight) {
         throw requestError("Wait for the current test message to finish.", 409);
       }
       session.inFlight = true;
-      let encryptedCredential;
       let decryptedCredential;
       let authorization;
       let abortFromCaller;
       let timeout;
       try {
-        encryptedCredential = decodeCiphertext(request.encryptedCredential);
-        try {
-          decryptedCredential = privateDecrypt(
-            {
-              key: session.privateKey,
-              padding: constants.RSA_PKCS1_OAEP_PADDING,
-              oaepHash: "sha256",
-            },
-            encryptedCredential,
-          );
-        } catch {
-          throw requestError("Secure the client credential again before testing.");
-        }
-        if (
-          decryptedCredential.length === 0 ||
-          decryptedCredential.length > 512 ||
-          /[\r\n\u0000]/u.test(decryptedCredential.toString("utf8"))
-        ) {
-          throw requestError("Secure the client credential again before testing.");
-        }
+        decryptedCredential = decryptClientCredential(session, request.encryptedCredential);
         authorization = `Bearer ${decryptedCredential.toString("utf8")}`;
 
         let response;
@@ -461,6 +570,7 @@ export function createLocalChatTestService({
               ...(request.conversationId !== undefined
                 ? { conversationId: request.conversationId }
                 : {}),
+              ...(request.model !== undefined ? { model: request.model } : {}),
             }),
             redirect: "error",
             signal: session.abortController.signal,
@@ -469,7 +579,7 @@ export function createLocalChatTestService({
           throw adapterError(isTimeout(error) ? 504 : 502);
         }
         if (!response?.ok || response.status < 200 || response.status >= 300) {
-          throw adapterError();
+          throw response ? await readAdapterFailure(response) : adapterError();
         }
         return onEvent
           ? await consumeAdapterStream(response, onEvent)
@@ -478,7 +588,6 @@ export function createLocalChatTestService({
         clearTimeout(timeout);
         externalSignal?.removeEventListener("abort", abortFromCaller);
         authorization = undefined;
-        encryptedCredential?.fill(0);
         decryptedCredential?.fill(0);
         session.abortController = null;
         session.inFlight = false;

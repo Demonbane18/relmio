@@ -241,10 +241,12 @@ by a user-owned OpenAI Platform API key.
   OpenAI-issued API key.
 - **Model ID:** a model ID exposed by the Platform-key-backed endpoint.
 
-The assistant wizard does not deploy a new remote Platform gateway. Relmio's
-existing ChatGPT/Codex OAuth sidecar may be technically compatible, but is
-experimental/private/policy-uncertain. It is not auto-selected, enabled, or
-described as policy-approved for this configuration.
+The Assistant wizard does not create or auto-select the separate ChatGPT plan
+sidecar. That is a documented local SIWC connection with a separate plan grant
+and n8n background-use consent; it needs no commercial approval, partner
+client, or secret. A specific n8n AI Assistant model-node connection to that
+sidecar is outside this guide and is not claimed or tested here. See
+[n8n configuration](n8n-configuration.md).
 
 ## Platform account guardrails
 

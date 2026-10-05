@@ -43,6 +43,49 @@ export function isPrivateBrowserLaunchUrl(value) {
   }
 }
 
+export function isOpenAiAuthorizationUrl(value) {
+  if (typeof value !== "string" || value.length > 4096 || /[\u0000-\u0020\u007F]/u.test(value)) return false;
+  try {
+    const url = new URL(value);
+    if (url.origin !== "https://auth.openai.com" ||
+        url.pathname !== "/api/accounts/authorize" || url.hash ||
+        url.username || url.password || url.href !== value) return false;
+    const allowed = new Set(["client_id", "agent_name_hint", "ext_agent_host_id",
+      "response_type", "redirect_uri", "scope", "resource", "state", "nonce",
+      "code_challenge_method", "code_challenge", "prompt"]);
+    const keys = [...url.searchParams.keys()];
+    const required = ["client_id", "ext_agent_host_id", "response_type", "redirect_uri",
+      "scope", "resource", "state", "nonce", "code_challenge_method", "code_challenge"];
+    const clientId = url.searchParams.get("client_id");
+    if (keys.some(key => !allowed.has(key)) || new Set(keys).size !== keys.length ||
+        required.some(key => !url.searchParams.has(key)) ||
+        !/^[!-~]{1,256}$/u.test(clientId ?? "") ||
+        !/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(url.searchParams.get("ext_agent_host_id") ?? "") ||
+        (clientId === "dynamic_agent_client" ? url.searchParams.get("agent_name_hint") !== "Relmio" : url.searchParams.has("agent_name_hint")) ||
+        (url.searchParams.has("prompt") && url.searchParams.get("prompt") !== "consent") ||
+        url.searchParams.get("response_type") !== "code" ||
+        url.searchParams.get("code_challenge_method") !== "S256" ||
+        url.searchParams.get("resource") !== "https://api.openai.com/v1" ||
+        url.searchParams.get("scope") !== "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct" ||
+        !/^[A-Za-z0-9_-]{32,128}$/u.test(url.searchParams.get("state") ?? "") ||
+        !/^[A-Za-z0-9_-]{32,128}$/u.test(url.searchParams.get("nonce") ?? "") ||
+        !/^[A-Za-z0-9_-]{43}$/u.test(url.searchParams.get("code_challenge") ?? "")) return false;
+    const redirectUri = url.searchParams.get("redirect_uri");
+    const redirect = new URL(redirectUri);
+    return redirect.protocol === "http:" && redirect.hostname === "127.0.0.1" &&
+      Number(redirect.port) >= 1 && Number(redirect.port) <= 65535 &&
+      redirect.pathname === "/auth/callback" && redirect.href === redirectUri &&
+      !redirect.search && !redirect.hash;
+  } catch {
+    return false;
+  }
+}
+
+export async function openOpenAiAuthorization(url, options = {}) {
+  if (!isOpenAiAuthorizationUrl(url)) return false;
+  return launchCommand(url, options);
+}
+
 export function browserCommand(
   launchUrl,
   platform = process.platform,
@@ -61,25 +104,31 @@ export function browserCommand(
   return { file: "xdg-open", args: [launchUrl] };
 }
 
-export async function openBrowser(
-  launchUrl,
-  {
-    platform = process.platform,
-    spawnProcess = spawn,
-    launchTimeoutMs = 5_000,
-    systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? process.env.WINDIR,
-  } = {},
-) {
-  if (
-    !isPrivateBrowserLaunchUrl(launchUrl) ||
-    !Number.isSafeInteger(launchTimeoutMs) || launchTimeoutMs < 1 || launchTimeoutMs > 30_000
-  ) return false;
+export async function openBrowser(launchUrl, options = {}) {
+  if (!isPrivateBrowserLaunchUrl(launchUrl)) return false;
+  return launchCommand(launchUrl, options);
+}
+
+async function launchCommand(launchUrl, {
+  platform = process.platform,
+  spawnProcess = spawn,
+  launchTimeoutMs = 5_000,
+  systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? process.env.WINDIR,
+} = {}) {
+  if (!Number.isSafeInteger(launchTimeoutMs) || launchTimeoutMs < 1 || launchTimeoutMs > 30_000) return false;
   let command;
   try {
-    command = browserCommand(launchUrl, platform, { systemRoot });
+    command = isPrivateBrowserLaunchUrl(launchUrl)
+      ? browserCommand(launchUrl, platform, { systemRoot })
+      : isOpenAiAuthorizationUrl(launchUrl)
+        ? platform === "darwin" ? { file: "open", args: [launchUrl] }
+          : platform === "win32" ? { file: windowsExplorer(systemRoot), args: [launchUrl] }
+            : { file: "xdg-open", args: [launchUrl] }
+        : null;
   } catch {
     return false;
   }
+  if (!command) return false;
   let child;
   try {
     child = spawnProcess(command.file, command.args, {

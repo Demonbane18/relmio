@@ -132,22 +132,24 @@ proof that an old endpoint has stopped.
 ## Read the inventory
 
 **Refresh status** first forgets abandoned setup drafts, staged replacements,
-and tester sessions from the dashboard tab. It preserves an active ChatGPT or
-Codex sign-in helper. It then performs read-only discovery of the local Docker
-context and versions, Relmio's fixed managed paths, ownership markers, exact
-Docker objects, network and publication boundaries, Compose state, and
-generated health checks. This does not change an installed service: it does
-not install, start, restart, recreate, remove, or execute inside a container.
+and tester sessions from the dashboard tab. It preserves an active
+system-browser SIWC sign-in attempt. It then performs read-only discovery of
+the local Docker context and versions, Relmio's fixed managed paths, ownership
+markers, exact Docker objects, network and publication boundaries, Compose
+state, and generated health checks. This does not change an installed service:
+it does not install, start, restart, recreate, remove, or execute inside a
+container.
 
 Relmio's dashboard always has these eight rows, even when nothing is installed.
 
 | Dashboard service | Verified connection details | Actions after current attestation |
 |---|---|---|
-| **Codex (ChatGPT login)** | Loopback App Server WebSocket URL | **Set up** when absent; **Sign in** and **Rotate credential** when healthy |
-| **Codex Chat adapter** | Loopback HTTP adapter URL | **Set up** when absent; **Sign in** and **Rotate credential** when healthy |
+| **Codex App Server (ChatGPT plan)** | Loopback WebSocket URL | **Set up** when absent; **Sign in**, **Manage account**, or local capability rotation when offered |
+| **Codex Chat Adapter** | Loopback HTTP `/chat` URL | **Set up** when absent; **Manage account** or local capability rotation when offered |
 | **SuperGrok** | Loopback SuperGrok Chat Completions URL | **Set up** when absent; sign-in/sign-out guidance and local capability rotation when offered |
 | **n8n + ngrok** | Local n8n, authenticated ngrok, and loopback inspector URLs | **Set up** when absent; **Resume** or **Review removal** only after exact ownership attestation |
-| **OpenAI OAuth bridge** | Private `http://n8n-openai-oauth:10531/v1` | **Set up**, **Manage bridge**, or **Review removal** only when offered |
+| **AI Assistant tools** | Private Code Sandbox and optional SearXNG | **Set up**, manage optional search, or **Review removal** after ownership attestation |
+| **ChatGPT plan sidecar** | Private `http://n8n-openai-oauth:10531/v1` | **Set up**, **Manage account**, or **Review removal** after current ownership attestation |
 | **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` | **Set up**, official sign-in/sign-out guidance, or **Review removal** only when offered |
 | **Local model for n8n** | Private `http://n8n-local-model:11434/v1`; model readiness and selected ID | **Set up**, **Review model retry**, or **Review removal** only when offered |
 
@@ -176,63 +178,67 @@ for that service.
 | **Unavailable** | Relmio could not prove a safe state | No setup or maintenance action is available for that row |
 | **Stale** | The last verified snapshot is more than five minutes old | Refresh status before using any action |
 | **Not configured** | No Relmio-managed installation exists at the fixed path | Select **Set up** to open that service's reviewed setup flow |
+| **Legacy ChatGPT target** | An old credential-copy sidecar was detected; it is not a verified SIWC installation and may still be running until migration is approved | **Set up** opens a separate fresh-SIWC migration review. Only after final confirmation does Relmio stop the exact attested old service; old credential/workspace volumes remain offline and preserved. Incomplete migrations require inspection; no automatic resume or deletion occurs. |
 
-Refreshing inventory and refreshing a bridge credential are different actions.
-**Refresh status** only reads. **Refresh credential** opens the bridge's
-existing sign-in, ownership, review, and confirmation flow before it changes
-the owned sidecar credential.
+Installed Codex and n8n sidecars use the selected SIWC registration. **Manage
+account** reports identity, plan permission, enabled/paused state, and
+ownership without exposing provider tokens. Sign-in, permission to use the
+ChatGPT plan, and an actual successful model request remain separate checks.
 
-**Manage bridge** opens the two bridge maintenance controls. **Update bridge
-runtime** is separate from credential refresh. Use it after installing a Relmio
-release with a bridge compatibility fix, because changing the local package
-does not update the running container. The action preserves the existing OAuth
-credential, bridge identity, and selected Docker network. It rebuilds and
-verifies only the owned sidecar. Read the summary, select the separate
-confirmation checkbox, then choose **Update bridge runtime**. The button remains
-disabled until confirmation. The update does not require another ChatGPT
-sign-in. **Apply sign-in to owned bridge** remains a credential-only action and
-does not install a newer runtime.
+For a local n8n sidecar, sign-out and plan-disable stop the exact attested
+sidecar before changing its registration. If Relmio cannot confirm the stop,
+the account mutation is not attempted. For a VPS sidecar, it rechecks the
+selected SSH identity and Compose ownership and confirms the sidecar stopped
+before the operation. Neither action changes n8n.
+
+The first-use plan notice must be acknowledged before plan models are
+available. **Manage usage** opens ChatGPT's usage settings. A plan usage-limit
+error does not switch accounts or billing; follow its recovery action.
 
 ## Keep credentials separate
 
-The dashboard returns sanitized state and allowlisted URLs. It never returns a
-stored ChatGPT session, OAuth token, local client credential,
-ngrok token, Basic Auth password, n8n encryption key, or Assistant runner
-secret.
+The dashboard returns sanitized account state and allowlisted URLs. It never
+returns a provider access or refresh token, local client bearer, ngrok token,
+Basic Auth password, n8n encryption key, or Assistant runner secret.
 
-- A local endpoint capability or Chat Adapter bearer appears once after setup
-  or rotation. Relmio stores its verifier, not the raw replacement. Save the
-  displayed value before leaving the result screen.
-- The OAuth bridge credential stays server-managed. The dashboard can open its
-  separately confirmed refresh flow, but it cannot reveal the saved token.
+- The one-time bearer for a local endpoint or n8n sidecar appears only on its
+  installation result. Relmio stores its verifier, not the raw bearer.
+- SIWC tokens stay in the protected registration owned by the local runtime or
+  installed destination. Sign-out clears local tokens and reports whether
+  provider revocation was confirmed.
 - The Assistant sandbox key and settings appear once after setup. Dashboard
   refresh reports only whether the component is configured.
 - Returning to the dashboard clears pending plans, confirmations, sign-in
   links, and one-time result values. Copy any value you need before returning.
 
-## Distinguish Codex sign-in from the local bearer
+## Distinguish the provider session from local bearers
 
-The two Codex credentials have different jobs:
+The selected SIWC registration authorizes provider access. Local Relmio
+bearers authorize a particular client surface:
 
-- ChatGPT device sign-in authorizes Codex inside its isolated container.
-- The App Server capability or Chat Adapter bearer authorizes your client to
-  connect to the local Relmio endpoint.
+- The App Server bearer grants a trusted native client a high-trust local
+  JSON-RPC connection.
+- The Chat Adapter bearer is limited to its read-only conversational HTTP
+  route.
+- The n8n sidecar bearer authorizes only the selected private Docker-network
+  gateway; n8n does not receive the OpenAI token.
 
-Selecting **Sign in** on a healthy Codex row opens installed-endpoint
-management. It does not claim that the saved ChatGPT sign-in or local client
-credential is valid, and it does not start a browser sign-in by itself. Start
-a fresh device-code sign-in there only when you need one.
-
-Rotating the local credential does not refresh ChatGPT sign-in. Repeating
-ChatGPT sign-in does not replace the App Server capability or Chat Adapter
-bearer.
+The App Server child receives `ACCESS_TOKEN` in its environment. A trusted
+same-UID tool may inspect its own process environment or files. Treat the raw
+App Server client as high trust; Relmio does not claim to isolate its own
+authorized client from its process context. The Chat Adapter remains separate
+and read-only.
 
 ## Keep provider accounts explicit
 
-Relmio's Codex targets use the official Codex App Server. Codex owns the ChatGPT OAuth flow,
-stores the active credential, and refreshes it. Each Codex
-target has one active ChatGPT account. Changing accounts requires an explicit
-sign-out and a new sign-in; Relmio does not pool accounts.
+Each saved ChatGPT registration is bound to verified issuer, issued client ID,
+and subject. Email is a display label, not a merge key. Choose the registration
+you intend to use; Relmio does not maintain an account pool or change accounts
+after an error.
+
+Sign-out clears local tokens and attempts provider revocation. If revocation is
+unconfirmed, use ChatGPT's disconnection controls. Deleting local registration
+data is not proof of provider-side revocation or deletion.
 
 The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
 OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
@@ -241,17 +247,10 @@ chat proxy. It does not inspect another app's credentials, import tokens,
 replay browser cookies, or accept an xAI API key. The CLI remains the sole
 credential writer; the HTTP handler never consumes refresh tokens.
 
-Local apps use `/v1/chat/completions` with a freshly discovered model and a
-separate Relmio client bearer. `grok-build` remains a legacy routing alias.
-n8n executes its own tools and returns matching results. The legacy simple
-`/chat` request shape remains available through the direct transport. Browser
-bundles must not hold the local bearer or call it directly.
-
-
-Relmio never changes accounts automatically after a 401, 403, or 429,
-rate-limit, or quota response. It reports the failure and waits for the account
-owner to act. The dashboard may report that a credential is configured, but it
-never returns or re-shows a stored secret.
+Local Grok apps use `/v1/chat/completions` with a separate Relmio client
+bearer. `grok-build` remains a legacy routing alias. n8n executes its own tools
+and returns matching results. Browser bundles must not hold the local bearer.
+Relmio does not rotate accounts or switch billing after provider errors.
 
 ## Preserve n8n operator ownership
 
@@ -286,16 +285,16 @@ inventory. It does not reuse the previous setup plan.
 
 ## Provider controls
 
-Relmio 0.14.0 separates **Runtime health**, **Provider readiness**,
-and **Inventory freshness**. A healthy container does not establish that its
-provider account is signed in or entitled to a model. Stale inventory preserves
-the last observed truth while disabling maintenance actions.
+The dashboard distinguishes runtime health, provider readiness, and inventory
+freshness. A healthy container does not prove identity verification, a granted
+ChatGPT plan permission, model entitlement, or a completed request.
 
-The four OAuth entries show **Provider-managed · not inspected**. Guidance
-buttons do not claim a sign-in or sign-out occurred. Rotating a local capability
-does not change the provider session. No API-key profile controls are present.
+Open **Add connection** and choose the ChatGPT route to select or manage saved
+SIWC registrations. The account view distinguishes identity-only, plan-paused,
+plan-active, signed-out, reauthorization-required, and transferred states. It
+never returns provider tokens. Plan use requires the separate ChatGPT grant and
+first-use confirmation; **Manage usage** opens ChatGPT settings.
 
-The experimental SuperGrok adapter serves both local apps and n8n through Chat
-Completions without a ChatGPT credential. Windows live checks covered n8n Chat,
-Assistant tool use, and a Calculator workflow. Those checks do not establish the
-same results on a production VPS.
+SuperGrok remains a separate official CLI-managed session. Its sign-in,
+catalog, and inference status do not establish ChatGPT account state or
+permission.

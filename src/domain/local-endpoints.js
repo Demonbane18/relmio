@@ -1,5 +1,6 @@
 import { validatePort } from "./validation.js";
 import { getProviderTargetBinding } from "./provider-lifecycle.js";
+import { validateSiwcAuthBinding, validateSiwcRegistrationId } from "./safety.js";
 import packageManifest from "../../package.json" with { type: "json" };
 
 export const CODEX_CLI_VERSION = "0.147.0";
@@ -98,6 +99,7 @@ export function validateInstallId(value) {
 export function createLocalDeploymentPlan({
   target,
   port,
+  authBinding,
 }) {
   const safeTarget = validateLocalTarget(target);
   const safePort = validateLocalPort(
@@ -119,6 +121,7 @@ export function createLocalDeploymentPlan({
     upstreamAuth: targetDefinition.upstreamAuth,
     browserClients: targetDefinition.browserClients,
     experimental: targetDefinition.experimental,
+    ...(safeTarget === "xai-grok-build" ? {} : { authBinding: validateSiwcAuthBinding(authBinding) }),
     managedPath: `~/.relmio/local/${safeTarget}`,
   };
 }
@@ -129,8 +132,8 @@ export function createLocalDockerignore(target) {
     return "**\n!Dockerfile\n!gateway.js\n!chat.js\n!session.js\n";
   }
   return safeTarget === "codex-chat"
-    ? "**\n!Dockerfile\n!gateway.mjs\n!config.toml\n!requirements.toml\n"
-    : "**\n!Dockerfile\n!config.toml\n!requirements.toml\n";
+    ? "**\n!Dockerfile\n!package.json\n!package-lock.json\n!gateway/\n!gateway/codex-chat.js\n!gateway/openai-oauth-sidecar.mjs\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n!config.toml\n!requirements.toml\n"
+    : "**\n!Dockerfile\n!package.json\n!package-lock.json\n!gateway/\n!gateway/codex-app-server.mjs\n!gateway/openai-oauth-sidecar.mjs\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n!config.toml\n!requirements.toml\n";
 }
 
 export function createGrokBuildDockerfile() {
@@ -242,9 +245,8 @@ function renderCodexConfig({
   approvalPolicy,
   permissionProfile,
   permissionProfileBase,
-  protectCredentialStore = false,
 }) {
-  const filesystemPermissions = protectCredentialStore
+  const filesystemPermissions = permissionProfile === "relmio-chat-readonly"
     ? `
 [permissions.${permissionProfile}.filesystem]
 ":root" = "deny"
@@ -252,17 +254,27 @@ function renderCodexConfig({
 ":tmpdir" = "deny"
 ":slash_tmp" = "deny"
 "/workspace" = "read"
-"/home/node/.codex" = "deny"
+"/home/node/.relmio-siwc" = "deny"
 `
-    : "";
+    : `
+[permissions.${permissionProfile}.filesystem]
+"/home/node/.relmio-siwc" = "deny"
+`;
   return `approval_policy = "${approvalPolicy}"
 approvals_reviewer = "user"
 allow_login_shell = false
 check_for_update_on_startup = false
-cli_auth_credentials_store = "file"
 default_permissions = "${permissionProfile}"
-forced_login_method = "chatgpt"
+model_provider = "openai_chatgpt_plan"
 web_search = "disabled"
+
+[model_providers.openai_chatgpt_plan]
+name = "ChatGPT plan"
+base_url = "https://api.openai.com/v1"
+env_key = "ACCESS_TOKEN"
+wire_api = "responses"
+requires_openai_auth = false
+supports_websockets = false
 
 [analytics]
 enabled = false
@@ -280,6 +292,9 @@ enabled = false
 [shell_environment_policy]
 inherit = "none"
 ignore_default_excludes = false
+
+[agents]
+enabled = false
 
 [features]
 apps = false
@@ -318,14 +333,12 @@ export function createCodexChatConfig() {
     approvalPolicy: "never",
     permissionProfile: "relmio-chat-readonly",
     permissionProfileBase: ":read-only",
-    protectCredentialStore: true,
   });
 }
 
 function renderCodexRequirements({ approvalPolicy, permissionProfile }) {
   return `allowed_approval_policies = ["${approvalPolicy}"]
 allowed_approvals_reviewers = ["user"]
-allowed_login_methods = ["chatgpt"]
 allowed_web_search_modes = ["disabled"]
 allow_managed_hooks_only = true
 allow_remote_control = false
@@ -378,56 +391,60 @@ export function createCodexChatRequirements() {
 }
 
 export function createCodexDockerfile() {
-  return `FROM node:22-bookworm-slim
+  return `FROM node:24-bookworm-slim
 
-RUN apt-get update \\
-    && apt-get install --no-install-recommends -y ca-certificates \\
-    && rm -rf /var/lib/apt/lists/* \\
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts \\
     && npm install --global --ignore-scripts @openai/codex@${CODEX_CLI_VERSION} \\
     && npm cache clean --force \\
-    && mkdir -p /etc/codex /home/node/.codex /workspace \\
-    && chown -R node:node /home/node/.codex /workspace
+    && mkdir -p /etc/codex /home/node/.codex /home/node/.relmio-siwc /workspace \\
+    && chown -R node:node /home/node/.codex /home/node/.relmio-siwc /workspace
 
 COPY --chmod=0444 requirements.toml /etc/codex/requirements.toml
 COPY --chown=node:node config.toml /home/node/.codex/config.toml
+COPY --chown=node:node services/ ./services/
+COPY --chown=node:node gateway/ ./gateway/
+COPY --chown=node:node infrastructure/ ./infrastructure/
 
 ENV CODEX_HOME=/home/node/.codex
 WORKDIR /workspace
 USER node
 
-ENTRYPOINT ["codex"]
+ENTRYPOINT ["node", "/app/gateway/codex-app-server.mjs"]
 `;
 }
 
 export function createCodexChatDockerfile() {
-  return `FROM node:22-bookworm-slim
+  return `FROM node:24-bookworm-slim
 
 WORKDIR /app
-
-RUN apt-get update \\
-    && apt-get install --no-install-recommends -y ca-certificates \\
-    && rm -rf /var/lib/apt/lists/* \\
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts \\
     && npm install --global --ignore-scripts @openai/codex@${CODEX_CLI_VERSION} \\
     && npm cache clean --force \\
-    && mkdir -p /etc/codex /home/node/.codex /workspace \\
-    && chown -R node:node /home/node/.codex /workspace
+    && mkdir -p /etc/codex /home/node/.codex /home/node/.relmio-siwc /workspace \\
+    && chown -R node:node /home/node/.codex /home/node/.relmio-siwc /workspace
 
 COPY --chmod=0444 requirements.toml /etc/codex/requirements.toml
 COPY --chown=node:node config.toml /home/node/.codex/config.toml
-COPY --chown=node:node gateway.mjs /app/gateway.mjs
+COPY --chown=node:node services/ ./services/
+COPY --chown=node:node gateway/ ./gateway/
+COPY --chown=node:node infrastructure/ ./infrastructure/
 
 ENV CODEX_HOME=/home/node/.codex
 WORKDIR /workspace
 USER node
 
-ENTRYPOINT ["node", "/app/gateway.mjs"]
+ENTRYPOINT ["node", "/app/gateway/codex-chat.js"]
 `;
 }
 
-export function createCodexChatComposeFile({ port, tokenSha256, installId }) {
+export function createCodexChatComposeFile({ port, tokenSha256, installId, registrationId }) {
   const safePort = validateLocalPort(port);
   const safeVerifier = validateSha256Verifier(tokenSha256);
   const safeInstallId = validateInstallId(installId);
+  const safeRegistrationId = validateSiwcRegistrationId(registrationId);
   const gatewayImage = `relmio-codex-chat-${safeInstallId}:local`;
 
   return `services:
@@ -443,10 +460,14 @@ export function createCodexChatComposeFile({ port, tokenSha256, installId }) {
       RELMIO_GATEWAY_HOST: 0.0.0.0
       RELMIO_GATEWAY_PORT: "14501"
       RELMIO_PACKAGE_VERSION: "${PACKAGE_VERSION}"
+      N8N_OPENAI_OAUTH_HOME: /home/node/.relmio-siwc
+      RELMIO_REGISTRATION_ID: "${safeRegistrationId}"
+      RELMIO_RUNTIME_ID: "${safeInstallId}"
     ports:
       - "127.0.0.1:${safePort}:14501"
     volumes:
-      - codex-home:/home/node/.codex
+      - codex-state:/home/node/.codex
+      - siwc-store:/home/node/.relmio-siwc
       - codex-workspace:/workspace
     security_opt:
       - no-new-privileges:true
@@ -493,7 +514,12 @@ networks:
       io.relmio.install: "${safeInstallId}"
 
 volumes:
-  codex-home:
+  codex-state:
+    labels:
+      io.relmio.managed: "true"
+      io.relmio.target: "codex-chat"
+      io.relmio.install: "${safeInstallId}"
+  siwc-store:
     labels:
       io.relmio.managed: "true"
       io.relmio.target: "codex-chat"
@@ -506,10 +532,11 @@ volumes:
 `;
 }
 
-export function createCodexComposeFile({ port, tokenSha256, installId }) {
+export function createCodexComposeFile({ port, tokenSha256, installId, registrationId }) {
   const safePort = validateLocalPort(port);
   const safeVerifier = validateSha256Verifier(tokenSha256);
   const safeInstallId = validateInstallId(installId);
+  const safeRegistrationId = validateSiwcRegistrationId(registrationId);
 
   return `services:
   codex:
@@ -518,19 +545,19 @@ export function createCodexComposeFile({ port, tokenSha256, installId }) {
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true
-    command:
-      - app-server
-      - --strict-config
-      - --listen
-      - ws://0.0.0.0:4500
-      - --ws-auth
-      - capability-token
-      - --ws-token-sha256
-      - ${safeVerifier}
+    environment:
+      RELMIO_GATEWAY_TOKEN_SHA256: ${safeVerifier}
+      RELMIO_GATEWAY_HOST: 0.0.0.0
+      RELMIO_GATEWAY_PORT: "4500"
+      RELMIO_PACKAGE_VERSION: "${PACKAGE_VERSION}"
+      N8N_OPENAI_OAUTH_HOME: /home/node/.relmio-siwc
+      RELMIO_REGISTRATION_ID: "${safeRegistrationId}"
+      RELMIO_RUNTIME_ID: "${safeInstallId}"
     ports:
       - "127.0.0.1:${safePort}:4500"
     volumes:
-      - codex-home:/home/node/.codex
+      - codex-state:/home/node/.codex
+      - siwc-store:/home/node/.relmio-siwc
       - codex-workspace:/workspace
     security_opt:
       - no-new-privileges:true
@@ -577,7 +604,12 @@ networks:
       io.relmio.install: "${safeInstallId}"
 
 volumes:
-  codex-home:
+  codex-state:
+    labels:
+      io.relmio.managed: "true"
+      io.relmio.target: "codex-chatgpt"
+      io.relmio.install: "${safeInstallId}"
+  siwc-store:
     labels:
       io.relmio.managed: "true"
       io.relmio.target: "codex-chatgpt"

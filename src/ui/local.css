@@ -677,6 +677,21 @@
   break-inside: avoid;
 }
 
+/* The account card uses the width: the account select beside its actions,
+   then the state and sign-in rows across both columns. DOM order matches the
+   visual order, so focus moves select, actions, then Refresh status. */
+@media (min-width: 64rem) {
+  #local-siwc {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: start;
+    gap: var(--rm-space-2) var(--rm-space-3);
+  }
+
+  #local-siwc > :not(.siwc-account, .siwc-actions) {
+    grid-column: 1 / -1;
+  }
+}
+
 .target-guidance {
   padding: 0.625rem 0.75rem;
   font-size: var(--rm-text-sm);
@@ -747,12 +762,6 @@ body[data-current-step="1"] .setup-panel :is(.rm-panel__header, .rm-panel__foote
   flex: 1 1 12rem;
 }
 
-.sidecar-oauth {
-  display: grid;
-  gap: var(--rm-space-2);
-}
-
-.sidecar-oauth-actions,
 .detected-integration-actions {
   --rm-gap: var(--rm-space-2);
 }
@@ -1098,34 +1107,33 @@ body[data-current-step="1"] .setup-panel :is(.rm-panel__header, .rm-panel__foote
   .ready-columns:not(:has(#n8n-stack-removal:not([hidden]))) > * {
     margin-bottom: 0;
   }
-  .ready-columns:not(:has(#n8n-stack-removal:not([hidden]))) > :is(#install-result-list, .ready-safety, #codex-login) {
+  .ready-columns:not(:has(#n8n-stack-removal:not([hidden]))) > :is(#install-result-list, #codex-login) {
+    grid-column: 1 / -1;
+  }
+  /* With a ChatGPT account card, the key safety notes sit beside it instead
+     of taking their own row. */
+  .ready-columns:not(:has(#n8n-stack-removal:not([hidden]))):not(:has(> #installed-siwc-models:not([hidden]))) > .ready-safety {
     grid-column: 1 / -1;
   }
   .ready-columns:not(:has(#n8n-stack-removal:not([hidden]))) .ready-safety__list {
     grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
     align-items: start;
   }
+}
 
-  .success-panel {
-    position: relative;
-  }
+/* The step caption and the provider context share the eyebrow line and wrap
+   when the header is narrow. */
+.success-eyebrows {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rm-space-1) var(--rm-space-4);
+}
 
-  .success-panel > .rm-panel__body {
-    position: static;
-  }
-
-  .ready-columns:not(:has(#n8n-stack-removal:not([hidden]))) > #done-provider-context {
-    position: absolute;
-    top: var(--rm-space-3);
-    right: var(--rm-space-4);
-    margin: 0;
-    font-size: var(--rm-text-xs);
-    line-height: 1.2;
-    text-align: end;
-    white-space: nowrap;
-  }
-
-
+.success-eyebrows > #done-provider-context {
+  font-size: var(--rm-text-xs);
+  line-height: 1.2;
 }
 
 body[data-current-step="4"] .setup-shell {
@@ -1148,11 +1156,6 @@ body[data-current-step="4"] .setup-shell {
 }
 
 @media (max-width: 68rem) {
-  .ready-columns:not(:has(#n8n-stack-removal:not([hidden]))) > #done-provider-context {
-    max-width: 16rem;
-    white-space: normal;
-  }
-
   .ready-columns > #install-result-list > :is(
     #result-endpoint-row,
     #result-searxng-row,
@@ -1215,6 +1218,11 @@ body[data-current-step="4"] .setup-shell {
   display: grid;
   justify-items: start;
   gap: var(--rm-space-1);
+}
+
+/* Installed account controls keep their natural width inside the disclosure. */
+#local-siwc-owner > .rm-disclosure__body {
+  justify-items: start;
 }
 
 .success-panel :is(.rm-callout, .rm-card--compact) {

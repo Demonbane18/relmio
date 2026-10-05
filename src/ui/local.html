@@ -8,6 +8,7 @@
     <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/local.css" />
+    <link rel="stylesheet" href="/siwc.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
     <script src="/local.js" type="module"></script>
@@ -333,8 +334,8 @@
                       <label class="rm-choice target-card">
                         <input class="rm-choice__input" type="radio" name="target" value="n8n-openai-oauth" />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--message rm-icon--lg"></span></span>
-                        <span class="rm-choice__title">ChatGPT for n8n <span class="rm-badge rm-badge--warning">Unofficial · policy-uncertain</span></span>
-                        <span class="rm-choice__text">Uses your saved ChatGPT sign-in, not a Platform API key.</span>
+                        <span class="rm-choice__title">n8n with ChatGPT sign-in <span class="rm-badge rm-badge--accent">Experimental</span></span>
+                        <span class="rm-choice__text">Use a selected, separately authorized ChatGPT plan registration. Enter a one-time local client key in n8n.</span>
                       </label>
 
                       <label class="rm-choice target-card">
@@ -414,7 +415,7 @@
                     <details class="rm-disclosure rm-disclosure--plain setup-help connection-details">
                       <summary>Connection details and limits</summary>
                       <div class="rm-disclosure__body">
-                        <p><strong>ChatGPT for n8n</strong> is unofficial, private, and policy-uncertain. It copies the saved ChatGPT/Codex credential file into an <code>openai-oauth</code> sidecar on the shared Docker network and publishes no host port. That file is not identity-only sign-in and not a Platform API key. Availability depends on your account. Supported here: Message a Model. GPT Image generation and editing use unofficial compatibility handlers; documented Sign in with ChatGPT plan usage excludes image generation. Listed image IDs do not prove entitlement or success. Unavailable through this bridge: audio, TTS, moderation, file management, and stored conversations. Use a separate OpenAI Platform connection for those supported actions. Never enter that API key here. Video is separate: OpenAI shut down the Videos API on September 24, 2026, with no replacement listed. Codex may write a login log. Relmio does not know how long that log is kept.</p>
+                        <p><strong>n8n with ChatGPT sign-in</strong> uses a local SIWC preview registration, separate from personal Codex credentials and Platform API billing. Verified identity alone cannot use the plan. You approve plan permission in ChatGPT and background n8n use separately. Relmio transfers one selected registration to an owned sidecar on the reviewed Docker network; n8n itself stays unchanged. The one-time Relmio client key is entered in n8n by you. Models come from that account's catalog, but a list does not prove a request will finish. This integration does not support image generation, audio, video, Files upload, or stored conversations. Old bridges need an explicit reviewed migration with a fresh sign-in.</p>
                         <p><strong>Grok for n8n</strong> uses official SuperGrok sign-in only. It adds a private Chat Completions companion. No provider token or API key is entered here.</p>
                         <p><strong>Codex App Server</strong> is an experimental JSON-RPC WebSocket for a trusted native app. It is not OpenAI <code>/v1</code>. Browsers cannot connect directly.</p>
                         <p><strong>Codex Chat Adapter</strong> is an experimental <code>POST /chat</code> endpoint for a trusted local backend. It is not <code>/v1</code>. Do not put it in browser code.</p>
@@ -428,6 +429,48 @@
                 </div>
 
                 <div id="configure-stage" class="configure-stage" hidden>
+                  <section id="local-siwc" class="rm-card rm-card--muted rm-card--compact siwc-controls" aria-labelledby="local-siwc-title" hidden>
+                    <div class="siwc-account">
+                      <label class="rm-field" for="local-siwc-account"><span id="local-siwc-title" class="rm-field__label">ChatGPT account</span>
+                        <select id="local-siwc-account" class="rm-select" data-siwc="account"></select>
+                      </label>
+                      <div data-siwc="pending-row" class="siwc-pending" hidden>
+                        <label class="rm-field" for="local-siwc-pending"><span class="rm-field__label">Unfinished sign-in</span>
+                          <select id="local-siwc-pending" class="rm-select" data-siwc="pending"></select>
+                        </label>
+                        <button type="button" class="rm-button rm-button--sm" data-siwc="finish">Finish sign-in</button>
+                      </div>
+                      <ul data-siwc="transferred" class="rm-small rm-muted" aria-label="Accounts managed at other installations" hidden></ul>
+                    </div>
+                    <div class="rm-cluster siwc-actions">
+                      <button type="button" class="rm-button" data-siwc="welcome-open" hidden>Review plan notice</button>
+                      <button type="button" class="rm-button rm-button--primary" data-siwc="new">Continue with ChatGPT</button>
+                      <button type="button" class="rm-button rm-button--sm" data-siwc="return" hidden>Sign in again</button>
+                      <button type="button" class="rm-button rm-button--sm" data-siwc="grant" hidden>Allow ChatGPT plan use</button>
+                      <button type="button" class="rm-button rm-button--sm" data-siwc="resume" hidden>Use ChatGPT plan</button>
+                      <button type="button" class="rm-button rm-button--sm" data-siwc="pause" hidden>Pause plan use</button>
+                      <button type="button" class="rm-button rm-button--sm" data-siwc="logout" hidden>Sign out of ChatGPT</button>
+                      <a data-siwc="usage" class="rm-link rm-link--standalone" target="_blank" rel="noopener noreferrer" hidden>Manage usage<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+                    </div>
+                    <div data-siwc="state" class="siwc-state" role="status" aria-live="polite" tabindex="-1">
+                      <p data-siwc="plan-badge" class="rm-status" data-tone="success" hidden><span class="rm-status__dot" aria-hidden="true"></span>Using ChatGPT plan</p>
+                      <p data-siwc="status" class="rm-small"></p>
+                      <p data-siwc="owner" class="rm-small rm-muted"></p>
+                    </div>
+                    <div id="n8n-sidecar-oauth" class="sidecar-status-row" role="group" aria-label="Local ChatGPT sign-in" hidden>
+                      <p id="n8n-oauth-status" class="rm-small rm-muted" role="status" aria-live="polite">Checking local ChatGPT sign-in…</p>
+                      <button id="n8n-oauth-sign-in" class="rm-button rm-button--sm" type="button" hidden>Sign in to ChatGPT</button>
+                      <button id="n8n-oauth-refresh" class="rm-button rm-button--ghost rm-button--sm" type="button">Refresh status</button>
+                    </div>
+                    <button id="n8n-oauth-link" class="rm-button rm-button--sm" data-operation-allow="auth" type="button" hidden>Stop ChatGPT sign-in</button>
+                    <dialog data-siwc="welcome" class="siwc-dialog" aria-labelledby="local-siwc-welcome-title">
+                      <h3 id="local-siwc-welcome-title" class="rm-h3">You're using your ChatGPT plan</h3>
+                      <p>Your ChatGPT plan is used for this account's model requests. OpenAI applies your account limits. n8n background workflows need a separate approval before installation.</p>
+                      <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Manage usage (opens in a new tab)</a></p>
+                      <button type="button" class="rm-button rm-button--primary" data-siwc="welcome-accept">Continue</button>
+                    </dialog>
+                  </section>
+                  <div id="local-siwc-recovery"></div>
                   <div class="configure-columns">
                     <div class="route-summary">
                       <span class="rm-icon rm-icon--plug" aria-hidden="true"></span>
@@ -532,92 +575,15 @@
                               Set up or check owned Assistant tools
                             </button>
                             <button id="refresh-local-n8n-chatgpt" class="rm-button rm-button--ghost rm-button--sm" type="button">
-                              Refresh ChatGPT sign-in
+                              Set up another ChatGPT account
                             </button>
-                          </div>
-                        </div>
-                      </details>
-
-                      <div id="n8n-sidecar-oauth" class="config-block rm-card rm-card--muted rm-card--compact sidecar-oauth" role="group" aria-labelledby="n8n-oauth-title">
-                        <h3 id="n8n-oauth-title" class="rm-h3">Local ChatGPT sign-in</h3>
-                        <p id="n8n-oauth-status" class="rm-small rm-muted" role="status" aria-live="polite">
-                          Checking local ChatGPT sign-in…
-                        </p>
-                        <div class="rm-cluster sidecar-oauth-actions">
-                          <button id="n8n-oauth-sign-in" class="rm-button rm-button--sm" type="button">
-                            Sign in to ChatGPT
-                          </button>
-                          <button id="n8n-oauth-refresh" class="rm-button rm-button--ghost rm-button--sm" type="button">
-                            Refresh status
-                          </button>
-                          <a
-                            id="n8n-oauth-link"
-                            class="rm-button rm-button--sm"
-                            data-operation-allow="auth"
-                            hidden
-                          >Open fresh ChatGPT sign-in</a>
-                        </div>
-                      </div>
-
-                      <details id="n8n-sidecar-update" class="config-block rm-disclosure managed-companion-edit" aria-labelledby="n8n-sidecar-update-title">
-                        <summary><span id="n8n-sidecar-update-title">Update an existing bridge</span></summary>
-                        <div class="rm-disclosure__body">
-                          <p>Rebuild the bridge Relmio already installed here. Saved sign-in stays. n8n stays running.</p>
-                          <label class="rm-check check-row">
-                            <input id="update-bridge-confirm" type="checkbox" />
-                            <span>I approve updating this Relmio bridge. Keep its saved sign-in and leave n8n unchanged.</span>
-                          </label>
-                          <div class="managed-companion-edit-actions">
-                            <button id="update-bridge-button" class="rm-button rm-button--sm" type="button" disabled>Update bridge runtime</button>
-                            <p id="update-bridge-status" class="rm-small" role="status" aria-live="polite">Confirm to update the bridge installed on this computer. No new sign-in is needed.</p>
-                          </div>
-                          <section id="update-image-models" class="model-box" aria-labelledby="update-image-models-title" hidden>
-                            <h4 id="update-image-models-title" class="rm-h3">Image models for n8n</h4>
-                            <p class="rm-small">In n8n Image Generate or Edit, choose From list. If a current n8n picker does not show one, choose By ID and paste its exact ID.</p>
-                            <dl class="rm-dl result-list">
-                              <div id="update-image-model-2-row" hidden>
-                                <dt>GPT Image 2</dt>
-                                <dd class="result-value"><code id="update-image-model-2"></code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="update-image-model-2" data-copy-label="GPT Image 2 model ID" aria-label="Copy GPT Image 2 model ID" title="Copy GPT Image 2 model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
-                              </div>
-                              <div id="update-image-model-flare-row" hidden>
-                                <dt>GPT Image 2.5 Flare</dt>
-                                <dd class="result-value"><code id="update-image-model-flare"></code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="update-image-model-flare" data-copy-label="GPT Image 2.5 Flare model ID" aria-label="Copy GPT Image 2.5 Flare model ID" title="Copy GPT Image 2.5 Flare model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
-                              </div>
-                              <div id="update-image-model-sunburst-row" hidden>
-                                <dt>GPT Image 2.5 Sunburst</dt>
-                                <dd class="result-value"><code id="update-image-model-sunburst"></code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="update-image-model-sunburst" data-copy-label="GPT Image 2.5 Sunburst model ID" aria-label="Copy GPT Image 2.5 Sunburst model ID" title="Copy GPT Image 2.5 Sunburst model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
-                              </div>
-                            </dl>
-                          </section>
-                        </div>
-                      </details>
-
-                      <details
-                        id="n8n-sidecar-refresh"
-                        class="config-block rm-disclosure managed-companion-edit"
-                        aria-labelledby="n8n-sidecar-refresh-title"
-                      >
-                        <summary><span id="n8n-sidecar-refresh-title">Apply a new sign-in to an existing bridge</span></summary>
-                        <div class="rm-disclosure__body">
-                          <p>Only for a bridge Relmio already created. It checks that owned sidecar, then updates its private sign-in. It never changes n8n. ChatGPT sign-in above is not applied automatically. This action only updates the sign-in. Use Update bridge runtime for bridge fixes.</p>
-                          <label class="rm-check check-row">
-                            <input id="refresh-bridge-confirm" type="checkbox" />
-                            <span>I approve applying my current ChatGPT sign-in only to a Relmio-owned bridge. Leave n8n and its network unchanged.</span>
-                          </label>
-                          <div class="managed-companion-edit-actions">
-                            <button id="refresh-bridge-button" class="rm-button rm-button--sm" type="button" disabled>
-                              Apply sign-in to owned bridge
-                            </button>
-                            <p id="refresh-bridge-status" class="rm-small" role="status" aria-live="polite">
-                              No sign-in is copied until you complete ChatGPT sign-in and confirm this separate action.
-                            </p>
                           </div>
                         </div>
                       </details>
 
                       <p id="n8n-sidecar-scope" class="config-block scope-note sidecar-scope-note">
                         <span class="rm-icon rm-icon--info rm-icon--sm" aria-hidden="true"></span>
-                        <span><strong>Model bridge only.</strong> This does not install Code Sandbox or SearXNG. Set Assistant model credentials in n8n, not here.</span>
+                        <span><strong>ChatGPT plan sidecar.</strong> Use a fresh Relmio sign-in for another installation. A legacy bridge needs a separate reviewed migration; n8n remains yours to configure.</span>
                       </p>
 
                       <div
@@ -806,6 +772,10 @@
                     <dt>Upstream sign-in</dt>
                     <dd id="review-auth"></dd>
                   </div>
+                  <div id="review-siwc-account-row" hidden>
+                    <dt>ChatGPT account</dt>
+                    <dd id="review-siwc-account"></dd>
+                  </div>
                   <div id="review-browser-row">
                     <dt>Browser clients</dt>
                     <dd id="review-browser"></dd>
@@ -839,6 +809,7 @@
                     <dd><code id="review-path"></code></dd>
                   </div>
                 </dl>
+                <p id="review-siwc-usage" class="rm-status" data-tone="success" hidden>Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Manage usage (opens in a new tab)</a></p>
 
                 <details id="local-model-review-details" class="rm-disclosure model-review-provenance" hidden>
                   <summary>Model digest and runtime image</summary>
@@ -889,6 +860,14 @@
                   <input id="install-confirm" type="checkbox" />
                   <span id="install-confirm-copy">I reviewed this exact plan and authorize Relmio to write its managed local files and start this container.</span>
                 </label>
+                <label id="local-migration-consent-row" class="rm-check check-row" hidden>
+                  <input id="local-migration-consent" type="checkbox" />
+                  <span>I approve stopping only the attested old Relmio service. Keep its old credential and history volumes offline. Create a new SIWC runtime and show a new local client key; I will update my client manually.</span>
+                </label>
+                <label id="local-replacement-consent-row" class="rm-check check-row" hidden>
+                  <input id="local-replacement-consent" type="checkbox" />
+                  <span>I approve replacing only this signed-out owned Relmio service with a separately authorized account. Keep the old signed-out mapping and history offline; I will update my client with the new one-time key.</span>
+                </label>
               </div>
               <button id="install-settings-button" class="rm-button rm-button--primary" type="button" disabled>
                 Continue to install
@@ -908,7 +887,7 @@
               <div class="rm-panel__heading">
                 <p class="rm-eyebrow">Step 3 of 4 · Install</p>
                 <h2 id="install-title" class="rm-h1" tabindex="-1">Install</h2>
-                <p id="install-intro" class="rm-muted">Install the reviewed connection. Provider sign-in happens after, inside its own runtime.</p>
+                <p id="install-intro" class="rm-muted">Install the reviewed connection only after checking its selected account and destination.</p>
               </div>
             </header>
 
@@ -924,8 +903,8 @@
               <aside id="sidecar-install-note" class="rm-callout rm-callout--warning high-trust-warning" hidden>
                 <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
                 <div class="rm-callout__content">
-                  <strong class="rm-callout__title">Unofficial private bridge</strong>
-                  <p class="rm-callout__body">Relmio copies the saved ChatGPT/Codex credential file into its private volume and starts only the new sidecar. It will not change n8n, publish port <code>10531</code>, or install Code Sandbox or SearXNG. This is not identity-only sign-in and not a Platform API key. Unofficial and policy-uncertain.</p>
+                  <strong class="rm-callout__title">Private ChatGPT plan sidecar</strong>
+                  <p class="rm-callout__body">The selected registration transfers to an owned local sidecar. Approve n8n background use separately, then enter the one-time Relmio client key in n8n yourself. Relmio does not edit or restart n8n or publish port <code>10531</code>. An uncertain installation requires owner inspection before use.</p>
                 </div>
               </aside>
 
@@ -964,6 +943,10 @@
               <button class="rm-button rm-button--ghost back-button" type="button" data-back="2">
                 <span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back
               </button>
+              <label id="local-background-consent-row" class="rm-check check-row" hidden>
+                <input id="local-background-consent" type="checkbox" />
+                <span>I authorize this selected ChatGPT account's plan for my n8n background workflows on this reviewed local installation. I will enter its one-time Relmio client key in n8n myself.</span>
+              </label>
               <button id="install-button" class="rm-button rm-button--primary rm-push" type="button">
                 Install on this computer
               </button>
@@ -974,7 +957,10 @@
             <header class="rm-panel__header success-heading">
               <div id="success-mark" class="success-mark" aria-hidden="true"><span class="rm-icon rm-icon--check rm-icon--lg"></span></div>
               <div class="rm-panel__heading">
-                <p id="done-step-caption" class="rm-eyebrow">Step 4 of 4 · Ready</p>
+                <div class="success-eyebrows">
+                  <p id="done-step-caption" class="rm-eyebrow">Step 4 of 4 · Ready</p>
+                  <p id="done-provider-context" class="rm-eyebrow local-provider-context"></p>
+                </div>
                 <h2 id="done-title" class="rm-h1" tabindex="-1">Local endpoint is ready</h2>
                 <p id="done-detail" class="rm-muted">Copy the client settings into your local app.</p>
               </div>
@@ -982,8 +968,6 @@
 
             <div class="rm-panel__body">
               <div class="panel-columns ready-columns">
-
-                <p id="done-provider-context" class="rm-eyebrow local-provider-context"></p>
 
                 <dl id="install-result-list" class="rm-dl result-list">
                   <div id="result-endpoint-row">
@@ -1076,6 +1060,15 @@
                     </dd>
                   </div>
                 </dl>
+                <section id="installed-siwc-models" class="rm-card rm-card--muted rm-card--compact" aria-label="ChatGPT model settings" hidden>
+                  <p id="installed-siwc-plan-badge" class="rm-status" data-tone="success">Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Manage usage<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></p>
+                  <p id="installed-siwc-account" class="rm-small"></p>
+                  <label class="rm-field" for="installed-siwc-model"><span class="rm-field__label">Account model</span>
+                    <select id="installed-siwc-model" class="rm-select"></select>
+                  </label>
+                  <p id="installed-siwc-model-status" class="rm-small rm-muted" role="status" aria-live="polite">Only models listed for the selected account are shown. Each request can still fail or reach a usage limit.</p>
+                  <a id="installed-siwc-usage-recovery" class="rm-button rm-button--primary" href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer" hidden>Manage usage (opens in a new tab)</a>
+                </section>
 
                 <aside id="ready-safety" class="rm-callout rm-callout--warning ready-safety">
                   <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
@@ -1108,67 +1101,33 @@
                   </div>
                 </details>
 
-                <details class="rm-disclosure ready-optional">
-                  <summary>Image model IDs for n8n</summary>
-                <div id="result-image-models" class="rm-disclosure__body model-box" hidden>
-                  <p class="rm-small rm-muted">In n8n Image Generate or Edit, choose From list. If a current n8n picker does not show one, choose By ID and paste its exact ID.</p>
-                  <dl class="rm-dl result-list">
-                    <div id="result-image-model-2-row" hidden>
-                      <dt>GPT Image 2</dt>
-                      <dd class="result-value"><code id="result-image-model-2"></code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="result-image-model-2" data-copy-label="GPT Image 2 model ID" aria-label="Copy GPT Image 2 model ID" title="Copy GPT Image 2 model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
-                    </div>
-                    <div id="result-image-model-flare-row" hidden>
-                      <dt>GPT Image 2.5 Flare</dt>
-                      <dd class="result-value"><code id="result-image-model-flare"></code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="result-image-model-flare" data-copy-label="GPT Image 2.5 Flare model ID" aria-label="Copy GPT Image 2.5 Flare model ID" title="Copy GPT Image 2.5 Flare model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
-                    </div>
-                    <div id="result-image-model-sunburst-row" hidden>
-                      <dt>GPT Image 2.5 Sunburst</dt>
-                      <dd class="result-value"><code id="result-image-model-sunburst"></code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="result-image-model-sunburst" data-copy-label="GPT Image 2.5 Sunburst model ID" aria-label="Copy GPT Image 2.5 Sunburst model ID" title="Copy GPT Image 2.5 Sunburst model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd>
-                    </div>
-                  </dl>
-                </div>
-                </details>
-
-                <section id="codex-login" class="rm-card rm-card--flat rm-card--compact codex-login" aria-labelledby="codex-login-title" hidden>
-                  <h3 id="codex-login-title" class="rm-h3">Sign the container in to ChatGPT</h3>
-                  <p class="rm-small rm-muted">Uses the official Codex device-code flow. The ChatGPT credential stays in the isolated Codex volume and is not a Platform API key. Codex may write a login log; Relmio does not know how long it is kept.</p>
-                  <button id="codex-login-button" class="rm-button" type="button">
-                    Start ChatGPT sign-in
-                  </button>
-
-                  <div id="device-code-result" class="device-code-result" hidden>
-                    <div id="device-code-step" class="device-code-step" hidden>
-                      <p class="rm-small">Enter this one-time code on the official OpenAI page:</p>
-                      <div class="device-code-row">
-                        <code id="device-code"></code>
-                        <button
-                          class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value"
-                          type="button"
-                          data-copy-target="device-code"
-                          data-copy-label="device code"
-                          data-operation-allow="copy"
-                          aria-label="Copy device code"
-                          title="Copy device code"
-                        >
-                          <span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span>
-                        </button>
-                        <a
-                          id="device-code-link"
-                          class="rm-button rm-button--sm"
-                          data-operation-allow="auth"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Open OpenAI device sign-in<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span>
-                        </a>
+                <details id="local-siwc-owner" class="rm-disclosure" hidden>
+                  <summary><span id="local-siwc-owner-title">Installed ChatGPT account</span></summary>
+                  <div class="rm-disclosure__body">
+                    <p id="local-siwc-owner-status" class="rm-small" role="status" aria-live="polite">Check the owned installation to manage its account.</p>
+                    <label id="local-siwc-inspect-row" class="rm-check check-row" hidden>
+                      <input id="local-siwc-inspect-confirm" type="checkbox" />
+                      <span>I approve a temporary one-off read of this stopped Relmio service to inspect its ChatGPT account. This does not start or edit n8n.</span>
+                    </label>
+                    <button id="local-siwc-inspect" class="rm-button rm-button--sm" type="button" hidden>Inspect stopped account</button>
+                    <div id="local-siwc-owner-actions" hidden>
+                      <label class="rm-check check-row">
+                        <input id="local-siwc-owner-confirm" type="checkbox" />
+                        <span>I approve stopping only this owned Relmio service to change its ChatGPT session. The old sign-in stays separate.</span>
+                      </label>
+                      <label id="local-siwc-background-row" class="rm-check check-row" hidden>
+                        <input id="local-siwc-background-confirm" type="checkbox" />
+                        <span>I again authorize this account's plan for my n8n background workflows at this owned installation.</span>
+                      </label>
+                      <div class="rm-cluster">
+                        <button id="local-siwc-enable" class="rm-button rm-button--sm" type="button" disabled hidden>Use ChatGPT plan</button>
+                        <button id="local-siwc-disable" class="rm-button rm-button--sm" type="button" disabled>Pause plan use</button>
+                        <button id="local-siwc-logout" class="rm-button rm-button--sm" type="button" disabled>Sign out and revoke</button>
                       </div>
                     </div>
-                    <p id="device-code-status" class="rm-small device-code-status" role="status" aria-live="polite">
-                      Waiting for sign-in…
-                    </p>
+                    <button id="local-siwc-replace" class="rm-button rm-button--sm" type="button" hidden>Review replacement with a fresh account</button>
                   </div>
-                </section>
-
+                </details>
                 <section id="n8n-stack-removal" class="rm-card rm-card--flat rm-card--compact n8n-sidecar-removal" aria-labelledby="n8n-stack-removal-title" hidden>
                   <h3 id="n8n-stack-removal-title" class="rm-h3">Remove new local n8n + ngrok</h3>
                   <p class="rm-small rm-muted">Removes only this Relmio-owned stack, its containers, networks, volumes, and managed files. Existing n8n is not changed.</p>
@@ -1255,6 +1214,10 @@
                     </form>
 
                     <form id="chat-tester-message-form" class="chat-tester-message-form" hidden>
+                      <p class="rm-status" data-tone="success">Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Manage usage<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></p>
+                      <label class="rm-field" for="chat-tester-model"><span class="rm-field__label">Model for this account</span>
+                        <select id="chat-tester-model" class="rm-select" required></select>
+                      </label>
                       <label class="rm-field" for="chat-tester-input">
                         <span class="rm-field__label">Message</span>
                         <textarea
@@ -1272,7 +1235,7 @@
                         </button>
                         <button
                           id="chat-tester-stop"
-                          class="rm-button rm-button--sm"
+                          class="rm-button"
                           type="button"
                           data-operation-allow="stop"
                           aria-label="Stop response"
@@ -1286,7 +1249,8 @@
                     <p id="chat-tester-status" class="chat-tester-status" role="status" aria-live="polite" aria-atomic="true">
                       Secure the local client credential to begin.
                     </p>
-                    <p id="chat-tester-error" class="rm-callout rm-callout--danger chat-tester-error" role="alert" hidden></p>
+                    <p id="chat-tester-error" class="rm-callout rm-callout--danger chat-tester-error" role="alert" tabindex="-1" hidden></p>
+                    <a id="chat-tester-usage" class="rm-button rm-button--primary" href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer" hidden>Manage usage (opens in a new tab)</a>
                     <ol
                       id="chat-tester-transcript"
                       class="chat-tester-transcript"
@@ -1436,6 +1400,7 @@
             <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
             <div class="rm-callout__content">
               <span id="global-error-text"></span>
+              <a id="global-error-recovery" class="rm-button rm-button--primary" href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer" hidden>Manage usage (opens in a new tab)</a>
               <a
                 id="local-image-build-troubleshooting"
                 class="rm-link rm-link--standalone"
@@ -1461,7 +1426,7 @@
 
           <div class="setup-safety">
             <p id="local-footer-provider" class="setup-safety__fact"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>Provider sign-in stays in its runtime. A local key is separate and is not a Platform API key.</span></p>
-            <p id="local-footer-chatgpt" class="setup-safety__fact" hidden><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>After you approve, Relmio copies the saved ChatGPT credential file into the bridge's private volume. The credential is not a Platform API key.</span></p>
+            <p id="local-footer-chatgpt" class="setup-safety__fact" hidden><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>A selected SIWC registration transfers only after final approval. The sidecar owns refresh; a separate one-time Relmio key protects local clients.</span></p>
             <p id="local-footer-model" class="setup-safety__fact" hidden><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span><span>This model uses no provider sign-in or API key. Other containers on its Docker network can still reach the model API.</span></p>
             <details class="rm-disclosure rm-disclosure--plain setup-help" aria-label="Connection privacy">
               <summary><strong id="boundary-title">This computer only</strong></summary>

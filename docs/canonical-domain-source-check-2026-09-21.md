@@ -2,6 +2,13 @@
 
 Review date: 2026-09-21
 
+**Dated source review:** its OAuth and hosted-chat observations describe the
+implementation on 2026-09-21, not the current local SIWC path. The domain and
+redirect observations are limited to that review date; the public website's
+`/api/chat` now returns `410 Gone`. See the
+[2026-10-04 source check](openai-source-check-2026-10-04.md) for current local
+flow evidence.
+
 This review covers the change from `relmio.vercel.app` to
 `relmio.jpfusin.tech` as Relmio's canonical public website. The former Vercel
 hostname remains attached to the same project and is configured to redirect to

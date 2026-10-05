@@ -13,35 +13,38 @@ import {
   normalizeLocalN8nSidecarPlan,
   validateDockerObjectId,
 } from "../domain/local-n8n-sidecar.js";
+import {
+  safeSiwcCatalogFailure, safeSiwcRuntimeFailure,
+  validateSiwcAuthBinding, validateSiwcRegistrationId,
+} from "../domain/safety.js";
 import { validateDockerName } from "../domain/validation.js";
 import {
   runLocalProcess,
   lockDownLocalPath,
   validateLocalDockerHost,
 } from "../infrastructure/local-process.js";
-import { readAuthContents, resolveAuthPath } from "./oauth.js";
+import { collectSiwcRuntimeAssets } from "./siwc-runtime-assets.js";
+import {
+  finishAuthHandoff, prepareAuthHandoff, readAuthHandoff, readPendingAuthHandoff, readRegistration, listRegistrations,
+  validateSiwcBackgroundConsent, validateSiwcHostId,
+} from "./siwc-session.mjs";
 import {
   acquireLocalIntegrationLifecycleLock,
   settleLocalIntegrationLifecycleOperation,
+  fingerprintLocalSiwcFiles, fingerprintLocalSiwcResources, localSiwcFinalizationFailure,
+  localSiwcStagingPath, readLocalSiwcStaging, readLocalSiwcResumeAuthBinding,
+  assertNoLocalSiwcOneOffContainers,
 } from "./local-integration-lifecycle-lock.js";
 
 const COMPOSE_FILENAME = "docker-compose.yml";
 const MANAGED_MARKER = ".managed-by-relmio.json";
 const ROOT_MARKER = ".managed-by-relmio-root.json";
 const ROOT_MARKER_SCHEMA_VERSION = 1;
-const MARKER_SCHEMA_VERSION = 1;
+const MARKER_SCHEMA_VERSION = 2;
 const PROJECT_PREFIX = "relmio-n8n-openai-oauth";
 const SERVICE_NAME = "openai-oauth";
 const MAX_DISCOVERED_CONTAINERS = 100;
 const MAX_DOCKER_METADATA_BYTES = 1024 * 1024;
-const RUNTIME_FILENAME = "openai-oauth-sidecar.mjs";
-const RUNTIME_BACKUP_TAG = "relmio-runtime-backup";
-// Exact SHA-256 of src/gateway/openai-oauth-sidecar.mjs in the published
-// v0.15.0 tag (4d69e963a0ac0d87ca2bfb382645b5d94a1b1ad7). This permits a
-// reviewed upgrade path without accepting arbitrary locally changed code.
-const COMPATIBLE_PUBLISHED_RUNTIME_SHA256 = new Set([
-  "e5328ca534eaa830b4222a33fa69d4e03f31bd539651e38d353cc9932d1e551a",
-]);
 const DOCKER_IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const DOCKER_SELECTION_VARIABLES = new Set([
   "BUILDKIT_HOST",
@@ -51,76 +54,22 @@ const DOCKER_SELECTION_VARIABLES = new Set([
   "DOCKER_HOST",
   "DOCKER_TLS_VERIFY",
 ]);
+const SIWC_ASSET_PATHS = new Set([
+  "gateway/openai-oauth-sidecar.mjs", "gateway/codex-chat.js",
+  "gateway/codex-app-server.mjs", "services/siwc-session.mjs",
+  "services/siwc-handoff.mjs", "infrastructure/local-process.js",
+  "services/local-integration-lifecycle-lock.js", "infrastructure/process-identity.js",
+]);
 const OFFICIAL_N8N_IMAGE = /^(?:(?:(?:docker\.n8n\.io|docker\.io)\/)?n8nio\/n8n)(?::[A-Za-z0-9_.-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/u;
 const VERIFIER_SCRIPT = [
-  'const headers={Authorization:"Bearer local-only"};',
-  'Promise.all([fetch("http://n8n-openai-oauth:10531/health"),',
-  'fetch("http://n8n-openai-oauth:10531/v1/models",{headers})])',
-  '.then(async([health,models])=>{if(!health.ok||!models.ok)process.exit(1);',
-  'process.stdout.write(JSON.stringify(await models.json()));})',
-  '.catch(()=>process.exit(1));',
+  '(async()=>{let key="";for await(const chunk of process.stdin){key+=chunk;',
+  'if(key.length>128)process.exit(1)}',
+  'const headers={Authorization:"Bearer "+key};',
+  'const [health,models]=await Promise.all([fetch("http://n8n-openai-oauth:10531/health"),',
+  'fetch("http://n8n-openai-oauth:10531/v1/models",{headers})]);',
+  'if(!health.ok||!models.ok)process.exit(1);',
+  'process.stdout.write(JSON.stringify(await models.json()))})().catch(()=>process.exit(1));',
 ].join("");
-const CREDENTIAL_REFRESH_PREFLIGHT_SCRIPT = [
-  "set -eu",
-  "rm -f /run/relmio-auth/.auth.json.previous.next /run/relmio-auth/.auth.json.quiesce.next",
-  "if test -e /run/relmio-auth/.auth.json.previous; then test ! -e /run/relmio-auth/.auth.json.quiesce; test -f /run/relmio-auth/.auth.json.previous; node -e 'JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"))' /run/relmio-auth/.auth.json.previous; rm -f /run/relmio-auth/.auth.json.next; printf rollback-pending; elif test -e /run/relmio-auth/.auth.json.quiesce; then test -f /run/relmio-auth/.auth.json.quiesce; node -e 'JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"))' /run/relmio-auth/.auth.json.quiesce; test ! -e /run/relmio-auth/.auth.json.next; printf quiesce-pending; else test ! -e /run/relmio-auth/.auth.json.next; printf clean; fi",
-].join("; ");
-const CREDENTIAL_REFRESH_QUIESCE_BACKUP_SCRIPT = [
-  "set -eu",
-  "umask 077",
-  "trap 'rm -f /run/relmio-auth/.auth.json.quiesce.next' EXIT HUP INT TERM",
-  "test -f /run/relmio-auth/auth.json",
-  "test ! -e /run/relmio-auth/.auth.json.previous",
-  "test ! -e /run/relmio-auth/.auth.json.quiesce",
-  "cp /run/relmio-auth/auth.json /run/relmio-auth/.auth.json.quiesce.next",
-  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.quiesce.next',
-  "chmod 0600 /run/relmio-auth/.auth.json.quiesce.next",
-  "mv -f /run/relmio-auth/.auth.json.quiesce.next /run/relmio-auth/.auth.json.quiesce",
-  "trap - EXIT HUP INT TERM",
-].join("; ");
-const CREDENTIAL_REFRESH_QUIESCE_REFRESH_SCRIPT = [
-  "set -eu",
-  "umask 077",
-  "trap 'rm -f /run/relmio-auth/.auth.json.quiesce.next' EXIT HUP INT TERM",
-  "test ! -e /run/relmio-auth/.auth.json.previous",
-  "test -f /run/relmio-auth/.auth.json.quiesce",
-  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.quiesce',
-  "if test -f /run/relmio-auth/auth.json && node -e 'JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"))' /run/relmio-auth/auth.json; then cp /run/relmio-auth/auth.json /run/relmio-auth/.auth.json.quiesce.next; node -e 'JSON.parse(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"))' /run/relmio-auth/.auth.json.quiesce.next; chmod 0600 /run/relmio-auth/.auth.json.quiesce.next; mv -f /run/relmio-auth/.auth.json.quiesce.next /run/relmio-auth/.auth.json.quiesce; printf refreshed; else printf retained-invalid-current; fi",
-  "trap - EXIT HUP INT TERM",
-].join("; ");
-const CREDENTIAL_REFRESH_PROMOTE_SCRIPT = [
-  "set -eu",
-  "test ! -e /run/relmio-auth/.auth.json.previous",
-  "test -f /run/relmio-auth/.auth.json.quiesce",
-  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.quiesce',
-  "mv /run/relmio-auth/.auth.json.quiesce /run/relmio-auth/.auth.json.previous",
-  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.previous',
-].join("; ");
-const CREDENTIAL_REFRESH_SEED_SCRIPT = [
-  "set -eu",
-  "umask 077",
-  "trap 'rm -f /run/relmio-auth/.auth.json.next' EXIT HUP INT TERM",
-  "test -f /run/relmio-auth/.auth.json.previous",
-  "cat > /run/relmio-auth/.auth.json.next",
-  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.next',
-  "chmod 0600 /run/relmio-auth/.auth.json.next",
-  "mv -f /run/relmio-auth/.auth.json.next /run/relmio-auth/auth.json",
-  "trap - EXIT HUP INT TERM",
-].join("; ");
-const CREDENTIAL_REFRESH_ROLLBACK_SCRIPT = [
-  "set -eu",
-  "test -f /run/relmio-auth/.auth.json.previous",
-  'node -e \'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))\' /run/relmio-auth/.auth.json.previous',
-  "rm -f /run/relmio-auth/.auth.json.next",
-  "cp /run/relmio-auth/.auth.json.previous /run/relmio-auth/.auth.json.next",
-  "chmod 0600 /run/relmio-auth/.auth.json.next",
-  "mv -f /run/relmio-auth/.auth.json.next /run/relmio-auth/auth.json",
-].join("; ");
-const CREDENTIAL_REFRESH_COMMIT_SCRIPT = [
-  "set -eu",
-  "test -f /run/relmio-auth/auth.json",
-  "rm -f /run/relmio-auth/.auth.json.previous /run/relmio-auth/.auth.json.quiesce /run/relmio-auth/.auth.json.next /run/relmio-auth/.auth.json.quiesce.next",
-].join("; ");
 
 function isMissing(error) {
   return error?.code === "ENOENT";
@@ -215,12 +164,21 @@ export async function resolveLocalN8nSidecarInstallRoot({
   return join(canonicalParent, ".relmio", "local", LOCAL_N8N_SIDECAR_TARGET);
 }
 
-function localN8nSidecarSnapshot() {
+function localN8nSidecarSnapshot(marker, account = null) {
+  const migrationRequired = marker.schemaVersion !== MARKER_SCHEMA_VERSION;
+  const connected = !migrationRequired && account?.ownership === "owned" &&
+    account?.session === "connected" && account?.planEnabled === true;
   return {
     target: LOCAL_N8N_SIDECAR_TARGET,
     endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
-    auth: { configured: true, disclosure: "server-managed" },
-    canRefreshCredential: true,
+    auth: {
+      configured: connected,
+      disclosure: "server-managed",
+      ...(!migrationRequired && account ? { account } : {}),
+    },
+    ...(!migrationRequired ? { registrationId: marker.registrationId } : {}),
+    migrationRequired,
+    canRefreshCredential: false,
     canRemove: true,
   };
 }
@@ -302,6 +260,13 @@ export async function getLocalN8nSidecarStatus({
       fileSystem,
       platform,
     });
+    const staged = await readLocalSiwcStaging({ fileSystem, installRoot, platform, lockDownPath });
+    if (staged && staged.checkpoint.stage !== "completed") {
+      await fingerprintLocalSiwcFiles({ fileSystem, installRoot, platform, lockDownPath });
+      const { installId, registrationId, stage } = staged.checkpoint;
+      return { target: LOCAL_N8N_SIDECAR_TARGET, managed: true, state: "staged",
+        staging: { installId, registrationId, stage } };
+    }
     if (await lstatIfExists(fileSystem, installRoot)) {
       await verifyWindowsSidecarStatusPathSecurity({
         fileSystem,
@@ -313,6 +278,26 @@ export async function getLocalN8nSidecarStatus({
     const managed = await inspectManagedInstall({ fileSystem, installRoot });
     if (!managed.marker) return absent;
     const marker = validateMarker(managed.marker);
+    if (platform === "win32" && marker.schemaVersion === MARKER_SCHEMA_VERSION) {
+      for (const relative of [
+        "Dockerfile", ".dockerignore", "package.json", "package-lock.json",
+        "services/siwc-session.mjs", "services/siwc-handoff.mjs",
+        "gateway/openai-oauth-sidecar.mjs", "infrastructure/local-process.js",
+        "services/local-integration-lifecycle-lock.js", "infrastructure/process-identity.js",
+      ]) {
+        const path = join(installRoot, relative);
+        const metadata = await lstatIfExists(fileSystem, path);
+        if (!metadata?.isFile?.() || metadata.isSymbolicLink()) {
+          throw new Error("The installed SIWC runtime asset is missing or unsafe.");
+        }
+        await lockDownPath(path, {
+          platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true,
+        });
+      }
+    }
+    if (marker.schemaVersion === MARKER_SCHEMA_VERSION) {
+      await assertManagedSiwcCompose(fileSystem, installRoot, marker);
+    }
     const selectedDockerHost = await resolveLocalDockerHost({
       runProcess,
       cwd: installRoot,
@@ -320,6 +305,26 @@ export async function getLocalN8nSidecarStatus({
       platform,
     });
     if (selectedDockerHost !== marker.dockerHost) return unavailable;
+    if (marker.schemaVersion === MARKER_SCHEMA_VERSION && marker.legacyInstallId) {
+      const migrationState = await readLegacyN8nMigrationState(
+        fileSystem, installRoot, marker.legacyInstallId,
+      );
+      if (migrationState !== "transferred") {
+        return {
+          target: LOCAL_N8N_SIDECAR_TARGET, managed: true, state: "partial",
+          snapshot: {
+            target: LOCAL_N8N_SIDECAR_TARGET,
+            endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
+            auth: { configured: false, disclosure: "server-managed" },
+            canRefreshCredential: false, canRemove: true,
+            migrationRequired: !marker.previousWasSiwc,
+            replacementRequired: !!marker.previousWasSiwc,
+            migrationState: migrationState ?? "incomplete",
+            legacyResourcesPreserved: true,
+          },
+        };
+      }
+    }
     await attestPlanAndAlias({
       plan: marker,
       runProcess,
@@ -334,12 +339,29 @@ export async function getLocalN8nSidecarStatus({
       installId: marker.installId,
       projectName: marker.projectName,
       returnDetails: true,
+      volumeName: marker.schemaVersion === MARKER_SCHEMA_VERSION ? "siwc-store" : "oauth-auth",
     });
     if (!ownership.exact) {
       return {
         target: LOCAL_N8N_SIDECAR_TARGET,
         managed: true,
         state: "partial",
+      };
+    }
+    if (marker.schemaVersion !== MARKER_SCHEMA_VERSION) {
+      const migrationState = await readLegacyN8nMigrationState(
+        fileSystem, installRoot, marker.installId,
+      );
+      if (migrationState === "transferred") {
+        throw new Error("The legacy n8n migration metadata is inconsistent.");
+      }
+      return {
+        target: LOCAL_N8N_SIDECAR_TARGET,
+        managed: true, state: migrationState ? "partial" : "legacy",
+        snapshot: {
+          ...localN8nSidecarSnapshot(marker),
+          ...(migrationState ? { migrationState, legacyResourcesPreserved: true } : {}),
+        },
       };
     }
     const publication = await runOrThrow(
@@ -364,7 +386,28 @@ export async function getLocalN8nSidecarStatus({
       installRoot,
       marker,
     });
-    const snapshot = localN8nSidecarSnapshot();
+    let account = null;
+    if (runtime?.running && !runtime.paused &&
+        statusRecord.State === "running") {
+      try {
+        account = (await runSiwcCli({
+          runProcess, installRoot, marker, command: "account-live",
+        })).account;
+        if (account?.registrationId !== marker.registrationId ||
+            account?.ownerHostId !== marker.ownerHostId ||
+            account?.ownerRuntimeId !== marker.installId ||
+            account?.ownership !== "owned") {
+          throw new Error("The installed SIWC account cannot be attested.");
+        }
+      } catch {
+        return {
+          target: LOCAL_N8N_SIDECAR_TARGET,
+          managed: true, state: "partial",
+          snapshot: localN8nSidecarSnapshot(marker),
+        };
+      }
+    }
+    const snapshot = localN8nSidecarSnapshot(marker, account);
     if (!runtime) {
       return {
         target: LOCAL_N8N_SIDECAR_TARGET,
@@ -411,7 +454,6 @@ export async function getLocalN8nSidecarStatus({
       plan: marker,
       installId: marker.installId,
       projectName: marker.projectName,
-      verifyModels: false,
     });
     return {
       target: LOCAL_N8N_SIDECAR_TARGET,
@@ -575,7 +617,7 @@ function validateSelectedNetwork(inspected, { n8nContainerId, expectedName }) {
     !inspected?.Containers ||
     typeof inspected.Containers !== "object" ||
     Array.isArray(inspected.Containers) ||
-    !Object.prototype.hasOwnProperty.call(inspected.Containers, n8nContainerId)
+    (n8nContainerId !== undefined && !Object.prototype.hasOwnProperty.call(inspected.Containers, n8nContainerId))
   ) {
     if (inspected?.Internal === true) {
       throw new Error(
@@ -731,86 +773,10 @@ async function writeManagedFile(fileSystem, path, contents, mode) {
   }
 }
 
-async function readManagedFile(fileSystem, path) {
-  const metadata = await lstatIfExists(fileSystem, path);
-  if (!metadata || metadata.isSymbolicLink() || !metadata.isFile()) {
-    throw new Error("The local n8n sidecar generated files are missing or unsafe.");
-  }
-  return fileSystem.readFile(path, "utf8");
-}
 
-function createLegacyLocalN8nSidecarDockerfile({ installId }) {
-  return createLocalN8nSidecarDockerfile({ installId }).replace(
-    'COPY --chown=node:node openai-oauth-sidecar.mjs /app/openai-oauth-sidecar.mjs\n\nENTRYPOINT ["node", "/app/openai-oauth-sidecar.mjs"]',
-    'ENTRYPOINT ["openai-oauth"]\nCMD ["--host", "0.0.0.0", "--port", "10531", "--oauth-file", "/home/node/.codex/auth.json"]',
-  );
-}
 
-function isCompatiblePublishedRuntime(runtime) {
-  if (typeof runtime !== "string") return false;
-  return COMPATIBLE_PUBLISHED_RUNTIME_SHA256.has(
-    createHash("sha256").update(runtime, "utf8").digest("hex"),
-  );
-}
 
-async function snapshotGeneratedRuntimeFiles({ fileSystem, installRoot, marker }) {
-  const expectedCompose = createLocalN8nSidecarComposeFile({
-    installId: marker.installId,
-    networkName: marker.networkName,
-  });
-  const compose = await readManagedFile(fileSystem, join(installRoot, COMPOSE_FILENAME));
-  if (compose !== expectedCompose) {
-    throw new Error("The local n8n sidecar Compose file has drifted. Nothing was changed.");
-  }
-  const dockerfile = await readManagedFile(fileSystem, join(installRoot, "Dockerfile"));
-  const dockerignore = await readManagedFile(fileSystem, join(installRoot, ".dockerignore"));
-  const currentDockerfile = createLocalN8nSidecarDockerfile({ installId: marker.installId });
-  const legacyDockerfile = createLegacyLocalN8nSidecarDockerfile({ installId: marker.installId });
-  const currentDockerignore = createLocalN8nSidecarDockerignore();
-  const legacyDockerignore = "**\n!Dockerfile\n";
-  const runtimePath = join(installRoot, RUNTIME_FILENAME);
-  const runtimeMetadata = await lstatIfExists(fileSystem, runtimePath);
-  let runtime = null;
-  if (runtimeMetadata) {
-    if (runtimeMetadata.isSymbolicLink() || !runtimeMetadata.isFile()) {
-      throw new Error("The local n8n sidecar runtime file is unsafe. Nothing was changed.");
-    }
-    runtime = await fileSystem.readFile(runtimePath, "utf8");
-  }
-  const expectedRuntime = await defaultFileSystem.readFile(
-    new URL(`../gateway/${RUNTIME_FILENAME}`, import.meta.url),
-    "utf8",
-  );
-  const isCurrent =
-    dockerfile === currentDockerfile &&
-    dockerignore === currentDockerignore &&
-    (runtime === expectedRuntime || isCompatiblePublishedRuntime(runtime));
-  const isLegacy =
-    dockerfile === legacyDockerfile &&
-    dockerignore === legacyDockerignore &&
-    runtime === null;
-  if (!isCurrent && !isLegacy) {
-    throw new Error("The local n8n sidecar generated runtime files have drifted. Nothing was changed.");
-  }
-  return { dockerfile, dockerignore, runtime, expectedRuntime };
-}
 
-async function restoreGeneratedRuntimeFiles({ fileSystem, installRoot, snapshot }) {
-  await writeManagedFile(fileSystem, join(installRoot, "Dockerfile"), snapshot.dockerfile, 0o600);
-  await writeManagedFile(fileSystem, join(installRoot, ".dockerignore"), snapshot.dockerignore, 0o600);
-  const runtimePath = join(installRoot, RUNTIME_FILENAME);
-  if (snapshot.runtime === null) {
-    const metadata = await lstatIfExists(fileSystem, runtimePath);
-    if (metadata) {
-      if (metadata.isSymbolicLink() || !metadata.isFile()) {
-        throw new Error("The local n8n sidecar runtime file could not be restored safely.");
-      }
-      await fileSystem.unlink(runtimePath);
-    }
-  } else {
-    await writeManagedFile(fileSystem, runtimePath, snapshot.runtime, 0o600);
-  }
-}
 
 async function ensurePrivateDirectory(fileSystem, path, platform, lockDownPath) {
   const metadata = await lstatIfExists(fileSystem, path);
@@ -823,7 +789,7 @@ async function ensurePrivateDirectory(fileSystem, path, platform, lockDownPath) 
   if (platform === "win32") await lockDownPath(path, { platform });
 }
 
-async function inspectManagedInstall({ fileSystem, installRoot }) {
+async function inspectManagedInstall({ fileSystem, installRoot, staging }) {
   const relmioHome = resolve(installRoot, "..", "..");
   const localRoot = join(relmioHome, "local");
   const homeMetadata = await lstatIfExists(fileSystem, relmioHome);
@@ -868,6 +834,9 @@ async function inspectManagedInstall({ fileSystem, installRoot }) {
   if (!installMetadata) {
     return { baseExists: true, marker: null, deploymentMode: "installed" };
   }
+  if (staging && !(await lstatIfExists(fileSystem, join(installRoot, MANAGED_MARKER)))) {
+    return { baseExists: true, marker: null, deploymentMode: "installed" };
+  }
   const markerMetadata = await lstatIfExists(
     fileSystem,
     join(installRoot, MANAGED_MARKER),
@@ -900,7 +869,7 @@ function validateMarker(marker) {
       : null;
   const expectedProjectName = installId ? `${PROJECT_PREFIX}-${installId}` : null;
   if (
-    marker?.schemaVersion !== MARKER_SCHEMA_VERSION ||
+    ![1, MARKER_SCHEMA_VERSION].includes(marker?.schemaVersion) ||
     marker?.kind !== "relmio-local-n8n-sidecar" ||
     marker?.target !== LOCAL_N8N_SIDECAR_TARGET ||
     marker?.projectName !== expectedProjectName
@@ -912,7 +881,72 @@ function validateMarker(marker) {
   validateDockerName(marker.n8nContainerName);
   validateDockerObjectId(marker.dockerNetworkId, "Docker network");
   validateDockerName(marker.networkName);
+  if (marker.schemaVersion === MARKER_SCHEMA_VERSION) {
+    validateSiwcRegistrationId(marker.registrationId);
+    validateSiwcHostId(marker.ownerHostId);
+    if (typeof marker.clientId !== "string" || !/^[!-~]{1,256}$/u.test(marker.clientId) ||
+        typeof marker.tokenSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(marker.tokenSha256)) {
+      throw new TypeError("The local n8n sidecar marker is invalid.");
+    }
+    if (marker.legacyInstallId !== undefined) {
+      if (typeof marker.legacyInstallId !== "string" ||
+          !/^[a-f0-9]{32}$/u.test(marker.legacyInstallId) ||
+          marker.legacyInstallId === installId) {
+        throw new TypeError("The local n8n migration marker is invalid.");
+      }
+    }
+    if (marker.previousWasSiwc !== undefined &&
+        (marker.previousWasSiwc !== true || !marker.legacyInstallId)) {
+      throw new TypeError("The local n8n replacement marker is invalid.");
+    }
+  }
   return marker;
+}
+
+async function readLegacyN8nMigrationState(fileSystem, installRoot, installId) {
+  const legacyRoot = join(installRoot, "legacy");
+  const parent = await lstatIfExists(fileSystem, legacyRoot);
+  if (!parent) return null;
+  assertDirectory(parent);
+  const archive = join(legacyRoot, installId);
+  const metadata = await lstatIfExists(fileSystem, archive);
+  if (!metadata) return null;
+  assertDirectory(metadata);
+  const journalPath = join(archive, "migration.json");
+  const journal = await lstatIfExists(fileSystem, journalPath);
+  if (!journal) return "incomplete";
+  if (!journal.isFile() || journal.isSymbolicLink() || journal.size > 4096) {
+    throw new Error("The local n8n migration journal is unsafe.");
+  }
+  let record;
+  try { record = JSON.parse(await fileSystem.readFile(journalPath, "utf8")); }
+  catch { throw new Error("The local n8n migration journal is invalid."); }
+  if (record?.schemaVersion !== 1 ||
+      record?.reviewedLegacy?.installId !== installId ||
+      !["prepared", "stopped", "transferred"].includes(record?.state)) {
+    throw new Error("The local n8n migration journal needs manual inspection.");
+  }
+  return record.state;
+}
+
+async function assertManagedSiwcCompose(fileSystem, installRoot, marker) {
+  if (marker.schemaVersion !== MARKER_SCHEMA_VERSION) {
+    throw new Error("The legacy bridge needs a fresh SIWC sign-in and reviewed migration.");
+  }
+  const path = join(installRoot, COMPOSE_FILENAME);
+  const metadata = await lstatIfExists(fileSystem, path);
+  if (!metadata?.isFile?.() || metadata.isSymbolicLink()) {
+    throw new Error("The installed SIWC Compose file is missing or unsafe.");
+  }
+  const expected = createLocalN8nSidecarComposeFile({
+    installId: marker.installId,
+    networkName: marker.networkName,
+    registrationId: marker.registrationId,
+    tokenSha256: marker.tokenSha256,
+  });
+  if (await fileSystem.readFile(path, "utf8") !== expected) {
+    throw new Error("The installed SIWC Compose file changed; the owned service was not mutated.");
+  }
 }
 
 async function initializeManagedDirectories({
@@ -1040,6 +1074,7 @@ async function attestProjectOwnership({
   installId,
   projectName,
   returnDetails = false,
+  volumeName = "siwc-store",
 }) {
   const projectFilter = `label=com.docker.compose.project=${projectName}`;
   const containers = await runOrThrow(
@@ -1144,7 +1179,7 @@ async function attestProjectOwnership({
       exact:
         containerRows.length === 1 &&
         volumeNames.length === 1 &&
-        volumeNames[0] === `${projectName}_oauth-auth` &&
+        volumeNames[0] === `${projectName}_${volumeName}` &&
         imagePresent,
     };
   }
@@ -1238,8 +1273,11 @@ async function attestPlanAndAlias({
   cwd,
   installId,
   projectName,
+  attestN8n = true,
 }) {
-  const n8n = await inspectContainer({
+  let n8n;
+  if (attestN8n) {
+  n8n = await inspectContainer({
     runProcess,
     cwd,
     dockerHost: plan.dockerHost,
@@ -1256,6 +1294,7 @@ async function attestPlanAndAlias({
       "The selected n8n container changed. Create and confirm a fresh plan.",
     );
   }
+  }
   const network = await inspectNetwork({
     runProcess,
     cwd,
@@ -1263,7 +1302,7 @@ async function attestPlanAndAlias({
     networkName: plan.networkName,
   });
   const normalizedNetwork = validateSelectedNetwork(network, {
-    n8nContainerId: plan.n8nContainerId,
+    n8nContainerId: attestN8n ? plan.n8nContainerId : undefined,
     expectedName: plan.networkName,
   });
   if (normalizedNetwork.dockerNetworkId !== plan.dockerNetworkId) {
@@ -1277,7 +1316,7 @@ async function attestPlanAndAlias({
   }
   for (const connectedId of connectedIds) {
     validateDockerObjectId(connectedId, "connected container");
-    const connected = connectedId === plan.n8nContainerId
+    const connected = attestN8n && connectedId === plan.n8nContainerId
       ? n8n
       : await inspectContainer({
           runProcess,
@@ -1322,6 +1361,36 @@ function createComposeArgs(projectName, suffix) {
   ];
 }
 
+async function runSiwcCli({ runProcess, installRoot, marker, command, input }) {
+  if (!["host", "accept", "receipt", "account", "account-live", "sign-out", "disable-plan", "enable-plan"].includes(command)) {
+    throw new TypeError("The SIWC installation operation is invalid.");
+  }
+  if (["accept", "receipt"].includes(command)) validateSiwcRegistrationId(marker.registrationId);
+  if (command === "receipt" && (!Buffer.isBuffer(input) || input.length > 8192)) {
+    throw new TypeError("The handoff receipt request is invalid.");
+  }
+  const result = await runOrThrow(runProcess, {
+    file: "docker",
+    args: command === "account-live"
+      ? createComposeArgs(marker.projectName, [
+          "exec", "-T", SERVICE_NAME, "node", "/app/services/siwc-handoff.mjs", "account",
+        ])
+      : createComposeArgs(marker.projectName, [
+          "run", "--rm", "--no-deps", "-T",
+          ...(["accept", "receipt"].includes(command)
+            ? ["--env", `RELMIO_REGISTRATION_ID=${marker.registrationId}`] : []),
+          "--entrypoint", "node", SERVICE_NAME, "/app/services/siwc-handoff.mjs", command,
+        ]),
+    cwd: installRoot,
+    dockerHost: marker.dockerHost,
+    ...(input === undefined ? {} : { input }),
+  }, "Local SIWC installation operation");
+  if (Buffer.byteLength(result.stdout) > 4096) {
+    throw new Error("The SIWC installation returned excessive status data.");
+  }
+  return parseJson(result.stdout, "SIWC installation status");
+}
+
 function parseModels(output) {
   const parsed = parseJson(output.trim(), "Local OAuth model check");
   if (!Array.isArray(parsed?.data)) {
@@ -1336,9 +1405,6 @@ function parseModels(output) {
         id.length <= 128 &&
         /^[A-Za-z0-9_.:-]+$/u.test(id),
     );
-  if (models.length === 0) {
-    throw new Error("The local OAuth model response could not be verified.");
-  }
   return models;
 }
 
@@ -1374,7 +1440,6 @@ async function verifyRunningSidecar({
   plan,
   installId,
   projectName,
-  verifyModels = true,
 }) {
   const running = await runOrThrow(
     runProcess,
@@ -1454,9 +1519,11 @@ async function verifyRunningSidecar({
   ) {
     throw new Error("The local sidecar published-port safety check failed.");
   }
-  if (!verifyModels) {
-    return [];
-  }
+}
+
+async function verifySidecarCatalog({
+  runProcess, installRoot, plan, projectName, clientCredential,
+}) {
   const verifier = await runOrThrow(
     runProcess,
     {
@@ -1474,128 +1541,18 @@ async function verifyRunningSidecar({
       ]),
       cwd: installRoot,
       dockerHost: plan.dockerHost,
+      input: clientCredential,
     },
     "Local sidecar private-network verification",
   );
   return parseModels(verifier.stdout);
 }
 
-async function runCredentialVolumeScript({
-  runProcess,
-  installRoot,
-  marker,
-  script,
-  label,
-  input,
-  user,
-}) {
-  if (user !== "1000:1000") {
-    throw new TypeError("The local credential helper identity is invalid.");
-  }
-  return runOrThrow(
-    runProcess,
-    {
-      file: "docker",
-      args: createComposeArgs(marker.projectName, [
-        "run",
-        "--rm",
-        "--no-deps",
-        "-T",
-        "--user",
-        user,
-        "--entrypoint",
-        "/bin/sh",
-        "credential-seed",
-        "-c",
-        script,
-      ]),
-      cwd: installRoot,
-      dockerHost: marker.dockerHost,
-      ...(input === undefined ? {} : { input }),
-    },
-    label,
-  );
-}
 
-function parseCredentialRefreshJournalState(output) {
-  const state = output.trim();
-  if (
-    state !== "clean" &&
-    state !== "quiesce-pending" &&
-    state !== "rollback-pending"
-  ) {
-    throw new Error("The local OAuth credential refresh journal is invalid.");
-  }
-  return state;
-}
 
-function parseCredentialQuiesceRefreshOutcome(output) {
-  const outcome = output.trim();
-  if (outcome !== "refreshed" && outcome !== "retained-invalid-current") {
-    throw new Error("The local OAuth credential quiesce snapshot result is invalid.");
-  }
-  return outcome;
-}
 
-async function inspectCredentialRefreshJournal({
-  runProcess,
-  installRoot,
-  marker,
-  label,
-}) {
-  const result = await runCredentialVolumeScript({
-    runProcess,
-    installRoot,
-    marker,
-    script: CREDENTIAL_REFRESH_PREFLIGHT_SCRIPT,
-    label,
-    user: "1000:1000",
-  });
-  return parseCredentialRefreshJournalState(result.stdout);
-}
 
-async function promoteCredentialRefreshSnapshot({
-  runProcess,
-  installRoot,
-  marker,
-  label,
-}) {
-  await runCredentialVolumeScript({
-    runProcess,
-    installRoot,
-    marker,
-    script: CREDENTIAL_REFRESH_PROMOTE_SCRIPT,
-    label,
-    user: "1000:1000",
-  });
-}
 
-async function recreateOwnedSidecar({
-  runProcess,
-  installRoot,
-  marker,
-  label,
-}) {
-  await runOrThrow(
-    runProcess,
-    {
-      file: "docker",
-      args: createComposeArgs(marker.projectName, [
-        "up",
-        "-d",
-        "--wait",
-        "--wait-timeout",
-        "90",
-        "--no-deps",
-        "--force-recreate",
-        SERVICE_NAME,
-      ]),
-      cwd: installRoot,
-      dockerHost: marker.dockerHost,
-    },
-    label,
-  );
-}
 
 async function inspectOwnedSidecarRuntime({
   runProcess,
@@ -1647,120 +1604,37 @@ async function inspectOwnedSidecarRuntime({
       installId: marker.installId,
       projectName: marker.projectName,
     }) ||
-    sidecarNetwork?.NetworkID !== marker.dockerNetworkId ||
-    !Array.isArray(sidecarNetwork?.Aliases) ||
-    !sidecarNetwork.Aliases.includes(LOCAL_N8N_SIDECAR_HOSTNAME) ||
-    !ports ||
-    typeof ports !== "object" ||
-    Array.isArray(ports) ||
-    Object.values(ports).some((bindings) => bindings !== null)
+    (sidecarNetwork && sidecarNetwork.NetworkID !== marker.dockerNetworkId) ||
+    (sidecar.State.Running && (
+      sidecarNetwork?.NetworkID !== marker.dockerNetworkId ||
+      !Array.isArray(sidecarNetwork?.Aliases) ||
+      !sidecarNetwork.Aliases.includes(LOCAL_N8N_SIDECAR_HOSTNAME)
+    )) ||
+    (sidecar.State.Running && (!ports || typeof ports !== "object" || Array.isArray(ports))) ||
+    (ports && (typeof ports !== "object" || Array.isArray(ports) ||
+      Object.values(ports).some((bindings) => bindings !== null)))
   ) {
     throw new Error("The local sidecar refresh identity could not be verified.");
+  }
+  const logicalVolume = marker.schemaVersion === MARKER_SCHEMA_VERSION ? "siwc-store" : "oauth-auth";
+  const destination = marker.schemaVersion === MARKER_SCHEMA_VERSION ? "/home/node/.relmio-siwc" : "/home/node/.codex";
+  const mounts = sidecar.Mounts;
+  if (!Array.isArray(mounts) || mounts.length !== 1 ||
+      mounts[0].Type !== "volume" || mounts[0].Name !== `${marker.projectName}_${logicalVolume}` ||
+      mounts[0].Destination !== destination || mounts[0].RW !== true) {
+    throw new Error("The owned sidecar credential mount changed.");
   }
   return Object.freeze({
     containerId,
     imageId,
+    credentialMount: { type: mounts[0].Type, name: mounts[0].Name, destination: mounts[0].Destination },
     health: sidecar.State.Health?.Status,
     paused: sidecar.State.Paused,
     running: sidecar.State.Running,
   });
 }
 
-async function setOwnedSidecarPaused({
-  runProcess,
-  installRoot,
-  marker,
-  expectedContainerId,
-  paused,
-}) {
-  let commandError;
-  try {
-    await runOrThrow(
-      runProcess,
-      {
-        file: "docker",
-        args: ["container", paused ? "pause" : "unpause", expectedContainerId],
-        cwd: installRoot,
-        dockerHost: marker.dockerHost,
-      },
-      paused
-        ? "Local sidecar credential writer freeze"
-        : "Local sidecar credential writer resume",
-    );
-  } catch (error) {
-    commandError = error;
-  }
-  const inspected = await inspectOwnedSidecarRuntime({
-    runProcess,
-    installRoot,
-    marker,
-  });
-  if (
-    !inspected ||
-    inspected.containerId !== expectedContainerId ||
-    !inspected.running ||
-    inspected.paused !== paused
-  ) {
-    throw new Error(
-      paused
-        ? "The local sidecar credential writer did not freeze safely."
-        : "The local sidecar credential writer did not resume safely.",
-      { cause: commandError },
-    );
-  }
-}
 
-async function killFrozenOwnedSidecar({
-  runProcess,
-  installRoot,
-  marker,
-  expectedContainerId,
-}) {
-  const frozen = await inspectOwnedSidecarRuntime({
-    runProcess,
-    installRoot,
-    marker,
-  });
-  if (
-    !frozen ||
-    frozen.containerId !== expectedContainerId ||
-    !frozen.running ||
-    !frozen.paused
-  ) {
-    throw new Error("The frozen local sidecar identity could not be verified.");
-  }
-  let commandError;
-  try {
-    await runOrThrow(
-      runProcess,
-      {
-        file: "docker",
-        args: ["container", "kill", "--signal", "KILL", expectedContainerId],
-        cwd: installRoot,
-        dockerHost: marker.dockerHost,
-      },
-      "Frozen local sidecar credential writer termination",
-    );
-  } catch (error) {
-    commandError = error;
-  }
-  const stopped = await inspectOwnedSidecarRuntime({
-    runProcess,
-    installRoot,
-    marker,
-  });
-  if (
-    !stopped ||
-    stopped.containerId !== expectedContainerId ||
-    stopped.running ||
-    stopped.paused
-  ) {
-    throw new Error(
-      "The local sidecar credential writer was not terminated safely.",
-      { cause: commandError },
-    );
-  }
-}
 
 async function cleanupSidecarProject({
   runProcess,
@@ -1825,64 +1699,264 @@ async function cleanupSidecarProject({
   }
 }
 
-async function readCurrentAuth({
-  authPath,
-  plan,
-  fileSystem,
-  env,
-  homeDirectory,
-  platform,
-  lockDownPath,
-  requireStableGeneration = true,
-}) {
-  const expectedPath = resolveAuthPath({ env, homeDirectory });
-  if (authPath !== expectedPath) {
-    throw new Error("The local OAuth credential path is invalid.");
-  }
-  let metadata;
-  try {
-    metadata = await fileSystem.lstat(expectedPath);
-  } catch {
-    throw new Error("The local OAuth credential is missing or invalid.");
-  }
+async function validateReviewedLocalAccount(registration, binding) {
+  const record = await readRegistration(registration);
   if (
-    metadata.isSymbolicLink() ||
-    !metadata.isFile() ||
-    (platform !== "win32" && (metadata.mode & 0o077) !== 0)
-  ) {
-    throw new Error(
-      platform !== "win32" && metadata.isFile() && (metadata.mode & 0o077) !== 0
-        ? "The local OAuth credential permissions are too broad."
-        : "The local OAuth credential is missing or invalid.",
-    );
+    record?.registrationId !== binding.registrationId ||
+    record?.clientId !== binding.clientId ||
+    record?.generation !== binding.generation ||
+    record?.owner?.hostId !== binding.ownerHostId ||
+    record?.owner?.runtimeId !== binding.ownerRuntimeId ||
+    record?.handoff?.state !== "owned" ||
+    !record.planEnabled ||
+    !record.session?.refreshToken ||
+    !record.session?.scopes?.includes("chatgpt.tokens.use.direct")
+  ) throw new Error("The selected SIWC account changed. Review the installation again.");
+}
+
+async function reviewOwnedN8nReplacement(
+  { plan, existingSiwc = false },
+  {
+    fileSystem = defaultFileSystem, env = process.env,
+    homeDirectory = homedir(), runProcess = runLocalProcess,
+    platform = process.platform, lockDownPath = lockDownLocalPath,
+  } = {},
+) {
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const selected = normalizeLocalN8nSidecarPlan(plan);
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({
+    env, homeDirectory, fileSystem, platform,
+  });
+  await verifyWindowsSidecarStatusPathSecurity({
+    fileSystem, installRoot, platform, lockDownPath,
+  });
+  const managed = await inspectManagedInstall({ fileSystem, installRoot });
+  const marker = validateMarker(managed.marker);
+  if (marker.schemaVersion !== (existingSiwc ? MARKER_SCHEMA_VERSION : 1) ||
+      marker.dockerHost !== selected.dockerHost ||
+      marker.n8nContainerId !== selected.n8nContainerId ||
+      marker.dockerNetworkId !== selected.dockerNetworkId ||
+      marker.networkName !== selected.networkName ||
+      marker.n8nContainerName !== selected.n8nContainerName) {
+    throw new Error("The selected n8n target or old bridge changed before migration.");
   }
-  if (requireStableGeneration && metadata.mtime.toISOString() !== plan.authGeneration) {
-    throw new Error(
-      "The local OAuth credential changed. Create and confirm a fresh plan.",
-    );
+  const selectedDockerHost = await resolveLocalDockerHost({
+    runProcess, cwd: installRoot, env, platform,
+  });
+  if (selectedDockerHost !== marker.dockerHost) {
+    throw new Error("The selected local Docker context changed.");
   }
-  if (platform === "win32") {
-    await lockDownPath(expectedPath, { platform, kind: "file" });
-    try {
-      metadata = await fileSystem.lstat(expectedPath);
-    } catch {
-      throw new Error("The local OAuth credential is missing or invalid.");
+  await attestPlanAndAlias({
+    plan: selected, runProcess, cwd: installRoot,
+    installId: marker.installId, projectName: marker.projectName,
+  });
+  const ownership = await attestProjectOwnership({
+    runProcess, cwd: installRoot, dockerHost: marker.dockerHost,
+    installId: marker.installId, projectName: marker.projectName,
+    returnDetails: true, volumeName: existingSiwc ? "siwc-store" : "oauth-auth",
+  });
+  if (!ownership.exact) {
+    throw new Error("The old bridge container, image or credential volume is not exactly owned.");
+  }
+  const runtime = await inspectOwnedSidecarRuntime({
+    runProcess, installRoot, marker,
+  });
+  if (!runtime || runtime.paused) {
+    throw new Error("The old bridge refresh writer is missing or ambiguous.");
+  }
+  const logicalVolume = existingSiwc ? "siwc-store" : "oauth-auth";
+  const effective = parseJson((await runOrThrow(runProcess, {
+    file: "docker", args: createComposeArgs(marker.projectName, ["config", "--format", "json"]),
+    cwd: installRoot, dockerHost: marker.dockerHost,
+  }, "Owned sidecar effective Compose check")).stdout, "Owned sidecar effective Compose check");
+  const current = effective?.services?.[SERVICE_NAME];
+  if (Object.keys(effective?.services ?? {}).length !== (existingSiwc ? 2 : 1) ||
+      current?.image !== `${marker.projectName}:local` ||
+      current?.volumes?.length !== 1 || current.volumes[0]?.type !== "volume" ||
+      current.volumes[0]?.source !== logicalVolume ||
+      current.volumes[0]?.target !== runtime.credentialMount.destination ||
+      current.volumes[0]?.read_only === true ||
+      effective?.volumes?.[logicalVolume]?.name !== runtime.credentialMount.name) {
+    throw new Error("The owned sidecar effective credential mapping changed.");
+  }
+  const volumeIdentity = await readOwnedCredentialVolumeIdentity({
+    runProcess, installRoot, marker, volumeName: runtime.credentialMount.name,
+  });
+  return Object.freeze({
+    installId: marker.installId, projectName: marker.projectName,
+    dockerHost: marker.dockerHost,
+    n8nContainerId: marker.n8nContainerId,
+    dockerNetworkId: marker.dockerNetworkId,
+    networkName: marker.networkName,
+    containerId: runtime.containerId, imageId: runtime.imageId,
+    volumeName: runtime.credentialMount.name,
+    credentialMount: runtime.credentialMount, volumeIdentity,
+    ...(existingSiwc ? {
+      registrationId: marker.registrationId,
+      ownerHostId: marker.ownerHostId,
+    } : {}),
+    running: runtime.running,
+  });
+}
+
+export function reviewLocalN8nLegacyMigration({ plan }, deps = {}) {
+  return reviewOwnedN8nReplacement({ plan }, deps);
+}
+
+export function reviewLocalN8nSiwcReplacement({ plan }, deps = {}) {
+  return reviewOwnedN8nReplacement({ plan, existingSiwc: true }, deps);
+}
+
+async function readOwnedCredentialVolumeIdentity({ runProcess, installRoot, marker, volumeName }) {
+  validateDockerName(volumeName);
+  const volume = parseJson((await runOrThrow(runProcess, {
+    file: "docker", args: ["volume", "inspect", "--format", "{{json .}}", volumeName],
+    cwd: installRoot, dockerHost: marker.dockerHost,
+  }, "Owned credential volume identity check")).stdout, "Owned credential volume identity check");
+  requireOwnershipLabels(volume?.Labels, { installId: marker.installId, projectName: marker.projectName, service: false });
+  if (volume?.Name !== volumeName || volume.Driver !== "local" ||
+      typeof volume.CreatedAt !== "string" || !Number.isFinite(Date.parse(volume.CreatedAt)) ||
+      typeof volume.Mountpoint !== "string" || !volume.Mountpoint.startsWith("/") ||
+      (volume.Options !== null && Object.keys(volume.Options ?? {}).length !== 0)) {
+    throw new Error("The owned credential volume identity changed.");
+  }
+  return createHash("sha256").update(JSON.stringify({
+    name: volume.Name, createdAt: volume.CreatedAt, driver: volume.Driver,
+    mountpoint: volume.Mountpoint, options: volume.Options, labels: volume.Labels,
+  })).digest("hex");
+}
+
+async function attestRetiredN8n({ fileSystem, runProcess, installRoot, binding }) {
+  if (!/^[a-f0-9]{32}$/u.test(binding?.installId)) throw new Error("The retired sidecar identity is invalid.");
+  const archive = join(installRoot, "legacy", binding.installId);
+  const marker = validateMarker(JSON.parse(await fileSystem.readFile(join(archive, MANAGED_MARKER), "utf8")));
+  const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot: archive, marker });
+  if (!runtime || runtime.running || runtime.paused || runtime.containerId !== binding.containerId ||
+      runtime.imageId !== binding.imageId ||
+      JSON.stringify(runtime.credentialMount) !== JSON.stringify(binding.credentialMount) ||
+      await readOwnedCredentialVolumeIdentity({ runProcess, installRoot: archive, marker,
+        volumeName: binding.volumeName }) !== binding.volumeIdentity) {
+    throw new Error("The retained old sidecar writer or credential volume changed.");
+  }
+}
+
+export async function reviewLocalN8nSiwcResume(
+  { registration, plan: reviewedPlan } = {},
+  { fileSystem = defaultFileSystem, env = process.env, homeDirectory = homedir(),
+    runProcess = runLocalProcess, platform = process.platform, lockDownPath = lockDownLocalPath } = {},
+) {
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({ env, homeDirectory, fileSystem, platform });
+  const staged = await readLocalSiwcStaging({ fileSystem, installRoot, platform, lockDownPath });
+  if (!staged || staged.checkpoint.stage === "completed") throw new Error("There is no interrupted SIWC sidecar to resume.");
+  const { checkpoint, checkpointSha256 } = staged;
+  let plan = normalizeLocalN8nSidecarPlan(reviewedPlan ?? checkpoint.plan);
+  if (reviewedPlan && reviewedPlan.authBinding?.registrationId !== registration?.registrationId) {
+    throw new Error("The selected SIWC account does not match the fresh n8n review.");
+  }
+  for (const field of ["dockerHost", "networkName", "dockerNetworkId"]) {
+    if (plan[field] !== checkpoint.plan[field]) throw new Error("The stable SIWC destination changed.");
+  }
+  if (checkpoint.projectName !== `${PROJECT_PREFIX}-${checkpoint.installId}` ||
+      await resolveLocalDockerHost({ runProcess, cwd: homeDirectory, env, platform }) !== checkpoint.dockerHost) {
+    throw new Error("The staged SIWC destination changed.");
+  }
+  await attestProjectOwnership({ runProcess, cwd: homeDirectory, dockerHost: checkpoint.dockerHost,
+    installId: checkpoint.installId, projectName: checkpoint.projectName });
+  const aliasOwner = checkpoint.reviewedLegacy && !checkpoint.oldStopped ? checkpoint.reviewedLegacy : checkpoint;
+  await attestPlanAndAlias({ plan, runProcess, cwd: homeDirectory,
+    installId: aliasOwner.installId, projectName: aliasOwner.projectName });
+  if (checkpoint.reviewedLegacy && checkpoint.oldStopped) {
+    await attestRetiredN8n({ fileSystem, runProcess, installRoot, binding: checkpoint.reviewedLegacy });
+  }
+  const filesSha256 = await fingerprintLocalSiwcFiles({ fileSystem, installRoot, platform, lockDownPath });
+  const resourcesSha256 = await fingerprintLocalSiwcResources({ runProcess, installRoot, checkpoint });
+  if (checkpoint.ownerHostId) {
+    const { marker } = await inspectManagedInstall({ fileSystem, installRoot });
+    if (marker?.installId !== checkpoint.installId || marker?.ownerHostId !== checkpoint.ownerHostId) {
+      throw new Error("The staged SIWC owner marker changed.");
     }
-    if (
-      metadata.isSymbolicLink() ||
-      !metadata.isFile() ||
-      (requireStableGeneration && metadata.mtime.toISOString() !== plan.authGeneration)
-    ) {
-      throw new Error(
-        "The local OAuth credential changed. Create and confirm a fresh plan.",
-      );
-    }
+    await assertManagedSiwcCompose(fileSystem, installRoot, marker);
   }
-  return readAuthContents({ authPath: expectedPath, fileSystem });
+  const authBinding = await readLocalSiwcResumeAuthBinding({ checkpoint, registration, readRegistration, readPendingAuthHandoff,
+    readReceipt: pending => runSiwcCli({ runProcess, installRoot, marker: checkpoint, command: "receipt",
+      input: Buffer.from(JSON.stringify({ handoffId: pending.handoffId, binding: pending.binding, identity: pending.identity })) }) });
+  plan = normalizeLocalN8nSidecarPlan({ ...plan, authBinding });
+  return { target: LOCAL_N8N_SIDECAR_TARGET, installId: checkpoint.installId,
+    registrationId: plan.authBinding.registrationId, stage: checkpoint.stage, plan, checkpointSha256,
+    ...(checkpoint.migration ? { migration: checkpoint.migration } : {}),
+    filesSha256, resourcesSha256 };
+}
+
+export async function reconcileLocalN8nSiwcHandoff(
+  { registration, confirmed },
+  { fileSystem = defaultFileSystem, env = process.env, homeDirectory = homedir(),
+    runProcess = runLocalProcess, platform = process.platform, lockDownPath = lockDownLocalPath,
+    getProcessIdentity, lifecycleLockNow = Date.now } = {},
+) {
+  if (confirmed !== true) throw new Error("Confirm reconciliation of the selected SIWC handoff.");
+  validateSiwcRegistrationId(registration?.registrationId);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({ env, homeDirectory, fileSystem, platform });
+  const releaseLock = await acquireSidecarLock({ fileSystem, getProcessIdentity, installRoot,
+    lockDownPath, now: lifecycleLockNow, platform });
+  return settleLocalIntegrationLifecycleOperation({ completionLabel: "Local n8n SIWC handoff reconciliation",
+    releaseLock, operation: async () => {
+      await fingerprintLocalSiwcFiles({ fileSystem, installRoot, platform, lockDownPath });
+      const managed = await inspectManagedInstall({ fileSystem, installRoot });
+      const marker = validateMarker(managed.marker);
+      if (marker.registrationId !== registration.registrationId) throw new Error("The selected SIWC destination changed.");
+      await assertManagedSiwcCompose(fileSystem, installRoot, marker);
+      if (await resolveLocalDockerHost({ runProcess, cwd: installRoot, env, platform }) !== marker.dockerHost) {
+        throw new Error("The selected Docker context changed.");
+      }
+      await attestPlanAndAlias({ plan: marker, runProcess, cwd: installRoot,
+        installId: marker.installId, projectName: marker.projectName, attestN8n: false });
+      await attestProjectOwnership({ runProcess, cwd: installRoot, dockerHost: marker.dockerHost,
+        installId: marker.installId, projectName: marker.projectName });
+      const source = await readRegistration(registration);
+      const pending = await readPendingAuthHandoff(registration);
+      const request = pending ?? (source?.handoff?.state === "transferred" ? {
+        handoffId: source.handoff.handoffId, binding: source.handoff.receipt.binding,
+        target: source.handoff.receipt.binding.target,
+        identity: { issuer: source.identity.issuer, clientId: source.clientId, subject: source.identity.subject },
+      } : null);
+      if (!request || request.target.hostId !== marker.ownerHostId || request.target.runtimeId !== marker.installId) {
+        throw new Error("The frozen handoff does not match this destination.");
+      }
+      let receipt;
+      try {
+        ({ receipt } = await runSiwcCli({ runProcess, installRoot, marker, command: "receipt",
+          input: Buffer.from(JSON.stringify({ handoffId: request.handoffId,
+            binding: request.binding, identity: request.identity })) }));
+      } catch {
+        throw Object.assign(new Error("The SIWC receipt outcome is unresolved. The source remains frozen."), { remoteOutcomeUnknown: true });
+      }
+      if (receipt === null) {
+        await assertNoLocalSiwcOneOffContainers({ runProcess, installRoot,
+          dockerHost: marker.dockerHost, projectName: marker.projectName });
+        const staged = await readLocalSiwcStaging({ fileSystem, installRoot, platform, lockDownPath });
+        if (!staged || staged.checkpoint.registrationId !== registration.registrationId) {
+          throw new Error("The original SIWC checkpoint changed.");
+        }
+        staged.checkpoint.notAccepted = true;
+        const path = localSiwcStagingPath(installRoot);
+        await writeManagedFile(fileSystem, path, `${JSON.stringify(staged.checkpoint)}\n`, 0o600);
+        if (platform === "win32") await lockDownPath(path, { platform, kind: "file" });
+        return { outcome: "not-accepted",
+          account: (await listRegistrations({ storageRoot: registration.storageRoot })).find(
+            account => account.registrationId === registration.registrationId) };
+      }
+      if (receipt?.handoffId !== request.handoffId ||
+          JSON.stringify(receipt.binding) !== JSON.stringify(request.binding)) throw new Error("The SIWC receipt binding changed.");
+      return { outcome: "finished", account: await finishAuthHandoff(registration, {
+        handoffId: request.handoffId, receipt: receipt.receipt }) };
+    } });
 }
 
 export async function installLocalN8nSidecar(
-  { plan, authPath, confirmed },
+  { plan, registration, backgroundConsent, confirmed, migrationConsent, legacyBinding, replacementConsent, existingBinding, resume },
   {
     fileSystem = defaultFileSystem,
     env = process.env,
@@ -1893,6 +1967,7 @@ export async function installLocalN8nSidecar(
     lockDownPath = lockDownLocalPath,
     getProcessIdentity,
     lifecycleLockNow = Date.now,
+    collectAssets = collectSiwcRuntimeAssets,
   } = {},
 ) {
   if (confirmed !== true) {
@@ -1900,927 +1975,732 @@ export async function installLocalN8nSidecar(
   }
   assertSupportedPlatform(platform);
   rejectDockerEnvironmentOverrides(env);
-  const normalizedPlan = normalizeLocalN8nSidecarPlan(plan);
-  const authContents = await readCurrentAuth({
-    authPath,
-    plan: normalizedPlan,
-    fileSystem,
-    env,
-    homeDirectory,
-    platform,
-    lockDownPath,
+  const selected = normalizeLocalN8nSidecarPlan(plan);
+  const binding = validateSiwcAuthBinding(selected.authBinding);
+  if (registration?.registrationId !== binding.registrationId || !registration.storageRoot) {
+    throw new Error("The selected SIWC account does not match the reviewed bridge.");
+  }
+  const safeConsent = Object.freeze({
+    ...validateSiwcBackgroundConsent(backgroundConsent, { target: "local-n8n" }),
   });
+  if (!resume) await validateReviewedLocalAccount(registration, binding);
   const installRoot = await resolveLocalN8nSidecarInstallRoot({
-    env,
-    homeDirectory,
-    fileSystem,
-    platform,
+    env, homeDirectory, fileSystem, platform,
   });
   const releaseLock = await acquireSidecarLock({
-    fileSystem,
-    getProcessIdentity,
-    installRoot,
-    lockDownPath,
-    now: lifecycleLockNow,
-    platform,
+    fileSystem, getProcessIdentity, installRoot, lockDownPath,
+    now: lifecycleLockNow, platform,
   });
+  let preservedResult;
   return settleLocalIntegrationLifecycleOperation({
-    completionLabel: "Local n8n OAuth sidecar installation",
+    completionLabel: "Local n8n SIWC sidecar installation",
     releaseLock,
     operation: async () => {
-      const managed = await inspectManagedInstall({ fileSystem, installRoot });
-    if (managed.marker) {
-      throw new Error(
-        "The managed local n8n bridge is already installed. Use the separately confirmed Remove bridge action before installing it again.",
-      );
-    }
-    const identityBytes = randomBytes(32);
-    if (
-      (!Buffer.isBuffer(identityBytes) || identityBytes.length !== 32)
-    ) {
-      throw new Error("Relmio could not create a strong sidecar identity.");
-    }
-    const installId = identityBytes.subarray(0, 16).toString("hex");
-    const projectName = `${PROJECT_PREFIX}-${installId}`;
-    await attestProjectOwnership({
-      runProcess,
-      cwd: dirname(resolve(installRoot, "..", "..")),
-      dockerHost: normalizedPlan.dockerHost,
-      installId,
-      projectName,
-    });
-    await attestPlanAndAlias({
-      plan: normalizedPlan,
-      runProcess,
-      cwd: dirname(resolve(installRoot, "..", "..")),
-      installId,
-      projectName,
-    });
-    await initializeManagedDirectories({
-      fileSystem,
-      installRoot,
-      baseExists: managed.baseExists,
-      platform,
-      lockDownPath,
-    });
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, "Dockerfile"),
-      createLocalN8nSidecarDockerfile({ installId }),
-      0o600,
-    );
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, ".dockerignore"),
-      createLocalN8nSidecarDockerignore(),
-      0o600,
-    );
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, "openai-oauth-sidecar.mjs"),
-      await defaultFileSystem.readFile(new URL("../gateway/openai-oauth-sidecar.mjs", import.meta.url), "utf8"),
-      0o600,
-    );
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, COMPOSE_FILENAME),
-      createLocalN8nSidecarComposeFile({
-        installId,
-        networkName: normalizedPlan.networkName,
-      }),
-      0o600,
-    );
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, MANAGED_MARKER),
-      `${JSON.stringify({
-        schemaVersion: MARKER_SCHEMA_VERSION,
-        kind: "relmio-local-n8n-sidecar",
-        target: LOCAL_N8N_SIDECAR_TARGET,
-        installId,
-        projectName,
-        dockerHost: normalizedPlan.dockerHost,
-        n8nContainerId: normalizedPlan.n8nContainerId,
-        n8nContainerName: normalizedPlan.n8nContainerName,
-        dockerNetworkId: normalizedPlan.dockerNetworkId,
-        networkName: normalizedPlan.networkName,
-      })}\n`,
-      0o600,
-    );
-    await runOrThrow(
-      runProcess,
-      {
-        file: "docker",
-        args: createComposeArgs(projectName, ["config", "--quiet"]),
-        cwd: installRoot,
-        dockerHost: normalizedPlan.dockerHost,
-      },
-      "Local sidecar Compose validation",
-    );
-    await attestProjectOwnership({
-      runProcess,
-      cwd: installRoot,
-      dockerHost: normalizedPlan.dockerHost,
-      installId,
-      projectName,
-    });
-    await attestPlanAndAlias({
-      plan: normalizedPlan,
-      runProcess,
-      cwd: installRoot,
-      installId,
-      projectName,
-    });
-    const reattestedAuthContents = await readCurrentAuth({
-      authPath,
-      plan: normalizedPlan,
-      fileSystem,
-      env,
-      homeDirectory,
-      platform,
-      lockDownPath,
-    });
-    if (!authContents.equals(reattestedAuthContents)) {
-      throw new Error(
-        "The local OAuth credential changed. Create and confirm a fresh plan.",
-      );
-    }
-
-    let deploymentStarted = false;
-    try {
-      deploymentStarted = true;
-      await runOrThrow(
-        runProcess,
-        {
-          file: "docker",
-          args: createComposeArgs(projectName, ["build", SERVICE_NAME]),
-          cwd: installRoot,
-          dockerHost: normalizedPlan.dockerHost,
-        },
-        "Local sidecar image build",
-      );
-      await runOrThrow(
-        runProcess,
-        {
-          file: "docker",
-          args: createComposeArgs(projectName, [
-            "run",
-            "--rm",
-            "--no-deps",
-            "-T",
-            "credential-seed",
-          ]),
-          cwd: installRoot,
-          dockerHost: normalizedPlan.dockerHost,
-          input: reattestedAuthContents,
-        },
-        "Local OAuth credential seed",
-      );
-      await runOrThrow(
-        runProcess,
-        {
-          file: "docker",
-          args: createComposeArgs(projectName, [
-            "up",
-            "-d",
-            "--wait",
-            "--wait-timeout",
-            "90",
-            "--no-deps",
-            SERVICE_NAME,
-          ]),
-          cwd: installRoot,
-          dockerHost: normalizedPlan.dockerHost,
-        },
-        "Local sidecar start",
-      );
-      const models = await verifyRunningSidecar({
-        runProcess,
-        installRoot,
-        plan: normalizedPlan,
-        installId,
-        projectName,
+      try {
+      const staged = await readLocalSiwcStaging({ fileSystem, installRoot, platform, lockDownPath });
+      if (staged && staged.checkpoint.stage !== "completed" && !resume) {
+        throw new Error("Review the interrupted SIWC sidecar before resuming.");
+      }
+      let handoffCommitted = false;
+      if (resume) {
+        const reviewed = await reviewLocalN8nSiwcResume({ registration, plan: selected },
+          { fileSystem, env, homeDirectory, runProcess, platform, lockDownPath });
+        if (JSON.stringify(reviewed) !== JSON.stringify(resume) ||
+            JSON.stringify(reviewed.plan) !== JSON.stringify(selected)) {
+          throw new Error("The reviewed SIWC resume binding changed.");
+        }
+        const source = await readRegistration(registration);
+        if (source?.handoff?.state === "handoff-pending") throw new Error("Reconcile the frozen handoff before resuming.");
+        handoffCommitted = source?.handoff?.state === "transferred";
+        if (!handoffCommitted) await validateReviewedLocalAccount(registration, binding);
+        else if (source.handoff.receipt.binding.target.runtimeId !== staged.checkpoint.installId ||
+                 source.handoff.receipt.binding.target.hostId !== staged.checkpoint.ownerHostId) {
+          throw new Error("The completed handoff belongs to another destination.");
+        }
+      }
+      const managed = await inspectManagedInstall({ fileSystem, installRoot, staging: staged?.checkpoint });
+      const migrating = migrationConsent !== undefined || legacyBinding !== undefined || resume?.migration === "legacy";
+      const replacing = replacementConsent !== undefined || existingBinding !== undefined || resume?.migration === "replacement";
+      const retiring = migrating || replacing;
+      let reviewedLegacy = resume ? staged.checkpoint.reviewedLegacy ?? null : null;
+      if (retiring && !(resume && staged.checkpoint.oldStopped)) {
+        const expectedSchema = replacing ? MARKER_SCHEMA_VERSION : 1;
+        if ((migrating && replacing) ||
+            (!resume && migrating && migrationConsent !== true) ||
+            (!resume && replacing && replacementConsent !== true) ||
+            managed.marker?.schemaVersion !== expectedSchema) {
+          throw new Error("Explicit reviewed old-bridge replacement consent is required.");
+        }
+        const inspect = replacing
+          ? reviewLocalN8nSiwcReplacement : reviewLocalN8nLegacyMigration;
+        reviewedLegacy = await inspect(
+          { plan: selected },
+          { fileSystem, env, homeDirectory, runProcess, platform, lockDownPath },
+        );
+        const expected = resume ? staged.checkpoint.reviewedLegacy : replacing ? existingBinding : legacyBinding;
+        for (const field of [
+          "installId", "projectName", "dockerHost", "n8nContainerId",
+          "dockerNetworkId", "networkName", "containerId", "imageId",
+          "volumeName", "volumeIdentity", "running",
+          ...(replacing ? ["registrationId", "ownerHostId"] : []),
+        ]) {
+          if (expected?.[field] !== reviewedLegacy[field]) {
+            throw new Error("The reviewed old n8n sidecar identity changed.");
+          }
+        }
+        if (JSON.stringify(expected?.credentialMount) !== JSON.stringify(reviewedLegacy.credentialMount)) {
+          throw new Error("The reviewed credential mount changed.");
+        }
+        if (replacing && reviewedLegacy.registrationId === binding.registrationId) {
+          throw new Error("A replacement requires a fresh independently authorized SIWC registration.");
+        }
+      } else if (managed.marker && !resume) {
+        throw new Error("The existing bridge requires a separately reviewed migration or account replacement.");
+      }
+      const identityBytes = randomBytes(32);
+      const capabilityBytes = randomBytes(32);
+      if (!Buffer.isBuffer(identityBytes) || identityBytes.length !== 32 ||
+          !Buffer.isBuffer(capabilityBytes) || capabilityBytes.length !== 32) {
+        throw new Error("Relmio could not generate a strong installation identity and local capability.");
+      }
+      const installId = resume ? staged.checkpoint.installId : identityBytes.subarray(0, 16).toString("hex");
+      if (retiring && installId === reviewedLegacy.installId) {
+        throw new Error("The fresh SIWC sidecar identity collided with the old project.");
+      }
+      const projectName = `${PROJECT_PREFIX}-${installId}`;
+      const clientCredential = capabilityBytes.toString("base64url");
+      const tokenSha256 = createHash("sha256").update(clientCredential).digest("hex");
+      const runtime = { installId, projectName, dockerHost: selected.dockerHost, registrationId: binding.registrationId };
+      if (handoffCommitted) {
+        const account = (await runSiwcCli({ runProcess, installRoot, marker: runtime, command: "account" })).account;
+        if (account?.registrationId !== binding.registrationId || account?.ownerHostId !== staged.checkpoint.ownerHostId ||
+            account?.ownerRuntimeId !== installId || account?.ownership !== "owned") {
+          throw new Error("The resumed destination account changed.");
+        }
+        preservedResult = { target: LOCAL_N8N_SIDECAR_TARGET, endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
+          protocol: "openai-v1", clientCredential, credentialShownOnce: true, models: [],
+          networkName: selected.networkName, hostPublication: "unknown", account, runtimeState: "unknown" };
+      }
+      const cwd = dirname(resolve(installRoot, "..", ".."));
+      await attestProjectOwnership({
+        runProcess, cwd, dockerHost: selected.dockerHost, installId, projectName,
       });
+      if (!retiring) {
+        await attestPlanAndAlias({
+          plan: selected, runProcess, cwd, installId, projectName,
+        });
+      }
+      const checkpoint = resume ? staged.checkpoint : {
+        schemaVersion: 1, target: LOCAL_N8N_SIDECAR_TARGET, installId, projectName,
+        dockerHost: selected.dockerHost, registrationId: binding.registrationId,
+        plan: selected, stage: "staged",
+        ...(retiring ? { reviewedLegacy, migration: replacing ? "replacement" : "legacy",
+          ...(replacing ? { previousGeneration: existingBinding.expectedGeneration } : {}) } : {}),
+      };
+      if (resume) {
+        if (checkpoint.registrationId !== binding.registrationId) {
+          await assertNoLocalSiwcOneOffContainers({ runProcess, installRoot,
+            dockerHost: selected.dockerHost, projectName });
+        }
+        checkpoint.registrationId = binding.registrationId;
+        checkpoint.plan = selected;
+        checkpoint.notAccepted = false;
+      }
+      const saveStage = async stage => {
+        checkpoint.stage = stage;
+        const path = localSiwcStagingPath(installRoot);
+        await writeManagedFile(fileSystem, path, `${JSON.stringify(checkpoint)}\n`, 0o600);
+        if (platform === "win32") await lockDownPath(path, { platform, kind: "file" });
+      };
+      await saveStage(checkpoint.stage);
+      await initializeManagedDirectories({
+        fileSystem, installRoot, baseExists: managed.baseExists, platform, lockDownPath,
+      });
+      const write = async (path, contents) => {
+        const fullPath = join(installRoot, path);
+        await writeManagedFile(fileSystem, fullPath, contents, 0o600);
+        if (platform === "win32") await lockDownPath(fullPath, { platform, kind: "file" });
+      };
+      let legacyArchive = retiring ? join(installRoot, "legacy", reviewedLegacy.installId) : null;
+      if (retiring && !(resume && checkpoint.oldStopped)) {
+        await validateReviewedLocalAccount(registration, binding);
+        const inspect = replacing
+          ? reviewLocalN8nSiwcReplacement : reviewLocalN8nLegacyMigration;
+        const freshPrevious = await inspect(
+          { plan: selected },
+          { fileSystem, env, homeDirectory, runProcess, platform, lockDownPath },
+        );
+        for (const field of [
+          "installId", "projectName", "dockerHost", "n8nContainerId",
+          "dockerNetworkId", "networkName", "containerId", "imageId",
+          "volumeName", "volumeIdentity", "running",
+          ...(replacing ? ["registrationId", "ownerHostId"] : []),
+        ]) {
+          if (freshPrevious[field] !== reviewedLegacy[field]) {
+            throw new Error("The old n8n sidecar changed before replacement. Review again.");
+          }
+        }
+        if (JSON.stringify(freshPrevious.credentialMount) !== JSON.stringify(reviewedLegacy.credentialMount)) {
+          throw new Error("The old credential mount changed before replacement.");
+        }
+        if (replacing) {
+          const old = (await runSiwcCli({
+            runProcess, installRoot, marker: managed.marker, command: "account",
+          })).account;
+          if (old?.registrationId !== reviewedLegacy.registrationId ||
+              old?.ownerHostId !== reviewedLegacy.ownerHostId ||
+              old?.generation !== (resume ? checkpoint.previousGeneration : existingBinding.expectedGeneration) ||
+              old?.session !== "signed-out" || old?.planEnabled !== false) {
+            throw new Error("Sign out of the exact old SIWC account before reviewed replacement.");
+          }
+        }
+        const legacyRoot = join(installRoot, "legacy");
+        legacyArchive = join(legacyRoot, reviewedLegacy.installId);
+        if (!resume && await lstatIfExists(fileSystem, legacyArchive)) {
+          throw new Error("A prior n8n sidecar replacement is incomplete. Inspect it before retrying.");
+        }
+        await ensurePrivateDirectory(fileSystem, legacyRoot, platform, lockDownPath);
+        await ensurePrivateDirectory(fileSystem, legacyArchive, platform, lockDownPath);
+        const retain = async (filename, contents) => {
+          const path = join(legacyArchive, filename);
+          await writeManagedFile(fileSystem, path, contents, 0o600);
+          if (platform === "win32") await lockDownPath(path, { platform, kind: "file" });
+        };
+        for (const filename of [
+          MANAGED_MARKER, COMPOSE_FILENAME, "Dockerfile", ".dockerignore",
+          ...(replacing ? ["package.json", "package-lock.json"] : []),
+        ]) {
+          const oldPath = join(installRoot, filename);
+          const metadata = await lstatIfExists(fileSystem, oldPath);
+          if (!metadata?.isFile?.() || metadata.isSymbolicLink() ||
+              metadata.size > 1024 * 1024 ||
+              (platform !== "win32" && (metadata.mode & 0o077) !== 0)) {
+            throw new Error("The old bridge generated files are missing or unsafe.");
+          }
+          if (platform === "win32") {
+            await lockDownPath(oldPath, {
+              platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true,
+            });
+          }
+          await retain(filename, await fileSystem.readFile(oldPath));
+        }
+        const oldRuntimePath = join(installRoot, "openai-oauth-sidecar.mjs");
+        const oldRuntime = await lstatIfExists(fileSystem, oldRuntimePath);
+        if (oldRuntime) {
+          if (!oldRuntime.isFile() || oldRuntime.isSymbolicLink() ||
+              oldRuntime.size > 1024 * 1024) {
+            throw new Error("The old bridge runtime file is unsafe.");
+          }
+          await retain("openai-oauth-sidecar.mjs", await fileSystem.readFile(oldRuntimePath));
+        }
+        const journal = async state => retain("migration.json", Buffer.from(
+          `${JSON.stringify({
+            schemaVersion: 1, state, reviewedLegacy,
+            replacementInstallId: installId, previousWasSiwc: replacing,
+          })}\n`,
+        ));
+        await journal("prepared");
+        if (reviewedLegacy.running) {
+          await runOrThrow(runProcess, {
+            file: "docker",
+            args: createComposeArgs(reviewedLegacy.projectName, [
+              "stop", "--timeout", "30", SERVICE_NAME,
+            ]),
+            cwd: installRoot, dockerHost: reviewedLegacy.dockerHost,
+          }, "Attested old n8n sidecar drain");
+        }
+        const stoppedPrevious = await inspect(
+          { plan: selected },
+          { fileSystem, env, homeDirectory, runProcess, platform, lockDownPath },
+        );
+        for (const field of [
+          "installId", "projectName", "dockerHost", "n8nContainerId",
+          "dockerNetworkId", "networkName", "containerId", "imageId", "volumeName", "volumeIdentity",
+          ...(replacing ? ["registrationId", "ownerHostId"] : []),
+        ]) {
+          if (stoppedPrevious[field] !== reviewedLegacy[field]) {
+            throw new Error("The old sidecar identity changed while stopping. It will not be resumed automatically.");
+          }
+        }
+        if (stoppedPrevious.running) {
+          throw new Error("The old credential refresh writer did not stop.");
+        }
+        if (JSON.stringify(stoppedPrevious.credentialMount) !== JSON.stringify(reviewedLegacy.credentialMount)) {
+          throw new Error("The old credential mount changed while stopping.");
+        }
+        if (replacing) {
+          const old = (await runSiwcCli({
+            runProcess, installRoot, marker: managed.marker, command: "account",
+          })).account;
+          if (old?.registrationId !== reviewedLegacy.registrationId ||
+              old?.generation !== (resume ? checkpoint.previousGeneration : existingBinding.expectedGeneration) ||
+              old?.session !== "signed-out" || old?.planEnabled !== false) {
+            throw new Error("The old signed-out SIWC account changed. The retired bridge remains stopped.");
+          }
+        }
+        await journal("stopped");
+        checkpoint.oldStopped = true;
+        await saveStage("staged");
+      }
+      if (handoffCommitted) {
+        await runOrThrow(runProcess, { file: "docker",
+          args: createComposeArgs(projectName, ["stop", "--timeout", "30", SERVICE_NAME]),
+          cwd: installRoot, dockerHost: selected.dockerHost }, "Resumed owned sidecar stop");
+        const running = await runOrThrow(runProcess, { file: "docker",
+          args: createComposeArgs(projectName, ["ps", "--status", "running", "--services", SERVICE_NAME]),
+          cwd: installRoot, dockerHost: selected.dockerHost }, "Resumed owned sidecar stopped check");
+        if (running.stdout.trim() !== "") throw new Error("The resumed sidecar did not stop.");
+      }
+      const assets = await collectAssets();
+      for (const folder of ["services", "gateway", "infrastructure"]) {
+        await ensurePrivateDirectory(fileSystem, join(installRoot, folder), platform, lockDownPath);
+      }
+      await write("Dockerfile", createLocalN8nSidecarDockerfile({ installId }));
+      await write(".dockerignore", createLocalN8nSidecarDockerignore());
+      await write("package.json", assets.packageJson);
+      await write("package-lock.json", assets.packageLock);
+      for (const asset of assets.files) {
+        if (!SIWC_ASSET_PATHS.has(asset.path) || !Buffer.isBuffer(asset.contents)) {
+          throw new Error("The packaged SIWC runtime assets are invalid.");
+        }
+        await write(asset.path, asset.contents);
+      }
+      await write(COMPOSE_FILENAME, createLocalN8nSidecarComposeFile({
+        installId, networkName: selected.networkName,
+        registrationId: binding.registrationId, tokenSha256,
+      }));
+      await runOrThrow(runProcess, {
+        file: "docker", args: createComposeArgs(projectName, ["config", "--quiet"]),
+        cwd: installRoot, dockerHost: selected.dockerHost,
+      }, "Local sidecar Compose validation");
+      await attestProjectOwnership({
+        runProcess, cwd: installRoot, dockerHost: selected.dockerHost,
+        installId, projectName,
+      });
+      await attestPlanAndAlias({
+        plan: selected, runProcess, cwd: installRoot, installId, projectName,
+      });
+      await runOrThrow(runProcess, {
+        file: "docker", args: createComposeArgs(projectName, ["build", SERVICE_NAME]),
+        cwd: installRoot, dockerHost: selected.dockerHost,
+      }, "Local SIWC image build");
+      await runOrThrow(runProcess, {
+        file: "docker", args: createComposeArgs(projectName, [
+          "run", "--rm", "--no-deps", "-T", "credential-seed",
+        ]),
+        cwd: installRoot, dockerHost: selected.dockerHost,
+      }, "Local SIWC private volume initialization");
+      const destination = await runSiwcCli({
+        runProcess, installRoot, marker: runtime, command: "host",
+      });
+      validateSiwcHostId(destination?.hostId);
+      if (destination.runtimeId !== installId || destination.hostId === binding.ownerHostId ||
+          (handoffCommitted && destination.hostId !== checkpoint.ownerHostId)) {
+        throw new Error("The local SIWC destination host identity is invalid.");
+      }
+      await write(MANAGED_MARKER, `${JSON.stringify({
+        schemaVersion: MARKER_SCHEMA_VERSION, kind: "relmio-local-n8n-sidecar",
+        target: LOCAL_N8N_SIDECAR_TARGET, installId, projectName,
+        dockerHost: selected.dockerHost,
+        n8nContainerId: selected.n8nContainerId,
+        n8nContainerName: selected.n8nContainerName,
+        dockerNetworkId: selected.dockerNetworkId,
+        networkName: selected.networkName,
+        registrationId: binding.registrationId, clientId: binding.clientId,
+        ownerHostId: destination.hostId, tokenSha256,
+        ...(retiring ? {
+          legacyInstallId: reviewedLegacy.installId,
+          ...(replacing ? { previousWasSiwc: true } : {}),
+        } : {}),
+      })}\n`);
+      checkpoint.ownerHostId = destination.hostId;
+      await saveStage("prepared");
+      await attestPlanAndAlias({
+        plan: selected, runProcess, cwd: installRoot, installId, projectName,
+      });
+      let accepted;
+      if (handoffCommitted) {
+        const account = (await runSiwcCli({ runProcess, installRoot, marker: runtime, command: "account" })).account;
+        if (account?.registrationId !== binding.registrationId || account?.ownerHostId !== destination.hostId ||
+            account?.ownerRuntimeId !== installId || account?.ownership !== "owned") {
+          throw new Error("The resumed SIWC destination account changed.");
+        }
+        accepted = { account };
+      } else {
+      await validateReviewedLocalAccount(registration, binding);
+      const { handoffId } = await prepareAuthHandoff(registration, {
+        expectedGeneration: binding.generation, target: destination, backgroundConsent: safeConsent,
+      });
+      await saveStage("handoff-pending");
+      const contents = await readAuthHandoff(registration, {
+        handoffId, expectedGeneration: binding.generation,
+      });
+      // Acceptance is attempted once; recovery reads its durable receipt.
+      try {
+        accepted = await runSiwcCli({
+          runProcess, installRoot, marker: runtime, command: "accept", input: contents,
+        });
+      } catch (error) {
+        throw Object.assign(new Error("The SIWC transfer outcome is unresolved. The source remains frozen; reconcile the destination before retrying."),
+          { remoteOutcomeUnknown: true });
+      }
+      if (accepted?.handoffId !== handoffId ||
+          accepted.account?.registrationId !== binding.registrationId ||
+          accepted.account?.ownerHostId !== destination.hostId ||
+          accepted.account?.ownerRuntimeId !== installId ||
+          accepted.account?.ownership !== "owned") {
+        throw new Error("The SIWC handoff receipt or destination account did not match. The source remains frozen.");
+      }
+      preservedResult = { target: LOCAL_N8N_SIDECAR_TARGET, endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
+        protocol: "openai-v1", clientCredential, credentialShownOnce: true, models: [],
+        networkName: selected.networkName, hostPublication: "none",
+        account: accepted.account, runtimeState: "stopped" };
+      await finishAuthHandoff(registration, { handoffId, receipt: accepted.receipt });
+      handoffCommitted = true;
+      }
+      try {
+        await saveStage("transferred");
+        await runOrThrow(runProcess, {
+          file: "docker",
+          args: createComposeArgs(projectName, [
+            "up", "-d", "--wait", "--wait-timeout", "90", "--no-deps", SERVICE_NAME,
+          ]),
+          cwd: installRoot, dockerHost: selected.dockerHost,
+        }, "Local SIWC sidecar start");
+        await verifyRunningSidecar({
+          runProcess, installRoot, plan: selected, installId, projectName,
+        });
+      } catch (error) {
+        let stopped = false;
+        try {
+          await runOrThrow(runProcess, {
+            file: "docker",
+            args: createComposeArgs(projectName, [
+              "stop", "--timeout", "30", SERVICE_NAME,
+            ]),
+            cwd: installRoot, dockerHost: selected.dockerHost,
+          }, "Unverified sidecar stop");
+          const running = await runOrThrow(runProcess, {
+            file: "docker",
+            args: createComposeArgs(projectName, [
+              "ps", "--status", "running", "--services", SERVICE_NAME,
+            ]),
+            cwd: installRoot, dockerHost: selected.dockerHost,
+          }, "Unverified sidecar stopped check");
+          stopped = running.stdout.trim() === "";
+        } catch {
+          // A disconnected Docker operation leaves this owned service uncertain.
+        }
+        const unsafePublication = /published.*host port/iu.test(error?.message ?? "");
+        return {
+          target: LOCAL_N8N_SIDECAR_TARGET,
+          endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
+          protocol: "openai-v1", clientCredential, credentialShownOnce: true,
+          models: [], networkName: selected.networkName,
+          hostPublication: stopped ? "none" : "unknown",
+          deploymentMode: "partial", account: accepted.account,
+          readiness: "unverified", runtimeState: stopped ? "stopped" : "unknown",
+          runtimeFailure: unsafePublication
+            ? { error: "The sidecar may have published a host port. Inspect it before use.",
+                status: 503, recovery: "resolve-handoff" }
+            : safeSiwcRuntimeFailure(),
+          finalizationFailure: {
+            error: "Ownership transferred, but the runtime could not be verified. Save the one-time key and resolve recovery before use.",
+            recovery: "resolve-handoff",
+          },
+          ...(migrating ? { migrationPending: true, legacyRetained: true } : {}),
+          ...(replacing ? { replacementPending: true, oldHistoryRetained: true } : {}),
+        };
+      }
+      let models = [];
+      let catalogFailure;
+      try {
+        models = await verifySidecarCatalog({
+          runProcess, installRoot, plan: selected, projectName, clientCredential,
+        });
+      } catch (error) {
+        catalogFailure = safeSiwcCatalogFailure(error);
+      }
+      let account = accepted.account;
+      let status;
+      try {
+        status = await runSiwcCli({
+          runProcess, installRoot, marker: runtime, command: "account-live",
+        });
+      } catch {
+        catalogFailure ??= safeSiwcCatalogFailure({
+          code: "owner_status_unavailable", recovery: "retry-later",
+        });
+      }
+      if (status) {
+        if (status.account?.registrationId !== binding.registrationId ||
+            status.account.ownerHostId !== destination.hostId ||
+            status.account.ownerRuntimeId !== installId ||
+            status.account.ownership !== "owned") {
+          return localSiwcFinalizationFailure({
+            target: LOCAL_N8N_SIDECAR_TARGET, endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
+            protocol: "openai-v1", clientCredential, credentialShownOnce: true,
+            models: [], networkName: selected.networkName, hostPublication: "none",
+            account, runtimeState: "running",
+          }, "resolve-handoff");
+        }
+        account = status.account;
+      }
+      try {
+      if (retiring) {
+        const journalPath = join(legacyArchive, "migration.json");
+        await writeManagedFile(fileSystem, journalPath, Buffer.from(
+          `${JSON.stringify({
+            schemaVersion: 1, state: "transferred",
+            reviewedLegacy, replacementInstallId: installId,
+            previousWasSiwc: replacing,
+          })}\n`,
+        ), 0o600);
+        if (platform === "win32") {
+          await lockDownPath(journalPath, { platform, kind: "file" });
+        }
+      }
+      await saveStage("completed");
+      } catch {
+        return localSiwcFinalizationFailure({
+          target: LOCAL_N8N_SIDECAR_TARGET, endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
+          protocol: "openai-v1", clientCredential, credentialShownOnce: true,
+          models, networkName: selected.networkName, hostPublication: "none",
+          account, runtimeState: "running",
+          ...(migrating ? { migrationPending: true, legacyRetained: true } : {}),
+          ...(replacing ? { replacementPending: true, oldHistoryRetained: true } : {}),
+        });
+      }
       return {
         target: LOCAL_N8N_SIDECAR_TARGET,
         endpoint: LOCAL_N8N_SIDECAR_ENDPOINT,
-        baseUrl: LOCAL_N8N_SIDECAR_ENDPOINT,
-        protocol: "openai-v1",
-        apiKeyPlaceholder: "local-only",
-        useResponsesApi: true,
-        models,
-        networkName: normalizedPlan.networkName,
-        n8nContainerName: normalizedPlan.n8nContainerName,
-        hostPublication: "none",
-        deploymentMode: "installed",
-        unofficial: true,
+        protocol: "openai-v1", clientCredential, credentialShownOnce: true,
+        models, networkName: selected.networkName, hostPublication: "none",
+        deploymentMode: migrating ? "migrated" : replacing ? "replaced" : "installed", account,
+        readiness: catalogFailure ? "unverified" : "verified",
+        runtimeState: "running",
+        ...(catalogFailure ? { catalogFailure } : {}),
+        ...(migrating ? { migratedLegacy: true, legacyRetained: true } : {}),
+        ...(replacing ? { replacedAccount: true, oldHistoryRetained: true } : {}),
       };
-    } catch (error) {
-      if (deploymentStarted) {
-        try {
-          await attestProjectOwnership({
-            runProcess,
-            cwd: installRoot,
-            dockerHost: normalizedPlan.dockerHost,
-            installId,
-            projectName,
-          });
-          await cleanupSidecarProject({
-            runProcess,
-            installRoot,
-            dockerHost: normalizedPlan.dockerHost,
-            projectName,
-          });
-        } catch {
-          throw new Error(
-            "Local sidecar verification failed and automatic cleanup could not be confirmed. Inspect only the Relmio sidecar project before retrying.",
-          );
-        }
-      }
-      throw error;
-    }
-    },
-  });
-}
-
-async function retainCurrentRuntimeImage({ runProcess, installRoot, marker, imageId }) {
-  const backupName = `${marker.projectName}:${RUNTIME_BACKUP_TAG}`;
-  const existingBackup = await runOrThrow(
-    runProcess,
-    {
-      file: "docker",
-      args: ["image", "ls", "--filter", `reference=${backupName}`, "--format", "{{json .}}"],
-      cwd: installRoot,
-      dockerHost: marker.dockerHost,
-    },
-    "Local sidecar runtime backup check",
-  );
-  if (parseJsonLines(existingBackup.stdout, "Local sidecar runtime backup check").length !== 0) {
-    throw new Error("A retained local sidecar runtime backup already exists. Nothing was changed.");
-  }
-  validateDockerImageDigest(imageId);
-  await runOrThrow(
-    runProcess,
-    {
-      file: "docker",
-      args: ["image", "tag", imageId, backupName],
-      cwd: installRoot,
-      dockerHost: marker.dockerHost,
-    },
-    "Local sidecar runtime image retention",
-  );
-  return backupName;
-}
-
-async function restoreRetainedRuntimeImage({ runProcess, installRoot, marker, backupName }) {
-  await runOrThrow(
-    runProcess,
-    {
-      file: "docker",
-      args: ["image", "tag", backupName, `${marker.projectName}:local`],
-      cwd: installRoot,
-      dockerHost: marker.dockerHost,
-    },
-    "Local sidecar runtime image rollback",
-  );
-}
-
-async function removeRetainedRuntimeImage({ runProcess, installRoot, marker, backupName }) {
-  await runOrThrow(
-    runProcess,
-    {
-      file: "docker",
-      args: ["image", "rm", backupName],
-      cwd: installRoot,
-      dockerHost: marker.dockerHost,
-    },
-    "Local sidecar runtime backup cleanup",
-  );
-}
-
-/**
- * Update only the generated bridge runtime while retaining the existing OAuth
- * volume and every installed Docker identity.
- */
-export async function updateLocalN8nSidecarRuntime(
-  { confirmed },
-  {
-    fileSystem = defaultFileSystem,
-    env = process.env,
-    homeDirectory = homedir(),
-    runProcess = runLocalProcess,
-    platform = process.platform,
-    lockDownPath = lockDownLocalPath,
-    getProcessIdentity,
-    lifecycleLockNow = Date.now,
-  } = {},
-) {
-  if (confirmed !== true) {
-    throw new Error("Confirm updating the owned local n8n bridge runtime.");
-  }
-  assertSupportedPlatform(platform);
-  rejectDockerEnvironmentOverrides(env);
-  const installRoot = await resolveLocalN8nSidecarInstallRoot({
-    env,
-    homeDirectory,
-    fileSystem,
-    platform,
-  });
-  const releaseLock = await acquireSidecarLock({
-    fileSystem,
-    getProcessIdentity,
-    installRoot,
-    lockDownPath,
-    now: lifecycleLockNow,
-    platform,
-  });
-  return settleLocalIntegrationLifecycleOperation({
-    completionLabel: "Local n8n OAuth sidecar runtime update",
-    releaseLock,
-    operation: async () => {
-      const managed = await inspectManagedInstall({ fileSystem, installRoot });
-      if (!managed.marker) {
-        throw new Error("The managed local n8n bridge is not installed. Nothing was changed.");
-      }
-      const marker = validateMarker(managed.marker);
-      if (platform === "win32") {
-        await verifyWindowsSidecarStatusPathSecurity({
-          fileSystem,
-          installRoot,
-          platform,
-          lockDownPath,
-        });
-      }
-      const snapshot = await snapshotGeneratedRuntimeFiles({
-        fileSystem,
-        installRoot,
-        marker,
-      });
-      if (platform === "win32") {
-        for (const filename of ["Dockerfile", ".dockerignore", ...(snapshot.runtime === null ? [] : [RUNTIME_FILENAME])]) {
-          await lockDownPath(join(installRoot, filename), {
-            platform,
-            kind: "file",
-            verifyOnly: true,
-            verifyEffectiveOwnerOnly: true,
-          });
-        }
-      }
-      const selectedDockerHost = await resolveLocalDockerHost({
-        runProcess,
-        cwd: installRoot,
-        env,
-        platform,
-      });
-      if (selectedDockerHost !== marker.dockerHost) {
-        throw new Error("The selected Docker context changed. Nothing was changed.");
-      }
-      await attestPlanAndAlias({
-        plan: marker,
-        runProcess,
-        cwd: installRoot,
-        installId: marker.installId,
-        projectName: marker.projectName,
-      });
-      const ownership = await attestProjectOwnership({
-        runProcess,
-        cwd: installRoot,
-        dockerHost: marker.dockerHost,
-        installId: marker.installId,
-        projectName: marker.projectName,
-        returnDetails: true,
-      });
-      const priorRuntime = await inspectOwnedSidecarRuntime({
-        runProcess,
-        installRoot,
-        marker,
-      });
-      if (!ownership.exact || !priorRuntime) {
-        throw new Error("The exact owned local n8n bridge runtime is missing. Nothing was changed.");
-      }
-      await runOrThrow(
-        runProcess,
-        {
-          file: "docker",
-          args: createComposeArgs(marker.projectName, ["config", "--quiet"]),
-          cwd: installRoot,
-          dockerHost: marker.dockerHost,
-        },
-        "Local sidecar current Compose validation",
-      );
-
-      const filesAfterDockerAttestation = await snapshotGeneratedRuntimeFiles({
-        fileSystem,
-        installRoot,
-        marker,
-      });
-      if (
-        filesAfterDockerAttestation.dockerfile !== snapshot.dockerfile ||
-        filesAfterDockerAttestation.dockerignore !== snapshot.dockerignore ||
-        filesAfterDockerAttestation.runtime !== snapshot.runtime
-      ) {
-        throw new Error("The local n8n sidecar generated runtime files changed during attestation. Nothing was changed.");
-      }
-
-      const backupName = await retainCurrentRuntimeImage({
-        runProcess,
-        installRoot,
-        marker,
-        imageId: priorRuntime.imageId,
-      });
-      let recreateAttempted = false;
-      try {
-        await writeManagedFile(
-          fileSystem,
-          join(installRoot, "Dockerfile"),
-          createLocalN8nSidecarDockerfile({ installId: marker.installId }),
-          0o600,
-        );
-        await writeManagedFile(
-          fileSystem,
-          join(installRoot, ".dockerignore"),
-          createLocalN8nSidecarDockerignore(),
-          0o600,
-        );
-        await writeManagedFile(
-          fileSystem,
-          join(installRoot, RUNTIME_FILENAME),
-          snapshot.expectedRuntime,
-          0o600,
-        );
-        await runOrThrow(
-          runProcess,
-          {
-            file: "docker",
-            args: createComposeArgs(marker.projectName, ["config", "--quiet"]),
-            cwd: installRoot,
-            dockerHost: marker.dockerHost,
-          },
-          "Local sidecar updated Compose validation",
-        );
-        await runOrThrow(
-          runProcess,
-          {
-            file: "docker",
-            args: createComposeArgs(marker.projectName, ["build", SERVICE_NAME]),
-            cwd: installRoot,
-            dockerHost: marker.dockerHost,
-          },
-          "Local sidecar runtime image build",
-        );
-        recreateAttempted = true;
-        await recreateOwnedSidecar({
-          runProcess,
-          installRoot,
-          marker,
-          label: "Local sidecar runtime start",
-        });
-        const models = await verifyRunningSidecar({
-          runProcess,
-          installRoot,
-          plan: marker,
-          installId: marker.installId,
-          projectName: marker.projectName,
-        });
-        await removeRetainedRuntimeImage({
-          runProcess,
-          installRoot,
-          marker,
-          backupName,
-        });
-        return {
-          target: LOCAL_N8N_SIDECAR_TARGET,
-          runtimeUpdated: true,
-          models,
-          hostPublication: "none",
-          n8nChanged: false,
-        };
       } catch (error) {
-        try {
-          await restoreGeneratedRuntimeFiles({ fileSystem, installRoot, snapshot });
-          if (recreateAttempted) {
-            await restoreRetainedRuntimeImage({
-              runProcess,
-              installRoot,
-              marker,
-              backupName,
-            });
-            await recreateOwnedSidecar({
-              runProcess,
-              installRoot,
-              marker,
-              label: "Local sidecar runtime rollback start",
-            });
-            await verifyRunningSidecar({
-              runProcess,
-              installRoot,
-              plan: marker,
-              installId: marker.installId,
-              projectName: marker.projectName,
-              verifyModels: false,
-            });
-            await removeRetainedRuntimeImage({
-              runProcess,
-              installRoot,
-              marker,
-              backupName,
-            });
-            throw new Error(
-              "The local bridge runtime update failed and was rolled back; n8n and the OAuth credential were untouched.",
-              { cause: error },
-            );
-          }
-          await restoreRetainedRuntimeImage({
-            runProcess,
-            installRoot,
-            marker,
-            backupName,
-          });
-          await removeRetainedRuntimeImage({
-            runProcess,
-            installRoot,
-            marker,
-            backupName,
-          });
-          throw new Error(
-            "The local bridge runtime update failed before restart; the previous files and image were restored and the old container was left unchanged.",
-            { cause: error },
-          );
-        } catch (recoveryError) {
-          if (recoveryError?.cause === error) throw recoveryError;
-          throw new Error(
-            "The local bridge runtime update failed and automatic recovery could not be proved. The OAuth volume and n8n were not changed; inspect only the owned Relmio sidecar before retrying.",
-            { cause: recoveryError },
-          );
-        }
+        if (preservedResult) return localSiwcFinalizationFailure(preservedResult, "resolve-handoff");
+        throw error;
       }
     },
   });
 }
 
-/**
- * Replace the credential in the already-owned sidecar volume and recreate only
- * the owned service. This never inspects, recreates, or restarts n8n itself.
- */
-export async function refreshLocalN8nSidecarCredential(
-  { authPath, confirmed },
+
+
+
+
+
+export async function inspectStoppedLocalN8nSiwcInstallation(
+  { registrationId, confirmed },
   {
-    fileSystem = defaultFileSystem,
-    env = process.env,
-    homeDirectory = homedir(),
-    runProcess = runLocalProcess,
-    platform = process.platform,
-    lockDownPath = lockDownLocalPath,
-    getProcessIdentity,
-    lifecycleLockNow = Date.now,
+    fileSystem = defaultFileSystem, env = process.env,
+    homeDirectory = homedir(), runProcess = runLocalProcess,
+    platform = process.platform, lockDownPath = lockDownLocalPath,
+    getProcessIdentity, lifecycleLockNow = Date.now,
   } = {},
 ) {
   if (confirmed !== true) {
-    throw new Error("Confirm refreshing the owned local n8n bridge credential.");
+    throw new Error("Confirm inspection of the stopped local n8n SIWC account.");
   }
+  validateSiwcRegistrationId(registrationId);
   assertSupportedPlatform(platform);
   rejectDockerEnvironmentOverrides(env);
   const installRoot = await resolveLocalN8nSidecarInstallRoot({
-    env,
-    homeDirectory,
-    fileSystem,
-    platform,
+    env, homeDirectory, fileSystem, platform,
   });
   const releaseLock = await acquireSidecarLock({
-    fileSystem,
-    getProcessIdentity,
-    installRoot,
-    lockDownPath,
-    now: lifecycleLockNow,
-    platform,
+    fileSystem, getProcessIdentity, installRoot, lockDownPath,
+    now: lifecycleLockNow, platform,
   });
   return settleLocalIntegrationLifecycleOperation({
-    completionLabel: "Local n8n OAuth sidecar credential refresh",
+    completionLabel: "Stopped local n8n SIWC inspection",
     releaseLock,
     operation: async () => {
       await verifyWindowsSidecarStatusPathSecurity({
-        fileSystem,
-        installRoot,
-        platform,
-        lockDownPath,
+        fileSystem, installRoot, platform, lockDownPath,
       });
       const managed = await inspectManagedInstall({ fileSystem, installRoot });
-      if (!managed.marker) {
-        throw new Error("The managed local n8n bridge is not installed.");
-      }
       const marker = validateMarker(managed.marker);
-      const firstAuth = await readCurrentAuth({
-        authPath,
-        plan: marker,
-        fileSystem,
-        env,
-        homeDirectory,
-        platform,
-        lockDownPath,
-        requireStableGeneration: false,
-      });
-      await attestProjectOwnership({
-        runProcess,
-        cwd: installRoot,
-        dockerHost: marker.dockerHost,
-        installId: marker.installId,
-        projectName: marker.projectName,
-      });
-      await attestPlanAndAlias({
-        plan: marker,
-        runProcess,
-        cwd: installRoot,
-        installId: marker.installId,
-        projectName: marker.projectName,
-      });
-      const reattestedAuth = await readCurrentAuth({
-        authPath,
-        plan: marker,
-        fileSystem,
-        env,
-        homeDirectory,
-        platform,
-        lockDownPath,
-        requireStableGeneration: false,
-      });
-      if (!firstAuth.equals(reattestedAuth)) {
-        throw new Error("The local OAuth credential changed. Confirm the refresh again.");
+      if (marker.registrationId !== registrationId) {
+        throw new Error("The selected account is not installed in this bridge.");
       }
-      const journalState = await inspectCredentialRefreshJournal({
-        runProcess,
-        installRoot,
-        marker,
-        label: "Local OAuth credential refresh preflight",
+      await assertManagedSiwcCompose(fileSystem, installRoot, marker);
+      const selectedDockerHost = await resolveLocalDockerHost({
+        runProcess, cwd: installRoot, env, platform,
       });
-      let sidecarQuiesced = false;
-      let rollbackJournalReady = journalState === "rollback-pending";
-      let quiesceSnapshotReady = journalState === "quiesce-pending";
-      let ambiguousQuiesceRefresh = false;
-      let snapshotFailureResumed = false;
-      let credentialSeedAttempted = false;
-      try {
-        const sidecarRuntime = await inspectOwnedSidecarRuntime({
-          runProcess,
-          installRoot,
-          marker,
-        });
-        sidecarQuiesced = sidecarRuntime === null || !sidecarRuntime.running;
-        if (sidecarRuntime?.running) {
-          if (!sidecarRuntime.paused) {
-            await setOwnedSidecarPaused({
-              runProcess,
-              installRoot,
-              marker,
-              expectedContainerId: sidecarRuntime.containerId,
-              paused: true,
-            });
-          }
-          if (!rollbackJournalReady) {
-            if (quiesceSnapshotReady) {
-              ambiguousQuiesceRefresh = true;
-              const snapshotRefresh = await runCredentialVolumeScript({
-                runProcess,
-                installRoot,
-                marker,
-                script: CREDENTIAL_REFRESH_QUIESCE_REFRESH_SCRIPT,
-                label: "Frozen local OAuth credential quiesce snapshot refresh",
-                user: "1000:1000",
-              });
-              parseCredentialQuiesceRefreshOutcome(snapshotRefresh.stdout);
-              ambiguousQuiesceRefresh = false;
-            } else {
-              try {
-                await runCredentialVolumeScript({
-                  runProcess,
-                  installRoot,
-                  marker,
-                  script: CREDENTIAL_REFRESH_QUIESCE_BACKUP_SCRIPT,
-                  label: "Frozen local OAuth credential quiesce snapshot",
-                  user: "1000:1000",
-                });
-                quiesceSnapshotReady = true;
-              } catch (backupError) {
-                const backupJournalState = await inspectCredentialRefreshJournal({
-                  runProcess,
-                  installRoot,
-                  marker,
-                  label: "Frozen local OAuth credential quiesce snapshot check",
-                });
-                quiesceSnapshotReady = backupJournalState === "quiesce-pending";
-                if (!quiesceSnapshotReady) {
-                  if (backupJournalState !== "clean") {
-                    throw new Error(
-                      "The local OAuth credential refresh journal changed unexpectedly.",
-                    );
-                  }
-                  await setOwnedSidecarPaused({
-                    runProcess,
-                    installRoot,
-                    marker,
-                    expectedContainerId: sidecarRuntime.containerId,
-                    paused: false,
-                  });
-                  snapshotFailureResumed = true;
-                  throw backupError;
-                }
-              }
-            }
-          }
-          await killFrozenOwnedSidecar({
-            runProcess,
-            installRoot,
-            marker,
-            expectedContainerId: sidecarRuntime.containerId,
-          });
-          sidecarQuiesced = true;
-        } else if (!rollbackJournalReady) {
-          if (quiesceSnapshotReady) {
-            ambiguousQuiesceRefresh = true;
-            const snapshotRefresh = await runCredentialVolumeScript({
-              runProcess,
-              installRoot,
-              marker,
-              script: CREDENTIAL_REFRESH_QUIESCE_REFRESH_SCRIPT,
-              label: "Stopped local OAuth credential quiesce snapshot refresh",
-              user: "1000:1000",
-            });
-            parseCredentialQuiesceRefreshOutcome(snapshotRefresh.stdout);
-            ambiguousQuiesceRefresh = false;
-          } else {
-            await runCredentialVolumeScript({
-              runProcess,
-              installRoot,
-              marker,
-              script: CREDENTIAL_REFRESH_QUIESCE_BACKUP_SCRIPT,
-              label: "Stopped local OAuth credential quiesce snapshot",
-              user: "1000:1000",
-            });
-            quiesceSnapshotReady = true;
-          }
-        }
-        if (!rollbackJournalReady) {
-          if (!quiesceSnapshotReady) {
-            throw new Error("The local OAuth credential quiesce snapshot is missing.");
-          }
-          await promoteCredentialRefreshSnapshot({
-            runProcess,
-            installRoot,
-            marker,
-            label: "Local OAuth credential rollback snapshot promotion",
-          });
-          quiesceSnapshotReady = false;
-          rollbackJournalReady = true;
-        }
-        await runCredentialVolumeScript({
-          runProcess,
-          installRoot,
-          marker,
-          script: CREDENTIAL_REFRESH_ROLLBACK_SCRIPT,
-          label: journalState === "rollback-pending"
-            ? "Interrupted local OAuth credential refresh rollback"
-            : "Local OAuth credential pre-seed restoration",
-          user: "1000:1000",
-        });
-        const finalAuth = await readCurrentAuth({
-          authPath,
-          plan: marker,
-          fileSystem,
-          env,
-          homeDirectory,
-          platform,
-          lockDownPath,
-          requireStableGeneration: false,
-        });
-        if (!reattestedAuth.equals(finalAuth)) {
-          throw new Error("The local OAuth credential changed. Confirm the refresh again.");
-        }
-        credentialSeedAttempted = true;
-        await runCredentialVolumeScript({
-          runProcess,
-          installRoot,
-          marker,
-          script: CREDENTIAL_REFRESH_SEED_SCRIPT,
-          label: "Local OAuth credential refresh seed",
-          input: finalAuth,
-          user: "1000:1000",
-        });
-        await recreateOwnedSidecar({
-          runProcess,
-          installRoot,
-          marker,
-          label: "Local sidecar credential refresh",
-        });
-        const models = await verifyRunningSidecar({
-          runProcess,
-          installRoot,
-          plan: marker,
-          installId: marker.installId,
-          projectName: marker.projectName,
-        });
-        await runCredentialVolumeScript({
-          runProcess,
-          installRoot,
-          marker,
-          script: CREDENTIAL_REFRESH_COMMIT_SCRIPT,
-          label: "Local OAuth credential refresh commit",
-          user: "1000:1000",
-        });
-        return Object.freeze({
-          target: LOCAL_N8N_SIDECAR_TARGET,
-          credentialRefreshed: true,
-          models,
-          hostPublication: "none",
-        });
-      } catch (error) {
-        if (ambiguousQuiesceRefresh) {
-          throw new Error(
-            "Relmio could not prove that the existing quiesce snapshot was refreshed. The snapshot and exact sidecar state were preserved, no credential was replaced, and n8n was not touched. Retry only after inspecting the owned sidecar.",
-            { cause: error },
-          );
-        }
-        if (snapshotFailureResumed) {
-          throw new Error(
-            "Relmio could not capture a stable snapshot of the owned sidecar credential. The exact sidecar was resumed unchanged and n8n was not touched. Wait a moment, then confirm the refresh again.",
-            { cause: error },
-          );
-        }
-        if (!sidecarQuiesced) {
-          throw new Error(
-            "Relmio could not confirm that the frozen owned sidecar credential writer was terminated. Any quiesce or rollback journal was preserved and n8n was not touched; retry only after inspecting the owned sidecar.",
-            { cause: error },
-          );
+      if (selectedDockerHost !== marker.dockerHost) {
+        throw new Error("The selected Docker context changed.");
+      }
+      await attestPlanAndAlias({
+        plan: marker, runProcess, cwd: installRoot,
+        installId: marker.installId, projectName: marker.projectName,
+      });
+      const ownership = await attestProjectOwnership({
+        runProcess, cwd: installRoot, dockerHost: marker.dockerHost,
+        installId: marker.installId, projectName: marker.projectName,
+        returnDetails: true,
+      });
+      if (!ownership.exact) throw new Error("The exact owned bridge is missing.");
+      const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker });
+      if (!runtime || runtime.running || runtime.paused) {
+        throw new Error("The owned sidecar is not safely stopped.");
+      }
+      const account = (await runSiwcCli({
+        runProcess, installRoot, marker, command: "account",
+      })).account;
+      if (account?.registrationId !== registrationId ||
+          account?.ownerHostId !== marker.ownerHostId ||
+          account?.ownerRuntimeId !== marker.installId ||
+          account?.ownership !== "owned") {
+        throw new Error("The stopped SIWC account could not be attested.");
+      }
+      return { account };
+    },
+  });
+}
+
+export async function manageLocalN8nSiwcInstallation(
+  { registrationId, action, expectedGeneration, backgroundConsent, confirmed },
+  {
+    fileSystem = defaultFileSystem, env = process.env,
+    homeDirectory = homedir(), runProcess = runLocalProcess,
+    platform = process.platform, lockDownPath = lockDownLocalPath,
+    getProcessIdentity, lifecycleLockNow = Date.now,
+  } = {},
+) {
+  if (confirmed !== true ||
+      !["sign-out", "disable-plan", "enable-plan"].includes(action) ||
+      (action === "enable-plan" && backgroundConsent !== true)) {
+    throw new Error("Confirm the selected installed SIWC account and background workflow consent.");
+  }
+  validateSiwcRegistrationId(registrationId);
+  if (typeof expectedGeneration !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(expectedGeneration)) {
+    throw new TypeError("The selected SIWC account generation is invalid.");
+  }
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({
+    env, homeDirectory, fileSystem, platform,
+  });
+  const releaseLock = await acquireSidecarLock({
+    fileSystem, getProcessIdentity, installRoot, lockDownPath,
+    now: lifecycleLockNow, platform,
+  });
+  return settleLocalIntegrationLifecycleOperation({
+    completionLabel: "Installed local n8n SIWC account operation",
+    releaseLock,
+    operation: async () => {
+      await verifyWindowsSidecarStatusPathSecurity({
+        fileSystem, installRoot, platform, lockDownPath,
+      });
+      const managed = await inspectManagedInstall({ fileSystem, installRoot });
+      const marker = validateMarker(managed.marker);
+      if (marker.registrationId !== registrationId) {
+        throw new Error("The selected SIWC account is not installed in this bridge.");
+      }
+      await assertManagedSiwcCompose(fileSystem, installRoot, marker);
+      const selectedDockerHost = await resolveLocalDockerHost({
+        runProcess, cwd: installRoot, env, platform,
+      });
+      if (selectedDockerHost !== marker.dockerHost) {
+        throw new Error("The selected Docker context changed.");
+      }
+      await attestPlanAndAlias({
+        plan: marker, runProcess, cwd: installRoot,
+        installId: marker.installId, projectName: marker.projectName,
+      });
+      const ownership = await attestProjectOwnership({
+        runProcess, cwd: installRoot, dockerHost: marker.dockerHost,
+        installId: marker.installId, projectName: marker.projectName,
+        returnDetails: true,
+      });
+      if (!ownership.exact) throw new Error("The exact owned sidecar project is missing.");
+      const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker });
+      if (!runtime || runtime.paused) {
+        throw new Error("The owned sidecar state is ambiguous; account mutation was not attempted.");
+      }
+      const before = (await runSiwcCli({
+        runProcess, installRoot, marker, command: "account",
+      })).account;
+      if (before?.registrationId !== registrationId ||
+          before?.generation !== expectedGeneration ||
+          before?.ownerHostId !== marker.ownerHostId ||
+          before?.ownerRuntimeId !== marker.installId ||
+          before?.ownership !== "owned") {
+        throw new Error("The installed SIWC account changed; review it again.");
+      }
+      if (action === "enable-plan" &&
+          (before.planPermission !== "granted" || before.session !== "connected")) {
+        throw new Error("This installed account needs a fresh authorized SIWC sign-in before plan use can resume.");
+      }
+      await runOrThrow(runProcess, {
+        file: "docker",
+        args: createComposeArgs(marker.projectName, ["stop", "--timeout", "30", SERVICE_NAME]),
+        cwd: installRoot, dockerHost: marker.dockerHost,
+      }, "Owned local sidecar stop");
+      const stopped = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker });
+      if (!stopped || stopped.containerId !== runtime.containerId ||
+          stopped.running || stopped.paused) {
+        throw new Error("The owned sidecar did not stop; account mutation was not attempted.");
+      }
+      const changed = await runSiwcCli({
+        runProcess, installRoot, marker, command: action,
+        input: Buffer.from(JSON.stringify({
+          registrationId, expectedGeneration,
+          ...(action === "enable-plan" ? { backgroundConsent: true } : {}),
+        })),
+      });
+      if (changed.account?.registrationId !== registrationId ||
+          changed.account?.ownerHostId !== marker.ownerHostId ||
+          changed.account?.ownerRuntimeId !== marker.installId ||
+          changed.account?.ownership !== "owned") {
+        throw new Error("The installed SIWC account result could not be attested.");
+      }
+      if (action === "enable-plan") {
+        if (changed.account.planEnabled !== true ||
+            changed.account.planPermission !== "granted") {
+          throw new Error("The installed SIWC grant could not be confirmed. The sidecar remains stopped.");
         }
         try {
-          if (!rollbackJournalReady) {
-            const recoveryJournalState = await inspectCredentialRefreshJournal({
-              runProcess,
-              installRoot,
-              marker,
-              label: "Local OAuth credential refresh recovery preflight",
-            });
-            if (recoveryJournalState === "quiesce-pending") {
-              await promoteCredentialRefreshSnapshot({
-                runProcess,
-                installRoot,
-                marker,
-                label: "Local OAuth credential recovery snapshot promotion",
-              });
-              rollbackJournalReady = true;
-            } else {
-              rollbackJournalReady = recoveryJournalState === "rollback-pending";
-            }
-          }
-          if (rollbackJournalReady) {
-            await runCredentialVolumeScript({
-              runProcess,
-              installRoot,
-              marker,
-              script: CREDENTIAL_REFRESH_ROLLBACK_SCRIPT,
-              label: "Local OAuth credential refresh rollback",
-              user: "1000:1000",
-            });
-          }
-          await recreateOwnedSidecar({
-            runProcess,
-            installRoot,
-            marker,
-            label: "Local sidecar credential rollback",
-          });
-          await verifyRunningSidecar({
-            runProcess,
-            installRoot,
-            plan: marker,
-            installId: marker.installId,
-            projectName: marker.projectName,
-            verifyModels: false,
-          });
-          if (rollbackJournalReady) {
-            await runCredentialVolumeScript({
-              runProcess,
-              installRoot,
-              marker,
-              script: CREDENTIAL_REFRESH_COMMIT_SCRIPT,
-              label: "Local OAuth credential rollback commit",
-              user: "1000:1000",
-            });
-          }
-        } catch (rollbackError) {
-          throw new Error(
-            "The owned local sidecar credential refresh failed and Relmio could not verify rollback. Relmio preserved the attested sidecar evidence and did not touch n8n. Do not retry until the owned sidecar is inspected.",
-            { cause: rollbackError },
-          );
+        await runOrThrow(runProcess, {
+          file: "docker",
+          args: createComposeArgs(marker.projectName, [
+            "up", "-d", "--wait", "--wait-timeout", "90",
+            "--no-build", "--no-deps", SERVICE_NAME,
+          ]),
+          cwd: installRoot, dockerHost: marker.dockerHost,
+        }, "Owned SIWC sidecar start");
+        await verifyRunningSidecar({
+          runProcess, installRoot, plan: marker,
+          installId: marker.installId, projectName: marker.projectName,
+        });
+        } catch {
+          let stoppedAfterFailure = false;
+          try {
+            await runOrThrow(runProcess, { file: "docker",
+              args: createComposeArgs(marker.projectName, ["stop", "--timeout", "30", SERVICE_NAME]),
+              cwd: installRoot, dockerHost: marker.dockerHost }, "Unverified enabled sidecar stop");
+            const verified = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker });
+            stoppedAfterFailure = !!verified && !verified.running && !verified.paused &&
+              verified.containerId === runtime.containerId && verified.imageId === runtime.imageId;
+          } catch { /* Preserve the unknown runtime outcome. */ }
+          throw Object.assign(new Error(stoppedAfterFailure
+            ? "The enabled sidecar failed verification and its stopped state was confirmed."
+            : "The enabled sidecar outcome is unknown. Inspect and stop the owned service before use."),
+          { runtimeStopped: stoppedAfterFailure, remoteOutcomeUnknown: !stoppedAfterFailure });
         }
-        if (!credentialSeedAttempted) {
-          throw new Error(
-            "The local sidecar credential refresh stopped before replacement. Relmio restored and restarted the owned sidecar without touching n8n. Confirm the refresh again.",
-            { cause: error },
-          );
-        }
-        throw new Error(
-          "The new local sidecar credential could not be verified, so Relmio restored the previous credential and did not touch n8n. Confirm a fresh ChatGPT sign-in before retrying.",
-          { cause: error },
-        );
       }
+      return {
+        account: changed.account, revocation: changed.revocation,
+        runtimeStopped: action !== "enable-plan",
+      };
     },
   });
 }
@@ -2872,6 +2752,9 @@ export async function removeLocalN8nSidecar(
       throw new Error("The managed local n8n bridge is not installed.");
     }
     const marker = validateMarker(managed.marker);
+    if (marker.legacyInstallId) {
+      throw new Error("This bridge retains an offline legacy credential volume and migration archive. Removal needs a separate reviewed cleanup; nothing was deleted.");
+    }
     await attestProjectOwnership({
       runProcess,
       cwd: installRoot,
@@ -2879,6 +2762,18 @@ export async function removeLocalN8nSidecar(
       installId: marker.installId,
       projectName: marker.projectName,
     });
+    if (marker.schemaVersion === MARKER_SCHEMA_VERSION) {
+      await assertManagedSiwcCompose(fileSystem, installRoot, marker);
+      const status = await runSiwcCli({
+        runProcess, installRoot, marker, command: "account",
+      });
+      if (status.account?.registrationId !== marker.registrationId ||
+          status.account?.ownerHostId !== marker.ownerHostId ||
+          status.account?.session !== "signed-out" ||
+          status.account?.planEnabled !== false) {
+        throw new Error("Sign out of the installed SIWC account before removing its protected storage.");
+      }
+    }
     await cleanupSidecarProject({
       runProcess,
       installRoot,

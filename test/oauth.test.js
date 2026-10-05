@@ -1,1431 +1,446 @@
-import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
-import { dirname, resolve } from "node:path";
-import test from "node:test";
-
+import assert from 'node:assert/strict';
+import * as fs from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import { exportJWK, generateKeyPair, SignJWT } from 'jose';
+import { getAuthStatus, listAuthRegistrations, startOAuthLogin } from '../src/services/oauth.js';
 import {
-  getAuthStatus,
-  isOAuthCallbackPortInUse,
-  readAuthContents,
-  resolveAuthPath,
-  startOAuthLogin,
-} from "../src/services/oauth.js";
+  acceptAuthHandoff, ensureSiwcHost, finishAuthHandoff, prepareAuthHandoff,
+  readAuthHandoff, readAuthHandoffReceipt, readPendingAuthHandoff, readRegistration,
+  selectRegistration, setPlanEnabled,
+} from '../src/services/siwc-session.mjs';
 
-const noOpLockDownPath = async () => {};
-const freeCallbackPort = async () => false;
+const issuer = 'https://auth.openai.com';
+const clientId = 'oaiapp_realm_test';
+const discovery = { issuer, authorization_endpoint: `${issuer}/api/accounts/authorize`,
+  token_endpoint: `${issuer}/api/accounts/oauth/token`, jwks_uri: `${issuer}/.well-known/jwks.json` };
+const tokenFixture = scope => ({ access_token: 'opaque-secret-access', refresh_token: 'opaque-secret-refresh',
+  expires_in: 3600, token_type: 'Bearer', scope });
 
-function credentialContents(label = "fixture") {
-  return JSON.stringify({
-    auth_mode: "chatgpt",
-    tokens: {
-      access_token: `access-${label}`,
-      id_token: `id-${label}`,
-      refresh_token: `refresh-${label}`,
-    },
-  });
-}
-
-function createMemoryFileSystem(files) {
-  return {
-    async access(path) {
-      if (!(path in files)) {
-        const error = new Error("missing");
-        error.code = "ENOENT";
-        throw error;
-      }
-    },
-    async readFile(path) {
-      if (!(path in files)) {
-        const error = new Error("missing");
-        error.code = "ENOENT";
-        throw error;
-      }
-      return Buffer.from(files[path]);
-    },
-    async stat(path) {
-      if (!(path in files)) {
-        const error = new Error("missing");
-        error.code = "ENOENT";
-        throw error;
-      }
-      return {
-        mtime: new Date("2026-07-28T01:11:01.000Z"),
-      };
-    },
-    async mkdir() {},
-    async chmod() {},
-    async copyFile(source, destination) {
-      files[destination] = files[source];
-    },
-    async rename(source, destination) {
-      files[destination] = files[source];
-      delete files[source];
-    },
-    async rm(path) {
-      delete files[path];
-    },
-  };
-}
-
-function finishChild(child, code) {
-  child.emit("exit", code);
-  child.emit("close", code);
-}
-
-function createAuthorizationUrl({
-  redirectUri = "http://localhost:1455/auth/callback",
-} = {}) {
-  const authorizationUrl = new URL("https://auth.openai.com/oauth/authorize");
-  authorizationUrl.searchParams.set("response_type", "code");
-  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
-  authorizationUrl.searchParams.set("state", "fixture-state");
-  authorizationUrl.searchParams.set("code_challenge", "fixture-challenge");
-  return authorizationUrl;
-}
-
-function pendingAuthPathFromOptions(options) {
-  return resolve(options.env.CODEX_HOME, "auth.json");
-}
-
-test("resolveAuthPath uses wizard-only storage without exposing file contents", () => {
-  const configuredHomeDirectory = resolve("oauth-configured-home");
-  const defaultHomeDirectory = resolve("oauth-default-home");
-  assert.equal(
-    resolveAuthPath({
-      env: { N8N_OPENAI_OAUTH_HOME: configuredHomeDirectory },
-      homeDirectory: defaultHomeDirectory,
-    }),
-    resolve(configuredHomeDirectory, "auth.json"),
-  );
-  assert.equal(
-    resolveAuthPath({
-      env: { CODEX_HOME: "/must/not/be/reused" },
-      homeDirectory: defaultHomeDirectory,
-    }),
-    resolve(defaultHomeDirectory, ".n8n-openai-oauth", "auth.json"),
-  );
-});
-
-test("getAuthStatus reports the credential update time without its contents", async () => {
-  const homeDirectory = resolve("oauth-status-home");
-  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  const fileSystem = createMemoryFileSystem({
-    [authPath]: '{"fixture":true}',
-  });
-
-  const status = await getAuthStatus({
-    fileSystem,
-    env: {},
-    homeDirectory,
-  });
-
-  assert.deepEqual(status, {
-    exists: true,
-    path: authPath,
-    updatedAt: "2026-07-28T01:11:01.000Z",
-  });
-  assert.equal(JSON.stringify(status).includes("fixture"), false);
-});
-
-test("readAuthContents accepts only complete ChatGPT credential files", async () => {
-  const invalidFileSystem = createMemoryFileSystem({
-    "/home/user/.n8n-openai-oauth/auth.json": "not-json",
-  });
-
-  await assert.rejects(
-    () =>
-      readAuthContents({
-        fileSystem: invalidFileSystem,
-        authPath: "/home/user/.n8n-openai-oauth/auth.json",
-      }),
-    /credential/i,
-  );
-
-  invalidFileSystem.readFile = async () =>
-    Buffer.from('{"auth_mode":"chatgpt","tokens":{"access_token":"partial"}}');
-  await assert.rejects(
-    () =>
-      readAuthContents({
-        fileSystem: invalidFileSystem,
-        authPath: "/home/user/.n8n-openai-oauth/auth.json",
-      }),
-    /credential/i,
-  );
-
-  const expected = credentialContents("complete");
-  invalidFileSystem.readFile = async () => Buffer.from(expected);
-  assert.deepEqual(
-    await readAuthContents({
-      fileSystem: invalidFileSystem,
-      authPath: "/home/user/.n8n-openai-oauth/auth.json",
-    }),
-    Buffer.from(expected),
-  );
-});
-
-test("startOAuthLogin uses the pinned official Codex browser login in an isolated home", async () => {
-  const calls = [];
-  const files = {};
-  const homeDirectory = resolve("oauth-official-login-home");
-  const fileSystem = createMemoryFileSystem(files);
-  const spawnProcess = (command, args, options) => {
-    calls.push({ command, args, options });
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.stderr.resume = () => {};
-    child.kill = () => {};
-    queueMicrotask(() => {
-      if (typeof options.env.CODEX_HOME === "string") {
-        files[resolve(options.env.CODEX_HOME, "auth.json")] =
-          credentialContents("official");
-      } else {
-        const oauthFileIndex = args.indexOf("--oauth-file");
-        if (oauthFileIndex >= 0) {
-          files[args[oauthFileIndex + 1]] = '{"fixture":true}';
-          child.stdout.emit(
-            "data",
-            Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-          );
-        }
-      }
-      finishChild(child, 0);
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem,
-    env: { CODEX_HOME: "C:\\must-not-be-reused" },
-    homeDirectory,
-    platform: "win32",
-    execPath: "C:\\portable\\node.exe",
-    spawnProcess,
-    createPendingId: () => "official-fixture",
-    lockDownPath: noOpLockDownPath,
-  });
-
-  assert.equal(login.launchMode, "system-browser");
-  assert.equal(Object.hasOwn(login, "authorizationUrl"), false);
-  assert.deepEqual(await login.completion, { success: true });
-  assert.deepEqual(calls[0].args.slice(1), [
-    "--yes",
-    "--ignore-scripts",
-    "--package=@openai/codex@0.154.0",
-    "--",
-    "codex",
-    "-c",
-    'cli_auth_credentials_store="file"',
-    "login",
-  ]);
-  assert.notEqual(calls[0].options.env.CODEX_HOME, "C:\\must-not-be-reused");
-  assert.equal(
-    files[resolve(homeDirectory, ".n8n-openai-oauth", "auth.json")],
-    credentialContents("official"),
-  );
-});
-
-test("startOAuthLogin stores the official Codex credential after process completion", async () => {
-  const calls = [];
-  const files = {};
-  const homeDirectory = resolve("oauth-login-home");
-  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  const fileSystem = createMemoryFileSystem(files);
-  const spawnProcess = (command, args, options) => {
-    const call = { command, args, options };
-    calls.push(call);
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = { resume() {} };
-    child.kill = () => {};
-    queueMicrotask(() => {
-      files[pendingAuthPathFromOptions(options)] = credentialContents("stored");
-      finishChild(child, 0);
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem,
-    env: {},
-    homeDirectory,
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "fixture",
-  });
-
-  assert.equal(login.launchMode, "system-browser");
-  assert.deepEqual(await login.completion, { success: true });
-  assert.equal(calls[0].command, "npx");
-  assert.deepEqual(calls[0].args, [
-    "--yes",
-    "--ignore-scripts",
-    "--package=@openai/codex@0.154.0",
-    "--",
-    "codex",
-    "-c",
-    'cli_auth_credentials_store="file"',
-    "login",
-  ]);
-  assert.equal(calls[0].options.shell, false);
-  assert.deepEqual(calls[0].options.stdio, ["ignore", "pipe", "pipe"]);
-  assert.equal(
-    files[authPath],
-    credentialContents("stored"),
-  );
-  assert.equal(Object.keys(files).some((path) => path.includes(".codex-login-")), false);
-});
-
-test("startOAuthLogin does not expose captured helper output to the browser UI", async () => {
-  const files = {};
-  const spawnProcess = (_command, _args, options) => {
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.stderr.resume = () => {};
-    child.kill = () => {};
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from("Opening browser for ChatGPT sign-in. token=must-not-leak\n"),
-      );
-      files[pendingAuthPathFromOptions(options)] = credentialContents("captured");
-      finishChild(child, 0);
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem(files),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    execPath: "C:\\portable\\node.exe",
-    spawnProcess,
-    createPendingId: () => "captured-output",
-    lockDownPath: noOpLockDownPath,
-  });
-
-  assert.equal(login.launchMode, "system-browser");
-  assert.equal(Object.hasOwn(login, "authorizationUrl"), false);
-  assert.doesNotMatch(JSON.stringify(login), /must-not-leak|token=/u);
-  assert.deepEqual(await login.completion, { success: true });
-});
-
-test("startOAuthLogin waits for close after exit before committing success", async () => {
-  const files = {};
-  let child;
-  let codexAuthPath;
-  const spawnProcess = (_command, _args, options) => {
-    child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.stderr.resume = () => {};
-    child.kill = () => {};
-    codexAuthPath = pendingAuthPathFromOptions(options);
-    queueMicrotask(() => {
-      child.emit("exit", 0);
-      files[codexAuthPath] = credentialContents("drained");
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem(files),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    execPath: "C:\\portable\\node.exe",
-    spawnProcess,
-    createPendingId: () => "drained-output",
-    lockDownPath: noOpLockDownPath,
-  });
-
-  let completionSettled = false;
-  login.completion.finally(() => {
-    completionSettled = true;
-  });
-  await new Promise((resolvePromise) => setImmediate(resolvePromise));
-  assert.equal(completionSettled, false);
-  child.emit("close", 0);
-  assert.deepEqual(await login.completion, { success: true });
-});
-
-test("startOAuthLogin surfaces a sanitized callback port conflict from stderr", async () => {
-  const calls = [];
-  const spawnProcess = (command, args) => {
-    calls.push({ command, args });
-    const child = new EventEmitter();
-    if (command === "taskkill") {
-      return child;
+async function fixture(t, { grant = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct',
+  changeNonce = false, changeSubject = false, wrongAudience = false,
+  wrongIssuer = false, badSignature = false, futureIssuedAt = false, wrongTokenClient = false,
+  expired = false, returnedClient = clientId, tokenDelay, tokenError,
+  callbackParams = [], callbackError, beforeCallback } = {}) {
+  const storageRoot = await fs.mkdtemp(join(tmpdir(), 'relmio-siwc-oauth-'));
+  t.after(() => fs.rm(storageRoot, { recursive: true, force: true }));
+  const { privateKey, publicKey } = await generateKeyPair('RS256');
+  const jwk = { ...await exportJWK(publicKey), kid: 'test-key', alg: 'RS256', use: 'sig' };
+  let authorization, callbackResult, callbackUrl, issuedSubject = 'verified-subject';
+  let currentTokenError = tokenError, currentReturnedClient = returnedClient, exchanges = 0;
+  let currentCallbackError = callbackError;
+  const fetchImpl = async (url, options = {}) => {
+    if (url === `${issuer}/.well-known/openid-configuration`) return Response.json(discovery);
+    if (url === discovery.jwks_uri) return Response.json({ keys: [jwk] });
+    if (url === discovery.token_endpoint) {
+      exchanges++;
+      const form = options.body;
+      assert.equal(form.get('grant_type'), 'authorization_code');
+      assert.equal(form.get('client_id'), clientId);
+      assert.equal(form.get('redirect_uri'), authorization.searchParams.get('redirect_uri'));
+      assert.ok(form.get('code_verifier'));
+      assert.equal(form.get('resource'), 'https://api.openai.com/v1');
+      if (currentTokenError) return Response.json({ error: currentTokenError, error_description: 'opaque-secret-provider-body' },
+        { status: 400, headers: { 'x-request-id': 'request_fixture' } });
+      if (tokenDelay) await tokenDelay();
+      const issuedAt = Math.floor(Date.now() / 1000);
+      const signer = badSignature ? (await generateKeyPair('RS256')).privateKey : privateKey;
+      const token = await new SignJWT({ nonce: changeNonce ? 'wrong-nonce' : authorization.searchParams.get('nonce'), email: 'person@example.test' })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key' }).setIssuer(wrongIssuer ? 'https://wrong.example' : issuer)
+        .setAudience(wrongAudience ? 'another-client' : clientId)
+        .setSubject(changeSubject ? 'other-subject' : issuedSubject)
+        .setIssuedAt(futureIssuedAt ? issuedAt + 3600 : issuedAt)
+        .setExpirationTime(expired ? issuedAt - 60 : issuedAt + 7200)
+        .sign(signer);
+      return Response.json({ ...(grant.includes('chatgpt.tokens.use.direct') ? tokenFixture(grant) : { scope: grant }),
+        ...(wrongTokenClient ? { client_id: 'another-issued-client' } : {}), id_token: token });
     }
-    child.pid = 5150;
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.stderr.resume = () => {};
-    child.kill = () => {};
-    queueMicrotask(() => {
-      child.emit("exit", 1);
-      child.stderr.emit(
-        "data",
-        Buffer.from(
-          "\u001B[31mOpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use. Stop the process using that port and try again. token=not-for-users\u001B[0m\r\n",
-        ),
-      );
-      child.emit("close", 1);
-    });
-    return child;
+    throw new Error('Unexpected provider request');
   };
+  const openAuthorization = async value => {
+    authorization = new URL(value);
+    const url = new URL(authorization.searchParams.get('redirect_uri'));
+    if (currentCallbackError) url.searchParams.set('error', currentCallbackError);
+    else url.searchParams.set('code', 'one-use-code');
+    url.searchParams.set('state', authorization.searchParams.get('state'));
+    if (currentReturnedClient !== null) url.searchParams.set('client_id', currentReturnedClient);
+    for (const [name, value] of callbackParams) url.searchParams.append(name, value);
+    callbackUrl = url.href;
+    if (beforeCallback) await beforeCallback(url, () => exchanges);
+    callbackResult = fetch(url).then(response => response.text());
+    return true;
+  };
+  return { storageRoot, fetchImpl, openAuthorization,
+    setSubject(value) { issuedSubject = value; },
+    setTokenError(value) { currentTokenError = value; },
+    setReturnedClient(value) { currentReturnedClient = value; },
+    setCallbackError(value) { currentCallbackError = value; },
+    authorization: () => authorization, callbackUrl: () => callbackUrl,
+    tokenExchanges: () => exchanges, callbackPage: () => callbackResult };
+}
 
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem({}),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    execPath: "C:\\portable\\node.exe",
-    spawnProcess,
-    createPendingId: () => "port-conflict",
-    terminationGraceMs: 0,
-    terminationForceWaitMs: 0,
-    lockDownPath: noOpLockDownPath,
-  });
-  await assert.rejects(
-    login.completion,
-    (error) => {
-      assert.equal(
-        error.message,
-        "ChatGPT sign-in could not open its local callback port. Close other sign-in helpers and try again.",
-      );
-      assert.doesNotMatch(error.message, /not-for-users|token=/u);
-      assert.equal(error.retryBlocked, undefined);
-      return true;
-    },
-  );
-  assert.deepEqual(calls.slice(1), []);
+test('fresh loopback dynamic registration verifies signed identity and keeps tokens out of browser views', async t => {
+  const f = await fixture(t);
+  assert.deepEqual(await listAuthRegistrations({ storageRoot: f.storageRoot }), []);
+  assert.equal((await getAuthStatus({ storageRoot: f.storageRoot })).session, 'signed-out');
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  assert.equal(attempt.launchMode, 'system-browser');
+  assert.equal(Object.hasOwn(attempt, 'authorizationUrl'), false);
+  const account = await attempt.completion;
+  assert.equal(account.identity, 'verified');
+  assert.equal(account.planPermission, 'granted');
+  assert.equal(account.planEnabled, false);
+  assert.equal(f.authorization().searchParams.get('client_id'), 'dynamic_agent_client');
+  assert.equal(f.authorization().searchParams.get('agent_name_hint'), 'Relmio');
+  assert.match(f.authorization().searchParams.get('redirect_uri'), /^http:\/\/127\.0\.0\.1:\d+\/auth\/callback$/u);
+  assert.equal(f.authorization().searchParams.get('scope'), 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct');
+  assert.equal(f.authorization().searchParams.has('id_token_hint'), false);
+  const privateRecord = await readRegistration({ storageRoot: f.storageRoot, registrationId: account.registrationId });
+  assert.equal(privateRecord.clientId, clientId);
+  assert.equal(privateRecord.session.refreshToken, 'opaque-secret-refresh');
+  assert.equal(JSON.stringify(await listAuthRegistrations({ storageRoot: f.storageRoot })).includes('opaque-secret'), false);
+  assert.equal((await f.callbackPage()).includes('opaque-secret'), false);
+  assert.equal((await f.callbackPage()).includes('one-use-code'), false);
 });
 
-test("startOAuthLogin uses the current Node runtime and commits only a pre-secured Windows credential", async () => {
-  const calls = [];
-  const files = {};
-  const execPath =
-    process.platform === "win32"
-      ? "C:\\portable\\node.exe"
-      : "/portable/node.exe";
-  const homeDirectory = resolve("oauth-fixture-home");
-  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  const memoryFileSystem = createMemoryFileSystem(files);
-  let credentialCommitted = false;
-  const fileSystem = {
-    ...memoryFileSystem,
-    async chmod(path, mode) {
-      if (credentialCommitted) {
-        throw new Error("injected post-commit permission failure");
-      }
-      await memoryFileSystem.chmod(path, mode);
-    },
-    async rename(source, destination) {
-      await memoryFileSystem.rename(source, destination);
-      if (destination === authPath) credentialCommitted = true;
-    },
-  };
-  const npmExecPath = "/custom/npm-cli.js";
-  const expectedNpxCliPath = resolve(dirname(npmExecPath), "npx-cli.js");
-  const aclCalls = [];
-  const spawnProcess = (command, args, options) => {
-    calls.push({ command, args, options });
-    const child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = { resume() {} };
-    child.kill = () => {};
-    queueMicrotask(() => {
-      files[pendingAuthPathFromOptions(options)] = credentialContents("windows");
-      finishChild(child, 0);
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem,
-    env: {
-      npm_execpath: npmExecPath,
-      NPM_CONFIG_LEGACY_PEER_DEPS: "true",
-      NPM_CONFIG_OMIT: "peer",
-    },
-    homeDirectory,
-    platform: "win32",
-    execPath,
-    spawnProcess,
-    createPendingId: () => "windows-fixture",
-    async lockDownPath(path, options) {
-      if (credentialCommitted) {
-        throw new Error("injected post-commit ACL failure");
-      }
-      aclCalls.push({ path, options });
-    },
-  });
-
-  assert.equal(calls[0].command, execPath);
-  assert.equal(calls[0].args[0], expectedNpxCliPath);
-  assert.deepEqual(calls[0].args.slice(1), [
-    "--yes",
-    "--ignore-scripts",
-    "--package=@openai/codex@0.154.0",
-    "--",
-    "codex",
-    "-c",
-    'cli_auth_credentials_store="file"',
-    "login",
-  ]);
-  assert.equal(calls[0].options.shell, false);
-  assert.equal(calls[0].options.env.NPM_CONFIG_LEGACY_PEER_DEPS, "true");
-  assert.equal(calls[0].options.env.NPM_CONFIG_OMIT, "peer");
-  assert.deepEqual(await login.completion, { success: true });
-  assert.equal(
-    files[authPath],
-    credentialContents("windows"),
-  );
-  assert.equal(credentialCommitted, true);
-  const codexHome = calls[0].options.env.CODEX_HOME;
-  const codexAuthPath = resolve(codexHome, "auth.json");
-  assert.deepEqual(aclCalls, [
-    { path: dirname(authPath), options: { platform: "win32", kind: "directory" } },
-    { path: codexHome, options: { platform: "win32", kind: "directory" } },
-    { path: codexAuthPath, options: { platform: "win32", kind: "file" } },
-    { path: `${codexAuthPath}.ready`, options: { platform: "win32", kind: "file" } },
-  ]);
+test('documented callback scope is ignored for plan permission and exact issuer is accepted', async t => {
+  for (const variant of [
+    { callbackScope: 'openid', grant: 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct', permission: 'granted' },
+    { callbackScope: 'chatgpt.tokens.use.direct email offline_access openid profile resource.invoke',
+      grant: 'openid profile email', permission: 'not-granted' },
+  ]) {
+    const f = await fixture(t, { grant: variant.grant, callbackParams: [['scope', variant.callbackScope], ['iss', issuer]] });
+    const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+    const account = await attempt.completion;
+    assert.equal(account.identity, 'verified');
+    assert.equal(account.planPermission, variant.permission);
+    assert.equal(f.tokenExchanges(), 1);
+    assert.deepEqual((await readRegistration({ storageRoot: f.storageRoot, registrationId: account.registrationId })).session.scopes,
+      variant.grant.split(' '));
+    assert.equal((await f.callbackPage()).includes('opaque-secret'), false);
+  }
 });
 
-test("startOAuthLogin hides synchronous process-launch errors", async () => {
-  let invocation;
-  const removed = [];
-  const memoryFileSystem = createMemoryFileSystem({});
-  const fileSystem = {
-    ...memoryFileSystem,
-    async rm(path, options) {
-      removed.push({ path, options });
-      await memoryFileSystem.rm(path, options);
-    },
-  };
-  const spawnProcess = (command, args) => {
-    invocation = { command, args };
-    const error = new Error("spawn EINVAL");
-    error.code = "EINVAL";
-    throw error;
-  };
+test('callback issuer mismatch, unknown parameters and duplicate optional parameters fail before token exchange', async t => {
+  for (const callbackParams of [
+    [['iss', 'https://other.example']],
+    [['iss', `${issuer}/`]],
+    [['scope', 'openid'], ['scope', 'chatgpt.tokens.use.direct']],
+    [['iss', issuer], ['iss', issuer]],
+    [['unknown', 'opaque-secret-callback']],
+  ]) {
+    const f = await fixture(t, { callbackParams });
+    const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+    await assert.rejects(attempt.completion);
+    assert.equal(f.tokenExchanges(), 0);
+    assert.deepEqual(await listAuthRegistrations({ storageRoot: f.storageRoot }), []);
+    assert.equal((await f.callbackPage()).includes('opaque-secret'), false);
+  }
+});
 
-  await assert.rejects(
-    () =>
-      startOAuthLogin({
-        probeCallbackPort: freeCallbackPort,
-        fileSystem,
-        env: {},
-        homeDirectory: resolve("oauth-sync-error-home"),
-        platform: "win32",
-        execPath: "/portable/node.exe",
-        spawnProcess,
-        createPendingId: () => "sync-error",
-        lockDownPath: noOpLockDownPath,
-      }),
-    (error) => {
-      assert.equal(
-        error.message,
-        "The local sign-in command could not start. Update Relmio and retry with Node.js 24 or newer.",
-      );
+test('valid-state access denial declines sign-in without exchanging a code or reserving a client', async t => {
+  const f = await fixture(t, { callbackError: 'access_denied', returnedClient: null,
+    callbackParams: [['scope', 'chatgpt.tokens.use.direct'], ['iss', issuer]] });
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  await assert.rejects(attempt.completion, error => {
+    assert.equal(error.safeOAuth, true);
+    assert.equal(error.code, 'access_denied');
+    assert.equal(error.recovery, 'none');
+    return true;
+  });
+  assert.equal(f.tokenExchanges(), 0);
+  assert.deepEqual(await listAuthRegistrations({ storageRoot: f.storageRoot }), []);
+  const completionPage = await f.callbackPage();
+  assert.equal(completionPage.includes('opaque-secret'), false);
+  assert.equal(completionPage.includes(f.authorization().searchParams.get('state')), false);
+  const replay = new URL(f.callbackUrl());
+  replay.searchParams.delete('error');
+  replay.searchParams.set('code', 'one-use-code');
+  replay.searchParams.set('client_id', clientId);
+  await fetch(replay).then(response => assert.equal(response.status, 400), () => {});
+  assert.equal(f.tokenExchanges(), 0);
+  await attempt.cancel();
+});
+
+test('plan consent denial preserves the verified account and reports enable-plan recovery', async t => {
+  const f = await fixture(t, { grant: 'openid profile email' });
+  const firstAttempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  const account = await firstAttempt.completion;
+  await f.callbackPage();
+  const registration = { storageRoot: f.storageRoot, registrationId: account.registrationId };
+  const before = await readRegistration(registration);
+  f.setCallbackError('access_denied');
+  const attempt = await startOAuthLogin({ ...registration, runtimeId: 'local', purpose: 'enable-plan' }, f);
+  await assert.rejects(attempt.completion, error => {
+    assert.equal(error.safeOAuth, true);
+    assert.equal(error.code, 'access_denied');
+    assert.equal(error.recovery, 'enable-plan');
+    return true;
+  });
+  assert.equal(f.tokenExchanges(), 1);
+  assert.deepEqual(await readRegistration(registration), before);
+  assert.equal((await getAuthStatus(registration)).planPermission, 'not-granted');
+  assert.equal((await f.callbackPage()).includes('opaque-secret'), false);
+});
+
+test('access denial with invalid issuer or unsupported error parameters stays a generic failure and makes no token request', async t => {
+  for (const variant of [
+    { callbackParams: [['iss', 'https://other.example']] },
+    { callbackParams: [['error_description', 'opaque-secret-callback']] },
+    { callbackError: 'unknown_error' },
+  ]) {
+    const f = await fixture(t, { callbackError: 'access_denied', ...variant });
+    const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+    await assert.rejects(attempt.completion, error => {
       assert.equal(error.code, undefined);
+      assert.equal(error.safeOAuth, undefined);
       return true;
-    },
-  );
-  assert.equal(invocation.command, "/portable/node.exe");
-  assert.equal(
-    invocation.args[0],
-    resolve(
-      dirname("/portable/node.exe"),
-      "node_modules",
-      "npm",
-      "bin",
-      "npx-cli.js",
-    ),
-  );
-  assert.deepEqual(removed, [
-    {
-      path: resolve(
-        "oauth-sync-error-home",
-        ".n8n-openai-oauth",
-        ".codex-login-sync-error",
-      ),
-      options: { recursive: true, force: true },
-    },
-  ]);
-});
-
-test("startOAuthLogin waits for the official helper to close before promoting a valid credential", async () => {
-  const files = {};
-  let child;
-  let pendingAuthPath;
-  let pollCount = 0;
-  const homeDirectory = resolve("oauth-fresh-home");
-  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  const spawnProcess = (_command, _args, options) => {
-    child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = { resume() {} };
-    child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = pendingAuthPathFromOptions(options);
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem(files),
-    env: {},
-    homeDirectory,
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "fresh",
-    terminationGraceMs: 0,
-    terminationForceWaitMs: 0,
-    waitForCredentialPoll: async () => {
-      pollCount += 1;
-      files[pendingAuthPath] =
-        pollCount === 1 ? "partially-written" : credentialContents("fresh");
-    },
-  });
-
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
-  assert.equal(pollCount, 2);
-  assert.equal(Object.hasOwn(files, authPath), false);
-  let completionSettled = false;
-  login.completion.finally(() => {
-    completionSettled = true;
-  });
-  await new Promise((resolvePromise) => setImmediate(resolvePromise));
-  assert.equal(completionSettled, false);
-  finishChild(child, 0);
-  assert.deepEqual(await login.completion, { success: true });
-  assert.equal(files[authPath], credentialContents("fresh"));
-});
-
-test("startOAuthLogin rejects an unsafe attempt identifier before filesystem or process effects", async () => {
-  let effects = 0;
-  await assert.rejects(
-    () => startOAuthLogin({
-      probeCallbackPort: freeCallbackPort,
-      fileSystem: {
-        ...createMemoryFileSystem({}),
-        async mkdir() {
-          effects += 1;
-        },
-      },
-      env: {},
-      homeDirectory: "/home/user",
-      spawnProcess() {
-        effects += 1;
-      },
-      createPendingId: () => "../unsafe",
-    }),
-    /attempt identifier is invalid/u,
-  );
-  assert.equal(effects, 0);
-});
-
-test("startOAuthLogin cancels the detached helper process group with a bounded forceful fallback", async () => {
-  const signals = [];
-  let processGroupGone = false;
-  let spawnOptions;
-  const spawnProcess = (_command, _args, options) => {
-    spawnOptions = options;
-    const child = new EventEmitter();
-    child.pid = 4242;
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => {
-      throw new Error("The wrapper process must not be the only cancellation target.");
-    };
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(
-          `OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`,
-        ),
-      );
     });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem({}),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "process-tree",
-    killProcess(pid, signal) {
-      signals.push([pid, signal]);
-      if (signal === "SIGKILL") {
-        processGroupGone = true;
-      }
-      if (signal === 0 && processGroupGone) {
-        const error = new Error("gone");
-        error.code = "ESRCH";
-        throw error;
-      }
-    },
-    terminationGraceMs: 50,
-    terminationForceWaitMs: 50,
-  });
-
-  await login.cancel();
-  await assert.rejects(login.completion, /stopped|fresh login/i);
-  assert.equal(spawnOptions.detached, true);
-  assert.deepEqual(signals, [
-    [-4242, "SIGTERM"],
-    [-4242, 0],
-    [-4242, 0],
-    [-4242, "SIGKILL"],
-    [-4242, 0],
-  ]);
-});
-
-test("startOAuthLogin cancellation waits for a delayed promotion and keeps the older credential", async () => {
-  const files = {};
-  const homeDirectory = resolve("oauth-cancel-promotion-home");
-  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  files[authPath] = credentialContents("older");
-  const memoryFileSystem = createMemoryFileSystem(files);
-  let child;
-  let pendingAuthPath;
-  let releaseCopy;
-  const copyRelease = new Promise((resolvePromise) => {
-    releaseCopy = resolvePromise;
-  });
-  let markCopyStarted;
-  const copyStarted = new Promise((resolvePromise) => {
-    markCopyStarted = resolvePromise;
-  });
-  const fileSystem = {
-    ...memoryFileSystem,
-    async copyFile(source, destination) {
-      markCopyStarted();
-      await copyRelease;
-      files[destination] = files[source];
-    },
-  };
-  const spawnProcess = (_command, _args, options) => {
-    child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = pendingAuthPathFromOptions(options);
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-      );
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem,
-    env: {},
-    homeDirectory,
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "cancel-promotion",
-    terminationGraceMs: 50,
-    terminationForceWaitMs: 50,
-    waitForCredentialPoll: async () => {
-      files[pendingAuthPath] = credentialContents("newer");
-      finishChild(child, 0);
-    },
-  });
-
-  await copyStarted;
-  let cancellationFinished = false;
-  const cancellation = login.cancel().then(() => {
-    cancellationFinished = true;
-  });
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
-  assert.equal(cancellationFinished, false);
-
-  releaseCopy();
-  await cancellation;
-  await assert.rejects(login.completion, /stopped|fresh login/i);
-  assert.equal(files[authPath], credentialContents("older"));
-});
-
-test("startOAuthLogin rejects cancellation when the detached process group survives both signals", async () => {
-  const signals = [];
-  const spawnProcess = () => {
-    const child = new EventEmitter();
-    child.pid = 4343;
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => {
-      throw new Error("The detached process group must be signalled instead.");
-    };
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-      );
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem({}),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "surviving-process-group",
-    killProcess(pid, signal) {
-      signals.push([pid, signal]);
-    },
-    terminationGraceMs: 0,
-    terminationForceWaitMs: 0,
-    lockDownPath: noOpLockDownPath,
-  });
-
-  await assert.rejects(
-    login.cancel(),
-    /could not be stopped safely/i,
-  );
-  assert.deepEqual(signals, [
-    [-4343, "SIGTERM"],
-    [-4343, 0],
-    [-4343, 0],
-    [-4343, "SIGKILL"],
-    [-4343, 0],
-    [-4343, 0],
-  ]);
-});
-
-test("startOAuthLogin rejects cancellation when Windows taskkill cannot confirm its tree", async () => {
-  const calls = [];
-  const spawnProcess = (command, args) => {
-    calls.push({ command, args });
-    const child = new EventEmitter();
-    if (command === "taskkill") {
-      queueMicrotask(() => finishChild(child, 1));
-      return child;
-    }
-    child.pid = 5454;
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => {
-      throw new Error("taskkill must own the Windows process tree.");
-    };
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-      );
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem({}),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    execPath: "C:\\portable\\node.exe",
-    spawnProcess,
-    createPendingId: () => "taskkill-nonzero",
-    terminationGraceMs: 0,
-    terminationForceWaitMs: 0,
-    lockDownPath: noOpLockDownPath,
-  });
-
-  await assert.rejects(
-    login.cancel(),
-    /could not be stopped safely/i,
-  );
-  assert.deepEqual(calls.slice(1), [
-    { command: "taskkill", args: ["/pid", "5454", "/t"] },
-    { command: "taskkill", args: ["/pid", "5454", "/t", "/f"] },
-  ]);
-});
-
-test("startOAuthLogin bounds a hung Windows taskkill and reports unconfirmed termination", async () => {
-  const calls = [];
-  const spawnProcess = (command, args) => {
-    calls.push({ command, args });
-    const child = new EventEmitter();
-    if (command === "taskkill") {
-      return child;
-    }
-    child.pid = 5555;
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => {
-      throw new Error("taskkill must own the Windows process tree.");
-    };
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-      );
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem({}),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    execPath: "C:\\portable\\node.exe",
-    spawnProcess,
-    createPendingId: () => "taskkill-hung",
-    terminationGraceMs: 0,
-    terminationForceWaitMs: 0,
-    lockDownPath: noOpLockDownPath,
-  });
-
-  await assert.rejects(
-    login.cancel(),
-    /could not be stopped safely/i,
-  );
-  assert.deepEqual(calls.slice(1), [
-    { command: "taskkill", args: ["/pid", "5555", "/t"] },
-    { command: "taskkill", args: ["/pid", "5555", "/t", "/f"] },
-  ]);
-});
-
-test("startOAuthLogin reports cancellation as indeterminate after final credential commit begins", async () => {
-  const files = {};
-  const homeDirectory = resolve("oauth-rename-barrier-home");
-  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  files[authPath] = credentialContents("older");
-  const memoryFileSystem = createMemoryFileSystem(files);
-  let child;
-  let pendingAuthPath;
-  let releaseRename;
-  const renameRelease = new Promise((resolvePromise) => {
-    releaseRename = resolvePromise;
-  });
-  let markRenameStarted;
-  const renameStarted = new Promise((resolvePromise) => {
-    markRenameStarted = resolvePromise;
-  });
-  const fileSystem = {
-    ...memoryFileSystem,
-    async rename(source, destination) {
-      markRenameStarted();
-      await renameRelease;
-      files[destination] = files[source];
-      delete files[source];
-    },
-  };
-  const spawnProcess = (_command, _args, options) => {
-    child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = pendingAuthPathFromOptions(options);
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-      );
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem,
-    env: {},
-    homeDirectory,
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "rename-barrier",
-    terminationGraceMs: 50,
-    terminationForceWaitMs: 50,
-    waitForCredentialPoll: async () => {
-      files[pendingAuthPath] = credentialContents("newer");
-      finishChild(child, 0);
-    },
-  });
-
-  await renameStarted;
-  let cancellationSettled = false;
-  const cancellation = login.cancel().finally(() => {
-    cancellationSettled = true;
-  });
-  await new Promise((resolvePromise) => setTimeout(resolvePromise, 10));
-  assert.equal(cancellationSettled, false);
-
-  releaseRename();
-  await assert.rejects(cancellation, /could not be stopped safely/i);
-  assert.equal(files[authPath], credentialContents("newer"));
-});
-
-test("startOAuthLogin bounds a never-settling staged promotion and blocks its later final write", async () => {
-  const files = {};
-  const homeDirectory = resolve("oauth-never-settling-promotion-home");
-  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  files[authPath] = credentialContents("older");
-  const memoryFileSystem = createMemoryFileSystem(files);
-  let child;
-  let pendingAuthPath;
-  let releaseCopy;
-  const copyRelease = new Promise((resolvePromise) => {
-    releaseCopy = resolvePromise;
-  });
-  let markCopyStarted;
-  const copyStarted = new Promise((resolvePromise) => {
-    markCopyStarted = resolvePromise;
-  });
-  const fileSystem = {
-    ...memoryFileSystem,
-    async copyFile(source, destination) {
-      markCopyStarted();
-      await copyRelease;
-      files[destination] = files[source];
-    },
-  };
-  const spawnProcess = (_command, _args, options) => {
-    child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = pendingAuthPathFromOptions(options);
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-      );
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem,
-    env: {},
-    homeDirectory,
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "never-settling-promotion",
-    terminationGraceMs: 0,
-    terminationForceWaitMs: 0,
-    waitForCredentialPoll: async () => {
-      files[pendingAuthPath] = credentialContents("newer");
-      finishChild(child, 0);
-    },
-  });
-
-  await copyStarted;
-  try {
-    const result = await Promise.race([
-      login.cancel().then(
-        () => "resolved",
-        () => "rejected",
-      ),
-      new Promise((resolvePromise) => {
-        setTimeout(() => resolvePromise("timed out"), 50);
-      }),
-    ]);
-    assert.equal(result, "rejected");
-  } finally {
-    releaseCopy();
+    assert.equal(f.tokenExchanges(), 0);
+    assert.deepEqual(await listAuthRegistrations({ storageRoot: f.storageRoot }), []);
+    assert.equal((await f.callbackPage()).includes('opaque-secret'), false);
   }
-  await new Promise((resolvePromise) => setImmediate(resolvePromise));
-  assert.equal(files[authPath], credentialContents("older"));
 });
 
-test("startOAuthLogin marks a timeout retry-blocked when final credential commit has started", async () => {
-  const files = {};
-  const homeDirectory = resolve("oauth-timeout-rename-home");
-  const authPath = resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
-  files[authPath] = credentialContents("older");
-  const memoryFileSystem = createMemoryFileSystem(files);
-  let child;
-  let pendingAuthPath;
-  let releaseRename;
-  const renameRelease = new Promise((resolvePromise) => {
-    releaseRename = resolvePromise;
-  });
-  let markRenameStarted;
-  const renameStarted = new Promise((resolvePromise) => {
-    markRenameStarted = resolvePromise;
-  });
+test('wrong-state loopback callbacks never consume the attempt before a correct one completes', async t => {
+  const f = await fixture(t, { beforeCallback: async (callback, exchanges) => {
+    for (const variant of ['wrong', 'wrong-denial', 'missing', 'duplicate']) {
+      const invalid = new URL(callback);
+      if (variant === 'missing') invalid.searchParams.delete('state');
+      else if (variant === 'duplicate') invalid.searchParams.append('state', invalid.searchParams.get('state'));
+      else invalid.searchParams.set('state', 'x'.repeat(43));
+      if (variant === 'wrong-denial') {
+        invalid.searchParams.delete('code');
+        invalid.searchParams.set('error', 'access_denied');
+      }
+      const response = await fetch(invalid);
+      assert.equal(response.status, 400);
+      assert.equal((await response.text()).includes('one-use-code'), false);
+      assert.equal(exchanges(), 0);
+    }
+  } });
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  const account = await attempt.completion;
+  assert.equal(account.identity, 'verified');
+  assert.equal(f.tokenExchanges(), 1);
+  await f.callbackPage();
+});
+
+test('selected account status is coherent without reading unrelated registrations', async t => {
+  const f = await fixture(t);
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  const account = await attempt.completion;
+  await f.callbackPage();
+  await fs.writeFile(join(f.storageRoot, 'registrations', 'another-registration-id.json'), '{"session":"malformed"}', { mode: 0o600 });
+  const status = await getAuthStatus({ storageRoot: f.storageRoot, registrationId: account.registrationId });
+  assert.equal(status.exists, true);
+  assert.equal(status.generation, account.generation);
+  assert.equal(status.session, account.session);
+  assert.equal(status.identity, account.identity);
+  assert.equal(JSON.stringify(status).includes('opaque-secret'), false);
+});
+
+test('state and signed OIDC signature, issuer, audience, nonce and time reject unverified identity', async t => {
+  for (const variant of [{ changeNonce: true }, { returnedClient: null },
+    { returnedClient: 'dynamic_agent_client' }, { wrongAudience: true }, { wrongIssuer: true },
+    { badSignature: true }, { futureIssuedAt: true }, { wrongTokenClient: true }, { expired: true }]) {
+    const f = await fixture(t, variant);
+    const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+    await assert.rejects(attempt.completion);
+    const views = await listAuthRegistrations({ storageRoot: f.storageRoot });
+    assert.ok(views.every(view => view.identity === 'unverified' && view.session === 'signed-out'));
+    if (variant.returnedClient === null || variant.returnedClient === 'dynamic_agent_client') assert.equal(views.length, 0);
+    else assert.equal(views.length, 1);
+    await f.callbackPage();
+  }
+});
+
+test('identity-only grant persists but remains disabled for plan use; reconsent binds the subject', async t => {
+  const f = await fixture(t, { grant: 'openid profile email' });
+  const first = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  const account = await first.completion;
+  assert.equal(account.planPermission, 'not-granted');
+  assert.equal(account.session, 'connected');
+  assert.equal((await getAuthStatus({ storageRoot: f.storageRoot, registrationId: account.registrationId })).exists, true);
+  assert.equal((await readRegistration({ storageRoot: f.storageRoot, registrationId: account.registrationId })).session.accessToken, undefined);
+  f.setSubject('another-workspace');
+  const second = await startOAuthLogin({ storageRoot: f.storageRoot, registrationId: account.registrationId,
+    runtimeId: 'local', purpose: 'enable-plan' }, f);
+  assert.equal(f.authorization().searchParams.get('client_id'), clientId);
+  assert.equal(f.authorization().searchParams.get('prompt'), 'consent');
+  assert.equal(f.authorization().searchParams.has('agent_name_hint'), false);
+  await assert.rejects(second.completion);
+  assert.equal((await readRegistration({ storageRoot: f.storageRoot, registrationId: account.registrationId })).identity.subject, 'verified-subject');
+});
+
+test('reauthorization rejects a different callback client without replacing the verified session', async t => {
+  const f = await fixture(t);
+  const first = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  const original = await first.completion;
+  await f.callbackPage();
+  f.setReturnedClient('another-issued-client');
+  const retry = await startOAuthLogin({ storageRoot: f.storageRoot,
+    registrationId: original.registrationId, runtimeId: 'local' }, f);
+  await assert.rejects(retry.completion);
+  const saved = await readRegistration({ storageRoot: f.storageRoot, registrationId: original.registrationId });
+  assert.equal(saved.generation, original.generation);
+  assert.equal(saved.clientId, clientId);
+  assert.equal(saved.session.accessToken, 'opaque-secret-access');
+});
+
+test('replayed callback state cannot trigger a second token exchange', async t => {
+  let entered, release;
+  const reached = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, { tokenDelay: async () => { entered(); await gate; } });
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  await reached;
+  const replay = await fetch(f.callbackUrl());
+  assert.equal(replay.status, 400);
+  release();
+  const account = await attempt.completion;
+  assert.equal(f.tokenExchanges(), 1);
+  assert.equal((await readRegistration({ storageRoot: f.storageRoot, registrationId: account.registrationId })).generation,
+    account.generation);
+  await f.callbackPage();
+});
+
+test('cancellation invalidates an in-flight code exchange before credential commit', async t => {
+  let entered, release;
+  const reached = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, { tokenDelay: async () => { entered(); await gate; } });
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  await reached;
+  const stopping = attempt.cancel();
+  release();
+  await stopping;
+  await assert.rejects(attempt.completion);
+  const pending = await listAuthRegistrations({ storageRoot: f.storageRoot });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].identity, 'unverified');
+  await f.callbackPage();
+});
+
+test('cancellation during atomic commit clears any committed tokens before it completes', async t => {
+  let entered, release, held = false;
+  const reached = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t);
   const fileSystem = {
-    ...memoryFileSystem,
+    ...fs,
     async rename(source, destination) {
-      markRenameStarted();
-      await renameRelease;
-      files[destination] = files[source];
-      delete files[source];
+      if (!held && destination.includes('/registrations/') && destination.endsWith('.json') &&
+          (await fs.readFile(source, 'utf8')).includes('opaque-secret-access')) {
+        held = true;
+        entered();
+        await gate;
+      }
+      return fs.rename(source, destination);
     },
   };
-  let fireProcessTimeout;
-  const createTimer = (callback, milliseconds) => {
-    if (milliseconds === 315_000) {
-      fireProcessTimeout = callback;
-      return { milliseconds };
-    }
-    if (milliseconds === 0) {
-      queueMicrotask(callback);
-    }
-    return { milliseconds };
-  };
-  const spawnProcess = (_command, _args, options) => {
-    child = new EventEmitter();
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => queueMicrotask(() => finishChild(child, 1));
-    pendingAuthPath = pendingAuthPathFromOptions(options);
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-      );
-    });
-    return child;
-  };
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, { ...f, fileSystem });
+  await reached;
+  const stopping = attempt.cancel();
+  release();
+  await stopping;
+  await assert.rejects(attempt.completion);
+  const views = await listAuthRegistrations({ storageRoot: f.storageRoot });
+  assert.equal(views.length, 1);
+  assert.equal(views[0].session, 'signed-out');
+  const stored = await readRegistration({ storageRoot: f.storageRoot, registrationId: views[0].registrationId });
+  assert.equal(stored.session.accessToken, undefined);
+  assert.equal(stored.session.refreshToken, undefined);
+  await f.callbackPage();
+});
 
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem,
-    env: {},
-    homeDirectory,
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "timeout-rename",
-    createTimer,
-    clearTimer() {},
-    terminationGraceMs: 50,
-    terminationForceWaitMs: 50,
-    waitForCredentialPoll: async () => {
-      files[pendingAuthPath] = credentialContents("newer");
-      finishChild(child, 0);
-    },
-  });
-
-  await renameStarted;
-  fireProcessTimeout();
-  releaseRename();
-  await assert.rejects(login.completion, (error) => {
-    assert.equal(error.retryBlocked, true);
-    assert.match(error.message, /could not be stopped safely/i);
+test('token-exchange failures expose safe code and recovery without leaking the provider body', async t => {
+  const f = await fixture(t, { tokenError: 'invalid_client' });
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  let pendingId;
+  await assert.rejects(attempt.completion, error => {
+    pendingId = error.registrationId;
+    assert.equal(error.status, 400);
+    assert.equal(error.code, 'invalid_client');
+    assert.equal(error.recovery, 'fix-configuration');
+    assert.equal(error.requestId, 'request_fixture');
+    assert.equal(JSON.stringify(error).includes('opaque-secret-provider-body'), false);
     return true;
   });
-  assert.equal(files[authPath], credentialContents("newer"));
+  const pending = await listAuthRegistrations({ storageRoot: f.storageRoot });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].registrationId, pendingId);
+  assert.equal(pending[0].identity, 'unverified');
+  assert.equal((await f.callbackPage()).includes('opaque-secret-provider-body'), false);
 });
 
-test("startOAuthLogin does not signal an already-closed failed helper", async () => {
-  const signals = [];
-  let child;
-  const spawnProcess = () => {
-    child = new EventEmitter();
-    child.pid = 6262;
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.kill = () => {
-      throw new Error("The detached process group must be signalled instead.");
-    };
-    queueMicrotask(() => {
-      child.stdout.emit(
-        "data",
-        Buffer.from(`OpenAI OAuth login URL: ${createAuthorizationUrl()}\n`),
-      );
-    });
-    return child;
-  };
-
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem({}),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "darwin",
-    spawnProcess,
-    createPendingId: () => "unconfirmed-after-url",
-    killProcess(pid, signal) {
-      signals.push([pid, signal]);
-    },
-    terminationGraceMs: 0,
-    terminationForceWaitMs: 0,
+test('invalid_grant after issued client registration retries with the saved client and fresh PKCE', async t => {
+  const f = await fixture(t, { tokenError: 'invalid_grant' });
+  const first = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  let registrationId;
+  await assert.rejects(first.completion, error => {
+    assert.equal(error.code, 'invalid_grant');
+    registrationId = error.registrationId;
+    return typeof registrationId === 'string';
   });
+  await f.callbackPage();
+  const initialState = f.authorization().searchParams.get('state');
+  const initialChallenge = f.authorization().searchParams.get('code_challenge');
+  const pending = await listAuthRegistrations({ storageRoot: f.storageRoot });
+  assert.equal(pending.length, 1);
+  assert.equal(pending[0].registrationId, registrationId);
+  assert.equal(pending[0].identity, 'unverified');
+  assert.equal((await readRegistration({ storageRoot: f.storageRoot, registrationId })), null);
+  assert.equal(JSON.stringify(pending).includes(clientId), false);
+  assert.equal((await getAuthStatus({ storageRoot: f.storageRoot, registrationId })).exists, false);
+  await assert.rejects(selectRegistration({ storageRoot: f.storageRoot, registrationId }));
+  f.setTokenError(null);
+  const retry = await startOAuthLogin({ storageRoot: f.storageRoot, registrationId, runtimeId: 'local' }, f);
+  assert.equal(f.authorization().searchParams.get('client_id'), clientId);
+  assert.equal(f.authorization().searchParams.has('agent_name_hint'), false);
+  assert.notEqual(f.authorization().searchParams.get('state'), initialState);
+  assert.notEqual(f.authorization().searchParams.get('code_challenge'), initialChallenge);
+  const account = await retry.completion;
+  assert.equal(account.registrationId, registrationId);
+  assert.equal(account.identity, 'verified');
+  assert.equal((await listAuthRegistrations({ storageRoot: f.storageRoot })).length, 1);
+});
 
-  finishChild(child, 1);
-  await assert.rejects(login.completion, (error) => {
-    assert.equal(error.retryBlocked, undefined);
-    assert.match(error.message, /did not finish/u);
-    return true;
+test('verified loopback reauthorization preserves an accepted receipt without exposing recovery proofs or tokens in account status', async t => {
+  const f = await fixture(t);
+  const destinationRoot = await fs.mkdtemp(join(tmpdir(), 'relmio-siwc-oauth-destination-'));
+  t.after(() => fs.rm(destinationRoot, { recursive: true, force: true }));
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local' }, f);
+  const first = await attempt.completion;
+  await f.callbackPage();
+  const source = { storageRoot: f.storageRoot, registrationId: first.registrationId };
+  const enabled = await setPlanEnabled(source, { enabled: true, expectedGeneration: first.generation });
+  const target = await ensureSiwcHost({ storageRoot: destinationRoot, runtimeId: 'local' });
+  const prepared = await prepareAuthHandoff(source, {
+    expectedGeneration: enabled.generation, target, backgroundConsent: false,
   });
-  assert.deepEqual(signals, []);
-});
-
-test("startOAuthLogin waits for the original Windows child to close after taskkill succeeds", async () => {
-  let loginChild;
-  const taskkills = [];
-  const spawnProcess = (command) => {
-    const child = new EventEmitter();
-    if (command === "taskkill") {
-      taskkills.push(child);
-    } else {
-      loginChild = child;
-      child.pid = 7070;
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-    }
-    return child;
-  };
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem({}),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    spawnProcess,
-    createPendingId: () => "wait-for-child-close",
-    terminationGraceMs: 500,
-    terminationForceWaitMs: 500,
-    lockDownPath: noOpLockDownPath,
+  const pending = await readPendingAuthHandoff(source);
+  const contents = await readAuthHandoff(source, {
+    handoffId: prepared.handoffId, expectedGeneration: enabled.generation,
   });
-
-  let confirmed = false;
-  const cancellation = login.cancel().then(() => {
-    confirmed = true;
-  });
-  finishChild(taskkills[0], 0);
-  await new Promise((resolvePromise) => setImmediate(resolvePromise));
-  assert.equal(confirmed, false);
-  assert.equal(taskkills.length, 1);
-  finishChild(loginChild, 1);
-  await cancellation;
-  assert.equal(confirmed, true);
-  await assert.rejects(login.completion);
-});
-
-test("startOAuthLogin blocks another Windows login when taskkill succeeds but the child never closes", async () => {
-  for (const emitSpawnError of [false, true]) {
-    let loginChild;
-    const spawnProcess = (command) => {
-      const child = new EventEmitter();
-      if (command === "taskkill") {
-        queueMicrotask(() => finishChild(child, 0));
-      } else {
-        loginChild = child;
-        child.pid = 7171;
-        child.stdout = new EventEmitter();
-        child.stderr = new EventEmitter();
-      }
-      return child;
-    };
-    const login = await startOAuthLogin({
-      probeCallbackPort: freeCallbackPort,
-      fileSystem: createMemoryFileSystem({}),
-      env: {},
-      homeDirectory: "/home/user",
-      platform: "win32",
-      spawnProcess,
-      createPendingId: () => `unclosed-child-${emitSpawnError}`,
-      terminationGraceMs: 10,
-      terminationForceWaitMs: 10,
-      lockDownPath: noOpLockDownPath,
-    });
-
-    // A spawn error settles completion, but cannot establish process close.
-    if (emitSpawnError) {
-      loginChild.emit("error", new Error("private spawn failure"));
-    }
-    await assert.rejects(login.cancel(), (error) => error.retryBlocked === true);
-    await assert.rejects(login.completion, (error) => error.retryBlocked === true);
-  }
-});
-
-test("startOAuthLogin confirms an already-closed Windows child after one successful taskkill", async () => {
-  let loginChild;
-  const taskkills = [];
-  const spawnProcess = (command) => {
-    const child = new EventEmitter();
-    if (command === "taskkill") {
-      taskkills.push(child);
-      queueMicrotask(() => finishChild(child, 0));
-    } else {
-      loginChild = child;
-      child.pid = 7272;
-      child.stdout = new EventEmitter();
-      child.stderr = new EventEmitter();
-    }
-    return child;
-  };
-  const login = await startOAuthLogin({
-    probeCallbackPort: freeCallbackPort,
-    fileSystem: createMemoryFileSystem({}),
-    env: {},
-    homeDirectory: "/home/user",
-    platform: "win32",
-    spawnProcess,
-    createPendingId: () => "already-closed-child",
-    terminationGraceMs: 10,
-    terminationForceWaitMs: 10,
-    lockDownPath: noOpLockDownPath,
-  });
-
-  finishChild(loginChild, 1);
-  await login.cancel();
-  assert.equal(taskkills.length, 1);
-  await assert.rejects(login.completion);
-});
-
-test("startOAuthLogin refuses to launch when another app owns the callback port", async () => {
-  let spawned = false;
-  const directories = [];
-  await assert.rejects(
-    () =>
-      startOAuthLogin({
-        probeCallbackPort: async () => true,
-        fileSystem: {
-          ...createMemoryFileSystem({}),
-          async mkdir(path) {
-            directories.push(path);
-          },
-        },
-        env: {},
-        homeDirectory: "/home/user",
-        platform: "win32",
-        execPath: "C:\\portable\\node.exe",
-        spawnProcess() {
-          spawned = true;
-          throw new Error("must not launch codex login");
-        },
-        lockDownPath: noOpLockDownPath,
-      }),
-    /localhost:1455/u,
-  );
-  assert.equal(spawned, false);
-  assert.deepEqual(directories, []);
-});
-
-function simulateCallbackProbe(outcomes) {
-  const sockets = new Map();
-  const connectSocket = ({ host, port }) => {
-    assert.equal(port, 1455);
-    const outcome = outcomes[host];
-    if (outcome?.throw) {
-      throw new Error("private connector detail");
-    }
-    const socket = new EventEmitter();
-    socket.destroyed = false;
-    socket.destroy = () => {
-      socket.destroyed = true;
-    };
-    sockets.set(host, socket);
-    if (outcome !== "silent") {
-      queueMicrotask(() => {
-        if (outcome === "connect") {
-          socket.emit("connect");
-        } else {
-          socket.emit("error", Object.assign(new Error("private socket detail"), {
-            code: outcome,
-          }));
-        }
-      });
-    }
-    return socket;
-  };
-  return { connectSocket, sockets };
-}
-
-test("isOAuthCallbackPortInUse distinguishes free, occupied and unsupported IPv6", async () => {
-  for (const [outcomes, expected] of [
-    [{ "127.0.0.1": "ECONNREFUSED", "::1": "ECONNREFUSED" }, false],
-    [{ "127.0.0.1": "connect", "::1": "ECONNREFUSED" }, true],
-    [{ "127.0.0.1": "ECONNREFUSED", "::1": "connect" }, true],
-    [{ "127.0.0.1": "ECONNREFUSED", "::1": "EAFNOSUPPORT" }, false],
-  ]) {
-    const { connectSocket, sockets } = simulateCallbackProbe(outcomes);
-    assert.equal(await isOAuthCallbackPortInUse({ connectSocket, timeoutMs: 10 }), expected);
-    assert.equal(sockets.get("127.0.0.1").destroyed, true);
-    assert.equal(sockets.get("::1").destroyed, true);
-  }
-});
-
-test("isOAuthCallbackPortInUse gives a confirmed listener precedence over an inconclusive address", async () => {
-  for (const inconclusive of ["silent", "EACCES"]) {
-    const { connectSocket, sockets } = simulateCallbackProbe({
-      "127.0.0.1": inconclusive,
-      "::1": "connect",
-    });
-    assert.equal(await isOAuthCallbackPortInUse({ connectSocket, timeoutMs: 10 }), true);
-    for (const socket of sockets.values()) {
-      assert.equal(socket.destroyed, true);
-      socket.emit("connect");
-    }
-  }
-});
-
-test("isOAuthCallbackPortInUse rejects inconclusive probes without leaking error details", async () => {
-  let fixedMessage;
-  for (const outcomes of [
-    { "127.0.0.1": "ECONNREFUSED", "::1": "silent" },
-    { "127.0.0.1": "EACCES", "::1": "ECONNREFUSED" },
-    { "127.0.0.1": "ENETUNREACH", "::1": "ECONNREFUSED" },
-    { "127.0.0.1": "ETIMEDOUT", "::1": "ECONNREFUSED" },
-    { "127.0.0.1": { throw: true }, "::1": "ECONNREFUSED" },
-    { "127.0.0.1": "EAFNOSUPPORT", "::1": "ECONNREFUSED" },
-  ]) {
-    const { connectSocket, sockets } = simulateCallbackProbe(outcomes);
-    await assert.rejects(
-      isOAuthCallbackPortInUse({ connectSocket, timeoutMs: 10 }),
-      (error) => {
-        assert.equal(error instanceof Error, true);
-        assert.doesNotMatch(error.message, /private|EACCES|ENETUNREACH|ETIMEDOUT/u);
-        fixedMessage ??= error.message;
-        assert.equal(error.message, fixedMessage);
-        return true;
-      },
-    );
-    for (const socket of sockets.values()) {
-      assert.equal(socket.destroyed, true);
-    }
-  }
-});
-
-test("startOAuthLogin does not write or launch when the callback probe is inconclusive", async () => {
-  const { connectSocket } = simulateCallbackProbe({
-    "127.0.0.1": "EACCES",
-    "::1": "ECONNREFUSED",
-  });
-  let effects = 0;
-  await assert.rejects(
-    startOAuthLogin({
-      probeCallbackPort: () => isOAuthCallbackPortInUse({ connectSocket, timeoutMs: 10 }),
-      fileSystem: {
-        ...createMemoryFileSystem({}),
-        async mkdir() {
-          effects += 1;
-        },
-      },
-      env: {},
-      homeDirectory: "/home/user",
-      spawnProcess() {
-        effects += 1;
-      },
-      lockDownPath() {
-        effects += 1;
-      },
-    }),
-    (error) => error instanceof Error && !/private|EACCES/u.test(error.message),
-  );
-  assert.equal(effects, 0);
+  const accepted = await acceptAuthHandoff({ storageRoot: destinationRoot, runtimeId: 'local',
+    expectedRegistrationId: first.registrationId, expectedTarget: target, contents });
+  await finishAuthHandoff(source, { handoffId: prepared.handoffId, receipt: accepted.receipt });
+  const destination = { storageRoot: destinationRoot, registrationId: first.registrationId };
+  const renewed = await startOAuthLogin({ ...destination, runtimeId: 'local' }, f);
+  const account = await renewed.completion;
+  await f.callbackPage();
+  assert.equal(f.authorization().searchParams.get('client_id'), clientId);
+  assert.deepEqual(await readAuthHandoffReceipt(destination, { runtimeId: 'local',
+    handoffId: pending.handoffId, expectedTarget: target,
+    expectedBinding: pending.binding, identity: pending.identity }), accepted);
+  const status = await getAuthStatus({ ...destination, runtimeId: 'local' });
+  assert.equal(status.exists, true);
+  assert.equal(status.generation, account.generation);
+  assert.equal((await getAuthStatus({ ...source, runtimeId: 'local' })).ownership, 'transferred');
+  const serialized = JSON.stringify(status);
+  assert.equal(serialized.includes('opaque-secret'), false);
+  assert.equal(serialized.includes(accepted.receipt.proof), false);
+  assert.equal(serialized.includes('acceptedHandoff'), false);
 });

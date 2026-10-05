@@ -2,138 +2,147 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  validateDockerName,
-  validateHostname,
-  validatePort,
-  validateUsername,
+  validateDockerName, validateHostname, validatePort, validateUsername,
 } from "../src/domain/validation.js";
 import {
-  assertSidecarOnlyCommands,
-  createDeploymentCommands,
-  createVerificationCommands,
+  assertSidecarOnlyCommands, createDeploymentCommands,
+  createVerificationCommands, safeSiwcCatalogFailure, validateSiwcAuthBinding, parseManagedFileHashes,
 } from "../src/domain/safety.js";
-import {
-  createComposeFile,
-  createDockerfile,
-} from "../src/domain/templates.js";
+import { attestVpsSiwcCompose, attestVpsSiwcContainer, attestVpsSiwcImage,
+  createComposeFile } from "../src/domain/templates.js";
 
-test("validation accepts ordinary Hostinger and Docker values", () => {
-  const exampleIpv4 = [192, 0, 2, 10].join(".");
+const binding = {
+  registrationId: "registration_123456",
+  clientId: "oaiapp_account_123",
+  generation: "123e4567-e89b-42d3-a456-426614174000",
+  ownerHostId: "urn:uuid:123e4567-e89b-42d3-a456-426614174001",
+  ownerRuntimeId: "wizard",
+};
+const options = {
+  networkName: "proxy", registrationId: binding.registrationId,
+  runtimeId: "vps_n8n", tokenSha256: "a".repeat(64),
+};
 
-  assert.equal(validateHostname(exampleIpv4), exampleIpv4);
+test("typed deployment identities reject shell syntax and invalid account binding", () => {
   assert.equal(validateHostname("n8n.example.com"), "n8n.example.com");
   assert.equal(validatePort("22"), 22);
   assert.equal(validateUsername("root"), "root");
-  assert.equal(validateDockerName("proxy"), "proxy");
   assert.equal(validateDockerName("n8n-n8n-1"), "n8n-n8n-1");
-});
-
-test("validation rejects values that could become remote shell syntax", () => {
-  const invalidValues = [
-    "proxy; docker stop n8n",
-    "$(id)",
-    "network name",
-    "name\nsecond-command",
-    "--help",
-  ];
-
-  for (const value of invalidValues) {
+  for (const value of ["proxy; docker stop n8n", "$(id)", "name\nsecond-command", "--help"]) {
     assert.throws(() => validateDockerName(value), /invalid/i);
   }
-
-  assert.throws(() => validateHostname("example.com;id"), /invalid/i);
-  assert.throws(() => validateHostname("192.0.2.999"), /invalid/i);
-  assert.throws(() => validatePort("22abc"), /invalid/i);
-  assert.throws(() => validatePort("70000"), /invalid/i);
-  assert.throws(() => validateUsername("root;id"), /invalid/i);
+  assert.throws(() => validateSiwcAuthBinding({ ...binding, registrationId: "../auth" }), /invalid/i);
+  assert.throws(() => validateSiwcAuthBinding({ ...binding, clientId: "user\nsecret" }), /invalid/i);
+  assert.throws(() => validateSiwcAuthBinding({ ...binding, generation: "old-mtime" }), /invalid/i);
+  assert.throws(() => validateSiwcAuthBinding({ ...binding, ownerHostId: "urn:uuid:other" }), /invalid/i);
 });
 
-test("generated commands operate only on the sidecar project", () => {
-  const commands = createDeploymentCommands();
+test("generated VPS context rejects values that could cross command and account boundaries", () => {
+  for (const invalid of [
+    { ...options, registrationId: "../../other" },
+    { ...options, runtimeId: "x;id" },
+    { ...options, tokenSha256: "injected" },
+    { ...options, networkName: "proxy; docker rm n8n" },
+  ]) assert.throws(() => createComposeFile(invalid));
+});
 
+test("only fixed sidecar commands are permitted; protected owner mutation stops its service", () => {
+  const commands = [...createDeploymentCommands(), ...Object.values(createVerificationCommands())];
   assert.doesNotThrow(() => assertSidecarOnlyCommands(commands));
-  assert.ok(
-    commands.every((command) => !command.includes("/docker/n8n/docker-compose")),
-  );
-  assert.ok(commands.every((command) => !command.includes("n8nio/n8n")));
-  assert.ok(commands.every((command) => !/\bdocker restart\b/.test(command)));
-  assert.ok(commands.every((command) => !/\bdocker stop\b/.test(command)));
+  const { stop, host, accept, signOut } = createVerificationCommands();
+  assert.notEqual(stop, host);
+  assert.notEqual(accept, signOut);
+  for (const command of [
+    "docker stop n8n-n8n-1", "docker compose -f /docker/n8n/docker-compose.yml up -d",
+    "docker compose --project-name n8n-openai-oauth up -d n8n",
+  ]) assert.throws(() => assertSidecarOnlyCommands([command]), /sidecar|n8n/i);
 });
 
-test("unsafe-port cleanup targets only the named sidecar service", () => {
-  const cleanup = createVerificationCommands().cleanup;
-
-  assert.match(cleanup, /rm --force --stop openai-oauth$/);
-  assert.doesNotMatch(cleanup, /--remove-orphans/);
-  assert.doesNotMatch(cleanup, /docker (?:restart|stop|rm) n8n\b/);
-  assert.doesNotThrow(() => assertSidecarOnlyCommands([cleanup]));
+test("untrusted catalog metadata cannot carry token-like fields into a failure view", () => {
+  const accessToken = `sk-${"credential".repeat(5)}`;
+  const failure = safeSiwcCatalogFailure({
+    status: 401, code: accessToken, param: accessToken, requestId: accessToken,
+    recovery: "reauthorize", message: accessToken,
+  });
+  assert.equal(failure.status, 401);
+  assert.equal(failure.recovery, "reauthorize");
+  assert.equal(JSON.stringify(failure).includes(accessToken), false);
 });
 
-test("model verification emits only response JSON or a fixed unreachable marker", () => {
-  const models = createVerificationCommands().models;
-  assert.match(models, /console\.log\(await response\.text\(\)\)/u);
-  assert.match(models, /RELMIO_MODEL_CHECK_UNREACHABLE/u);
-  assert.doesNotMatch(models, /console\.(?:error|log)\(error/u);
+const service = {
+  image: "n8n-openai-oauth:local", build: { context: "/docker/n8n-openai-oauth", dockerfile: "Dockerfile" },
+  environment: { N8N_OPENAI_OAUTH_HOME: "/home/node/.relmio-siwc",
+    RELMIO_REGISTRATION_ID: binding.registrationId, RELMIO_RUNTIME_ID: "vps_n8n",
+    RELMIO_GATEWAY_TOKEN_SHA256: "a".repeat(64) },
+  volumes: [{ type: "bind", source: "/docker/n8n-openai-oauth/siwc", target: "/home/node/.relmio-siwc" }],
+  restart: "unless-stopped", init: true, read_only: true,
+  cap_drop: ["ALL"], security_opt: ["no-new-privileges:true"],
+  pids_limit: 128, mem_limit: 536870912, cpus: 1,
+  tmpfs: ["/tmp:size=16m,mode=1777", "/home/node/.local:uid=1000,gid=1000,mode=0700"],
+  expose: ["10531"], networks: { "n8n-shared": { aliases: ["n8n-openai-oauth"] } },
+  labels: { "io.n8n-openai-oauth.managed": "true" },
+  healthcheck: { test: ["CMD", "node", "-e",
+    'fetch("http://127.0.0.1:10531/health").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))'],
+    interval: "30s", timeout: "5s", retries: 3, start_period: "20s" },
+};
+
+test("full Compose attestation rejects image, storage and execution changes despite same account strings", () => {
+  const config = { services: { "openai-oauth": service },
+    networks: { "n8n-shared": { name: "proxy", external: true } } };
+  assert.equal(attestVpsSiwcCompose(config, "proxy"), binding.registrationId);
+  for (const mutation of [
+    { image: "foreign:latest" }, { command: ["sh", "-c", "id"] }, { user: "0" },
+    { read_only: false }, { cap_add: ["SYS_ADMIN"] }, { privileged: true },
+    { volumes: [{ type: "bind", source: "/outside", target: "/home/node/.relmio-siwc" }] },
+    { ports: [{ target: 10531, published: "10531" }] },
+    { environment: { ...service.environment, NODE_OPTIONS: "--require=/tmp/inject.js" } },
+  ]) assert.throws(() => attestVpsSiwcCompose({
+    ...config, services: { "openai-oauth": { ...service, ...mutation } },
+  }, "proxy"));
 });
 
-test("the safety policy rejects attempts to mutate n8n", () => {
-  const forbidden = [
-    "docker restart n8n-n8n-1",
-    "docker stop n8n-n8n-1",
-    "docker compose -f /docker/n8n/docker-compose.yml up -d",
-    "docker rmi docker.n8n.io/n8nio/n8n",
-  ];
-
-  for (const command of forbidden) {
-    assert.throws(() => assertSidecarOnlyCommands([command]), /n8n|sidecar/i);
-  }
+test("immutable executable and container attestation binds actual image and kernel restrictions", () => {
+  const imageId = `sha256:${"b".repeat(64)}`;
+  const image = { Id: imageId, Config: { User: "node", WorkingDir: "/app",
+    Entrypoint: ["node", "/app/gateway/openai-oauth-sidecar.mjs"], Cmd: null } };
+  assert.equal(attestVpsSiwcImage(image, imageId), imageId);
+  assert.throws(() => attestVpsSiwcImage(image, `sha256:${"c".repeat(64)}`));
+  assert.throws(() => attestVpsSiwcImage({ ...image, Config: { ...image.Config, User: "root" } }));
+  const container = {
+    Id: "c".repeat(64), Image: imageId, Name: "/n8n-openai-oauth-openai-oauth-1",
+    State: { Running: true, Paused: false },
+    Config: { ...image.Config, Image: "n8n-openai-oauth:local",
+      Env: Object.entries(service.environment).map(([key, value]) => `${key}=${value}`),
+      Labels: { "com.docker.compose.project": "n8n-openai-oauth",
+        "com.docker.compose.service": "openai-oauth", "io.n8n-openai-oauth.managed": "true" } },
+    Mounts: [{ Type: "bind", RW: true, Source: "/docker/n8n-openai-oauth/siwc",
+      Destination: "/home/node/.relmio-siwc" }],
+    HostConfig: { Privileged: false, ReadonlyRootfs: true, Init: true,
+      CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"],
+      RestartPolicy: { Name: "unless-stopped" }, PidsLimit: 128,
+      Memory: 536870912, NanoCpus: 1000000000,
+      Tmpfs: { "/tmp": "size=16m,mode=1777", "/home/node/.local": "uid=1000,gid=1000,mode=0700" } },
+    NetworkSettings: { Networks: { proxy: { NetworkID: "d".repeat(64) } }, Ports: { "10531/tcp": null } },
+  };
+  const target = { service, networkName: "proxy", networkId: "d".repeat(64), imageId };
+  assert.equal(attestVpsSiwcContainer(container, target).running, true);
+  for (const mutation of [
+    { Image: `sha256:${"9".repeat(64)}` },
+    { HostConfig: { ...container.HostConfig, ReadonlyRootfs: false } },
+    { Config: { ...container.Config, Env: [...container.Config.Env, "NODE_OPTIONS=--inspect=0.0.0.0"] } },
+    { NetworkSettings: { Networks: { proxy: { NetworkID: "e".repeat(64) } } } },
+    { Mounts: [{ ...container.Mounts[0], Source: "/outside" }] },
+  ]) assert.throws(() => attestVpsSiwcContainer({ ...container, ...mutation }, target));
 });
 
-test("the generated Compose file is internal-only and uses an external network", () => {
-  const compose = createComposeFile({ networkName: "proxy" });
-
-  assert.match(compose, /external: true/);
-  assert.match(compose, /name: proxy/);
-  assert.match(compose, /expose:\n\s+- "10531"/);
-  assert.match(compose, /no-new-privileges:true/);
-  assert.match(compose, /cap_drop:\n\s+- ALL/);
-  assert.doesNotMatch(compose, /^\s*ports:/m);
-  assert.doesNotMatch(compose, /traefik/i);
-  assert.doesNotMatch(compose, /n8nio\/n8n/);
-});
-
-test("the generated Compose file provides a writable non-root local directory", () => {
-  const compose = createComposeFile({ networkName: "proxy" });
-
-  assert.match(
-    compose,
-    /^\s+- \/home\/node\/\.local:uid=1000,gid=1000,mode=0700$/m,
-  );
-});
-
-test("the generated Compose file uses a collision-resistant network alias", () => {
-  const compose = createComposeFile({ networkName: "proxy" });
-
-  assert.match(compose, /aliases:\n\s+- n8n-openai-oauth/);
-  assert.doesNotMatch(compose, /aliases:\n\s+- openai-oauth/);
-});
-
-test("the generated Compose healthcheck command is a quoted YAML string", () => {
-  const compose = createComposeFile({ networkName: "proxy" });
-
-  assert.match(
-    compose,
-    /^\s+- 'fetch\("http:\/\/127\.0\.0\.1:10531\/health"\).*'$/m,
-  );
-});
-
-test("the generated Dockerfile pins openai-oauth and runs as a non-root user", () => {
-  const dockerfile = createDockerfile();
-
-  assert.match(dockerfile, /openai-oauth@2\.0\.0/);
-  assert.match(dockerfile, /^USER node$/m);
-  assert.match(
-    dockerfile,
-    /ENTRYPOINT \["node", "\/app\/openai-oauth-sidecar\.mjs"\]/,
-  );
+test("managed hash manifests reject traversal, duplicate identities and oversized output", () => {
+  const path = "/docker/n8n-openai-oauth/docker-compose.yml";
+  const line = `${"a".repeat(64)}  ${path}\n`;
+  assert.deepEqual(parseManagedFileHashes(line), { [path]: "a".repeat(64) });
+  for (const invalid of [
+    line + line,
+    `${"a".repeat(64)}  /outside/compose.yml\n`,
+    `${"a".repeat(64)}  /docker/n8n-openai-oauth/../outside\n`,
+    "a".repeat(8193),
+  ]) assert.throws(() => parseManagedFileHashes(invalid));
 });

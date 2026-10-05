@@ -1,0 +1,32 @@
+.siwc-controls { display: grid; gap: var(--rm-space-3); min-width: 0; }
+.siwc-controls[hidden], .siwc-controls [hidden] { display: none; }
+.siwc-controls .rm-field, .siwc-controls .rm-select { min-width: 0; max-width: 100%; }
+.siwc-controls > .rm-button { justify-self: start; }
+.siwc-account { display: grid; gap: var(--rm-space-2); min-width: 0; }
+.siwc-controls [data-siwc="owner"]:empty { display: none; }
+/* The plan badge sits inline with the status sentence and wraps above it when narrow. */
+.siwc-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--rm-space-1) var(--rm-space-3); min-width: 0; }
+.siwc-state > [data-siwc="status"] { flex: 1 1 16rem; min-width: 0; }
+.siwc-actions { gap: var(--rm-space-2); }
+/* Continue with ChatGPT keeps a monochrome sign-in button in both themes: ink fill, inverse text. */
+.siwc-controls [data-siwc="new"] {
+  --rm-button-bg: var(--rm-ink);
+  --rm-button-fg: var(--rm-ink-inverse);
+  --rm-button-line: var(--rm-ink);
+  --rm-button-hover: var(--rm-ink-muted);
+}
+.siwc-dialog {
+  box-sizing: border-box;
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  padding: 1.25rem;
+  color: var(--rm-ink);
+  background: var(--rm-surface);
+  border: 1px solid var(--rm-line-strong);
+  border-radius: var(--rm-radius-lg, 1rem);
+  box-shadow: var(--rm-shadow-lg);
+}
+.siwc-dialog::backdrop { background: var(--rm-overlay); }
+.siwc-dialog p { overflow-wrap: anywhere; }
+.siwc-dialog .rm-button { margin-top: .5rem; }

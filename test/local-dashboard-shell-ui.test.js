@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
+import { siwcAccount } from "./helpers/siwc-wizard.js";
+import { normalizeSiwcAccount } from "../src/ui/siwc-controls.js";
 async function loadScript() {
   return readFile("src/ui/local.js", "utf8");
 }
@@ -40,11 +42,11 @@ function sourceBetween(script, startMarker, endMarker) {
 
 function oauthOnlySnapshot() {
   const services = [
-    ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
+    ["codex-chatgpt", "Codex (ChatGPT plan)", "endpoint"],
     ["codex-chat", "Codex Chat adapter", "endpoint"],
     ["xai-grok-build", "SuperGrok", "endpoint"],
     ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
-    ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
+    ["n8n-openai-oauth", "ChatGPT plan sidecar", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
     ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
@@ -70,7 +72,7 @@ function loadSnapshotNormalizer(script) {
   const contractStart = script.indexOf("function dashboardContractError()");
   const contractEnd = script.indexOf("\nfunction dashboardStateLabel", contractStart);
   assert.ok(constantsStart >= 0 && constantsEnd > constantsStart && contractStart >= 0 && contractEnd > contractStart);
-  return runInNewContext(`${script.slice(constantsStart, constantsEnd)}\nfunction hasExactKeys(value, keys) { return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)); }\n${script.slice(contractStart, contractEnd)}\nnormalizeDashboardSnapshot;`, { URL });
+  return runInNewContext(`${script.slice(constantsStart, constantsEnd)}\nfunction hasExactKeys(value, keys) { return Boolean(value) && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)); }\n${script.slice(contractStart, contractEnd)}\nnormalizeDashboardSnapshot;`, { URL, normalizeSiwcAccount });
 }
 
 test("dashboard rejects unauthorized provider actions and unknown services", async () => {
@@ -81,8 +83,10 @@ test("dashboard rejects unauthorized provider actions and unknown services", asy
   Object.assign(codex, {
     managed: true,
     state: "healthy",
-    snapshot: { target: codex.target, endpoint: "ws://127.0.0.1:14500/", auth: { configured: true, disclosure: "rotate-only" }, canRotateCredential: true },
-    actions: ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
+    snapshot: { target: codex.target, endpoint: "ws://127.0.0.1:14500/",
+      registrationId: siwcAccount.registrationId, migrationRequired: false,
+      auth: { configured: true, disclosure: "rotate-only", account: siwcAccount }, canRotateCredential: true },
+    actions: ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"],
   });
   const grok = snapshot.services[2];
   Object.assign(grok, {
@@ -174,12 +178,12 @@ test("navigation clears one-time local values", async () => {
   const source = sourceBetween(script, "function clearOneTimeSetupValues", "\nfunction resetPendingSetupState");
   const nodes = new Map();
   const element = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { value: "sensitive", textContent: "sensitive", removeAttribute() {}, hidden: false });
+    if (!nodes.has(id)) nodes.set(id, { value: "sensitive", textContent: "sensitive", replaceChildren() {}, removeAttribute() {}, hidden: false });
     return nodes.get(id);
   };
-  const clear = runInNewContext(`${source}; clearOneTimeSetupValues;`, { element, clearChatTesterState() {} });
+  const clear = runInNewContext(`${source}; clearOneTimeSetupValues;`, { element, state: {}, clearChatTesterState() {} });
   clear();
-  for (const id of ["result-credential", "result-sandbox-key", "result-n8n-settings", "device-code"]) assert.equal(element(id).textContent, "");
+  for (const id of ["result-credential", "result-sandbox-key", "result-n8n-settings"]) assert.equal(element(id).textContent, "");
 });
 
 test("local OAuth endpoint planning emits only target and port", async () => {
@@ -194,6 +198,7 @@ test("local OAuth endpoint planning emits only target and port", async () => {
   const requests = [];
   const state = { target: "xai-grok-build", operationBusy: false, planId: null, plan: null };
   runInNewContext(`${helpers}\n${handler}`, {
+    siwc: { async catalog() { return [{ slug: "listed-model", display_name: "Listed model" }]; } },
     api: async (path, options) => {
       requests.push({ path, body: options.body });
       return { planId: "reviewed", plan: { target: options.body.target } };
@@ -326,7 +331,7 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
   for (const [target, action] of [
     ["xai-grok-build", "sign-in-grok-build"],
     ["xai-grok-build", "sign-out-grok-build"],
-    ["codex-chat", "sign-out-chatgpt"],
+    ["n8n-supergrok-oauth", "sign-out-grok-build"],
   ]) {
     showGuidance({ target }, action);
     assert.equal(nodes.get("setup-progress").hidden, true);
@@ -335,6 +340,7 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
     assert.ok(markers.every((marker) => !marker.dataset.state));
     assert.ok(markers.every((marker) => !marker.attributes.has("aria-current")));
   }
+  assert.throws(() => showGuidance({ target: "codex-chat" }, "sign-out-chatgpt"));
 
   showStep(1);
   assert.equal(nodes.get("setup-progress").hidden, false);

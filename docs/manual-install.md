@@ -1,304 +1,102 @@
 # Manual installation
 
-Use this guide if the browser wizard cannot be used, or if you need to
-reproduce, debug, or improve the underlying installation method. The wizard is
-safer for routine installation because it validates names, confirms the host
-fingerprint, uploads files with SFTP, and limits the commands it can run.
+Relmio's current ChatGPT plan connection is installed through the local browser
+wizard. This page no longer provides a manual Dockerfile, copied credential
+file, or shell-based VPS deployment. Do not use commands from an older guide to
+copy Codex credentials into a sidecar.
 
-For an existing wizard-managed bridge, use the browser update instead of this
-manual procedure. Install a Relmio release containing the compatibility fix,
-then choose **Manage bridge**, select the confirmation checkbox, and choose
-**Update bridge runtime** for local n8n. For a VPS bridge, select the n8n
-container and network, choose **OpenAI-OAuth/Codex bridge**, select **Manage
-OpenAI-OAuth/Codex bridge**, then use **Review bridge update** before the
-confirmation checkbox and **Update the bridge**. The VPS wizard performs the
-SSH work, uploads the current local sign-in, changes only the owned sidecar,
-and requires no separate VPS terminal.
+## Supported setup path
 
-This guide never changes the existing n8n Compose file or image. It creates a
-second Compose project.
-
-## Before starting
-
-The commands in this fallback use a POSIX shell. You need:
-
-- a local macOS or Linux computer with Node.js 24 or newer, or Windows with
-  WSL/Git Bash and Node.js 24 or newer;
-- your VPS IP address;
-- existing approved direct-root SSH access using your local key/agent or password;
-- the name of the running n8n container;
-- an existing Docker network shared by n8n and the reverse proxy, commonly
-named `proxy`.
-
-Before connecting to the VPS, export or otherwise back up every n8n workflow.
-The commands below are intentionally limited to the separate
-`n8n-openai-oauth` project and contain no n8n deletion, restart, or rebuild
-command, but they still authenticate to your VPS and write files. Keep a
-recoverable backup before proceeding.
-
-Replace every example such as `YOUR_VPS_IP` and `n8n-n8n-1` with the value
-shown on your own VPS. Never type the asterisks used to hide an IP in a
-screenshot.
-
-Keep the host's SSH policy unchanged. These manual root/SFTP commands are not
-the wizard's **Passwordless sudo -n (model only)** mode, which deliberately
-excludes credential-bearing bridge installation. Do not enable root/password
-SSH to make this fallback work. See [agent and privilege
-guidance](hosting-compatibility.md#ssh-agent-and-administrative-access).
-
-## Part 1: sign in on your own computer
-
-Open Terminal on your computer, not the Hostinger web terminal:
+Start the local wizard on the computer that will manage the installation:
 
 ```bash
-install -d -m 0700 "$HOME/.n8n-openai-oauth"
-npx --yes --ignore-scripts openai-oauth@2.0.0 login \
-  --open \
-  --login-timeout-ms 300000 \
-  --oauth-file "$HOME/.n8n-openai-oauth/auth.json"
+npx --yes --ignore-scripts relmio@latest
 ```
 
-Complete the newly opened sign-in page within five minutes. An old sign-in tab
-can expire; always use the page opened by the newest command.
+The foreground wizard opens on `127.0.0.1` without requiring an existing
+`.relmio` directory or local n8n stack. Choose **ChatGPT on my server**, then
+sign in using the system browser. Relmio creates a protected SIWC registration
+for the verified identity. It does not import a personal Codex login.
 
-Confirm that the local file exists:
+Identity sign-in and ChatGPT plan use are separate. If the grant is missing,
+choose **Allow ChatGPT plan use** and complete the separate ChatGPT consent.
+Confirm the first-use notice before making model requests. A listed model or
+connected account does not prove model entitlement or successful inference.
 
-```bash
-test -s "$HOME/.n8n-openai-oauth/auth.json" \
-  && echo "OAuth file is ready"
-```
+## Install for n8n
 
-This dedicated path avoids reusing or overwriting the Codex app credential at
-`~/.codex/auth.json`. Do not print either file or paste its contents into
-chat.
+Choose a running n8n container and one of its existing Docker networks. Review
+the exact target and explicitly approve both the installation and the selected
+account's background workflow use.
 
-## Part 2: inspect n8n on the VPS
+For a local Docker installation, Relmio creates a separate sidecar on the
+selected network. For VPS, it confirms the SSH fingerprint before
+authentication and requires a separate final confirmation before remote
+writes. The destination receives its own host ID, and the selected registration
+is frozen during transfer. It becomes the only refresh owner after the
+installer verifies the destination receipt. If the outcome is uncertain, the
+registration stays frozen until you inspect the destination.
 
-Connect from your computer:
-
-```bash
-ssh root@YOUR_VPS_IP
-```
-
-The first connection asks whether you trust the SSH fingerprint. Compare the
-address carefully, type `yes`, and press Return. When SSH asks for a password,
-nothing appears while you type; that is normal.
-
-List the running containers:
-
-```bash
-docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
-```
-
-Find the row whose image is `docker.n8n.io/n8nio/n8n`. Copy its container name,
-then inspect its networks:
-
-```bash
-docker inspect n8n-n8n-1 --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}'
-```
-
-An output such as `proxy` is not “nothing”; it is the network name.
-
-## Part 3: create the separate sidecar project
-
-Still in the VPS terminal:
-
-```bash
-install -d -m 0755 /docker/n8n-openai-oauth
-install -d -m 0700 -o 1000 -g 1000 /docker/n8n-openai-oauth/auth
-```
-
-Create `/docker/n8n-openai-oauth/Dockerfile` with exactly:
-
-```dockerfile
-FROM node:22-bookworm-slim
-
-RUN npm install --global --ignore-scripts openai-oauth@2.0.0 \
-    && npm cache clean --force
-
-USER node
-
-COPY --chown=node:node openai-oauth-sidecar.mjs /app/openai-oauth-sidecar.mjs
-
-ENTRYPOINT ["node", "/app/openai-oauth-sidecar.mjs"]
-```
-
-Copy `src/gateway/openai-oauth-sidecar.mjs` from the same reviewed Relmio
-checkout or package to `/docker/n8n-openai-oauth/openai-oauth-sidecar.mjs`
-alongside the Dockerfile, with mode `0644`. The wizard uploads this file
-automatically. Do not mix a newer Dockerfile with an older runtime file.
-The adapter listens on the container's port `10531` and reads the existing
-`/home/node/.codex/auth.json` mount. It removes n8n's disabled `background`
-option before forwarding Responses requests.
-
-Create `/docker/n8n-openai-oauth/docker-compose.yml` with exactly the following.
-If your network is not named `proxy`, change only the final `name: proxy` line.
-
-```yaml
-services:
-  openai-oauth:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    init: true
-    volumes:
-      - ./auth:/home/node/.codex
-    expose:
-      - "10531"
-    networks:
-      n8n-shared:
-        aliases:
-          - n8n-openai-oauth
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    read_only: true
-    tmpfs:
-      - /tmp:size=16m,mode=1777
-      - /home/node/.local:uid=1000,gid=1000,mode=0700
-    pids_limit: 128
-    mem_limit: 512m
-    cpus: 1.0
-    healthcheck:
-      test:
-        - CMD
-        - node
-        - -e
-        - 'fetch("http://127.0.0.1:10531/health").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))'
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-    labels:
-      io.n8n-openai-oauth.managed: "true"
-
-networks:
-  n8n-shared:
-    external: true
-    name: proxy
-```
-
-There is deliberately no `ports:` section and no Traefik label.
-
-## Part 4: copy the OAuth file
-
-Leave the SSH session:
-
-```bash
-exit
-```
-
-Back in the Terminal on your own computer:
-
-```bash
-scp "$HOME/.n8n-openai-oauth/auth.json" \
-  root@YOUR_VPS_IP:/docker/n8n-openai-oauth/auth/auth.json
-```
-
-Do not include `**` around the IP. In zsh, asterisks are wildcard characters
-and cause `no matches found`.
-
-Return to the VPS:
-
-```bash
-ssh root@YOUR_VPS_IP
-chown 1000:1000 /docker/n8n-openai-oauth/auth/auth.json
-chmod 600 /docker/n8n-openai-oauth/auth/auth.json
-```
-
-Run `chown` on the VPS, not on your computer.
-
-## Part 5: validate and start only the sidecar
-
-Use the explicit project name and file on every command:
-
-```bash
-docker compose \
-  --project-name n8n-openai-oauth \
-  --file /docker/n8n-openai-oauth/docker-compose.yml \
-  config --quiet
-```
-
-Build only `openai-oauth`:
-
-```bash
-docker compose \
-  --project-name n8n-openai-oauth \
-  --file /docker/n8n-openai-oauth/docker-compose.yml \
-  build openai-oauth
-```
-
-Start only `openai-oauth`, with no dependencies:
-
-```bash
-docker compose \
-  --project-name n8n-openai-oauth \
-  --file /docker/n8n-openai-oauth/docker-compose.yml \
-  up -d --wait --wait-timeout 60 --no-deps openai-oauth
-```
-
-None of these commands reference the n8n Compose file or service.
-
-## Part 6: verify
-
-Check the final logs:
-
-```bash
-docker compose \
-  --project-name n8n-openai-oauth \
-  --file /docker/n8n-openai-oauth/docker-compose.yml \
-  logs --tail=50 openai-oauth
-```
-
-The successful lines include:
+The sidecar publishes no host port and does not edit n8n's Compose file,
+credentials, container, image, or lifecycle. After successful installation,
+copy the private Base URL and one-time Relmio bearer from the result screen
+into n8n manually:
 
 ```text
-OpenAI-compatible endpoint ready at http://0.0.0.0:10531/v1
-Available Models: ...
-```
-
-The warning about `--host 0.0.0.0` is expected inside the container. The
-Compose file does not publish the port to the VPS.
-
-Prove that no host port is published:
-
-```bash
-docker compose \
-  --project-name n8n-openai-oauth \
-  --file /docker/n8n-openai-oauth/docker-compose.yml \
-  port openai-oauth 10531
-```
-
-Success is no output.
-
-Check the models from inside the sidecar:
-
-```bash
-docker compose \
-  --project-name n8n-openai-oauth \
-  --file /docker/n8n-openai-oauth/docker-compose.yml \
-  exec -T openai-oauth \
-  node -e 'fetch("http://127.0.0.1:10531/v1/models").then(async (response) => { console.log(await response.text()); process.exit(response.ok ? 0 : 1); }).catch(() => process.exit(1))'
-```
-
-## Part 7: configure n8n
-
-In the n8n OpenAI credential:
-
-```text
-API Key: local-only
-Organization ID: leave empty
 Base URL: http://n8n-openai-oauth:10531/v1
-Add Custom Header: off
+API key: <one-time Relmio bearer shown by the wizard>
+Use Responses API: On
 ```
 
-Do not use `http://127.0.0.1:10531/v1` in n8n. Inside the n8n container,
-`127.0.0.1` means n8n itself. The private Docker hostname is
-`n8n-openai-oauth`.
+The bearer authorizes the local sidecar; it is not an OpenAI API key or
+provider token. Keep it in n8n's credential store and share it only with trusted
+callers on that Docker network.
 
-In OpenAI Chat Model node version 1.3, keep **Use Responses API** on. If the
-switch is absent, keep the earlier node version's default Chat Completions
-behavior. Choose a model from the verified list and test a simple prompt before
-adding tools.
+## Install for a local Codex client
+
+The Codex App Server option preserves the WebSocket client protocol through a
+local `ws` relay to the official Codex App Server's stdio interface. The
+selected SIWC access token is supplied to the child as `ACCESS_TOKEN`; no
+separate Codex device-code login is used. Its one-time local bearer authorizes
+the endpoint. Treat this raw App Server target as high trust and use it only
+from a trusted native client owned by the same account holder.
+
+The Codex Chat Adapter is separate and narrower. It accepts a read-only
+conversational turn from a trusted local backend, not a browser or a general
+OpenAI `/v1` client. See [Local Docker endpoints](local-endpoints.md) for
+interfaces and token-expiry recovery.
+
+## Provider and VM limits
+
+The local gateway discovers models for the selected account and sends supported
+requests to the public Responses API. It rejects unsupported parameters,
+Routes, and capabilities rather than silently dropping them. Image generation
+or editing, audio, video, Files API management, moderation, stored responses or
+conversations, and other documented-unavailable features are not enabled.
+There is no account rotation or Platform API billing fallback.
+
+The website's `/api/chat` remains disabled with `410 Gone`. Local and
+self-hosted installation does not enable hosted website inference. OpenAI's VM
+guide and SIWC Terms leave persistent remote VM token storage unresolved; this
+guide makes no provider approval claim for VPS use. See the
+[2026-10-05 OpenAI source check](openai-source-check-2026-10-05.md).
+
+## Recovery
+
+- If identity is connected but plan use is unavailable, request the separate
+  plan grant from the wizard. Do not retry inference until the grant is shown.
+- If the wizard reports a plan usage limit, open
+  [Manage usage](https://chatgpt.com/settings/usage). Do not rotate accounts or
+  switch to a different billing path.
+- If transfer is unresolved, leave the source frozen and inspect the exact
+  destination before retrying. Do not restore a source token backup or enable
+  both installations.
+- If sign-out says provider revocation was not confirmed, local tokens were
+  cleared. Disconnect Relmio in ChatGPT settings; local cleanup alone does not
+  prove remote revocation.
+- Preserve the SSH host fingerprint check and final write confirmation. Do not
+  publish port `10531` or edit/restart n8n as a recovery step.
+
+For verified commands, current API limits, and additional symptoms, see
+[VPS and n8n](vps-and-n8n.md), [Configure n8n nodes](n8n-configuration.md),
+and [Troubleshooting](troubleshooting.md).

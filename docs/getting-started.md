@@ -5,22 +5,22 @@ for n8n, and an optional self-hosted local-model workflow. SuperGrok is availabl
 for local apps and existing n8n deployments on the same computer or a VPS. It
 uses its own official device sign-in and never requires or reads ChatGPT
 credentials.
-
 | Need | Choose | Credential |
 | --- | --- | --- |
 | SuperGrok for a local backend | Grok Build adapter | Official subscription OAuth and a local bearer |
 | SuperGrok for existing local or VPS n8n | Private SuperGrok companion | Official subscription OAuth and a local bearer |
-| A trusted native Codex client | Codex App Server | ChatGPT sign-in and a local capability |
-| A small local backend | Codex Chat Adapter | ChatGPT sign-in and a local bearer |
-| A bridge for local Docker n8n or a VPS | n8n OAuth sidecar | A local ChatGPT sign-in file |
+| Trusted native Codex client | Codex App Server relay | SIWC registration and a high-trust local bearer |
+| Read-only local Codex chat | Codex Chat Adapter | SIWC registration and a separate local bearer |
+| ChatGPT plan use from local or self-hosted n8n | Private OpenAI-compatible sidecar | Separately granted ChatGPT plan permission and a one-time local Relmio bearer |
 | n8n AI Assistant tools | Code Sandbox, with optional SearXNG | A generated sandbox key and a model credential entered in n8n |
-| A provider-free model for a self-hosted n8n workflow | Local model for n8n | No provider sign-in; Ollama's required API-key field is ignored |
+| Provider-free model for a self-hosted n8n workflow | Local model for n8n | No provider sign-in; Ollama's required API-key field is ignored |
 
-ChatGPT sign-in is never converted into an OpenAI Platform API key. The Codex
-routes are experimental and are not general `/v1` services. The n8n OAuth
-sidecar is unofficial, private, and policy-uncertain. The local-model companion
-is a separate unauthenticated Ollama API on a trusted private Docker network; it
-uses no OAuth credential or provider key.
+Identity sign-in, plan permission, and successful model access are separate.
+ChatGPT sign-in is not an OpenAI Platform API key. Relmio does not import a
+personal Codex login, merge accounts by email, or fall back to Platform API
+billing. The website's `/api/chat` returns `410 Gone`; local SIWC setup does
+not enable hosted inference. See the
+[2026-10-05 source check](openai-source-check-2026-10-05.md).
 
 ## Install
 
@@ -30,27 +30,32 @@ On macOS, Linux, or WSL with Node.js 24 or newer:
 npx --yes --ignore-scripts relmio@latest
 ```
 
-The `@latest` command opens the **ChatGPT on my server** route in a foreground
-browser wizard. Relmio 0.18.6 is the current stable release, and hosted
-installers use the same version by default.
+The foreground wizard opens on `127.0.0.1` without creating persistent Relmio
+state. On a first-run machine with no `.relmio` directory or local n8n stack,
+it still opens and presents missing prerequisites in the browser. Choose
+**ChatGPT on my server** to use the local sign-in and VPS flow; use
+`relmio local` only when you explicitly want setup for this computer.
 
+The ChatGPT flow stores each verified registration separately. If the
+provider grants identity but not `chatgpt.tokens.use.direct`, the account
+remains connected without plan use. Enable that permission in a separate
+ChatGPT consent step. Confirm the first-use plan notice before model access;
+**Manage usage** opens ChatGPT's usage settings. Existing personal Codex
+credentials are never imported.
 
-On a first-run machine with no `.relmio` directory and no local n8n stack, the
-wizard still opens and presents missing prerequisites as steps. Use `relmio
-local` only when you explicitly want the setup route for this computer. For
-VPS setup, choose the server route before ChatGPT sign-in. The five visible
-steps are **Choose setup**, **Check server**, **Choose n8n**,
-**Review**, and **Ready**. Enter the server address and port, independently
-compare and confirm the SSH fingerprint, then enter the SSH username and
-choose authentication. After connecting, select the n8n container and
-network, then review the plan. Review identifies the currently verified SSH
-identity as the recipient of the complete credential file. Going back or
-changing the connection clears the reviewed plan and approval, so review
-again before the separate final confirmation for remote writes. Expand
-**More details** for optional explanations; required choices and plan review
-stay in the main flow. Local endpoints use `127.0.0.1`; the n8n bridge and
-Assistant tools use one selected Docker network and publish no host port.
-SearXNG is off by default.
+The VPS wizard has five visible steps: **Choose setup**, **Check server**,
+**Choose n8n**, **Review**, and **Ready**. It confirms the SSH fingerprint
+before authentication. Review shows the verified server identity and exact
+write plan; the final remote-write confirmation is separate. For transfer,
+Relmio initializes a distinct destination host ID, freezes the source session,
+and makes the destination the sole refresh owner after it verifies a receipt.
+An unknown transfer outcome stays frozen for inspection.
+
+Local endpoints use `127.0.0.1`; the n8n sidecar joins one selected private
+Docker network and publishes no host port. Installing for n8n also requires
+explicit consent for background workflows. Relmio returns a local bearer once
+for manual entry in n8n; it never puts the provider token in the browser or
+silently edits n8n credentials.
 
 On Git Bash, use the hosted launcher. It downloads a checksum-verified temporary
 Node.js runtime and uses Git for Windows' bundled `winpty` bridge so the wizard

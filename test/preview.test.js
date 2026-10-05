@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { runPreview } from "../scripts/preview.js";
+import { createPreviewServices, PREVIEW_FIXTURES, runPreview } from "../scripts/preview.js";
 import { createPrivateBrowserHandoff } from "../src/services/browser-handoff.js";
 import { startWizardServer } from "../src/web/server.js";
 
@@ -137,7 +137,7 @@ test("preview opens through a private handoff and authenticates from a clean pag
   assert.equal(pageResponse.headers.get("set-cookie"), null);
   assert.equal((await pageResponse.text()).includes(sessionToken), false);
 
-  const statusResponse = await fetch(`${origin}/api/status`, {
+  const statusResponse = await fetch(`${origin}/api/siwc/accounts`, {
     headers: { "X-Setup-Token": sessionToken },
   });
   assert.equal(statusResponse.status, 200);
@@ -193,4 +193,52 @@ test("preview keeps the terminal reopen fallback when automatic opening fails", 
 
   await preview.close();
   assert.equal(closed, 1);
+});
+
+test("every sanitized SIWC fixture starts and serves wizard pages without credentials or live actions", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "relmio-preview-fixtures-"));
+  const sessionToken = Buffer.alloc(32, 17).toString("base64url");
+  for (const fixture of PREVIEW_FIXTURES) {
+    await t.test(fixture, async () => {
+      const wizard = await startWizardServer({ sessionToken, storageRoot: join(root, fixture),
+        services: createPreviewServices(fixture), previewMode: true, previewFixture: fixture });
+      try {
+        for (const path of ["/", "/local", "/app.js", "/local.js", "/siwc-controls.js", "/siwc.css"]) {
+          const response = await fetch(`${wizard.origin}${path}`);
+          assert.equal(response.status, 200);
+          assert.ok((await response.text()).length > 0);
+        }
+        const response = await fetch(`${wizard.origin}/api/siwc/accounts`, {
+          headers: { "X-Setup-Token": sessionToken },
+        });
+        assert.equal(response.status, 200);
+        const text = await response.text();
+        const result = JSON.parse(text);
+        assert.equal(result.previewFixture, fixture);
+        assert.equal(result.accounts.length, 1);
+        assert.doesNotMatch(text, /accessToken|refreshToken|idToken|clientCredential|privateKey/u);
+        if (["signed-out", "reauthorize"].includes(fixture)) assert.equal(result.accounts[0].session, fixture);
+        if (fixture === "plan-not-granted") assert.equal(result.accounts[0].planPermission, "not-granted");
+        if (fixture === "handoff-pending") assert.equal(result.accounts[0].ownership, fixture);
+        const dashboard = await fetch(`${wizard.origin}/api/local/dashboard`, {
+          headers: { "X-Setup-Token": sessionToken },
+        });
+        assert.equal(dashboard.status, 200);
+        if (fixture === "staged") {
+          const service = (await dashboard.json()).services.find(({ target }) => target === "codex-chat");
+          assert.equal(service.state, "staged");
+          assert.equal(service.staging.registrationId, result.accounts[0].registrationId);
+        }
+        const disabled = await fetch(`${wizard.origin}/api/local/siwc/recovery/review`, {
+          method: "POST", headers: { "Content-Type": "application/json", Origin: wizard.origin,
+            "X-Setup-Token": sessionToken }, body: JSON.stringify({
+              target: "codex-chat", registrationId: result.accounts[0].registrationId, action: "resume",
+            }),
+        });
+        assert.equal(disabled.status, 403);
+      } finally {
+        await wizard.close();
+      }
+    });
+  }
 });

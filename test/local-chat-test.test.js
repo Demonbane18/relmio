@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import test from "node:test";
 
-import { createLocalChatTestService } from "../src/services/local-chat-test.js";
+import { createLocalChatTestService as createTester } from "../src/services/local-chat-test.js";
+import { siwcAccount } from "./helpers/siwc-wizard.js";
+
+function createLocalChatTestService(options) {
+  const service = createTester(options);
+  return { ...service,
+    issueKey: () => service.issueKey({ accountBinding: siwcAccount }),
+    message: (request, options = {}) => service.message(request, { accountBinding: siwcAccount, ...options }),
+    models: (request, options = {}) => service.models(request, { accountBinding: siwcAccount, ...options }),
+  };
+}
 
 const credential = "TEST_SECRET_SENTINEL_DO_NOT_LOG";
 
@@ -367,4 +377,51 @@ test("expiry actively erases a key and aborts an in-flight adapter request", asy
     service.message(request),
     (error) => error?.statusCode === 409 && /expired/u.test(error.message),
   );
+});
+
+test("tester rejects missing or changed account bindings before contacting the adapter", async () => {
+  let calls = 0;
+  const service = createTester({ fetchImpl: async () => { calls++; throw new Error("must not fetch"); } });
+  await assert.rejects(service.issueKey(), { statusCode: 409 });
+  const issued = await service.issueKey({ accountBinding: siwcAccount });
+  const request = { endpointBaseUrl: "http://127.0.0.1:14501", keyId: issued.keyId,
+    encryptedCredential: await encrypt(issued.publicKeyJwk), input: "hello" };
+  for (const key of ["registrationId", "generation", "ownerHostId", "ownerRuntimeId"]) {
+    await assert.rejects(service.message(request, { accountBinding: { ...siwcAccount, [key]: "changed-binding" } }),
+      { statusCode: 409 });
+  }
+  await assert.rejects(service.models(request), { statusCode: 409 });
+  assert.equal(calls, 0);
+  service.dispose();
+});
+
+test("tester preserves usage-limit diagnostics after a partial delta without replay", async () => {
+  let calls = 0;
+  const deltas = [];
+  const service = createLocalChatTestService({ fetchImpl: async () => {
+    calls++;
+    return new Response('event: delta\ndata: {"text":"partial"}\n\n' +
+      'event: error\ndata: {"error":{"message":"Usage paused","code":"subscription_sharing_usage_limit_exceeded"},"status":429,"requestId":"req_fixture","recovery":"manage-usage"}\n\n' +
+      'event: terminal\ndata: {"outcome":"failed"}\n\n',
+    { headers: { "content-type": "text/event-stream", "x-relmio-stream": "v1" } });
+  } });
+  await assert.rejects(service.message(await createRequest(service), {
+    onEvent: (event, data) => { if (event === "delta") deltas.push(data.text); },
+  }), (error) => error.statusCode === 429 && error.recovery === "manage-usage" &&
+    error.code === "subscription_sharing_usage_limit_exceeded" && error.requestId === "req_fixture");
+  assert.deepEqual(deltas, ["partial"]);
+  assert.equal(calls, 1);
+  service.dispose();
+});
+
+test("tester discovers account models with encrypted capability and preserves catalog order", async () => {
+  const service = createLocalChatTestService({ fetchImpl: async (url, init) => {
+    assert.equal(url, "http://127.0.0.1:14501/models");
+    assert.equal(init.method, "GET");
+    assert.equal(init.headers.Authorization, `Bearer ${credential}`);
+    return Response.json({ models: [{ slug: "model-z", display_name: "Z" }, { slug: "model-a", display_name: "A" }] });
+  } });
+  assert.deepEqual(await service.models(await createRequest(service)),
+    [{ slug: "model-z", display_name: "Z" }, { slug: "model-a", display_name: "A" }]);
+  service.dispose();
 });

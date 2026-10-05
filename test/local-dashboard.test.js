@@ -15,6 +15,7 @@ import {
   getLocalN8nAssistantStatus as getLocalN8nAssistantStatusService,
 } from "../src/services/local-n8n-assistant-installer.js";
 import { withTestLocalSecurity } from "./helpers/local-security.js";
+import { siwcAccount } from "./helpers/siwc-wizard.js";
 
 const getManagedLocalEndpointStatus = (request, dependencies) =>
   getManagedLocalEndpointStatusService(request, withTestLocalSecurity(dependencies));
@@ -595,7 +596,7 @@ function createAssistantInventoryRunner(
   return runner;
 }
 
-test("both Codex targets derive sign-in after exact Docker rediscovery", async (t) => {
+test("both legacy Codex targets require a fresh SIWC migration without offering native sign-in", async (t) => {
   for (const target of ["codex-chatgpt", "codex-chat"]) {
     await t.test(target, async (subtest) => {
       const homeDirectory = await createManagedRoot(subtest, target);
@@ -604,7 +605,7 @@ test("both Codex targets derive sign-in after exact Docker rediscovery", async (
         { target },
         { homeDirectory, env: {}, runProcess },
       );
-      assert.equal(rediscovered.state, "healthy");
+      assert.equal(rediscovered.state, "legacy");
       const dashboard = await getLocalDashboardStatus({
         getDockerStatus: async () => ({ dockerAvailable: false }),
         inspectLocalEndpoint: async ({ target: requestedTarget }) => requestedTarget === target
@@ -616,7 +617,7 @@ test("both Codex targets derive sign-in after exact Docker rediscovery", async (
       });
       assert.deepEqual(
         dashboard.services.find((service) => service.target === target).actions,
-        ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"],
+        ["setup"],
       );
       assertReadOnlyDockerCalls(runProcess.calls);
     });
@@ -648,7 +649,7 @@ test("local dashboard rejects malformed snapshots instead of reflecting unknown 
   );
 });
 
-test("restarted Codex Chat remains partial while its generated healthcheck is starting", async (t) => {
+test("native Codex health cannot make a legacy credential eligible for SIWC", async (t) => {
   const homeDirectory = await createManagedRoot(t, "codex-chat");
   const runProcess = createEndpointInventoryRunner({
     target: "codex-chat",
@@ -659,19 +660,17 @@ test("restarted Codex Chat remains partial while its generated healthcheck is st
     { target: "codex-chat" },
     { homeDirectory, env: {}, runProcess },
   );
-  assert.deepEqual(result, {
-    target: "codex-chat",
-    managed: true,
-    state: "partial",
-  });
+  assert.equal(result.state, "legacy");
+  assert.equal(result.snapshot.migrationRequired, true);
+  assert.equal(result.snapshot.auth.configured, false);
   assertReadOnlyDockerCalls(runProcess.calls);
 });
 
-test("OAuth bridge inventory reports healthy, stopped, partial, and foreign states read-only", async (t) => {
+test("legacy OAuth inventory stays migration-only regardless of its old runtime health", async (t) => {
   const { homeDirectory, marker } = await createManagedSidecarRoot(t);
   for (const [options, expected] of [
-    [{}, "healthy"],
-    [{ running: false }, "stopped"],
+    [{}, "legacy"],
+    [{ running: false }, "legacy"],
     [{ missing: true }, "partial"],
     [{ foreign: true }, "unavailable"],
   ]) {
@@ -693,8 +692,9 @@ test("OAuth bridge inventory reports healthy, stopped, partial, and foreign stat
       assert.deepEqual(result.snapshot, {
         target: "n8n-openai-oauth",
         endpoint: "http://n8n-openai-oauth:10531/v1",
-        auth: { configured: true, disclosure: "server-managed" },
-        canRefreshCredential: true,
+        auth: { configured: false, disclosure: "server-managed" },
+        migrationRequired: true,
+        canRefreshCredential: false,
         canRemove: true,
       });
     }
@@ -704,7 +704,7 @@ test("OAuth bridge inventory reports healthy, stopped, partial, and foreign stat
   }
 });
 
-test("OAuth bridge status re-attests n8n/network identity and health without refresh actions", async (t) => {
+test("legacy OAuth status re-attests destination identity without treating old health as SIWC readiness", async (t) => {
   const { homeDirectory, marker } = await createManagedSidecarRoot(t);
   for (const options of [
     { health: "starting" },
@@ -714,8 +714,9 @@ test("OAuth bridge status re-attests n8n/network identity and health without ref
   ]) {
     const runProcess = createSidecarInventoryRunner(marker, options);
     const result = await getLocalN8nSidecarStatus({ homeDirectory, env: {}, runProcess });
-    assert.equal(result.state, "partial");
-    assert.equal(result.snapshot, undefined);
+    assert.equal(result.state, "legacy");
+    assert.equal(result.snapshot.migrationRequired, true);
+    assert.equal(result.snapshot.auth.configured, false);
     assertReadOnlyDockerCalls(runProcess.calls);
   }
   for (const options of [
@@ -887,4 +888,31 @@ test("private SuperGrok inventory keeps provider readiness neutral and strips se
   }
   const stopped = await read({ managed: true, state: "stopped", snapshot });
   assert.deepEqual(stopped.services.find(item => item.target === snapshot.target).actions, ["remove-owned-supergrok"]);
+});
+
+test("SIWC inventory projects active-owner controls and bounded staged recovery without exposing secrets", async () => {
+  const absent = async () => ({ managed: false, state: "absent" });
+  const inspectors = { getDockerStatus: async () => ({ dockerAvailable: false }),
+    inspectLocalEndpoint: absent, inspectLocalN8nStack: absent, inspectLocalN8nSidecar: absent,
+    inspectLocalN8nAssistant: absent, inspectLocalN8nSuperGrok: absent, inspectLocalN8nModel: absent };
+  const snapshot = { target: "codex-chat", endpoint: "http://127.0.0.1:14501",
+    registrationId: siwcAccount.registrationId, migrationRequired: false,
+    auth: { configured: true, disclosure: "rotate-only", account: { ...siwcAccount, accessToken: "must-not-leak" } },
+    canRotateCredential: true };
+  const status = await getLocalDashboardStatus({ ...inspectors, inspectLocalEndpoint: async ({ target }) =>
+    target === "codex-chat" ? { managed: true, state: "healthy", snapshot } : absent() });
+  assert.deepEqual(status.services.find(({ target }) => target === "codex-chat").actions,
+    ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"]);
+  assert.equal(JSON.stringify(status).includes("must-not-leak"), false);
+  const staging = { installId: "fixture_install_1", registrationId: siwcAccount.registrationId, stage: "built" };
+  const staged = await getLocalDashboardStatus({ ...inspectors, inspectLocalN8nSidecar: async () =>
+    ({ managed: true, state: "staged", staging: { ...staging, token: "must-not-leak" } }) });
+  const service = staged.services.find(({ target }) => target === "n8n-openai-oauth");
+  assert.deepEqual(service.staging, staging);
+  assert.equal(service.snapshot, null);
+  assert.deepEqual(service.actions, ["setup"]);
+  assert.equal(JSON.stringify(staged).includes("must-not-leak"), false);
+  const invalid = await getLocalDashboardStatus({ ...inspectors, inspectLocalN8nSidecar: async () =>
+    ({ managed: true, state: "staged", staging: { ...staging, registrationId: "../../outside" } }) });
+  assert.equal(invalid.services.find(({ target }) => target === "n8n-openai-oauth").state, "unavailable");
 });

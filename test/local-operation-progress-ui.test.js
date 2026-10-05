@@ -155,6 +155,7 @@ function createHarness(script) {
   const superGrokRemovalConfirm = new FakeElement("input", { disabled: true });
   const superGrokRemovalButton = new FakeElement("button", { disabled: true });
   const deviceCodeCopy = new FakeElement("button", { textContent: "Copy" });
+  const installedModel = new FakeElement("select");
   deviceCodeCopy.setAttribute("data-operation-allow", "copy");
   const disclosureSummary = new FakeElement("summary");
   body.append(
@@ -168,6 +169,7 @@ function createHarness(script) {
     superGrokRemovalConfirm,
     superGrokRemovalButton,
     deviceCodeCopy,
+    installedModel,
     disclosureSummary,
     operationProgress,
     mainContent,
@@ -187,6 +189,7 @@ function createHarness(script) {
     ["install-confirm", enabledInput],
     ["remove-supergrok-confirm", superGrokRemovalConfirm],
     ["remove-supergrok-button", superGrokRemovalButton],
+    ["installed-siwc-model", installedModel],
   ]) {
     elements.set(id, value);
   }
@@ -203,6 +206,7 @@ function createHarness(script) {
     superGrokRemovalConfirm,
     superGrokRemovalButton,
     deviceCodeCopy,
+    installedModel,
     disclosureSummary,
   ];
   const document = {
@@ -284,6 +288,7 @@ function createHarness(script) {
     enabledInput,
     helpers,
     hiddenAction,
+    installedModel,
     intervals,
     label,
     listeners,
@@ -353,6 +358,19 @@ test("private SuperGrok removal confirmation is enabled after the install lock r
   assert.equal(harness.superGrokRemovalConfirm.disabled, false);
   assert.equal(harness.superGrokRemovalConfirm.checked, false);
   assert.equal(harness.superGrokRemovalButton.disabled, true);
+});
+
+test("a locked installed model select stays disabled after the install lock restores old controls", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  for (const locked of [true, false]) {
+    const harness = createHarness(script);
+    harness.helpers.startOperation(harness.activeButton, "Installing locally…");
+    // renderInstallResult disables the select for a finalization failure while the lock is active.
+    harness.state.installedSiwcModelLocked = locked;
+    harness.installedModel.disabled = locked;
+    harness.helpers.stopInstallProgress(harness.activeButton);
+    assert.equal(harness.installedModel.disabled, locked, String(locked));
+  }
 });
 
 test("central operation lifecycle locks, observes, blocks, restores, and resets", async () => {

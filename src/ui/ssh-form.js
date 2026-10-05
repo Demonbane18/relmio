@@ -66,6 +66,14 @@ export async function readSshIdentity(token, { allowModelOnly = false } = {}) {
   return identity;
 }
 
+// A review with its own host-key field keeps the server line short; other reviews
+// show the fingerprint at the end of the server line.
+function showReviewIdentity(server, fingerprint) {
+  const fingerprintField = element("ssh-review-fingerprint");
+  if (fingerprintField) fingerprintField.textContent = fingerprint;
+  element("ssh-review-identity").textContent = fingerprintField || !server ? server : `${server} · ${fingerprint}`;
+}
+
 export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision = () => {} }) {
   let adopted = null;
   let initialAdoptionAvailable = true;
@@ -77,9 +85,9 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
     adopted = Object.freeze({ ...identity });
     onIdentityDecision();
     initialAdoptionAvailable = false;
-    const summary = `${identity.username}@${identity.host}:${identity.port} · ${identity.authentication} · ${identity.privilege} · UID ${identity.loginUid} → ${identity.effectiveUid} · ${identity.fingerprint}`;
-    element("ssh-session").textContent = summary;
-    element("ssh-review-identity").textContent = summary;
+    const server = `${identity.username}@${identity.host}:${identity.port} · ${identity.authentication} · ${identity.privilege} · UID ${identity.loginUid} → ${identity.effectiveUid}`;
+    element("ssh-session").textContent = `${server} · ${identity.fingerprint}`;
+    showReviewIdentity(server, identity.fingerprint);
     element("ssh-disconnect").hidden = false;
   }
   function rejectIdentity(error) {
@@ -88,7 +96,7 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
     adopted = null;
     onIdentityDecision();
     onMismatch();
-    element("ssh-review-identity").textContent = "";
+    showReviewIdentity("", "");
     element("ssh-session").textContent = error.message;
     element("ssh-disconnect").hidden = error.message === "Connect to the VPS first.";
     throw error;
@@ -116,7 +124,7 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
       else if (path === "/api/disconnect") {
         adopted = null;
         onIdentityDecision();
-        element("ssh-review-identity").textContent = "";
+        showReviewIdentity("", "");
         element("ssh-session").textContent = "No authenticated VPS session.";
       }
       // These root installs intentionally retire their connection after completion.

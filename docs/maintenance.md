@@ -1,205 +1,185 @@
 # Refresh, upgrade, rollback, and uninstall
 
-Every command on this page targets the separate
-`n8n-openai-oauth` project. None targets the n8n project.
+Relmio installs ChatGPT plan connections through the local browser wizard.
+The wizard owns SIWC registration, protected storage, model discovery, and the
+reviewed local/VPS sidecar lifecycle. Do not use older instructions that copy
+`auth.json` or run `openai-oauth` directly.
 
-## Update an existing bridge runtime
+## Reauthorize a ChatGPT registration
 
-Updating Relmio on your computer changes the wizard, but it does not replace a
-bridge container that is already running. Use a Relmio release that contains
-the compatibility update, then update the owned sidecar from the browser.
-
-For a bridge beside local n8n:
-
-1. Run `relmio open` and select **Refresh status**.
-2. Select **OpenAI OAuth bridge**.
-3. Choose **Manage bridge** and read the runtime update summary.
-4. Select the confirmation checkbox, then choose **Update bridge runtime**.
-
-This action does not require a new ChatGPT sign-in. It preserves the existing
-OAuth credential, bridge identity, and selected Docker network. Relmio rebuilds
-and verifies only its owned sidecar. Use **Apply sign-in to owned bridge** only
-to copy a newer ChatGPT sign-in; it does not update the runtime.
-
-For a bridge beside VPS n8n:
-
-1. Run `relmio vps` and connect to the same VPS.
-2. Compare and confirm the SSH host fingerprint.
-3. Select the n8n container and Docker network.
-4. Choose **OpenAI-OAuth/Codex bridge**, then select **Manage
-   OpenAI-OAuth/Codex bridge**.
-5. Choose **Review bridge update** and review the exact sidecar-only plan.
-6. Select the confirmation checkbox, then choose **Update the bridge**.
-
-The browser wizard performs the SSH update. You do not need a separate VPS
-terminal. It uploads the current local ChatGPT sign-in to the bridge, stays
-inside `/docker/n8n-openai-oauth`, publishes no host port, and does not edit,
-stop, restart, rebuild, recreate, or change n8n.
-
-## Refresh an expired ChatGPT login
-
-The easiest method is to open the
-[hosted install page](https://relmio.jpfusin.tech/install) and choose the local
-terminal you already have. For macOS, Linux, WSL, or Git Bash:
+Open the local wizard with `relmio open` or start it with:
 
 ```bash
-curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
+npx --yes --ignore-scripts relmio@latest
 ```
 
-For Windows PowerShell, with no Git Bash or preinstalled Node.js required:
+Select the intended saved registration and choose **Sign in again** or
+**Allow ChatGPT plan use** as shown. Reauthorization uses the same issued client
+and verified subject. A new registration remains separate even when it has the
+same email. If sign-in succeeds without the ChatGPT plan scope, identity stays
+connected but model access remains disabled.
 
-```powershell
-irm https://relmio.jpfusin.tech/install.ps1 | iex
-```
+If plan use was paused locally, re-enable it only if the selected registration
+still has the provider grant. The first-use plan notice must be acknowledged
+before model access. **Manage usage** opens ChatGPT's usage settings.
 
-1. Start the local wizard again.
-2. Select **Refresh ChatGPT sign-in**.
-3. Complete the newest browser sign-in page.
-4. Confirm that the **Credential updated** time matches the fresh sign-in.
-5. For a local bridge, select **OpenAI OAuth bridge**, choose **Manage bridge**,
-   confirm the credential action, then choose **Apply sign-in to owned bridge**.
-6. For a VPS bridge, follow the update sequence above. The update uploads the
-   current local sign-in after you review and confirm the bridge-only plan.
+## Install or manage the n8n sidecar
 
-The wizard replaces the sidecar credential and starts only the sidecar service.
-On a local bridge this is a credential-only action; use **Update bridge runtime**
-separately when needed. n8n is not restarted. The local credential is stored at
-`~/.n8n-openai-oauth/auth.json`.
+The selected n8n container and Docker network must already exist. The wizard
+reviews both, requires separate consent for background workflow use, and asks
+for final confirmation before a sidecar write. It does not change n8n's
+credentials, Compose configuration, image, or lifecycle.
 
-Manual POSIX-shell method:
+Installation generates a bearer for the private Relmio sidecar, displays it
+once, and stores only its SHA-256 verifier in Compose. Enter the bearer
+manually in n8n. It authorizes the sidecar, not OpenAI. The sidecar publishes
+no host port.
 
-```bash
-install -d -m 0700 "$HOME/.n8n-openai-oauth"
-npx --yes --ignore-scripts openai-oauth@2.0.0 login \
-  --open \
-  --login-timeout-ms 300000 \
-  --oauth-file "$HOME/.n8n-openai-oauth/auth.json"
-scp "$HOME/.n8n-openai-oauth/auth.json" \
-  root@YOUR_VPS_IP:/docker/n8n-openai-oauth/auth/auth.json
-```
+Local and VPS installs bind the selected registration to a destination host ID
+and runtime. The review also binds the exact n8n container and network IDs;
+the VPS installer checks them again before its first write and before the
+transfer, and a changed ID requires a new review. After a VPS install
+completes, status and sign-out need only the same SSH host identity and Docker
+network ID, so recreating n8n or changing the SSH login method does not block
+them. The wizard initializes the
+destination before freezing the source for transfer. The destination becomes
+the sole refresh owner after it returns an attested receipt; only then are
+source tokens cleared. If transfer or receipt is uncertain, leave the sender
+frozen and use the reviewed recovery below. Do not restore an old token
+backup, repeat the handoff blindly, or activate both copies.
 
-Then on the VPS:
+### Resume or reconcile an interrupted install
 
-```bash
-chown 1000:1000 /docker/n8n-openai-oauth/auth/auth.json
-chmod 600 /docker/n8n-openai-oauth/auth/auth.json
-docker compose \
-  --project-name n8n-openai-oauth \
-  --file /docker/n8n-openai-oauth/docker-compose.yml \
-  up -d --wait --wait-timeout 60 --no-deps openai-oauth
-```
+If an install stops partway, status shows it as staged. Select the account,
+choose the resume action, review the plan, and confirm it. Relmio continues
+the same installation without deleting data or starting a second refresh
+writer. A same-account resume uses the account's current state, so turning
+plan use on or off or a token refresh does not block it. Resuming after the
+session already moved replaces the one-time key.
 
-## Restart only the sidecar
+If the destination accepted the session but the sender lost the
+acknowledgment, the account stays handoff-pending. Choose the reconcile
+action, review it, and confirm within five minutes. Relmio reads the
+destination's identity-bound receipt and finishes the handoff. Without a
+receipt the sender stays frozen and needs a fresh sign-in; old tokens are
+never restored. A transport failure reports an unknown remote outcome. A
+different account can take over only after a confirmed "not accepted"
+result; Relmio refuses if the original receipt appears, and on a VPS while a
+one-off sidecar helper container is still present.
 
-```bash
-docker compose \
-  --project-name n8n-openai-oauth \
-  --file /docker/n8n-openai-oauth/docker-compose.yml \
-  restart openai-oauth
-```
+If ownership moved but a later finishing step failed, the result is partial.
+It still shows the one-time key once, with a warning not to use it until the
+reported issue is resolved. Relmio never restarts an old writer
+automatically.
 
-This does not restart n8n.
+The SIWC Terms' local/user-controlled token-storage language and OpenAI's
+self-hosted VM guide do not resolve persistent remote VM storage. This guide
+describes Relmio's implementation, not provider approval for a VPS.
 
-## Safe source-code update
+## Migrate a local credential-copy installation
 
-### Recheck OpenAI sources
+An older `auth.json` credential-copy bridge is not a SIWC registration and is
+never imported into the new runtime. When the local wizard detects an owned
+legacy target, its separate migration review requires a fresh SIWC sign-in,
+separate migration consent, and final confirmation of the exact target.
 
-Every Relmio update or upgrade must include a fresh review of OpenAI's current
-[Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt),
-plus the official [model and media capability documentation](https://developers.openai.com/api/docs/models),
-[Codex authentication documentation](https://learn.chatgpt.com/docs/auth),
-[Terms](https://openai.com/policies/terms-of-use/), and
-[privacy policy](https://openai.com/policies/privacy-policy/) that apply to the
-changed flow.
+Only after confirmation does Relmio stop the attested old service. Its old
+credential and workspace volumes remain offline; the replacement uses a new
+registration/runtime and a new local bearer. Old history and tokens are not
+merged. If any migration or stop result is uncertain, the old writer stays
+stopped, retained volumes are left for inspection, and Relmio does not
+automatically resume, roll back, or delete them. Do not manually copy tokens or
+remove the retained volumes.
 
-The Help Center article currently describes identity sign-in for supported
-external applications. It says the external application receives name, email,
-and profile picture, while additional access requires separate approval. It
-also describes authentication, account, application, permission, technical,
-and security information that OpenAI may collect. Do not assume this
-identity-only flow describes Relmio's Codex credential bridge. Verify whether
-the flow, client, and permissions match.
+This describes the local migration path only. VPS legacy migration has its own
+reviewed state and is not provider-approved by these controls. The current
+source check records the separate, unresolved VPS token-storage question.
 
-For each update:
+## Sign out or disable plan use on an installed target
 
-1. Fetch the current official sources instead of relying on an earlier copy.
-2. Compare the documented flow and scopes with the exact Relmio behavior.
-3. Record what Relmio reads, stores, transmits, and logs, where the data goes,
-   and what the user sees before approval.
-4. Check identity sign-in, additional permission grants, and model or TTS
-   capability separately.
-5. Record the check date, source links, findings, and unresolved questions in
-   the update evidence.
+Choose **Manage account** for the installed Codex or n8n target. Relmio
+re-attests the owned installation and stops the exact service before changing
+the selected registration. If the process cannot be confirmed stopped, the
+account operation does not proceed.
 
-The article and a successful OAuth login do not prove blanket Terms compliance,
-bridge permission, or model or TTS entitlement. Keep those conclusions limited
-to direct, current evidence.
+Sign-out attempts provider revocation and clears local access, refresh, and ID
+tokens. The account mapping remains. The result distinguishes confirmed,
+unconfirmed, and not-applicable revocation. A refresh-uncertain session remains
+unconfirmed even if OpenAI returns HTTP 200, because the refresh-token family
+may have rotated outside the known record. If unconfirmed, disconnect Relmio
+in ChatGPT settings; local cleanup is not proof of remote revocation or
+provider-side deletion.
 
-### Current 2026-09-08 bridge disclosure
+## Replace the account on an installed target
 
-The public Sign in with ChatGPT article describes identity sign-in for supported
-external applications. It does not establish that this unofficial n8n bridge is
-supported or that its credential grant authorizes a general Platform `/v1`
-connection. The pinned `openai-oauth@2.0.0` runtime defaults to issuer
-`https://auth.openai.com`, scopes `openid profile email offline_access`, and
-the Codex backend `https://chatgpt.com/backend-api/codex`. Those are package
-defaults, not evidence of the account's actual consent or granted scopes.
+Relmio does not silently swap an installed target to another account. First
+sign out or disable plan use through **Manage account**; Relmio attests and
+stops only that owned service. A replacement plan is available only after the
+old target is confirmed signed out and stopped. Select a new independently
+authorized SIWC registration, review the exact replacement, and confirm it
+separately.
 
-Relmio copies the complete credential JSON into a local private named Docker
-volume through a network-disabled credential-seed helper, or uploads it by SFTP
-to `auth/auth.json` under the VPS deployment's bind mount. The third-party
-package reads that file and forwards eligible n8n content to its upstream
-backend. Building the image contacts the npm registry for the pinned package.
-The credential-seed helper disables Docker logging; the main sidecar does not
-set a Docker log driver. Relmio does not set the package's opt-in
-`CODEX_OPENAI_SERVER_LOG_REQUESTS=1` request-metadata logger. Provider-side
-retention, main-sidecar/VPS logging, account entitlement, and policy eligibility
-remain account-owner checks.
+The old registration mapping and any Codex history or credential volumes remain
+preserved separately and offline; only the new registration is activated after
+review. Relmio does not transfer or merge token/history state or combine
+accounts by email. If replacement state is uncertain, inspect the stopped
+target and retained data; Relmio does not restore the old account automatically.
 
-On the local computer:
+## Recover a request or transfer
 
-```bash
-git pull --ff-only
-npm ci --ignore-scripts
-npm test
-npm start
-```
+- Identity-only account: request the plan grant separately in ChatGPT.
+- Usage-limit error: open **Manage usage**; do not rotate accounts or switch
+  billing.
+- **Model-inference 503 or interrupted stream:** keep the same registration
+  and follow the shown retry-later action. A partial answer is not success.
+- **Token discovery fails before refresh:** no refresh POST was sent, so the
+  session is unchanged; retry later as shown.
+- **Refresh POST returns 503 `temporarily_unavailable`:** the pre-refresh
+  session is restored and Relmio reports retry-later. This assumes OpenAI did
+  not rotate the refresh token, which OpenAI does not document.
+- **Refresh POST returns another error, or its network outcome is
+  uncertain:** plan use is frozen before the POST. Protected token bytes may
+  remain, but the old refresh token is never retried. Complete a fresh SIWC
+  sign-in for the same registration before model use.
+- **Refresh response cannot be verified:** replacement tokens remain frozen
+  with no access lease until successful authentication. `invalid_grant` clears
+  unusable tokens and requires reauthorization.
+- **Unconfirmed revocation after refresh uncertainty:** a successful remote
+  revoke response does not clear the uncertainty; disconnect Relmio in ChatGPT
+  settings.
+- Unsupported capability or parameter: correct the request; do not retry it
+  unchanged or expect a fallback.
+- Unresolved handoff: retain the frozen source and use the reviewed resume or
+  reconcile action above.
 
-Review release notes and the generated plan before approving another VPS
-installation.
+## Update the runtime
 
-## Optional maintainer architecture map
+Install a newer Relmio package to update the wizard. Existing sidecars are
+separate deployments; use the offered ownership-attested maintenance action
+and review its target and plan before confirming. A package upgrade alone does
+not replace a running sidecar. Do not apply old Dockerfile or Compose snippets
+from the former credential-copy guide to an existing installation.
 
-Graphify is useful for long-term maintenance because it exposes the boundaries
-between the local wizard, OAuth credential flow, SSH verification, sidecar
-deployment, and n8n recipes. It is an optional maintainer tool, not a runtime
-dependency:
+For local endpoints, select the exact target and use the dashboard's reviewed
+management action. For VPS, confirm the SSH host fingerprint before
+authentication, review the selected server identity, and give a separate
+final confirmation for remote writes. Never publish port `10531` or change
+the existing n8n service to recover the sidecar.
 
-```bash
-graphify .
-```
+## Recheck OpenAI sources
 
-Keep the generated `graphify-out/` directory local. It is intentionally ignored
-by Git and excluded from the npm package because raw graphs can reveal internal
-file relationships, local paths, and unfinished implementation details. Put
-only reviewed, redacted diagrams or plain-language architecture notes in the
-public repository. Never include credentials, setup URLs, VPS addresses, or
-private screenshots in a graph export.
+For each implementation or documentation update, fetch current official
+identity, SIWC plan-use, model/limitation/error, applicable Terms, and privacy
+sources. Compare the exact code path with the sources. Record what Relmio
+reads, stores, transmits, and logs; scopes; data recipients; and unresolved
+retention or provider requirements. Keep identity, separately granted plan
+permission, and model/host capability as separate checks.
 
-## Updating the pinned bridge version
-
-Do not change `openai-oauth@2.0.0` casually. An upgrade requires:
-
-1. Read the upstream changelog and legal notes.
-2. Inspect the package tarball and install scripts.
-3. Update both the local login command and generated Dockerfile pin.
-4. Run all tests and the fake-data browser flow.
-5. Build the sidecar on a disposable VPS first.
-6. Verify `/health`, `/v1/models`, `/v1/responses`, streaming, and tool calls.
-7. Verify `docker compose port openai-oauth 10531` still returns no mapping.
-8. Confirm n8n was not restarted.
-
-Keep the old Docker image until the new one passes.
+The current review is
+[openai-source-check-2026-10-05.md](openai-source-check-2026-10-05.md).
+Earlier dated source checks are historical implementation records. None is
+legal approval, and issue #97 assigns privacy/legal copy to the owner and
+counsel.
 
 ## Updating or rolling back AI Assistant companion images
 
@@ -302,6 +282,15 @@ retains the operation lock and any Buildx state for administrator inspection,
 even if a later SSH connection responds. A partial managed model file may
 remain after an interrupted SFTP transfer. A verified nonzero exit is a known
 failure and follows the ordinary reviewed cleanup path.
+
+Every SSH command has a finite deadline: 45 minutes by default, 30 minutes for
+an image build, 2 minutes for SIWC handoff acceptance, and 5 minutes for
+publishing a managed file. A deadline closes that command and reports an
+unknown remote outcome; Relmio does not retry it. SIWC managed files are
+published through an exclusive temporary file and an atomic rename under
+`/docker/n8n-openai-oauth`, never by truncating an existing file. If the
+outcome of that publication is unknown, the temporary file may remain for
+inspection.
 
 A lost response while acquiring the lock also requires inspection rather than
 assuming no lock exists. Do not treat the error as proof that the remote action

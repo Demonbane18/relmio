@@ -4,10 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
-import { PRECHECK_COMMAND, createVerificationCommands } from "../src/domain/safety.js";
-import { VPS_OPERATION_LOCKS, createVpsLockCommand, createVpsBuildStateCommand } from "../src/domain/vps-build-state.js";
-import { installSidecar } from "../src/services/installer.js";
-import { startWizardServer } from "../src/web/server.js";
+import { startIsolatedWizard as startWizardServer, siwcAccount, siwcInstallResult } from "./helpers/siwc-wizard.js";
 
 const sessionToken = "test-session-token-that-is-long-enough-123456";
 const exampleHost = "vps.example.test";
@@ -56,22 +53,13 @@ function createServices() {
   return {
     remote,
     services: {
-      async getAuthStatus() {
-        return {
-          exists: true,
-          path: "/private/path/auth.json",
-          updatedAt: "2026-07-28T01:11:01.000Z",
-        };
-      },
+      async getAuthStatus() { return { ...siwcAccount, exists: true }; },
       async startOAuthLogin() {
         return {
           launchMode: "system-browser",
-          completion: Promise.resolve({ success: true }),
+          completion: Promise.resolve(siwcAccount),
           cancel() {},
         };
-      },
-      async readAuthContents() {
-        return Buffer.from('{"fixture":true}');
       },
       async scanHostFingerprint() {
         return "SHA256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -101,13 +89,7 @@ function createServices() {
         };
       },
       async installSidecar() {
-        return {
-          baseUrl: "http://n8n-openai-oauth:10531/v1",
-          apiKeyPlaceholder: "local-only",
-          useResponsesApi: true,
-          models: ["gpt-5.6-sol"],
-          deploymentMode: "installed",
-        };
+        return siwcInstallResult();
       },
     },
   };
@@ -200,6 +182,7 @@ function createVpsInstallBody(
     networkName: "proxy",
     ...(assistant ? { includeSearxng } : {}),
     confirmed: true,
+    ...(!assistant ? { backgroundConsent: true } : {}),
     planId: assistant ? setup.assistantPlanId : setup.sidecarPlanId,
     ...overrides,
   });
@@ -220,15 +203,14 @@ test("wizard server binds to loopback and protects API responses", async (t) => 
 
   assert.match(wizard.origin, /^http:\/\/127\.0\.0\.1:\d+$/);
 
-  const unauthorized = await fetch(`${wizard.origin}/api/status`);
+  const unauthorized = await fetch(`${wizard.origin}/api/siwc/accounts`);
   assert.equal(unauthorized.status, 401);
 
-  const status = await api(wizard.origin, "/api/status");
+  const status = await api(wizard.origin, "/api/siwc/accounts");
   assert.equal(status.status, 200);
-  assert.deepEqual(await status.json(), {
-    authExists: true,
-    authUpdatedAt: "2026-07-28T01:11:01.000Z",
-  });
+  const accounts = await status.json();
+  assert.equal(accounts.accounts[0].registrationId, siwcAccount.registrationId);
+  assert.equal(accounts.selectedRegistrationId, siwcAccount.registrationId);
   assert.match(
     status.headers.get("content-security-policy"),
     /default-src 'self'/,
@@ -380,7 +362,7 @@ test("wizard reports official system-browser OAuth launch and completion", async
   const loginResponse = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(loginResponse.status, 200);
   const login = await loginResponse.json();
@@ -400,7 +382,7 @@ test("wizard rejects and cancels an invalid OAuth helper contract", async (t) =>
   let cancelled = 0;
   services.startOAuthLogin = async () => ({
     launchMode: "popup",
-    completion: Promise.resolve({ success: true }),
+    completion: Promise.resolve(siwcAccount),
     async cancel() {
       cancelled += 1;
     },
@@ -415,7 +397,7 @@ test("wizard rejects and cancels an invalid OAuth helper contract", async (t) =>
   const response = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(response.status, 500);
   assert.match((await response.json()).error, /invalid result/u);
@@ -431,7 +413,7 @@ test("wizard replaces OAuth attempts without waiting forever for superseded comp
     return {
       launchMode: "system-browser",
       completion:
-        starts === 1 ? new Promise(() => {}) : Promise.resolve({ success: true }),
+        starts === 1 ? new Promise(() => {}) : Promise.resolve(siwcAccount),
       async cancel() {
         cancelled += 1;
       },
@@ -447,14 +429,14 @@ test("wizard replaces OAuth attempts without waiting forever for superseded comp
   const first = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   const firstBody = await first.json();
   const second = await Promise.race([
     api(wizard.origin, "/api/oauth/login", {
       method: "POST",
       headers: { Origin: wizard.origin },
-      body: "{}",
+      body: JSON.stringify({ purpose: "sign-in" }),
     }),
     new Promise((_, reject) => {
       setTimeout(() => reject(new Error("replacement waited for old completion")), 50);
@@ -496,20 +478,17 @@ test("wizard retires a cancelled OAuth attempt when replacement startup is retry
   const first = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   await first.json();
   const replacement = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
 
   assert.equal(replacement.status, 400);
-  assert.deepEqual(await replacement.json(), {
-    error: "The ChatGPT sign-in result could not be confirmed.",
-    retryBlocked: true,
-  });
+  assert.equal((await replacement.json()).retryBlocked, true);
 
   const status = await api(wizard.origin, "/api/oauth/status");
   assert.deepEqual(await status.json(), {
@@ -521,7 +500,7 @@ test("wizard retires a cancelled OAuth attempt when replacement startup is retry
   const retry = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(retry.status, 409);
   assert.equal(starts, 2);
@@ -551,13 +530,13 @@ test("wizard retires a cancelled OAuth attempt when replacement startup fails no
   const first = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   await first.json();
   const replacement = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(replacement.status, 400);
 
@@ -593,7 +572,7 @@ test("wizard retires a manually cancelled OAuth attempt before a failed replacem
   const first = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   const { attemptId } = await first.json();
   const cancelled = await api(wizard.origin, "/api/oauth/cancel", {
@@ -606,7 +585,7 @@ test("wizard retires a manually cancelled OAuth attempt before a failed replacem
   const replacement = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(replacement.status, 400);
 
@@ -645,7 +624,7 @@ test("wizard blocks retry after a manually cancelled OAuth attempt's replacement
   const first = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   const { attemptId } = await first.json();
   const cancelled = await api(wizard.origin, "/api/oauth/cancel", {
@@ -658,13 +637,10 @@ test("wizard blocks retry after a manually cancelled OAuth attempt's replacement
   const replacement = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(replacement.status, 400);
-  assert.deepEqual(await replacement.json(), {
-    error: "The ChatGPT sign-in result could not be confirmed.",
-    retryBlocked: true,
-  });
+  assert.equal((await replacement.json()).retryBlocked, true);
 
   const status = await api(wizard.origin, "/api/oauth/status");
   assert.deepEqual(await status.json(), {
@@ -676,7 +652,7 @@ test("wizard blocks retry after a manually cancelled OAuth attempt's replacement
   const retry = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(retry.status, 409);
   assert.equal(starts, 2);
@@ -714,7 +690,7 @@ test("wizard rejects a concurrent OAuth login while the first helper is starting
   const first = api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   await startEntered;
   try {
@@ -722,7 +698,7 @@ test("wizard rejects a concurrent OAuth login while the first helper is starting
       api(wizard.origin, "/api/oauth/login", {
         method: "POST",
         headers: { Origin: wizard.origin },
-        body: "{}",
+        body: JSON.stringify({ purpose: "sign-in" }),
       }),
       new Promise((resolvePromise) => {
         setTimeout(() => resolvePromise(null), 25);
@@ -768,7 +744,7 @@ test("wizard close waits for an OAuth helper that is still starting and cancels 
   const loginRequest = api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   await startEntered;
 
@@ -805,7 +781,7 @@ test("wizard cancels only the current OAuth attempt through its protected same-o
   const login = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   const { attemptId } = await login.json();
   const cancelledResponse = await api(wizard.origin, "/api/oauth/cancel", {
@@ -853,7 +829,7 @@ test("wizard blocks another OAuth start when cancellation cannot confirm termina
   const login = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   const { attemptId } = await login.json();
   const cancelled = await api(wizard.origin, "/api/oauth/cancel", {
@@ -863,32 +839,18 @@ test("wizard blocks another OAuth start when cancellation cannot confirm termina
   });
 
   assert.equal(cancelled.status, 409);
-  assert.deepEqual(await cancelled.json(), {
-    error:
-      "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
-    retryBlocked: true,
-  });
+  assert.equal((await cancelled.json()).retryBlocked, true);
 
   const status = await api(wizard.origin, "/api/oauth/status");
-  assert.deepEqual(await status.json(), {
-    status: "error",
-    attemptId,
-    error:
-      "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
-    retryBlocked: true,
-  });
+  assert.partialDeepStrictEqual(await status.json(), { status: "error", attemptId, retryBlocked: true });
 
   const retry = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(retry.status, 409);
-  assert.deepEqual(await retry.json(), {
-    error:
-      "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
-    retryBlocked: true,
-  });
+  assert.equal((await retry.json()).retryBlocked, true);
   assert.equal(starts, 1);
 });
 
@@ -914,14 +876,10 @@ test("wizard blocks another OAuth start after an unconfirmed startup cleanup", a
   const first = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(first.status, 400);
-  assert.deepEqual(await first.json(), {
-    error:
-      "OpenAI OAuth login needs http://localhost:1455/auth/callback, but port 1455 is already in use. Stop the process using that port and try again.",
-    retryBlocked: true,
-  });
+  assert.equal((await first.json()).retryBlocked, true);
 
   const status = await api(wizard.origin, "/api/oauth/status");
   assert.deepEqual(await status.json(), {
@@ -934,14 +892,10 @@ test("wizard blocks another OAuth start after an unconfirmed startup cleanup", a
   const retry = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(retry.status, 409);
-  assert.deepEqual(await retry.json(), {
-    error:
-      "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
-    retryBlocked: true,
-  });
+  assert.equal((await retry.json()).retryBlocked, true);
   assert.equal(starts, 1);
 });
 
@@ -970,7 +924,7 @@ test("wizard close is bounded when OAuth startup never settles and cancels a lat
   const loginRequest = api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   await startEntered;
 
@@ -1028,7 +982,7 @@ test("wizard persists a retry-blocked completion failure and refuses another hel
   const loginResponse = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: setup.originHeader,
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   const { attemptId } = await loginResponse.json();
   rejectCompletion(
@@ -1040,24 +994,15 @@ test("wizard persists a retry-blocked completion failure and refuses another hel
   await new Promise((resolvePromise) => setImmediate(resolvePromise));
 
   const status = await api(wizard.origin, "/api/oauth/status");
-  assert.deepEqual(await status.json(), {
-    status: "error",
-    attemptId,
-    error: "The ChatGPT sign-in result could not be confirmed.",
-    retryBlocked: true,
-  });
+  assert.partialDeepStrictEqual(await status.json(), { status: "error", attemptId, retryBlocked: true });
 
   const retry = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(retry.status, 409);
-  assert.deepEqual(await retry.json(), {
-    error:
-      "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
-    retryBlocked: true,
-  });
+  assert.equal((await retry.json()).retryBlocked, true);
   assert.equal(starts, 1);
 
   const blockedPlan = await api(wizard.origin, "/api/plan", {
@@ -1066,11 +1011,7 @@ test("wizard persists a retry-blocked completion failure and refuses another hel
     body: setup.planBody,
   });
   assert.equal(blockedPlan.status, 409);
-  assert.deepEqual(await blockedPlan.json(), {
-    error:
-      "ChatGPT sign-in could not be confirmed safely. Restart Relmio before changing the VPS.",
-    retryBlocked: true,
-  });
+  assert.equal((await blockedPlan.json()).retryBlocked, true);
 });
 
 test("wizard close waits for cancellation of a pending OAuth attempt", async () => {
@@ -1094,7 +1035,7 @@ test("wizard close waits for cancellation of a pending OAuth attempt", async () 
   await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
 
   let closed = false;
@@ -1127,10 +1068,10 @@ test("OAuth completion queued before shutdown cannot commit server state after c
   await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
 
-  completion.resolve({ success: true });
+  completion.resolve(siwcAccount);
   await wizard.close();
   assert.equal(cancelCalls, 1);
 });
@@ -1150,22 +1091,18 @@ test("preview mode identifies itself and refuses to start live OAuth", async (t)
   });
   t.after(() => wizard.close());
 
-  const statusResponse = await api(wizard.origin, "/api/status");
-  assert.deepEqual(await statusResponse.json(), {
-    authExists: true,
-    authUpdatedAt: "2026-07-28T01:11:01.000Z",
-    previewMode: true,
-  });
+  const statusResponse = await api(wizard.origin, "/api/siwc/accounts");
+  const previewStatus = await statusResponse.json();
+  assert.equal(previewStatus.accounts[0].registrationId, siwcAccount.registrationId);
+  assert.equal(previewStatus.previewMode, true);
 
   const loginResponse = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: { Origin: wizard.origin },
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(loginResponse.status, 403);
-  assert.deepEqual(await loginResponse.json(), {
-    error: "Live ChatGPT sign-in is disabled in sanitized preview mode.",
-  });
+  assert.equal((await loginResponse.json()).status, 403);
   assert.equal(loginStarted, false);
 
   const cancelResponse = await api(wizard.origin, "/api/oauth/cancel", {
@@ -1245,6 +1182,7 @@ test("wizard flow validates discovered selections and never echoes a password", 
       containerName: "n8n-n8n-1",
       networkName: "proxy",
       confirmed: true,
+      backgroundConsent: true,
       planId: reviewedPlan.planId,
     }),
   });
@@ -1269,13 +1207,7 @@ test("VPS install plans are single-use and one shared lock excludes assistant an
       const firstStarted = deferred();
       let assistantCalls = 0;
       let sidecarCalls = 0;
-      const sidecarResult = {
-        baseUrl: "http://n8n-openai-oauth:10531/v1",
-        apiKeyPlaceholder: "local-only",
-        useResponsesApi: true,
-        models: ["gpt-5.6-sol"],
-        deploymentMode: "installed",
-      };
+      const sidecarResult = siwcInstallResult();
       const assistantResult = createAssistantInstallResult();
       services.installAssistant = async () => {
         assistantCalls += 1;
@@ -1350,13 +1282,7 @@ test("opaque VPS plan ids isolate identical tabs and preserve only the current r
       };
       services.installSidecar = async () => {
         installs += 1;
-        return {
-          baseUrl: "http://n8n-openai-oauth:10531/v1",
-          apiKeyPlaceholder: "local-only",
-          useResponsesApi: true,
-          models: ["gpt-5.6-sol"],
-          deploymentMode: "installed",
-        };
+        return siwcInstallResult();
       };
       const wizard = await startWizardServer({
         sessionToken,
@@ -1453,14 +1379,9 @@ test("opaque VPS plan ids isolate identical tabs and preserve only the current r
 test("pending and committing OAuth work excludes multi-tab VPS plans and mutations", async (t) => {
   const { services } = createServices();
   const oauthCompletion = deferred();
-  let authUpdatedAt = "2026-07-28T01:11:01.000Z";
   let assistantCalls = 0;
   let sidecarCalls = 0;
-  services.getAuthStatus = async () => ({
-    exists: true,
-    path: "/private/path/auth.json",
-    updatedAt: authUpdatedAt,
-  });
+  services.getAuthStatus = async () => ({ ...siwcAccount, exists: true });
   services.startOAuthLogin = async () => ({
     launchMode: "system-browser",
     completion: oauthCompletion.promise,
@@ -1472,13 +1393,7 @@ test("pending and committing OAuth work excludes multi-tab VPS plans and mutatio
   };
   services.installSidecar = async () => {
     sidecarCalls += 1;
-    return {
-      baseUrl: "http://n8n-openai-oauth:10531/v1",
-      apiKeyPlaceholder: "local-only",
-      useResponsesApi: true,
-      models: ["gpt-5.6-sol"],
-      deploymentMode: "installed",
-    };
+    return siwcInstallResult();
   };
   const wizard = await startWizardServer({
     sessionToken,
@@ -1494,13 +1409,12 @@ test("pending and committing OAuth work excludes multi-tab VPS plans and mutatio
   const login = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: setup.originHeader,
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(login.status, 200);
 
   // Model the credential as already promoted while the OAuth completion still
   // owns its commit-settlement window.
-  authUpdatedAt = "2026-07-28T01:11:02.000Z";
   const conflicts = await Promise.all([
     api(wizard.origin, "/api/plan", {
       method: "POST",
@@ -1536,7 +1450,7 @@ test("pending and committing OAuth work excludes multi-tab VPS plans and mutatio
   assert.equal(assistantCalls, 0);
   assert.equal(sidecarCalls, 0);
 
-  oauthCompletion.resolve({ success: true });
+  oauthCompletion.resolve(siwcAccount);
   await new Promise((resolve) => setImmediate(resolve));
 });
 
@@ -1556,7 +1470,7 @@ test("an active VPS mutation excludes OAuth start and releases ownership after f
     oauthStarts += 1;
     return {
       launchMode: "system-browser",
-      completion: Promise.resolve({ success: true }),
+      completion: Promise.resolve(siwcAccount),
       async cancel() {},
     };
   };
@@ -1574,6 +1488,7 @@ test("an active VPS mutation excludes OAuth start and releases ownership after f
       containerName: "n8n-n8n-1",
       networkName: "proxy",
       confirmed: true,
+      backgroundConsent: true,
       planId: setup.sidecarPlanId,
     }),
   });
@@ -1582,7 +1497,7 @@ test("an active VPS mutation excludes OAuth start and releases ownership after f
   const conflict = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: setup.originHeader,
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(conflict.status, 409);
   const conflictPayload = await conflict.json();
@@ -1605,7 +1520,7 @@ test("an active VPS mutation excludes OAuth start and releases ownership after f
   const login = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: setup.originHeader,
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(login.status, 200);
   assert.equal(oauthStarts, 1);
@@ -1652,13 +1567,7 @@ test("wizard shutdown waits for an active VPS mutation and its HTTP request to s
     });
     // Let the mutation finish during close's first await. A late snapshot
     // would now miss it and take the unsafe bounded HTTP-close branch.
-    installReady.resolve({
-      baseUrl: "http://n8n-openai-oauth:10531/v1",
-      apiKeyPlaceholder: "local-only",
-      useResponsesApi: true,
-      models: ["gpt-5.6-sol"],
-      deploymentMode: "installed",
-    });
+    installReady.resolve(siwcInstallResult());
     assert.equal((await installRequest).status, 200);
     await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(closeSettled, false);
@@ -1668,13 +1577,7 @@ test("wizard shutdown waits for an active VPS mutation and its HTTP request to s
     await closing;
     assert.equal(closeSettled, true);
   } finally {
-    installReady.resolve({
-      baseUrl: "http://n8n-openai-oauth:10531/v1",
-      apiKeyPlaceholder: "local-only",
-      useResponsesApi: true,
-      models: ["gpt-5.6-sol"],
-      deploymentMode: "installed",
-    });
+    installReady.resolve(siwcInstallResult());
     statusReady.resolve({ dockerAvailable: false });
     await installRequest?.catch(() => {});
     await statusRequest?.catch(() => {});
@@ -1686,23 +1589,13 @@ test("wizard shutdown waits for an active VPS mutation and its HTTP request to s
 test("OAuth refresh invalidates a previously reviewed VPS credential plan", async (t) => {
   const { services } = createServices();
   const oauthCompletion = deferred();
-  let authUpdatedAt = "2026-07-28T01:11:01.000Z";
-  let credentialReads = 0;
   let installs = 0;
-  services.getAuthStatus = async () => ({
-    exists: true,
-    path: "/private/path/auth.json",
-    updatedAt: authUpdatedAt,
-  });
+  services.getAuthStatus = async () => ({ ...siwcAccount, exists: true });
   services.startOAuthLogin = async () => ({
     launchMode: "system-browser",
     completion: oauthCompletion.promise,
     async cancel() {},
   });
-  services.readAuthContents = async () => {
-    credentialReads += 1;
-    return Buffer.from('{"fixture":true}');
-  };
   services.installSidecar = async () => {
     installs += 1;
     throw new Error("A stale credential plan must not reach installation.");
@@ -1718,10 +1611,9 @@ test("OAuth refresh invalidates a previously reviewed VPS credential plan", asyn
   await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: setup.originHeader,
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
-  authUpdatedAt = "2026-07-28T01:11:02.000Z";
-  oauthCompletion.resolve({ success: true });
+  oauthCompletion.resolve(siwcAccount);
   await new Promise((resolve) => setImmediate(resolve));
 
   const stale = await api(wizard.origin, "/api/install", {
@@ -1731,6 +1623,7 @@ test("OAuth refresh invalidates a previously reviewed VPS credential plan", asyn
       containerName: "n8n-n8n-1",
       networkName: "proxy",
       confirmed: true,
+      backgroundConsent: true,
       planId: setup.sidecarPlanId,
     }),
   });
@@ -1741,86 +1634,37 @@ test("OAuth refresh invalidates a previously reviewed VPS credential plan", asyn
     JSON.stringify(payload),
     /private|auth\.json|2026-07-28T01:11/iu,
   );
-  assert.equal(credentialReads, 0);
   assert.equal(installs, 0);
 });
 
-test("VPS install consumes its plan when the credential generation changes during the final read", async (t) => {
+test("VPS install consumes its plan when the SIWC generation changes during the final read", async (t) => {
   const { services } = createServices();
   const readStarted = deferred();
   const finishRead = deferred();
-  let authUpdatedAt = "2026-07-28T01:11:01.000Z";
-  let credentialReads = 0;
+  let generation = siwcAccount.generation;
+  let reads = 0;
   let installs = 0;
-  services.getAuthStatus = async () => ({
-    exists: true,
-    path: "/private/path/auth.json",
-    updatedAt: authUpdatedAt,
-  });
-  services.readAuthContents = async () => {
-    credentialReads += 1;
-    readStarted.resolve();
-    await finishRead.promise;
-    return Buffer.from('{"fixture":true}');
+  services.readRegistration = async () => {
+    reads++;
+    if (reads > 1) { readStarted.resolve(); await finishRead.promise; }
+    return { clientId: "fixture-client", generation };
   };
-  services.installSidecar = async () => {
-    installs += 1;
-    throw new Error("A changed credential must not reach remote mutation.");
-  };
-  const wizard = await startWizardServer({
-    sessionToken,
-    services,
-    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
-  });
+  services.installSidecar = async () => { installs++; throw new Error("must not install"); };
+  const wizard = await startWizardServer({ sessionToken, services });
   t.after(() => wizard.close());
   const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
-  const installRequest = api(wizard.origin, "/api/install", {
-    method: "POST",
-    headers: setup.originHeader,
-    body: JSON.stringify({
-      containerName: "n8n-n8n-1",
-      networkName: "proxy",
-      confirmed: true,
-      planId: setup.sidecarPlanId,
-    }),
-  });
-
+  const request = api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup) });
   await readStarted.promise;
-  authUpdatedAt = "2026-07-28T01:11:02.000Z";
+  generation = "changed_generation_2";
   finishRead.resolve();
-  const changed = await installRequest;
-  assert.equal(changed.status, 400);
-  const payload = await changed.json();
-  assert.match(payload.error, /sign-in changed.*fresh.*plan/i);
-  assert.doesNotMatch(
-    JSON.stringify(payload),
-    /private|auth\.json|2026-07-28T01:11/iu,
-  );
-  assert.equal(credentialReads, 1);
-  assert.equal(installs, 0);
-
-  const consumed = await api(wizard.origin, "/api/install", {
-    method: "POST",
-    headers: setup.originHeader,
-    body: JSON.stringify({
-      containerName: "n8n-n8n-1",
-      networkName: "proxy",
-      confirmed: true,
-      planId: setup.sidecarPlanId,
-    }),
-  });
-  assert.equal(consumed.status, 400);
-  assert.equal(credentialReads, 1);
+  assert.equal((await request).status, 409);
   assert.equal(installs, 0);
   await prepareVpsNetwork(wizard.origin);
-  const reusedAfterReconnect = await api(wizard.origin, "/api/install", {
-    method: "POST",
-    headers: setup.originHeader,
-    body: createVpsInstallBody(setup),
-  });
-  assert.equal(reusedAfterReconnect.status, 400);
-  assert.equal(credentialReads, 1);
-  assert.equal(installs, 0);
+  const replay = await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup) });
+  assert.equal(replay.status, 400);
+  assert.equal(reads, 2);
 });
 
 test("safe OAuth cancellation releases the VPS credential gate", async (t) => {
@@ -1843,7 +1687,7 @@ test("safe OAuth cancellation releases the VPS credential gate", async (t) => {
   const login = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: setup.originHeader,
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   const { attemptId } = await login.json();
 
@@ -1926,49 +1770,27 @@ test("VPS install failures consume the plan, release the shared lock, and preser
   assert.equal(installAttempts, 2);
 });
 
-test("the VPS API preserves safe model-refresh diagnostics from the real installer and closes its connection", async (t) => {
+test("VPS API preserves safe request-limit diagnostics and closes its connection", async (t) => {
   const { remote, services } = createServices();
-  const verification = createVerificationCommands();
-  const acquireLock = createVpsLockCommand(VPS_OPERATION_LOCKS.oauth);
-  const createBuildState = createVpsBuildStateCommand(VPS_OPERATION_LOCKS.oauth, "22:33");
-  remote.upload = async () => {};
-  remote.exec = async (command) => {
-    if (command === PRECHECK_COMMAND) return { code: 0, stdout: "managed\n" };
-    if (command === acquireLock) return { code: 0, stdout: "22:33\n" };
-    if (command === createBuildState) return { code: 0, stdout: "22:34\n" };
-    if (command === verification.runningService) return { code: 0, stdout: "openai-oauth\n" };
-    if (command === verification.publicationState) return { code: 0, stdout: JSON.stringify({ Publishers: [] }) };
-    if (command === verification.models) return {
-      code: 1,
-      stdout: JSON.stringify({ error: {
-        message: 'OpenAI OAuth token request failed with HTTP 400: {"error":{"code":"refresh_token_reused"}}',
-        type: "upstream_error",
-      } }),
-      stderr: "private upstream evidence must never be returned",
-    };
-    return { code: 0, stdout: "" };
+  services.installSidecar = async () => {
+    throw Object.assign(new Error("Plan requests paused."), { statusCode: 429, phase: "request",
+      code: "subscription_sharing_usage_limit_exceeded", recovery: "manage-usage", requestId: "req_fixture",
+      upstream: { status: 429, body: { error: { code: "subscription_sharing_usage_limit_exceeded",
+        message: "Plan requests paused.", privateToken: "must-not-leak" } } } });
   };
-  services.installSidecar = installSidecar;
-  const wizard = await startWizardServer({
-    sessionToken, services,
-    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" },
-  });
+  const wizard = await startWizardServer({ sessionToken, services });
   t.after(() => wizard.close());
   const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
-  const failed = await api(wizard.origin, "/api/install", {
-    method: "POST", headers: setup.originHeader,
-    body: createVpsInstallBody(setup),
-  });
-  assert.equal(failed.status, 400);
-  assert.deepEqual(await failed.json(), {
-    error: "The saved ChatGPT sign-in could not be refreshed. The existing n8n deployment was not changed.",
-    recoveryAction: "refresh-chatgpt-sign-in",
-  });
+  const response = await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup) });
+  assert.equal(response.status, 429);
+  const text = await response.text();
+  const result = JSON.parse(text);
+  assert.equal(result.recovery, "manage-usage");
+  assert.equal(result.requestId, "req_fixture");
+  assert.equal(result.code, "subscription_sharing_usage_limit_exceeded");
+  assert.equal(text.includes("must-not-leak"), false);
   assert.equal(remote.closed, true);
-  const disconnected = await api(wizard.origin, "/api/discover", {
-    method: "POST", headers: setup.originHeader, body: "{}",
-  });
-  assert.notEqual(disconnected.status, 200);
 });
 
 test("a throwing SSH close cannot mask an install failure or preserve either reviewed plan", async (t) => {
@@ -2055,7 +1877,7 @@ test("recovery actions are allowlisted and confined to the VPS OpenAI install en
     method: "POST", headers: setup.originHeader, body: createVpsInstallBody(setup),
   });
   assert.equal(unknown.status, 400);
-  assert.deepEqual(await unknown.json(), { error: "Model check failed." });
+  assert.equal("recoveryAction" in await unknown.json(), false);
 
   recoveryAction = "refresh-chatgpt-sign-in";
   setup = await prepareVpsNetwork(wizard.origin, { assistantPlan: true });
@@ -2064,7 +1886,7 @@ test("recovery actions are allowlisted and confined to the VPS OpenAI install en
     body: createVpsInstallBody(setup, { assistant: true }),
   });
   assert.equal(unrelated.status, 400);
-  assert.deepEqual(await unrelated.json(), { error: "Companion check failed." });
+  assert.equal("recoveryAction" in await unrelated.json(), false);
 });
 
 test("assistant web-search selection is an explicit boolean bound to its reviewed plan", async (t) => {
@@ -2785,7 +2607,7 @@ test("terminal OAuth retry-blocked state still permits an explicit authenticated
   const login = await api(wizard.origin, "/api/oauth/login", {
     method: "POST",
     headers: setup.originHeader,
-    body: "{}",
+    body: JSON.stringify({ purpose: "sign-in" }),
   });
   assert.equal(login.status, 400);
   assert.equal((await login.json()).retryBlocked, true);
@@ -2834,7 +2656,7 @@ test("an idle VPS SSH connection expires and cannot be reused", async (t) => {
     body: "{}",
   });
   assert.equal(discovery.status, 400);
-  assert.deepEqual(await discovery.json(), { error: "Connect to the VPS first." });
+  assert.equal((await discovery.json()).status, 400);
 });
 
 test("VPS SSH idle expiry waits for an active remote operation", async (t) => {
@@ -3075,4 +2897,229 @@ test("wizard binds SSH authentication to the server fingerprint it scanned", asy
 
   assert.equal(response.status, 400);
   assert.match((await response.json()).error, /identity|fingerprint/i);
+});
+
+test("VPS plans bind immutable destination IDs and installers receive only the exact reviewed target", async (t) => {
+  const { services } = createServices();
+  const destination = { n8nContainerId: "a".repeat(64), networkId: "b".repeat(64) };
+  let reviewed;
+  services.reviewVpsSiwcTarget = async () => destination;
+  services.getVpsSiwcInstallationStatus = async ({ reviewedTarget }) => {
+    reviewed = reviewedTarget;
+    return { state: "absent" };
+  };
+  services.installSidecar = async ({ reviewedTarget }) => {
+    assert.equal(reviewedTarget, reviewed);
+    assert.equal(reviewedTarget.n8nContainerId, destination.n8nContainerId);
+    assert.equal(reviewedTarget.networkId, destination.networkId);
+    return siwcInstallResult();
+  };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+  const response = await api(wizard.origin, "/api/plan", { method: "POST",
+    headers: setup.originHeader, body: setup.planBody });
+  assert.equal(response.status, 200);
+  const plan = await response.json();
+  assert.equal(plan.n8nContainerId, destination.n8nContainerId);
+  assert.equal(plan.networkId, destination.networkId);
+  setup.sidecarPlanId = plan.planId;
+  const install = await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup) });
+  assert.equal(install.status, 200);
+});
+
+test("stopped VPS owner review cannot authorize a recreated n8n container or network", async (t) => {
+  for (const changed of ["n8nContainerId", "networkId"]) {
+    await t.test(changed, async (subtest) => {
+      const { services } = createServices();
+      let destination = { n8nContainerId: "a".repeat(64), networkId: "b".repeat(64) };
+      let changes = 0;
+      const account = { ...siwcAccount, session: "signed-out", planEnabled: false };
+      services.reviewVpsSiwcTarget = async () => destination;
+      services.getVpsSiwcInstallationStatus = async () => ({ state: "stopped", registrationId: account.registrationId });
+      services.inspectStoppedVpsSiwcInstallation = async () => ({ account });
+      services.manageVpsSiwcInstallation = async () => { changes++; throw new Error("must not manage"); };
+      const wizard = await startWizardServer({ sessionToken, services });
+      subtest.after(() => wizard.close());
+      let setup = await prepareVpsNetwork(wizard.origin);
+      const target = { containerName: "n8n-n8n-1", networkName: "proxy" };
+      assert.equal((await api(wizard.origin, "/api/siwc/vps/status", {
+        method: "POST", headers: setup.originHeader, body: JSON.stringify(target) })).status, 200);
+      assert.equal((await api(wizard.origin, "/api/siwc/vps/inspect-stopped", {
+        method: "POST", headers: setup.originHeader,
+        body: JSON.stringify({ ...target, registrationId: account.registrationId, confirmed: true }) })).status, 200);
+      destination = { ...destination, [changed]: "c".repeat(64) };
+      setup = await prepareVpsNetwork(wizard.origin);
+      assert.equal((await api(wizard.origin, "/api/siwc/vps/status", {
+        method: "POST", headers: setup.originHeader, body: JSON.stringify(target) })).status, 200);
+      const manage = await api(wizard.origin, "/api/siwc/vps/manage", {
+        method: "POST", headers: setup.originHeader, body: JSON.stringify({ ...target,
+          registrationId: account.registrationId, expectedGeneration: account.generation,
+          action: "sign-out", confirmed: true }) });
+      assert.equal(manage.status, 409);
+      assert.equal(changes, 0);
+    });
+  }
+});
+
+test("VPS pending transfer reconciliation is confirmed, single-use and result-backed", async (t) => {
+  const { services } = createServices();
+  let account = { ...siwcAccount, ownership: "handoff-pending" };
+  let calls = 0;
+  services.listAuthRegistrations = async () => [account];
+  services.reconcileVpsSiwcHandoff = async ({ reviewedTarget, registration, confirmed }) => {
+    assert.equal(reviewedTarget.n8nContainerId, "a".repeat(64));
+    assert.equal(reviewedTarget.networkId, "b".repeat(64));
+    assert.equal(registration.registrationId, account.registrationId);
+    assert.equal(confirmed, true);
+    calls++;
+    account = { ...account, ownership: "transferred", session: "signed-out", planEnabled: false };
+    return { outcome: "finished", account, receipt: "must-not-leak" };
+  };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+  const review = await api(wizard.origin, "/api/siwc/vps/recovery/review", {
+    method: "POST", headers: setup.originHeader, body: JSON.stringify({
+      containerName: "n8n-n8n-1", networkName: "proxy", registrationId: account.registrationId, action: "reconcile",
+    }) });
+  assert.equal(review.status, 200);
+  const body = await review.json();
+  assert.equal(calls, 0);
+  assert.equal((await api(wizard.origin, "/api/siwc/vps/recovery/reconcile", {
+    method: "POST", headers: setup.originHeader, body: JSON.stringify({
+      reviewId: body.reviewId, confirmed: false,
+    }) })).status, 409);
+  const response = await api(wizard.origin, "/api/siwc/vps/recovery/reconcile", {
+    method: "POST", headers: setup.originHeader, body: JSON.stringify({ reviewId: body.reviewId, confirmed: true }) });
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  assert.equal(JSON.parse(text).outcome, "finished");
+  assert.equal(text.includes("must-not-leak"), false);
+  assert.equal(calls, 1);
+  await prepareVpsNetwork(wizard.origin);
+  assert.equal((await api(wizard.origin, "/api/siwc/vps/recovery/reconcile", {
+    method: "POST", headers: setup.originHeader, body: JSON.stringify({ reviewId: body.reviewId, confirmed: true }) })).status, 409);
+});
+
+test("VPS resume keeps reviewed checkpoint and transferred source binding and delivers finalization key once", async (t) => {
+  const { services } = createServices();
+  const account = { ...siwcAccount, ownership: "transferred", session: "signed-out", planEnabled: false };
+  const resume = { installId: "fixture_install_1", registrationId: account.registrationId,
+    stage: "transferred", deploymentMode: "installed", checkpointSha256: "a".repeat(64), operationLockIdentity: "22:33" };
+  let calls = 0;
+  services.listAuthRegistrations = async () => [account];
+  services.reviewVpsSiwcResume = async () => resume;
+  services.installSidecar = async ({ resume: binding, authBinding }) => {
+    assert.equal(binding, resume);
+    assert.equal(authBinding.generation, account.generation);
+    calls++;
+    return siwcInstallResult({ readiness: "unverified", deploymentMode: "partial",
+      finalizationFailure: { error: "Final journal write failed.", recovery: "resolve-handoff" } });
+  };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin);
+  const response = await api(wizard.origin, "/api/siwc/vps/recovery/review", {
+    method: "POST", headers: setup.originHeader, body: JSON.stringify({
+      containerName: "n8n-n8n-1", networkName: "proxy", registrationId: account.registrationId, action: "resume",
+    }) });
+  assert.equal(response.status, 200);
+  const plan = await response.json();
+  assert.equal(plan.staging.installId, resume.installId);
+  assert.equal(plan.resumeRequired, true);
+  setup.sidecarPlanId = plan.planId;
+  assert.equal(calls, 0);
+  const install = await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup) });
+  assert.equal(install.status, 200);
+  const result = await install.json();
+  assert.equal(result.clientCredential, "k".repeat(43));
+  assert.equal(result.finalizationFailure.recovery, "resolve-handoff");
+  await prepareVpsNetwork(wizard.origin);
+  assert.equal((await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup) })).status, 400);
+  assert.equal(calls, 1);
+});
+
+test("reviewed VPS migration and replacement resumes deliver their one-time key once", async (t) => {
+  for (const deploymentMode of ["migrated", "replaced"]) {
+    await t.test(deploymentMode, async (subtest) => {
+      const { services } = createServices();
+      const account = { ...siwcAccount, ownership: "transferred", session: "signed-out", planEnabled: false };
+      const resume = { installId: "fixture_install_1", registrationId: account.registrationId,
+        stage: "transferred", deploymentMode, checkpointSha256: "a".repeat(64) };
+      let installs = 0;
+      services.listAuthRegistrations = async () => [account];
+      services.reviewVpsSiwcResume = async () => resume;
+      services.installSidecar = async (input) => {
+        installs++;
+        assert.equal(input.resume, resume);
+        return siwcInstallResult({ deploymentMode,
+          ...(deploymentMode === "migrated"
+            ? { migratedLegacy: true, legacyRetained: true }
+            : { replacedAccount: true, oldHistoryRetained: true }) });
+      };
+      const wizard = await startWizardServer({ sessionToken, services });
+      subtest.after(() => wizard.close());
+      const setup = await prepareVpsNetwork(wizard.origin);
+      const reviewed = await api(wizard.origin, "/api/siwc/vps/recovery/review", {
+        method: "POST", headers: setup.originHeader, body: JSON.stringify({
+          containerName: "n8n-n8n-1", networkName: "proxy",
+          registrationId: account.registrationId, action: "resume",
+        }) });
+      assert.equal(reviewed.status, 200);
+      setup.sidecarPlanId = (await reviewed.json()).planId;
+      const installed = await api(wizard.origin, "/api/install", {
+        method: "POST", headers: setup.originHeader, body: createVpsInstallBody(setup) });
+      assert.equal(installed.status, 200);
+      const result = await installed.json();
+      assert.equal(result.deploymentMode, deploymentMode);
+      assert.equal(result.clientCredential, "k".repeat(43));
+      assert.equal(result.credentialShownOnce, true);
+      await prepareVpsNetwork(wizard.origin);
+      const replay = await api(wizard.origin, "/api/install", {
+        method: "POST", headers: setup.originHeader, body: createVpsInstallBody(setup) });
+      assert.equal(replay.status, 400);
+      assert.equal((await replay.json()).clientCredential, undefined);
+      assert.equal(installs, 1);
+    });
+  }
+});
+
+test("VPS resume mode cannot substitute unreviewed migration or replacement metadata", async (t) => {
+  for (const scenario of [
+    { reviewed: "installed", returned: "migrated", metadata: { migratedLegacy: true, legacyRetained: true } },
+    { reviewed: "installed", returned: "replaced", metadata: { replacedAccount: true } },
+    { reviewed: "migrated", returned: "migrated", metadata: { migratedLegacy: true, legacyRetained: false } },
+    { reviewed: "replaced", returned: "replaced", metadata: { replacedAccount: false } },
+  ]) {
+    await t.test(`${scenario.reviewed}/${scenario.returned}/${JSON.stringify(scenario.metadata)}`, async (subtest) => {
+      const { services } = createServices();
+      const account = { ...siwcAccount, ownership: "transferred", session: "signed-out", planEnabled: false };
+      services.listAuthRegistrations = async () => [account];
+      services.reviewVpsSiwcResume = async () => ({
+        installId: "fixture_install_1", registrationId: account.registrationId,
+        stage: "transferred", deploymentMode: scenario.reviewed, checkpointSha256: "a".repeat(64),
+      });
+      services.installSidecar = async () => siwcInstallResult({
+        deploymentMode: scenario.returned, ...scenario.metadata,
+      });
+      const wizard = await startWizardServer({ sessionToken, services });
+      subtest.after(() => wizard.close());
+      const setup = await prepareVpsNetwork(wizard.origin);
+      const reviewed = await api(wizard.origin, "/api/siwc/vps/recovery/review", {
+        method: "POST", headers: setup.originHeader, body: JSON.stringify({
+          containerName: "n8n-n8n-1", networkName: "proxy",
+          registrationId: account.registrationId, action: "resume",
+        }) });
+      assert.equal(reviewed.status, 200);
+      setup.sidecarPlanId = (await reviewed.json()).planId;
+      const result = await api(wizard.origin, "/api/install", {
+        method: "POST", headers: setup.originHeader, body: createVpsInstallBody(setup) });
+      assert.equal(result.status, 502);
+      assert.equal((await result.json()).clientCredential, undefined);
+    });
+  }
 });

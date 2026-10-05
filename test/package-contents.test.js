@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, extname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { extname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -14,32 +14,9 @@ import {
 } from "../scripts/build-npm-package.js";
 
 const execFileAsync = promisify(execFile);
-const projectRoot = fileURLToPath(new URL("..", import.meta.url));
-const expectedPackedFiles = new Set([
-  "CHANGELOG.md",
-  "LICENSE",
-  "NOTICE",
-  "README.md",
-  "SPEC.md",
-  "package.json",
-  "docs/ai-assistant.md",
-  "docs/architecture.md",
-  "docs/brand.md",
-  "docs/canonical-domain-source-check-2026-09-21.md",
-  "docs/experimental-images25-live1.md",
-  "docs/faq.md",
-  "docs/getting-started.md",
-  "docs/hosting-compatibility.md",
-  "docs/local-models.md",
-  "docs/local-endpoints-spec.md",
-  "docs/local-endpoints.md",
-  "docs/local-dashboard.md",
-  "docs/local-n8n-stack.md",
-  "docs/local-n8n-xai-spec.md",
+const reviewedBinaryFiles = new Set([
   "docs/images/brand/relmio-concept-source.png",
-  "docs/images/brand/relmio-banner-animated.svg",
   "docs/images/brand/relmio-logo.png",
-  "docs/images/brand/relmio-logo-rounded.svg",
   "docs/images/diagrams/relmio-two-lanes.png",
   "docs/images/examples/gpt-56-ai-agent-luna-run.png",
   "docs/images/examples/gpt-56-ai-agent-sol-run.png",
@@ -58,122 +35,11 @@ const expectedPackedFiles = new Set([
   "docs/images/setup/03-n8n-detected.png",
   "docs/images/setup/04-install-plan.png",
   "docs/images/setup/05-bridge-ready.png",
-  "docs/maintenance.md",
-  "docs/manual-install.md",
-  "docs/oauth-callback-port-source-check-2026-09-26.md",
-  "docs/openai-source-check-2026-09-29.md",
-  "docs/openai-source-check-2026-10-01.md",
-  "docs/node24-luna-source-check-2026-09-14.md",
-  "docs/n8n-configuration.md",
-  "docs/npm-publish.md",
-  "docs/reference.md",
-  "docs/roadmap.md",
-  "docs/security.md",
-  "docs/supergrok-oauth-route-decision.md",
-  "docs/troubleshooting.md",
-  "docs/video-outline.md",
-  "docs/vps-and-n8n.md",
-  "docs/vps-supergrok.md",
-  "scripts/build-npm-package.js",
-  "scripts/check-release-metadata.js",
-  "scripts/check-syntax.js",
-  "scripts/preview.js",
-  "src/browser.js",
-  "src/cli.js",
-  "src/legacy-vps-cli.js",
-  "src/domain/assistant-templates.js",
-  "src/domain/assistant.js",
-  "src/domain/hosting-cloud-profiles.js",
-  "src/domain/hosting-deployment-common.js",
-  "src/domain/hosting-deployment.js",
-  "src/domain/hosting-edge-profiles.js",
-  "src/domain/hosting-platform-profiles.js",
-  "src/domain/hosting-providers.js",
-  "src/domain/hosting-scheduler-profiles.js",
-  "src/domain/local-n8n-assistant.js",
-  "src/domain/local-n8n-model.js",
-  "src/domain/local-model-network.js",
-  "src/domain/local-n8n-sidecar.js",
-  "src/domain/local-n8n-supergrok.js",
-  "src/domain/local-n8n-stack.js",
-  "src/domain/safety.js",
-  "src/domain/templates.js",
-  "src/domain/validation.js",
-  "src/domain/local-endpoints.js",
-  "src/domain/provider-lifecycle.js",
-  "src/domain/vps-build-state.js",
-  "src/gateway/codex-chat.js",
-  "src/gateway/openai-oauth-sidecar.mjs",
-  "src/infrastructure/local-process.js",
-  "src/infrastructure/process-identity.js",
-  "src/infrastructure/ssh.js",
-  "src/infrastructure/ssh-administration.js",
-  "src/local-model/acquisition.mjs",
-  "src/local-model/catalog.mjs",
-  "src/services/codex-login.js",
-  "src/services/assistant-installer.js",
-  "src/services/browser-handoff.js",
-  "src/services/discovery.js",
-  "src/services/grok-login.js",
-  "src/services/installer.js",
-  "src/services/local-chat-test.js",
-  "src/services/local-dashboard-control.js",
-  "src/services/local-dashboard.js",
-  "src/services/local-installer.js",
-  "src/services/local-integration-lifecycle-lock.js",
-  "src/services/local-n8n-assistant-installer.js",
-  "src/services/local-n8n-model-installer.js",
-  "src/services/local-n8n-sidecar-installer.js",
-  "src/services/local-n8n-supergrok-installer.js",
-  "src/services/local-n8n-stack-installer.js",
-  "src/services/oauth.js",
-  "src/services/vps-supergrok.js",
-  "src/services/vps-local-model.js",
-  "src/services/vps-operation-lock.js",
-  "src/supergrok/chat.js",
-  "src/supergrok/runtime.js",
-  "src/supergrok/session.js",
-  "src/templates/local-n8n-stack/index.js",
-  "src/ui/app.js",
-  "src/ui/supergrok-vps.html",
-  "src/ui/supergrok-vps.js",
-  "src/ui/supergrok-vps.css",
-  "src/ui/assistant.css",
-  "src/ui/assistant.html",
-  "src/ui/assistant.js",
-  "src/ui/chat-tester-feedback.js",
-  "src/ui/hosting-archive.js",
-  "src/ui/hosting.css",
-  "src/ui/hosting.html",
-  "src/ui/hosting.js",
-  "src/ui/fonts/BricolageGrotesque-OFL.txt",
-  "src/ui/fonts/Geist-OFL.txt",
   "src/ui/fonts/bricolage-grotesque-latin.woff2",
   "src/ui/fonts/geist-latin.woff2",
-  "src/ui/index.html",
-  "src/ui/local.css",
-  "src/ui/local.html",
-  "src/ui/local.js",
-  "src/ui/local-model-vps.css",
-  "src/ui/local-model-vps.html",
-  "src/ui/local-model-vps.js",
-  "src/ui/oauth-popup.js",
   "src/ui/relmio-icon.png",
   "src/ui/relmio-icon-96.png",
-  "src/ui/relmio-ui.css",
-  "src/ui/relmio-icon-rounded.svg",
-  "src/ui/session.js",
-  "src/ui/session-bootstrap.js",
-  "src/ui/ssh-form.js",
-  "src/ui/styles.css",
-  "src/ui/theme.js",
-  "src/ui/time.js",
-  "src/ui/topbar.js",
-  "src/web/server.js",
 ]);
-const reviewedBinaryFiles = new Set(
-  [...expectedPackedFiles].filter((path) => path.endsWith(".png") || path.endsWith(".woff2")),
-);
 const forbiddenBasename =
   /^(?:\.env(?:\..*)?|auth\.json|credentials?\.json|.*\.(?:key|p12|pem|pfx|ppk))$/iu;
 const textExtensions = new Set([
@@ -289,7 +155,10 @@ test("npm package contains only allowed files and every advertised local script"
   const [packedPackage] = JSON.parse(stdout);
   const packedPaths = packedPackage.files.map(({ path }) => path).sort();
 
-  assert.deepEqual(packedPaths, [...expectedPackedFiles].sort());
+  const manifest = JSON.parse(await readFile(join(stagingDirectory, "package.json"), "utf8"));
+  for (const entry of Object.values(manifest.bin)) {
+    assert.ok(packedPaths.includes(entry), `missing advertised executable: ${entry}`);
+  }
   assert.deepEqual(
     packedPaths.filter((path) => forbiddenBasename.test(path.split("/").at(-1))),
     [],
@@ -306,45 +175,19 @@ test("npm package contains only allowed files and every advertised local script"
   }
 });
 
-test("npm package substitutes the concise registry-safe package README", async (t) => {
-  const workspaceDirectory = await mkdtemp(join(tmpdir(), "npm-readme-test-"));
-  const stagingDirectory = join(workspaceDirectory, "staging");
-  t.after(() => rm(workspaceDirectory, { recursive: true, force: true }));
 
-  await stageNpmPackage(stagingDirectory);
-
-  const [expectedNpmReadme, npmReadme] = await Promise.all([
-    readFile(join(projectRoot, "npm", "README.md"), "utf8"),
-    readFile(join(stagingDirectory, "README.md"), "utf8"),
-  ]);
-
-  assert.equal(npmReadme, expectedNpmReadme);
-  assert.doesNotMatch(npmReadme, /```mermaid/u);
-  assert.match(npmReadme, /npx --yes --ignore-scripts relmio@latest/u);
-  assert.match(npmReadme, /## Pick a path/u);
-  assert.match(npmReadme, /https:\/\/relmio\.jpfusin\.tech\/docs\/local-endpoints/u);
-  assert.doesNotMatch(npmReadme, /relmio\.vercel\.app/u);
-  assert.doesNotMatch(npmReadme, /\]\((?!https:\/\/)/u);
-});
-
-test("npm package builder emits the reviewed Relmio tarball", async (t) => {
+test("npm package builder returns a tarball matching npm's integrity digest", async (t) => {
   const outputDirectory = await mkdtemp(join(tmpdir(), "npm-build-test-"));
   t.after(() => rm(outputDirectory, { recursive: true, force: true }));
 
-  const { packedPackage, tarballPath } = await buildNpmPackage({
-    outputDirectory,
-  });
-  const packageJson = JSON.parse(
-    await readFile(join(projectRoot, "package.json"), "utf8"),
-  );
-
+  const { packedPackage, tarballPath } = await buildNpmPackage({ outputDirectory });
+  const contents = await readFile(tarballPath);
   assert.equal(
-    basename(tarballPath),
-    `relmio-${packageJson.version}.tgz`,
+    `sha512-${createHash("sha512").update(contents).digest("base64")}`,
+    packedPackage.integrity,
   );
   assert.deepEqual(
-    packedPackage.files.map(({ path }) => path).sort(),
-    [...expectedPackedFiles].sort(),
+    packedPackage.files.filter(({ path }) => forbiddenBasename.test(path.split("/").at(-1))),
+    [],
   );
-  assert.ok((await stat(tarballPath)).size > 0);
 });

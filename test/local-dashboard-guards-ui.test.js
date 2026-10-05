@@ -10,7 +10,7 @@ const between = (text, start, end) => {
   return text.slice(from, to);
 };
 const footerHelpers = (script) => [
-  between(script, "function isN8nSidecar(target)", "\nfunction isN8nAssistant"),
+  between(script, "function isCodexChat(target)", "\nfunction assistantModeLabel"),
   between(script, "function renderFooterForTarget(target)", "\nfunction renderTarget"),
 ].join("\n");
 const snapshot = () => ({ generatedAt: "2026-09-05T00:00:00.000Z", services: [
@@ -59,7 +59,7 @@ test("dashboard timer rerenders stale inventory and reduced motion selects auto 
 
 test("approved endpoint facts copy safely and copy failures expose no endpoint", async () => {
   const script = await source(); const facts = between(script, "function appendDashboardFact", "\nfunction dashboardComponentSummary"); const details = between(script, "function dashboardProviderForTarget", "\nfunction renderDashboardServiceRow");
-  const nodes = new Map(); const make = () => ({ children: [], dataset: {}, attributes: new Map(), append(...items) { this.children.push(...items); }, addEventListener(event, listener) { this.listener = listener; }, setAttribute(k,v) { this.attributes.set(k,v); }, focus() { this.focused = true; }, replaceChildren(...items) { this.children = items; } }); const element = (id) => nodes.get(id) ?? nodes.set(id, make()).get(id);
+  const nodes = new Map(); const make = () => ({ children: [], lastElementChild: { textContent: "" }, dataset: {}, attributes: new Map(), append(...items) { this.children.push(...items); }, addEventListener(event, listener) { this.listener = listener; }, setAttribute(k,v) { this.attributes.set(k,v); }, focus() { this.focused = true; }, replaceChildren(...items) { this.children = items; } }); const element = (id) => nodes.get(id) ?? nodes.set(id, make()).get(id);
   let fail = false; const render = runInNewContext(`${footerHelpers(script)}\n${facts}\n${details}; renderDashboardServiceDetail;`, { document: { createElement: make }, element, copyText: async () => { if (fail) throw new Error("copy denied"); }, flashCopied() {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "", dashboardServiceDescription: () => "", dashboardStateLabel: () => "Healthy", dashboardStatusDot: make, renderDashboardAction: () => null, state: { dashboardSnapshot: snapshot() } });
   render(snapshot().services[0]); const walk = (node) => node.listener ? node : node.children.flatMap((child) => [walk(child)]).find(Boolean); const button = walk(element("dashboard-service-facts")); assert.ok(button); await button.listener(); fail = true; await button.listener(); assert.equal(element("dashboard-error").focused, true); assert.doesNotMatch(element("dashboard-error").textContent, /127\.0\.0\.1/u);
 });
@@ -72,7 +72,7 @@ test("stale dashboard rerender restores focus to the matching Codex endpoint cop
   const render = between(script, "function renderDashboardSnapshot", "\nfunction renderDashboardFailure");
   const view = { ...snapshot(), docker: { available: true, version: "29", composeVersion: "5" }, auth: { secretsRevealable: false } };
   let now = Date.parse(view.generatedAt) + 1; let timer; const nodes = new Map();
-  const node = (tag = "div") => ({ tagName: tag, attributes: new Map(), children: [], classList: { add() {}, remove() {} }, dataset: {}, disabled: false, hidden: false, append(...items) { this.children.push(...items); this.childElementCount = this.children.length; this.lastElementChild = items.at(-1) ?? null; }, addEventListener() {}, getAttribute(name) { return this.attributes.get(name) ?? null; }, setAttribute(name, value) { this.attributes.set(name, String(value)); }, replaceChildren(...items) { this.children = items; this.childElementCount = items.length; this.lastElementChild = items.at(-1) ?? null; }, focus(options) { this.focusOptions = options; document.activeElement = this; } });
+  const node = (tag = "div") => ({ tagName: tag, attributes: new Map(), children: [], lastElementChild: { textContent: "" }, classList: { add() {}, remove() {} }, dataset: {}, disabled: false, hidden: false, append(...items) { this.children.push(...items); this.childElementCount = this.children.length; this.lastElementChild = items.at(-1) ?? null; }, addEventListener() {}, getAttribute(name) { return this.attributes.get(name) ?? null; }, setAttribute(name, value) { this.attributes.set(name, String(value)); }, replaceChildren(...items) { this.children = items; this.childElementCount = items.length; this.lastElementChild = items.at(-1) ?? null; }, focus(options) { this.focusOptions = options; document.activeElement = this; } });
   const element = (id) => nodes.get(id) ?? nodes.set(id, node()).get(id);
   const descend = (root) => [root, ...(root.children ?? []).flatMap(descend)];
   const body = node("body"); body.dataset.localView = "dashboard";
@@ -92,7 +92,7 @@ test("stale dashboard rerender restores focus to the matching Codex endpoint cop
 
 test("dashboard copy allowlist includes endpoint and n8n URLs but never credential values", async () => {
   const script = await source(); const facts = between(script, "function appendDashboardFact", "\nfunction dashboardComponentSummary"); const details = between(script, "function dashboardProviderForTarget", "\nfunction renderDashboardServiceRow");
-  const nodes = new Map(); const node = (tag = "div") => ({ tagName: tag, attributes: new Map(), children: [], classList: { add() {}, remove() {} }, dataset: {}, hidden: false, append(...items) { this.children.push(...items); this.childElementCount = this.children.length; }, addEventListener(name, callback) { this.listener = callback; }, setAttribute(name, value) { this.attributes.set(name, String(value)); }, replaceChildren(...items) { this.children = items; this.childElementCount = items.length; }, focus() { this.focused = true; } }); const element = (id) => nodes.get(id) ?? nodes.set(id, node()).get(id);
+  const nodes = new Map(); const node = (tag = "div") => ({ tagName: tag, attributes: new Map(), children: [], lastElementChild: { textContent: "" }, classList: { add() {}, remove() {} }, dataset: {}, hidden: false, append(...items) { this.children.push(...items); this.childElementCount = this.children.length; }, addEventListener(name, callback) { this.listener = callback; }, setAttribute(name, value) { this.attributes.set(name, String(value)); }, replaceChildren(...items) { this.children = items; this.childElementCount = items.length; }, focus() { this.focused = true; } }); const element = (id) => nodes.get(id) ?? nodes.set(id, node()).get(id);
   const detail = runInNewContext(`${footerHelpers(script)}\n${facts}\n${details}; renderDashboardServiceDetail;`, { document: { createElement: node }, element, state: { dashboardSnapshot: snapshot() }, assistantModeLabel: () => "Disabled", copyText: async () => {}, flashCopied() {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n, ngrok", dashboardServiceDescription: () => "Verified", dashboardStateLabel: (value) => value, dashboardStatusDot: () => node("span"), renderDashboardAction: () => null });
   const buttons = () => element("dashboard-service-facts").children.flatMap((row) => row.children.flatMap((child) => child.children?.filter((item) => item.tagName === "button") ?? []));
   detail(snapshot().services[0]); assert.deepEqual(buttons().map((button) => button.attributes.get("aria-label")), ["Copy Codex (ChatGPT login) endpoint"]);
@@ -107,7 +107,7 @@ test("returning to dashboard discards pending setup reviews and one-time values"
   const transition = between(script, "function clearOneTimeSetupValues", "\nfunction syncDashboardNavigation");
   const clearPoll = between(script, "function clearLocalModelPoll()", "\nfunction renderLocalModelStatus");
   const nodes = new Map();
-  const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, removeAttribute(name) { if (name === "href") this.href = ""; }, focus() {} }).get(id);
+  const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, replaceChildren(...children) { this.children = children; }, removeAttribute(name) { if (name === "href") this.href = ""; }, focus() {} }).get(id);
   const state = { assistantSearxngReview: { reviewId: "pending" }, assistantSearxngReviewId: "pending", dashboardFocusIdentity: { service: "codex-chatgpt" }, installedTarget: "local-n8n-assistant", localModelPollTimer: 7, localModelGeneration: 0, plan: { target: "local-n8n-assistant" }, planId: "pending" };
   const calls = []; const clearedTimers = [];
   const openDisclosures = [{ open: true }, { open: true }];
@@ -124,7 +124,6 @@ test("returning to dashboard discards pending setup reviews and one-time values"
   assert.equal(element("result-credential").textContent, "");
   assert.equal(element("ngrok-authtoken").value, "");
   assert.equal(element("install-result-list").hidden, true);
-  assert.equal(element("n8n-oauth-link").href, "");
   assert.ok(openDisclosures.every((details) => details.open === false), "removal and tester disclosures start closed next time");
   assert.equal(calls.at(-1), "inventory");
   assert.deepEqual(clearedTimers, [7]);

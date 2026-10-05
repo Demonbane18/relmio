@@ -2,6 +2,12 @@
 
 Review date: 2026-09-26
 
+**Historical implementation review:** its callback-port observations concern
+the former Codex CLI login and credential-copy bridge, not current local SIWC
+registration. See the
+[2026-10-04 source check](openai-source-check-2026-10-04.md) for current flow
+evidence and limits.
+
 This review covers Relmio 0.17.5. Before the official Codex browser login for
 an OpenAI OAuth bridge, the wizard probes both `127.0.0.1:1455` and `[::1]:1455`
 to see whether a TCP connection is accepted. The probe does not identify the

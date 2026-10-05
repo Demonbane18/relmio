@@ -135,8 +135,10 @@ unrelated n8n or Docker resources.
 
 ## Add ChatGPT/Codex model access later
 
-The new stack does not turn a ChatGPT subscription into an API credential. To
-add the unofficial private n8n OAuth bridge later, start a fresh Relmio wizard,
-choose **Self-hosted n8n bridge**, and select this new running n8n container and
-its private shared network. OpenAI Platform models remain a separately billed
-credential configured directly in n8n.
+The new stack does not turn a ChatGPT subscription into an OpenAI Platform API
+key. The local wizard can install a separate private SIWC sidecar for a
+selected running n8n container and network. The user grants ChatGPT plan use
+separately, approves background workflow use, and enters the one-time Relmio
+bearer and private base URL manually in n8n. See
+[n8n configuration](n8n-configuration.md). Platform API models remain a
+separate credential configured directly in n8n.

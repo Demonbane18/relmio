@@ -50,6 +50,7 @@ export const ADMIN_PROBE = [
   '[ "$(id -u)" = 0 ] || exit 71',
   "for tool in stat dd sha256sum chmod cat dirname find awk rm rmdir mkdir; do command -v \"$tool\" >/dev/null || exit 72; done",
   "dd --version >/dev/null || exit 72",
+  "/usr/bin/stat --version >/dev/null || exit 72",
   '[ -r /proc/self/mountinfo ] || exit 72',
   '[ -d /docker ] && [ ! -L /docker ] && [ "$(stat -c %u /docker)" = 0 ] || exit 73',
   'mode=$(stat -c %a /docker) || exit 73; [ "$((0$mode & 0022))" = 0 ] || exit 73',

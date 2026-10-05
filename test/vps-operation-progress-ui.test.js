@@ -683,6 +683,7 @@ test("setup fingerprint result reveals confirmation after rendering without stea
       ["port", Object.assign(new FakeElement("input"), { checkValidity: () => true, value: "22" })],
       ["password", Object.assign(new FakeElement("input"), { value: "old" })],
       ["connect-button", new FakeElement("button")],
+      ["global-error-recovery", new FakeElement("a", { hidden: true })],
     ]);
     const state = { fingerprint: null, operationBusy: false, operationOwner: 0 };
     runInNewContext(source, {

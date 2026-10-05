@@ -1,88 +1,37 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { runInNewContext } from "node:vm";
+import { siwcAccount, startIsolatedWizard } from "./helpers/siwc-wizard.js";
 
-const imageModelIds = [
-  "gpt-image-2",
-  "gpt-image-2.5-flare",
-  "gpt-image-2.5-sunburst",
-];
+const sessionToken = "catalog-test-session-token-123456789012345";
 
-function createElement() {
-  return { hidden: true, textContent: "" };
-}
-
-function createElements(prefix) {
-  const elements = new Map();
-  for (const key of ["2", "flare", "sunburst"]) {
-    elements.set(`${prefix}-image-model-${key}`, createElement());
-    elements.set(`${prefix}-image-model-${key}-row`, createElement());
-  }
-  elements.set(`${prefix}-image-models`, createElement());
-  return elements;
-}
-
-function imageModelRenderer(source) {
-  const start = source.indexOf("const IMAGE_MODELS_FOR_N8N");
-  const rendererStart = source.indexOf("function renderImageModelsForN8n", start);
-  const end = source.indexOf("\nfunction ", rendererStart + 1);
-  assert.notEqual(start, -1, "expected image model catalog");
-  assert.notEqual(rendererStart, -1, "expected image model renderer");
-  assert.notEqual(end, -1, "expected image model renderer");
-  return source.slice(start, end);
-}
-
-function assertChoices(elements, prefix, expectedIds) {
-  for (const [key, id] of [["2", imageModelIds[0]], ["flare", imageModelIds[1]], ["sunburst", imageModelIds[2]]]) {
-    const available = expectedIds.includes(id);
-    assert.equal(elements.get(`${prefix}-image-model-${key}`).textContent, available ? id : "");
-    assert.equal(elements.get(`${prefix}-image-model-${key}-row`).hidden, !available);
-  }
-  assert.equal(elements.get(`${prefix}-image-models`).hidden, expectedIds.length === 0);
-}
-
-test("local image choices render only returned IDs and clear stale IDs", async () => {
-  const source = await readFile("src/ui/local.js", "utf8");
-  const elements = new Map([
-    ...createElements("result"),
-    ...createElements("update"),
-  ]);
-  const context = {
-    element(id) {
-      assert.ok(elements.has(id), `unexpected element ${id}`);
-      return elements.get(id);
-    },
-  };
-  runInNewContext(
-    `${imageModelRenderer(source)}\nglobalThis.render = renderImageModelsForN8n;`,
-    context,
-  );
-
-  context.render("result", ["gpt-6-astra", ...imageModelIds]);
-  assertChoices(elements, "result", imageModelIds);
-
-  context.render("update", ["gpt-6-astra", imageModelIds[1]]);
-  assertChoices(elements, "update", [imageModelIds[1]]);
-
-  context.render("update", ["gpt-6-astra"]);
-  assertChoices(elements, "update", []);
+test("model choices follow selected account catalog order rather than synthetic image presets", async (t) => {
+  const models = [{ slug: "account-model-z", display_name: "Account model Z" },
+    { slug: "account-model-a", display_name: "Account model A" }];
+  const wizard = await startIsolatedWizard({ sessionToken, services: {
+    async listSiwcModels({ registrationId }) { assert.equal(registrationId, siwcAccount.registrationId); return models; },
+  } });
+  t.after(() => wizard.close());
+  const response = await fetch(`${wizard.origin}/api/siwc/models`, { headers: { "X-Setup-Token": sessionToken } });
+  assert.equal(response.status, 200);
+  const catalog = await response.json();
+  assert.deepEqual(catalog.models, models);
+  assert.equal(catalog.account.registrationId, siwcAccount.registrationId);
 });
 
-test("VPS image choices render only returned image IDs", async () => {
-  const source = await readFile("src/ui/app.js", "utf8");
-  const elements = createElements("result");
-  const context = {
-    element(id) {
-      assert.ok(elements.has(id), `unexpected element ${id}`);
-      return elements.get(id);
-    },
-  };
-  runInNewContext(
-    `${imageModelRenderer(source)}\nglobalThis.render = renderImageModelsForN8n;`,
-    context,
-  );
-
-  context.render(["gpt-6-astra", imageModelIds[1], imageModelIds[2]]);
-  assertChoices(elements, "result", imageModelIds.slice(1));
+test("invalid catalog identifiers and missing plan permission cannot produce model choices", async (t) => {
+  for (const invalidCatalog of [false, true]) {
+    await t.test(String(invalidCatalog), async (subtest) => {
+      let calls = 0;
+      const wizard = await startIsolatedWizard({ sessionToken, services: {
+        async listAuthRegistrations() { return [{ ...siwcAccount,
+          planPermission: invalidCatalog ? "granted" : "not-granted" }]; },
+        async listSiwcModels() { calls++; return [{ slug: "../../unsafe", display_name: "Unsafe" }]; },
+      } });
+      subtest.after(() => wizard.close());
+      const response = await fetch(`${wizard.origin}/api/siwc/models`, { headers: { "X-Setup-Token": sessionToken } });
+      assert.equal(response.status, 409);
+      assert.equal((await response.json()).models, undefined);
+      assert.equal(calls, invalidCatalog ? 1 : 0);
+    });
+  }
 });

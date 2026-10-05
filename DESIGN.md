@@ -406,8 +406,10 @@ characters per line. Use sentence case for headings, buttons and labels.
 - Keep these product labels exact and distinct: n8n with ChatGPT sign-in,
   SuperGrok OAuth, n8n Code Sandbox, Codex Chat Adapter, Codex App Server, and
   Local model.
-- The ChatGPT bridge is unofficial, private and policy-uncertain; say so where
-  the user chooses it. Sign-in is never an OpenAI Platform API key.
+- Distinguish verified ChatGPT identity, permission to use its plan, and a
+  completed model request. None implies the others or creates an OpenAI
+  Platform API key. Describe the new local/self-hosted flow as SIWC preview;
+  legacy Codex credential copies require a fresh SIWC sign-in.
 - Never imply a capability, permission or test result that has no recorded
   evidence. Hosted chat is off; never describe it as available.
 - Prerelease builds show an `rm-notice` whose summary names the version and
@@ -418,6 +420,27 @@ characters per line. Use sentence case for headings, buttons and labels.
   names the untested part. Do not repeat the warning on the same screen.
 - Field errors name the field with its visible label, for example "Server
   address is invalid.", never an internal name such as "Hostname".
+
+### ChatGPT plan controls
+
+- Use **Continue with ChatGPT** to start the documented local sign-in flow.
+  Keep account registrations distinct even when their email addresses match;
+  show the active account and retain its stable label.
+- After the first verified plan grant, explain **You're using your ChatGPT
+  plan** in a dismissible, keyboard-accessible confirmation. Persist the
+  acknowledgment; ordinary reauthorization must not show it again. Open it
+  only in a visible view. Escape closes it without acknowledging; the plan
+  stays unconfirmed and **Review plan notice** opens it again.
+- Put **Using ChatGPT plan** and **Manage usage** near the relevant model
+  selector or composer. Manage usage links to
+  `https://chatgpt.com/settings/usage`; do not invent usage totals or reset times.
+- A verified identity without the plan grant is signed in but cannot run
+  inference. Offer explicit consent, not automatic repeated sign-in.
+- Usage limits pause requests and make Manage usage the primary recovery.
+  Never suggest account rotation or silently switch billing.
+- Show where a transferred session is managed. Distinguish local cleanup from
+  confirmed provider revocation, and require explicit consent for background
+  n8n activity and the reviewed destination.
 
 ## Accessibility floor
 

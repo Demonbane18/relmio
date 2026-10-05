@@ -4,11 +4,16 @@
 - Branch: `codex/experimental-images25-live1`
 - Base: `4d69e963a0ac0d87ca2bfb382645b5d94a1b1ad7`
 
+**Archived pre-SIWC report:** this report covers the former credential-copy
+implementation and 2026-09-12 account-specific tests. Any “current” status below
+refers only to that dated implementation/account; it does not describe current
+SIWC behavior. See [current capability limits](n8n-configuration.md).
+
 This report records source, access, data-flow, and bounded live evidence for the
 experimental model check. It does not approve a release, deployment, credential
 change, API-key fallback, or legal-compliance conclusion.
 
-## Current finding
+## Historical finding
 
 | Capability | Official name and ID | Documented access path | Relmio evidence | Status |
 | --- | --- | --- | --- | --- |
@@ -105,7 +110,7 @@ The pinned dependency defaults to issuer `https://auth.openai.com`, scope
 `https://chatgpt.com/backend-api/codex`. The actual consent screen and granted
 scope set were not inspected, so the actual grant remains unknown.
 
-## Current Relmio path
+## Pre-SIWC implementation inspected
 
 The integrated wrapper creates the third-party handler with the mounted credential
 file in

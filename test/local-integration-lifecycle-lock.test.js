@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import * as fileSystem from "node:fs/promises";
 import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { getLocalProcessIdentity } from "../src/infrastructure/process-identity.js";
 
 import {
   acquireLocalIntegrationLifecycleLock,
@@ -11,6 +15,8 @@ import {
 } from "../src/services/local-integration-lifecycle-lock.js";
 
 const NOW = 100_000;
+const NAMESPACE = "test:namespace";
+const execFileAsync = promisify(execFile);
 
 async function createFixture(t) {
   const root = await mkdtemp(join(tmpdir(), "relmio-integration-lock-test-"));
@@ -18,11 +24,14 @@ async function createFixture(t) {
   return { root, lockPath: join(root, ".relmio-integration.lock") };
 }
 
-function publication({ pid = 701, startIdentity = "test:dead", token = "11111111-1111-4111-8111-111111111111" } = {}) {
+function publication({ pid = 701, startIdentity = "test:dead", token = "11111111-1111-4111-8111-111111111111",
+  namespaceIdentity = NAMESPACE, acquiredAt } = {}) {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     pid,
     processStartIdentity: startIdentity,
+    processNamespaceIdentity: namespaceIdentity,
+    ...(acquiredAt === undefined ? {} : { acquiredAt }),
     token,
     publishedAtMs: 1,
   };
@@ -49,6 +58,7 @@ function lockOptions(lockPath, states = new Map()) {
     now: () => NOW,
     platform: process.platform,
     getProcessIdentity: identityMap(states),
+    getPidNamespaceIdentity: async () => NAMESPACE,
     lockDownPath: async () => {},
   };
 }
@@ -89,25 +99,63 @@ test("integration locks fail closed for active and ambiguous publications", asyn
   }
 });
 
-test("integration locks give incomplete and malformed publications bounded startup grace", async (t) => {
-  for (const [name, contents] of [["missing", undefined], ["malformed", "not-json"]]) {
-    await t.test(name, async (subtest) => {
-      const { lockPath } = await createFixture(subtest);
-      await writeClaim(lockPath, contents === undefined ? undefined : contents);
-      if (contents !== undefined) {
-        await writeFile(join(lockPath, ".owner.json"), contents, { mode: 0o600 });
-      }
-      await assert.rejects(
-        () => acquireLocalIntegrationLifecycleLock(lockOptions(lockPath)),
-        /Another Relmio process/iu,
-      );
+test("missing owner publications get bounded startup grace only when incomplete recovery is allowed", async (t) => {
+  const { lockPath } = await createFixture(t);
+  await writeClaim(lockPath);
+  await assert.rejects(() => acquireLocalIntegrationLifecycleLock(lockOptions(lockPath)),
+    error => error.code === "RELMIO_LOCK_BUSY");
+  await utimes(lockPath, new Date(1), new Date(1));
+  await assert.rejects(() => acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath), reclaimIncomplete: false,
+  }), error => error.code === "RELMIO_LOCK_BUSY");
+  assert.deepEqual(await fileSystem.readdir(lockPath), []);
+  const release = await acquireLocalIntegrationLifecycleLock(lockOptions(lockPath));
+  await release();
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
 
-      const agePath = contents === undefined ? lockPath : join(lockPath, ".owner.json");
-      await utimes(agePath, new Date(1), new Date(1));
-      const release = await acquireLocalIntegrationLifecycleLock(lockOptions(lockPath));
-      await release();
-      await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
-    });
+test("malformed and legacy owner publications fail closed regardless of age", async (t) => {
+  const legacy = { ...publication(), schemaVersion: 2 };
+  delete legacy.processNamespaceIdentity;
+  for (const raw of ["not-json", JSON.stringify(legacy)]) {
+    const { lockPath } = await createFixture(t);
+    await writeClaim(lockPath);
+    const ownerPath = join(lockPath, ".owner.json");
+    await writeFile(ownerPath, raw, { mode: 0o600 });
+    await utimes(ownerPath, new Date(1), new Date(1));
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock(lockOptions(lockPath)));
+    assert.equal(await readFile(ownerPath, "utf8"), raw);
+    assert.deepEqual(await fileSystem.readdir(lockPath), [".owner.json"]);
+  }
+});
+
+test("foreign namespace owners are preserved without probing a dead-looking or reused PID", async (t) => {
+  for (const observed of [{ state: "dead" }, { state: "active", startIdentity: "test:reused" }]) {
+    const { lockPath } = await createFixture(t);
+    const claim = publication({ namespaceIdentity: "test:foreign-namespace" });
+    await writeClaim(lockPath, claim);
+    let ownerPidProbes = 0;
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock({
+      ...lockOptions(lockPath),
+      async getProcessIdentity(pid) {
+        if (pid === process.pid) return { state: "active", startIdentity: "test:self" };
+        ownerPidProbes++;
+        return observed;
+      },
+    }));
+    assert.equal(ownerPidProbes, 0);
+    assert.deepEqual(JSON.parse(await readFile(join(lockPath, ".owner.json"), "utf8")), claim);
+    assert.deepEqual(await fileSystem.readdir(lockPath), [".owner.json"]);
+  }
+});
+
+test("unavailable or malformed self namespace refuses lock acquisition before publication", async (t) => {
+  for (const namespace of [null, undefined, "", "bad\nnamespace", "x".repeat(513)]) {
+    const { root, lockPath } = await createFixture(t);
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock({
+      ...lockOptions(lockPath), getPidNamespaceIdentity: async () => namespace,
+    }));
+    assert.deepEqual(await fileSystem.readdir(root), []);
   }
 });
 
@@ -197,12 +245,17 @@ test("a failed Windows owner publication removes its exact claim and permits an 
 test("integration locks forward the injected platform to process identity inspection", async (t) => {
   const { lockPath } = await createFixture(t);
   const inspectedPlatforms = [];
+  const namespacePlatforms = [];
   const release = await acquireLocalIntegrationLifecycleLock({
     fileSystem,
     lockPath,
     now: () => NOW,
     platform: "win32",
     lockDownPath: async () => {},
+    async getPidNamespaceIdentity(options) {
+      namespacePlatforms.push(options.platform);
+      return NAMESPACE;
+    },
     async getProcessIdentity(pid, options) {
       assert.equal(pid, process.pid);
       inspectedPlatforms.push(options.platform);
@@ -212,4 +265,281 @@ test("integration locks forward the injected platform to process identity inspec
   await release();
 
   assert.deepEqual(inspectedPlatforms, ["win32"]);
+  assert.deepEqual(namespacePlatforms, ["win32"]);
+});
+
+test("ambiguous lease recovery is opt-in and keeps young, equal-age and backwards-clock claims held", async (t) => {
+  const boot = "12345678-1234-1234-1234-123456789abc";
+  const leaseMs = 600_000;
+  for (const [enabled, clock] of [[false, 700_001], [true, 600_999], [true, 601_000], [true, 999]]) {
+    const { lockPath } = await createFixture(t);
+    const claim = publication({ namespaceIdentity: `linux:${boot}:pid:4026532001`, acquiredAt: 1000 });
+    await writeClaim(lockPath, claim);
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock({
+      ...lockOptions(lockPath), getPidNamespaceIdentity: async () => `linux:${boot}:pid:4026532002`,
+      leaseMs: enabled ? leaseMs : null, leaseNow: () => clock,
+    }));
+    assert.deepEqual(JSON.parse(await readFile(join(lockPath, ".owner.json"), "utf8")), claim);
+  }
+});
+
+test("an expired same-boot foreign lease reclaims atomically without probing the foreign PID", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const boot = "12345678-1234-1234-1234-123456789abc";
+  const claim = publication({ namespaceIdentity: `linux:${boot}:pid:4026532001`, acquiredAt: 1000 });
+  await writeClaim(lockPath, claim);
+  let foreignPidProbes = 0;
+  const release = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath), getPidNamespaceIdentity: async () => `linux:${boot}:pid:4026532002`,
+    leaseMs: 600_000, leaseNow: () => 601_001,
+    async getProcessIdentity(pid) {
+      if (pid === process.pid) return { state: "active", startIdentity: "test:self" };
+      foreignPidProbes++;
+      return { state: "dead" };
+    },
+  });
+  assert.equal(foreignPidProbes, 0);
+  assert.equal(JSON.parse(await readFile(join(lockPath, ".owner.json"), "utf8")).pid, process.pid);
+  await release();
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("an opt-in prior-boot claim is dead despite a reset monotonic clock", async (t) => {
+  const { lockPath } = await createFixture(t);
+  await writeClaim(lockPath, publication({
+    namespaceIdentity: "linux:12345678-1234-1234-1234-123456789abc:pid:4026532001",
+    acquiredAt: 9_000_000,
+  }));
+  const release = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath),
+    getPidNamespaceIdentity: async () => "linux:87654321-1234-1234-1234-123456789abc:pid:4026532002",
+    leaseMs: 600_000, leaseNow: () => 1,
+  });
+  await release();
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("missing lease timestamp or boot proof cannot enable ambiguous age reclamation", async (t) => {
+  const boot = "12345678-1234-1234-1234-123456789abc";
+  for (const claim of [
+    publication({ namespaceIdentity: `linux:${boot}:pid:4026532001` }),
+    publication({ namespaceIdentity: "test:foreign-namespace", acquiredAt: 1000 }),
+  ]) {
+    const { lockPath } = await createFixture(t);
+    await writeClaim(lockPath, claim);
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock({
+      ...lockOptions(lockPath), getPidNamespaceIdentity: async () => `linux:${boot}:pid:4026532002`,
+      leaseMs: 600_000, leaseNow: () => 9_000_000,
+    }));
+    assert.deepEqual(JSON.parse(await readFile(join(lockPath, ".owner.json"), "utf8")), claim);
+  }
+});
+
+test("atomic claims publish only a durable complete private owner and expose the original acquisition clock", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const synchronized = new Set(), protectedFiles = new Set();
+  let linked = false, parentSynced = false;
+  const atomicFileSystem = { ...fileSystem,
+    async open(path, flags, ...args) {
+      const handle = await fileSystem.open(path, flags, ...args);
+      return {
+        writeFile: (...values) => handle.writeFile(...values),
+        chmod: mode => handle.chmod(mode), stat: () => handle.stat(), close: () => handle.close(),
+        async sync() {
+          await handle.sync();
+          synchronized.add(path);
+          if (flags === "r" && linked) parentSynced = true;
+        },
+      };
+    },
+    async link(from, to) {
+      assert.equal(synchronized.has(from), true);
+      assert.equal(protectedFiles.has(from), true);
+      if (to === lockPath) {
+        await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+        linked = true;
+      }
+      return fileSystem.link(from, to);
+    },
+  };
+  const release = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath), atomicPublication: true, leaseNow: () => 1234,
+    fileSystem: atomicFileSystem,
+    lockDownPath: async (path, options = {}) => {
+      if (options.verifyOnly) assert.equal(protectedFiles.has(path), true);
+      else protectedFiles.add(path);
+    },
+  });
+  try {
+    assert.equal((await fileSystem.lstat(lockPath)).isFile(), true);
+    assert.equal(JSON.parse(await readFile(lockPath, "utf8")).acquiredAt, 1234);
+    assert.equal(release.acquiredAt, 1234);
+    assert.equal(Object.getOwnPropertyDescriptor(release, "acquiredAt").writable, false);
+    assert.equal(parentSynced, true);
+  } finally { await release(); }
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("an interrupted unpublished atomic record never reserves the lock or falls back to a directory", async (t) => {
+  const { lockPath } = await createFixture(t);
+  let directoryFallback = false;
+  await assert.rejects(() => acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath), atomicPublication: true,
+    fileSystem: { ...fileSystem,
+      async mkdir(path, ...args) {
+        if (path === lockPath) directoryFallback = true;
+        return fileSystem.mkdir(path, ...args);
+      },
+      async link(from, to) {
+        if (to === lockPath) throw Object.assign(new Error("exclusive publication unavailable"), { code: "EOPNOTSUPP" });
+        return fileSystem.link(from, to);
+      },
+    },
+  }), error => error.code === "RELMIO_LOCK_UNAVAILABLE");
+  assert.equal(directoryFallback, false);
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+  const release = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath), atomicPublication: true,
+  });
+  await release();
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("atomic publication cannot replace an existing directory or malformed file", async (t) => {
+  for (const kind of ["directory", "file"]) {
+    const { lockPath } = await createFixture(t);
+    if (kind === "directory") await mkdir(lockPath, { mode: 0o700 });
+    else await writeFile(lockPath, "broken-owner", { mode: 0o600 });
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock({
+      ...lockOptions(lockPath), atomicPublication: true,
+    }));
+    if (kind === "directory") assert.deepEqual(await fileSystem.readdir(lockPath), []);
+    else assert.equal(await readFile(lockPath, "utf8"), "broken-owner");
+  }
+});
+
+test("an atomic release never removes a replacement owner file", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const release = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath), atomicPublication: true,
+  });
+  await fileSystem.rename(lockPath, `${lockPath}.original`);
+  const replacement = publication({ pid: 705, startIdentity: "test:replacement", acquiredAt: 1000 });
+  await writeFile(lockPath, JSON.stringify(replacement), { mode: 0o600 });
+  await assert.rejects(release);
+  assert.deepEqual(JSON.parse(await readFile(lockPath, "utf8")), replacement);
+});
+
+test("an expired foreign atomic claim is reclaimed without an incomplete directory window", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const boot = "12345678-1234-1234-1234-123456789abc";
+  const prior = publication({ namespaceIdentity: `linux:${boot}:pid:4026532001`, acquiredAt: 1000 });
+  await writeFile(lockPath, JSON.stringify(prior), { mode: 0o600 });
+  const release = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath), atomicPublication: true, leaseMs: 600_000, leaseNow: () => 601_001,
+    getPidNamespaceIdentity: async () => `linux:${boot}:pid:4026532002`,
+  });
+  assert.equal((await fileSystem.lstat(lockPath)).isFile(), true);
+  assert.equal(JSON.parse(await readFile(lockPath, "utf8")).pid, process.pid);
+  await release();
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("a process crash immediately after atomic link leaves a complete recoverable owner, not an incomplete claim", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const probe = `
+    import * as fileSystem from 'node:fs/promises';
+    const { acquireLocalIntegrationLifecycleLock } = await import(process.argv[1]);
+    await acquireLocalIntegrationLifecycleLock({
+      fileSystem: { ...fileSystem, async link(from, to) {
+        await fileSystem.link(from, to);
+        if (to === process.argv[2]) { process.stdout.write('linked'); process.exit(0); }
+      } },
+      lockPath: process.argv[2], atomicPublication: true,
+      getPidNamespaceIdentity: async () => process.argv[3],
+    });
+  `;
+  const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", probe,
+    new URL("../src/services/local-integration-lifecycle-lock.js", import.meta.url).href, lockPath, NAMESPACE,
+  ], { cwd: fileURLToPath(new URL("..", import.meta.url)), timeout: 10000 });
+  assert.equal(stdout, "linked");
+  const claim = JSON.parse(await readFile(lockPath, "utf8"));
+  assert.equal(claim.schemaVersion, 3);
+  assert.equal(claim.processNamespaceIdentity, NAMESPACE);
+  assert.equal(Number.isSafeInteger(claim.acquiredAt), true);
+  assert.equal((await fileSystem.lstat(lockPath)).nlink, 2);
+  const release = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(lockPath), atomicPublication: true, getProcessIdentity: getLocalProcessIdentity,
+  });
+  await release();
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("owner release waits through another task's publication guard and leaves the slot usable", async (t) => {
+  const { lockPath } = await createFixture(t);
+  let guardHeld = false, releaseGuard, collisions = 0;
+  const options = {
+    ...lockOptions(lockPath), atomicPublication: true,
+    async getProcessIdentity(pid) {
+      assert.equal(pid, process.pid);
+      if (guardHeld) {
+        guardHeld = false;
+        collisions++;
+        await releaseGuard();
+      }
+      return { state: "active", startIdentity: "test:self" };
+    },
+  };
+  const releaseOwner = await acquireLocalIntegrationLifecycleLock(options);
+  releaseGuard = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(`${lockPath}.publication-lock`), atomicPublication: true,
+  });
+  guardHeld = true;
+  await releaseOwner();
+  assert.equal(collisions, 1);
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+  await assert.rejects(() => fileSystem.lstat(`${lockPath}.publication-lock`), /ENOENT/u);
+  const next = await acquireLocalIntegrationLifecycleLock(options);
+  await next();
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("a settled same-process owner recovers its exact failed-release claim on the next acquisition", async (t) => {
+  const { lockPath } = await createFixture(t);
+  const options = { ...lockOptions(lockPath), atomicPublication: true, releaseWaitMs: 1 };
+  const releaseOwner = await acquireLocalIntegrationLifecycleLock(options);
+  const original = JSON.parse(await readFile(lockPath, "utf8"));
+  const releaseGuard = await acquireLocalIntegrationLifecycleLock({
+    ...lockOptions(`${lockPath}.publication-lock`), atomicPublication: true,
+  });
+  await assert.rejects(releaseOwner, error => error.code === "RELMIO_LOCK_BUSY");
+  assert.deepEqual(JSON.parse(await readFile(lockPath, "utf8")), original);
+  await releaseGuard();
+  const next = await acquireLocalIntegrationLifecycleLock(options);
+  const recovered = JSON.parse(await readFile(lockPath, "utf8"));
+  assert.notEqual(recovered.token, original.token);
+  assert.equal(recovered.pid, process.pid);
+  await next();
+  await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("same-process failed-release recovery never removes a successor nonce or inode", async (t) => {
+  for (const changed of ["inode", "nonce"]) {
+    const { lockPath } = await createFixture(t);
+    const options = { ...lockOptions(lockPath), atomicPublication: true, releaseWaitMs: 1 };
+    const releaseOwner = await acquireLocalIntegrationLifecycleLock(options);
+    const releaseGuard = await acquireLocalIntegrationLifecycleLock({
+      ...lockOptions(`${lockPath}.publication-lock`), atomicPublication: true,
+    });
+    await assert.rejects(releaseOwner, error => error.code === "RELMIO_LOCK_BUSY");
+    await releaseGuard();
+    const original = JSON.parse(await readFile(lockPath, "utf8"));
+    const successor = changed === "nonce"
+      ? { ...original, token: "22222222-2222-4222-8222-222222222222" } : original;
+    if (changed === "inode") await fileSystem.rename(lockPath, `${lockPath}.original`);
+    await writeFile(lockPath, JSON.stringify(successor), { mode: 0o600 });
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock(options),
+      error => error.code === "RELMIO_LOCK_BUSY");
+    assert.deepEqual(JSON.parse(await readFile(lockPath, "utf8")), successor);
+  }
 });

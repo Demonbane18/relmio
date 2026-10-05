@@ -6,26 +6,34 @@ import test from "node:test";
 import {
   hashCodexChatCredential,
   loadCodexChatGatewayConfig,
-  startCodexChatGateway,
+  startCodexChatGateway as startGateway,
 } from "../src/gateway/codex-chat.js";
 
 const clientCredential = "TEST_REL_MIO_CODEX_CHAT_CLIENT_CREDENTIAL_0123456789";
+const registration = { storageRoot: "/tmp/test-siwc", registrationId: "account_1" };
+const account = { clientId: "issued_1", identity: { issuer: "https://auth.openai.com", subject: "user_1" } };
+const token = { accessToken: "fake-access-1", expiresAt: new Date(Date.now() + 3600_000).toISOString() };
+const startCodexChatGateway = (options) => startGateway({
+  registration, runtimeId: "runtime_1", childEnv: {},
+  getToken: async () => token, readAccount: async () => account,
+  listModels: async () => [{ slug: "gpt-6.1-sol", display_name: "GPT 6.1 Sol" }],
+  ...options,
+});
 
-test("Codex Chat entrypoint accepts only an explicit verifier and literal listener settings", () => {
-  assert.deepEqual(
-    loadCodexChatGatewayConfig({
-      RELMIO_GATEWAY_HOST: "0.0.0.0",
-      RELMIO_GATEWAY_PORT: "14501",
-      RELMIO_GATEWAY_TOKEN_SHA256: hashCodexChatCredential(clientCredential).toString("hex"),
-      RELMIO_PACKAGE_VERSION: "0.5.0",
-    }),
-    {
-      host: "0.0.0.0",
-      packageVersion: "0.5.0",
-      port: 14501,
-      tokenVerifier: hashCodexChatCredential(clientCredential),
-    },
-  );
+test("Codex Chat requires explicit registration, runtime and verifier configuration", () => {
+  const config = loadCodexChatGatewayConfig({
+    RELMIO_GATEWAY_HOST: "0.0.0.0",
+    RELMIO_GATEWAY_PORT: "14501",
+    RELMIO_GATEWAY_TOKEN_SHA256: hashCodexChatCredential(clientCredential).toString("hex"),
+    RELMIO_REGISTRATION_ID: "account_1",
+    RELMIO_RUNTIME_ID: "runtime_1",
+    RELMIO_PACKAGE_VERSION: "0.5.0",
+  });
+  assert.equal(config.registration.registrationId, "account_1");
+  assert.equal(config.runtimeId, "runtime_1");
+  assert.deepEqual(config.tokenVerifier, hashCodexChatCredential(clientCredential));
+  assert.equal(config.port, 14501);
+  assert.equal(config.packageVersion, "0.5.0");
   for (const environment of [
     {},
     {
@@ -55,6 +63,7 @@ function createCompletingAppServer({
   includeCompletedItem = true,
   turnItems = [],
   turnStatus = "completed",
+  turnError,
 } = {}) {
   const messages = [];
   const signals = [];
@@ -144,13 +153,16 @@ function createCompletingAppServer({
             })}\n`),
           );
         }
+        if (turnError) child.stdout.emit("data", Buffer.from(`${JSON.stringify({
+          method: "error", params: { threadId: "thread_123", turnId: "turn_123", error: turnError },
+        })}\n`));
         child.stdout.emit(
           "data",
           Buffer.from(`${JSON.stringify({
             method: "turn/completed",
             params: {
               threadId: "thread_123",
-              turn: { id: "turn_123", status: turnStatus, items: turnItems },
+              turn: { id: "turn_123", status: turnStatus, items: turnItems, ...(turnError && { error: turnError }) },
             },
           })}\n`),
         );
@@ -277,6 +289,11 @@ test("Codex Chat health is public while chat requires its dedicated bearer crede
   });
   assert.equal(authenticatedProbe.status, 200);
   assert.deepEqual(await authenticatedProbe.json(), { status: "ok" });
+  const modelList = await fetch(`${gateway.origin}/models`, { headers: { Authorization: `Bearer ${clientCredential}` } });
+  assert.equal(modelList.status, 200);
+  assert.deepEqual(await modelList.json(), { models: [{ slug: "gpt-6.1-sol", display_name: "GPT 6.1 Sol" }] });
+  assert.equal((await fetch(`${gateway.origin}/models`)).status, 401);
+  assert.equal((await fetch(`${gateway.origin}/models`, { headers: { Authorization: `Bearer ${clientCredential}`, Origin: "https://example.test" } })).status, 403);
 
   const rejected = await fetch(`${gateway.origin}/chat`, {
     method: "POST",
@@ -372,10 +389,15 @@ test("Codex Chat starts a read-only conversation and returns the completed agent
     conversationId: "thread_123",
     output: "Final answer",
   });
-  assert.deepEqual(spawnCalls[0].slice(0, 2), [
-    "codex",
-    ["app-server", "--strict-config", "--stdio"],
-  ]);
+  assert.equal(spawnCalls[0][0], "codex");
+  assert.deepEqual(spawnCalls[0][1].slice(0, 3), ["app-server", "--listen", "stdio://"]);
+  assert.ok(spawnCalls[0][1].includes('model_providers.openai_chatgpt_plan.env_key="ACCESS_TOKEN"'));
+  assert.ok(spawnCalls[0][1].includes("model_providers.openai_chatgpt_plan.supports_websockets=false"));
+  assert.ok(spawnCalls[0][1].includes("model_providers.openai_chatgpt_plan.stream_max_retries=0"));
+  assert.ok(spawnCalls[0][1].includes("model_providers.openai_chatgpt_plan.request_max_retries=0"));
+  assert.ok(spawnCalls[0][1].includes("shell_environment_policy.ignore_default_excludes=false"));
+  assert.ok(spawnCalls[0][1].includes('shell_environment_policy.filters.ACCESS_TOKEN="exclude"'));
+  assert.equal(spawnCalls[0][2].env.ACCESS_TOKEN, token.accessToken);
   assert.deepEqual(appServer.messages.map((message) => message.method), [
     "initialize",
     "initialized",
@@ -383,7 +405,7 @@ test("Codex Chat starts a read-only conversation and returns the completed agent
     "turn/start",
   ]);
   assert.deepEqual(appServer.messages[0].params.clientInfo, {
-    name: "relmio",
+    name: "Relmio",
     title: "Relmio",
     version: "0.5.0",
   });
@@ -395,6 +417,7 @@ test("Codex Chat starts a read-only conversation and returns the completed agent
     cwd: "/workspace",
     developerInstructions:
       "Provide a conversational answer only. Do not inspect or edit files, run commands, call tools, or access external resources.",
+    model: "gpt-6.1-sol",
     permissions: "relmio-chat-readonly",
   });
   assert.deepEqual(appServer.messages[3].params, {
@@ -407,41 +430,32 @@ test("Codex Chat starts a read-only conversation and returns the completed agent
   assert.deepEqual(appServer.signals, ["SIGTERM"]);
 });
 
-test("Codex Chat resumes only the requested bounded conversation", async (t) => {
-  const appServer = createCompletingAppServer();
+test("Codex Chat renews child env and resumes only a thread owned by the selected registration", async (t) => {
+  const children = [createCompletingAppServer(), createCompletingAppServer()];
+  const envs = [];
+  let accountId = "issued_1";
+  let tokenIndex = 0;
   const gateway = await startCodexChatGateway({
-    host: "127.0.0.1",
-    port: 0,
-    packageVersion: "0.5.0",
+    host: "127.0.0.1", port: 0, packageVersion: "0.5.0",
     tokenVerifier: hashCodexChatCredential(clientCredential),
-    spawnProcess() {
-      return appServer.child;
-    },
+    getToken: async () => ({ accessToken: `fresh-${++tokenIndex}` }),
+    readAccount: async () => ({ ...account, clientId: accountId }),
+    spawnProcess(_command, _args, options) { envs.push(options.env.ACCESS_TOKEN); return children[envs.length - 1].child; },
   });
   t.after(() => gateway.close());
-
-  const response = await fetch(`${gateway.origin}/chat`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${clientCredential}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      conversationId: "thread_123",
-      input: "Continue.",
-    }),
-  });
-
-  assert.equal(response.status, 200);
-  assert.equal(appServer.messages[2].method, "thread/resume");
-  assert.deepEqual(appServer.messages[2].params, {
-    approvalPolicy: "never",
-    cwd: "/workspace",
-    developerInstructions:
-      "Provide a conversational answer only. Do not inspect or edit files, run commands, call tools, or access external resources.",
-    permissions: "relmio-chat-readonly",
-    threadId: "thread_123",
-  });
+  const first = await fetch(`${gateway.origin}/chat`, { method: "POST", headers: authenticatedHeaders(), body: JSON.stringify({ input: "Begin." }) });
+  assert.equal(first.status, 200);
+  assert.equal((await first.json()).conversationId, "thread_123");
+  accountId = "issued_2";
+  const wrong = await fetch(`${gateway.origin}/chat`, { method: "POST", headers: authenticatedHeaders(), body: JSON.stringify({ conversationId: "thread_123", input: "Continue." }) });
+  assert.equal(wrong.status, 400);
+  assert.deepEqual(envs, ["fresh-1"]);
+  accountId = "issued_1";
+  const resumed = await fetch(`${gateway.origin}/chat`, { method: "POST", headers: authenticatedHeaders(), body: JSON.stringify({ conversationId: "thread_123", input: "Continue." }) });
+  assert.equal(resumed.status, 200);
+  assert.equal(children[1].messages[2].method, "thread/resume");
+  assert.equal(children[1].messages[2].params.model, "gpt-6.1-sol");
+  assert.deepEqual(envs, ["fresh-1", "fresh-3"]);
 });
 
 test("Codex Chat prefers item completion, keeps delta item IDs separate, and bounds output", async (t) => {
@@ -523,7 +537,8 @@ test("Codex Chat prefers item completion, keeps delta item IDs separate, and bou
     if (fixture.expected.output) {
       assert.equal(payload.output, fixture.expected.output);
     } else {
-      assert.deepEqual(payload, { error: { code: "unavailable" } });
+      assert.equal(payload.status, 503);
+      assert.ok(["upstream_failed", "unavailable"].includes(payload.error.code));
     }
     await gateway.close();
   }
@@ -597,17 +612,100 @@ for (const status of ["failed", "interrupted"]) {
     const events = await readRelmioEvents(response);
     assert.equal(events.filter((event) => event.event === "error").length, 1);
     assert.equal(events.filter((event) => event.event === "terminal").length, 1);
-    assert.deepEqual(events.at(-2), {
-      event: "error",
-      data: { code: "upstream_failed", retryable: true },
-    });
+    assert.equal(events.at(-2).event, "error");
+    assert.equal(events.at(-2).data.code, status === "interrupted" ? "turn_interrupted" : "upstream_failed");
+    assert.equal(events.at(-2).data.status, 503);
+    assert.equal(events.at(-2).data.retryable, false);
     assert.deepEqual(events.at(-1), {
       event: "terminal",
-      data: { outcome: "failed" },
+      data: { outcome: status },
     });
     assert.doesNotMatch(JSON.stringify(events), /turn_123|item_123|private/u);
   });
 }
+
+test("Codex Chat maps pinned usage and unauthorized turn errors without inventing provider fields", async (t) => {
+  for (const { info, status, code, recovery } of [
+    { info: "usageLimitExceeded", status: 429, code: "usage_limit", recovery: "manage-usage" },
+    { info: "unauthorized", status: 401, code: "unauthorized", recovery: "reauthorize" },
+  ]) {
+    for (const streaming of [true, false]) {
+      const appServer = createCompletingAppServer({ turnStatus: "failed", turnError: {
+        message: "Failure Bearer fake-access-1", codexErrorInfo: info,
+        additionalDetails: "untyped diagnostic: provider request req_hidden",
+      } });
+      const gateway = await startCodexChatGateway({
+        host: "127.0.0.1", port: 0, tokenVerifier: hashCodexChatCredential(clientCredential),
+        spawnProcess() { return appServer.child; },
+      });
+      t.after(() => gateway.close());
+      const response = await fetch(`${gateway.origin}/chat`, {
+        method: "POST", headers: { ...authenticatedHeaders(), ...(streaming && { Accept: "text/event-stream" }) },
+        body: JSON.stringify({ input: "Spend?" }),
+      });
+      if (streaming) {
+        const events = await readRelmioEvents(response);
+        assert.equal(events.some((event) => event.event === "delta"), true);
+        const failure = events.find((event) => event.event === "error").data;
+        assert.equal(failure.status, status);
+        assert.equal(failure.code, code);
+        assert.equal(failure.recovery, recovery);
+        assert.equal(failure.retryable, false);
+        assert.equal(events.at(-1).data.outcome, "failed");
+        assert.equal(failure.upstream, undefined);
+        assert.doesNotMatch(JSON.stringify(events), /fake-access-1|req_hidden/u);
+      } else {
+        assert.equal(response.status, status);
+        const failure = await response.json();
+        assert.equal(failure.error.code, code);
+        assert.equal(failure.recovery, recovery);
+        assert.equal(failure.upstream, undefined);
+        assert.equal(failure.requestId, undefined);
+        assert.doesNotMatch(JSON.stringify(failure), /fake-access-1|req_hidden/u);
+      }
+    }
+  }
+});
+
+test("Codex Chat forwards a pinned HTTP failure variant's numeric status", async (t) => {
+  const appServer = createCompletingAppServer({ turnStatus: "failed", turnError: {
+    message: "Routing unavailable", codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 503 } },
+    additionalDetails: null,
+  } });
+  const gateway = await startCodexChatGateway({
+    host: "127.0.0.1", port: 0, tokenVerifier: hashCodexChatCredential(clientCredential),
+    spawnProcess() { return appServer.child; },
+  });
+  t.after(() => gateway.close());
+  const response = await fetch(`${gateway.origin}/chat`, {
+    method: "POST", headers: authenticatedHeaders(), body: JSON.stringify({ input: "Hello" }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).recovery, "retry-later");
+});
+
+test("adapter strips actual access, refresh and ID tokens from child messages", async (t) => {
+  const appServer = createCompletingAppServer({
+    delta: "provider_access_123456789 Bearer unrelated",
+    finalText: "refresh_secret_123456789 id_secret_123456789",
+  });
+  const gateway = await startCodexChatGateway({
+    host: "127.0.0.1", port: 0, tokenVerifier: hashCodexChatCredential(clientCredential),
+    getToken: async () => ({ accessToken: "provider_access_123456789" }),
+    readAccount: async () => ({ ...account, session: { refreshToken: "refresh_secret_123456789", idToken: "id_secret_123456789" } }),
+    spawnProcess() { return appServer.child; },
+  });
+  t.after(() => gateway.close());
+  const response = await fetch(`${gateway.origin}/chat`, {
+    method: "POST", headers: { ...authenticatedHeaders(), Accept: "text/event-stream" },
+    body: JSON.stringify({ input: "Hello" }),
+  });
+  const events = await readRelmioEvents(response);
+  const serialized = JSON.stringify(events);
+  assert.doesNotMatch(serialized, /provider_access_123456789|refresh_secret_123456789|id_secret_123456789/u);
+  assert.match(serialized, /Bearer unrelated/u);
+  assert.equal(events.at(-1).data.outcome, "completed");
+});
 
 test("Codex Chat contains child stdio errors behind a generic failure", async () => {
   for (const streamName of ["stdin", "stdout", "stderr"]) {
@@ -631,7 +729,7 @@ test("Codex Chat contains child stdio errors behind a generic failure", async ()
     assert.equal(response.status, 503);
     const text = await response.text();
     assert.equal(text.includes("sensitive"), false);
-    assert.deepEqual(JSON.parse(text), { error: { code: "unavailable" } });
+    assert.equal(JSON.parse(text).status, 503);
     await gateway.close();
   }
 });
@@ -658,7 +756,7 @@ test("Codex Chat rejects an overlong App Server protocol line without exposing i
     body: JSON.stringify({ input: "Hello" }),
   });
   assert.equal(response.status, 503);
-  assert.deepEqual(await response.json(), { error: { code: "unavailable" } });
+  assert.equal((await response.json()).status, 503);
 });
 
 test("Codex Chat permits only one active turn and cleans up a disconnected client", async (t) => {
@@ -725,7 +823,7 @@ test("Codex Chat bounds a stalled App Server turn and returns only a generic fai
     body: JSON.stringify({ input: "Hello" }),
   });
   assert.equal(response.status, 503);
-  assert.deepEqual(await response.json(), { error: { code: "unavailable" } });
+  assert.equal((await response.json()).status, 503);
   assert.deepEqual(child.signals, ["SIGTERM"]);
 });
 
@@ -825,4 +923,23 @@ test("Codex Chat returns after a bounded wait when SIGKILL cannot be reaped", as
   });
   assert.equal(response.status, 503);
   assert.deepEqual(child.signals, ["SIGTERM", "SIGKILL"]);
+});
+
+test("adapter shutdown cancels an active turn before its registration is signed out", async (t) => {
+  const child = createStallingAppServer();
+  let markSpawned;
+  const spawned = new Promise((resolve) => { markSpawned = resolve; });
+  const gateway = await startCodexChatGateway({
+    host: "127.0.0.1", port: 0,
+    tokenVerifier: hashCodexChatCredential(clientCredential),
+    spawnProcess() { markSpawned(); return child; },
+  });
+  t.after(() => gateway.close().catch(() => {}));
+  const pending = fetch(`${gateway.origin}/chat`, {
+    method: "POST", headers: authenticatedHeaders(), body: JSON.stringify({ input: "Do not replay" }),
+  });
+  await spawned;
+  await gateway.close();
+  assert.equal((await pending).status, 503);
+  assert.deepEqual(child.signals, ["SIGTERM"]);
 });

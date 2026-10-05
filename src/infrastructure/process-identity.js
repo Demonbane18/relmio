@@ -241,3 +241,26 @@ export async function getLocalProcessIdentity(
   }
   return Object.freeze({ state: "ambiguous" });
 }
+
+export async function getLocalPidNamespaceIdentity({
+  platform = hostPlatform(),
+  fileSystem = defaultFileSystem,
+} = {}) {
+  if (platform === "darwin" || platform === "win32") return `${platform}:host`;
+  if (platform !== "linux" || typeof fileSystem?.readlink !== "function" ||
+      typeof fileSystem?.readFile !== "function") return null;
+  try {
+    const [namespaceLink, bootIdContents] = await Promise.all([
+      fileSystem.readlink("/proc/self/ns/pid"),
+      fileSystem.readFile("/proc/sys/kernel/random/boot_id", "utf8"),
+    ]);
+    if (typeof namespaceLink !== "string" || typeof bootIdContents !== "string" ||
+        namespaceLink.length > 64 || bootIdContents.length > 64) return null;
+    const inode = /^pid:\[([1-9][0-9]{0,19})\]$/u.exec(namespaceLink)?.[1];
+    const bootId = bootIdContents.trim();
+    if (!inode || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu.test(bootId)) return null;
+    return `linux:${bootId.toLowerCase()}:pid:${inode}`;
+  } catch {
+    return null;
+  }
+}

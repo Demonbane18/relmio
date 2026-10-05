@@ -14,29 +14,24 @@
   <a href="https://github.com/Demonbane18/relmio/blob/main/LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-0f8f83"></a>
 </p>
 
-Managed provider OAuth stays in its private runtime, except for the existing
-n8n OpenAI bridge: it starts Codex sign-in on the host and copies the complete
-credential JSON into its selected private sidecar after confirmation. API-key
-connections and operator-generated hosting artifacts are configured separately
-in n8n or the target platform. ChatGPT sign-in is not an OpenAI Platform API key.
-SuperGrok setup does not require or read ChatGPT/Codex credentials.
-The hosted chat demo on the website is turned off while Relmio applies to
-OpenAI for access. ChatGPT sign-in now works only in the local wizard. See the
-[hosted chat security notes](https://relmio.jpfusin.tech/docs/security#hosted-chat-demo).
+Use ChatGPT plan sign-in from the local wizard for self-hosted connections.
+Identity, separately granted plan permission, and model/request access are
+distinct. A ChatGPT sign-in is not an OpenAI Platform API key, and Relmio does
+not import a personal Codex login. SuperGrok uses its own session.
 
-Relmio 0.18.6 is the current stable release. The redesigned five-step wizard
-is available through npm `latest` and the hosted installers.
+The website's `/api/chat` remains off and returns `410 Gone`; local setup does
+not enable hosted chat. See the
+[full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md)
+and the
+[2026-10-05 OpenAI source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md)
+for setup, data handling, limits, and unresolved prerequisites.
 
-See the [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md), the [2026-09-29 source review and wizard consent correction](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-09-29.md), the [2026-09-28 source review follow-up](https://relmio.jpfusin.tech/docs/security#2026-09-28-private-candidate-openai-source-check), and the historical [2026-09-27 source review](https://relmio.jpfusin.tech/docs/security#2026-09-27-openai-and-hosting-source-review).
-
-
-The browser wizard's **Test AI Chat** console keeps partial response text
-visible while it streams. Its status distinguishes connection setup, waiting
-for the first words, active streaming, completion, interruption, and failure
-without announcing every token to assistive technology. **Stop response**
-preserves text already received, and reduced-motion preferences keep the same
-state cues without animation. This presentation does not change the Chat
-Adapter protocol or external clients such as n8n.
+The local wizard's **Test AI Chat** console keeps partial response text visible
+while it streams. Status distinguishes connection setup, waiting for the first
+words, active streaming, completion, interruption, and failure without
+announcing every token to assistive technology. **Stop response** preserves
+text already received, and reduced-motion preferences keep the same state cues
+without animation. This does not change external clients such as n8n.
 
 SuperGrok is a first-class local and VPS setup option in 0.14.0, but the adapter
 remains experimental. Live Windows checks covered fresh sign-in, model discovery,
@@ -116,44 +111,44 @@ n8n, ngrok, model endpoints, bridges, Assistant companions, or unrelated
 containers. Hosted launchers remain a foreground, one-shot process when they
 use a verified temporary runtime.
 
-## Upgrade from 0.13.0 and update existing bridges
+## Install and update
 
-After installing 0.15.0, run `relmio stop`, then `relmio start` or `relmio
-open`. Relmio never reuses a dashboard from another version. The upgrade leaves
-existing API-key gateway containers and credential volumes untouched, and the
-0.15.0 dashboard does not manage them. It also refuses to adopt an earlier
-SuperGrok development install that lacks the fresh-session marker; review that
-installation before removal or migration.
+### Existing ChatGPT and sidecar installations
 
-Installing a newer Relmio package does not update an OpenAI bridge that is
-already running. After installing a Relmio release that contains the latest
-bridge compatibility fix, open the dashboard and update the owned bridge:
+Installing a newer Relmio package updates the wizard, not an already-running
+sidecar. Use the current ownership-attested action for the exact target and
+review its plan; see the
+[maintenance guide](https://github.com/Demonbane18/relmio/blob/main/docs/maintenance.md).
+Relmio leaves retired API-key gateways and their credential volumes untouched.
 
-- For a local n8n bridge, refresh status, select **OpenAI OAuth bridge**, choose
-  **Manage bridge**, read the runtime update summary, select its confirmation
-  checkbox, then choose **Update bridge runtime**. This keeps the existing
-  ChatGPT sign-in, Docker network, and bridge identity.
-- For a VPS bridge, run `relmio vps`, reconnect, verify the SSH host fingerprint,
-  and select the n8n container and network. Choose **OpenAI-OAuth/Codex bridge**,
-  then **Manage OpenAI-OAuth/Codex bridge** and **Review bridge update**. Review
-  the plan, select its confirmation checkbox, then choose **Update the bridge**.
+Older credential-copy ChatGPT bridges are not silently adopted. A reviewed
+local migration uses a fresh SIWC registration and separate migration consent.
+Relmio stops only the attested old service after final confirmation and keeps
+credential/workspace volumes offline; it never copies the old `auth.json` to
+the new runtime. If the outcome is uncertain, the old service is not resumed
+automatically; inspect the retained resources.
 
-Both actions recreate only Relmio's owned sidecar. The local runtime update
-keeps its saved sign-in. The VPS update uploads the current local sign-in. They
-do not edit, restart, or recreate n8n, and they do not publish port `10531`.
-The VPS wizard performs the SSH update from the browser flow, so no separate
-VPS terminal is required. Use **Apply sign-in to owned bridge** only when the
-local bridge needs a newer ChatGPT sign-in; that action does not update the
-bridge runtime. See the
-[maintenance guide](https://github.com/Demonbane18/relmio/blob/main/docs/maintenance.md)
-for the full update and rollback boundaries.
+The documented local OSS flow needs no commercial approval, partner-issued
+client, or secret. The user still separately grants ChatGPT plan use and
+confirms the first-use notice. The VPS guide and SIWC Terms do not resolve
+persistent remote token storage; the implementation makes no provider-approval
+claim for VPS use. The Terms' connected-application rule may also conflict
+with an OpenAI-compatible endpoint for n8n, and Relmio is not in OpenAI's
+partner directory. Both questions are open. Read the
+[VPS guide](https://relmio.jpfusin.tech/docs/vps-and-n8n) and
+[2026-10-05 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md).
 
-**Refresh status** rediscovers eight services: Codex App Server, Codex Chat
-Adapter, Grok Build, the owned n8n stack, the ChatGPT OAuth bridge, AI Assistant
-tools, SuperGrok for n8n, and the local model for n8n. It shows only verified
+Relmio also refuses to adopt an earlier SuperGrok development install that
+lacks its fresh-session marker. Review that installation separately before
+removal or migration.
+
+**Refresh status** shows eight services: Codex App Server, Codex Chat Adapter,
+Grok Build, the owned n8n stack, the ChatGPT plan sidecar, AI Assistant tools,
+SuperGrok for n8n, and the local model for n8n. It shows only verified
 connection URLs and state, never stored secrets. Select **Add connection** for
-the existing four-step setup flow. Bare `relmio` and `relmio vps` open VPS setup;
-use `relmio local` for this computer's setup route.
+the setup flow. Bare `relmio` and `relmio vps` open VPS setup; use `relmio
+local` for this computer's setup route.
+
 
 Choose **Set up SuperGrok for n8n** in the VPS wizard to add the same private
 Grok OAuth companion to an existing remote n8n. Review the exact plan before
@@ -190,11 +185,11 @@ n8n HTTP Request tool; its custom bearer is not a native Assistant SearXNG
 integration. Vercel/Railway/Cloudflare Sandbox SDKs are not native n8n sandbox
 providers.
 
-Relmio classifies the OpenAI bridge as a stable workflow. It remains
-unofficial, private, and policy-uncertain. OpenAI documents identity sign-in and
-separately authorized ChatGPT plan usage; those documents do not establish
-approval for Relmio's Codex credential-copy bridge. See the
-[dated source-check, data flow and unknowns](https://relmio.jpfusin.tech/docs/security#2026-09-26-openai-source-check).
+The hosting catalog generates operator-applied plans; it grants no OpenAI
+permission or model entitlement. The local ChatGPT plan sidecar is separate
+from the website, whose `/api/chat` returns `410 Gone`. The
+[2026-10-05 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md)
+records current local behavior and unresolved hosted/VM requirements.
 
 
 ### Existing n8n model bridge
@@ -207,7 +202,7 @@ Responses API switch is specific to each integration:
 
 | Connection | Base URL | n8n API-key field | Use Responses API |
 | --- | --- | --- | --- |
-| OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in the Relmio OpenAI Chat Model v1.3 recipe |
+| OpenAI plan use | `http://n8n-openai-oauth:10531/v1` | One-time local Relmio bearer | **On** in OpenAI Chat Model node version 1.3 |
 | SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
 | Local Ollama model for n8n | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for Chat Completions |
 
@@ -261,58 +256,66 @@ separate paid private model service with its own disk/internal DNS is a manual
 option. See [Hosting compatibility](https://relmio.jpfusin.tech/docs/hosting-compatibility)
 for managed and manual routes, login hints, agent setup, and provider limits.
 
-The VPS wizard has five steps: **Choose setup**, **Check server**, **Choose
-n8n**, **Review**, and **Ready**. Choose the ChatGPT route before signing in.
-Enter the server address and port, independently compare and confirm its SSH
-fingerprint, then enter the username and choose authentication. After
-connecting, select the n8n container and private Docker network. Review names
-the currently verified SSH identity as the recipient of the complete
-ChatGPT/Codex credential file. Going back or changing the connection clears the
-plan and approval; confirm separately before any remote write. Configure n8n
-with:
+The VPS wizard signs in locally before you select the server and n8n target.
+It confirms the SSH host fingerprint before authentication. Before final write
+confirmation it shows the verified server identity, the exact plan, and short
+IDs for the reviewed n8n container and network. Relmio checks those exact IDs
+again before it writes and before it transfers the session; a changed ID stops
+the install and asks for a new review. After the install completes, status and
+sign-out need only the same SSH host and Docker network, so they keep working
+if n8n is recreated or you change the SSH login method. The destination
+receives one selected registration and becomes its only refresh owner. If
+transfer completion cannot be confirmed, the session stays frozen until you
+inspect the destination. Relmio does not restore the sender's old tokens or
+restart an old writer automatically.
 
+If a local or VPS install stops partway, status shows it as staged. Select the
+account, then review and confirm the resume in the wizard. It continues the
+same installation without deleting data or starting a second refresh writer;
+if the session had already moved, the one-time key is replaced. Turning plan
+use on or off, or a token refresh, before you resume does not block it. If the
+destination accepted the session but the acknowledgment was lost, review and
+confirm a reconcile. Relmio reads the destination's receipt and finishes the
+handoff. Without a receipt, the sender stays frozen and needs a fresh sign-in;
+old tokens are never restored. A different account can take over only after a
+confirmed "not accepted" result. Relmio refuses if the original receipt
+appears, and on a VPS also while a one-off helper container is still present.
+If ownership moved but a later finishing step failed, the result still shows
+the one-time key once, with a warning not to use it until the reported issue
+is resolved.
+
+The local or VPS sidecar is available only to containers on the selected
+private Docker network and publishes no host port. n8n does not receive the
+provider token. Enter the one-time Relmio bearer from the result screen
+manually in n8n:
 
 ```text
 Base URL: http://n8n-openai-oauth:10531/v1
-API key: local-only
-Responses API: On
+API key: <one-time Relmio bearer shown by the wizard>
+Use Responses API: On
 ```
 
-**GPT Image 2.5.** New bridge installations include Flare and Sunburst in model
-discovery. For an existing owned bridge, use its browser **Update bridge runtime**
-action (local) or **Review bridge update** action (VPS) to receive the new catalog.
-In n8n's OpenAI node, choose **Image**, then **Generate an Image** or **Edit Image**.
-Select `gpt-image-2.5-flare` or `gpt-image-2.5-sunburst` from the model list; use
-**By ID** if your n8n version does not list it. `gpt-image-2` remains available.
-The generic `gpt-image-2.5` name is not a request ID. Start with low quality;
-exact output dimensions and every image option are not verified. Model discovery
-does not guarantee access for every account. Image models are separate from
-text chat, GPT-Live, Realtime, and audio support.
+Relmio sends supported requests to `/v1/responses`. The
+`/v1/chat/completions` compatibility route translates text messages and
+function tools into a Responses request. Function tools go upstream in one
+`additional_tools` item, and n8n runs the tools itself. The route allows up to
+32 tool calls, 128 KiB of arguments per call, and 2 MiB of streamed arguments
+in total. It rejects a named `tool_choice`, tool namespaces, custom tools in
+streamed requests, system messages, and inputs it cannot preserve. Reasoning
+items in the response are not passed to Chat Completions clients. Tool
+roundtrips were tested only against a fake provider; whether OpenAI accepts
+these tools on the SIWC route is unverified. Image generation/editing, audio,
+video, Files routes, stored conversations, moderation, and unsupported
+parameters are rejected without a fallback.
 
-**Current ChatGPT bridge limits.** OpenAI audio/TTS, transcription, and
-translation are unavailable through Relmio's current ChatGPT sign-in bridge in
-both local and VPS n8n. The OpenAI Audio API requires a separate API-key
-connection. Do not enter that API key into this OAuth bridge; refreshing your
-ChatGPT sign-in will not add audio support.
-
-The current bridge also does not support n8n's **Classify Text for Violations**
-action (Moderation API), file upload/list/delete, stored conversation
-create/get/update/delete, or video generation. See the full
-[n8n capability table](https://github.com/Demonbane18/relmio/blob/main/docs/n8n-configuration.md#3-openai-node-v2-capability-audit).
-
-Relmio does not edit or restart n8n. The bridge is unofficial, private,
-and policy-uncertain.
-
-**Credential and data path.** The local bridge copies the complete ChatGPT/Codex
-credential JSON into a private named Docker volume for the third-party pinned
-`openai-oauth` package. The VPS bridge transfers the same file by SFTP to the
-deployment's `auth` bind mount. n8n sends supported prompts, messages, tool
-data, and inline inputs through that package to OpenAI. Building the sidecar
-contacts the npm registry to install the pinned package. The one-shot local
-credential-seed helper disables Docker logging; the main sidecar has no
-explicit Docker log-driver setting. Do not treat any of this as a supported
-Sign in with ChatGPT integration, scope grant, Platform API permission, Terms
-approval, or model/TTS entitlement.
+Installing for n8n also requires express consent for background workflows.
+Relmio does not edit n8n's credentials or Compose configuration. Existing
+legacy bridge installations require a separately reviewed migration and a
+fresh SIWC sign-in. The published SIWC Terms and VM guide do not resolve
+persistent remote VM token storage; the VPS implementation is not presented as
+provider-approved. Read the
+[VPS guide](https://relmio.jpfusin.tech/docs/vps-and-n8n) and
+[source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md).
 
 For SuperGrok, choose **SuperGrok for n8n**, select
 its container and network, then review the private installation. Copy the
@@ -373,23 +376,39 @@ sandbox key and n8n settings once. It does not change or restart n8n.
 Enter your supported model credential directly in n8n. The privileged local
 runner is for development and testing; n8n recommends Daytona for production.
 
-## Codex device sign-in
+## Codex App Server and Chat Adapter
 
-The experimental Codex options use the official device-code sign-in. The
-ChatGPT credential stays inside the isolated Codex container. Use these routes
-only with trusted local apps or development backends.
+The local **Codex App Server** keeps its WebSocket protocol and relays to the
+official Codex App Server over stdio with the selected SIWC access token and
+public Responses provider. It is a high-trust target for a native client owned
+by the same account holder, not a browser or general `/v1` service. The relay
+forwards every client JSON-RPC call except a short deny-list to the official
+App Server, which runs as the same user that owns the SIWC store. Connect only
+trusted local clients. Agent spawning and deferred `tool_search` are disabled;
+unsupported account/auth, connector, marketplace, plugin, and configuration
+mutations are rejected. This is not full App Server feature parity.
+
+The separate **Codex Chat Adapter** is a narrower, read-only conversational
+HTTP contract for trusted local backends.
+
+Direct WebSocket connections close shortly before token expiry. Reconnect and
+explicitly resume a known account-bound thread; its record survives relay
+restarts. Unknown or foreign threads are rejected, and interrupted turns are
+not replayed.
 
 ## Provider account policy
 
-Relmio uses the official Codex App Server, and Codex owns the ChatGPT OAuth
-flow, storage, and refresh. Each Codex target has one active ChatGPT account;
-switching requires explicit sign-out and sign-in.
+Each registration is bound to a verified issuer, issued client ID, and subject.
+Email is a display label; matching addresses do not merge accounts. Sign-in,
+ChatGPT plan permission, and successful model requests are separate states.
+Relmio does not switch registrations or use Platform API billing after an error.
+Sign-out clears local tokens and attempts provider revocation. If revocation
+cannot be confirmed, follow the wizard's ChatGPT disconnection guidance.
 
-Managed ChatGPT/Codex and SuperGrok OAuth sign-in flows do not configure
-upstream API keys, keep API-key profiles, or fall back to separately billed API
-access. Configure API-key connections and operator-generated hosting artifacts
-separately in n8n or on the target platform. Retired API installations and
-their data remain untouched.
+Managed ChatGPT plan use does not configure an OpenAI Platform API key or fall
+back to separately billed API access. Configure unrelated API-key connections
+and operator-generated hosting artifacts separately in n8n or the target
+platform. Retired API installations and their data remain untouched.
 
 The experimental SuperGrok adapter uses the pinned official Grok CLI for fresh
 OAuth/device sign-in and sign-out in its own private volume. The direct HTTP
@@ -401,23 +420,8 @@ credential writer; the HTTP handler never consumes refresh tokens.
 Local apps use `/v1/chat/completions` with a separate Relmio client bearer.
 `grok-build` is a supported legacy routing alias; a fresh authenticated catalog
 can provide current routing names, but a listing does not prove a model's tool
-behavior. n8n executes its own tools and returns matching results. The legacy
-simple `/chat` request shape remains available through the direct transport.
-Browser bundles must not hold the local bearer or call it directly.
-
-
-Relmio never changes accounts automatically after a 401, 403, or 429,
-rate-limit, or quota response. Future provider authentication is denied by
-default. The dashboard never returns or re-shows a stored secret.
-
-## Sign-in lifetime
-
-The Codex authentication guide describes automatic credential refresh but does
-not give a fixed token lifetime. Relmio's private bridge refreshes its own
-credential copy. OpenAI's one-hour access-token and rotating 30-day
-refresh-token lifetimes describe the separate Sign in with ChatGPT plan-usage
-flow, not Relmio's pinned Codex flow. The local capability remains valid until
-you rotate it.
+behavior. n8n executes its own tools and returns matching results. Browser
+bundles must not hold the local bearer or call it directly.
 
 ## Common problems
 
