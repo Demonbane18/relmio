@@ -59,7 +59,8 @@ checks the registry separately after publication.
   half-written lock, and release waits through short contention. A refresh
   that has started is no longer cancelled when the caller disconnects, and the
   rotated token is saved. Keep the SIWC store on a local disk used by one
-  kernel, not on a synced folder or network share.
+  kernel, not on a synced folder or network share. Windows cannot flush a
+  folder to disk, so on Windows the lock skips that step and relies on NTFS.
 - The Codex App Server's live model check now runs inside the running
   container instead of a one-off helper container.
 - Status and sign-out for a completed VPS install keep working after n8n is

@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import * as fileSystem from "node:fs/promises";
 import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -375,9 +375,41 @@ test("atomic claims publish only a durable complete private owner and expose the
     assert.equal(JSON.parse(await readFile(lockPath, "utf8")).acquiredAt, 1234);
     assert.equal(release.acquiredAt, 1234);
     assert.equal(Object.getOwnPropertyDescriptor(release, "acquiredAt").writable, false);
-    assert.equal(parentSynced, true);
+    assert.equal(parentSynced, process.platform !== "win32");
   } finally { await release(); }
   await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+});
+
+test("Windows publishes without its unsupported directory fsync while POSIX still fails closed", async (t) => {
+  // Node opens a Windows directory read-only, so FlushFileBuffers reports EPERM.
+  const unsupportedDirectorySync = lockPath => ({ ...fileSystem,
+    async open(path, flags, ...args) {
+      const handle = await fileSystem.open(path, flags, ...args);
+      if (path !== dirname(lockPath)) return handle;
+      return { close: () => handle.close(),
+        async sync() { throw Object.assign(new Error("EPERM: operation not permitted, fsync"), { code: "EPERM" }); } };
+    },
+  });
+  await t.test("win32", async (subtest) => {
+    const { lockPath } = await createFixture(subtest);
+    const verified = new Set();
+    const release = await acquireLocalIntegrationLifecycleLock({
+      ...lockOptions(lockPath), atomicPublication: true, platform: "win32",
+      fileSystem: unsupportedDirectorySync(lockPath),
+      lockDownPath: async (path, options = {}) => { if (options.verifyOnly) verified.add(path); },
+    });
+    assert.equal((await fileSystem.lstat(lockPath)).isFile(), true);
+    assert.equal(verified.has(lockPath), true);
+    await release();
+    await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+  });
+  await t.test("POSIX", { skip: process.platform === "win32" && "POSIX owner-mode checks cannot pass on NTFS" }, async (subtest) => {
+    const { lockPath } = await createFixture(subtest);
+    await assert.rejects(() => acquireLocalIntegrationLifecycleLock({
+      ...lockOptions(lockPath), atomicPublication: true, fileSystem: unsupportedDirectorySync(lockPath),
+    }), error => error.code === "RELMIO_LOCK_UNAVAILABLE");
+    await assert.rejects(() => fileSystem.lstat(lockPath), /ENOENT/u);
+  });
 });
 
 test("an interrupted unpublished atomic record never reserves the lock or falls back to a directory", async (t) => {

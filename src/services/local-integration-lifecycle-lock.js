@@ -601,7 +601,10 @@ function sameAtomicClaim(left, right) {
     left.fingerprint.raw === right.fingerprint.raw && samePublication(left.publication, right.publication);
 }
 
-async function syncAtomicParent({ fileSystem, lockPath, label }) {
+// Windows cannot fsync a directory handle (Node reports EPERM), so publication
+// there relies on NTFS metadata journaling; exclusive link publication still applies.
+async function syncAtomicParent({ fileSystem, lockPath, platform, label }) {
+  if (platform === "win32") return;
   let handle;
   try {
     handle = await fileSystem.open(dirname(lockPath), "r");
@@ -635,7 +638,7 @@ async function publishAtomicClaim({ fileSystem, lockPath, ownerPublication, lock
       throw failure(label, "detected a changed publication for the", "RELMIO_LOCK_CHANGED");
     }
     await fileSystem.unlink(temporaryPath);
-    await syncAtomicParent({ fileSystem, lockPath, label });
+    await syncAtomicParent({ fileSystem, lockPath, platform, label });
     const published = await inspectAtomicClaim({ fileSystem, lockPath, lockDownPath, platform, label });
     if (published?.fingerprint.dev !== metadata.dev || published?.fingerprint.ino !== metadata.ino ||
         !samePublication(published?.publication, ownerPublication)) {
@@ -667,12 +670,12 @@ async function removeAtomicClaim({ fileSystem, lockPath, expected, lockDownPath,
     try {
       await fileSystem.link(detachedPath, lockPath);
       await fileSystem.unlink(detachedPath);
-      await syncAtomicParent({ fileSystem, lockPath, label });
+      await syncAtomicParent({ fileSystem, lockPath, platform, label });
     } catch { /* Never replace a successor record when restoring a changed claim. */ }
     throw failure(label, "detected a changed", "RELMIO_LOCK_CHANGED");
   }
   await fileSystem.unlink(detachedPath);
-  await syncAtomicParent({ fileSystem, lockPath, label });
+  await syncAtomicParent({ fileSystem, lockPath, platform, label });
 }
 
 function ownFailedAtomicRelease(context, claim, path = context.lockPath) {

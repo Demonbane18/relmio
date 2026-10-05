@@ -72,7 +72,7 @@ export async function startCodexAppServerRelay({ host = "127.0.0.1", port = 4500
     response.writeHead(404); response.end();
   });
   const wsServer = new WebSocketServer({ noServer: true, maxPayload: MAX_LINE });
-  const clients = new Set();
+  const clients = new Map();
   const children = new Set();
   const pendingUpgrades = new Map();
   let quiescing = false;
@@ -115,7 +115,7 @@ export async function startCodexAppServerRelay({ host = "127.0.0.1", port = 4500
     } finally { pendingUpgrades.delete(socket); }
     if (socket.destroyed || quiescing) { socket.destroy(); return; }
     wsServer.handleUpgrade(request, socket, head, (ws) => {
-      clients.add(ws);
+      clients.set(ws, null);
       let child;
       try {
         child = spawnProcess("codex", appServerArgs, { cwd: "/workspace", shell: false, stdio: ["pipe", "pipe", "pipe"], windowsHide: true, env: { ...childEnv, ACCESS_TOKEN: lease.accessToken } });
@@ -146,6 +146,7 @@ export async function startCodexAppServerRelay({ host = "127.0.0.1", port = 4500
         }, 2000);
         killTimer.unref?.();
       };
+      clients.set(ws, close);
       const expiryMs = typeof lease.expiresAt === "number" ? lease.expiresAt : Date.parse(lease.expiresAt);
       // Existing sockets are not silently moved to a new child or replayed after expiry.
       const expiry = setTimeout(() => close(1012), Number.isFinite(expiryMs) ? Math.max(1, expiryMs - Date.now() - 30_000) : 1);
@@ -273,7 +274,8 @@ export async function startCodexAppServerRelay({ host = "127.0.0.1", port = 4500
   return { origin: `ws://127.0.0.1:${address.port}`, async close() {
     quiescing = true;
     for (const [socket, controller] of pendingUpgrades) { controller.abort(); socket.destroy(); }
-    for (const ws of clients) ws.terminate();
+    // Signal each owned child now instead of waiting for platform-ordered socket close events.
+    for (const [ws, closeConnection] of clients) { closeConnection?.(1001); ws.terminate(); }
     wsServer.close();
     await new Promise((resolve) => server.close(resolve));
   } };

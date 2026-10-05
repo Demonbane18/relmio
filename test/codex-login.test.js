@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { resolve, sep } from "node:path";
 import test from "node:test";
 import { runCodexSiwcCommand } from "../src/services/codex-login.js";
 
 const options = {
   target: "codex-chatgpt",
-  installRoot: "/private/relmio/local/codex-chatgpt",
+  // Production passes resolved native roots; a POSIX literal is not normalized on Windows.
+  installRoot: resolve("/private/relmio/local/codex-chatgpt"),
   dockerHost: "unix:///var/run/docker.sock",
   projectName: "relmio-codex-chatgpt-0123456789abcdef0123456789abcdef",
   registrationId: "registration_codex_test",
@@ -16,7 +18,7 @@ test("only a selected local Codex installation may run protected SIWC operations
   for (const invalid of [
     { target: "xai-grok-build" },
     { installRoot: "../codex-chatgpt" },
-    { installRoot: "/private/relmio/local/codex-chatgpt/../other" },
+    { installRoot: `${options.installRoot}${sep}..${sep}other` },
     { dockerHost: "tcp://attacker.example:2375" },
     { projectName: "relmio-codex-chat-0123456789abcdef0123456789abcdef" },
     { projectName: "relmio-codex-chatgpt-0123456789abcdef0123456789abcdef; docker stop n8n" },

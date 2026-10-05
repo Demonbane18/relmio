@@ -719,7 +719,9 @@ test("unexpected local n8n host publication stops only its service and preserves
     call.args.includes("n8n")), false);
 });
 
-test("generated credential initializer obeys root plus CHOWN-only ownership model", async t => {
+test("generated credential initializer obeys root plus CHOWN-only ownership model", {
+  skip: process.platform === "win32" && "the initializer runs only under the Linux container's /bin/sh",
+}, async t => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "relmio-seed-model-")));
   t.after(() => rm(root, { recursive: true, force: true }));
   const compose = createLocalN8nSidecarComposeFile({ installId, networkName: "owned-network", registrationId,

@@ -438,6 +438,11 @@ test('a holder delayed after the refresh freeze is fenced before token POST', as
   assert.equal(posts, 0);
   assert.equal(commits, 1);
   assert.equal((await readRegistration(source)).session.refreshUncertain, true);
+  // The deadline rejects the caller before the fenced holder settles; a waiting caller proves its lock is released.
+  await assert.rejects(getAccessToken(source, { runtimeId: 'local' }, {
+    fetchImpl: async () => { throw new Error('Frozen refresh must not replay.'); },
+  }), error => error.recovery === 'reauthorize');
+  await assert.rejects(fs.access(join(storageRoot, 'registrations', `${first.registrationId}.lock`)), { code: 'ENOENT' });
 });
 
 test('a monotonic deadline passed immediately before rename leaves the previous record intact', async t => {
@@ -467,6 +472,9 @@ test('a monotonic deadline passed immediately before rename leaves the previous 
   }), error => error.code === 'siwc_lock_deadline');
   assert.equal(commits, 0);
   assert.deepEqual(await fs.readFile(recordPath), before);
+  // The fenced holder settles after its caller; the intact record stays usable once its lock is released.
+  await setPlanEnabled(source, { enabled: true, expectedGeneration: first.generation });
+  await assert.rejects(fs.access(join(storageRoot, 'registrations', `${first.registrationId}.lock`)), { code: 'ENOENT' });
 });
 
 test('a paused atomic publication cannot restart the holder deadline before token work', async t => {
@@ -1438,11 +1446,16 @@ test('pending handoff metadata is token-free and does not create sender storage'
   assert.deepEqual(guard.writes, []);
 });
 
-test('symlink and insecure registration storage fail closed', async t => {
+test('symlinked registration storage fails closed', async t => {
   const storageRoot = await root(t);
   const outside = await root(t);
   await symlink(outside, join(storageRoot, 'registrations'));
   await assert.rejects(listRegistrations({ storageRoot }));
+});
+
+test('group- or world-accessible registration storage fails closed', {
+  skip: process.platform === 'win32' && 'NTFS has no POSIX mode bits; Windows storage is held to owner-only ACLs instead',
+}, async t => {
   const nested = await root(t);
   await mkdir(join(nested, 'registrations'), { mode: 0o700 });
   await chmod(join(nested, 'registrations'), 0o777);

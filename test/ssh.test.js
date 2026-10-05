@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, lstatSync } from "node:fs";
 import { mkdtemp, mkdir, lstat, link, open, readFile, rename, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
@@ -108,25 +108,26 @@ async function managedFixture(t) {
   });
   const local = remotePath => join(root, remotePath.slice(1));
   await mkdir(local("/docker/n8n-openai-oauth/services"), { recursive: true });
-  // Model GNU stat on this host using real inode metadata. SFTP v3 attrs omit
+  // The remote is attested Linux root storage. Model its permission bits from
+  // SFTP OPEN/FCHMOD/RENAME so the fake behaves the same on hosts without POSIX
+  // modes; file type, inode, link count and size stay real local metadata.
+  const modes = new Map();
+  const remoteMode = (remotePath, stat) =>
+    (stat.mode & constants.S_IFMT) | (modes.get(remotePath) ?? (stat.mode & 0o755));
+  // Model GNU stat in-process instead of through a host shell. SFTP v3 attrs omit
   // link count; UID 0 represents the attested remote root, not this test user.
-  const statCode = `
-    const {lstatSync}=require("node:fs"), {join}=require("node:path");
-    const [flag,format,separator,name]=process.argv.slice(1);
-    if(flag!=="-c"||format!=="%u:%f:%h:%s"||separator!=="--")process.exit(2);
-    try {
-      const s=lstatSync(join(${JSON.stringify(root)},name.slice(1)));
-      process.stdout.write("0:"+s.mode.toString(16)+":"+s.nlink+":"+s.size+"\\n");
-    } catch {process.exit(1)}
-  `;
-  const client = new BoundaryClient({ execute: command => processChannel(
-    command.replace("/usr/bin/stat", `${quoteShell(process.execPath)} -e ${quoteShell(statCode)} --`),
-  ) });
+  const client = new BoundaryClient({ execute: command => {
+    const name = /^\/usr\/bin\/stat -c '%u:%f:%h:%s' -- '([^']+)'$/u.exec(command)?.[1];
+    if (!name) return processChannel(command);
+    let stat;
+    try { stat = lstatSync(local(name)); } catch { return resultChannel({ code: 1, stdout: "" }); }
+    return resultChannel({ code: 0, stdout: `0:${remoteMode(name, stat).toString(16)}:${stat.nlink}:${stat.size}\n` });
+  } });
   const calls = [];
   const channel = {
     end() { calls.push(["end"]); },
     lstat(remotePath, done) {
-      lstat(local(remotePath)).then(stat => done(null, { mode: stat.mode, uid: 0, size: stat.size }), done);
+      lstat(local(remotePath)).then(stat => done(null, { mode: remoteMode(remotePath, stat), uid: 0, size: stat.size }), done);
     },
     open(remotePath, flags, attrs, done) {
       calls.push(["open", remotePath, flags, attrs.mode]);
@@ -134,9 +135,11 @@ async function managedFixture(t) {
       assert.equal(flags & 0x10, 0);
       const handle = Buffer.from(remotePath);
       open(local(remotePath), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, attrs.mode)
-        .then(file => { handles.set(handle, file); done(null, handle); }, done);
+        .then(file => { handles.set(handle, file); modes.set(remotePath, attrs.mode & 0o7777); done(null, handle); }, done);
     },
-    fchmod(handle, mode, done) { handles.get(handle).chmod(mode).then(() => done(), done); },
+    fchmod(handle, mode, done) {
+      handles.get(handle).chmod(mode).then(() => { modes.set(handle.toString(), mode & 0o7777); done(); }, done);
+    },
     write(handle, bytes, offset, length, position, done) {
       calls.push(["write", length, position]);
       handles.get(handle).write(bytes, offset, length, position).then(() => done(), done);
@@ -151,13 +154,17 @@ async function managedFixture(t) {
     },
     ext_openssh_rename(from, to, done) {
       calls.push(["rename", from, to]);
-      rename(local(from), local(to)).then(() => done(), done);
+      rename(local(from), local(to)).then(() => {
+        modes.set(to, modes.get(from));
+        modes.delete(from);
+        done();
+      }, done);
     },
     writeFile() { assert.fail("Managed publication must never use truncating writeFile."); },
     rename() { assert.fail("Managed publication requires the OpenSSH atomic rename extension."); },
   };
   client.sftp = callback => callback(null, Object.assign(new EventEmitter(), channel));
-  return { client, channel, calls, root, local };
+  return { client, channel, calls, root, local, modeOf: remotePath => modes.get(remotePath) };
 }
 
 test("fingerprint comparison pins the SSH host before commands", async () => {
@@ -447,7 +454,7 @@ test("reviewed publication validates root privilege, paths, payloads and deadlin
 });
 
 test("reviewed publication stages exclusively, fsyncs and atomically replaces only the destination inode", async t => {
-  const { client, calls, local } = await managedFixture(t);
+  const { client, calls, local, modeOf } = await managedFixture(t);
   const target = "/docker/n8n-openai-oauth/docker-compose.yml";
   await writeFile(local(target), "old");
   const before = await lstat(local(target));
@@ -459,7 +466,7 @@ test("reviewed publication stages exclusively, fsyncs and atomically replaces on
   assert.equal(dirname(staged), dirname(target));
   assert.notEqual(staged, target);
   assert.notEqual((await lstat(local(target))).ino, before.ino);
-  assert.equal((await lstat(local(target))).mode & 0o777, 0o644);
+  assert.equal(modeOf(target), 0o644);
   assert.deepEqual(await readFile(local(target)), payload);
   assert.equal(calls.filter(([call]) => call === "open").length, 1);
   assert.equal(calls.filter(([call]) => call === "rename").length, 1);

@@ -193,7 +193,10 @@ test("relay shutdown closes active sockets and terminates their owned children",
   const socket = await connect(relay.origin);
   t.after(() => socket.terminate());
   const closed = once(socket, "close");
-  await relay.close();
+  const closing = relay.close();
+  // Shutdown signals owned children itself; socket close-event order differs by platform.
+  assert.deepEqual(fixture.children[0].signals, ["SIGTERM"]);
+  await closing;
   await closed;
   assert.deepEqual(fixture.children[0].signals, ["SIGTERM"]);
   assert.equal(fixture.children[0].messages.length, 0);
