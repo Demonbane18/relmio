@@ -14,7 +14,7 @@ import {
   createVerificationCommands,
 } from "../src/domain/safety.js";
 import {
-  changeVpsCodexImages, getVpsCodexImagesStatus,
+  changeVpsCodexImages, changeVpsModelChecks, getVpsCodexImagesStatus, getVpsModelDiscovery,
   getVpsSiwcInstallationStatus, installSidecar,
   inspectStoppedVpsSiwcInstallation, manageVpsSiwcInstallation,
   reviewVpsSiwcReplacement, reviewVpsLegacyMigration, reviewVpsSiwcTarget,
@@ -233,6 +233,7 @@ function fakeRemote({ destinationRoot, rejectAccept = false, managed = false, le
       if (command.includes("/app/services/codex-images.mjs ")) {
         return faults.images?.(command) ?? { code: 0, stdout: JSON.stringify({ state: "off" }) };
       }
+      if (command.includes("/app/services/model-discovery.mjs ")) return faults.models?.(command) ?? { code: 1, stdout: "" };
       if (command === verification.signOut) return cli("sign-out", input);
       if (command === verification.disablePlan) return cli("disable-plan", input);
       if (command === verification.enablePlan) return cli("enable-plan", input);
@@ -1341,6 +1342,16 @@ const imageRuns = remote => remote.commands.map(item => item.command)
   .filter(command => command.includes("/app/services/codex-images.mjs "));
 const LOCK_ACQUIRE = "&& mkdir /docker/n8n-openai-oauth/.openai-oauth-operation.lock &&";
 const LOCK_RELEASE = "rmdir /docker/n8n-openai-oauth/.openai-oauth-operation.lock";
+const modelRuns = remote => remote.commands.map(item => item.command)
+  .filter(command => command.includes("/app/services/model-discovery.mjs "));
+const modelView = {
+  checksEnabled: false, clientVersion: "0.160.1", catalogCheckedAt: "2026-10-06T12:00:00.000Z",
+  models: [
+    { id: "gpt-6.1-sol", display_name: "GPT-6.1 Sol", state: "unchecked", listed: true },
+    { id: "gpt-6-luna", display_name: "GPT-6 Luna", state: "verified", listed: true, checkedAt: "2026-10-06T11:00:00.000Z" },
+    { id: "gpt-6-sol", display_name: "gpt-6-sol", state: "failed", listed: false, checkedAt: "2026-10-06T11:30:00.000Z" },
+  ],
+};
 
 test("Codex image status attests the running owner, keeps only known fields and reports an older sidecar", async t => {
   const { remote, scope } = await installedOwner(t);
@@ -1451,53 +1462,205 @@ test("Codex image changes refuse missing confirmation, a changed sidecar or a he
   for (const error of [disabled, generic]) assert.equal(error.message.includes("remote text"), false);
 });
 
-test("SIWC sign-out first signs out of Codex images best effort; pausing plan use keeps them", async t => {
+test("SIWC sign-out first signs out of Codex images and turns model checks off best effort; pausing plan use keeps both", async t => {
   const verification = createVerificationCommands();
-  for (const images of [
-    () => ({ code: 0, stdout: JSON.stringify({ state: "off", revocation: "confirmed" }) }),
-    () => ({ code: 1, stdout: "Error: Cannot find module '/app/services/codex-images.mjs'" }),
-    () => { throw new Error("channel lost while printing private-images-output"); },
+  for (const [images, models] of [
+    [() => ({ code: 0, stdout: JSON.stringify({ state: "off", revocation: "confirmed" }) }),
+      () => ({ code: 0, stdout: JSON.stringify(modelView) })],
+    [() => ({ code: 1, stdout: "Error: Cannot find module '/app/services/codex-images.mjs'" }),
+      () => ({ code: 1, stdout: "Error: Cannot find module '/app/services/model-discovery.mjs'" })],
+    [() => { throw new Error("channel lost while printing private-images-output"); },
+      () => { throw new Error("channel lost while printing private-models-output"); }],
   ]) {
     const { remote, scope } = await installedOwner(t);
-    remote.faults.images = images;
+    Object.assign(remote.faults, { images, models });
     const { account } = await getVpsSiwcInstallationStatus(scope);
     const start = remote.commands.length;
     const result = await manageVpsSiwcInstallation({ ...scope, action: "sign-out",
       expectedGeneration: account.generation, confirmed: true });
     assert.equal(result.account.session, "signed-out");
-    assert.equal(JSON.stringify(result).includes("private-images-output"), false);
+    assert.equal(JSON.stringify(result).includes("private-"), false);
     const commands = remote.commands.slice(start).map(item => item.command);
     assert.deepEqual(commands.filter(command => command.includes("/app/services/codex-images.mjs ")), [verification.imagesSignOut]);
+    assert.deepEqual(commands.filter(command => command.includes("/app/services/model-discovery.mjs ")), [verification.modelChecksOff]);
     assert.ok(commands.indexOf(verification.imagesSignOut) < commands.indexOf(verification.stop));
+    assert.ok(commands.indexOf(verification.modelChecksOff) < commands.indexOf(verification.stop));
   }
   const { remote, scope } = await installedOwner(t);
   const { account } = await getVpsSiwcInstallationStatus(scope);
-  const runs = imageRuns(remote).length;
+  const runs = imageRuns(remote).length + modelRuns(remote).length;
   const paused = await manageVpsSiwcInstallation({ ...scope, action: "disable-plan",
     expectedGeneration: account.generation, confirmed: true });
   assert.equal(paused.runtimeStopped, true);
-  assert.equal(imageRuns(remote).length, runs);
+  assert.equal(imageRuns(remote).length + modelRuns(remote).length, runs);
 });
 
-test("adding the image module makes an installed sidecar's runtime update available and ships it", async t => {
-  const { registration, destinationRoot, authBinding } = await fixture(t);
-  const { remote, reviewedTarget } = fakeRemote({ destinationRoot });
-  const imagesPath = "services/codex-images.mjs";
-  const older = { async collectAssets() {
-    const assets = await collectSiwcRuntimeAssets();
-    return { ...assets, files: assets.files.filter(file => file.path !== imagesPath) };
-  } };
-  await installSidecar({ remote, networkName: "proxy", registration,
-    authBinding, reviewedTarget, backgroundConsent, confirmed: true }, older);
-  assert.equal(remote.files.has(`${INSTALL_ROOT}/${imagesPath}`), false);
-  const scope = { remote, networkName: "proxy", reviewedTarget, registrationId };
-  assert.equal((await getVpsSiwcInstallationStatus(scope, older)).runtimeUpdateAvailable, false);
-  assert.equal((await getVpsSiwcInstallationStatus(scope)).runtimeUpdateAvailable, true);
-  const review = await reviewVpsSiwcRuntimeUpdate(scope);
-  assert.ok(review.changedFiles.includes(imagesPath));
-  assert.equal(review.rebuildRequired, true);
-  await updateVpsSiwcRuntime({ ...scope, review, confirmed: true });
-  const shipped = (await collectSiwcRuntimeAssets()).files.find(file => file.path === imagesPath);
-  assert.deepEqual(remote.files.get(`${INSTALL_ROOT}/${imagesPath}`), shipped.contents);
-  assert.equal((await getVpsSiwcInstallationStatus(scope)).runtimeUpdateAvailable, false);
+for (const modulePath of ["services/codex-images.mjs", "services/model-discovery.mjs"]) {
+  test(`an installed sidecar without ${modulePath} stays manageable and its runtime update ships the module`, async t => {
+    const { registration, destinationRoot, authBinding } = await fixture(t);
+    const { remote, reviewedTarget } = fakeRemote({ destinationRoot });
+    const older = { async collectAssets() {
+      const assets = await collectSiwcRuntimeAssets();
+      return { ...assets, files: assets.files.filter(file => file.path !== modulePath) };
+    } };
+    await installSidecar({ remote, networkName: "proxy", registration,
+      authBinding, reviewedTarget, backgroundConsent, confirmed: true }, older);
+    assert.equal(remote.files.has(`${INSTALL_ROOT}/${modulePath}`), false);
+    const scope = { remote, networkName: "proxy", reviewedTarget, registrationId };
+    assert.equal((await getVpsSiwcInstallationStatus(scope, older)).runtimeUpdateAvailable, false);
+    assert.equal((await getVpsSiwcInstallationStatus(scope)).runtimeUpdateAvailable, true);
+    const review = await reviewVpsSiwcRuntimeUpdate(scope);
+    assert.ok(review.changedFiles.includes(modulePath));
+    assert.equal(review.rebuildRequired, true);
+    await updateVpsSiwcRuntime({ ...scope, review, confirmed: true });
+    const shipped = (await collectSiwcRuntimeAssets()).files.find(file => file.path === modulePath);
+    assert.deepEqual(remote.files.get(`${INSTALL_ROOT}/${modulePath}`), shipped.contents);
+    assert.equal((await getVpsSiwcInstallationStatus(scope)).runtimeUpdateAvailable, false);
+  });
+}
+
+test("model discovery status attests the running owner, keeps only known fields and reports an older sidecar", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  const { containerId } = await reviewVpsSiwcReplacement(scope);
+  const lastRun = { checked: 3, verified: 1, failed: 1, stoppedReason: "usage_limit" };
+  remote.faults.models = command => command === verification.modelsDiscoveryStatus
+    ? { code: 0, stdout: JSON.stringify({ ...modelView, accessToken: "fake-models-access",
+      lastRun: { ...lastRun, message: "fake-models-access" },
+      models: modelView.models.map(model => ({ ...model, upstream: "fake-models-access" })) }) }
+    : { code: 1, stdout: "" };
+  const status = await getVpsModelDiscovery(scope);
+  assert.deepEqual(status, { state: "available", ...modelView, lastRun, containerId });
+  assert.equal(JSON.stringify(status).includes("fake-models-access"), false);
+  // The SSH deadline must outlast the CLI's own 60 s status deadline.
+  assert.ok(remote.commands.findLast(item => item.command === verification.modelsDiscoveryStatus).timeoutMs > 60_000);
+  const model = modelView.models[1];
+  for (const view of [
+    modelView,
+    { checksEnabled: true, clientVersion: "0.160.0", catalogCheckedAt: null, catalogError: "catalog_unavailable", models: [] },
+    { checksEnabled: false, clientVersion: "0.160.0", catalogCheckedAt: null, catalogError: "registration_unavailable", models: [] },
+    { ...modelView, catalogCheckedAt: null, models: [], lastRun: { checked: 0, verified: 0, failed: 0 } },
+    { ...modelView, lastRun: { checked: 1, verified: 0, failed: 0, stoppedReason: "lease_unavailable" } },
+    { ...modelView, models: Array.from({ length: 64 }, (_, index) => ({ ...model, id: `model-${index}` })) },
+  ]) {
+    remote.faults.models = () => ({ code: 0, stdout: JSON.stringify({ ...view, padding: "x".repeat(100 * 1024) }) });
+    assert.deepEqual(await getVpsModelDiscovery(scope), { state: "available", ...view, containerId });
+  }
+  for (const stdout of ["", "Error: Cannot find module '/app/services/model-discovery.mjs'",
+    JSON.stringify(modelView), JSON.stringify({ error: "Not A Code", message: "remote text" })]) {
+    remote.faults.models = () => ({ code: 1, stdout });
+    assert.deepEqual(await getVpsModelDiscovery(scope), { state: "unavailable", containerId });
+  }
+  remote.faults.models = () => ({ code: 1, stdout: JSON.stringify({ error: "store_unsafe", message: "remote text" }) });
+  await assert.rejects(getVpsModelDiscovery(scope),
+    error => error.code === "store_unsafe" && !error.message.includes("remote text"));
+  for (const output of [
+    "not json", null, [], { state: "unavailable" }, { error: "store_busy" },
+    { ...modelView, checksEnabled: "false" }, { ...modelView, clientVersion: "0.160.1; id" },
+    { ...modelView, clientVersion: 160 }, { ...modelView, catalogCheckedAt: undefined },
+    { ...modelView, catalogCheckedAt: "yesterday" }, { ...modelView, catalogError: "busy" },
+    { ...modelView, catalogError: null }, { ...modelView, lastRun: null }, { ...modelView, lastRun: [] },
+    { ...modelView, lastRun: { ...lastRun, checked: -1 } }, { ...modelView, lastRun: { ...lastRun, verified: 65 } },
+    { ...modelView, lastRun: { ...lastRun, failed: 1.5 } }, { ...modelView, lastRun: { ...lastRun, checked: "3" } },
+    { ...modelView, lastRun: { ...lastRun, failed: undefined } },
+    { ...modelView, lastRun: { ...lastRun, stoppedReason: "network_error" } },
+    { ...modelView, lastRun: { ...lastRun, stoppedReason: null } },
+    { ...modelView, models: {} }, { ...modelView, models: [null] }, { ...modelView, models: [{ ...model, id: "../auth" }] },
+    { ...modelView, models: [{ ...model, id: "gpt\nid" }] }, { ...modelView, models: [{ ...model, id: undefined }] },
+    { ...modelView, models: [{ ...model, display_name: "x".repeat(257) }] },
+    { ...modelView, models: [{ ...model, display_name: undefined }] },
+    { ...modelView, models: [{ ...model, state: "ready" }] }, { ...modelView, models: [{ ...model, checkedAt: "soon" }] },
+    { ...modelView, models: [{ ...model, listed: undefined }] }, { ...modelView, models: [{ ...model, listed: "true" }] },
+    { ...modelView, models: Array.from({ length: 65 }, (_, index) => ({ ...model, id: `model-${index}` })) },
+    { ...modelView, padding: "x".repeat(128 * 1024) },
+  ]) {
+    remote.faults.models = () => ({ code: 0, stdout: typeof output === "string" ? output : JSON.stringify(output) });
+    await assert.rejects(getVpsModelDiscovery(scope), /invalid attestation/u, JSON.stringify(output)?.slice(0, 120));
+  }
+  remote.faults.models = () => ({ code: 0, stdout: JSON.stringify(modelView) });
+  const runs = modelRuns(remote).length;
+  await assert.rejects(getVpsModelDiscovery({ ...scope, registrationId: "registration_other" }));
+  await assert.rejects(getVpsModelDiscovery({ ...scope, registrationId: "../auth" }));
+  const { account } = await getVpsSiwcInstallationStatus(scope);
+  await manageVpsSiwcInstallation({ ...scope, action: "disable-plan",
+    expectedGeneration: account.generation, confirmed: true });
+  await assert.rejects(getVpsModelDiscovery(scope));
+  assert.equal(modelRuns(remote).length, runs);
+});
+
+test("model check changes run only their fixed command while holding the OAuth operation lock", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  const { containerId } = await reviewVpsSiwcReplacement(scope);
+  const outputs = {
+    [verification.modelChecksOn]: { ...modelView, checksEnabled: true,
+      lastRun: { checked: 2, verified: 1, failed: 1, stoppedReason: "time_limit" } },
+    [verification.modelChecksOff]: modelView,
+  };
+  remote.faults.models = command => ({ code: 0, stdout: JSON.stringify(outputs[command]) });
+  for (const [enabled, key] of [[true, "modelChecksOn"], [false, "modelChecksOff"]]) {
+    const start = remote.commands.length;
+    const result = await changeVpsModelChecks({ ...scope, enabled, expectedContainerId: containerId, confirmed: true });
+    assert.deepEqual(result, { state: "available", ...outputs[verification[key]], containerId });
+    const commands = remote.commands.slice(start).map(item => item.command);
+    assert.deepEqual(commands.filter(command => command.includes("/app/services/model-discovery.mjs ")), [verification[key]]);
+    const acquired = commands.findIndex(command => command.includes(LOCK_ACQUIRE));
+    const ran = commands.indexOf(verification[key]);
+    const released = commands.findIndex(command => command.endsWith(LOCK_RELEASE));
+    assert.ok(acquired >= 0 && acquired < ran && ran < released, key);
+    // An SSH timeout keeps the lock held, so checks-on must outlast the CLI's own 180 s deadline.
+    const { timeoutMs } = remote.commands.slice(start).find(item => item.command === verification[key]);
+    assert.ok(Number.isInteger(timeoutMs) && timeoutMs > (enabled ? 180_000 : 0), key);
+  }
+});
+
+test("model check changes refuse missing confirmation, a changed sidecar or a held lock before running", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  const { containerId } = await reviewVpsSiwcReplacement(scope);
+  remote.faults.models = () => ({ code: 0, stdout: JSON.stringify(modelView) });
+  const change = fields => changeVpsModelChecks({
+    ...scope, enabled: true, expectedContainerId: containerId, confirmed: true, ...fields,
+  });
+  const before = remote.commands.length;
+  for (const fields of [
+    { confirmed: false }, { confirmed: "yes" }, { enabled: "true" }, { enabled: undefined },
+    { expectedContainerId: "short" }, { registrationId: "../auth" },
+    { reviewedTarget: { ...scope.reviewedTarget, fingerprint: "SHA256:other" } },
+  ]) await assert.rejects(change(fields));
+  assert.equal(remote.commands.length, before);
+  for (const enabled of [true, false]) {
+    await assert.rejects(change({ enabled, expectedContainerId: "f".repeat(64) }), /changed/u);
+    await assert.rejects(change({ enabled, registrationId: "registration_other" }));
+  }
+  const exec = remote.exec.bind(remote);
+  remote.exec = async (command, options) => {
+    const result = await exec(command, options);
+    return command === verification.ownerContainer ? { ...result, stdout: JSON.stringify({
+      ...JSON.parse(result.stdout), State: { Running: false, Paused: false } }) } : result;
+  };
+  for (const enabled of [true, false]) await assert.rejects(change({ enabled }));
+  remote.exec = async (command, options) => command.includes(LOCK_ACQUIRE)
+    ? { code: 1, stdout: "" } : exec(command, options);
+  for (const enabled of [true, false]) await assert.rejects(change({ enabled }));
+  remote.exec = exec;
+  assert.deepEqual(modelRuns(remote), []);
+  assert.equal((await change({ enabled: false })).state, "available");
+  const failure = async stdout => {
+    remote.faults.models = () => ({ code: 1, stdout });
+    return change({}).then(() => assert.fail("the change must fail"), caught => caught);
+  };
+  const older = await failure("Error: Cannot find module '/app/services/model-discovery.mjs'");
+  assert.equal(older.code, undefined);
+  const generic = await failure(JSON.stringify({ error: "unknown_step", message: "remote text must not leak" }));
+  assert.equal(generic.code, "unknown_step");
+  const known = [];
+  for (const code of ["invalid_command", "invalid_configuration", "store_unsafe", "store_busy", "discovery_failed"]) {
+    const error = await failure(JSON.stringify({ error: code, message: "remote text must not leak" }));
+    assert.equal(error.code, code);
+    assert.notEqual(error.message, generic.message, `${code} gets its own local explanation`);
+    known.push(error);
+  }
+  assert.equal((await failure(JSON.stringify({ error: "__proto__" }))).message, generic.message);
+  for (const error of [older, generic, ...known]) assert.equal(error.message.includes("remote text"), false);
 });

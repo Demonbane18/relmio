@@ -47,7 +47,8 @@ const ASSET_PATHS = new Set([
   "gateway/openai-oauth-sidecar.mjs", "gateway/codex-chat.js",
   "gateway/codex-app-server.mjs", "services/siwc-session.mjs",
   "services/siwc-handoff.mjs", "infrastructure/local-process.js",
-  "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "infrastructure/process-identity.js",
+  "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "services/model-discovery.mjs",
+  "infrastructure/process-identity.js",
 ]);
 
 const DOCKER_ID = /^[a-f0-9]{64}$/u;
@@ -1416,9 +1417,10 @@ export async function manageVpsSiwcInstallation({
     }
     await reattestReviewedTarget(remote, reviewedTarget);
     if (action === "sign-out") {
-      // Best effort while the sidecar still runs: a later account on this store must not inherit the
-      // image sign-in. A sidecar from before the add-on has no image module, so every outcome is ignored.
+      // Best effort while the sidecar still runs: a later sign-in on this store must not inherit the image
+      // sign-in or model checks. A sidecar from before an add-on lacks its module, so every outcome is ignored.
       await remote.exec(verification.imagesSignOut, { timeoutMs: 90_000 }).catch(() => {});
+      await remote.exec(verification.modelChecksOff, { timeoutMs: 90_000 }).catch(() => {});
     }
     await runOrThrow(remote, verification.stop, "Owned sidecar stop");
     const running = await runOrThrow(remote, verification.runningService, "Owned sidecar stopped check");
@@ -1562,6 +1564,105 @@ export async function changeVpsCodexImages({
           container.State?.Running !== true || container.Image !== imageId) throw new Error(CODEX_IMAGES_CHANGED);
     }
     return { ...await runCodexImagesCommand(remote, command), containerId: expectedContainerId };
+  });
+}
+
+const MODEL_STATES = new Set(["verified", "failed", "unchecked"]);
+const MODEL_SLUG = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u;
+const CATALOG_ERRORS = new Set(["catalog_unavailable", "registration_unavailable"]);
+const STOPPED_REASONS = new Set(["usage_limit", "reauthorize", "probe_rejected", "checks_off", "time_limit",
+  "lease_unavailable"]);
+const MODEL_DISCOVERY_FAILED = "The model list step failed. Check models again.";
+// Local text for the CLI's error codes; the remote message itself never leaves here.
+const MODEL_DISCOVERY_ERRORS = new Map([
+  ["invalid_command", "The installed sidecar doesn't support this model command. Update the sidecar, then try again."],
+  ["invalid_configuration", "The installed sidecar's configuration is invalid. Review the installed sidecar."],
+  ["store_unsafe", "The sidecar's model check record is unsafe. An administrator must inspect it."],
+  ["store_busy", "The sidecar's model check record is busy. Try again in a minute."],
+  ["discovery_failed", "Model discovery failed on the sidecar. Try again."],
+]);
+const isoTime = value => typeof value === "string" && !Number.isNaN(Date.parse(value)) &&
+  new Date(value).toISOString() === value;
+const runCount = value => Number.isInteger(value) && value >= 0 && value <= 64;
+const invalidModelStatus = () => new Error("Model discovery returned invalid attestation.");
+
+function copyModelRun(run) {
+  if (!runCount(run?.checked) || !runCount(run.verified) || !runCount(run.failed) ||
+      (run.stoppedReason !== undefined && !STOPPED_REASONS.has(run.stoppedReason))) throw invalidModelStatus();
+  const { checked, verified, failed, stoppedReason } = run;
+  return { checked, verified, failed, ...(stoppedReason === undefined ? {} : { stoppedReason }) };
+}
+
+function copyModelRow(model) {
+  const { id, display_name, state, listed, checkedAt } = model ?? {};
+  if (typeof id !== "string" || !MODEL_SLUG.test(id) || typeof display_name !== "string" ||
+      display_name.length > 256 || !MODEL_STATES.has(state) || typeof listed !== "boolean" ||
+      (checkedAt !== undefined && !isoTime(checkedAt))) throw invalidModelStatus();
+  return { id, display_name, state, listed, ...(checkedAt === undefined ? {} : { checkedAt }) };
+}
+
+// Only the status view's known fields leave here.
+function copyModelStatus(output) {
+  const { checksEnabled, clientVersion, catalogCheckedAt, catalogError, lastRun, models } = output ?? {};
+  if (typeof checksEnabled !== "boolean" || typeof clientVersion !== "string" ||
+      !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/u.test(clientVersion) ||
+      (catalogCheckedAt !== null && !isoTime(catalogCheckedAt)) ||
+      (catalogError !== undefined && !CATALOG_ERRORS.has(catalogError)) ||
+      !Array.isArray(models) || models.length > 64) throw invalidModelStatus();
+  return {
+    state: "available", checksEnabled, clientVersion, catalogCheckedAt,
+    ...(catalogError === undefined ? {} : { catalogError }),
+    ...(lastRun === undefined ? {} : { lastRun: copyModelRun(lastRun) }),
+    models: models.map(model => copyModelRow(model)),
+  };
+}
+
+// The model CLI prints one JSON line; stderr and remote messages never leave here.
+async function runModelDiscoveryCommand(remote, command, { timeoutMs, allowUnavailable = false }) {
+  const result = await remote.exec(command, { timeoutMs });
+  let output;
+  try { output = parseHandoffOutput(result.stdout, "Model discovery", 128 * 1024); }
+  catch { /* Classified below by exit code. */ }
+  if (result.code === 0) return copyModelStatus(output);
+  if (typeof output?.error === "string" && /^[a-z_]{1,64}$/u.test(output.error)) {
+    throw Object.assign(new Error(MODEL_DISCOVERY_ERRORS.get(output.error) ?? MODEL_DISCOVERY_FAILED),
+      { code: output.error });
+  }
+  // A sidecar built before model discovery has no module to run.
+  if (allowUnavailable) return { state: "unavailable" };
+  throw new Error(MODEL_DISCOVERY_FAILED);
+}
+
+export async function getVpsModelDiscovery({ remote, networkName, reviewedTarget, registrationId }) {
+  validateSiwcRegistrationId(registrationId);
+  const verification = createVerificationCommands();
+  assertSidecarOnlyCommands(Object.values(verification));
+  const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
+  if (owner.registrationId !== registrationId || !owner.running) {
+    throw new Error("The installed SIWC sidecar is not running for the reviewed account.");
+  }
+  return { ...await runModelDiscoveryCommand(remote, verification.modelsDiscoveryStatus,
+    { timeoutMs: 90_000, allowUnavailable: true }), containerId: owner.containerId };
+}
+
+export async function changeVpsModelChecks({
+  remote, networkName, reviewedTarget, registrationId, enabled, expectedContainerId, confirmed,
+}) {
+  if (confirmed !== true) throw new Error("Confirm the model check change for this server.");
+  if (typeof enabled !== "boolean") throw new TypeError("The model check setting is invalid.");
+  validateSiwcRegistrationId(registrationId);
+  if (!DOCKER_ID.test(expectedContainerId)) throw new TypeError("The reviewed sidecar container is invalid.");
+  validateReviewedTarget(remote, reviewedTarget, networkName);
+  const verification = createVerificationCommands();
+  const command = enabled ? verification.modelChecksOn : verification.modelChecksOff;
+  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, ...Object.values(verification)]);
+  return withVpsOperationLock(remote, VPS_OPERATION_LOCKS.oauth, async () => {
+    const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
+    if (owner.registrationId !== registrationId || !owner.running ||
+        owner.containerId !== expectedContainerId) throw new Error("The installed sidecar changed. Check models again.");
+    // checks-on probes up to 12 models within the CLI's own 180 s deadline; the SSH deadline outlasts it.
+    return { ...await runModelDiscoveryCommand(remote, command, { timeoutMs: enabled ? 360_000 : 90_000 }),
+      containerId: expectedContainerId };
   });
 }
 

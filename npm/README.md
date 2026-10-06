@@ -303,9 +303,21 @@ API key: <one-time Relmio bearer shown by the wizard>
 Use Responses API: On
 ```
 
-Relmio sends supported requests to `/v1/responses`. OpenAI filters the model
-catalog by an undocumented `client_version` parameter, so Relmio sends its
-pinned Codex version (0.160.0). OpenAI could change this behavior. The
+The sidecar lists the selected account's text models. OpenAI filters its
+catalog by an undocumented `client_version` parameter, so the sidecar asks as
+the newest stable Codex release on npm, never below Relmio's pin (0.160.0). It
+checks npm about every 12 hours, when n8n next asks for models. That
+request sends no credentials; `registry.npmjs.org` sees the sidecar host's IP
+address. The catalog is cached for 5 minutes. Local Codex clients and the
+wizard's pre-install account picker still use the pin.
+
+On a VPS, **Check installed account** also shows a Models group: each model
+says **In n8n** or **Not in n8n** and has **Copy ID**. Optional model checks
+send one short test request per new model, use a little of your plan, and
+need your confirmation. They are off by default. See
+[model discovery and checks](https://github.com/Demonbane18/relmio/blob/main/docs/n8n-configuration.md#model-discovery-and-checks).
+
+Relmio sends supported requests to `/v1/responses`. The
 `/v1/chat/completions` compatibility route translates text messages and
 function tools into a Responses request. Function tools go upstream in one
 `additional_tools` item, and n8n runs the tools itself. The route allows up to
@@ -324,8 +336,9 @@ On a VPS you can turn on image generation and editing as an opt-in add-on. In
 **Manage the installed ChatGPT session**, choose **Check installed account**,
 then **Sign in for images**, and enter the code at
 `https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's
-**Image** actions with the same Base URL and Relmio key, and enter the model
-ID `gpt-image-2`. The add-on uses a separate Codex sign-in, the way Hermes
+**Image** actions with the same Base URL and Relmio key, and pick
+`gpt-image-2` from the list or enter it as the ID. The add-on uses a separate
+Codex sign-in, the way Hermes
 Agent does. OpenAI does not document this route for other apps, so it can stop
 working without notice. Images count against your plan's Codex limits, and the
 Codex refresh token is stored on the VPS. The ChatGPT plan session is never
@@ -333,6 +346,22 @@ used for images. Each request returns one image; masks and URL responses are
 not supported. The local sidecar has no image sign-in. See
 [Turn on image generation](https://github.com/Demonbane18/relmio/blob/main/docs/vps-and-n8n.md#turn-on-image-generation-optional)
 for limits and sign-out.
+
+The OpenAI Chat Model node (v1.2 and newer) and Chat Hub do not list
+`gpt-image-2`. The OpenAI node's text picker still does, because it shares one
+model request with the image picker; use that ID only for images. A 2026-10-06
+test showed the Codex image route ignores the model ID, so GPT Image 2.5 Flare
+and Sunburst need a separate OpenAI credential with your own Platform API key
+on n8n's image node. See
+[image limits and test evidence](https://github.com/Demonbane18/relmio/blob/main/docs/n8n-configuration.md#generate-and-edit-images-vps-add-on).
+
+n8n's AI Assistant cannot list sidecar models. To try one, choose
+**Self-hosted or OpenAI-compatible endpoint** in its settings, use the same
+Base URL and Relmio key, and paste a model ID. Only do this if nobody else uses
+this n8n: their Assistant chats would use your ChatGPT plan. Relmio has not
+tested the Assistant with this sidecar, and OpenAI has not said whether this
+use fits its Sign in with ChatGPT terms. See
+[Assistant setup](https://github.com/Demonbane18/relmio/blob/main/docs/ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
 
 Installing for n8n also requires express consent for background workflows.
 Relmio does not edit n8n's credentials or Compose configuration. Existing

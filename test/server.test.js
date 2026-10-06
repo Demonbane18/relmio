@@ -2,6 +2,7 @@ import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 
 import { ASSISTANT_COMPANION_IMAGES } from "../src/domain/assistant-templates.js";
 import { startIsolatedWizard as startWizardServer, siwcAccount, siwcInstallResult } from "./helpers/siwc-wizard.js";
@@ -3325,8 +3326,19 @@ const imagesAccount = Object.freeze({ email: "images@example.test", planType: "p
   accountId: "must-not-leak-account", accessToken: "must-not-leak-access" });
 const imagesSecrets = Object.freeze({ accessToken: "must-not-leak-access", refreshToken: "must-not-leak-refresh",
   containerId: imagesContainerId });
+const modelsView = Object.freeze({ state: "available", checksEnabled: false, clientVersion: "0.160.1",
+  catalogCheckedAt: "2026-10-06T12:00:00.000Z", models: [
+    { id: "gpt-6-sol", display_name: "GPT-6 Sol", state: "verified", listed: true, checkedAt: "2026-10-06T11:58:00.000Z" },
+    { id: "gpt-6.1-sol", display_name: "GPT-6.1 Sol", state: "failed", listed: false, checkedAt: "2026-10-06T11:59:00.000Z" },
+    { id: "gpt-6-luna", display_name: "GPT-6 Luna", state: "unchecked", listed: true },
+  ] });
+const modelsCatalogDown = Object.freeze({ state: "available", checksEnabled: true, clientVersion: "0.160.1",
+  catalogCheckedAt: null, catalogError: "catalog_unavailable", models: [] });
+const modelsRun = Object.freeze({ checked: 3, verified: 1, failed: 1, stoppedReason: "usage_limit" });
+const modelsResult = (overrides = {}) => ({ ...imagesSecrets, ...modelsView,
+  models: modelsView.models.map((model) => ({ ...model, accessToken: "must-not-leak-model" })), ...overrides });
 
-async function startImagesWizard(t, services) {
+async function startOwnerAddonWizard(t, services) {
   const fixture = createServices();
   const account = { ...siwcAccount, ownerRuntimeId: "vps_n8n" };
   fixture.services.getVpsSiwcInstallationStatus = async () => ({ state: "owned", registrationId: account.registrationId,
@@ -3343,14 +3355,16 @@ async function startImagesWizard(t, services) {
   };
   const checkImages = () => post("/api/siwc/vps/images/status",
     { ...imagesTarget, registrationId: siwcAccount.registrationId });
+  const checkModels = () => post("/api/siwc/vps/models/status",
+    { ...imagesTarget, registrationId: siwcAccount.registrationId });
   await connect();
-  return { remote: fixture.remote, wizard, post, connect, reviewOwner, checkImages };
+  return { remote: fixture.remote, wizard, post, connect, reviewOwner, checkImages, checkModels };
 }
 
 test("VPS image status needs the reviewed owner and returns only validated add-on fields", async (t) => {
   const calls = [];
   let next;
-  const images = await startImagesWizard(t, {
+  const images = await startOwnerAddonWizard(t, {
     async getVpsCodexImagesStatus(input) { calls.push(input); return next; },
     async changeVpsCodexImages() { throw new Error("must not change"); },
   });
@@ -3396,7 +3410,7 @@ test("VPS image status needs the reviewed owner and returns only validated add-o
 test("VPS image actions need confirmation and a live target; a finished sign-in poll detaches SSH", async (t) => {
   const changes = [];
   const polls = [{ state: "pending", pending: imagesPending }, { state: "signed-in", account: imagesAccount }];
-  const images = await startImagesWizard(t, {
+  const images = await startOwnerAddonWizard(t, {
     async getVpsCodexImagesStatus() { return { ...imagesSecrets, state: "off" }; },
     async changeVpsCodexImages(input) {
       changes.push(input);
@@ -3461,7 +3475,7 @@ test("VPS image actions need confirmation and a live target; a finished sign-in 
 test("VPS image sign-out is confirmed, always detaches SSH and needs a target from this connection", async (t) => {
   const changes = [];
   let failSignOut = false;
-  const images = await startImagesWizard(t, {
+  const images = await startOwnerAddonWizard(t, {
     async getVpsCodexImagesStatus() { return { ...imagesSecrets, state: "signed-in", account: imagesAccount }; },
     async changeVpsCodexImages(input) {
       changes.push(input);
@@ -3501,11 +3515,274 @@ test("VPS image sign-out is confirmed, always detaches SSH and needs a target fr
   assert.equal(images.remote.closed, true);
 });
 
-test("local-model-only SSH sessions cannot reach VPS image routes", async (t) => {
+test("VPS model status needs the reviewed owner and returns only the validated catalog view", async (t) => {
+  const calls = [];
+  let next = modelsResult();
+  const models = await startOwnerAddonWizard(t, {
+    async getVpsModelDiscovery(input) { calls.push(input); return next; },
+    async changeVpsModelChecks() { throw new Error("must not change"); },
+  });
+  const turnOn = () => models.post("/api/siwc/vps/models/checks", { enabled: true, confirmed: true });
+  assert.equal((await models.checkModels()).status, 409);
+  assert.equal(calls.length, 0);
+
+  await models.reviewOwner();
+  const listed = await models.checkModels();
+  assert.equal(listed.status, 200);
+  const listedText = await listed.text();
+  assert.equal(listedText.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(listedText), modelsView);
+  assert.equal(calls[0].registrationId, siwcAccount.registrationId);
+  assert.equal(calls[0].networkName, "proxy");
+  assert.equal(calls[0].reviewedTarget.n8nContainerId, "a".repeat(64));
+
+  next = { ...imagesSecrets, state: "unavailable" };
+  const older = await models.checkModels();
+  assert.equal(older.status, 200);
+  assert.deepEqual(await older.json(), { state: "unavailable" });
+  // An older sidecar cannot change model checks, so its status leaves no target.
+  assert.equal((await turnOn()).status, 409);
+});
+
+test("VPS model status rejects anything outside the validated catalog view and drops its target", async (t) => {
+  const model = modelsView.models[0];
+  // Status checks share a 10-per-15-minute limit, so each group of cases gets its own wizard.
+  for (const group of [[
+    { state: "on" },
+    { checksEnabled: "false" },
+    { clientVersion: "0.161.0-alpha.1" },
+    { catalogCheckedAt: "yesterday" },
+    { catalogCheckedAt: undefined },
+    { catalogError: "must-not-leak" },
+    { lastRun: { ...modelsRun, checked: 65 } },
+    { lastRun: { ...modelsRun, verified: "1" } },
+    { lastRun: { ...modelsRun, stoppedReason: "must-not-leak" } },
+  ], [
+    { models: Array.from({ length: 65 }, (_, index) => ({ ...model, id: `model-${index}` })) },
+    { models: [{ ...model, listed: "true" }] },
+    { models: [{ ...model, id: "../must-not-leak" }] },
+    { models: [{ ...model, display_name: "x".repeat(257) }] },
+    { models: [{ ...model, state: "ready" }] },
+    { models: [{ ...model, checkedAt: "must-not-leak" }] },
+  ]]) {
+    const busyRun = { ...modelsRun, stoppedReason: "lease_unavailable" };
+    let next = modelsResult({ lastRun: busyRun });
+    const models = await startOwnerAddonWizard(t, { async getVpsModelDiscovery() { return next; } });
+    await models.reviewOwner();
+    const accepted = await models.checkModels();
+    assert.equal(accepted.status, 200);
+    assert.deepEqual((await accepted.json()).lastRun, busyRun);
+    for (const invalid of group) {
+      next = modelsResult(invalid);
+      const response = await models.checkModels();
+      assert.equal(response.status, 502, JSON.stringify(invalid).slice(0, 80));
+      assert.equal((await response.text()).includes("must-not-leak"), false);
+    }
+    assert.equal((await models.post("/api/siwc/vps/models/checks", { enabled: true, confirmed: true })).status, 409);
+  }
+});
+
+test("a VPS catalog failure still returns a status whose stored target can turn model checks off", async (t) => {
+  const changes = [];
+  const noCatalog = { state: "available", checksEnabled: false, clientVersion: "0.160.1", catalogCheckedAt: null, models: [] };
+  const models = await startOwnerAddonWizard(t, {
+    async getVpsModelDiscovery() { return { ...imagesSecrets, ...modelsCatalogDown }; },
+    async changeVpsModelChecks(input) { changes.push(input); return { ...imagesSecrets, ...noCatalog }; },
+  });
+  await models.reviewOwner();
+  const status = await models.checkModels();
+  assert.equal(status.status, 200);
+  assert.deepEqual(await status.json(), modelsCatalogDown);
+  const off = await models.post("/api/siwc/vps/models/checks", { enabled: false, confirmed: true });
+  assert.equal(off.status, 200);
+  assert.deepEqual(await off.json(), noCatalog);
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].enabled, false);
+});
+
+test("VPS model checks need confirmation, a live stored target and a confirmed result", async (t) => {
+  const changes = [];
+  let applied = true;
+  const models = await startOwnerAddonWizard(t, {
+    async getVpsCodexImagesStatus() { return { ...imagesSecrets, state: "off" }; },
+    async getVpsModelDiscovery() { return modelsResult(); },
+    async changeVpsModelChecks(input) {
+      changes.push(input);
+      return modelsResult({ checksEnabled: applied ? input.enabled : !input.enabled,
+        ...(input.enabled ? { lastRun: { ...modelsRun, message: "must-not-leak-run" } } : {}) });
+    },
+  });
+  const change = (body) => models.post("/api/siwc/vps/models/checks", body);
+
+  assert.equal((await change({ enabled: true, confirmed: true })).status, 409);
+  await models.reviewOwner();
+  assert.equal((await models.checkImages()).status, 200);
+  assert.equal((await models.checkModels()).status, 200);
+  for (const body of [{ enabled: true, confirmed: false }, { enabled: true }, { enabled: "true", confirmed: true },
+    { enabled: true, confirmed: "true" }]) {
+    assert.equal((await change(body)).status, 400, JSON.stringify(body));
+  }
+  assert.equal(changes.length, 0);
+
+  const on = await change({ enabled: true, confirmed: true });
+  assert.equal(on.status, 200);
+  const onText = await on.text();
+  assert.equal(onText.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(onText), { ...modelsView, checksEnabled: true, lastRun: modelsRun });
+  assert.deepEqual({ ...changes[0], remote: undefined, reviewedTarget: undefined }, {
+    remote: undefined, reviewedTarget: undefined, networkName: "proxy", registrationId: siwcAccount.registrationId,
+    enabled: true, expectedContainerId: imagesContainerId, confirmed: true });
+  assert.equal(changes[0].reviewedTarget.n8nContainerId, "a".repeat(64));
+  // The change is a remote write under the mutation lock, so other reviewed targets need a fresh check.
+  assert.equal((await models.post("/api/siwc/vps/images/action", { action: "login-cancel", confirmed: false })).status, 409);
+
+  // A confirmed change keeps a fresh target; one the sidecar did not apply fails and drops it.
+  assert.equal((await change({ enabled: false, confirmed: true })).status, 200);
+  assert.equal(changes[1].enabled, false);
+  applied = false;
+  assert.equal((await change({ enabled: true, confirmed: true })).status, 502);
+  assert.equal((await change({ enabled: true, confirmed: true })).status, 409);
+  assert.equal(changes.length, 3);
+
+  // A disconnect drops a live target from the old connection.
+  applied = true;
+  await models.reviewOwner();
+  assert.equal((await models.checkModels()).status, 200);
+  assert.equal((await models.post("/api/disconnect", {})).status, 200);
+  models.remote.closed = false;
+  await models.connect();
+  await models.reviewOwner();
+  assert.equal((await change({ enabled: true, confirmed: true })).status, 409);
+  assert.equal((await models.checkModels()).status, 200);
+  const later = Date.now() + 21 * 60_000;
+  t.mock.method(Date, "now", () => later);
+  assert.equal((await change({ enabled: true, confirmed: true })).status, 409);
+  assert.equal(changes.length, 3);
+});
+
+test("the result chat recipe never offers an image model", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf('element("install-button").addEventListener');
+  const end = script.indexOf("\nfor (const input of document.querySelectorAll", start);
+  assert.ok(start >= 0 && end > start, "missing VPS install handler");
+  const install = async (models) => {
+    const handlers = new Map();
+    const shown = {};
+    const nodes = new Map([
+      ["install-button", { addEventListener: (_, handler) => handlers.set("install", handler) }],
+      ["install-confirm", { checked: true }],
+      ["background-consent", { checked: true }],
+    ]);
+    const element = (id) => {
+      if (!nodes.has(id)) nodes.set(id, { hidden: false, disabled: false, textContent: "", className: "", value: "" });
+      return nodes.get(id);
+    };
+    vm.runInNewContext(script.slice(start, end), {
+      state: { planId: "reviewed-plan", reviewedIdentity: {}, catalogLabels: new Map() }, element,
+      sshSession: { adoptedIdentity: () => ({}) }, sameSshIdentity: () => true,
+      normalizeSiwcAccount: (account) => account, isAssistantIntegration: () => false,
+      clearError() {}, invalidateReviewedPlan() {}, showError() {}, showStep() {}, setMessage() {},
+      fillSelect(_select, items, selected) { shown.options = items.map((item) => item.value); shown.selected = selected; },
+      renderHttpRequestBody(model) { shown.body = model; },
+      runOperation: async (_button, _label, work) => work(),
+      api: async () => siwcInstallResult({ models }),
+    });
+    await handlers.get("install")({ currentTarget: element("install-button") });
+    return { ...shown, element };
+  };
+
+  const mixed = await install(["gpt-image-2", "gpt-6-sol", "gpt-image-2.5-flare", "gpt-6-luna"]);
+  assert.deepEqual(mixed.options, ["gpt-6-sol", "gpt-6-luna"]);
+  assert.equal(mixed.selected, "gpt-6-sol");
+  assert.equal(mixed.body, "gpt-6-sol");
+  assert.equal(mixed.element("result-model").textContent, "gpt-6-sol");
+  assert.equal(mixed.element("copy-http-recipe").disabled, false);
+  const imagesOnly = await install(["gpt-image-2"]);
+  assert.deepEqual(imagesOnly.options, []);
+  assert.equal(imagesOnly.body, "");
+  assert.equal(imagesOnly.element("result-model-picker").disabled, true);
+  assert.equal(imagesOnly.element("copy-http-recipe").disabled, true);
+});
+
+test("VPS model rows render as text, copy the exact ID and keep only turning checks off without a catalog", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("const VPS_MODEL_BADGES");
+  const end = script.indexOf("\nfunction updateVpsOwnerApproval", start);
+  assert.ok(start >= 0 && end > start, "missing VPS model rendering");
+  const createNode = (tag) => ({
+    tag, hidden: false, checked: false, disabled: false, textContent: "", className: "", children: [], listeners: {},
+    append(...items) { this.children.push(...items); },
+    replaceChildren(...items) { this.children = items; },
+    setAttribute() {},
+    addEventListener(type, listener) { this.listeners[type] = listener; },
+    set innerHTML(_) { throw new Error("model text must not be parsed as HTML"); },
+  });
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, createNode(id));
+    return nodes.get(id);
+  };
+  const copied = [];
+  const requests = [];
+  const errors = [];
+  const context = {
+    element, state: { vpsOwner: {} }, OPERATION_DEFAULT_NOTE: "",
+    sshSession: { adoptedIdentity: () => null },
+    document: { createElement: createNode, getSelection: () => ({ selectAllChildren() {} }) },
+    copyText: async (value) => { copied.push(value); }, flashCopied() {}, focusVisible() {}, clearError() {},
+    showError(error) { errors.push(error.message); },
+    runOperation: async (_button, _label, work) => work(),
+    api: async (path, { body }) => {
+      requests.push([path, JSON.stringify(body)]);
+      return { ...modelsCatalogDown, checksEnabled: body.enabled };
+    },
+  };
+  vm.runInNewContext(`${script.slice(start, end)}\nthis.render = renderVpsOwnerModels;`, context);
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const badges = (row) => row.children[1].children.filter((child) => child.tag === "span")
+    .map((child) => child.textContent).join("|");
+
+  const label = "<img src=x onerror=alert(1)>";
+  context.render({ ...modelsView, models: [{ id: "gpt-6-sol", display_name: label, state: "unchecked", listed: true },
+    { id: "gpt-6-luna", display_name: "GPT-6 Luna", state: "unchecked", listed: false }] });
+  const rows = element("vps-owner-models-list").children;
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].children[0].textContent, label);
+  assert.equal(rows[0].children[1].children.find((child) => child.tag === "code").textContent, "gpt-6-sol");
+  assert.notEqual(badges(rows[0]), badges(rows[1]), "rows show whether n8n lists the model");
+  rows[0].children[1].children.find((child) => child.tag === "button").listeners.click();
+  await flush();
+  assert.deepEqual(copied, ["gpt-6-sol"]);
+
+  context.render(modelsCatalogDown);
+  assert.equal(element("vps-owner-models-checks-on").hidden, false, "turning checks off stays offered");
+  assert.equal(element("vps-owner-models-checks-off").hidden, true, "turning checks on needs the catalog");
+  const offConfirm = element("vps-owner-models-off-confirm");
+  offConfirm.checked = true;
+  offConfirm.listeners.change({ currentTarget: offConfirm });
+  assert.equal(element("vps-owner-models-off").disabled, false);
+  element("vps-owner-models-off").listeners.click({ currentTarget: element("vps-owner-models-off") });
+  await flush();
+  assert.deepEqual(errors, []);
+  assert.deepEqual(requests, [["/api/siwc/vps/models/checks", JSON.stringify({ enabled: false, confirmed: true })]]);
+  assert.equal(element("vps-owner-models-checks-on").hidden, true);
+  assert.equal(element("vps-owner-models-checks-off").hidden, true);
+
+  const reasons = [undefined, "usage_limit", "reauthorize", "probe_rejected", "checks_off", "time_limit", "lease_unavailable"];
+  const statuses = new Set(reasons.map((stoppedReason) => {
+    context.render({ ...modelsView, checksEnabled: true, lastRun: { ...modelsRun, stoppedReason } });
+    return element("vps-owner-models-status").textContent;
+  }));
+  assert.equal(statuses.size, reasons.length, "each stop reason explains itself");
+});
+
+test("local-model-only SSH sessions cannot reach VPS image or model routes", async (t) => {
   let calls = 0;
   const { services } = createServices();
   services.getVpsCodexImagesStatus = async () => { calls++; return { state: "off", containerId: imagesContainerId }; };
   services.changeVpsCodexImages = async () => { calls++; return { state: "off", containerId: imagesContainerId }; };
+  services.getVpsModelDiscovery = async () => { calls++; return modelsResult(); };
+  services.changeVpsModelChecks = async () => { calls++; return modelsResult(); };
   const wizard = await startWizardServer({ sessionToken, services });
   t.after(() => wizard.close());
   const headers = { Origin: wizard.origin };
@@ -3515,7 +3792,8 @@ test("local-model-only SSH sessions cannot reach VPS image routes", async (t) =>
     host: exampleHost, port: 22, username: "ubuntu", useAgent: false, privilege: "sudo-n",
     password: fixturePassword, expectedFingerprint: fingerprint,
   }) })).status, 200);
-  for (const path of ["/api/siwc/vps/images/status", "/api/siwc/vps/images/action", "/api/siwc/vps/images/login-status"]) {
+  for (const path of ["/api/siwc/vps/images/status", "/api/siwc/vps/images/action", "/api/siwc/vps/images/login-status",
+    "/api/siwc/vps/models/status", "/api/siwc/vps/models/checks"]) {
     const response = await api(wizard.origin, path, { method: "POST", headers, body: "not-json:must-not-be-parsed" });
     assert.equal(response.status, 403, path);
     assert.match((await response.json()).error, /local-model-only/u);

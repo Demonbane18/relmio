@@ -9,6 +9,13 @@ implementation and 2026-09-12 account-specific tests. Any “current” status b
 refers only to that dated implementation/account; it does not describe current
 SIWC behavior. See [current capability limits](n8n-configuration.md).
 
+A 2026-10-06 test found that the Codex image route returns the same token
+count, size and C2PA provenance for `gpt-image-2`, `gpt-image-2.5-flare` and a
+made-up ID, so the successful
+Flare and Sunburst requests below do not show which model ran. The current
+sidecar offers only `gpt-image-2`; see
+[Generate and edit images](n8n-configuration.md#generate-and-edit-images-vps-add-on).
+
 This report records source, access, data-flow, and bounded live evidence for the
 experimental model check. It does not approve a release, deployment, credential
 change, API-key fallback, or legal-compliance conclusion.

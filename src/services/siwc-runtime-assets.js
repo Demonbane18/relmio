@@ -11,6 +11,7 @@ const SOURCES = Object.freeze([
   'services/siwc-handoff.mjs',
   'services/local-integration-lifecycle-lock.js',
   'services/codex-images.mjs',
+  'services/model-discovery.mjs',
   'infrastructure/local-process.js',
   'infrastructure/process-identity.js',
 ]);

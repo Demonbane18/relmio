@@ -56,12 +56,19 @@ transcription are unsupported. On a VPS, image generation and editing are an
 opt-in add-on with a separate Codex sign-in that OpenAI does not document for
 other apps; see
 [Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional).
-The local sidecar has no image sign-in. Relmio asks
-for the model list with its pinned Codex version (0.160.0), because OpenAI
-filters the catalog by an undocumented `client_version` parameter. A model
-shown in discovery is not an entitlement promise. The gateway reports
-unsupported operations and provider errors; it has no alternative provider or
-account fallback.
+The local sidecar has no image sign-in.
+
+The n8n sidecar asks for text models as the newest stable Codex release from
+npm, checked about every 12 hours and never below Relmio's pin (0.160.0).
+`registry.npmjs.org` sees the server's IP address and receives no credentials.
+The catalog cache lasts 5 minutes. OpenAI's `client_version` filter is
+undocumented and could change; local Codex clients and the pre-install picker
+still use the pin. Optional VPS model checks use small requests from your plan
+and need confirmation. See [model discovery and checks](n8n-configuration.md#model-discovery-and-checks).
+
+A model listing is not an entitlement promise. The gateway reports unsupported
+operations and provider errors; it has no alternative provider or account
+fallback.
 
 ## How do I connect n8n?
 

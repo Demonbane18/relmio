@@ -9,14 +9,19 @@ const verifier = createHash("sha256").update(credential).digest();
 const registration = { storageRoot: "/tmp/test-siwc", registrationId: "first" };
 const terminal = (type, response) => `event: ${type}\ndata: ${JSON.stringify({ type, response })}\n\n`;
 const completed = { id: "resp_1", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "Hello" }] }] };
-const fake = (onFetch = () => new Response(terminal("response.completed", completed), { headers: { "content-type": "text/event-stream" } })) => {
+const fakeDiscovery = (listModels = async () => ({ models: [], clientVersion: CODEX_CLI_VERSION, checksEnabled: false }), recordOutcome) => {
+  const outcomes = [];
+  return { outcomes, listModels, recordOutcome: recordOutcome ?? (async (outcome) => { outcomes.push(outcome); }) };
+};
+const fake = (onFetch = () => new Response(terminal("response.completed", completed), { headers: { "content-type": "text/event-stream" } }),
+  { discovery = fakeDiscovery(), imagesStatus = async () => ({ state: "off" }) } = {}) => {
   const calls = [];
   const tokenCalls = [];
-  const handler = createSidecarHandler({ registration, runtimeId: "runtime-1", tokenVerifier: verifier,
+  const handler = createSidecarHandler({ registration, runtimeId: "runtime-1", tokenVerifier: verifier, discovery, imagesStatus,
     getToken: async (selected, options) => { tokenCalls.push(selected); assert.deepEqual(selected, registration); assert.equal(options.runtimeId, "runtime-1"); return { accessToken: "provider-token" }; },
     fetchImpl: async (url, options) => { calls.push({ url, options }); return onFetch(url, options); },
   });
-  return { handler, calls, tokenCalls };
+  return { handler, calls, tokenCalls, discovery };
 };
 function request(path, body, headers = {}) {
   return new Request(`http://local.test${path}`, { method: body === undefined ? "GET" : "POST", headers: { host: "n8n-openai-oauth:10531", authorization: `Bearer ${credential}`, ...headers }, ...(body !== undefined && { body: JSON.stringify(body) }) });
@@ -56,7 +61,7 @@ test("private Host and no-Origin admission precedes token and provider access", 
   assert.equal(tokenCalls.length, 1);
 });
 
-test("catalog sends the pinned client version and preserves listed model order without inventing entitlement", async () => {
+test("wizard catalog keeps the pinned client version and listed order without inventing entitlement", async () => {
   const catalog = [
     { slug: "gpt-6.1-sol", display_name: "GPT 6.1 Sol", visibility: "list", minimal_client_version: "0.153.0" },
     { slug: "private", visibility: "hidden", minimal_client_version: "0.100.0" },
@@ -74,21 +79,123 @@ test("catalog sends the pinned client version and preserves listed model order w
     catalogRequests.push(url);
     return Response.json({ models: catalog });
   };
-  const { handler } = fake(provider);
-  const response = await handler(request("/v1/models?client_version=0.147.0"));
-  assert.deepEqual((await response.json()).data, [
-    { id: "gpt-6.1-sol", object: "model", display_name: "GPT 6.1 Sol" },
-    { id: "gpt-6-sol", object: "model", display_name: "GPT 6 Sol" },
-    { id: "gpt-6-luna", object: "model", display_name: "GPT 6 Luna" },
-    { id: "other-listed", object: "model", display_name: "other-listed" },
-  ]);
   assert.deepEqual(await listSiwcModels({ ...registration, runtimeId: "runtime-1", getToken: async () => ({ accessToken: "provider-token" }), fetchImpl: provider }), [
     { slug: "gpt-6.1-sol", display_name: "GPT 6.1 Sol" },
     { slug: "gpt-6-sol", display_name: "GPT 6 Sol" },
     { slug: "gpt-6-luna", display_name: "GPT 6 Luna" },
     { slug: "other-listed", display_name: "other-listed" },
   ]);
-  assert.equal(catalogRequests.length, 2);
+  assert.equal(catalogRequests.length, 1);
+});
+
+test("models route lists the discovery catalog in order without a lease or provider call of its own", async () => {
+  const models = [{ id: "gpt-7-nova", display_name: "GPT 7 Nova" }, { id: "gpt-6.1-sol", display_name: "GPT 6.1 Sol" }];
+  const { handler, calls, tokenCalls } = fake(undefined, { discovery: fakeDiscovery(async () => ({ models, clientVersion: "0.161.0", checksEnabled: true })) });
+  const response = await handler(request("/v1/models?client_version=0.147.0"));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), { object: "list", data: [
+    { id: "gpt-7-nova", object: "model", created: 0, owned_by: "openai", display_name: "GPT 7 Nova" },
+    { id: "gpt-6.1-sol", object: "model", created: 0, owned_by: "openai", display_name: "GPT 6.1 Sol" },
+  ] });
+  assert.deepEqual([calls.length, tokenCalls.length], [0, 0]);
+});
+
+test("catalog and lease failures map to fixed errors with their recovery and never expose the cause", async () => {
+  for (const [cause, status, code, recovery] of [
+    [{ code: "catalog_unavailable", status: 401, recovery: "reauthorize" }, 401, "catalog_unavailable", "reauthorize"],
+    [{ code: "catalog_unavailable", status: 503, recovery: "retry-later" }, 503, "catalog_unavailable", "retry-later"],
+    [{ code: "siwc_lock_unavailable", status: 503, recovery: "retry-later" }, 503, "registration_unavailable", "retry-later"],
+    [{ recovery: "reauthorize" }, 401, "registration_unavailable", "reauthorize"],
+    [{ recovery: "fix-configuration" }, 503, "registration_unavailable", "fix-configuration"],
+    [{ recovery: "resolve-handoff" }, 409, "registration_unavailable", "resolve-handoff"],
+    [{ recovery: "enable-plan" }, 403, "registration_unavailable", "enable-plan"],
+    [{}, 403, "registration_unavailable", "enable-plan"],
+  ]) {
+    const thrown = Object.assign(new Error("Bearer provider-token was rejected"), cause);
+    const { handler } = fake(undefined, { discovery: fakeDiscovery(async () => { throw thrown; }) });
+    const response = await handler(request("/v1/models"));
+    const text = await response.text();
+    assert.deepEqual([response.status, JSON.parse(text).error.code, JSON.parse(text).recovery], [status, code, recovery]);
+    assert.equal(text.includes("provider-token"), false);
+  }
+});
+
+test("passive learning records one completed outcome per successful turn on both text routes", async () => {
+  const responses = { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] };
+  const chat = { model: "gpt-7-nova", messages: [{ role: "user", content: "Hi" }] };
+  for (const [path, body] of [["/v1/responses", responses], ["/v1/responses", { ...responses, stream: true }],
+    ["/v1/chat/completions", chat], ["/v1/chat/completions", { ...chat, stream: true }]]) {
+    const { handler, discovery } = fake();
+    const response = await handler(request(path, body));
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /Hello/u);
+    assert.deepEqual(discovery.outcomes, [{ model: "gpt-7-nova", outcome: "completed" }], `${path} ${body.stream === true}`);
+  }
+});
+
+test("passive learning marks a model rejected only for model-level 400 and 404 traffic errors", async () => {
+  const responses = { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] };
+  const chat = { model: "gpt-7-nova", messages: [{ role: "user", content: "Hi" }] };
+  for (const [path, body] of [["/v1/responses", responses], ["/v1/chat/completions", chat]]) {
+    for (const [status, error, rejected] of [
+      [404, { code: "model_not_found", message: "Unknown model" }, true],
+      [400, { code: "invalid_model" }, true],
+      [400, { code: "invalid_value", param: "model" }, true],
+      [400, { code: "subscription_sharing_unsupported_capability" }, false],
+      [400, { code: "subscription_sharing_unsupported_capability", param: "tools" }, false],
+      [400, { code: "invalid_value", param: "input" }, false],
+      [401, { code: "invalid_model" }, false],
+      [403, { code: "model_not_found" }, false],
+      [429, { code: "subscription_sharing_usage_limit_exceeded", param: "model" }, false],
+      [500, { code: "model_not_found" }, false],
+      [503, { param: "model" }, false],
+    ]) {
+      const { handler, discovery } = fake(() => Response.json({ error }, { status }));
+      const response = await handler(request(path, body));
+      assert.equal(response.status, status);
+      assert.deepEqual(discovery.outcomes, rejected ? [{ model: "gpt-7-nova", outcome: "model_rejected" }] : [], `${path} ${status} ${JSON.stringify(error)}`);
+    }
+  }
+});
+
+test("passive learning ignores failed, incomplete, interrupted and unsent turns", async () => {
+  const body = { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] };
+  for (const upstream of [
+    () => new Response(terminal("response.failed", { error: { code: "model_not_found", message: "Gone" } })),
+    () => new Response(terminal("response.incomplete", { incomplete_details: { reason: "max_output_tokens" } })),
+    () => new Response(terminal("response.completed", { ...completed, status: "failed" })),
+    () => new Response("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"),
+    () => { throw new TypeError("fetch failed"); },
+  ]) {
+    for (const stream of [false, true]) {
+      const { handler, discovery } = fake(upstream);
+      await (await handler(request("/v1/responses", { ...body, stream }))).text();
+      assert.deepEqual(discovery.outcomes, []);
+    }
+  }
+});
+
+test("a hanging or failing model store never delays or alters the client response", { timeout: 10_000 }, async () => {
+  const body = { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] };
+  for (const recordOutcome of [() => new Promise(() => {}), async () => { throw new Error("store_unsafe"); }, () => { throw new Error("store_unsafe"); }]) {
+    const completedTurn = fake(undefined, { discovery: fakeDiscovery(undefined, recordOutcome) });
+    assert.equal((await (await completedTurn.handler(request("/v1/responses", body))).json()).id, "resp_1");
+    const streamed = await completedTurn.handler(request("/v1/responses", { ...body, stream: true }));
+    assert.match(await streamed.text(), /event: response\.completed/u);
+    const rejectedTurn = fake(() => Response.json({ error: { code: "model_not_found" } }, { status: 404 }), { discovery: fakeDiscovery(undefined, recordOutcome) });
+    const rejected = await rejectedTurn.handler(request("/v1/responses", body));
+    assert.deepEqual([rejected.status, (await rejected.json()).error.code], [404, "model_not_found"]);
+  }
+});
+
+test("closing the handler closes model discovery so shutdown sends no more checks", async () => {
+  let closed = 0;
+  const { handler } = fake(undefined, { discovery: { ...fakeDiscovery(), close: () => { closed += 1; } } });
+  assert.equal((await handler(request("/v1/models"))).status, 200);
+  assert.equal(closed, 0);
+  handler.close();
+  assert.equal(closed, 1);
 });
 
 test("rejects unsupported parameters, tools, routes, and storage before provider dispatch", async () => {

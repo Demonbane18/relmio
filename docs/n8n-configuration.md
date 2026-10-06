@@ -33,7 +33,7 @@ entitlement or host admission.
 
 | Route | Behavior |
 | --- | --- |
-| `GET /v1/models` | Returns the selected account's public model catalog (`visibility == "list"`) in provider order, with model slugs and display names. Relmio sends its pinned Codex version (0.160.0) as OpenAI's undocumented `client_version` parameter, which filters the catalog; OpenAI could change this. While the VPS image add-on is on, the list also includes `gpt-image-2`. |
+| `GET /v1/models` | Returns the selected account's text models in OpenAI's order, with IDs and display names. See [Model discovery and checks](#model-discovery-and-checks). While the VPS image add-on is on, requests without n8n's `openai-platform` header also get `gpt-image-2`. |
 | `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false` and requests streaming; only a completed response counts as success. Streamed events, including `phase`, pass through unchanged. |
 | `POST /v1/chat/completions` | Compatibility route translated into a Responses request. It accepts `model`, `messages`, `tools`, `tool_choice` (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, and `stream_options.include_usage`. Messages are text `user`, `assistant`, or `developer` messages, assistant tool calls, and `tool` results. Only final-answer text is returned. |
 | `POST /v1/images/generations` and `POST /v1/images/edits` | VPS image add-on only. See [Generate and edit images](#generate-and-edit-images-vps-add-on). Without it, these return `404 images_off`. |
@@ -61,6 +61,99 @@ Example body:
   "input": [{"role": "user", "content": "Reply with exactly: bridge works"}]
 }
 ```
+
+## Model discovery and checks
+
+The sidecar reads the selected account's catalog from
+`https://api.openai.com/v1/models`. OpenAI filters that catalog by an
+undocumented `client_version` parameter, and OpenAI could change this. On the
+owner's account on 2026-10-06, version 0.150.0 listed 3 models, 0.160.0 and
+newer listed 7, and no version listed 4. The sidecar therefore asks as the
+newest stable Codex release:
+
+- It reads `https://registry.npmjs.org/@openai/codex/latest` when it next
+  fetches the catalog for n8n or for turning checks on, about every 12 hours.
+  Failed attempts count too. The wizard's status check never contacts npm; it
+  uses the last version the sidecar read, or the pin. The request carries no
+  credentials or account data. npm sees the sidecar host's IP address.
+- It never asks as a version below Relmio's pin (0.160.0) and ignores
+  prerelease versions. If npm can't be reached, it keeps the last version it
+  read, or the pin.
+
+Local Codex clients and the wizard's account picker before install keep the
+pinned version.
+
+The list keeps models OpenAI marks for display and API use, leaves out IDs
+that contain `image`, keeps OpenAI's order and stops at 256 models. The sidecar
+caches the catalog for 5 minutes, so the sidecar may take that long to see a
+change. A new model can take longer to reach n8n: it may need the next npm
+version check, a model check, or an admin's Chat Hub setting. n8n's server
+does not cache the list; **Refresh List** in a dropdown asks the sidecar
+again. n8n shows only model IDs, not display names.
+
+When OpenAI rejects a request through the sidecar because of the model (HTTP
+400 or 404 with error parameter `model`, or code `model_not_found` or
+`invalid_model`), the sidecar hides that model from n8n for 24 hours. A request
+that completes marks the model as working. If the catalog can't be read, the
+sidecar serves its last list for up to an hour. After that, or when OpenAI
+rejects the sign-in, n8n gets `catalog_unavailable`. See
+[Troubleshooting](troubleshooting.md#symptom-table).
+
+A listed or working model is not an entitlement promise. A completed test or
+request proves only that request.
+
+### Optional model checks
+
+Model checks are off by default and are turned on per VPS install from the
+wizard. See [See models and turn on model checks](vps-and-n8n.md#see-models-and-turn-on-model-checks).
+The wizard shows this notice before you confirm:
+
+> When on, the sidecar sends one short test request ('Reply with OK') to
+> models in your catalog: now for up to 12 of them, then for each new model,
+> and again once a day for a model that failed. A test that gets no answer is
+> tried again after an hour. n8n lists a model only after it answers; until any
+> model has answered, n8n shows the full catalog except models that recently
+> failed. Each test uses a small amount of your plan.
+
+How the checks run:
+
+- A test is a Responses request with the instruction `Reply with OK.`, the
+  input `OK`, `store:false`, and the lowest reasoning effort the catalog lists
+  for that model. Tests run one model at a time.
+- Turning checks on tests up to 12 models within about 3 minutes and records
+  your consent with the time and notice version.
+- After that, when n8n asks for models and some are untested, or failed more
+  than a day ago, the sidecar tests up to 8 of them in the background, 5
+  seconds apart. n8n gets its list without waiting.
+- A run stops when the plan's usage is unavailable, ChatGPT sign-in is needed,
+  the ChatGPT session isn't available for plan use, OpenAI refuses the test
+  request, or checks were turned off. Timeouts, network errors and server
+  errors record nothing, so those models are tested again later. After a run
+  that stopped early or left a model unrecorded, the next background run waits
+  60 minutes.
+- A failed test hides the model while checks are on, for 24 hours. A failure
+  in a real request hides it with checks on or off.
+- Turning checks off makes no network call and removes your consent. A
+  running check stops before its next test, even while it waits for the
+  session. Recorded results stay. **Sign out and revoke** turns checks off
+  first, as a best effort.
+
+Local sidecars have no check controls, so checks stay off there. They still
+hide models that fail with a model error and mark completed ones as working.
+
+### Which n8n pickers list which models
+
+| n8n picker | What it lists |
+| --- | --- |
+| OpenAI Chat Model node 1.2 or newer, **From list** | Text models. The node sends an `openai-platform` header, so the sidecar leaves out `gpt-image-2`. |
+| Chat Hub, OpenAI provider | The Chat Model node's list. If an admin set allowed models under **Settings > Chat**, new models stay hidden until added there. |
+| OpenAI node, **Message a Model** | Text models, plus `gpt-image-2` while images are on. This picker shares one request with the image picker. Don't choose `gpt-image-2` for text. |
+| OpenAI node, **Generate an Image** or **Edit Image** | n8n keeps only IDs that contain `gpt-image` or `dall-e`, so it lists `gpt-image-2` while images are on. |
+| AI Assistant | Nothing. It never asks for the list; paste a model ID instead. See [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar-untested). |
+
+The sidecar tells these requests apart by the `openai-platform` header. If n8n
+changes that header, `gpt-image-2` may show in chat lists again or leave the
+image picker. Entering the ID still works.
 
 ## Function tools
 
@@ -110,10 +203,11 @@ In n8n:
    **Edit Image**.
 2. Use the same OpenAI credential as your chat nodes: Base URL
    `http://n8n-openai-oauth:10531/v1` and the one-time Relmio key.
-3. For **Model**, choose **ID** and enter `gpt-image-2`. n8n's defaults
-   (`gpt-image-1-mini` for Generate, `gpt-image-1` for Edit) are refused.
-   Entering an ID needs OpenAI node version 2.2 or newer for Generate and 2.3
-   or newer for Edit.
+3. For **Model**, pick `gpt-image-2` from the list, or choose **ID** and enter
+   it. The list shows it only while images are on. n8n's defaults
+   (`gpt-image-1-mini` for Generate, `gpt-image-1` for Edit) are refused. Both
+   need OpenAI node version 2.2 or newer for Generate and 2.3 or newer for
+   Edit.
 4. For Edit Image, add the input images as binary fields. Leave the number of
    images at 1 and do not add the **Image Mask** option.
 
@@ -135,6 +229,17 @@ Limits:
 - Relmio waits up to 5 minutes for an image and does not retry a failed one.
   A usage limit returns `429` with the code from OpenAI and, when OpenAI sends
   it, `resets_at`.
+
+Only `gpt-image-2` is offered. On 2026-10-06 Relmio sent three test images
+through this Codex route on the owner's VPS, as `gpt-image-2`,
+`gpt-image-2.5-flare` and a made-up model ID. All three returned the same
+result: 515 image tokens, 1254x1254 pixels and the same C2PA provenance. The
+route ignores the model ID, so asking it for Flare or Sunburst would not get
+them. To use GPT Image 2.5 Flare or Sunburst, give n8n's image node a separate
+OpenAI credential with your own OpenAI Platform API key and OpenAI's default
+Base URL. OpenAI bills that to your API account, and Relmio is not involved.
+See the
+[2026-10-06 source check](openai-source-check-2026-10-06.md#addendum-automatic-model-discovery).
 
 ## Limits and recovery
 

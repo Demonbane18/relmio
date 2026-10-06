@@ -87,9 +87,15 @@ Responses requests are bound to the selected registration and public
 `api.openai.com/v1/responses`; only a completed provider response is success.
 Streamed Responses events pass through unchanged. When OpenAI's final event
 has an empty `output`, non-streaming and Chat responses are rebuilt from the
-`response.output_item.done` events. The model catalog request sends
-`client_version` with the pinned Codex version (0.160.0); OpenAI filters by
-this undocumented parameter, so the behavior could change.
+`response.output_item.done` events. The sidecar's catalog `client_version`
+uses the newest stable Codex release from npm, checked about every 12 hours, with
+Relmio's pin (0.160.0) as the floor. This sends no credentials to
+`registry.npmjs.org`, which sees the server's IP address. The catalog cache
+lasts 5 minutes. OpenAI's version filter is undocumented and could change.
+The wizard's pre-install picker and local Codex gateways keep the pinned
+version. Local n8n sidecars have checks off by default and no check controls;
+completed traffic and model-level failures still update their model records.
+See [discovery rules](n8n-configuration.md#model-discovery-and-checks).
 
 The compatibility route accepts text user, assistant, and developer messages,
 assistant tool calls, and matching tool results. Function tools go upstream in

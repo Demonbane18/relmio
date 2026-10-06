@@ -35,16 +35,33 @@ checks the registry separately after publication.
   an opt-in add-on. Turn it on in Manage the installed ChatGPT session with
   Sign in for images, which starts a separate Codex device sign-in at
   `https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's Image
-  actions with the same Base URL and Relmio key and the model ID
-  `gpt-image-2`. Each request returns one image; masks and URL responses are
-  not supported. A low-quality generation passed live on one Pro account on
-  2026-10-06. The add-on signs in to Codex the way Hermes Agent does.
+  actions with the same Base URL and Relmio key, and pick `gpt-image-2` from
+  the list or enter it as the ID. Each request returns one image; masks and
+  URL responses are not supported. A low-quality generation passed live on
+  one Pro account on 2026-10-06. The add-on signs in to Codex the way Hermes
+  Agent does.
   OpenAI does not document this route for other apps, so it can stop working
   without notice, and images count against the plan's Codex limits. The Codex
   refresh token is stored on the VPS. The ChatGPT plan session is never used
   for images. Signing out of the ChatGPT session also signs out of images, as
   a best effort. A sidecar built before this release needs Review sidecar
   update first. The local sidecar has no image sign-in.
+- The ChatGPT sidecar now finds new text models without a Relmio release. It
+  asks OpenAI's catalog as the newest stable Codex release on npm, never below
+  the 0.160.0 pin, and checks npm about every 12 hours. That request sends no
+  credentials; `registry.npmjs.org` is a new recipient and sees the sidecar
+  host's IP address. The catalog is cached for 5 minutes. A model that OpenAI
+  rejects with a model error is hidden from n8n for a day. A VPS sidecar built
+  before this release needs Review sidecar update first.
+- On a VPS, Check installed account now shows a Models group. Each model says
+  In n8n or Not in n8n and Ready, Not working or Not checked yet, and has a
+  Copy ID button for n8n's AI Assistant.
+- VPS installs can turn on model checks. They are off by default and need
+  confirmation. The sidecar sends one short test request ('Reply with OK') to
+  up to 12 models right away, then to each new model and once a day to a model
+  that failed. Once any model has answered, n8n lists only models that
+  answered. Each test uses a little of your plan. Consent is recorded; turning
+  checks off stops further tests, and Sign out and revoke turns them off first.
 
 ### Changed
 
@@ -58,6 +75,21 @@ checks the registry separately after publication.
 - The website's Doorway illustration is unframed again, spanning the page
   against its background instead of sitting inside a rounded, layered card.
   The current colors, animation and Pause control are preserved.
+
+- The OpenAI Chat Model node and Chat Hub no longer list `gpt-image-2`. The
+  OpenAI node's text picker still does, because it shares one request with
+  the image picker, and the image picker lists it, so Generate an Image and
+  Edit Image can pick it from the list. The wizard's HTTP recipe no longer
+  offers image IDs as chat models.
+- Images stay `gpt-image-2` only. In a 2026-10-06 test the Codex image route
+  returned the same token count, size and C2PA provenance for `gpt-image-2`,
+  `gpt-image-2.5-flare` and a made-up ID, so Flare and Sunburst need a
+  separate OpenAI credential with your own Platform API key.
+- The AI Assistant docs now explain how to point its Self-hosted or
+  OpenAI-compatible endpoint at the sidecar with a pasted model ID, instead of
+  saying the sidecar is not offered. Relmio has not tested this, and whether
+  it fits OpenAI's Sign in with ChatGPT terms is open. Only do it if nobody
+  else uses that n8n.
 
 - Document the local SIWC account, permission, and model-access flow, including
   protected per-registration credentials, private n8n/VPS transfer boundaries,
@@ -83,8 +115,9 @@ checks the registry separately after publication.
   events and `phase` through unchanged.
 - The model list now includes the account's current models. On the tested
   account that added GPT-6.1-Sol, GPT-6-Sol and GPT-6-Luna. OpenAI filters the
-  catalog by an undocumented `client_version` parameter, so Relmio sends its
-  pinned Codex version. The Codex runtime pin moved from 0.147.0 to 0.160.0.
+  catalog by an undocumented `client_version` parameter; the sidecar now
+  follows the newest Codex release (see Added). The Codex runtime pin moved
+  from 0.147.0 to 0.160.0.
 - If SSH connects but the read-only Docker or n8n check fails, the VPS wizard
   keeps the verified connection and offers Retry discovery without asking for
   the password again. Changing the server details still needs a fresh identity

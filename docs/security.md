@@ -499,6 +499,43 @@ the plan's Codex limits. Owner-facing setup is in
 - **Unknown:** the scopes OpenAI grants to these tokens, their lifetimes, and
   OpenAI's own limits on image size, count and prompt length.
 
+## Model discovery and checks
+
+The n8n sidecar finds the account's text models itself. Owner-facing behavior
+is in [Model discovery and checks](n8n-configuration.md#model-discovery-and-checks).
+
+- **Transmits:** to choose the catalog version, the sidecar sends a `GET` to
+  `https://registry.npmjs.org/@openai/codex/latest` about every 12 hours, when
+  it fetches the catalog for n8n or for turning checks on, with checks on or
+  off. It carries no token, account data or prompt; npm sees the sidecar
+  host's IP address and the request time. The catalog request to
+  `https://api.openai.com/v1/models` uses the selected registration's token,
+  as before. With model checks on, each test is a `POST` to
+  `https://api.openai.com/v1/responses` with that token, the instruction
+  `Reply with OK.` and the input `OK`.
+- **Stores:** `model-checks/<registration ID>.json` in the sidecar's SIWC
+  storage (`/docker/n8n-openai-oauth/siwc/model-checks` on a VPS). It records
+  whether checks are on, your consent time and notice version, each model's
+  result, time, whether a test or a real request produced it and OpenAI's
+  error code, and the last Codex version read from npm with its time. It holds
+  no tokens, prompts or responses. The folder is `0700` and files are `0600`,
+  owned by the sidecar user. Symlinks, hard links and group or other
+  permissions are refused, writes are atomic under a lock file, and an unsafe
+  record is never overwritten. Turning checks off can replace a safe record
+  that fails to parse. Turning checks off removes the consent but keeps the
+  results.
+- **Returns to the wizard:** up to 64 model rows (ID, name, state, whether
+  n8n sees it, check time), whether checks are on, the catalog time and
+  version, and the last run's counts and stop reason. Tokens, OpenAI error
+  text and remote command errors stay on the server.
+- **Logs:** discovery and checks add no log lines.
+- **Consent:** tests use the plan, so they run only after you confirm them for
+  that server. Checks count as on only while the recorded consent matches the
+  current notice; an approval of an older notice reads as off. Status checks
+  send no test request, make no npm request and write nothing to the record;
+  reading the catalog can still refresh the SIWC token. Stopping the sidecar
+  stops any check in progress.
+
 ## Product and policy limitations
 
 - ChatGPT sign-in is not an OpenAI Platform API key. SIWC plan permission is a
@@ -551,8 +588,10 @@ Relmio applies the documented distinctions as engineering controls:
   contracts; the raw App Server route is high trust.
 - The n8n SIWC sidecar uses the selected registration and public Responses API
   behind its own private-network bearer.
-- The n8n AI Assistant model route uses an operator's Platform API key entered
-  directly in n8n; Relmio never receives it.
+- The n8n AI Assistant's **OpenAI** provider uses an operator's Platform API
+  key entered directly in n8n; Relmio never receives it. Pointing the
+  Assistant at the SIWC sidecar is the owner's choice, untested, and open
+  under SIWC Terms §2; see [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
 - Consent to background workflow use is separate from the ChatGPT plan grant.
 
 This security page does not establish live account eligibility or turn the
@@ -664,7 +703,7 @@ from source inspection.
 | Read | Host-side official Codex login writes to an attempt-specific `CODEX_HOME`; Relmio reads the full JSON from `N8N_OPENAI_OAUTH_HOME/auth.json` or `~/.n8n-openai-oauth/auth.json`. This includes access and refresh tokens and account metadata, not merely identity fields. The sidecar and third-party runtime read token/account claims, refresh metadata and incoming n8n request bodies. |
 | Store | Host credential directories are mode 0700; staged/promoted files mode 0600. Local setup keeps the source credential on the host and seeds a private `oauth-auth` Docker volume at `/home/node/.codex/auth.json`. The VPS path SFTPs the complete JSON to `/docker/n8n-openai-oauth/auth/auth.json` mode 0600 and bind-mounts it to the sidecar. The third-party runtime can refresh and rewrite its copy; secret read-only injection alone is insufficient. Refresh can retain rollback/quiesce snapshots; cleanup is best-effort. |
 | Transmit | The user initiates browser/Codex authentication with OpenAI services; the host Codex login produces the full credential read by Relmio. After explicit local/VPS review, credential bytes go to the local Docker daemon/volume or to the selected VPS SSH/SFTP endpoint and its sidecar. Supported n8n prompts, messages, tool data and inline inputs travel from n8n through the sidecar/dependency to `chatgpt.com/backend-api/codex` with access-token bearer and account ID; refresh requests go to `auth.openai.com/oauth/token`. Responses return to the sidecar and n8n/client. |
-| Other network recipients | Building the sidecar installs the pinned package via npm/Node/package-image infrastructure. Model discovery also requests `registry.npmjs.org/@openai/codex/latest`; reviewed code adds no OpenAI bearer to that lookup. These are separate from model inference. |
+| Other network recipients | Building the sidecar installs the pinned package via npm/Node/package-image infrastructure. That third-party runtime's model discovery also requested `registry.npmjs.org/@openai/codex/latest` without an OpenAI bearer. The current SIWC sidecar makes its own npm check; see [Model discovery and checks](#model-discovery-and-checks). These are separate from model inference. |
 | Logs | Host Codex stdout/stderr is bounded and captured in memory; login failures map to fixed messages. Current Codex documentation describes `codex-login.log` for direct `codex login` runs, but applicability to the pinned `@openai/codex` 0.154.0 and log retention are unknown. The one-shot local credential-seed helper disables Docker logging. The main sidecar does not set an explicit Docker log driver. The dependency can log request summaries/timings/usage/errors if logging is enabled; Relmio does not enable its request logger. Actual n8n, Docker, SSH, provider, backup and OpenAI retention/log behavior was not inspected, so do not claim that nothing is logged or retained. Dependency errors may include upstream text. |
 | Additional access boundary | **[INFERENCE]** Destination root/platform administrators, storage, backups and log services are additional potential access boundaries. Source inspection does not show that any particular employee or package author received credentials; provider-specific retention and operator access are unknown. |
 

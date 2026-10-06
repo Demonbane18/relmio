@@ -42,6 +42,7 @@ test('generated runtime package has pinned production closure and fixed credenti
   assert.ok(paths.includes('services/siwc-handoff.mjs'));
   assert.ok(paths.includes('services/siwc-session.mjs'));
   assert.ok(paths.includes('services/codex-images.mjs'));
+  assert.ok(paths.includes('services/model-discovery.mjs'));
   assert.ok(paths.includes('infrastructure/local-process.js'));
   assert.ok(paths.every(path => !path.startsWith('/') && !path.includes('..') && !/auth\.json|\.codex/u.test(path)));
   assert.ok(result.files.every(file => Buffer.isBuffer(file.contents) && file.contents.length > 0));
@@ -79,7 +80,7 @@ test('every collected runtime file is guarded and hashed, and every shipped file
   for (const path of shippedFiles(SIDECAR_BUILD_IGNORE_CONTENT)) assert.ok(precheck.has(`${INSTALL_ROOT}/${path}`), path);
 });
 
-test('every sidecar build context ships the modules the sidecar and the image CLI import', async t => {
+test('every sidecar build context ships the modules the sidecar and its CLIs import', async t => {
   const assets = await collectSiwcRuntimeAssets();
   for (const [name, ignore] of Object.entries({
     vps: SIDECAR_BUILD_IGNORE_CONTENT, 'local-n8n': createLocalN8nSidecarDockerignore(),
@@ -98,7 +99,7 @@ test('every sidecar build context ships the modules the sidecar and the image CL
       await symlink(fileURLToPath(new URL(`../node_modules/${dependency}`, import.meta.url)),
         join(context, 'node_modules', dependency), 'junction');
     }
-    const probe = `for (const path of ['gateway/openai-oauth-sidecar.mjs', 'services/codex-images.mjs'])
+    const probe = `for (const path of ['gateway/openai-oauth-sidecar.mjs', 'services/codex-images.mjs', 'services/model-discovery.mjs'])
       await import(new URL(path, process.env.RELMIO_CONTEXT_URL).href);`;
     await execFileAsync(process.execPath, ['--input-type=module', '-e', probe], { cwd: context, timeout: 10000,
       env: { ...process.env, RELMIO_CONTEXT_URL: pathToFileURL(`${context}/`).href } });

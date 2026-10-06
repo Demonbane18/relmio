@@ -249,9 +249,10 @@ generation stays off.
 
 In n8n, add an **OpenAI** node and choose **Image**, then **Generate an
 Image** or **Edit Image**. Use the same OpenAI credential as your chat nodes
-(the same Base URL and one-time Relmio key). For **Model**, choose **ID** and
-enter `gpt-image-2`. While images are on, the sidecar's model list also
-includes `gpt-image-2`.
+(the same Base URL and one-time Relmio key). For **Model**, pick `gpt-image-2`
+from the list or choose **ID** and enter it. The OpenAI Chat Model node and
+Chat Hub do not list it. Flare and Sunburst need your own OpenAI API key; see
+[the image test](n8n-configuration.md#generate-and-edit-images-vps-add-on).
 
 Limits:
 
@@ -276,6 +277,50 @@ The image controls need a running sidecar. **Sign out and revoke** first
 signs out of images too, as a best effort. **Pause plan use** stops the
 sidecar and keeps the Codex image sign-in on the server, so sign out of
 images first if you want it gone. For errors, see
+[Troubleshooting](troubleshooting.md#symptom-table).
+
+### See models and turn on model checks
+
+**Check installed account** also loads a Models group when this install owns
+the running sidecar. It lists up to 64 models from your catalog. Each row has
+the model's name and ID, a **Copy ID** button, and two labels:
+
+- **In n8n** or **Not in n8n**: whether the sidecar lists the model to n8n
+  right now.
+- **Ready** (it answered a test or a real request), **Not working** (OpenAI
+  rejected it within the last day) or **Not checked yet**.
+
+If copying fails, the ID is selected so you can copy it with the keyboard.
+The status line names the Codex version the catalog was read as. How models
+are found and hidden is explained in
+[Model discovery and checks](n8n-configuration.md#model-discovery-and-checks).
+
+If the panel says `Update the sidecar first (Review sidecar update) to show
+models.`, [update the sidecar](#update-the-installed-sidecar) and check again.
+
+Model checks are off by default. The panel explains them:
+
+> When on, the sidecar sends one short test request ('Reply with OK') to
+> models in your catalog: now for up to 12 of them, then for each new model,
+> and again once a day for a model that failed. A test that gets no answer is
+> tried again after an hour. n8n lists a model only after it answers; until any
+> model has answered, n8n shows the full catalog except models that recently
+> failed. Each test uses a small amount of your plan.
+
+To turn them on, select **I approve model checks on …**, which names your SSH
+user, host and port, then choose **Turn on model checks**. The sidecar tests up
+to 12 models one at a time, which can take a few minutes. These controls show
+only when the catalog could be read.
+
+To turn them off, select **I approve turning off model checks. New models then
+show in n8n without a test request.**, then choose **Turn off model checks**.
+This makes no request to OpenAI and works even when the catalog is
+unavailable. **Sign out and revoke** also turns model checks off, as a best
+effort.
+
+Turning checks on or off needs the same running sidecar that was checked, and
+the check expires after 20 minutes; choose **Check installed account** again
+if it does. For the status messages, see
 [Troubleshooting](troubleshooting.md#symptom-table).
 
 ## Next guides

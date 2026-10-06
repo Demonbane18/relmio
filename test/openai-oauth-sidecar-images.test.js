@@ -24,6 +24,7 @@ function setup({ upstream = generated, lease = async () => signedLease, status =
     getToken: async () => { counts.siwc += 1; return { accessToken: "siwc-text-token-123456" }; },
     getImagesLease: async () => { counts.lease += 1; return lease(); },
     imagesStatus: status,
+    discovery: { listModels: async () => ({ models: [{ id: "gpt-6.1-sol", display_name: "GPT 6.1 Sol" }] }), recordOutcome: async () => {} },
     fetchImpl: async (url, options) => { calls.push({ url, options }); return upstream(url, options); },
   });
   return { handler, calls, counts };
@@ -266,21 +267,24 @@ test("origin, host, bearer and method gates precede the image lease", async () =
   assert.equal(calls.length, 0);
 });
 
-test("models lists gpt-image-2 only while the Codex image sign-in is active", async () => {
-  const listed = { id: "gpt-6.1-sol", object: "model", display_name: "GPT 6.1 Sol" };
-  for (const [status, image] of [
-    [async () => ({ state: "signed-in" }), true],
-    [async () => ({ state: "off" }), false],
-    [async () => ({ state: "pending" }), false],
-    [async () => ({ state: "reauthorize" }), false],
-    [async () => { throw leaseError("images_unavailable"); }, false],
+test("models lists gpt-image-2 only for image pickers while the Codex image sign-in is active", async () => {
+  const listed = "gpt-6.1-sol";
+  const image = "gpt-image-2";
+  // n8n's Chat Model node and Chat Hub send openai-platform; the OpenAI node, which hosts the image picker, does not.
+  const chatPicker = { "openai-platform": "org-qkmJQuJ2WnvoIKMr2UJwIJkZ" };
+  for (const [status, extra, expected] of [
+    [async () => ({ state: "signed-in" }), {}, [listed, image]],
+    [async () => ({ state: "signed-in" }), chatPicker, [listed]],
+    [async () => ({ state: "off" }), {}, [listed]],
+    [async () => ({ state: "pending" }), {}, [listed]],
+    [async () => ({ state: "reauthorize" }), {}, [listed]],
+    [async () => { throw leaseError("images_unavailable"); }, {}, [listed]],
   ]) {
-    const { handler, counts } = setup({ status, upstream: () => Response.json({ models: [{ slug: "gpt-6.1-sol", display_name: "GPT 6.1 Sol", visibility: "list" }] }) });
-    const response = await handler(new Request("http://local.test/v1/models", { headers }));
+    const { handler, counts } = setup({ status });
+    const response = await handler(new Request("http://local.test/v1/models", { headers: { ...headers, ...extra } }));
     assert.equal(response.status, 200);
-    assert.deepEqual((await response.json()).data, image ? [listed, { id: "gpt-image-2", object: "model", display_name: "GPT Image 2 (Codex sign-in)" }] : [listed]);
+    assert.deepEqual((await response.json()).data.map(({ id }) => id), expected);
     assert.equal(counts.lease, 0);
-    assert.equal(counts.siwc, 1);
   }
 });
 

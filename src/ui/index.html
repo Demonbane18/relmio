@@ -476,6 +476,29 @@
                           <button id="vps-owner-images-signout" class="rm-button rm-button--sm" type="button" disabled>Sign out of images</button>
                         </div>
                       </div>
+                      <div id="vps-owner-models" hidden>
+                        <p id="vps-owner-models-status" class="rm-small" role="status" aria-live="polite"></p>
+                        <div id="vps-owner-models-view" hidden>
+                          <p class="rm-small rm-muted">Models marked In n8n show up in n8n's OpenAI nodes. Relmio asks OpenAI's catalog as the newest Codex release, checked from npm about every 12 hours.</p>
+                          <dl id="vps-owner-models-list" class="rm-dl"></dl>
+                          <div id="vps-owner-models-checks-off" hidden>
+                            <p class="rm-small rm-muted">When on, the sidecar sends one short test request ('Reply with OK') to models in your catalog: now for up to 12 of them, then for each new model, and again once a day for a model that failed. A test that gets no answer is tried again after an hour. n8n lists a model only after it answers; until any model has answered, n8n shows the full catalog except models that recently failed. Each test uses a small amount of your plan.</p>
+                            <label class="rm-check">
+                              <input id="vps-owner-models-confirm" type="checkbox" />
+                              <span id="vps-owner-models-confirm-label">I approve model checks on this server.</span>
+                            </label>
+                            <button id="vps-owner-models-on" class="rm-button rm-button--sm" type="button" disabled>Turn on model checks</button>
+                          </div>
+                          <div id="vps-owner-models-checks-on" hidden>
+                            <label class="rm-check">
+                              <input id="vps-owner-models-off-confirm" type="checkbox" />
+                              <span>I approve turning off model checks. New models then show in n8n without a test request.</span>
+                            </label>
+                            <button id="vps-owner-models-off" class="rm-button rm-button--sm" type="button" disabled>Turn off model checks</button>
+                          </div>
+                          <p id="vps-owner-models-assistant" class="rm-small rm-muted">n8n's AI Assistant can't list these models. To try one, choose Self-hosted or OpenAI-compatible endpoint in its settings, use the Base URL <code>http://n8n-openai-oauth:10531/v1</code> with the same Relmio key as your n8n OpenAI credential, and paste a model ID. Only do this if nobody else uses this n8n: their Assistant chats would use your ChatGPT plan. Relmio hasn't tested the Assistant with this sidecar, and OpenAI hasn't said whether this use fits its Sign in with ChatGPT terms.</p>
+                        </div>
+                      </div>
                       <button id="vps-owner-replace" class="rm-button rm-button--sm" type="button" hidden>Review replacement with a fresh account</button>
                     </div>
                   </details>

@@ -6,10 +6,10 @@ import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { getAccessToken, resolveSiwcStorageRoot } from "../services/siwc-session.mjs";
 import { CODEX_IMAGES_MODEL, codexImagesStatus, getCodexImagesLease } from "../services/codex-images.mjs";
+import { CODEX_CLI_VERSION, classifyModelRejection, createModelDiscovery } from "../services/model-discovery.mjs";
 
-export const CODEX_CLI_VERSION = "0.160.0";
+export { CODEX_CLI_VERSION };
 const BASE_URL = "https://api.openai.com/v1";
-const MODEL_CATALOG_PATH = `/models?client_version=${CODEX_CLI_VERSION}`;
 const MAX_BODY = 2 * 1024 * 1024;
 const MAX_EVENT = 2 * 1024 * 1024;
 const MAX_TOOL_CALLS = 32;
@@ -72,6 +72,12 @@ function failureStatus(value) {
 }
 function failure(message, param, status = 400, code = "unsupported_siwc_feature", recovery = status >= 500 ? "retry-later" : "fix-request") {
   return Response.json({ error: { message, type: "invalid_request_error", code, param }, status, recovery }, { status, headers: { "cache-control": "no-store" } });
+}
+const RECOVERIES = new Set(["retry-later", "reauthorize", "enable-plan", "fix-configuration", "resolve-handoff"]);
+function registrationUnavailable(error) {
+  const recovery = RECOVERIES.has(error?.recovery) ? error.recovery : "enable-plan";
+  const status = recovery === "reauthorize" ? 401 : recovery === "resolve-handoff" ? 409 : recovery === "retry-later" || recovery === "fix-configuration" ? 503 : 403;
+  return failure("The selected ChatGPT registration is not available for plan use.", null, status, "registration_unavailable", recovery);
 }
 function terminalFailure(value, requestId, secrets) {
   if (value.type === "response.incomplete") {
@@ -239,10 +245,15 @@ async function readBody(request, limit) {
 async function readJson(request, limit = MAX_BODY) {
   return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readBody(request, limit)));
 }
+async function errorBody(response) {
+  try { return await readJson(response, 16_384); } catch { return null; }
+}
 async function providerError(response, secrets) {
-  let body;
-  try { body = await readJson(response, 16_384); } catch { body = null; }
-  return safeError(body, response.status, response.headers.get("x-request-id"), secrets);
+  return safeError(await errorBody(response), response.status, response.headers.get("x-request-id"), secrets);
+}
+// Fire and forget: a slow or failing model store never delays or changes the client response.
+function learn(discovery, model, outcome) {
+  try { Promise.resolve(discovery.recordOutcome({ model, outcome })).catch(() => {}); } catch { /* Same as a rejected record. */ }
 }
 async function* sseEvents(stream, reader = stream.getReader()) {
   const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -326,7 +337,7 @@ function resolvedOutput(response, state) {
 const finalChatPhase = (item) => item.phase === undefined || item.phase === null || item.phase === "final_answer";
 const validChatPhase = (item) => finalChatPhase(item) || item.phase === "commentary";
 
-function streamResponse(upstream, chat, secrets) {
+function streamResponse(upstream, chat, secrets, onCompleted) {
   const encoder = new TextEncoder();
   const id = `chatcmpl-${randomUUID()}`;
   const model = chat?.model;
@@ -477,6 +488,7 @@ function streamResponse(upstream, chat, secrets) {
           }
           if (["response.completed", "response.failed", "response.incomplete"].includes(value.type)) {
             if (value.type === "response.completed" && value.response?.status && value.response.status !== "completed") throw new Error("invalid_terminal");
+            if (value.type === "response.completed") onCompleted();
             if (chat) {
               if (value.type === "response.completed") {
                 const resolved = resolvedOutput(value.response, output);
@@ -581,7 +593,7 @@ function chatUsage(usage) {
     ...(usage.input_tokens_details && { prompt_tokens_details: usage.input_tokens_details }),
     ...(usage.output_tokens_details && { completion_tokens_details: usage.output_tokens_details }) };
 }
-async function aggregate(upstream, chat, model, secrets) {
+async function aggregate(upstream, chat, model, secrets, onCompleted) {
   let completed;
   const output = outputState();
   try {
@@ -600,6 +612,7 @@ async function aggregate(upstream, chat, model, secrets) {
     return failure("The upstream stream was interrupted.", null, 502, "stream_interrupted");
   }
   if (!completed || completed.status && completed.status !== "completed") return failure("The upstream stream ended before completion.", null, 502, "stream_interrupted");
+  onCompleted();
   const serialized = JSON.stringify(completed);
   if (Buffer.byteLength(serialized) > MAX_EVENT) return failure("The response was too large to aggregate.", null, 502, "response_too_large");
   if (!chat) return new Response(redactSecrets(serialized, secrets), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -834,13 +847,33 @@ async function forwardImage(request, path, { fetchImpl, getImagesLease }) {
   const reported = ["size", "quality", "background"].filter((key) => typeof result[key] === "string" && result[key].length <= 64).map((key) => [key, result[key]]);
   return Response.json({ created: Number.isSafeInteger(result.created) ? result.created : Math.floor(Date.now() / 1000), data: [{ b64_json: image }], ...Object.fromEntries(reported) }, { headers: { "cache-control": "no-store" } });
 }
+async function modelsRoute(request, discovery, imagesStatus) {
+  let models;
+  try { ({ models } = await discovery.listModels({ signal: request.signal })); }
+  catch (error) {
+    if (error?.code === "catalog_unavailable") return failure("The account model catalog is unavailable.", null, error.status, "catalog_unavailable", error.recovery);
+    return registrationUnavailable(error);
+  }
+  const entry = (id, displayName) => ({ id, object: "model", created: 0, owned_by: "openai", display_name: displayName });
+  const data = models.map((model) => entry(model.id, model.display_name));
+  // ponytail: heuristic. Chat Model v1.2+ and Chat Hub send openai-platform; the OpenAI node (its text and image pickers share one request) does not, so its text picker still lists gpt-image-2.
+  // If n8n changes the header, gpt-image-2 either returns to chat lists or leaves the image picker; ID mode keeps working.
+  if (!request.headers.has("openai-platform")) {
+    let images = false;
+    try { images = (await imagesStatus()).state === "signed-in"; } catch { /* Text models stay listed when the image add-on cannot be read. */ }
+    if (images) data.push(entry(CODEX_IMAGES_MODEL, "GPT Image 2 (Codex sign-in)"));
+  }
+  return Response.json({ object: "list", data }, { headers: { "cache-control": "no-store" } });
+}
 
 export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessToken, registration, runtimeId, tokenVerifier, baseUrl = BASE_URL,
   getImagesLease = () => getCodexImagesLease({ storageRoot: registration.storageRoot }),
-  imagesStatus = () => codexImagesStatus({ storageRoot: registration.storageRoot }) } = {}) {
+  imagesStatus = () => codexImagesStatus({ storageRoot: registration.storageRoot }), discovery } = {}) {
   if (!registration?.storageRoot || !registration?.registrationId || !runtimeId || !Buffer.isBuffer(tokenVerifier) || tokenVerifier.length !== 32) throw new TypeError("The sidecar requires a selected owned registration and local credential verifier.");
+  discovery ??= createModelDiscovery({ storageRoot: registration.storageRoot, registrationId: registration.registrationId, pinnedClientVersion: CODEX_CLI_VERSION,
+    getLease: ({ signal } = {}) => getToken(registration, { runtimeId, minValidityMs: 60_000, signal }), deps: { fetchImpl } });
   const editSlot = { busy: false };
-  return async (request) => {
+  const handler = async (request) => {
     const path = new URL(request.url).pathname;
     if (request.headers.has("origin")) return failure("Browser origins are not allowed.", "origin", 403, "origin_rejected");
     if (!validPrivateHost(request.headers.get("host"))) return failure("The sidecar host is not allowed.", "host", 421, "host_rejected");
@@ -849,62 +882,53 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
     if (path === "/v1/images/generations" || path === "/v1/images/edits") return imagesRoute(request, path, { fetchImpl, getImagesLease, editSlot });
     if (path !== "/v1/models" && path !== "/v1/responses" && path !== "/v1/chat/completions") return failure("This route is not available with ChatGPT plan usage.", "route", 404);
     if (path === "/v1/models" ? request.method !== "GET" : request.method !== "POST") return failure("This method is not available.", "method", 405);
+    if (path === "/v1/models") return modelsRoute(request, discovery, imagesStatus);
     let body, streamOptions, stream = false, chat = false;
-    if (path !== "/v1/models") {
-      try { body = await readJson(request); }
-      catch (error) { return failure("Request body must be bounded JSON.", "body", error?.message === "body_too_large" ? 413 : 400, error?.message === "body_too_large" ? "body_too_large" : "invalid_json"); }
-      if (path === "/v1/chat/completions") {
-        const translated = translateChat(body);
-        if (translated.error) return failure("This chat parameter or message cannot be represented by Responses.", translated.error);
-        const invalid = validateResponses(translated.request);
-        if (invalid) return failure("This chat request cannot be represented by Responses.", invalid);
-        stream = translated.stream; streamOptions = translated.streamOptions; body = translated.request; chat = true;
-      } else {
-        const normalized = normalizeFlatTools(body);
-        if (normalized.error) return failure("The tool definitions cannot be represented by this plan route.", normalized.error);
-        body = normalized.body;
-        const invalid = validateResponses(body);
-        if (invalid) return failure("This Responses parameter is unavailable with ChatGPT plan usage.", invalid);
-        stream = body.stream === true;
-        body = { ...body, store: false, stream: true };
-        delete body.background;
-      }
+    try { body = await readJson(request); }
+    catch (error) { return failure("Request body must be bounded JSON.", "body", error?.message === "body_too_large" ? 413 : 400, error?.message === "body_too_large" ? "body_too_large" : "invalid_json"); }
+    if (path === "/v1/chat/completions") {
+      const translated = translateChat(body);
+      if (translated.error) return failure("This chat parameter or message cannot be represented by Responses.", translated.error);
+      const invalid = validateResponses(translated.request);
+      if (invalid) return failure("This chat request cannot be represented by Responses.", invalid);
+      stream = translated.stream; streamOptions = translated.streamOptions; body = translated.request; chat = true;
+    } else {
+      const normalized = normalizeFlatTools(body);
+      if (normalized.error) return failure("The tool definitions cannot be represented by this plan route.", normalized.error);
+      body = normalized.body;
+      const invalid = validateResponses(body);
+      if (invalid) return failure("This Responses parameter is unavailable with ChatGPT plan usage.", invalid);
+      stream = body.stream === true;
+      body = { ...body, store: false, stream: true };
+      delete body.background;
     }
     let lease;
     try { lease = await getToken(registration, { runtimeId, minValidityMs: 60_000, signal: request.signal }); }
-    catch (error) {
-      const recovery = ["retry-later", "reauthorize", "enable-plan", "fix-configuration", "resolve-handoff"].includes(error?.recovery) ? error.recovery : "enable-plan";
-      const status = recovery === "reauthorize" ? 401 : recovery === "resolve-handoff" ? 409 : recovery === "retry-later" || recovery === "fix-configuration" ? 503 : 403;
-      return failure("The selected ChatGPT registration is not available for plan use.", null, status, "registration_unavailable", recovery);
-    }
+    catch (error) { return registrationUnavailable(error); }
     let upstream;
     try {
-      upstream = await fetchImpl(`${baseUrl}${path === "/v1/models" ? MODEL_CATALOG_PATH : "/responses"}`, {
-        method: path === "/v1/models" ? "GET" : "POST",
-        headers: { authorization: `Bearer ${lease.accessToken}`, ...(body && { "content-type": "application/json" }) },
-        ...(body && { body: JSON.stringify(body) }), signal: request.signal,
+      upstream = await fetchImpl(`${baseUrl}/responses`, {
+        method: "POST", headers: { authorization: `Bearer ${lease.accessToken}`, "content-type": "application/json" },
+        body: JSON.stringify(body), signal: request.signal,
       });
     } catch { return failure("The provider request was interrupted.", null, 503, "request_interrupted"); }
-    if (!upstream.ok) return Response.json(await providerError(upstream, [lease.accessToken]), { status: upstream.status, headers: { "cache-control": "no-store" } });
-    if (path === "/v1/models") {
-      let data;
-      try {
-        const models = (await readJson(upstream)).models;
-        if (!Array.isArray(models) || !models.every((m) => m && typeof m.slug === "string" && typeof m.visibility === "string")) throw new Error("invalid_catalog");
-        data = models.filter((m) => m.visibility === "list").map((m) => ({ id: redactSecrets(m.slug, [lease.accessToken]), object: "model", display_name: redactSecrets(typeof m.display_name === "string" ? m.display_name : m.slug, [lease.accessToken]) }));
-      } catch { return failure("The account model catalog was invalid.", null, 502, "invalid_catalog"); }
-      let images = false;
-      try { images = (await imagesStatus()).state === "signed-in"; } catch { /* Text models stay listed when the image add-on cannot be read. */ }
-      if (images) data.push({ id: CODEX_IMAGES_MODEL, object: "model", display_name: "GPT Image 2 (Codex sign-in)" });
-      return Response.json({ object: "list", data }, { headers: { "cache-control": "no-store" } });
+    if (!upstream.ok) {
+      const detail = await errorBody(upstream);
+      if (classifyModelRejection(upstream.status, detail, { source: "traffic" })) learn(discovery, body.model, "model_rejected");
+      return Response.json(safeError(detail, upstream.status, upstream.headers.get("x-request-id"), [lease.accessToken]), { status: upstream.status, headers: { "cache-control": "no-store" } });
     }
     if (!upstream.body) return failure("The provider returned no response stream.", null, 502, "stream_interrupted");
-    return stream ? streamResponse(upstream, chat && { ...body, streamOptions }, [lease.accessToken]) : aggregate(upstream, chat, body.model, [lease.accessToken]);
+    const completed = () => learn(discovery, body.model, "completed");
+    return stream ? streamResponse(upstream, chat && { ...body, streamOptions }, [lease.accessToken], completed)
+      : aggregate(upstream, chat, body.model, [lease.accessToken], completed);
   };
+  // Stops background model checks, so shutdown sends no more probes or lease refreshes.
+  handler.close = () => discovery.close?.();
+  return handler;
 }
 export async function listSiwcModels({ storageRoot, registrationId, runtimeId, fetchImpl = fetch, getToken = getAccessToken, signal } = {}) {
   const lease = await getToken({ storageRoot, registrationId }, { runtimeId, minValidityMs: 60_000, signal });
-  const response = await fetchImpl(`${BASE_URL}${MODEL_CATALOG_PATH}`, {
+  const response = await fetchImpl(`${BASE_URL}/models?client_version=${CODEX_CLI_VERSION}`, {
     headers: { authorization: `Bearer ${lease.accessToken}` }, signal,
   });
   if (!response.ok) {
@@ -968,8 +992,9 @@ function config(environment = process.env) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const server = createSidecarServer(createSidecarHandler(config()));
+    const handler = createSidecarHandler(config());
+    const server = createSidecarServer(handler);
     server.listen(10531, "0.0.0.0");
-    for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { void server.quiesce(); });
+    for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { void server.quiesce(); handler.close(); });
   } catch { process.stderr.write("Relmio sidecar could not start.\n"); process.exitCode = 1; }
 }

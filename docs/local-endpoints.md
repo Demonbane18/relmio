@@ -227,9 +227,17 @@ Use Responses API: On
 
 The n8n bearer authorizes the local sidecar; it is not an OpenAI credential.
 The provider access token stays in the sidecar's protected SIWC registration.
-Requests use `GET /v1/models` and `POST /v1/responses`. The model list is
-requested with the pinned Codex version (0.160.0) as OpenAI's undocumented
-`client_version` parameter, which OpenAI could change. The sidecar also has a
+Requests use `GET /v1/models` and `POST /v1/responses`. For the n8n sidecar,
+the catalog `client_version` follows the newest stable Codex release from npm,
+checked about every 12 hours and never below Relmio's pin (0.160.0). The registry
+sees the server's IP address but receives no credentials. The sidecar caches
+the catalog for 5 minutes. OpenAI does not document this version filter.
+Local Codex clients and the pre-install account picker still use the pin.
+Local n8n sidecars have no model-check controls and default to checks off; they
+still learn from completed requests and hide model-level failures for a day.
+See [model discovery and checks](n8n-configuration.md#model-discovery-and-checks).
+
+The sidecar also has a
 Chat Completions compatibility path that accepts text messages and function
 tools. Function tools go upstream in one `additional_tools` item, and n8n runs
 the tools itself. Limits are 32 tool calls, 128 KiB of arguments per call, and

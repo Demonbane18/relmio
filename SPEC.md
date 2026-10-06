@@ -135,11 +135,21 @@ check.
 The sidecar requires a generated Relmio bearer and serves:
 
 - `GET /health` for liveness.
-- `GET /v1/models` for the selected account catalog, filtered to
-  `visibility == "list"` and retaining provider order, display names, and slugs.
-  Relmio requests the catalog with `client_version` set to its pinned Codex
-  version (`CODEX_CLI_VERSION`, 0.160.0). OpenAI filters the catalog by this
-  parameter but does not document it, so the behavior could change.
+- `GET /v1/models` for the selected account's text models, filtered to
+  `visibility == "list"` and `supported_in_api` not `false`, without IDs that
+  contain `image`, in provider order with display names and slugs (at most
+  256). The catalog's `client_version` is the newest stable
+  `@openai/codex` version from `registry.npmjs.org`, checked about every 12
+  hours with no credentials, and never below `CODEX_CLI_VERSION` (0.160.0).
+  OpenAI filters the catalog by this parameter but does not document it. The
+  catalog is cached for 5 minutes. When a refresh fails, a list up to 1 hour
+  old is served, except after an upstream 401; otherwise the route returns
+  `catalog_unavailable` (401 `reauthorize` or 503 `retry-later`). Token lease
+  failures keep the `registration_unavailable` mapping. Models that fail with
+  a model-level error are hidden for 24 hours. Optional per-install model
+  checks (VPS, off by default, consent recorded) list only models that
+  answered a short test once any has. See
+  [model discovery](docs/n8n-configuration.md#model-discovery-and-checks).
 - `POST /v1/responses` for validated Responses requests. Upstream requests set
   `store:false` and `stream:true`; only `response.completed` is success.
   Streamed events, including any `phase`, pass through unchanged. OpenAI's
@@ -170,7 +180,9 @@ The sidecar requires a generated Relmio bearer and serves:
   base64 output, no mask, and sizes `1024x1024`, `1024x1536`, `1536x1024` or
   `auto` are accepted; edits take 1 to 16 PNG, JPEG, WebP or GIF images of up
   to 25 MiB each within a 48 MiB body. `GET /v1/models` adds `gpt-image-2`
-  while the add-on is signed in. The local sidecar has no image sign-in.
+  while the add-on is signed in, except for requests with n8n's
+  `openai-platform` header (Chat Model node and Chat Hub). The local sidecar
+  has no image sign-in.
 
 All text inference requests use the selected SIWC registration and public
 `https://api.openai.com/v1/responses`; the SIWC token is never sent to the

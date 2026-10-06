@@ -1857,15 +1857,17 @@ element("install-button").addEventListener("click", async (event) => {
       element("credential-title").textContent = holdKey
         ? "Save the Relmio client credential" : "1. Add the Relmio client credential";
       element("result-readiness-usage").hidden = failure?.recovery !== "manage-usage";
+      // Image models answer only on the images route, so the chat recipe never offers them.
+      const chatModels = result.models.filter((slug) => !slug.includes("image"));
       fillSelect(element("result-model-picker"),
-        result.models.map((slug) => ({ value: slug, label: state.catalogLabels.get(slug) ?? slug })),
-        result.models[0]);
-      const selectedModel = result.models[0] ?? "";
+        chatModels.map((slug) => ({ value: slug, label: state.catalogLabels.get(slug) ?? slug })),
+        chatModels[0]);
+      const selectedModel = chatModels[0] ?? "";
       element("result-model").textContent = selectedModel;
       element("result-models").textContent = result.models.length ? result.models.join(", ") : "None listed";
       // Request tools stay off while the key is held, so nothing suggests sending a request.
-      element("result-model-picker").disabled = result.models.length === 0 || holdKey;
-      element("copy-http-recipe").disabled = result.models.length === 0 || holdKey;
+      element("result-model-picker").disabled = chatModels.length === 0 || holdKey;
+      element("copy-http-recipe").disabled = chatModels.length === 0 || holdKey;
       element("result-http-url").textContent =
         `${result.baseUrl.replace(/\/$/u, "")}/chat/completions`;
       renderHttpRequestBody(selectedModel);
@@ -2015,6 +2017,7 @@ function renderVpsOwnerUpdate(status, account = null) {
       : status?.runtimeUpdateAvailable === false ? "The sidecar runtime is current."
         : "Review the sidecar update to compare it with this Relmio version.";
   renderVpsOwnerImages(null, owned);
+  renderVpsOwnerModels(null, owned);
 }
 
 function stopVpsOwnerImagesPolling() {
@@ -2138,6 +2141,133 @@ element("vps-owner-images-signout").addEventListener("click", (event) => {
   void changeVpsOwnerImages("sign-out", event.currentTarget, "vps-owner-images-signout-confirm");
 });
 
+const VPS_MODEL_BADGES = new Map([
+  ["verified", ["Ready", "rm-badge rm-badge--success"]],
+  ["failed", ["Not working", "rm-badge rm-badge--warning"]],
+  ["unchecked", ["Not checked yet", "rm-badge"]],
+]);
+const VPS_MODEL_LISTED_BADGES = new Map([[true, ["In n8n", "rm-badge rm-badge--accent"]], [false, ["Not in n8n", "rm-badge"]]]);
+const VPS_MODEL_STOP_REASONS = new Map([
+  ["usage_limit", "Checks paused: plan usage isn't available right now."],
+  ["reauthorize", "Checks paused: ChatGPT sign-in is needed."],
+  ["probe_rejected", "Checks paused: OpenAI refused the test request."],
+  ["checks_off", "Checks stopped because they were turned off."],
+  ["time_limit", "Some models weren't checked in time. The sidecar keeps checking in the background."],
+  ["lease_unavailable", "Checks paused: the ChatGPT session isn't available for plan use right now."],
+]);
+
+// Without a catalog only turning checks off stays offered; turning them on needs the catalog.
+function vpsOwnerModelsControl(models) {
+  return models?.state !== "available" ? null : models.checksEnabled ? "off" : models.catalogError ? null : "on";
+}
+
+function vpsOwnerModelsStatus(models) {
+  if (!models) return "Check the installed account to see models.";
+  if (models.state !== "available") return "Update the sidecar first (Review sidecar update) to show models.";
+  const catalog = models.catalogError
+    ? `OpenAI's model catalog is unavailable right now.${models.checksEnabled ? " You can still turn model checks off." : ""}`
+    : models.catalogCheckedAt === null ? "Check the installed account to refresh the model list."
+      : models.models.length
+        ? `Catalog read at ${new Date(models.catalogCheckedAt).toLocaleTimeString()} as Codex ${models.clientVersion}.`
+        : "OpenAI's catalog lists no models for this account.";
+  return [`Model checks are ${models.checksEnabled ? "on" : "off"}.`, catalog,
+    VPS_MODEL_STOP_REASONS.get(models.lastRun?.stoppedReason)].filter(Boolean).join(" ");
+}
+
+function renderVpsOwnerModels(models, visible = true) {
+  const available = models?.state === "available";
+  const control = vpsOwnerModelsControl(models);
+  const identity = sshSession.adoptedIdentity();
+  element("vps-owner-models").hidden = !visible;
+  element("vps-owner-models-view").hidden = !available;
+  element("vps-owner-models-checks-off").hidden = control !== "on";
+  element("vps-owner-models-checks-on").hidden = control !== "off";
+  for (const id of ["vps-owner-models-confirm", "vps-owner-models-off-confirm"]) element(id).checked = false;
+  for (const id of ["vps-owner-models-on", "vps-owner-models-off"]) element(id).disabled = true;
+  element("vps-owner-models-confirm-label").textContent = "I approve model checks on " +
+    `${identity ? `${identity.username}@${identity.host}:${identity.port}` : "this server"}.`;
+  element("vps-owner-models-list").replaceChildren(...(available ? models.models.map(vpsOwnerModelRow) : []));
+  element("vps-owner-models-status").textContent = vpsOwnerModelsStatus(models);
+}
+
+function vpsOwnerModelBadge([text, className]) {
+  const badge = document.createElement("span");
+  badge.className = className;
+  badge.textContent = text;
+  return badge;
+}
+
+function vpsOwnerModelRow(model) {
+  const row = document.createElement("div");
+  const label = document.createElement("dt");
+  const detail = document.createElement("dd");
+  const id = document.createElement("code");
+  const copy = document.createElement("button");
+  const icon = document.createElement("span");
+  const name = document.createElement("span");
+  label.textContent = model.display_name;
+  detail.className = "rm-cluster";
+  id.textContent = model.id;
+  copy.type = "button";
+  copy.className = "rm-button rm-button--sm copy-value";
+  icon.className = "rm-icon rm-icon--copy rm-icon--sm";
+  icon.setAttribute("aria-hidden", "true");
+  // Each button names its model, so a list of Copy ID buttons stays distinguishable.
+  name.className = "rm-visually-hidden";
+  name.textContent = ` ${model.id}`;
+  copy.append(icon, "Copy ID", name);
+  copy.addEventListener("click", () => { void copyVpsOwnerModelId(model.id, copy, id); });
+  detail.append(id, vpsOwnerModelBadge(VPS_MODEL_LISTED_BADGES.get(model.listed)),
+    vpsOwnerModelBadge(VPS_MODEL_BADGES.get(model.state)), copy);
+  row.append(label, detail);
+  return row;
+}
+
+async function copyVpsOwnerModelId(modelId, button, code) {
+  const status = element("vps-owner-models-status");
+  try {
+    await copyText(modelId);
+    flashCopied(button);
+    status.textContent = `Copied ${modelId}.`;
+  } catch {
+    document.getSelection().selectAllChildren(code);
+    status.textContent = "Copy failed. The ID is selected, so you can copy it with your keyboard.";
+  }
+}
+
+async function changeVpsOwnerModels(enabled, button, confirmId) {
+  const owner = state.vpsOwner;
+  if (!owner || !element(confirmId).checked) {
+    showError(new Error("Confirm this model check change first."));
+    return;
+  }
+  clearError();
+  try {
+    const result = await runOperation(button, enabled ? "Turning on model checks…" : "Turning off model checks…",
+      () => api("/api/siwc/vps/models/checks", { method: "POST", body: { enabled, confirmed: true } }),
+      { progressNote: enabled
+        ? "The sidecar tests up to 12 models now, one at a time. This can take a few minutes."
+        : OPERATION_DEFAULT_NOTE });
+    if (!result || state.vpsOwner !== owner) return;
+    renderVpsOwnerModels(result);
+    const control = vpsOwnerModelsControl(result);
+    focusVisible(element(control === "off" ? "vps-owner-models-off-confirm"
+      : control === "on" ? "vps-owner-models-confirm" : "vps-owner-check"));
+  } catch (error) { showError(error); }
+}
+
+for (const [enabled, buttonId, confirmId] of [
+  [true, "vps-owner-models-on", "vps-owner-models-confirm"],
+  [false, "vps-owner-models-off", "vps-owner-models-off-confirm"],
+]) {
+  element(confirmId).addEventListener("change", (event) => {
+    element(buttonId).disabled = !event.currentTarget.checked;
+  });
+  element(buttonId).addEventListener("click", (event) => {
+    void changeVpsOwnerModels(enabled, event.currentTarget, confirmId);
+  });
+}
+
 function updateVpsOwnerApproval() {
   const owner = state.vpsOwner;
   const accepted = element("vps-owner-confirm").checked && owner?.account?.ownership === "owned" &&
@@ -2172,11 +2302,14 @@ element("vps-owner-check").addEventListener("click", async (event) => {
     } else renderVpsOwner(result);
     const owner = state.vpsOwner;
     if (element("vps-owner-images").hidden) return;
+    const target = { containerName: owner.containerName, networkName: owner.networkName,
+      registrationId: owner.registrationId };
     const images = await runOperation(button, "Checking image generation…", () =>
-      api("/api/siwc/vps/images/status", { method: "POST", body: {
-        containerName: owner.containerName, networkName: owner.networkName, registrationId: owner.registrationId,
-      } }));
+      api("/api/siwc/vps/images/status", { method: "POST", body: target }));
     if (images && state.vpsOwner === owner) renderVpsOwnerImages(images);
+    const models = await runOperation(button, "Checking models…", () =>
+      api("/api/siwc/vps/models/status", { method: "POST", body: target }));
+    if (models && state.vpsOwner === owner) renderVpsOwnerModels(models);
   } catch (error) { showError(error); }
 });
 

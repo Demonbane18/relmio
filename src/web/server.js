@@ -12,7 +12,8 @@ import packageManifest from "../../package.json" with { type: "json" };
 import { listSiwcModels } from "../gateway/openai-oauth-sidecar.mjs";
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
 import {
-  changeVpsCodexImages, getVpsCodexImagesStatus, getVpsSiwcInstallationStatus, inspectStoppedVpsSiwcInstallation,
+  changeVpsCodexImages, changeVpsModelChecks, getVpsCodexImagesStatus, getVpsModelDiscovery, getVpsSiwcInstallationStatus,
+  inspectStoppedVpsSiwcInstallation,
   installSidecar, manageVpsSiwcInstallation, reviewVpsLegacyMigration, reviewVpsSiwcReplacement, reviewVpsSiwcTarget,
   reviewVpsSiwcResume, reconcileVpsSiwcHandoff, reviewVpsSiwcRuntimeUpdate, updateVpsSiwcRuntime,
 } from "../services/installer.js";
@@ -197,6 +198,8 @@ const defaultServices = {
   updateVpsSiwcRuntime,
   getVpsCodexImagesStatus,
   changeVpsCodexImages,
+  getVpsModelDiscovery,
+  changeVpsModelChecks,
   inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels,
   inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus,
   installAssistant,
@@ -438,6 +441,7 @@ function invalidateSiwcWork(state) {
   state.siwcRecoveryReview = null;
   state.vpsRuntimeUpdateReview = null;
   state.vpsImagesTarget = null;
+  state.vpsModelsTarget = null;
   state.localChatTest.resetAll?.();
 }
 
@@ -865,14 +869,18 @@ function requireReviewedVpsOwnerTarget(state, containerName, networkName) {
 
 const CODEX_IMAGES_VERIFICATION_URL = "https://auth.openai.com/codex/device";
 const VPS_IMAGES_STATES = new Set(["off", "pending", "signed-in", "reauthorize", "unavailable"]);
-const VPS_IMAGES_TARGET_MS = 20 * 60_000;
+const VPS_MODEL_STATES = new Set(["verified", "failed", "unchecked"]);
+const VPS_MODEL_CATALOG_ERRORS = new Set(["catalog_unavailable", "registration_unavailable"]);
+const VPS_MODEL_STOP_REASONS = new Set(["usage_limit", "reauthorize", "probe_rejected", "checks_off", "time_limit",
+  "lease_unavailable"]);
+const VPS_ADDON_TARGET_MS = 20 * 60_000;
 
-function requireVpsImagesTarget(state, { pending = false } = {}) {
-  const target = state.vpsImagesTarget;
+// An add-on target stored by a status check serves only this connection until it expires.
+function requireVpsAddonTarget(state, key, message, { pending = false } = {}) {
+  const target = state[key];
   if (!target || target.expiresAt <= Date.now() || (pending && !target.pending) ||
-      !VPS_IDENTITY_FIELDS.every((key) => target.reviewedTarget[key] === state.connectionIdentity?.[key])) {
-    throw Object.assign(new Error("Check the installed account's image generation again."),
-      { statusCode: 409, recovery: "review-again" });
+      !VPS_IDENTITY_FIELDS.every((field) => target.reviewedTarget[field] === state.connectionIdentity?.[field])) {
+    throw Object.assign(new Error(message), { statusCode: 409, recovery: "review-again" });
   }
   return target;
 }
@@ -880,6 +888,11 @@ function requireVpsImagesTarget(state, { pending = false } = {}) {
 function boundedText(value, max) {
   return typeof value === "string" && value.length > 0 && value.length <= max &&
     !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function isoTime(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(value) &&
+    Number.isFinite(Date.parse(value));
 }
 
 // Only known add-on fields reach the browser; tokens, device IDs and remote output never do.
@@ -891,8 +904,7 @@ function copyVpsImagesStatus(result) {
         (account.planType !== undefined && !boundedText(account.planType, 32)))) ||
       (state === "pending" && (!/^[A-Z0-9]{2,16}(?:-[A-Z0-9]{2,16}){0,3}$/u.test(pending?.userCode ?? "") ||
         pending.verificationUrl !== CODEX_IMAGES_VERIFICATION_URL ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(pending.expiresAt ?? "") ||
-        !Number.isFinite(Date.parse(pending.expiresAt))))) {
+        !isoTime(pending.expiresAt)))) {
     throw Object.assign(new Error("The VPS returned an invalid image generation status."), { statusCode: 502 });
   }
   return {
@@ -910,12 +922,47 @@ function copyVpsImagesStatus(result) {
   };
 }
 
+function validVpsModelRow(model) {
+  return typeof model?.id === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(model.id) &&
+    boundedText(model.display_name, 256) && VPS_MODEL_STATES.has(model.state) && typeof model.listed === "boolean" &&
+    (model.checkedAt === undefined || isoTime(model.checkedAt));
+}
+
+function validVpsModelRun(run) {
+  const count = (value) => Number.isInteger(value) && value >= 0 && value <= 64;
+  return run === undefined || (count(run?.checked) && count(run.verified) && count(run.failed) &&
+    (run.stoppedReason === undefined || VPS_MODEL_STOP_REASONS.has(run.stoppedReason)));
+}
+
+// Only the validated catalog view reaches the browser; tokens, upstream text and remote output never do.
+function copyVpsModelsStatus(result) {
+  const { state, catalogError, lastRun, models } = result ?? {};
+  if (!["available", "unavailable"].includes(state) || !/^[a-f0-9]{64}$/u.test(result.containerId ?? "") ||
+      (state === "available" && (typeof result.checksEnabled !== "boolean" ||
+        typeof result.clientVersion !== "string" || !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/u.test(result.clientVersion) ||
+        (result.catalogCheckedAt !== null && !isoTime(result.catalogCheckedAt)) ||
+        (catalogError !== undefined && !VPS_MODEL_CATALOG_ERRORS.has(catalogError)) || !validVpsModelRun(lastRun) ||
+        !Array.isArray(models) || models.length > 64 || !models.every(validVpsModelRow)))) {
+    throw Object.assign(new Error("The VPS returned an invalid model status."), { statusCode: 502 });
+  }
+  if (state === "unavailable") return { state };
+  return {
+    state, checksEnabled: result.checksEnabled, clientVersion: result.clientVersion,
+    catalogCheckedAt: result.catalogCheckedAt,
+    ...(catalogError === undefined ? {} : { catalogError }),
+    ...(lastRun === undefined ? {} : { lastRun: { checked: lastRun.checked, verified: lastRun.verified,
+      failed: lastRun.failed, ...(lastRun.stoppedReason === undefined ? {} : { stoppedReason: lastRun.stoppedReason }) } }),
+    models: models.map((model) => ({ id: model.id, display_name: model.display_name, state: model.state,
+      listed: model.listed, ...(model.checkedAt === undefined ? {} : { checkedAt: model.checkedAt }) })),
+  };
+}
+
 function credentialBearingVpsRoute(path) {
   return path === "/api/plan" || path === "/api/install" ||
     path === "/api/siwc/vps/status" || path === "/api/siwc/vps/manage" ||
     path === "/api/siwc/vps/inspect-stopped" || path.startsWith("/api/siwc/vps/recovery/") ||
     path === "/api/siwc/vps/runtime-update/review" || path === "/api/siwc/vps/runtime-update/apply" ||
-    path.startsWith("/api/siwc/vps/images/") ||
+    path.startsWith("/api/siwc/vps/images/") || path.startsWith("/api/siwc/vps/models/") ||
     path === "/api/assistant/plan" || path === "/api/assistant/install" ||
     path.startsWith("/api/vps/supergrok/");
 }
@@ -1032,6 +1079,7 @@ function invalidateVpsPlans(state) {
   state.siwcRecoveryReview = null;
   state.vpsRuntimeUpdateReview = null;
   state.vpsImagesTarget = null;
+  state.vpsModelsTarget = null;
   state.sidecarPlan = null;
   state.assistantPlan = null;
   invalidateSuperGrokPlan(state);
@@ -5685,7 +5733,8 @@ async function handleApi(request, response, path, state) {
       throw Object.assign(new Error("Confirm this image sign-in change first."), { statusCode: 400 });
     }
     rejectActiveVpsMutation(state);
-    const stored = checking ? null : requireVpsImagesTarget(state, { pending: polling });
+    const stored = checking ? null : requireVpsAddonTarget(state, "vpsImagesTarget",
+      "Check the installed account's image generation again.", { pending: polling });
     const containerName = stored ? stored.reviewedTarget.containerName : body.containerName;
     const networkName = stored ? stored.reviewedTarget.networkName : body.networkName;
     requireDiscoveredNetwork(state, containerName, networkName);
@@ -5710,11 +5759,59 @@ async function handleApi(request, response, path, state) {
       const view = copyVpsImagesStatus(result);
       detach ||= polling && view.state !== "pending";
       state.vpsImagesTarget = detach ? null : { reviewedTarget, registrationId, containerId: result.containerId,
-        pending: view.state === "pending", expiresAt: Date.now() + VPS_IMAGES_TARGET_MS };
+        pending: view.state === "pending", expiresAt: Date.now() + VPS_ADDON_TARGET_MS };
       sendJson(response, 200, view);
     } finally {
       operation?.release();
       if (detach) detachVpsConnection(state, connection);
+      releaseMutation?.();
+      connectionUse.release();
+    }
+    return;
+  }
+
+  if (path === "/api/siwc/vps/models/status" || path === "/api/siwc/vps/models/checks") {
+    requireLiveLocalAction(state, "VPS model discovery");
+    enforceRateLimit(state, path);
+    const checking = path.endsWith("/status");
+    requireExactRequestBody(body, checking ? ["containerName", "networkName", "registrationId"] : ["enabled", "confirmed"],
+      "Check this installed account's models again.");
+    if (!checking && (typeof body.enabled !== "boolean" || body.confirmed !== true)) {
+      throw Object.assign(new Error("Confirm this model check change first."), { statusCode: 400 });
+    }
+    rejectActiveVpsMutation(state);
+    const stored = checking ? null
+      : requireVpsAddonTarget(state, "vpsModelsTarget", "Check the installed account's models again.");
+    const containerName = stored ? stored.reviewedTarget.containerName : body.containerName;
+    const networkName = stored ? stored.reviewedTarget.networkName : body.networkName;
+    requireDiscoveredNetwork(state, containerName, networkName);
+    const registrationId = stored ? stored.registrationId : requireSiwcId(body.registrationId);
+    const reviewedTarget = stored ? stored.reviewedTarget
+      : requireReviewedVpsOwnerTarget(state, containerName, networkName);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    let operation;
+    let releaseMutation;
+    try {
+      requireFullVpsScope(connection);
+      if (checking) {
+        operation = acquireVpsCredentialOperation(state, "models-status");
+        state.vpsModelsTarget = null;
+      } else releaseMutation = acquireVpsMutationLock(state);
+      const result = checking
+        ? await state.services.getVpsModelDiscovery({ remote: connection, networkName, reviewedTarget, registrationId })
+        : await state.services.changeVpsModelChecks({ remote: connection, networkName, reviewedTarget, registrationId,
+          enabled: body.enabled, expectedContainerId: stored.containerId, confirmed: true });
+      const view = copyVpsModelsStatus(result);
+      if (!checking && view.checksEnabled !== body.enabled) {
+        throw Object.assign(new Error("The model check change was not confirmed."), { statusCode: 502 });
+      }
+      // An older sidecar cannot change model checks, so its status leaves no target.
+      state.vpsModelsTarget = view.state === "available" ? { reviewedTarget, registrationId,
+        containerId: result.containerId, expiresAt: Date.now() + VPS_ADDON_TARGET_MS } : null;
+      sendJson(response, 200, view);
+    } finally {
+      operation?.release();
       releaseMutation?.();
       connectionUse.release();
     }
@@ -6359,6 +6456,7 @@ export async function startWizardServer({
     vpsOwnerTargetReview: null,
     vpsRuntimeUpdateReview: null,
     vpsImagesTarget: null,
+    vpsModelsTarget: null,
     assistantPlan: null,
     supergrokPlan: null,
     supergrokPlanGeneration: 0,

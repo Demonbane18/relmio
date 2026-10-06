@@ -220,8 +220,9 @@ An example model shown in n8n documentation is not a migration requirement.
 Change models only if n8n rejects the current selection or you deliberately
 choose another supported model.
 
-ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. Relmio
-does not offer it as a compliant model provider for AI Assistant.
+ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key, so it
+does not work with the **OpenAI** provider. To try the ChatGPT plan sidecar
+instead, see [Optional: ChatGPT plan sidecar (untested)](#optional-chatgpt-plan-sidecar-untested).
 
 A Relmio-managed local model for an n8n workflow is a separate **Chat Model**
 endpoint. Installing it does not install or enable n8n's Assistant sandbox, and
@@ -241,12 +242,35 @@ by a user-owned OpenAI Platform API key.
   OpenAI-issued API key.
 - **Model ID:** a model ID exposed by the Platform-key-backed endpoint.
 
-The Assistant wizard does not create or auto-select the separate ChatGPT plan
-sidecar. That is a documented local SIWC connection with a separate plan grant
-and n8n background-use consent; it needs no commercial approval, partner
-client, or secret. A specific n8n AI Assistant model-node connection to that
-sidecar is outside this guide and is not claimed or tested here. See
-[n8n configuration](n8n-configuration.md).
+### Optional: ChatGPT plan sidecar (untested)
+
+The Assistant wizard does not create or select the ChatGPT plan sidecar. You
+can point the Assistant at an installed sidecar yourself:
+
+1. Get a model ID. On a VPS, choose **Check installed account** in **Manage
+   the installed ChatGPT session** and use **Copy ID** on a model marked
+   **In n8n**. On a local sidecar, copy an ID from the OpenAI Chat Model
+   node's list.
+2. In n8n's AI Assistant settings, choose **Self-hosted or OpenAI-compatible
+   endpoint**.
+3. Enter the Base URL `http://n8n-openai-oauth:10531/v1`, the same Relmio key
+   as your n8n OpenAI credential, and paste the model ID into **Model**.
+
+The Assistant never reads the sidecar's model list. For this endpoint type n8n
+shows a free-text **Model** field, so new models do not appear there.
+
+Only do this if nobody else uses this n8n: their Assistant chats would use
+your ChatGPT plan.
+
+Relmio hasn't tested the Assistant with this sidecar. The sidecar refuses
+request fields and tools it cannot keep, so some Assistant features may fail.
+OpenAI hasn't said whether this use fits its Sign in with ChatGPT terms; SIWC
+Terms §2 limits use to the connected application. See the
+[2026-10-06 source check](openai-source-check-2026-10-06.md#addendum-automatic-model-discovery).
+
+n8n stores Assistant conversations and outputs in its own database, and sends
+traces to LangSmith if you set that up. Relmio's sidecar adds no logs.
+Assistant model use counts toward your plan's limits.
 
 ## Platform account guardrails
 
