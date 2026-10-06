@@ -619,8 +619,9 @@ Relmio applies the documented distinctions as engineering controls:
   behind its own private-network bearer.
 - The n8n AI Assistant's **OpenAI** provider uses an operator's Platform API
   key entered directly in n8n; Relmio never receives it. Pointing the
-  Assistant at the SIWC sidecar is the owner's choice, not yet tested live,
-  and open under SIWC Terms §2; see [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
+  Assistant at the SIWC sidecar is the owner's choice and stays open under
+  SIWC Terms §2. It passed one live test on 2026-10-07, on one account and
+  model; see [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar).
 - Consent to background workflow use is separate from the ChatGPT plan grant.
 
 This security page does not establish live account eligibility or turn the

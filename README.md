@@ -339,10 +339,13 @@ n8n's AI Assistant cannot list sidecar models. To try one, choose
 and paste a model ID. Only do this if nobody else uses this n8n: their
 Assistant chats would use your ChatGPT plan. The sidecar keeps the
 Assistant's earlier reasoning and replies in memory only, for up to 6 hours;
-after a sidecar restart or update, start a new Assistant conversation. Relmio
-has not completed a live Assistant test with this sidecar, and OpenAI has not
-said whether this use fits its Sign in with ChatGPT terms. See
-[Assistant setup](docs/ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
+after a sidecar restart or update, start a new Assistant conversation. On
+2026-10-07, after a sidecar update, n8n 2.40.7's Assistant passed its model
+check and answered a question about the instance's workflows with a tool step,
+on one Pro account with `gpt-6-astra`. That is not a guarantee for other
+accounts, models or longer conversations. OpenAI has not said whether this use
+fits its Sign in with ChatGPT terms. See
+[Assistant setup](docs/ai-assistant.md#optional-chatgpt-plan-sidecar).
 
 Installing on a server also requires express consent for n8n background
 workflows. The wizard does not edit n8n's credentials or Compose configuration.

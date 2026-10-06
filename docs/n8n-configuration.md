@@ -149,7 +149,7 @@ hide models that fail with a model error and mark completed ones as working.
 | Chat Hub, OpenAI provider | The Chat Model node's list. If an admin set allowed models under **Settings > Chat**, new models stay hidden until added there. |
 | OpenAI node, **Message a Model** | Text models, plus `gpt-image-2` while images are on. This picker shares one request with the image picker. Don't choose `gpt-image-2` for text. |
 | OpenAI node, **Generate an Image** or **Edit Image** | n8n keeps only IDs that contain `gpt-image` or `dall-e`, so it lists `gpt-image-2` while images are on. |
-| AI Assistant | Nothing. It never asks for the list; paste a model ID instead. See [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar-untested). |
+| AI Assistant | Nothing. It never asks for the list; paste a model ID instead. See [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar). |
 
 The sidecar tells these requests apart by the `openai-platform` header. If n8n
 changes that header, `gpt-image-2` may show in chat lists again or leave the
@@ -189,9 +189,11 @@ Responses reference documents its shape.
 ## AI Assistant requests
 
 n8n's AI Assistant reaches the sidecar's Responses route through the AI SDK.
-Setup is in [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
-The rules below are based on the requests n8n 2.40.7 sends, not on a live
-Assistant test, and they apply to every client.
+Setup and a 2026-10-07 live test are in
+[AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar). The rules below
+come from the requests n8n 2.40.7 sends and apply to every client. The sidecar
+adds no logs, so the live test doesn't show whether earlier items were filled
+in from memory.
 
 Output-token caps are dropped. n8n's model check sends `max_output_tokens: 16`.
 SIWC lists `max_output_tokens` as unsupported

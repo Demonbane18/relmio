@@ -182,11 +182,15 @@ Changes after the boundary audit, same day (reviewed against the same sources; r
 ### Unknowns
 
 - Whether OpenAI treats the n8n Assistant as part of the connected application under SIWC Terms §2, and whether wider client compatibility brings the sidecar closer to the "general-purpose API access" that §2 rules out.
-- Whether the SIWC route accepts the forced `include`, replayed encrypted reasoning and replayed assistant messages, and for which models and accounts.
+- Whether the SIWC route accepts replayed encrypted reasoning and replayed assistant messages, and for which models and accounts. The live result below shows that a request with `reasoning` and the added `include` was accepted for one account and model; the sidecar adds no logs, so whether that turn replayed earlier items was not observed.
 - The plan usage of an uncapped model check, a request with 128 tools or a long replayed history. None of the fetched pages gives a usage rate for this route, and the plan article says "Usage rates may differ between an app and ChatGPT."
 - Retention and training rules for SIWC requests, including replayed encrypted reasoning. The data controls guide covers Platform API organizations, and the privacy policy excludes API customer content. The migration guide says `encrypted_content` is "decrypted in memory, used for generating the next response, and then securely discarded", but it says so in its paragraph about ZDR organizations.
 - Whether n8n stores the encrypted reasoning it now receives.
 - Whether n8n's AI SDK retries 429 and 5xx responses on the model check. Errors and recovery says to pause after a usage-limit error. This behavior predates the change.
 - OpenAI's exact `error` event schema, which was not read because the fetched reference was cut off.
 
-This review is not legal advice, OpenAI approval, proof of Terms compliance or permission to use a Codex credential bridge. It is not evidence that the Assistant, any model or TTS works through the sidecar. Identity sign-in, the approved permissions and model capability remain separate checks.
+### Live result after deployment
+
+On 2026-10-07 the owner confirmed the VPS sidecar update in the wizard (only the sidecar was rebuilt and restarted; the sign-in and Relmio key stayed the same; n8n was not touched). n8n 2.40.7's AI Assistant, on one ChatGPT account (Pro plan), then used the sidecar with `gpt-6-astra`: n8n's model check passed and the setting saved; "Reply with OK" returned "OK"; "Which workflows do I have?" ran a tool step and listed the instance's workflows in about 35 seconds. This is **Observed** for one account, one model and two short turns. It is not evidence for other accounts, models, longer conversations or behavior after a sidecar restart, and it does not change the Terms §2 question above.
+
+This review is not legal advice, OpenAI approval, proof of Terms compliance or permission to use a Codex credential bridge. Apart from the live result above, it is not evidence that the Assistant, any model or TTS works through the sidecar. Identity sign-in, the approved permissions and model capability remain separate checks.

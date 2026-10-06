@@ -71,7 +71,8 @@ checks the registry separately after publication.
   4,096 items and 32 MiB, keeps an item for up to 6 hours and is never
   written to disk. A restart or update empties it; references it no longer
   knows are dropped, so an open Assistant conversation loses that earlier
-  context. Relmio hasn't completed a live Assistant test yet.
+  context. The sidecar adds no logs, so the live Assistant test under Changed
+  doesn't show whether this memory was used.
 - The sidecar's `/v1/chat/completions` route accepts `reasoning_effort` and
   sends it to OpenAI as `reasoning.effort`.
 
@@ -99,9 +100,14 @@ checks the registry separately after publication.
   separate OpenAI credential with your own Platform API key.
 - The AI Assistant docs now explain how to point its Self-hosted or
   OpenAI-compatible endpoint at the sidecar with a pasted model ID, instead of
-  saying the sidecar is not offered. Relmio has not completed a live test of
-  this, and whether it fits OpenAI's Sign in with ChatGPT terms is open. Only
-  do it if nobody else uses that n8n.
+  saying the sidecar is not offered. On 2026-10-07, after a sidecar update,
+  n8n 2.40.7's Assistant used the sidecar on one Pro account with
+  `gpt-6-astra`. The model check passed, "Reply with OK" returned "OK", and
+  "Which workflows do I have?" ran a tool step and listed the instance's
+  workflows in about 35 seconds. That is not a guarantee for other accounts,
+  models or longer conversations, or after a sidecar restart. Whether this use
+  fits OpenAI's Sign in with ChatGPT terms is open. Only do it if nobody else
+  uses that n8n.
 - One sidecar request can now list up to 128 tools, up from 32, which leaves
   n8n's AI Assistant room for its own tools plus those from MCP servers. Tool
   calls stay at 32 per Chat Completions message or response.
@@ -135,6 +141,8 @@ checks the registry separately after publication.
   `max_completion_tokens` and `max_tokens` on Chat Completions. SIWC lists
   `max_output_tokens` as unsupported, so no cap can be honored, and the
   16-token cap is not enforced. Other unsupported fields are still refused.
+  On one Pro account on 2026-10-07, the check failed this way before a
+  sidecar update and passed after it.
   A VPS sidecar needs Review sidecar update to get this fix and the related
   item memory, tool and error changes.
 - Failures in a streamed `/v1/responses` request now reach AI SDK clients,
