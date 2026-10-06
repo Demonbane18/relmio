@@ -32,7 +32,11 @@ export function createPreviewServices(fixture = "connected") {
     planEnabled: !["signed-out", "reauthorize", "plan-not-granted"].includes(fixture),
     ownership: fixture === "handoff-pending" ? "handoff-pending" : "owned",
   };
+  // The guide choice lives in memory for this preview run; preview never writes the preference file.
+  const preferences = {};
   return {
+  async readUiPreferences() { return { ...preferences }; },
+  async writeUiPreferences({ preferences: { guide } }) { preferences.guide = guide; },
   async listAuthRegistrations() { return [account]; },
   async getSelectedRegistration() { return previewRegistrationId; },
   async getAuthStatus({ registrationId }) {

@@ -1614,15 +1614,18 @@ test("usage status attests the running owner and runs only its read-only command
   assert.equal(record.registrationId, registrationId);
   assert.deepEqual(Object.values(record.days).map(day => day["account-model"].total), [7]);
 
+  // Only an older sidecar reads as empty: no usage command, or no model module at all. Any other failed run is unavailable.
   for (const [result, expected] of [
     [{ code: 1, stdout: JSON.stringify({ error: "invalid_command", message: "Unknown command." }) }, null],
-    [{ code: 1, stdout: "" }, null],
+    [{ code: 1, stdout: "", stderr: "Error: Cannot find module '/app/services/model-discovery.mjs'\n" }, null],
+    [{ code: 1, stdout: "", stderr: "Error response from daemon: container is restarting, wait until the container is running\n" }, undefined],
+    [{ code: 1, stdout: "" }, undefined],
     [{ code: 1, stdout: JSON.stringify({ error: "store_unsafe", message: "remote text" }) }, undefined],
     [{ code: 0, stdout: JSON.stringify({ ...record, registrationId: "registration_other" }) }, undefined],
     [{ code: 0, stdout: "not json" }, undefined],
   ]) {
     remote.faults.models = () => result;
-    assert.equal(await getVpsUsageStatus(scope), expected, result.stdout);
+    assert.equal(await getVpsUsageStatus(scope), expected, JSON.stringify(result));
   }
 
   remote.faults.models = () => ({ code: 0, stdout: JSON.stringify(record) });

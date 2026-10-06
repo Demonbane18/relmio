@@ -470,10 +470,22 @@ test("local usage reads only the running owned sidecar's counts, with its read-o
   const record = await getLocalN8nSidecarUsage(deps(homeDirectory, container));
   assert.equal(record.registrationId, registrationId);
   assert.deepEqual(Object.values(record.days).map(day => day["selected-model"].total), [7]);
-  const older = async spec => spec.args.includes("/app/services/model-discovery.mjs")
-    ? { code: 1, stdout: JSON.stringify({ error: "invalid_command", message: "Unknown command." }), stderr: "" }
-    : runner(spec);
-  assert.equal(await getLocalN8nSidecarUsage(deps(homeDirectory, older)), null, "an older sidecar reads as empty");
+  for (const [result, expected] of [
+    [{ code: 1, stdout: JSON.stringify({ error: "invalid_command", message: "Unknown command." }), stderr: "" }, null],
+    [{ code: 1, stdout: "", stderr: "Error: Cannot find module '/app/services/model-discovery.mjs'\n" }, null],
+    [{ code: 1, stdout: "", stderr: "Error response from daemon: container is not running\n" }, undefined],
+  ]) {
+    const older = async spec => spec.args.includes("/app/services/model-discovery.mjs") ? result : runner(spec);
+    assert.equal(await getLocalN8nSidecarUsage(deps(homeDirectory, older)), expected, JSON.stringify(result));
+  }
+
+  // A project volume this install does not own blocks the read, as it blocks status.
+  const unread = reads.length;
+  const foreign = async spec => spec.args[0] === "volume" && spec.args.includes("{{json .Labels}}")
+    ? { code: 0, stdout: JSON.stringify({ "com.docker.compose.project": projectName }), stderr: "" }
+    : container(spec);
+  assert.equal(await getLocalN8nSidecarUsage(deps(homeDirectory, foreign)), undefined);
+  assert.equal(reads.length, unread);
 
   const status = await getLocalN8nSidecarStatus(deps(homeDirectory, runner));
   await manageLocalN8nSiwcInstallation({ registrationId, action: "disable-plan",

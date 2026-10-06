@@ -222,6 +222,8 @@ const defaultServices = {
   getLocalN8nModelStatus,
   inspectLocalN8nModelResources,
   getProjectMeta,
+  readUiPreferences,
+  writeUiPreferences,
   reviewLocalCodexLegacyMigration,
   reviewLocalN8nLegacyMigration,
   reviewLocalCodexSiwcReplacement,
@@ -1673,6 +1675,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/guide/content-local-model-vps.js": ["../ui/guide/content-local-model-vps.js", "utf8"],
   "/guide/content-hosting.js": ["../ui/guide/content-hosting.js", "utf8"],
   "/guide/errors.js": ["../ui/guide/errors.js", "utf8"],
+  "/usage-panel.js": ["../ui/usage-panel.js", "utf8"],
   "/relmio-ui.css": ["../ui/relmio-ui.css", "utf8"],
   "/styles.css": ["../ui/styles.css", "utf8"],
   "/local.css": ["../ui/local.css", "utf8"],
@@ -1682,6 +1685,8 @@ const UI_FILE_SOURCES = Object.freeze({
   "/local-model-vps.css": ["../ui/local-model-vps.css", "utf8"],
   "/hosting.css": ["../ui/hosting.css", "utf8"],
   "/guide.css": ["../ui/guide.css", "utf8"],
+  "/guide-dock.css": ["../ui/guide-dock.css", "utf8"],
+  "/usage-panel.css": ["../ui/usage-panel.css", "utf8"],
   "/relmio-icon-96.png": ["../ui/relmio-icon-96.png"],
   "/relmio-icon-rounded.svg": ["../ui/relmio-icon-rounded.svg", "utf8"],
   "/fonts/geist-latin.woff2": ["../ui/fonts/geist-latin.woff2"],
@@ -3505,7 +3510,7 @@ async function handleApi(request, response, path, state) {
   requireSameOrigin(request, state);
 
   if (path === "/api/ui/preferences" && request.method === "GET") {
-    sendJson(response, 200, await readUiPreferences({ storageRoot: state.storageRoot }));
+    sendJson(response, 200, await state.services.readUiPreferences({ storageRoot: state.storageRoot }));
     return;
   }
   if (path === "/api/ui/preferences" && request.method === "POST") {
@@ -3513,7 +3518,7 @@ async function handleApi(request, response, path, state) {
     if (!exactObjectKeys(body, ["guide"]) || !["on", "off"].includes(body.guide)) {
       throw Object.assign(new Error("Guide preference is invalid."), { statusCode: 400 });
     }
-    await writeUiPreferences({ storageRoot: state.storageRoot, preferences: body });
+    await state.services.writeUiPreferences({ storageRoot: state.storageRoot, preferences: body });
     sendJson(response, 200, { guide: body.guide });
     return;
   }

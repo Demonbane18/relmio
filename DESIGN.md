@@ -137,7 +137,7 @@ tokens, kit components, top bar and themes as the wizard.
 │ brand   nav links                     theme  GitHub  support  menu │
 ├ rm-split ──────────────────────────────────────────────────────────┤
 │ rail            │ rm-panel                                         │
-│  rm-stepper     │  header: eyebrow, title, one-line description    │
+│  quest track    │  header: eyebrow, title, one-line description    │
 │  safety summary │  body: the step                                  │
 │                 │  footer: Back · secondary · primary action       │
 └─────────────────┴──────────────────────────────────────────────────┘
@@ -145,10 +145,11 @@ tokens, kit components, top bar and themes as the wizard.
 
 - Top bar 56 px. Rail 272 px. Gutter 16 to 32 px, fluid.
 - Content width caps at 1216 px; long-form text caps at 46rem.
-- The rail holds the stepper and a compact status or safety summary. It never
-  holds long notices.
-- Below 1024 px the rail moves above the panel and the stepper turns
-  horizontal (`rm-stepper--auto`).
+- The rail holds the quest track and a compact status or safety summary. It
+  never holds long notices. The quest track (`rm-stepper--track`) keeps the
+  steps in one row at every width with a check on each finished step, so the
+  rail stays short and leaves room for the setup guide at its foot.
+- Below 1024 px the rail moves above the panel.
 - Web pages without a rail use `rm-container` inside `rm-app__main`, and
   full-width bands put their content in an `rm-container`.
 - Below 64rem, the panel footer sticks to the bottom of the viewport while its
@@ -184,8 +185,8 @@ Rules:
 - The theme switch is the same radio group in both apps: name `color-theme`,
   values `system`, `light`, `dark`, stored under `relmio-color-mode`. An explicit
   choice sets `data-theme` on `<html>`; System removes it.
-- Section navigation inside a page uses `rm-sidebar`. Guided flows use
-  `rm-stepper`.
+- Section navigation inside a page uses `rm-sidebar`. Guided flows use the
+  `rm-stepper rm-stepper--track` quest track.
 
 Top bar markup (the web renders the same structure from
 `web/app/components/ui/TopBar.tsx`):
@@ -228,12 +229,12 @@ caller in both apps.
 | App shell | `rm-app`, `rm-app--fit`, `rm-app__main`, `rm-split`, `rm-container` | Page frame; `rm-app--fit` applies the one-screen rule in the wizard and dashboard only |
 | Top bar | `rm-topbar`, `rm-brand`, `rm-nav`, `rm-menu`, `rm-topbar__actions` | Global navigation |
 | Sidebar | `rm-sidebar`, `rm-sidebar__link` | Views inside a page |
-| Stepper | `rm-stepper`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker` | Progress through a flow; `aria-current="step"`, `data-state="done"`. In forced colors the current step is a ringed Highlight disc and a done step shows only its check |
+| Stepper | `rm-stepper`, `--track`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker`, `rm-stepper__label` | Progress through a flow; `aria-current="step"`, `data-state="done"`. `--track` is the wizards' quest track: one row at every width, markers only below 480 px. In forced colors the current step is a ringed Highlight disc and a done step shows only its check |
 | Panel | `rm-panel`, `__header`, `__heading`, `__body`, `__footer` | The working surface of a view |
 | Card | `rm-card`, `--flat`, `--muted`, `--compact` | Grouped content |
-| Choice | `rm-choice` and its `__icon`, `__title`, `__text` | A selectable option row or card |
+| Choice | `rm-choice` and its `__icon`, `__title`, `__text`, `__meta` | A selectable option row or card; `__meta` is one short fact under the text, such as what the option needs |
 | Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress; `--sm` only for secondary controls |
-| Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name |
+| Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name; `aria-pressed="true"` marks a toggle that is on |
 | Link | `rm-link`, `--quiet`, `--standalone` | Text links; `--standalone` for a link outside a sentence |
 | Chip | `rm-chip`, `rm-chip__meta` | GitHub link with stars and version |
 | Field | `rm-field`, `__label`, `__hint`, `__error`, `rm-input`, `rm-select`, `rm-textarea`, `rm-form-grid`, `rm-fieldset` | Forms |
@@ -288,6 +289,11 @@ Component rules:
   Segmented controls use a 2 px inset `--rm-accent` ring without changing their
   size. Keep the outer keyboard-focus ring separate. In forced colors, an inset
   `Highlight` border marks selection without replacing the focus outline.
+  Toggles such as the setup guide button use `aria-pressed`; the kit draws a
+  pressed `rm-icon-button` or `rm-menu__link` the same way.
+- Start cards say who each route is for in `rm-choice__text` and what the
+  person needs in `rm-choice__meta`, in plain words. Give a duration only when
+  a doc states one.
 - Fields keep a visible label. Hints and errors connect through
   `aria-describedby`; invalid fields set `aria-invalid="true"`.
 - Status never relies on color: a status dot always sits next to text, and
@@ -323,6 +329,90 @@ Example step panel:
 </section>
 ```
 
+## Setup guide
+
+Every wizard page loads the small `/guide.css` and `/guide.js` and names its
+guide content in `<body data-guide-page>`. The dock (`/guide-dock.js` with its
+`/guide-dock.css`), the mascot (`/mascot.js`) and the page's tips load only
+while the guide or its error help is in use, so the guide adds little to a
+page's first load. The first visit asks once whether to start the guide.
+`#guide-toggle` in the top bar, repeated in the menu on narrow windows, turns
+it on or off, and `/api/ui/preferences` keeps the choice.
+
+| Part | Classes | Rules |
+| --- | --- | --- |
+| Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide": the mascot, the quest name and progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use the default or ghost style, so the page keeps its one primary action. Escape collapses it and returns focus |
+| Chip | `rm-guide-chip` | The collapsed dock. With the guide off it appears only on an error, as "Need help with this error?" |
+| Pointer | `rm-guide-pointer`, `rm-guide-marker` | A ring around the target and a cursor with a short action label. It glides with `transform` only. With reduced motion, Show me numbers the targets instead |
+| Mascot | `rm-mascot` from `mascot.js` | Inline SVG from the logo vectors, decorative and hidden in forced colors. Poses: idle, look, happy, thinking, worried, waiting. The sleep cap uses `--rm-brand-cap`. While the guide is on, the mascot also stands in the quest track's current step |
+| Badges | `rm-badge rm-badge--success`, `rm-guide-finish`, `__title`, `__badges`, `__next` | A chapter earns its badge when every action tip seen there is done; reading tips are optional. Ready screens show `#ready-quest` in the rail column with the badges earned and the page's next steps. The guide fills it and keeps it hidden while the guide is off |
+| Toggle | `#guide-toggle`, `[data-guide-toggle]` | `aria-pressed` says whether the guide is on; the kit draws the pressed state |
+
+Placement:
+
+- The dock, chip and pointer are fixed layers. They never change page layout,
+  so every view keeps the one-screen rule with the guide open.
+- The dock never covers the focused element, the view's primary action or an
+  error callout. On wide windows it sits at the foot of the rail column, where
+  the quest track leaves room, or beside the panel. On narrow windows it is a
+  sheet at the bottom or top of the window. When nothing fits, it collapses to
+  the chip.
+- Check placement at the five one-screen sizes plus 390 x 844 and 320 x 640,
+  in the default and error states.
+- Game feel stays quiet: a badge chip, a checked progress dot and one hop of
+  the mascot. No points, confetti, emoji or exclamation marks. Decorative
+  motion stops within 5 seconds.
+
+## Plan and usage panel
+
+`usage-panel.css` is linked on `/` and `/local`. `usage-panel.js` loads on
+first use and builds the panel with `textContent` from the page's own request
+(`renderUsage(parts, info)`). The panel shows requests sent through Relmio's
+sidecar in the last 30 days, not the plan's usage. OpenAI documents no plan
+percent, reset time or credits for this sign-in, so the panel shows none of
+them and links to Manage usage instead.
+
+Places:
+
+- `/`: `#vps-usage` sits in the VPS owner panel after `#vps-owner-update`,
+  with `usage-panel--divided`. It appears for an owned sidecar after Check
+  installed account and reads only when the person presses Refresh usage.
+  The server allows 10 reads in 15 minutes and answers 409 until the account
+  check has run. The Ready screen has one line, `#result-usage`, in
+  `.setup-results__main`, hidden while the key is held.
+- `/local`: the dashboard has the nav link `#dashboard-usage-link` and the
+  section `#dashboard-usage`, which reads by itself for a healthy n8n sidecar
+  and shows a message otherwise. The installed view has
+  `<details id="installed-usage">` after `#local-siwc-owner`. It reads when
+  opened, for the n8n sidecar only.
+
+Parts:
+
+- `usage-panel__head` holds the title and Refresh usage (`rm-button--sm`). A
+  polite `role="status"` line follows it.
+- `usage-panel__view` holds two `usage-panel__group` columns, side by side
+  when two 16rem columns fit and stacked below that. The counts group appears
+  only with counts: the totals (`usage-panel__totals`: Requests, Tokens,
+  Active days, Peak day), an outcome line, and the three busiest models
+  (`usage-panel__models`, `usage-panel__model`), each with its values in text
+  and a decorative `rm-progress` bar. More models sit in a plain disclosure.
+- The other group lists the account facts (`rm-dl usage-panel__facts`:
+  account, plan use, the image add-on's plan type only while that add-on is
+  signed in, models listed and verified), the last plan-usage event
+  (`usage-panel__event`) with its next step, and a note
+  (`usage-panel__note`) with the Manage usage link. The event shows its own
+  Manage usage button only when that is the recovery. `/local` has no model
+  checks, so there a verified model is one that returned tokens in the last
+  30 days, and its label says so.
+
+States: idle (the VPS panel before its first refresh), loading, `ok`, `empty`,
+`unavailable` and a refused refresh. `ok`, `empty` and `unavailable` come from
+the server's bounded view, and a malformed view reads as unavailable. On the
+VPS, `empty` points at Review sidecar update. A refused refresh (409 or 429)
+says what to do next in the panel's status line, not the page's error box, so
+the guide's error help stays closed. The last counts stay, labelled with
+their time.
+
 ## Color
 
 Use semantic tokens only. Never write a raw color in a page stylesheet; add a
@@ -343,7 +433,7 @@ BRANDKIT.md.
 | `--rm-success`, `--rm-warning`, `--rm-danger` and their `-soft`, `-line` pairs | Status |
 | `--rm-terminal-*` | Terminal and code blocks, dark in both themes |
 | `--rm-terminal-hover` | Terminal copy-button hover in both themes |
-| `--rm-brand-*` | Logo colors for illustration only, never for UI state |
+| `--rm-brand-*` | Logo colors and the mascot's sleep cap (`--rm-brand-cap`), for illustration only, never for UI state |
 
 Light theme: pastel green surfaces, warm black ink, black primary buttons
 with pale green text. Dark theme: black surfaces with no green tint, warm white

@@ -39,6 +39,10 @@ const state = {
   vpsOwnerUpdate: null,
   vpsImagesGeneration: 0,
   vpsImagesTimer: null,
+  vpsImages: null,
+  vpsModels: null,
+  vpsUsage: null,
+  vpsUsageError: null,
   planMigrationRequired: false,
   planReplacementRequired: false,
   vpsReconnectRequired: false,
@@ -1844,6 +1848,7 @@ element("install-button").addEventListener("click", async (event) => {
       // readiness line becomes the warning.
       const holdKey = Boolean(result.finalizationFailure) || result.runtimeState !== "running";
       element("result-plan-badge").hidden = holdKey || !installedAccount.planEnabled;
+      element("result-usage").hidden = holdKey;
       const failureDetails = result.finalizationFailure ?? result.runtimeFailure ?? result.catalogFailure;
       const failure = failureDetails
         ? siwcErrorFromResponse(failureDetails, failureDetails.status ?? 502) : null;
@@ -2030,6 +2035,7 @@ function stopVpsOwnerImagesPolling() {
 
 function renderVpsOwnerImages(images, visible = true) {
   stopVpsOwnerImagesPolling();
+  state.vpsImages = images;
   const view = images?.state;
   const account = images?.account;
   const identity = sshSession.adoptedIdentity();
@@ -2190,6 +2196,31 @@ function renderVpsOwnerModels(models, visible = true) {
     `${identity ? `${identity.username}@${identity.host}:${identity.port}` : "this server"}.`;
   element("vps-owner-models-list").replaceChildren(...(available ? models.models.map(vpsOwnerModelRow) : []));
   element("vps-owner-models-status").textContent = vpsOwnerModelsStatus(models);
+  state.vpsModels = models;
+  void renderVpsUsage();
+}
+
+// Plan and usage on the owner panel: the checked account, the image add-on's plan type while it
+// is signed in, the model checks and the request counts that Refresh usage reads. The panel
+// module loads on first use, so the first paint of this page stays light.
+let usagePanel = null;
+
+async function renderVpsUsage({ loading = false } = {}) {
+  const owner = state.vpsOwner;
+  const section = element("vps-usage");
+  section.hidden = owner?.state !== "owned" || owner.account?.ownership !== "owned";
+  if (section.hidden) return;
+  usagePanel ??= import("./usage-panel.js");
+  const { renderUsage } = await usagePanel;
+  if (state.vpsOwner !== owner) return;
+  const models = state.vpsModels?.state === "available" ? { listed: state.vpsModels.models.length,
+    verified: state.vpsModels.models.filter((model) => model.state === "verified").length } : null;
+  renderUsage({ status: element("vps-usage-status"), view: element("vps-usage-view") }, {
+    page: "vps", account: owner.account, models, loading,
+    imagePlan: state.vpsImages?.state === "signed-in" ? state.vpsImages.account?.planType ?? null : null,
+    usage: state.vpsUsage?.registrationId === owner.registrationId ? state.vpsUsage.view : null,
+    error: state.vpsUsageError?.owner === owner ? state.vpsUsageError.error : null,
+  });
 }
 
 function vpsOwnerModelBadge([text, className]) {
@@ -2313,6 +2344,23 @@ element("vps-owner-check").addEventListener("click", async (event) => {
       api("/api/siwc/vps/models/status", { method: "POST", body: target }));
     if (models && state.vpsOwner === owner) renderVpsOwnerModels(models);
   } catch (error) { showError(error); }
+});
+
+// Read-only. The route allows 10 reads in 15 minutes and answers 409 once the owner check expires.
+element("vps-usage-refresh").addEventListener("click", async (event) => {
+  const owner = state.vpsOwner;
+  if (!owner?.registrationId) return;
+  state.vpsUsageError = null;
+  void renderVpsUsage({ loading: true });
+  try {
+    const view = await runOperation(event.currentTarget, "Reading request counts…", () =>
+      api("/api/siwc/vps/usage/status", { method: "POST", body: { containerName: owner.containerName,
+        networkName: owner.networkName, registrationId: owner.registrationId } }));
+    if (view) state.vpsUsage = { registrationId: owner.registrationId, view };
+  } catch (error) {
+    state.vpsUsageError = { owner, error };
+  }
+  await renderVpsUsage();
 });
 
 element("vps-owner-inspect").addEventListener("click", async (event) => {

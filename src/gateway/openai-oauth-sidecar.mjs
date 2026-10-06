@@ -1035,12 +1035,15 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
     catch (error) { return registrationUnavailable(error); }
     const { model } = body;
     // Each request sent to OpenAI counts once, at its first outcome. A failure after the client left counts
-    // with no outcome. A model is named once OpenAI accepts the request, or when its catalog lists it.
+    // with no outcome. A model keeps its name only when OpenAI completes the request or ends it incomplete, or
+    // when its catalog lists it. Anything else, a failure after a 2xx included, counts as "other": the name the
+    // client sent may be a pasted key.
     let counted = false;
-    const count = (outcome, source, accepted = true) => {
+    const count = (outcome, source) => {
       if (counted) return;
       counted = true;
-      tally(discovery, { model, accepted, outcome: outcome === "failed" && request.signal.aborted ? undefined : outcome,
+      tally(discovery, { model, accepted: outcome === "completed" || outcome === "incomplete",
+        outcome: outcome === "failed" && request.signal.aborted ? undefined : outcome,
         usage: outcome === "completed" ? source?.response?.usage : undefined,
         code: outcome === "failed" ? source?.response?.error?.code ?? source?.error?.code : undefined });
     };
@@ -1051,12 +1054,12 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
         body: JSON.stringify(body), signal: request.signal,
       });
     } catch {
-      count("failed", null, false);
+      count("failed");
       return failure("The provider request was interrupted.", null, 503, "request_interrupted");
     }
     if (!upstream.ok) {
       const detail = await errorBody(upstream);
-      count("failed", detail, false);
+      count("failed", detail);
       if (classifyModelRejection(upstream.status, detail, { source: "traffic" })) learn(discovery, body.model, "model_rejected");
       return Response.json(safeError(detail, upstream.status, upstream.headers.get("x-request-id"), [lease.accessToken]), { status: upstream.status, headers: { "cache-control": "no-store" } });
     }

@@ -379,20 +379,27 @@ test('the usage command prints the stored record or null, and its result maps to
   assert.deepEqual(usageView(usageRecordFromCli(printed, REGISTRATION), { registrationId: REGISTRATION, now: T0 }).lastUsageEvent,
     { at: iso(T0), code: 'subscription_sharing_usage_limit_exceeded', recovery: 'manage-usage' });
 
-  // A sidecar built before request counting has no usage command and counts nothing yet.
+  // A sidecar built before request counting has no usage command, or no model module at all, and counts nothing yet.
   for (const result of [
     { code: 1, stdout: `${JSON.stringify({ error: 'invalid_command', message: 'Unknown command.' })}\n` },
-    { code: 1, stdout: '' },
-    { code: 1, stdout: "Error: Cannot find module '/app/services/model-discovery.mjs'" },
-  ]) assert.equal(usageRecordFromCli(result, REGISTRATION), null, result.stdout);
+    { code: 1, stdout: '', stderr: "Error: Cannot find module '/app/services/model-discovery.mjs'\n    at Module._resolveFilename" },
+    { code: 1, stdout: '', stderr: "Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/app/services/siwc-session.mjs'" },
+  ]) assert.equal(usageRecordFromCli(result, REGISTRATION), null, JSON.stringify(result));
+  // Every other failed run, a failed exec or a crash included, is unavailable rather than empty.
   for (const result of [
+    { code: 1, stdout: '' },
+    { code: 1, stdout: '', stderr: 'Error response from daemon: container is not running' },
+    { code: 137, stdout: '', stderr: '' },
+    { code: 1, stdout: '', stderr: 'TypeError: Cannot read properties of undefined' },
+    { code: 1, stdout: "Error: Cannot find module '/app/services/model-discovery.mjs'" },
+    { code: 1, stdout: 'partial', stderr: "Error: Cannot find module '/app/services/model-discovery.mjs'" },
     { code: 1, stdout: JSON.stringify({ error: 'store_unsafe', message: 'remote text' }) },
     { code: 1, stdout: JSON.stringify({ error: 'invalid_configuration' }) },
     { code: 2, stdout: 'null' },
     { code: 0, stdout: 'not json' },
     { code: 0, stdout: '' },
     { code: 0, stdout: JSON.stringify({ ...stored, registrationId: 'registration-0002' }) },
-  ]) assert.equal(usageView(usageRecordFromCli(result, REGISTRATION)).state, 'unavailable', result.stdout);
+  ]) assert.equal(usageView(usageRecordFromCli(result, REGISTRATION)).state, 'unavailable', JSON.stringify(result));
 
   const invalid = await usage({ RELMIO_REGISTRATION_ID: '../escape' });
   assert.deepEqual([invalid.code, JSON.parse(invalid.stdout).error], [1, 'invalid_configuration']);

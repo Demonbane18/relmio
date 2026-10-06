@@ -280,13 +280,16 @@ export function usageView(record, { registrationId, now = Date.now() } = {}) {
   };
 }
 // Reads one run of the usage command: the record, null when there is nothing to show yet, or undefined
-// when it cannot be read. A sidecar built before request counting has no usage command and counts
-// nothing, so it reads as empty until its update.
+// when it cannot be read. A sidecar built before request counting has no usage command, or no model module
+// at all, and counts nothing, so it reads as empty until its update. Any other failed run, a failed exec,
+// a restarting container or a crash, is unavailable.
 export function usageRecordFromCli(result, registrationId) {
   let output;
   try { output = JSON.parse(result?.stdout); } catch { /* Not one JSON value. */ }
   if (result?.code === 0) return output === null || output?.registrationId === registrationId ? output : undefined;
-  return output === undefined || output?.error === 'invalid_command' ? null : undefined;
+  const older = output?.error === 'invalid_command' || (result?.stdout === '' &&
+    /Cannot find module '\/app\/services\/model-discovery\.mjs'|ERR_MODULE_NOT_FOUND/u.test(result?.stderr ?? ''));
+  return older ? null : undefined;
 }
 
 // --- Store files ---

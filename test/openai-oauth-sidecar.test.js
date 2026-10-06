@@ -220,10 +220,10 @@ test("each text request sent to OpenAI counts once with its outcome, streamed or
   for (const [upstream, expected] of [
     [sse(terminal("response.completed", { ...completed, usage })), counted("completed", { usage })],
     [sse(terminal("response.failed", { error: { code: "subscription_sharing_usage_limit_exceeded", message: "Limit" } })),
-      counted("failed", { code: "subscription_sharing_usage_limit_exceeded" })],
+      counted("failed", { accepted: false, code: "subscription_sharing_usage_limit_exceeded" })],
     [sse(terminal("response.incomplete", { incomplete_details: { reason: "max_output_tokens" }, usage })), counted("incomplete")],
-    [sse("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"), counted("failed")],
-    [sse(terminal("response.completed", { ...completed, status: "failed", usage })), counted("failed")],
+    [sse("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"), counted("failed", { accepted: false })],
+    [sse(terminal("response.completed", { ...completed, status: "failed", usage })), counted("failed", { accepted: false })],
     [() => Response.json({ error: { code: "subscription_sharing_user_not_eligible", message: "No" } }, { status: 403 }),
       counted("failed", { accepted: false, code: "subscription_sharing_user_not_eligible" })],
     [() => { throw new TypeError("fetch failed"); }, counted("failed", { accepted: false })],
@@ -267,7 +267,7 @@ test("a request the client abandons counts with no outcome", async () => {
     const reader = (await handler(request(path, body))).body.getReader();
     assert.equal((await reader.read()).done, false);
     await reader.cancel();
-    assert.deepEqual(discovery.entries, [{ model: "gpt-7-nova", accepted: true, outcome: undefined, usage: undefined, code: undefined }], path);
+    assert.deepEqual(discovery.entries, [{ model: "gpt-7-nova", accepted: false, outcome: undefined, usage: undefined, code: undefined }], path);
   }
   // A failure caused by the client leaving is not counted as failed either.
   const controller = new AbortController();
@@ -302,19 +302,24 @@ test("the sidecar's own discovery keeps the counts and writes them when the hand
   t.after(() => rm(storageRoot, { recursive: true, force: true }));
   const usage = { input_tokens: 9, input_tokens_details: { cached_tokens: 2 }, output_tokens: 3,
     output_tokens_details: { reasoning_tokens: 1 }, total_tokens: 12 };
+  const pasted = "sk-pasted-key-0123456789";
   const handler = createSidecarHandler({ registration: { storageRoot, registrationId: "first" }, runtimeId: "runtime-1",
     tokenVerifier: verifier, imagesStatus: async () => ({ state: "off" }), getToken: async () => ({ accessToken: "provider-token" }),
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, options) => {
       assert.equal(String(url), "https://api.openai.com/v1/responses");
-      return new Response(terminal("response.completed", { ...completed, usage }));
+      // OpenAI answers 200 and then fails a model it does not run: that name is never stored.
+      return new Response(JSON.parse(options.body).model === pasted
+        ? terminal("response.failed", { error: { code: "server_error", message: "Failed" } })
+        : terminal("response.completed", { ...completed, usage }));
     } });
-  for (const [path, body] of textRoutes("gpt-7-nova")) await (await handler(request(path, body))).text();
+  for (const [path, body] of [...textRoutes("gpt-7-nova"), ...textRoutes(pasted)]) await (await handler(request(path, body))).text();
   await handler.close();
   const text = await readFile(join(storageRoot, "activity", "first.json"), "utf8");
   const days = Object.values(JSON.parse(text).days);
   assert.deepEqual(days.reduce((sum, day) => sum + day["gpt-7-nova"].requests, 0), 4);
   assert.deepEqual(days.reduce((sum, day) => sum + day["gpt-7-nova"].total, 0), 48);
-  for (const secret of ["provider-token", "Hello", "resp_1", credential]) assert.equal(text.includes(secret), false, secret);
+  assert.deepEqual(days.reduce((sum, day) => sum + day.other.requests, 0), 4);
+  for (const secret of ["provider-token", "Hello", "resp_1", credential, pasted]) assert.equal(text.includes(secret), false, secret);
 });
 
 test("rejects unsupported parameters, tools, routes, and storage before provider dispatch", async () => {

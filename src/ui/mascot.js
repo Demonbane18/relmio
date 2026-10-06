@@ -23,9 +23,8 @@ export function createMascot() {
   draw("path", { class: "rm-mascot__arcs rm-mascot__happy", d: "M20 51Q30 37 40 51M56 51Q66 37 76 51" }, figure);
   draw("path", { class: "rm-mascot__arcs rm-mascot__closed", d: "M21 45Q30 53 39 45M57 45Q66 53 75 45" }, figure);
   const cap = draw("g", { class: "rm-mascot__cap" }, figure);
-  // Night-scene cap blue (web DoorwayHero --doorway-cap). Illustration only.
   draw("path", {
-    class: "rm-mascot__line", fill: "oklch(58% 0.08 230)",
+    class: "rm-mascot__line rm-mascot__cloth",
     d: "M4 12Q10-24 48-28Q86-31 98-5L111 10Q90 8 82-5Q73-13 66-6L91 12Z",
   }, cap);
   draw("path", { class: "rm-mascot__arcs", d: "M22 8Q26-12 43-23M48 8Q50-5 59-12" }, cap);

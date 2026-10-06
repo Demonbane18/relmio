@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/siwc.css" />
+    <link rel="stylesheet" href="/usage-panel.css" />
     <link rel="stylesheet" href="/guide.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
@@ -79,7 +80,7 @@
 
           <nav aria-label="Setup progress">
             <p id="setup-progress-label" class="rm-visually-hidden">Step 1 of 5 · Choose setup</p>
-            <ol class="rm-stepper rm-stepper--auto">
+            <ol class="rm-stepper rm-stepper--track">
               <li class="rm-stepper__item" data-step-marker="1" aria-current="step"><button class="rm-stepper__link" type="button" data-step-target="1" disabled><span class="rm-stepper__marker">1</span><span class="rm-stepper__label">Choose setup</span></button></li>
               <li class="rm-stepper__item" data-step-marker="2"><button class="rm-stepper__link" type="button" data-step-target="2" disabled><span class="rm-stepper__marker">2</span><span class="rm-stepper__label">Check server</span></button></li>
               <li class="rm-stepper__item" data-step-marker="3"><button class="rm-stepper__link" type="button" data-step-target="3" disabled><span class="rm-stepper__marker">3</span><span class="rm-stepper__label">Choose n8n</span></button></li>
@@ -149,7 +150,8 @@
                       <button id="openai-vps-route" class="rm-choice" type="button" aria-controls="chatgpt-setup" aria-expanded="false" aria-describedby="openai-vps-route-detail">
                         <span class="rm-choice__icon"><span class="rm-icon rm-icon--message rm-icon--lg" aria-hidden="true"></span></span>
                         <span class="rm-choice__title">n8n with ChatGPT sign-in <span class="rm-badge rm-badge--accent">Experimental</span></span>
-                        <span id="openai-vps-route-detail" class="rm-choice__text">Connect n8n using one authorized ChatGPT plan registration.</span>
+                        <span id="openai-vps-route-detail" class="rm-choice__text">For n8n on your own server, using your ChatGPT plan.</span>
+                        <span class="rm-choice__meta">You need a VPS that runs n8n in Docker, a root login to it and a ChatGPT plan.</span>
                       </button>
                       <details class="rm-disclosure rm-disclosure--plain">
                         <summary aria-label="More details about n8n with ChatGPT sign-in">More details</summary>
@@ -160,7 +162,8 @@
                       <a id="vps-supergrok-start" class="rm-choice" aria-describedby="supergrok-vps-route-detail">
                         <span class="rm-choice__icon"><span class="rm-icon rm-icon--bot rm-icon--lg" aria-hidden="true"></span></span>
                         <span class="rm-choice__title">Grok on my server <span class="rm-badge">Official sign-in</span> <span class="rm-badge rm-badge--accent">Experimental</span></span>
-                        <span id="supergrok-vps-route-detail" class="rm-choice__text">Connect n8n on your server with your Grok sign-in.</span>
+                        <span id="supergrok-vps-route-detail" class="rm-choice__text">For n8n on your own server, using your Grok sign-in.</span>
+                        <span class="rm-choice__meta">You need a VPS that runs n8n in Docker, a root login to it and a SuperGrok subscription.</span>
                       </a>
                       <details class="rm-disclosure rm-disclosure--plain">
                         <summary aria-label="More details about Grok on my server">More details</summary>
@@ -171,19 +174,17 @@
                       <a id="vps-local-model-start" class="rm-choice" aria-describedby="local-model-vps-route-detail">
                         <span class="rm-choice__icon"><span class="rm-icon rm-icon--box rm-icon--lg" aria-hidden="true"></span></span>
                         <span class="rm-choice__title">Self-hosted model on my server <span class="rm-badge">No sign-in</span></span>
-                        <span id="local-model-vps-route-detail" class="rm-choice__text">Run a private model on your server.</span>
+                        <span id="local-model-vps-route-detail" class="rm-choice__text">For a private model with no account. It runs on the server's processor, so answers can be slow.</span>
+                        <span class="rm-choice__meta">You need a VPS that runs n8n in Docker, an admin login to it and enough memory and disk.</span>
                       </a>
                     </div>
                     <div class="setup-route">
                       <a id="local-endpoint-link" class="rm-choice" aria-describedby="local-route-detail">
                         <span class="rm-choice__icon"><span class="rm-icon rm-icon--laptop rm-icon--lg" aria-hidden="true"></span></span>
                         <span class="rm-choice__title">Set up on this computer <span class="rm-badge">No VPS needed</span></span>
-                        <span id="local-route-detail" class="rm-choice__text">Create a private connection on this computer.</span>
+                        <span id="local-route-detail" class="rm-choice__text">For apps and n8n on this computer. You can also start a new n8n here.</span>
+                        <span class="rm-choice__meta">You need Docker on this computer.</span>
                       </a>
-                      <details class="rm-disclosure rm-disclosure--plain">
-                        <summary aria-label="More details about setup on this computer">More details</summary>
-                        <div class="rm-disclosure__body"><p>A connection on this computer, an existing n8n companion, or a separate protected n8n stack.</p></div>
-                      </details>
                     </div>
                   </div>
                   <p class="setup-hosting rm-small rm-muted">
@@ -447,6 +448,14 @@
                           <button id="vps-owner-update-apply" class="rm-button rm-button--sm" type="button" disabled>Update the sidecar</button>
                         </div>
                       </div>
+                      <section id="vps-usage" class="usage-panel usage-panel--divided" aria-labelledby="vps-usage-title" hidden>
+                        <div class="usage-panel__head">
+                          <h4 id="vps-usage-title" class="rm-h3">Plan and usage</h4>
+                          <button id="vps-usage-refresh" class="rm-button rm-button--sm" type="button">Refresh usage</button>
+                        </div>
+                        <p id="vps-usage-status" class="rm-small" role="status" aria-live="polite">Press Refresh usage to read this sidecar's request counts.</p>
+                        <div id="vps-usage-view" class="usage-panel__view"></div>
+                      </section>
                       <div id="vps-owner-images" hidden>
                         <p id="vps-owner-images-status" class="rm-small" role="status" aria-live="polite"></p>
                         <p class="rm-small rm-muted">Image generation uses a separate Codex sign-in, the way Hermes Agent does it. It isn't the official Sign in with ChatGPT, and OpenAI doesn't document this route for other apps, so it can stop working at any time. OpenAI recommends an API key for automation.</p>
@@ -670,6 +679,7 @@
                     </section>
 
                     <p class="rm-small rm-muted">This key is not an OpenAI OAuth token.</p>
+                    <p id="result-usage" class="rm-small rm-muted"><strong>Plan and usage:</strong> Relmio counts the requests n8n sends through it. See them later under Manage the installed ChatGPT session.</p>
                   </div>
 
                   <div class="setup-results__side">
@@ -842,6 +852,17 @@
           <p class="rm-status" data-tone="success"><span class="rm-status__dot" aria-hidden="true"></span>n8n stays unchanged. No restart, rebuild or public port.</p>
           <p class="rm-status" data-tone="warning"><span class="rm-status__dot" aria-hidden="true"></span>Back up your n8n workflows first. Setup still writes to your server.</p>
           <p class="rm-status" data-tone="accent"><span class="rm-status__dot" aria-hidden="true"></span>Nothing is written until you approve the exact plan.</p>
+        </div>
+
+        <div id="ready-quest" class="rm-card rm-card--muted rm-card--compact rm-guide-finish" data-guide-finish hidden>
+          <div>
+            <h3 class="rm-guide-finish__title">Badges earned</h3>
+            <ul class="rm-guide-finish__badges" data-guide-badges></ul>
+          </div>
+          <details class="rm-disclosure rm-disclosure--plain">
+            <summary>Next steps</summary>
+            <ol class="rm-disclosure__body rm-guide-finish__next" data-guide-next></ol>
+          </details>
         </div>
       </div>
     </main>

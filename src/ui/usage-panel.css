@@ -1,0 +1,162 @@
+/* Plan and usage: the VPS owner panel, the /local dashboard section and the local
+   installed view. usage-panel.js fills .usage-panel__view; bars are decoration. */
+.usage-panel {
+  display: grid;
+  gap: var(--rm-space-2);
+  min-width: 0;
+}
+
+.usage-panel[hidden] {
+  display: none;
+}
+
+/* Inside a disclosure with other blocks, the section gets its own dividers. */
+.usage-panel--divided {
+  padding-block: var(--rm-space-3);
+  border-block: 1px solid var(--rm-line);
+}
+
+.usage-panel__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rm-space-2) var(--rm-space-3);
+}
+
+/* The counts and the account notes sit side by side when the container is wide. */
+.usage-panel__view {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  align-items: start;
+  gap: var(--rm-space-3) var(--rm-space-6);
+  min-width: 0;
+}
+
+.usage-panel__view:empty {
+  display: none;
+}
+
+.usage-panel__group {
+  display: grid;
+  align-content: start;
+  gap: var(--rm-space-2);
+  min-width: 0;
+}
+
+.usage-panel__facts {
+  grid-template-columns: minmax(4.5rem, max-content) minmax(0, 1fr);
+  gap: 0.125rem var(--rm-space-4);
+  font-size: var(--rm-text-sm);
+}
+
+.usage-panel__label {
+  font-size: var(--rm-text-sm);
+  font-weight: 600;
+}
+
+.usage-panel__totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
+  gap: var(--rm-space-2);
+  margin: 0;
+}
+
+.usage-panel__totals > div {
+  display: grid;
+  align-content: start;
+  gap: 0.125rem;
+  min-width: 0;
+  padding: var(--rm-space-2) var(--rm-space-3);
+  border: 1px solid var(--rm-line);
+  border-radius: var(--rm-radius-md);
+  background: var(--rm-surface);
+}
+
+.usage-panel__totals dt {
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-xs);
+}
+
+.usage-panel__totals dd {
+  margin: 0;
+  font-size: var(--rm-text-lg);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  line-height: var(--rm-leading-snug);
+  overflow-wrap: anywhere;
+}
+
+.usage-panel__hint {
+  display: block;
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-xs);
+  font-weight: 400;
+}
+
+.usage-panel__models {
+  display: grid;
+  gap: var(--rm-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.usage-panel__model {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.25rem var(--rm-space-3);
+  font-size: var(--rm-text-sm);
+}
+
+/* The model ID reads as code without the inline-code chip, so it is not mistaken for a bar. */
+.usage-panel__model-name {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow-wrap: anywhere;
+}
+
+.usage-panel__model-value {
+  color: var(--rm-ink-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.usage-panel__bar {
+  grid-column: 1 / -1;
+}
+
+.usage-panel__event {
+  display: grid;
+  justify-items: start;
+  gap: var(--rm-space-1);
+}
+
+.usage-panel__note {
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-sm);
+}
+
+.usage-panel__note .rm-link {
+  white-space: nowrap;
+}
+
+@media (max-width: 30rem) {
+  .usage-panel__model {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .usage-panel__model-value {
+    text-align: start;
+  }
+}
+
+@media (forced-colors: active) {
+  .usage-panel__bar .rm-progress__bar {
+    background: CanvasText;
+    forced-color-adjust: none;
+  }
+}

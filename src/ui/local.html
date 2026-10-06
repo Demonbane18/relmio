@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/local.css" />
     <link rel="stylesheet" href="/siwc.css" />
+    <link rel="stylesheet" href="/usage-panel.css" />
     <link rel="stylesheet" href="/guide.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
@@ -129,6 +130,7 @@
             <ul class="rm-sidebar__list dashboard-nav-list">
               <li><a class="rm-sidebar__link" href="#dashboard-overview" aria-current="location"><span class="rm-icon rm-icon--home" aria-hidden="true"></span>Overview</a></li>
               <li><a class="rm-sidebar__link" href="#dashboard-connections"><span class="rm-icon rm-icon--plug" aria-hidden="true"></span>Connections</a></li>
+              <li><a id="dashboard-usage-link" class="rm-sidebar__link" href="#dashboard-usage"><span class="rm-icon rm-icon--bot" aria-hidden="true"></span>Plan and usage</a></li>
               <li><a class="rm-sidebar__link" href="#dashboard-n8n"><span class="rm-icon rm-icon--network" aria-hidden="true"></span>n8n</a></li>
               <li><a class="rm-sidebar__link" href="#dashboard-credentials"><span class="rm-icon rm-icon--key" aria-hidden="true"></span>Credentials</a></li>
               <li><a class="rm-sidebar__link" href="#dashboard-activity"><span class="rm-icon rm-icon--activity" aria-hidden="true"></span>Activity</a></li>
@@ -288,6 +290,17 @@
                   <li><span class="rm-status__dot dashboard-status-dot state-checking" aria-hidden="true"></span><span>Checking local services</span></li>
                 </ol>
               </section>
+
+              <section id="dashboard-usage" class="dashboard-section" aria-labelledby="dashboard-usage-title" hidden>
+                <div class="dashboard-section-heading">
+                  <h2 id="dashboard-usage-title" class="rm-h2">Plan and usage</h2>
+                  <button id="dashboard-usage-refresh" class="rm-button rm-button--sm" type="button" hidden><span class="rm-icon rm-icon--refresh rm-icon--sm" aria-hidden="true"></span>Refresh usage</button>
+                </div>
+                <div class="rm-card rm-card--flat usage-panel">
+                  <p id="dashboard-usage-status" class="rm-small" role="status" aria-live="polite">Checking the ChatGPT plan sidecar.</p>
+                  <div id="dashboard-usage-view" class="usage-panel__view"></div>
+                </div>
+              </section>
             </div>
           </div>
         </div>
@@ -303,7 +316,7 @@
           </div>
 
           <nav id="setup-progress" class="setup-progress" aria-label="Local setup progress">
-            <ol class="rm-stepper rm-stepper--auto">
+            <ol class="rm-stepper rm-stepper--track">
               <li class="rm-stepper__item" data-step-marker="1" aria-current="step">
                 <span class="rm-stepper__link"><span class="rm-stepper__marker">1</span><span class="rm-stepper__label">Choose</span></span>
               </li>
@@ -340,35 +353,40 @@
                         <input class="rm-choice__input" type="radio" name="target" value="n8n-openai-oauth" />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--message rm-icon--lg"></span></span>
                         <span class="rm-choice__title">n8n with ChatGPT sign-in <span class="rm-badge rm-badge--accent">Experimental</span></span>
-                        <span class="rm-choice__text">Use a selected, separately authorized ChatGPT plan registration. Enter a one-time local client key in n8n.</span>
+                        <span class="rm-choice__text">For n8n on this computer, using your ChatGPT plan.</span>
+                        <span class="rm-choice__meta">You need n8n in Docker here and a ChatGPT plan.</span>
                       </label>
 
                       <label class="rm-choice target-card">
                         <input class="rm-choice__input" type="radio" name="target" value="n8n-supergrok-oauth" />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--network rm-icon--lg"></span></span>
                         <span class="rm-choice__title">Grok for n8n <span class="rm-badge rm-badge--accent">Experimental</span></span>
-                        <span class="rm-choice__text">Use your SuperGrok sign-in in an n8n workflow.</span>
+                        <span class="rm-choice__text">For n8n on this computer, using your SuperGrok sign-in.</span>
+                        <span class="rm-choice__meta">You need n8n in Docker here and a SuperGrok subscription.</span>
                       </label>
 
                       <label class="rm-choice target-card">
                         <input class="rm-choice__input" type="radio" name="target" value="n8n-local-model" />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--bot rm-icon--lg"></span></span>
                         <span class="rm-choice__title">Local model for n8n <span class="rm-badge">No host port</span></span>
-                        <span class="rm-choice__text">Other containers on its network can use it without a password.</span>
+                        <span class="rm-choice__text">For a private model with no account. Other containers on its network can use it without a password.</span>
+                        <span class="rm-choice__meta">You need n8n in Docker here and enough memory and disk.</span>
                       </label>
 
                       <label class="rm-choice target-card">
                         <input class="rm-choice__input" type="radio" name="target" value="local-n8n-stack" />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--box rm-icon--lg"></span></span>
                         <span class="rm-choice__title">Set up new n8n</span>
-                        <span class="rm-choice__text">A public link that asks for a password. Existing n8n is not changed.</span>
+                        <span class="rm-choice__text">For people with no n8n yet. It gets a public link that asks for a password. Existing n8n is not changed.</span>
+                        <span class="rm-choice__meta">You need Docker and an ngrok account with a reserved hostname.</span>
                       </label>
 
                       <label class="rm-choice target-card">
                         <input class="rm-choice__input" type="radio" name="target" value="xai-grok-build" checked />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--laptop rm-icon--lg"></span></span>
                         <span class="rm-choice__title">Grok on this computer <span class="rm-badge rm-badge--accent">Experimental</span></span>
-                        <span class="rm-choice__text">Use SuperGrok sign-in on this computer.</span>
+                        <span class="rm-choice__text">For a trusted app on this computer, using your SuperGrok sign-in.</span>
+                        <span class="rm-choice__meta">You need Docker and a SuperGrok subscription.</span>
                       </label>
                     </div>
 
@@ -380,18 +398,21 @@
                             <input class="rm-choice__input" type="radio" name="target" value="codex-chatgpt" />
                             <span class="rm-choice__title">Codex App Server <span class="rm-badge rm-badge--accent">Experimental</span></span>
                             <span class="rm-choice__text">For a trusted native app. Browsers cannot connect.</span>
+                            <span class="rm-choice__meta">You need Docker and a ChatGPT plan.</span>
                           </label>
 
                           <label class="rm-choice target-card">
                             <input class="rm-choice__input" type="radio" name="target" value="codex-chat" />
                             <span class="rm-choice__title">Codex Chat Adapter <span class="rm-badge rm-badge--accent">Experimental</span></span>
                             <span class="rm-choice__text">For a trusted local backend. Not OpenAI /v1.</span>
+                            <span class="rm-choice__meta">You need Docker and a ChatGPT plan.</span>
                           </label>
 
                           <label class="rm-choice target-card">
                             <input class="rm-choice__input" type="radio" name="target" value="n8n-ai-assistant" />
                             <span class="rm-choice__title">n8n AI Assistant tools <span class="rm-badge rm-badge--warning">Privileged sandbox · testing only</span></span>
                             <span class="rm-choice__text">Add private tools beside n8n. The runner is host-root equivalent.</span>
+                            <span class="rm-choice__meta">You need n8n in Docker here and a model credential in n8n.</span>
                           </label>
                         </div>
                       </div>
@@ -1133,6 +1154,16 @@
                     <button id="local-siwc-replace" class="rm-button rm-button--sm" type="button" hidden>Review replacement with a fresh account</button>
                   </div>
                 </details>
+                <details id="installed-usage" class="rm-disclosure" hidden>
+                  <summary><span id="installed-usage-title">Plan and usage</span></summary>
+                  <div class="rm-disclosure__body">
+                    <div class="usage-panel__head">
+                      <p id="installed-usage-status" class="rm-small" role="status" aria-live="polite">Reading request counts…</p>
+                      <button id="installed-usage-refresh" class="rm-button rm-button--sm" type="button">Refresh usage</button>
+                    </div>
+                    <div id="installed-usage-view" class="usage-panel__view"></div>
+                  </div>
+                </details>
                 <section id="n8n-stack-removal" class="rm-card rm-card--flat rm-card--compact n8n-sidecar-removal" aria-labelledby="n8n-stack-removal-title" hidden>
                   <h3 id="n8n-stack-removal-title" class="rm-h3">Remove new local n8n + ngrok</h3>
                   <p class="rm-small rm-muted">Removes only this Relmio-owned stack, its containers, networks, volumes, and managed files. Existing n8n is not changed.</p>
@@ -1427,6 +1458,17 @@
             <div id="global-message" class="global-message" role="status" aria-live="polite">
               <span id="global-message-text">Checking local Docker…</span>
             </div>
+          </div>
+
+          <div id="ready-quest" class="rm-card rm-card--muted rm-card--compact rm-guide-finish" data-guide-finish hidden>
+            <div>
+              <h3 class="rm-guide-finish__title">Badges earned</h3>
+              <ul class="rm-guide-finish__badges" data-guide-badges></ul>
+            </div>
+            <details class="rm-disclosure rm-disclosure--plain">
+              <summary>Next steps</summary>
+              <ol class="rm-disclosure__body rm-guide-finish__next" data-guide-next></ol>
+            </details>
           </div>
 
           <div class="setup-safety">

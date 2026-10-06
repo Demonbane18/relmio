@@ -12,8 +12,9 @@
   margin-inline: auto;
 }
 
-/* The safety card follows the panel in the DOM, so narrow screens show the
-   step first. From 1024px it sits in the rail column under the stepper. */
+/* The safety card and the Ready badges follow the panel in the DOM, so narrow
+   screens show the step first. From 1024px they sit in the rail column under
+   the stepper. The safety card closes on Ready, where the badges appear. */
 @media (min-width: 64rem) {
   .setup-layout {
     grid-template-rows: auto minmax(0, 1fr);
@@ -27,7 +28,8 @@
     grid-area: 1 / 2 / 3 / 3;
   }
 
-  .setup-safety {
+  .setup-safety,
+  .setup-layout > .rm-guide-finish {
     grid-area: 2 / 1;
     align-self: start;
   }
@@ -353,6 +355,11 @@ body[data-current-step="5"] [data-step-actions="5"] {
   grid-template-rows: subgrid;
   row-gap: var(--rm-space-1);
   min-width: 0;
+}
+
+/* Cards in a row share its height; their text stays together at the top. */
+.setup-route > .rm-choice {
+  align-content: start;
 }
 
 .setup-route .rm-choice__title .rm-badge {

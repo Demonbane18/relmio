@@ -50,6 +50,8 @@ const state = {
   dashboardBusy: false,
   dashboardStaleTimer: null,
   dashboardFocusIdentity: null,
+  dashboardUsage: null,
+  installedUsage: null,
   chatTester: {
     activeController: null,
     conversationId: null,
@@ -1455,6 +1457,11 @@ function showDashboardSiwcOwner(service) {
   clearChatTesterState();
   renderInstalledSiwcOwner(service);
   element("local-siwc-owner").open = true;
+  // Plan and usage starts closed; only the running n8n sidecar keeps request counts.
+  const usage = service.target === "n8n-openai-oauth" && service.state === "healthy";
+  state.installedUsage = usage ? { account: service.snapshot.auth?.account ?? null, listed: null } : null;
+  element("installed-usage").hidden = !usage;
+  element("installed-usage").open = false;
   const codexChat = isCodexChat(service.target);
   element("chat-tester").hidden = !codexChat || service.snapshot.auth?.configured !== true;
   if (codexChat && service.snapshot.auth?.configured === true) {
@@ -2124,6 +2131,74 @@ async function loadLocalDashboard() {
   } catch {
     renderDashboardFailure();
   }
+  showDashboardUsage();
+}
+
+// Plan and usage for the installed n8n sidecar, on the dashboard and the installed view. The
+// counts are read on demand, and the panel module loads on first use to keep first paint light.
+let usagePanel = null;
+
+async function loadLocalUsage(name) {
+  const panel = name === "dashboard" ? state.dashboardUsage : state.installedUsage;
+  if (!panel) return;
+  const run = (panel.run ?? 0) + 1;
+  panel.run = run;
+  const current = () => panel.run === run &&
+    panel === (name === "dashboard" ? state.dashboardUsage : state.installedUsage);
+  const refresh = element(`${name}-usage-refresh`);
+  const parts = { status: element(`${name}-usage-status`), view: element(`${name}-usage-view`) };
+  const info = { page: "local", account: panel.account, models: { listed: panel.listed } };
+  usagePanel ??= import("./usage-panel.js");
+  const { renderUsage } = await usagePanel;
+  if (!current()) return;
+  renderUsage(parts, { ...info, usage: panel.view, loading: true });
+  refresh.disabled = true;
+  refresh.setAttribute("aria-busy", "true");
+  let error = null;
+  try {
+    panel.view = await api("/api/local/usage/status");
+  } catch (caught) {
+    error = caught;
+  }
+  if (!current()) return;
+  refresh.disabled = false;
+  refresh.removeAttribute("aria-busy");
+  renderUsage(parts, { ...info, usage: panel.view, error });
+}
+
+// Runs while the Plan and usage section is on screen: after each inventory check, on
+// navigation to the section and on Refresh usage.
+function showDashboardUsage() {
+  if (element("dashboard-usage").hidden) return;
+  const service = state.dashboardSnapshot?.services.find(({ target }) => target === "n8n-openai-oauth");
+  const healthy = service?.state === "healthy";
+  element("dashboard-usage-refresh").hidden = !healthy;
+  if (!healthy) {
+    state.dashboardUsage = null;
+    element("dashboard-usage-view").replaceChildren();
+    element("dashboard-usage-status").textContent = !service
+      ? "Plan and usage shows after the inventory check."
+      : ["absent", "staged"].includes(service.state)
+        ? "Plan and usage shows once n8n with ChatGPT sign-in is set up on this computer. Press Add connection to set it up."
+        : "The ChatGPT plan sidecar is not running, so its counts can't be read. Check it under Connections.";
+    return;
+  }
+  const account = service.snapshot?.auth?.account ?? null;
+  const prior = state.dashboardUsage;
+  state.dashboardUsage = { account, listed: null,
+    view: prior?.account?.registrationId === account?.registrationId ? prior.view : null };
+  void loadLocalUsage("dashboard");
+}
+
+function initializeLocalUsage() {
+  window.addEventListener("hashchange", showDashboardUsage);
+  element("dashboard-usage-refresh").addEventListener("click", showDashboardUsage);
+  element("installed-usage").addEventListener("toggle", (event) => {
+    if (event.currentTarget.open) void loadLocalUsage("installed");
+  });
+  element("installed-usage-refresh").addEventListener("click", () => {
+    void loadLocalUsage("installed");
+  });
 }
 
 function clearOneTimeSetupValues() {
@@ -2198,6 +2273,7 @@ function resetPendingSetupState() {
     "codex-production-warning",
     "chat-tester",
     "local-siwc-owner",
+    "installed-usage",
     "n8n-sidecar-removal",
     "n8n-supergrok-removal",
     "n8n-assistant-removal",
@@ -3873,9 +3949,15 @@ function renderInstallResult(result) {
           result.runtimeState !== "stopped" && account.planEnabled, account } } });
     // Session changes are a secondary task on the Ready step.
     element("local-siwc-owner").open = false;
+    // Plan and usage reads the counts when opened; only the running n8n sidecar keeps them.
+    const usage = sidecar && (result.runtimeState ?? "running") === "running" && !result.finalizationFailure;
+    state.installedUsage = usage ? { account, listed: result.models.length } : null;
+    element("installed-usage").hidden = !usage;
+    element("installed-usage").open = false;
   } else {
     element("installed-siwc-models").hidden = true;
     element("local-siwc-owner").hidden = true;
+    element("installed-usage").hidden = true;
   }
 }
 
@@ -5591,3 +5673,4 @@ async function initializeLocalWizard() {
 
 renderTarget();
 initializeLocalDashboard();
+initializeLocalUsage();

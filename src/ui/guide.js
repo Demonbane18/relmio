@@ -1,8 +1,9 @@
 // Relmio setup guide. Every wizard page loads this module and names itself in
-// <body data-guide-page>. It stays small: the dock (/guide-dock.js) and the
-// page's content (/guide/content-<page>.js) load only while the guide is on,
-// and /guide/errors.js only on the first error. Pure helpers are exported for
-// the dock and for tests; the bootstrap runs only inside a page.
+// <body data-guide-page>. It stays small: the dock (/guide-dock.js and
+// /guide-dock.css) and the page's content (/guide/content-<page>.js) load
+// only while the guide is on, and /guide/errors.js only on the first error.
+// Pure helpers are exported for the dock and for tests; the bootstrap runs
+// only inside a page.
 
 export const GUIDE_PAGES = Object.freeze(["vps", "local", "assistant", "supergrok-vps", "local-model-vps", "hosting"]);
 export const ACTION_LABELS = Object.freeze({
@@ -32,6 +33,15 @@ export function tipDone(tip, probe) {
 // The first tip whose target is on screen and not done yet, or -1.
 export function currentTip(tips, probe) {
   return tips.findIndex((tip) => probe.shown(tip.target) && !tipDone(tip, probe));
+}
+
+// Badges and the finish view, decided from one visit to a chapter: the tips
+// seen on screen and which are done. A badge needs every action tip seen done;
+// reading tips (done: manual) are optional. The guide finishes on the last
+// chapter once nothing is left there, so current is -1.
+export function visitOutcome(seen, isDone, { last = false, current = -1 } = {}) {
+  const badge = seen.length > 0 && seen.every((tip) => (tip.done ?? "manual") === "manual" || isDone(tip));
+  return { badge, finished: last && current < 0 && seen.length > 0 };
 }
 
 const own = (table, key) => (typeof key === "string" && table && Object.hasOwn(table, key) ? table[key] : null);
@@ -135,8 +145,14 @@ function boot(page) {
     dock?.refresh();
   }
 
+  // The dock's stylesheet loads with it, so pages with the guide off skip both.
   function mount() {
-    dockLoad ??= import("/guide-dock.js").then((module) => { dock = module.mountGuide(host); }, () => {});
+    dockLoad ??= Promise.all([import("/guide-dock.js"), new Promise((resolve, reject) => {
+      const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: "/guide-dock.css" });
+      link.addEventListener("load", resolve);
+      link.addEventListener("error", reject);
+      document.head.append(link);
+    })]).then(([module]) => { dock = module.mountGuide(host); }, () => {});
     return dockLoad;
   }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -241,4 +241,22 @@ test("every sanitized SIWC fixture starts and serves wizard pages without creden
       }
     });
   }
+});
+
+test("sanitized preview keeps the guide choice in memory and writes no preference file", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "relmio-preview-preferences-"));
+  const sessionToken = Buffer.alloc(32, 23).toString("base64url");
+  const wizard = await startWizardServer({ sessionToken, storageRoot: root, uiFiles: {},
+    services: createPreviewServices(), previewMode: true, previewFixture: "connected" });
+  t.after(async () => {
+    await wizard.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  const preferences = (body) => fetch(`${wizard.origin}/api/ui/preferences`, { method: body ? "POST" : "GET",
+    headers: { "Content-Type": "application/json", Origin: wizard.origin, "X-Setup-Token": sessionToken },
+    body: body && JSON.stringify(body) });
+  assert.deepEqual(await (await preferences()).json(), {});
+  assert.deepEqual(await (await preferences({ guide: "off" })).json(), { guide: "off" });
+  assert.deepEqual(await (await preferences()).json(), { guide: "off" });
+  await assert.rejects(stat(join(root, "ui-preferences.json")), { code: "ENOENT" });
 });

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
-  box, choosePlacement, currentTip, errorInfo, errorTarget, lookupError, overlaps, selectChapter, tipDone,
+  box, choosePlacement, currentTip, errorInfo, errorTarget, lookupError, overlaps, selectChapter, tipDone, visitOutcome,
 } from "../src/ui/guide.js";
 import { startWizardServer } from "../src/web/server.js";
 
@@ -74,6 +74,22 @@ test("done conditions cover every documented kind", () => {
   assert.equal(tipDone({ id: "t", target: "#a", done: "visible:#a:not([hidden])" }, probe), true, "selectors keep their colons");
   assert.equal(tipDone({ id: "t", target: "#a", done: "hidden:#a" }, probe), false);
   assert.equal(tipDone({ id: "t", target: "#a", done: "hidden:#gone" }, probe), true);
+});
+
+test("a badge needs every action tip seen done; the guide finishes on the last chapter", () => {
+  const tips = chapters[1].tips;
+  const done = (...ids) => (tip) => ids.includes(tip.id);
+  assert.equal(visitOutcome(tips, done("host", "scan", "trust", "wait")).badge, true, "reading tips are optional");
+  assert.equal(visitOutcome(tips, done("host", "scan", "trust")).badge, false, "an unfinished wait tip keeps the badge");
+  assert.equal(visitOutcome(tips.slice(0, 2), done("host", "scan")).badge, true, "only tips seen count");
+  assert.equal(visitOutcome([{ id: "x", target: "#x" }], done()).badge, true, "a tip without done is a reading tip");
+  assert.equal(visitOutcome([], done()).badge, false, "nothing seen earns nothing");
+
+  assert.deepEqual(visitOutcome(tips, done("host"), { last: true, current: -1 }), { badge: false, finished: true },
+    "finishing does not award a badge the visit did not earn");
+  assert.equal(visitOutcome(tips, done(), { last: true, current: 1 }).finished, false, "a tip is still waiting");
+  assert.equal(visitOutcome(tips, done(), { current: -1 }).finished, false, "only the last chapter finishes");
+  assert.equal(visitOutcome([], done(), { last: true, current: -1 }).finished, false, "nothing seen yet");
 });
 
 test("error help looks up flags, codes, recovery, status, then the fallback", () => {
@@ -206,7 +222,7 @@ test("the wizard serves the guide engine, mascot and every page's content", asyn
   t.after(() => wizard.close());
   const paths = ["/guide.js", "/guide-dock.js", "/mascot.js", "/guide/errors.js",
     ...Object.keys(PAGES).map((page) => `/guide/content-${page}.js`)];
-  for (const path of [...paths, "/guide.css"]) {
+  for (const path of [...paths, "/guide.css", "/guide-dock.css"]) {
     const response = await fetch(`${wizard.origin}${path}`);
     assert.equal(response.status, 200, path);
     assert.equal(response.headers.get("content-type"), path.endsWith(".css") ? "text/css; charset=utf-8" : "text/javascript; charset=utf-8");

@@ -492,6 +492,8 @@ export async function getLocalN8nSidecarUsage({
     if (await resolveLocalDockerHost({ runProcess, cwd: installRoot, env, platform }) !== marker.dockerHost) return undefined;
     const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker });
     if (!runtime?.running || runtime.paused) return undefined;
+    await attestProjectOwnership({ runProcess, cwd: installRoot, dockerHost: marker.dockerHost,
+      installId: marker.installId, projectName: marker.projectName });
     return usageRecordFromCli(await runProcess({
       file: "docker",
       args: createComposeArgs(marker.projectName, [
