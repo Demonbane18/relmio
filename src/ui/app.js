@@ -180,12 +180,14 @@ function showError(error, { focus = true } = {}) {
   element("global-error-recovery").hidden = error.recovery !== "manage-usage";
   errorBox.hidden = false;
   if (focus) focusVisible(errorBox);
+  globalThis.relmioGuide?.error?.(error);
 }
 
 function clearError() {
   errorBox.hidden = true;
   errorMessage.textContent = "";
   element("global-error-recovery").hidden = true;
+  globalThis.relmioGuide?.clearError?.();
 }
 
 function validatePlanId(value) {

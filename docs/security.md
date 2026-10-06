@@ -536,6 +536,51 @@ is in [Model discovery and checks](n8n-configuration.md#model-discovery-and-chec
   reading the catalog can still refresh the SIWC token. Stopping the sidecar
   stops any check in progress.
 
+## Request counts
+
+The n8n sidecar counts its own text requests for the usage dashboard. These
+are requests sent through Relmio, not your ChatGPT plan's usage. Plan limits,
+reset times and credits stay in ChatGPT under
+[Manage usage](https://chatgpt.com/settings/usage).
+
+- **Records:** each `/v1/responses` or `/v1/chat/completions` request the
+  sidecar sends to OpenAI counts once, under its UTC day and model, with how
+  it ended: completed, failed or incomplete. A request the client abandons
+  counts with no outcome. Completed responses add the input, cached input,
+  output, reasoning and total token counts from `response.completed.usage`.
+  Image requests, and requests the sidecar rejects before sending, are not
+  counted. A model keeps its ID only when OpenAI accepted the request or the
+  account's catalog lists it; anything else counts as `other`, so a typo or a
+  pasted key is never stored. The sidecar also keeps the time and code of the
+  last plan-usage error (`subscription_sharing_usage_limit_exceeded`,
+  `subscription_sharing_usage_unavailable`,
+  `subscription_sharing_user_unavailable` or
+  `subscription_sharing_user_not_eligible`), whether it arrived before or
+  during a stream. The next completed response clears it.
+- **Stores:** `activity/<registration ID>.json` next to the model-check record
+  (`/docker/n8n-openai-oauth/siwc/activity` on a VPS, the sidecar's
+  `siwc-store` Docker volume on a local install). It keeps the 31 most recent
+  UTC days and at most 64 named models per day; the rest count as `other`.
+  Counts are whole numbers. It holds no prompts, outputs, request IDs, IP
+  addresses, headers or tokens. The sidecar writes at most once every 30
+  seconds and once when it stops, so a crash can lose the last 30 seconds of
+  counts. Folder and file modes, ownership and link checks, atomic writes and
+  the lock file work as for the model-check record. The next write replaces a
+  safe record that fails to parse; an unsafe record is never touched. A failed
+  write never affects a request.
+- **Transmits:** nothing. Counting adds no network request.
+- **Returns to the wizard:** when the dashboard asks, the sidecar's read-only
+  `usage` command prints the stored record, over the reviewed SSH connection
+  on a VPS or through `docker compose exec` on a local install. The wizard
+  checks every field and returns only the last 30 UTC days: totals, active
+  days, the peak day, requests and tokens per day, up to 64 models plus
+  `other`, and the last plan-usage event with its recovery. A record that
+  fails any check shows as `unavailable`. A sidecar built before request
+  counting has no `usage` command and counts nothing, so the view says
+  `empty` until the sidecar is updated; on a VPS, use **Review sidecar
+  update**.
+- **Logs:** counting adds no log lines.
+
 ## Remembered Responses items
 
 The n8n sidecar keeps some output from completed Responses requests, so that a

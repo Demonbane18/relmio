@@ -42,6 +42,7 @@ import {
   finishAuthHandoff, prepareAuthHandoff, readAuthHandoff, readRegistration,
   readPendingAuthHandoff, readRegistrationView, validateSiwcBackgroundConsent,
 } from "./siwc-session.mjs";
+import { usageRecordFromCli } from "./model-discovery.mjs";
 const MAX_HANDOFF_BYTES = 64 * 1024;
 const ASSET_PATHS = new Set([
   "gateway/openai-oauth-sidecar.mjs", "gateway/codex-chat.js",
@@ -1643,6 +1644,18 @@ export async function getVpsModelDiscovery({ remote, networkName, reviewedTarget
   }
   return { ...await runModelDiscoveryCommand(remote, verification.modelsDiscoveryStatus,
     { timeoutMs: 90_000, allowUnavailable: true }), containerId: owner.containerId };
+}
+
+// Read-only: the running sidecar's stored request counts, as usageRecordFromCli reads them.
+export async function getVpsUsageStatus({ remote, networkName, reviewedTarget, registrationId }) {
+  validateSiwcRegistrationId(registrationId);
+  const verification = createVerificationCommands();
+  assertSidecarOnlyCommands(Object.values(verification));
+  const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
+  if (owner.registrationId !== registrationId || !owner.running) {
+    throw new Error("The installed SIWC sidecar is not running for the reviewed account.");
+  }
+  return usageRecordFromCli(await remote.exec(verification.usageStatus, { timeoutMs: 90_000 }), registrationId);
 }
 
 export async function changeVpsModelChecks({

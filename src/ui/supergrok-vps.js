@@ -43,11 +43,13 @@ function showError(error) {
   element("error-message").textContent = text;
   element("error-message").hidden = false;
   element("error-message").focus();
+  globalThis.relmioGuide?.error?.(error);
 }
 
 function clearError() {
   element("error-message").hidden = true;
   element("error-message").textContent = "";
+  globalThis.relmioGuide?.clearError?.();
 }
 
 function setStage(stage) {

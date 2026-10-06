@@ -63,7 +63,8 @@ test("sidecar CLI commands exec only the live sidecar's fixed module; variants a
   for (const [module, subcommands] of Object.entries({
     "codex-images.mjs": { imagesStatus: "status", imagesLoginStart: "login-start", imagesLoginPoll: "login-poll",
       imagesLoginCancel: "login-cancel", imagesSignOut: "sign-out" },
-    "model-discovery.mjs": { modelsDiscoveryStatus: "status", modelChecksOn: "checks-on", modelChecksOff: "checks-off" },
+    "model-discovery.mjs": { modelsDiscoveryStatus: "status", modelChecksOn: "checks-on", modelChecksOff: "checks-off",
+      usageStatus: "usage" },
   })) for (const [key, subcommand] of Object.entries(subcommands)) {
     const command = commands[key];
     assert.doesNotThrow(() => assertSidecarOnlyCommands([command]));

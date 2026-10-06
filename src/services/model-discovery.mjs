@@ -1,8 +1,9 @@
 // Text model discovery for the n8n ChatGPT sidecar. It lists the account's models from the
 // SIWC catalog, asking as the newest stable Codex release on npm (checked at most every
 // 12 h), and hides models OpenAI rejected. With the opt-in model checks it lists only models
-// that answered one tiny request. Built-ins only, except the CLI entry's SIWC session import:
-// this file ships inside the sidecar image.
+// that answered one tiny request. It also counts the sidecar's own text requests per UTC day
+// and model for the usage dashboard. Built-ins only, except the CLI entry's SIWC session
+// import: this file ships inside the sidecar image.
 import * as fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -18,6 +19,9 @@ export const MODEL_CHECKS_DIR = 'model-checks';
 export const CATALOG_TTL_MS = 300_000;
 export const VERSION_TTL_MS = 43_200_000;
 export const FAILURE_RETRY_MS = 86_400_000;
+export const ACTIVITY_DIR = 'activity';
+// Request counts are written at most this often, plus once when the sidecar stops.
+export const ACTIVITY_WRITE_MS = 30_000;
 
 const VERSION_URL = 'https://registry.npmjs.org/@openai/codex/latest';
 const MODELS_URL = 'https://api.openai.com/v1/models';
@@ -51,6 +55,25 @@ const EFFORTS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ul
 const TERMINAL_FAILURES = new Set(['response.failed', 'response.incomplete', 'error']);
 const USAGE_CODES = new Set(['subscription_sharing_usage_limit_exceeded', 'subscription_sharing_usage_unavailable',
   'subscription_sharing_user_unavailable']);
+const ACTIVITY_DAYS = 31;
+const USAGE_DAYS = 30;
+const ACTIVITY_MODELS = 64;
+const OTHER_MODEL = 'other';
+// 31 days of 64 named models plus "other", with 128-character IDs, stay under 800 KB. The cap
+// keeps the usage command's output under the 1 MB limit of the SSH and Docker readers.
+const MAX_ACTIVITY_FILE = 900 * 1024;
+const ACTIVITY_LOCK_MS = 5_000;
+const DAY_MS = 86_400_000;
+const DAY = /^\d{4}-\d{2}-\d{2}$/u;
+const COUNTERS = ['requests', 'completed', 'failed', 'incomplete', 'input', 'cached', 'output', 'reasoning', 'total'];
+const ACTIVITY_FIELDS = ['schemaVersion', 'registrationId', 'startedAt', 'updatedAt', 'days', 'lastUsageEvent'];
+// OpenAI's plan-usage error codes and the recovery each one documents. No reset time is derived from them.
+const USAGE_EVENTS = Object.freeze({
+  subscription_sharing_usage_limit_exceeded: 'manage-usage',
+  subscription_sharing_usage_unavailable: 'retry-later',
+  subscription_sharing_user_unavailable: 'retry-later',
+  subscription_sharing_user_not_eligible: 'none',
+});
 const CLI_ERRORS = new Set(['invalid_command', 'invalid_configuration', 'store_unsafe', 'store_busy']);
 const uid = process.getuid?.();
 
@@ -67,6 +90,8 @@ const storeUnsafe = () => new ModelDiscoveryError('store_unsafe', UNSAFE);
 // A safe file that does not parse. Only turning checks off may replace it.
 const storeCorrupt = () => new ModelDiscoveryError('store_unsafe', UNSAFE, { corrupt: true });
 const storeBusy = () => new ModelDiscoveryError('store_busy', 'The model-check record is busy. Try again.');
+const activityUnsafe = () => new ModelDiscoveryError('store_unsafe',
+  'The request count record is unsafe. An administrator must inspect it.');
 const catalogUnavailable = (status) => new ModelDiscoveryError('catalog_unavailable', 'The account model catalog is unavailable.',
   { status, recovery: status === 401 ? 'reauthorize' : 'retry-later' });
 const invalidConfiguration = () => new ModelDiscoveryError('invalid_configuration', 'The sidecar configuration is invalid.');
@@ -79,6 +104,8 @@ const settings = (deps) => ({
   fileSystem: deps?.fileSystem ?? fs,
   randomUUID: deps?.randomUUID ?? randomUUID,
   sleep: deps?.sleep ?? pause,
+  setTimer: deps?.setTimer ?? setTimeout,
+  clearTimer: deps?.clearTimer ?? clearTimeout,
 });
 const iso = (ms) => new Date(ms).toISOString();
 const isIso = (value) => typeof value === 'string' && Number.isFinite(Date.parse(value)) && iso(Date.parse(value)) === value;
@@ -125,22 +152,177 @@ function waitFor(promise, signal) {
   });
 }
 
+// --- Request counts ---
+// Per UTC day and model: the text requests the sidecar sent to OpenAI, how each ended, and the
+// token counts of completed ones. No prompt, output, request ID, address or header is kept.
+
+const dayOf = (ms) => iso(ms).slice(0, 10);
+const isDay = (value) => matches(value, DAY) && isIso(`${value}T00:00:00.000Z`);
+const whole = (value) => Number.isSafeInteger(value) && value >= 0;
+// Sums stop at the largest safe integer instead of losing precision.
+const plus = (a, b) => Math.min(Number.MAX_SAFE_INTEGER, a + b);
+const zeroCounts = () => Object.fromEntries(COUNTERS.map((key) => [key, 0]));
+function addCounts(target, source) {
+  for (const key of COUNTERS) target[key] = plus(target[key], source[key] ?? 0);
+  return target;
+}
+// One model's counters for one day. A day names at most 64 models; later ones count as "other".
+function dayCounts(days, day, id) {
+  const models = days.get(day) ?? days.set(day, new Map()).get(day);
+  const named = [...models.keys()].filter((key) => key !== OTHER_MODEL).length;
+  const key = models.has(id) || id === OTHER_MODEL || named < ACTIVITY_MODELS ? id : OTHER_MODEL;
+  return models.get(key) ?? models.set(key, zeroCounts()).get(key);
+}
+function trimDays(days) {
+  for (const day of [...days.keys()].sort().slice(0, -ACTIVITY_DAYS)) days.delete(day);
+}
+// Whole token counts from a completed response's usage; anything missing or invalid counts as zero.
+function tokenCounts(usage) {
+  const count = (value) => whole(value) ? value : 0;
+  const input = count(usage?.input_tokens);
+  const output = count(usage?.output_tokens);
+  return { input, cached: count(usage?.input_tokens_details?.cached_tokens), output,
+    reasoning: count(usage?.output_tokens_details?.reasoning_tokens),
+    total: whole(usage?.total_tokens) ? usage.total_tokens : plus(input, output) };
+}
+const validCounts = (value) => isObject(value) && Object.keys(value).length === COUNTERS.length &&
+  COUNTERS.every((key) => whole(value[key]));
+const validUsageEvent = (value) => isObject(value) && Object.keys(value).length === 2 && isIso(value.at) &&
+  Object.hasOwn(USAGE_EVENTS, value.code);
+// The stored record, checked field by field. Anything else, an extra field included, is corrupt.
+function parseActivity(value, registrationId) {
+  const days = isObject(value?.days) ? Object.entries(value.days) : [];
+  if (!isObject(value) || Object.keys(value).length !== ACTIVITY_FIELDS.length ||
+      !ACTIVITY_FIELDS.every((key) => Object.hasOwn(value, key)) || value.schemaVersion !== 1 ||
+      !matches(value.registrationId, ID) || registrationId !== undefined && value.registrationId !== registrationId ||
+      !isIso(value.startedAt) || !isIso(value.updatedAt) || !isObject(value.days) || days.length > ACTIVITY_DAYS ||
+      !(value.lastUsageEvent === null || validUsageEvent(value.lastUsageEvent)) ||
+      !days.every(([day, models]) => isDay(day) && isObject(models) &&
+        Object.keys(models).filter((id) => id !== OTHER_MODEL).length <= ACTIVITY_MODELS &&
+        Object.entries(models).every(([id, counts]) => matches(id, SLUG) && validCounts(counts)))) throw storeCorrupt();
+  const event = value.lastUsageEvent;
+  return { registrationId: value.registrationId, startedAt: value.startedAt, updatedAt: value.updatedAt,
+    lastUsageEvent: event && { at: event.at, code: event.code },
+    days: new Map(days.map(([day, models]) =>
+      [day, new Map(Object.entries(models).map(([id, counts]) => [id, addCounts(zeroCounts(), counts)]))])) };
+}
+// The record as stored and as the usage command prints it: days in date order, counters in a fixed order.
+function activityRecord(store) {
+  return { schemaVersion: 1, registrationId: store.registrationId, startedAt: store.startedAt, updatedAt: store.updatedAt,
+    days: Object.fromEntries([...store.days.keys()].sort().map((day) => [day, Object.fromEntries(store.days.get(day))])),
+    lastUsageEvent: store.lastUsageEvent };
+}
+// Counts not yet written. event: undefined (no change), null (cleared by a completion at clearedAt) or the newest event.
+const newTally = () => ({ days: new Map(), event: undefined, clearedAt: -Infinity, firstAt: undefined });
+// Pending counts added to the stored ones at time `at`; days before the 31-day window are dropped.
+// The newer plan-usage event wins, and a completion clears an event at or before it.
+function mergeActivity(stored, tally, at, registrationId) {
+  const days = new Map();
+  for (const source of [stored?.days, tally.days]) {
+    for (const [day, models] of source ?? []) for (const [id, counts] of models) addCounts(dayCounts(days, day, id), counts);
+  }
+  const oldest = dayOf(at - (ACTIVITY_DAYS - 1) * DAY_MS);
+  for (const day of days.keys()) if (day < oldest) days.delete(day);
+  trimDays(days);
+  let event = stored?.lastUsageEvent ?? null;
+  if (tally.event) event = event && event.at > tally.event.at ? event : tally.event;
+  else if (tally.event === null && event && Date.parse(event.at) <= tally.clearedAt) event = null;
+  return { registrationId, startedAt: stored?.startedAt ?? iso(tally.firstAt), updatedAt: iso(at), days, lastUsageEvent: event };
+}
+// A batch that could not be written goes back in front of the counts that arrived meanwhile.
+function requeue(batch, newer) {
+  for (const [day, models] of newer.days) for (const [id, counts] of models) addCounts(dayCounts(batch.days, day, id), counts);
+  trimDays(batch.days);
+  return { days: batch.days, event: newer.event === undefined ? batch.event : newer.event,
+    clearedAt: Math.max(batch.clearedAt, newer.clearedAt), firstAt: batch.firstAt ?? newer.firstAt };
+}
+const blankUsage = (state) => ({ state, since: null, updatedAt: null, totals: zeroCounts(), activeDays: 0, peakDay: null,
+  days: [], models: [], lastUsageEvent: null });
+
+// UsageView for the dashboard: the requests this sidecar sent to OpenAI in the last 30 UTC days. These
+// are Relmio's own counts, not plan use. `record` is what the usage command printed: null before the
+// first request is "empty", and anything that is not a valid record is "unavailable" and shows none of it.
+export function usageView(record, { registrationId, now = Date.now() } = {}) {
+  if (record === null) return blankUsage('empty');
+  let store;
+  try { store = parseActivity(record, registrationId); } catch { return blankUsage('unavailable'); }
+  const first = dayOf(now - (USAGE_DAYS - 1) * DAY_MS);
+  const today = dayOf(now);
+  const totals = zeroCounts();
+  const byModel = new Map();
+  const days = [];
+  for (const day of [...store.days.keys()].sort()) {
+    if (day < first || day > today) continue;
+    const sum = zeroCounts();
+    for (const [id, counts] of store.days.get(day)) {
+      addCounts(sum, counts);
+      addCounts(byModel.get(id) ?? byModel.set(id, zeroCounts()).get(id), counts);
+    }
+    addCounts(totals, sum);
+    days.push({ date: day, requests: sum.requests, total: sum.total });
+  }
+  // The 64 models with the most tokens keep their rows; the rest join "other", listed last.
+  const other = byModel.get(OTHER_MODEL) ?? zeroCounts();
+  const ranked = [...byModel].filter(([id]) => id !== OTHER_MODEL)
+    .sort(([a, x], [b, y]) => y.total - x.total || y.requests - x.requests || (a < b ? -1 : 1));
+  for (const [, counts] of ranked.slice(ACTIVITY_MODELS)) addCounts(other, counts);
+  const rows = [...ranked.slice(0, ACTIVITY_MODELS), ...(other.requests ? [[OTHER_MODEL, other]] : [])];
+  const peak = days.reduce((best, day) => (day.total > (best?.total ?? 0) ? day : best), null);
+  const windowStart = `${first}T00:00:00.000Z`;
+  return {
+    state: days.length ? 'ok' : 'empty',
+    since: store.startedAt > windowStart ? store.startedAt : windowStart,
+    updatedAt: store.updatedAt, totals, activeDays: days.length,
+    peakDay: peak && { date: peak.date, total: peak.total }, days,
+    models: rows.map(([id, { requests, total, input, cached, output, reasoning }]) =>
+      ({ id, requests, total, input, cached, output, reasoning })),
+    lastUsageEvent: store.lastUsageEvent && { ...store.lastUsageEvent, recovery: USAGE_EVENTS[store.lastUsageEvent.code] },
+  };
+}
+// Reads one run of the usage command: the record, null when there is nothing to show yet, or undefined
+// when it cannot be read. A sidecar built before request counting has no usage command and counts
+// nothing, so it reads as empty until its update.
+export function usageRecordFromCli(result, registrationId) {
+  let output;
+  try { output = JSON.parse(result?.stdout); } catch { /* Not one JSON value. */ }
+  if (result?.code === 0) return output === null || output?.registrationId === registrationId ? output : undefined;
+  return output === undefined || output?.error === 'invalid_command' ? null : undefined;
+}
+
 // --- Store files ---
-// ponytail: these copy the store helpers in codex-images.mjs (storeDirectory, assertOwned, readRecord,
-// writeRecord, lockAge, locked). A safety fix in either file belongs in both. Differences: readRecord here
-// tells a safe file that does not parse from an unsafe one, and locked can stop waiting at a deadline.
+// ponytail: these copy the store helpers in codex-images.mjs (storeDirectory, here ownedDirectory, assertOwned,
+// readRecord, writeRecord, lockAge, locked). A safety fix in either file belongs in both. Differences: readRecord here
+// tells a safe file that does not parse from an unsafe one, locked can stop waiting at a deadline, and the folder
+// name and size limit are parameters so the model-check and request count records share them.
 
 function assertOwned(stat, kind) {
   if (stat.isSymbolicLink() || (kind === 'file' ? !stat.isFile() || stat.nlink !== 1 : !stat.isDirectory()) ||
       (uid !== undefined && stat.uid !== uid) || (stat.mode & 0o077) !== 0) throw storeUnsafe();
   return stat;
 }
-async function readRecord(path, cfg) {
+// ${storageRoot}/${name}, created 0700 when asked. null when it does not exist and create is false.
+async function ownedDirectory(cfg, storageRoot, registrationId, name, create) {
+  if (typeof storageRoot !== 'string' || !isAbsolute(storageRoot) || storageRoot.includes('\0') ||
+      resolve(storageRoot) !== storageRoot || !matches(registrationId, ID)) throw storeUnsafe();
+  const directory = join(storageRoot, name);
+  try {
+    if (create) {
+      try { await cfg.fileSystem.mkdir(directory, { mode: 0o700 }); }
+      catch (error) { if (error?.code !== 'EEXIST') throw error; }
+    }
+    assertOwned(await cfg.fileSystem.lstat(directory), 'directory');
+  } catch (error) {
+    if (!create && error?.code === 'ENOENT') return null;
+    throw storeUnsafe();
+  }
+  return directory;
+}
+async function readRecord(path, cfg, limit = MAX_FILE) {
   let stat;
   try { stat = await cfg.fileSystem.lstat(path); }
   catch (error) { if (error?.code === 'ENOENT') return null; throw storeUnsafe(); }
   assertOwned(stat, 'file');
-  if (stat.size === 0 || stat.size > MAX_FILE) throw storeCorrupt();
+  if (stat.size === 0 || stat.size > limit) throw storeCorrupt();
   let bytes;
   try {
     const handle = await cfg.fileSystem.open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -155,14 +337,14 @@ async function readRecord(path, cfg) {
     throw storeUnsafe();
   }
   try {
-    if (bytes.length > MAX_FILE) throw new Error('Oversized record.');
+    if (bytes.length > limit) throw new Error('Oversized record.');
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   } catch {
     throw storeCorrupt();
   }
 }
-async function writeRecord(path, bytes, cfg) {
-  if (bytes.length > MAX_FILE) throw storeUnsafe();
+async function writeRecord(path, bytes, cfg, limit = MAX_FILE) {
+  if (bytes.length > limit) throw storeUnsafe();
   const temp = `${path}.${cfg.randomUUID()}.tmp`;
   try {
     const handle = await cfg.fileSystem.open(temp, 'wx', 0o600);
@@ -369,22 +551,7 @@ export function createModelDiscovery({ storageRoot, registrationId, pinnedClient
 
   // --- Store: ${storageRoot}/model-checks/${registrationId}.{json,lock} ---
 
-  async function storeDirectory(create = false) {
-    if (typeof storageRoot !== 'string' || !isAbsolute(storageRoot) || storageRoot.includes('\0') ||
-        resolve(storageRoot) !== storageRoot || !matches(registrationId, ID)) throw storeUnsafe();
-    const directory = join(storageRoot, MODEL_CHECKS_DIR);
-    try {
-      if (create) {
-        try { await cfg.fileSystem.mkdir(directory, { mode: 0o700 }); }
-        catch (error) { if (error?.code !== 'EEXIST') throw error; }
-      }
-      assertOwned(await cfg.fileSystem.lstat(directory), 'directory');
-    } catch (error) {
-      if (!create && error?.code === 'ENOENT') return null;
-      throw storeUnsafe();
-    }
-    return directory;
-  }
+  const storeDirectory = (create = false) => ownedDirectory(cfg, storageRoot, registrationId, MODEL_CHECKS_DIR, create);
   const storePath = (directory) => join(directory, `${registrationId}.json`);
   function parseStore(value) {
     const entries = isObject(value?.models) ? Object.entries(value.models) : [];
@@ -658,6 +825,76 @@ export function createModelDiscovery({ storageRoot, registrationId, pinnedClient
     } catch { /* Passive learning never affects traffic. */ }
   }
 
+  // --- Request counts: ${storageRoot}/activity/${registrationId}.{json,lock} ---
+
+  let pending = newTally();
+  let writeTimer = null;
+  let writing = null;
+  let writeAgain = false;
+  const activityDirectory = (create = false) => ownedDirectory(cfg, storageRoot, registrationId, ACTIVITY_DIR, create);
+
+  // Synchronous and in memory only, so counting never delays or fails a request. A model OpenAI accepted,
+  // or one the last catalog lists, keeps its ID; n8n defaults, typos and pasted keys count as "other".
+  function recordActivity(entry) {
+    try {
+      const { model, outcome, usage, code, accepted = false } = entry ?? {};
+      const at = cfg.now();
+      const id = matches(model, SLUG) && (accepted === true || catalog?.ids.has(model)) ? model : OTHER_MODEL;
+      const counts = dayCounts(pending.days, dayOf(at), id);
+      counts.requests = plus(counts.requests, 1);
+      if (['completed', 'failed', 'incomplete'].includes(outcome)) counts[outcome] = plus(counts[outcome], 1);
+      if (outcome === 'completed') {
+        addCounts(counts, tokenCounts(usage));
+        Object.assign(pending, { event: null, clearedAt: at });
+      } else if (outcome === 'failed' && Object.hasOwn(USAGE_EVENTS, code)) pending.event = { at: iso(at), code };
+      pending.firstAt ??= at;
+      trimDays(pending.days);
+      if (closing.signal.aborted) void flushActivity();
+      else if (!writeTimer) {
+        writeTimer = cfg.setTimer(() => { writeTimer = null; void flushActivity(); }, ACTIVITY_WRITE_MS);
+        writeTimer?.unref?.();
+      }
+    } catch { /* Counting never affects traffic. */ }
+  }
+  // Adds the pending counts to the record under its lock. A safe record that does not parse is replaced,
+  // an unsafe one is never touched, and counts that could not be written wait for the next write.
+  async function writeActivity() {
+    if (!pending.days.size) return;
+    const batch = pending;
+    pending = newTally();
+    try {
+      const directory = await activityDirectory(true);
+      const path = join(directory, `${registrationId}.json`);
+      await locked(join(directory, `${registrationId}.lock`), cfg, async () => {
+        let stored = null;
+        try {
+          const value = await readRecord(path, cfg, MAX_ACTIVITY_FILE);
+          if (value !== null) stored = parseActivity(value, registrationId);
+        } catch (error) { if (!error?.corrupt) throw error; }
+        const record = activityRecord(mergeActivity(stored, batch, cfg.now(), registrationId));
+        await writeRecord(path, Buffer.from(JSON.stringify(record)), cfg, MAX_ACTIVITY_FILE);
+      }, { deadline: cfg.now() + ACTIVITY_LOCK_MS });
+    } catch {
+      pending = requeue(batch, pending);
+    }
+  }
+  // One write at a time; a flush asked for during a write runs once after it. Never rejects.
+  function flushActivity() {
+    if (writing) { writeAgain = true; return writing; }
+    writing = (async () => {
+      do { writeAgain = false; await writeActivity(); } while (writeAgain);
+    })().finally(() => { writing = null; });
+    return writing;
+  }
+  // Read-only: the stored record, or null before the first write.
+  async function activity() {
+    try {
+      const directory = await activityDirectory();
+      const value = directory ? await readRecord(join(directory, `${registrationId}.json`), cfg, MAX_ACTIVITY_FILE) : null;
+      return value === null ? null : activityRecord(parseActivity(value, registrationId));
+    } catch { throw activityUnsafe(); }
+  }
+
   // Read-only apart from the lease, which may refresh the SIWC token: no npm request, no store write.
   async function status({ budgetMs } = {}) {
     if (!validBudget(budgetMs)) throw new TypeError('Invalid status options.');
@@ -691,19 +928,23 @@ export function createModelDiscovery({ storageRoot, registrationId, pinnedClient
   }
 
   // Stops background checks for good: work in flight is aborted, a running run stops at its next check
-  // and no new run starts. Resolves once the running run has stopped; never rejects.
+  // and no new run starts. Pending request counts are written, and any counted later are written at once.
+  // Resolves once the running run has stopped and the counts are written; never rejects.
   function close() {
     closing.abort();
-    return background ? background.then(() => {}, () => {}) : Promise.resolve();
+    if (writeTimer) { cfg.clearTimer(writeTimer); writeTimer = null; }
+    return Promise.all([background?.then(() => {}, () => {}), flushActivity()]).then(() => {});
   }
 
-  return { listModels, recordOutcome, status, setChecks, verifyNow, close };
+  return { listModels, recordOutcome, recordActivity, activity, status, setChecks, verifyNow, close };
 }
 
 const COMMANDS = {
   status: (discovery, budgetMs) => discovery.status({ budgetMs: budgetMs(STATUS_DEADLINE_MS) }),
   'checks-on': (discovery, budgetMs) => discovery.setChecks({ enabled: true, budgetMs: budgetMs(CHECKS_ON_DEADLINE_MS) }),
   'checks-off': (discovery) => discovery.setChecks({ enabled: false }),
+  // Read-only: prints the stored request counts, or null before the first one.
+  usage: (discovery) => discovery.activity(),
 };
 
 export async function runModelDiscoveryCli({ command, env = process.env, output = process.stdout, deps } = {}) {

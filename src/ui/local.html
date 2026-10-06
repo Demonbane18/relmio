@@ -9,15 +9,18 @@
     <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/local.css" />
     <link rel="stylesheet" href="/siwc.css" />
+    <link rel="stylesheet" href="/guide.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
     <script src="/local.js" type="module"></script>
+    <script src="/guide.js" type="module"></script>
   </head>
   <body
     class="rm-app rm-app--fit local-wizard"
     data-local-view="dashboard"
     data-current-step="1"
     data-operation-busy="false"
+    data-guide-page="local"
   >
     <a class="rm-skip-link" href="#main-content">Skip to main content</a>
 
@@ -37,6 +40,7 @@
         </nav>
         <div class="rm-topbar__actions">
           <span class="rm-status rm-topbar__wide" data-tone="success"><span class="rm-status__dot"></span>Runs on this computer</span>
+          <button id="guide-toggle" class="rm-icon-button" type="button" aria-pressed="false" aria-label="Setup guide" title="Setup guide" hidden><span class="rm-icon rm-icon--help" aria-hidden="true"></span></button>
           <fieldset class="rm-segmented">
             <legend class="rm-visually-hidden">Color theme</legend>
             <label class="rm-segmented__item" title="System"><input class="rm-segmented__input" type="radio" name="color-theme" value="system" checked /><span class="rm-icon rm-icon--monitor rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">System</span></label>
@@ -61,6 +65,7 @@
                 </ul>
               </nav>
               <ul class="rm-menu__list rm-menu__section">
+                <li><button class="rm-menu__link" type="button" data-guide-toggle aria-pressed="false" hidden><span class="rm-icon rm-icon--help rm-icon--sm" aria-hidden="true"></span>Setup guide</button></li>
                 <li><a class="rm-menu__link" href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
                 <li><a class="rm-menu__link" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--coffee rm-icon--sm" aria-hidden="true"></span>Support on Ko-fi<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
               </ul>

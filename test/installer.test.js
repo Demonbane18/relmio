@@ -15,7 +15,7 @@ import {
 } from "../src/domain/safety.js";
 import {
   changeVpsCodexImages, changeVpsModelChecks, getVpsCodexImagesStatus, getVpsModelDiscovery,
-  getVpsSiwcInstallationStatus, installSidecar,
+  getVpsSiwcInstallationStatus, getVpsUsageStatus, installSidecar,
   inspectStoppedVpsSiwcInstallation, manageVpsSiwcInstallation,
   reviewVpsSiwcReplacement, reviewVpsLegacyMigration, reviewVpsSiwcTarget,
   reviewVpsSiwcResume, reconcileVpsSiwcHandoff,
@@ -23,6 +23,7 @@ import {
 } from "../src/services/installer.js";
 import { collectSiwcRuntimeAssets } from "../src/services/siwc-runtime-assets.js";
 import { runSiwcHandoffCli } from "../src/services/siwc-handoff.mjs";
+import { CODEX_CLI_VERSION, createModelDiscovery, runModelDiscoveryCli } from "../src/services/model-discovery.mjs";
 import {
   commitAuthorization, getAccessToken, listRegistrations, setPlanEnabled, readRegistration,
 } from "../src/services/siwc-session.mjs";
@@ -1585,6 +1586,53 @@ test("model discovery status attests the running owner, keeps only known fields 
   await manageVpsSiwcInstallation({ ...scope, action: "disable-plan",
     expectedGeneration: account.generation, confirmed: true });
   await assert.rejects(getVpsModelDiscovery(scope));
+  assert.equal(modelRuns(remote).length, runs);
+});
+
+test("usage status attests the running owner and runs only its read-only command; an older sidecar reads as empty", async t => {
+  const { remote, scope, destinationRoot } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  // The fake container runs the real usage command against its own SIWC storage.
+  remote.faults.models = async command => {
+    const output = { text: "", write(chunk) { this.text += chunk; } };
+    const code = await runModelDiscoveryCli({ command: command.split(" ").at(-1), output,
+      env: { N8N_OPENAI_OAUTH_HOME: destinationRoot, RELMIO_REGISTRATION_ID: registrationId, RELMIO_RUNTIME_ID: runtimeId } });
+    return { code, stdout: output.text };
+  };
+  const start = remote.commands.length;
+  assert.equal(await getVpsUsageStatus(scope), null, "nothing is recorded yet");
+  const commands = remote.commands.slice(start).map(item => item.command);
+  assert.deepEqual(commands.filter(command => command.includes("/app/services/model-discovery.mjs ")), [verification.usageStatus]);
+  assert.equal(commands.some(command => command.includes(LOCK_ACQUIRE)), false, "a read takes no operation lock");
+
+  const discovery = createModelDiscovery({ storageRoot: destinationRoot, registrationId, pinnedClientVersion: CODEX_CLI_VERSION,
+    getLease: async () => ({ accessToken: "fake-unused-access-token" }) });
+  discovery.recordActivity({ model: "account-model", accepted: true, outcome: "completed",
+    usage: { input_tokens: 5, output_tokens: 2 } });
+  await discovery.close();
+  const record = await getVpsUsageStatus(scope);
+  assert.equal(record.registrationId, registrationId);
+  assert.deepEqual(Object.values(record.days).map(day => day["account-model"].total), [7]);
+
+  for (const [result, expected] of [
+    [{ code: 1, stdout: JSON.stringify({ error: "invalid_command", message: "Unknown command." }) }, null],
+    [{ code: 1, stdout: "" }, null],
+    [{ code: 1, stdout: JSON.stringify({ error: "store_unsafe", message: "remote text" }) }, undefined],
+    [{ code: 0, stdout: JSON.stringify({ ...record, registrationId: "registration_other" }) }, undefined],
+    [{ code: 0, stdout: "not json" }, undefined],
+  ]) {
+    remote.faults.models = () => result;
+    assert.equal(await getVpsUsageStatus(scope), expected, result.stdout);
+  }
+
+  remote.faults.models = () => ({ code: 0, stdout: JSON.stringify(record) });
+  const runs = modelRuns(remote).length;
+  await assert.rejects(getVpsUsageStatus({ ...scope, registrationId: "registration_other" }));
+  await assert.rejects(getVpsUsageStatus({ ...scope, registrationId: "../auth" }));
+  const { account } = await getVpsSiwcInstallationStatus(scope);
+  await manageVpsSiwcInstallation({ ...scope, action: "disable-plan",
+    expectedGeneration: account.generation, confirmed: true });
+  await assert.rejects(getVpsUsageStatus(scope), /not running/u);
   assert.equal(modelRuns(remote).length, runs);
 });
 

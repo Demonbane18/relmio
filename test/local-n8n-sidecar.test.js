@@ -13,11 +13,12 @@ import {
   createLocalN8nSidecarComposeFile,
 } from "../src/domain/local-n8n-sidecar.js";
 import {
-  getLocalN8nSidecarStatus, installLocalN8nSidecar,
+  getLocalN8nSidecarStatus, getLocalN8nSidecarUsage, installLocalN8nSidecar,
   inspectStoppedLocalN8nSiwcInstallation, manageLocalN8nSiwcInstallation,
   resolveLocalN8nSidecarInstallRoot, reviewLocalN8nLegacyMigration,
   reviewLocalN8nSiwcReplacement, reviewLocalN8nSiwcResume, reconcileLocalN8nSiwcHandoff,
 } from "../src/services/local-n8n-sidecar-installer.js";
+import { CODEX_CLI_VERSION, createModelDiscovery, runModelDiscoveryCli } from "../src/services/model-discovery.mjs";
 import { runSiwcHandoffCli } from "../src/services/siwc-handoff.mjs";
 import {
   commitAuthorization, getAccessToken, listRegistrations, setPlanEnabled, readRegistration,
@@ -440,6 +441,46 @@ test("stopped owner inspection and disable require separate confirmations", asyn
   assert.equal(enabled.account.planEnabled, true);
   assert.equal(enabled.runtimeStopped, false);
   assert.equal((await getLocalN8nSidecarStatus(deps(homeDirectory, runner))).snapshot.auth.configured, true);
+});
+
+test("local usage reads only the running owned sidecar's counts, with its read-only command", async t => {
+  const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
+  const runner = fakeDocker(destinationRoot);
+  assert.equal(await getLocalN8nSidecarUsage(deps(homeDirectory, runner)), undefined, "nothing is installed");
+  await installLocalN8nSidecar({ plan, registration, backgroundConsent: consent, confirmed: true }, deps(homeDirectory, runner));
+  const reads = [];
+  // The fake container runs the real usage command against its own SIWC storage.
+  const container = async spec => {
+    if (!spec.args.includes("/app/services/model-discovery.mjs")) return runner(spec);
+    reads.push(spec);
+    const output = { text: "", write(chunk) { this.text += chunk; } };
+    const code = await runModelDiscoveryCli({ command: spec.args.at(-1), output,
+      env: { N8N_OPENAI_OAUTH_HOME: destinationRoot, RELMIO_REGISTRATION_ID: registrationId, RELMIO_RUNTIME_ID: installId } });
+    return { code, stdout: output.text, stderr: "" };
+  };
+  assert.equal(await getLocalN8nSidecarUsage(deps(homeDirectory, container)), null, "nothing is recorded yet");
+  assert.deepEqual(reads.at(-1).args, ["compose", "--project-name", projectName, "--file", "docker-compose.yml",
+    "exec", "-T", "openai-oauth", "node", "/app/services/model-discovery.mjs", "usage"]);
+
+  const discovery = createModelDiscovery({ storageRoot: destinationRoot, registrationId, pinnedClientVersion: CODEX_CLI_VERSION,
+    getLease: async () => ({ accessToken: "fake-unused-access-token" }) });
+  discovery.recordActivity({ model: "selected-model", accepted: true, outcome: "completed",
+    usage: { input_tokens: 3, output_tokens: 4 } });
+  await discovery.close();
+  const record = await getLocalN8nSidecarUsage(deps(homeDirectory, container));
+  assert.equal(record.registrationId, registrationId);
+  assert.deepEqual(Object.values(record.days).map(day => day["selected-model"].total), [7]);
+  const older = async spec => spec.args.includes("/app/services/model-discovery.mjs")
+    ? { code: 1, stdout: JSON.stringify({ error: "invalid_command", message: "Unknown command." }), stderr: "" }
+    : runner(spec);
+  assert.equal(await getLocalN8nSidecarUsage(deps(homeDirectory, older)), null, "an older sidecar reads as empty");
+
+  const status = await getLocalN8nSidecarStatus(deps(homeDirectory, runner));
+  await manageLocalN8nSiwcInstallation({ registrationId, action: "disable-plan",
+    expectedGeneration: status.snapshot.auth.account.generation, confirmed: true }, deps(homeDirectory, runner));
+  const before = reads.length;
+  assert.equal(await getLocalN8nSidecarUsage(deps(homeDirectory, container)), undefined, "a stopped sidecar is not read");
+  assert.equal(reads.length, before);
 });
 
 test("Windows sidecar asset ACL drift blocks status before inspecting the runtime", async t => {

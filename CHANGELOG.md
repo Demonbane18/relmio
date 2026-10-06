@@ -9,6 +9,15 @@ checks the registry separately after publication.
 
 ### Added
 
+- The ChatGPT plan sidecar counts its own text requests for the usage
+  dashboard: per UTC day and model, how each request ended, the token counts
+  of completed responses, and the last plan-usage error until a completed
+  response clears it. The counts stay in `activity/<registration ID>.json` next
+  to the model-check record for 31 days, without prompts, outputs, request IDs
+  or headers. The wizard reads them, read-only, through
+  `POST /api/siwc/vps/usage/status` and `GET /api/local/usage/status`. They
+  are requests sent through Relmio, not plan usage. A VPS sidecar starts
+  counting after Review sidecar update.
 - The ChatGPT plan sidecar's `/v1/chat/completions` route now accepts function
   tools, assistant tool calls and tool results. Function tools go to OpenAI in
   one `additional_tools` item, and n8n still runs the tools. Limits are 32 tool

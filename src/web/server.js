@@ -13,10 +13,11 @@ import { listSiwcModels } from "../gateway/openai-oauth-sidecar.mjs";
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
 import {
   changeVpsCodexImages, changeVpsModelChecks, getVpsCodexImagesStatus, getVpsModelDiscovery, getVpsSiwcInstallationStatus,
-  inspectStoppedVpsSiwcInstallation,
+  inspectStoppedVpsSiwcInstallation, getVpsUsageStatus,
   installSidecar, manageVpsSiwcInstallation, reviewVpsLegacyMigration, reviewVpsSiwcReplacement, reviewVpsSiwcTarget,
   reviewVpsSiwcResume, reconcileVpsSiwcHandoff, reviewVpsSiwcRuntimeUpdate, updateVpsSiwcRuntime,
 } from "../services/installer.js";
+import { usageView } from "../services/model-discovery.mjs";
 import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels } from "../services/vps-supergrok.js";
 import { inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus } from "../services/vps-local-model.js";
 import { installAssistant } from "../services/assistant-installer.js";
@@ -25,6 +26,7 @@ import {
   acknowledgePlanUse, getSelectedRegistration, readRegistration, resolveSiwcStorageRoot,
   selectRegistration, setPlanEnabled, signOut,
 } from "../services/siwc-session.mjs";
+import { readUiPreferences, writeUiPreferences } from "../services/ui-preferences.js";
 import {
   connectVerified,
   scanHostFingerprint,
@@ -87,6 +89,7 @@ import { copySiwcAccountView, copySiwcStaging, getLocalDashboardStatus } from ".
 import {
   discoverLocalN8nSidecarTargets,
   getLocalN8nSidecarStatus,
+  getLocalN8nSidecarUsage,
   reviewLocalN8nLegacyMigration,
   reviewLocalN8nSiwcReplacement,
   inspectStoppedLocalN8nSiwcInstallation,
@@ -200,6 +203,7 @@ const defaultServices = {
   changeVpsCodexImages,
   getVpsModelDiscovery,
   changeVpsModelChecks,
+  getVpsUsageStatus,
   inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels,
   inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus,
   installAssistant,
@@ -210,6 +214,7 @@ const defaultServices = {
   getLocalN8nSuperGrokStatus,
   discoverLocalN8nSidecarTargets,
   getLocalN8nSidecarStatus,
+  getLocalN8nSidecarUsage,
   inspectStoppedLocalN8nSiwcInstallation,
   inspectStoppedLocalSiwcInstallation,
   manageLocalN8nSiwcInstallation,
@@ -962,7 +967,7 @@ function credentialBearingVpsRoute(path) {
     path === "/api/siwc/vps/status" || path === "/api/siwc/vps/manage" ||
     path === "/api/siwc/vps/inspect-stopped" || path.startsWith("/api/siwc/vps/recovery/") ||
     path === "/api/siwc/vps/runtime-update/review" || path === "/api/siwc/vps/runtime-update/apply" ||
-    path.startsWith("/api/siwc/vps/images/") || path.startsWith("/api/siwc/vps/models/") ||
+    path.startsWith("/api/siwc/vps/images/") || path.startsWith("/api/siwc/vps/models/") || path === "/api/siwc/vps/usage/status" ||
     path === "/api/assistant/plan" || path === "/api/assistant/install" ||
     path.startsWith("/api/vps/supergrok/");
 }
@@ -1658,6 +1663,16 @@ const UI_FILE_SOURCES = Object.freeze({
   "/ssh-form.js": ["../ui/ssh-form.js", "utf8"],
   "/hosting-archive.js": ["../ui/hosting-archive.js", "utf8"],
   "/domain/hosting-providers.js": ["../domain/hosting-providers.js", "utf8"],
+  "/guide.js": ["../ui/guide.js", "utf8"],
+  "/guide-dock.js": ["../ui/guide-dock.js", "utf8"],
+  "/mascot.js": ["../ui/mascot.js", "utf8"],
+  "/guide/content-vps.js": ["../ui/guide/content-vps.js", "utf8"],
+  "/guide/content-local.js": ["../ui/guide/content-local.js", "utf8"],
+  "/guide/content-assistant.js": ["../ui/guide/content-assistant.js", "utf8"],
+  "/guide/content-supergrok-vps.js": ["../ui/guide/content-supergrok-vps.js", "utf8"],
+  "/guide/content-local-model-vps.js": ["../ui/guide/content-local-model-vps.js", "utf8"],
+  "/guide/content-hosting.js": ["../ui/guide/content-hosting.js", "utf8"],
+  "/guide/errors.js": ["../ui/guide/errors.js", "utf8"],
   "/relmio-ui.css": ["../ui/relmio-ui.css", "utf8"],
   "/styles.css": ["../ui/styles.css", "utf8"],
   "/local.css": ["../ui/local.css", "utf8"],
@@ -1666,6 +1681,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/supergrok-vps.css": ["../ui/supergrok-vps.css", "utf8"],
   "/local-model-vps.css": ["../ui/local-model-vps.css", "utf8"],
   "/hosting.css": ["../ui/hosting.css", "utf8"],
+  "/guide.css": ["../ui/guide.css", "utf8"],
   "/relmio-icon-96.png": ["../ui/relmio-icon-96.png"],
   "/relmio-icon-rounded.svg": ["../ui/relmio-icon-rounded.svg", "utf8"],
   "/fonts/geist-latin.woff2": ["../ui/fonts/geist-latin.woff2"],
@@ -3488,6 +3504,20 @@ async function handleApi(request, response, path, state) {
   requireApiToken(request, state);
   requireSameOrigin(request, state);
 
+  if (path === "/api/ui/preferences" && request.method === "GET") {
+    sendJson(response, 200, await readUiPreferences({ storageRoot: state.storageRoot }));
+    return;
+  }
+  if (path === "/api/ui/preferences" && request.method === "POST") {
+    const body = await readJsonBody(request);
+    if (!exactObjectKeys(body, ["guide"]) || !["on", "off"].includes(body.guide)) {
+      throw Object.assign(new Error("Guide preference is invalid."), { statusCode: 400 });
+    }
+    await writeUiPreferences({ storageRoot: state.storageRoot, preferences: body });
+    sendJson(response, 200, { guide: body.guide });
+    return;
+  }
+
   if (request.method === "GET" && path === "/api/hosting/providers") {
     sendJson(response, 200, {
       providers: HOSTING_PROVIDERS,
@@ -3610,6 +3640,15 @@ async function handleApi(request, response, path, state) {
       : await state.services.getLocalN8nModelStatus();
     requireCurrentLocalDashboardGeneration(state, generation);
     sendJson(response, 200, createSafeLocalModelStatus(result));
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/local/usage/status") {
+    const generation = state.localDashboardGeneration;
+    // Read-only. Sanitized preview shows no counts; the sidecar's record becomes the bounded view here.
+    const record = state.previewMode ? null : await state.services.getLocalN8nSidecarUsage();
+    requireCurrentLocalDashboardGeneration(state, generation);
+    sendJson(response, 200, usageView(record));
     return;
   }
 
@@ -5813,6 +5852,31 @@ async function handleApi(request, response, path, state) {
     } finally {
       operation?.release();
       releaseMutation?.();
+      connectionUse.release();
+    }
+    return;
+  }
+
+  if (path === "/api/siwc/vps/usage/status") {
+    requireLiveLocalAction(state, "VPS usage status");
+    enforceRateLimit(state, path);
+    requireExactRequestBody(body, ["containerName", "networkName", "registrationId"],
+      "Check this installed account's usage again.");
+    rejectActiveVpsMutation(state);
+    requireDiscoveredNetwork(state, body.containerName, body.networkName);
+    const registrationId = requireSiwcId(body.registrationId);
+    const reviewedTarget = requireReviewedVpsOwnerTarget(state, body.containerName, body.networkName);
+    const connectionUse = acquireVpsConnectionUse(state);
+    let operation;
+    try {
+      requireFullVpsScope(connectionUse.connection);
+      operation = acquireVpsCredentialOperation(state, "usage-status");
+      // Read-only: the sidecar's stored record becomes the bounded view here; nothing on the VPS changes.
+      const record = await state.services.getVpsUsageStatus({ remote: connectionUse.connection,
+        networkName: body.networkName, reviewedTarget, registrationId });
+      sendJson(response, 200, usageView(record, { registrationId }));
+    } finally {
+      operation?.release();
       connectionUse.release();
     }
     return;

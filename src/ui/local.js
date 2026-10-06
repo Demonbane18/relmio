@@ -176,6 +176,7 @@ function clearError() {
   element("global-error-recovery").hidden = true;
   errorBox.hidden = true;
   clearFieldErrors();
+  globalThis.relmioGuide?.clearError?.();
 }
 
 function showError(error, invalidFields = []) {
@@ -193,6 +194,7 @@ function showError(error, invalidFields = []) {
   for (const field of rejected) setFieldError(field, "global-error-text");
   errorBox.hidden = false;
   errorBox.focus();
+  globalThis.relmioGuide?.error?.(error);
 }
 
 function validateLocalN8nStackCredentials() {

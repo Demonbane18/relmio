@@ -3660,6 +3660,83 @@ test("VPS model checks need confirmation, a live stored target and a confirmed r
   assert.equal(changes.length, 3);
 });
 
+// Yesterday, so the record stays inside the view's 30 days even if the test crosses midnight.
+const usageDay = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+const usageRow = Object.freeze({ requests: 3, completed: 2, failed: 1, incomplete: 0, input: 40, cached: 10, output: 20,
+  reasoning: 5, total: 60 });
+const usageRecord = Object.freeze({ schemaVersion: 1, registrationId: siwcAccount.registrationId,
+  startedAt: `${usageDay}T08:00:00.000Z`, updatedAt: `${usageDay}T08:00:30.000Z`, days: { [usageDay]: { "gpt-6-sol": usageRow } },
+  lastUsageEvent: { at: `${usageDay}T08:00:10.000Z`, code: "subscription_sharing_usage_limit_exceeded" } });
+const usageOk = Object.freeze({ state: "ok", since: usageRecord.startedAt, updatedAt: usageRecord.updatedAt, totals: usageRow,
+  activeDays: 1, peakDay: { date: usageDay, total: 60 }, days: [{ date: usageDay, requests: 3, total: 60 }],
+  models: [{ id: "gpt-6-sol", requests: 3, total: 60, input: 40, cached: 10, output: 20, reasoning: 5 }],
+  lastUsageEvent: { ...usageRecord.lastUsageEvent, recovery: "manage-usage" } });
+const usageBlank = (state) => ({ state, since: null, updatedAt: null,
+  totals: { requests: 0, completed: 0, failed: 0, incomplete: 0, input: 0, cached: 0, output: 0, reasoning: 0, total: 0 },
+  activeDays: 0, peakDay: null, days: [], models: [], lastUsageEvent: null });
+
+test("VPS usage status needs the reviewed owner and returns only the bounded usage view", async (t) => {
+  const calls = [];
+  let next = usageRecord;
+  const owner = await startOwnerAddonWizard(t, { async getVpsUsageStatus(input) { calls.push(input); return next; } });
+  const checkUsage = (body = { ...imagesTarget, registrationId: siwcAccount.registrationId }) =>
+    owner.post("/api/siwc/vps/usage/status", body);
+  assert.equal((await checkUsage()).status, 409);
+  assert.equal(calls.length, 0);
+
+  await owner.reviewOwner();
+  const ok = await checkUsage();
+  assert.equal(ok.status, 200);
+  assert.deepEqual(await ok.json(), usageOk);
+  assert.equal(calls[0].registrationId, siwcAccount.registrationId);
+  assert.equal(calls[0].networkName, "proxy");
+  assert.equal(calls[0].reviewedTarget.n8nContainerId, "a".repeat(64));
+  for (const [record, expected] of [
+    [null, usageBlank("empty")],
+    [undefined, usageBlank("unavailable")],
+    [{ ...usageRecord, registrationId: "registration_other" }, usageBlank("unavailable")],
+    [{ ...usageRecord, requestId: "must-not-leak" }, usageBlank("unavailable")],
+  ]) {
+    next = record;
+    const response = await checkUsage();
+    const text = await response.text();
+    assert.equal(response.status, 200);
+    assert.equal(text.includes("must-not-leak"), false);
+    assert.deepEqual(JSON.parse(text), expected);
+  }
+  for (const body of [{ ...imagesTarget }, { ...imagesTarget, registrationId: siwcAccount.registrationId, extra: true },
+    { ...imagesTarget, registrationId: "../auth" }]) {
+    assert.equal((await checkUsage(body)).status, 400, JSON.stringify(body));
+  }
+  next = usageRecord;
+  assert.equal((await checkUsage()).status, 200);
+  // Usage checks share a 10-per-15-minute limit.
+  assert.equal((await checkUsage()).status, 429);
+  assert.equal(calls.length, 6);
+});
+
+test("local usage status is read-only and bounded, and sanitized preview never reads the sidecar", async (t) => {
+  let next = usageRecord;
+  let calls = 0;
+  const services = { async getLocalN8nSidecarUsage() { calls += 1; return next; } };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const read = async (origin = wizard.origin) => (await api(origin, "/api/local/usage/status")).json();
+  assert.deepEqual(await read(), usageOk);
+  for (const [record, expected] of [[null, usageBlank("empty")], [undefined, usageBlank("unavailable")],
+    [{ ...usageRecord, days: [] }, usageBlank("unavailable")]]) {
+    next = record;
+    assert.deepEqual(await read(), expected);
+  }
+  assert.equal((await fetch(`${wizard.origin}/api/local/usage/status`)).status, 401);
+  assert.equal(calls, 4);
+  const preview = await startWizardServer({ sessionToken, services, previewMode: true,
+    uiFiles: { "/": "", "/app.js": "", "/styles.css": "" } });
+  t.after(() => preview.close());
+  assert.deepEqual(await read(preview.origin), usageBlank("empty"));
+  assert.equal(calls, 4);
+});
+
 test("the result chat recipe never offers an image model", async () => {
   const script = await readFile("src/ui/app.js", "utf8");
   const start = script.indexOf('element("install-button").addEventListener');
@@ -3783,6 +3860,7 @@ test("local-model-only SSH sessions cannot reach VPS image or model routes", asy
   services.changeVpsCodexImages = async () => { calls++; return { state: "off", containerId: imagesContainerId }; };
   services.getVpsModelDiscovery = async () => { calls++; return modelsResult(); };
   services.changeVpsModelChecks = async () => { calls++; return modelsResult(); };
+  services.getVpsUsageStatus = async () => { calls++; return usageRecord; };
   const wizard = await startWizardServer({ sessionToken, services });
   t.after(() => wizard.close());
   const headers = { Origin: wizard.origin };
@@ -3793,7 +3871,7 @@ test("local-model-only SSH sessions cannot reach VPS image or model routes", asy
     password: fixturePassword, expectedFingerprint: fingerprint,
   }) })).status, 200);
   for (const path of ["/api/siwc/vps/images/status", "/api/siwc/vps/images/action", "/api/siwc/vps/images/login-status",
-    "/api/siwc/vps/models/status", "/api/siwc/vps/models/checks"]) {
+    "/api/siwc/vps/models/status", "/api/siwc/vps/models/checks", "/api/siwc/vps/usage/status"]) {
     const response = await api(wizard.origin, path, { method: "POST", headers, body: "not-json:must-not-be-parsed" });
     assert.equal(response.status, 403, path);
     assert.match((await response.json()).error, /local-model-only/u);

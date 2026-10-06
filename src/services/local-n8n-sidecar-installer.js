@@ -35,6 +35,7 @@ import {
   localSiwcStagingPath, readLocalSiwcStaging, readLocalSiwcResumeAuthBinding,
   assertNoLocalSiwcOneOffContainers,
 } from "./local-integration-lifecycle-lock.js";
+import { usageRecordFromCli } from "./model-discovery.mjs";
 
 const COMPOSE_FILENAME = "docker-compose.yml";
 const MANAGED_MARKER = ".managed-by-relmio.json";
@@ -467,6 +468,40 @@ export async function getLocalN8nSidecarStatus({
     };
   } catch {
     return unavailable;
+  }
+}
+
+// Read-only: the installed local sidecar's stored request counts, as usageRecordFromCli reads them, or
+// undefined when no running SIWC sidecar owned by this install can be attested. Nothing is changed.
+export async function getLocalN8nSidecarUsage({
+  env = process.env,
+  homeDirectory = homedir(),
+  fileSystem = defaultFileSystem,
+  runProcess = runLocalProcess,
+  platform = process.platform,
+  lockDownPath = lockDownLocalPath,
+} = {}) {
+  try {
+    const installRoot = await resolveLocalN8nSidecarInstallRoot({ env, homeDirectory, fileSystem, platform });
+    if (!await lstatIfExists(fileSystem, installRoot)) return undefined;
+    await verifyWindowsSidecarStatusPathSecurity({ fileSystem, installRoot, platform, lockDownPath });
+    const managed = await inspectManagedInstall({ fileSystem, installRoot });
+    if (!managed.marker) return undefined;
+    const marker = validateMarker(managed.marker);
+    await assertManagedSiwcCompose(fileSystem, installRoot, marker);
+    if (await resolveLocalDockerHost({ runProcess, cwd: installRoot, env, platform }) !== marker.dockerHost) return undefined;
+    const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker });
+    if (!runtime?.running || runtime.paused) return undefined;
+    return usageRecordFromCli(await runProcess({
+      file: "docker",
+      args: createComposeArgs(marker.projectName, [
+        "exec", "-T", SERVICE_NAME, "node", "/app/services/model-discovery.mjs", "usage",
+      ]),
+      cwd: installRoot,
+      dockerHost: marker.dockerHost,
+    }), marker.registrationId);
+  } catch {
+    return undefined;
   }
 }
 

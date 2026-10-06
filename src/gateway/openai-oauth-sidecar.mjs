@@ -260,6 +260,10 @@ async function providerError(response, secrets) {
 function learn(discovery, model, outcome) {
   try { Promise.resolve(discovery.recordOutcome({ model, outcome })).catch(() => {}); } catch { /* Same as a rejected record. */ }
 }
+// Fire and forget, like learn: counting a request never delays or changes the client response.
+function tally(discovery, entry) {
+  try { Promise.resolve(discovery.recordActivity?.(entry)).catch(() => {}); } catch { /* Same as a rejected count. */ }
+}
 async function* sseEvents(stream, reader = stream.getReader()) {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let pending = "";
@@ -405,7 +409,8 @@ function expandReferences(input, itemCache) {
 const finalChatPhase = (item) => item.phase === undefined || item.phase === null || item.phase === "final_answer";
 const validChatPhase = (item) => finalChatPhase(item) || item.phase === "commentary";
 
-function streamResponse(upstream, chat, secrets, onCompleted) {
+// onEnd(outcome, event) reports each terminal point as it is reached; the caller keeps the first.
+function streamResponse(upstream, chat, secrets, onCompleted, onEnd = () => {}) {
   const encoder = new TextEncoder();
   const id = `chatcmpl-${randomUUID()}`;
   const model = chat?.model;
@@ -475,6 +480,7 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
           const next = await events.next();
           if (closed) return;
           if (next.done) {
+            onEnd("failed");
             streamError("stream_interrupted", "The upstream stream ended before completion.", 502);
             finish();
             return;
@@ -566,6 +572,7 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
           }
           if (["response.completed", "response.failed", "response.incomplete"].includes(value.type)) {
             if (value.type === "response.completed" && value.response?.status && value.response.status !== "completed") throw new Error("invalid_terminal");
+            onEnd(value.type.slice("response.".length), value);
             if (value.type === "response.completed") {
               let items;
               if (!chat && output) { try { items = resolvedOutput(value.response, output).response.output; } catch { /* Passed through uncached. */ } }
@@ -624,6 +631,7 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
         }
       } catch (error) {
         if (closed) return;
+        onEnd("failed");
         const code = error?.message === "unsupported_output" ? "unsupported_output" : "stream_interrupted";
         streamError(code, code === "unsupported_output" ? "The output cannot be represented as a chat completion." : "The upstream stream was interrupted.",
           code === "unsupported_output" ? 422 : 502);
@@ -632,6 +640,8 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
     },
     async cancel() {
       closed = true;
+      // The client left before a terminal event; the request still counts, with no outcome.
+      onEnd();
       try { await reader.cancel(); } catch { /* The client has disconnected. */ }
       if (started) await events.return().catch(() => {});
       else reader.releaseLock();
@@ -688,25 +698,34 @@ function usageCounts(usage) {
   const counts = (value) => isObject(value) ? Object.fromEntries(Object.entries(value).filter(([, count]) => Number.isSafeInteger(count))) : undefined;
   return { ...counts(usage), input_tokens_details: counts(usage.input_tokens_details), output_tokens_details: counts(usage.output_tokens_details) };
 }
-async function aggregate(upstream, chat, model, secrets, onCompleted) {
+async function aggregate(upstream, chat, model, secrets, onCompleted, onEnd = () => {}) {
   let completed;
   const output = outputState();
   try {
     for await (const { value } of sseEvents(upstream.body)) {
       if (completed || typeof value?.type !== "string") throw new Error("invalid_event");
       trackOutputItem(output, value);
-      if (value.type === "response.completed") { completed = resolvedOutput(value.response, output).response; break; }
+      if (value.type === "response.completed") {
+        // Counted when OpenAI reports completion, as in streaming, even if the output cannot be passed on.
+        if (!value.response?.status || value.response.status === "completed") onEnd("completed", value);
+        completed = resolvedOutput(value.response, output).response; break;
+      }
       if (value.type === "response.failed" || value.type === "response.incomplete") {
+        onEnd(value.type.slice("response.".length), value);
         const result = terminalFailure(value, eventRequestId(value, upstream), secrets);
         return Response.json(result, { status: result.status });
       }
     }
   } catch (error) {
+    onEnd("failed");
     if (error?.message === "unsupported_output") return failure("The upstream output items were invalid.", "output",
       chat ? 422 : 502, "unsupported_output", "fix-request");
     return failure("The upstream stream was interrupted.", null, 502, "stream_interrupted");
   }
-  if (!completed || completed.status && completed.status !== "completed") return failure("The upstream stream ended before completion.", null, 502, "stream_interrupted");
+  if (!completed || completed.status && completed.status !== "completed") {
+    onEnd("failed");
+    return failure("The upstream stream ended before completion.", null, 502, "stream_interrupted");
+  }
   onCompleted(completed.output);
   const serialized = JSON.stringify(completed);
   if (Buffer.byteLength(serialized) > MAX_EVENT) return failure("The response was too large to aggregate.", null, 502, "response_too_large");
@@ -1014,28 +1033,45 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
     let lease;
     try { lease = await getToken(registration, { runtimeId, minValidityMs: 60_000, signal: request.signal }); }
     catch (error) { return registrationUnavailable(error); }
+    const { model } = body;
+    // Each request sent to OpenAI counts once, at its first outcome. A failure after the client left counts
+    // with no outcome. A model is named once OpenAI accepts the request, or when its catalog lists it.
+    let counted = false;
+    const count = (outcome, source, accepted = true) => {
+      if (counted) return;
+      counted = true;
+      tally(discovery, { model, accepted, outcome: outcome === "failed" && request.signal.aborted ? undefined : outcome,
+        usage: outcome === "completed" ? source?.response?.usage : undefined,
+        code: outcome === "failed" ? source?.response?.error?.code ?? source?.error?.code : undefined });
+    };
     let upstream;
     try {
       upstream = await fetchImpl(`${baseUrl}/responses`, {
         method: "POST", headers: { authorization: `Bearer ${lease.accessToken}`, "content-type": "application/json" },
         body: JSON.stringify(body), signal: request.signal,
       });
-    } catch { return failure("The provider request was interrupted.", null, 503, "request_interrupted"); }
+    } catch {
+      count("failed", null, false);
+      return failure("The provider request was interrupted.", null, 503, "request_interrupted");
+    }
     if (!upstream.ok) {
       const detail = await errorBody(upstream);
+      count("failed", detail, false);
       if (classifyModelRejection(upstream.status, detail, { source: "traffic" })) learn(discovery, body.model, "model_rejected");
       return Response.json(safeError(detail, upstream.status, upstream.headers.get("x-request-id"), [lease.accessToken]), { status: upstream.status, headers: { "cache-control": "no-store" } });
     }
-    if (!upstream.body) return failure("The provider returned no response stream.", null, 502, "stream_interrupted");
-    const { model } = body;
+    if (!upstream.body) {
+      count("failed");
+      return failure("The provider returned no response stream.", null, 502, "stream_interrupted");
+    }
     const completed = (output) => {
       learn(discovery, model, "completed");
       if (!chat && output) itemCache.remember(output);
     };
-    return stream ? streamResponse(upstream, chat && { ...body, streamOptions }, [lease.accessToken], completed)
-      : aggregate(upstream, chat, body.model, [lease.accessToken], completed);
+    return stream ? streamResponse(upstream, chat && { ...body, streamOptions }, [lease.accessToken], completed, count)
+      : aggregate(upstream, chat, body.model, [lease.accessToken], completed, count);
   };
-  // Stops background model checks, so shutdown sends no more probes or lease refreshes.
+  // Stops background model checks, so shutdown sends no more probes or lease refreshes, and writes the request counts.
   handler.close = () => discovery.close?.();
   return handler;
 }

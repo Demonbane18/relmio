@@ -50,11 +50,13 @@ function error(message) {
   el("hosting-error").textContent = message;
   el("hosting-error").hidden = false;
   el("hosting-error").focus();
+  globalThis.relmioGuide?.error?.({ message });
 }
 
 function clearError() {
   el("hosting-error").textContent = "";
   el("hosting-error").hidden = true;
+  globalThis.relmioGuide?.clearError?.();
 }
 
 function invalidate() {

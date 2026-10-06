@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { CODEX_CLI_VERSION, createSidecarHandler, createSidecarServer, listSiwcModels } from "../src/gateway/openai-oauth-sidecar.mjs";
 
@@ -196,6 +199,122 @@ test("closing the handler closes model discovery so shutdown sends no more check
   assert.equal(closed, 0);
   handler.close();
   assert.equal(closed, 1);
+});
+
+const countingDiscovery = (recordActivity) => {
+  const entries = [];
+  return { ...fakeDiscovery(), entries, recordActivity: recordActivity ?? ((entry) => { entries.push(entry); }) };
+};
+const textRoutes = (model) => [
+  ["/v1/responses", { model, input: [{ role: "user", content: "Hi" }] }],
+  ["/v1/responses", { model, input: [{ role: "user", content: "Hi" }], stream: true }],
+  ["/v1/chat/completions", { model, messages: [{ role: "user", content: "Hi" }] }],
+  ["/v1/chat/completions", { model, messages: [{ role: "user", content: "Hi" }], stream: true }],
+];
+
+test("each text request sent to OpenAI counts once with its outcome, streamed or not, on both routes", async () => {
+  const usage = { input_tokens: 9, input_tokens_details: { cached_tokens: 2 }, output_tokens: 3,
+    output_tokens_details: { reasoning_tokens: 1 }, total_tokens: 12 };
+  const sse = (text) => () => new Response(text, { headers: { "content-type": "text/event-stream" } });
+  const counted = (outcome, extra = {}) => ({ model: "gpt-7-nova", accepted: true, outcome, usage: undefined, code: undefined, ...extra });
+  for (const [upstream, expected] of [
+    [sse(terminal("response.completed", { ...completed, usage })), counted("completed", { usage })],
+    [sse(terminal("response.failed", { error: { code: "subscription_sharing_usage_limit_exceeded", message: "Limit" } })),
+      counted("failed", { code: "subscription_sharing_usage_limit_exceeded" })],
+    [sse(terminal("response.incomplete", { incomplete_details: { reason: "max_output_tokens" }, usage })), counted("incomplete")],
+    [sse("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"), counted("failed")],
+    [sse(terminal("response.completed", { ...completed, status: "failed", usage })), counted("failed")],
+    [() => Response.json({ error: { code: "subscription_sharing_user_not_eligible", message: "No" } }, { status: 403 }),
+      counted("failed", { accepted: false, code: "subscription_sharing_user_not_eligible" })],
+    [() => { throw new TypeError("fetch failed"); }, counted("failed", { accepted: false })],
+  ]) {
+    for (const [path, body] of textRoutes("gpt-7-nova")) {
+      const discovery = countingDiscovery();
+      const { handler } = fake(upstream, { discovery });
+      await (await handler(request(path, body))).text();
+      assert.deepEqual(discovery.entries, [expected], `${path} ${body.stream === true} ${expected.outcome}`);
+    }
+  }
+
+  // Requests that never reach OpenAI, image requests and model lists count nothing.
+  const discovery = countingDiscovery();
+  const { handler } = fake(undefined, { discovery });
+  for (const [path, body, headers] of [
+    ["/v1/responses", { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }], store: true }],
+    ["/v1/responses", { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] }, { authorization: "Bearer wrong" }],
+    ["/v1/images/generations", { model: "gpt-image-2", prompt: "A cat" }],
+    ["/v1/models"],
+  ]) await (await handler(request(path, body, headers))).text();
+  const leaseless = createSidecarHandler({ registration, runtimeId: "runtime-1", tokenVerifier: verifier, discovery,
+    imagesStatus: async () => ({ state: "off" }),
+    getToken: async () => { throw Object.assign(new Error("Plan use is paused."), { recovery: "enable-plan" }); },
+    fetchImpl: async () => { throw new Error("No request may be sent without a lease."); } });
+  assert.equal((await leaseless(request("/v1/responses", { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] }))).status, 403);
+  assert.deepEqual(discovery.entries, []);
+});
+
+test("a request the client abandons counts with no outcome", async () => {
+  const added = { type: "response.output_item.added", output_index: 0,
+    item: { type: "message", id: "msg_1", role: "assistant", status: "in_progress", content: [] } };
+  const delta = { type: "response.output_text.delta", output_index: 0, item_id: "msg_1", content_index: 0, delta: "part" };
+  for (const [path, body] of textRoutes("gpt-7-nova").filter(([, body]) => body.stream)) {
+    let sent = 0;
+    const provider = new ReadableStream({ pull(controller) {
+      controller.enqueue(new TextEncoder().encode(event(sent++ === 0 ? added : delta)));
+    } });
+    const discovery = countingDiscovery();
+    const { handler } = fake(() => new Response(provider, { headers: { "content-type": "text/event-stream" } }), { discovery });
+    const reader = (await handler(request(path, body))).body.getReader();
+    assert.equal((await reader.read()).done, false);
+    await reader.cancel();
+    assert.deepEqual(discovery.entries, [{ model: "gpt-7-nova", accepted: true, outcome: undefined, usage: undefined, code: undefined }], path);
+  }
+  // A failure caused by the client leaving is not counted as failed either.
+  const controller = new AbortController();
+  const abandoned = new Request("http://local.test/v1/responses", { method: "POST", signal: controller.signal,
+    headers: { host: "n8n-openai-oauth:10531", authorization: `Bearer ${credential}` },
+    body: JSON.stringify({ model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] }) });
+  const discovery = countingDiscovery();
+  const { handler } = fake(() => { controller.abort(); throw new DOMException("The operation was aborted.", "AbortError"); }, { discovery });
+  assert.equal((await handler(abandoned)).status, 503);
+  assert.deepEqual(discovery.entries, [{ model: "gpt-7-nova", accepted: false, outcome: undefined, usage: undefined, code: undefined }]);
+});
+
+test("a hanging or failing request counter never delays or alters the client response", { timeout: 10_000 }, async () => {
+  const body = { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] };
+  const wire = async (discovery) => (await (await fake(undefined, { discovery }).handler(request("/v1/responses", { ...body, stream: true }))).text());
+  const plain = await wire(fakeDiscovery());
+  for (const recordActivity of [() => new Promise(() => {}), async () => { throw new Error("store_unsafe"); }, () => { throw new Error("store_unsafe"); }]) {
+    const discovery = countingDiscovery(recordActivity);
+    assert.equal(await wire(discovery), plain);
+    const { handler } = fake(undefined, { discovery });
+    assert.equal((await (await handler(request("/v1/responses", body))).json()).id, "resp_1");
+    assert.match(await (await handler(request("/v1/chat/completions", { model: "gpt-7-nova",
+      messages: [{ role: "user", content: "Hi" }], stream: true }))).text(), /\[DONE\]/u);
+    const limited = await fake(() => Response.json({ error: { code: "subscription_sharing_usage_limit_exceeded" } }, { status: 429 }),
+      { discovery }).handler(request("/v1/responses", body));
+    assert.deepEqual([limited.status, (await limited.json()).recovery], [429, "manage-usage"]);
+  }
+});
+
+test("the sidecar's own discovery keeps the counts and writes them when the handler closes", async (t) => {
+  const storageRoot = await mkdtemp(join(tmpdir(), "relmio-sidecar-usage-"));
+  t.after(() => rm(storageRoot, { recursive: true, force: true }));
+  const usage = { input_tokens: 9, input_tokens_details: { cached_tokens: 2 }, output_tokens: 3,
+    output_tokens_details: { reasoning_tokens: 1 }, total_tokens: 12 };
+  const handler = createSidecarHandler({ registration: { storageRoot, registrationId: "first" }, runtimeId: "runtime-1",
+    tokenVerifier: verifier, imagesStatus: async () => ({ state: "off" }), getToken: async () => ({ accessToken: "provider-token" }),
+    fetchImpl: async (url) => {
+      assert.equal(String(url), "https://api.openai.com/v1/responses");
+      return new Response(terminal("response.completed", { ...completed, usage }));
+    } });
+  for (const [path, body] of textRoutes("gpt-7-nova")) await (await handler(request(path, body))).text();
+  await handler.close();
+  const text = await readFile(join(storageRoot, "activity", "first.json"), "utf8");
+  const days = Object.values(JSON.parse(text).days);
+  assert.deepEqual(days.reduce((sum, day) => sum + day["gpt-7-nova"].requests, 0), 4);
+  assert.deepEqual(days.reduce((sum, day) => sum + day["gpt-7-nova"].total, 0), 48);
+  for (const secret of ["provider-token", "Hello", "resp_1", credential]) assert.equal(text.includes(secret), false, secret);
 });
 
 test("rejects unsupported parameters, tools, routes, and storage before provider dispatch", async () => {

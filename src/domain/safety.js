@@ -120,6 +120,7 @@ const VERIFICATION_COMMANDS = Object.freeze({
   modelsDiscoveryStatus: `${COMPOSE_PREFIX} exec -T ${SERVICE_NAME} node /app/services/model-discovery.mjs status`,
   modelChecksOn: `${COMPOSE_PREFIX} exec -T ${SERVICE_NAME} node /app/services/model-discovery.mjs checks-on`,
   modelChecksOff: `${COMPOSE_PREFIX} exec -T ${SERVICE_NAME} node /app/services/model-discovery.mjs checks-off`,
+  usageStatus: `${COMPOSE_PREFIX} exec -T ${SERVICE_NAME} node /app/services/model-discovery.mjs usage`,
   signOut: `${COMPOSE_PREFIX} run --rm --no-deps -T --entrypoint node ${SERVICE_NAME} /app/services/siwc-handoff.mjs sign-out`,
   disablePlan: `${COMPOSE_PREFIX} run --rm --no-deps -T --entrypoint node ${SERVICE_NAME} /app/services/siwc-handoff.mjs disable-plan`,
   enablePlan: `${COMPOSE_PREFIX} run --rm --no-deps -T --entrypoint node ${SERVICE_NAME} /app/services/siwc-handoff.mjs enable-plan`,
