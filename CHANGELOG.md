@@ -31,6 +31,19 @@ checks the registry separately after publication.
   while it restarts. Plan use must be on. An interrupted update shows as
   `updating`; review it again to finish it. The staged-install resume refuses
   it.
+- An installed VPS ChatGPT sidecar can now generate and edit images through
+  an opt-in add-on. Turn it on in Manage the installed ChatGPT session with
+  Sign in for images, which starts a separate Codex device sign-in at
+  `https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's Image
+  actions with the same Base URL and Relmio key and the model ID
+  `gpt-image-2`. Each request returns one image; masks and URL responses are
+  not supported. The add-on signs in to Codex the way Hermes Agent does.
+  OpenAI does not document this route for other apps, so it can stop working
+  without notice, and images count against the plan's Codex limits. The Codex
+  refresh token is stored on the VPS. The ChatGPT plan session is never used
+  for images. Signing out of the ChatGPT session also signs out of images, as
+  a best effort. A sidecar built before this release needs Review sidecar
+  update first. The local sidecar has no image sign-in.
 
 ### Changed
 

@@ -460,6 +460,31 @@ test("Windows generated-asset ACL drift blocks runtime inspection", async t => {
     call.args.includes("exec") || call.args.includes("run") || call.args.includes("up")), false);
 });
 
+test("Windows status verifies the image module when present and accepts installs made before it", async t => {
+  const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
+  const runner = fakeDocker({
+    target: plan.target, destinationRoot,
+    contextHost: "npipe:////./pipe/dockerDesktopLinuxEngine",
+  });
+  const permitted = deps(homeDirectory, runner, { platform: "win32", lockDownPath: async () => {} });
+  await installLocalEndpoint({ plan, registration, confirmed: true }, permitted);
+  const baseline = await getManagedLocalEndpointStatus({ target: plan.target }, permitted);
+  assert.notEqual(baseline.state, "unavailable");
+  let imagesModule;
+  const restricted = deps(homeDirectory, runner, {
+    platform: "win32",
+    lockDownPath: async (path, options) => {
+      if (path.endsWith("codex-images.mjs") && options.verifyOnly) {
+        imagesModule = path;
+        throw new Error("Inherited ACL entry grants another user access");
+      }
+    },
+  });
+  assert.equal((await getManagedLocalEndpointStatus({ target: plan.target }, restricted)).state, "unavailable");
+  await rm(imagesModule);
+  assert.equal((await getManagedLocalEndpointStatus({ target: plan.target }, restricted)).state, baseline.state);
+});
+
 test("legacy Codex marker requires fresh SIWC sign-in without reading old credentials", async t => {
   const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
   const runner = fakeDocker({ target: plan.target, destinationRoot });

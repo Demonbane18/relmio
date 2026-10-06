@@ -101,7 +101,7 @@ ENTRYPOINT ["node", "/app/gateway/openai-oauth-sidecar.mjs"]
 }
 
 export function createLocalN8nSidecarDockerignore() {
-  return "**\n!Dockerfile\n!package.json\n!package-lock.json\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!gateway/\n!gateway/openai-oauth-sidecar.mjs\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n";
+  return "**\n!Dockerfile\n!package.json\n!package-lock.json\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!services/codex-images.mjs\n!gateway/\n!gateway/openai-oauth-sidecar.mjs\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n";
 }
 
 export function createLocalN8nSidecarComposeFile({

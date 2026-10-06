@@ -58,6 +58,24 @@ test("only fixed sidecar commands are permitted; protected owner mutation stops 
   ]) assert.throws(() => assertSidecarOnlyCommands([command]), /sidecar|n8n/i);
 });
 
+test("Codex image commands exec only the live sidecar's fixed image CLI; variants are refused", () => {
+  const commands = createVerificationCommands();
+  for (const [key, subcommand] of Object.entries({
+    imagesStatus: "status", imagesLoginStart: "login-start", imagesLoginPoll: "login-poll",
+    imagesLoginCancel: "login-cancel", imagesSignOut: "sign-out",
+  })) {
+    const command = commands[key];
+    assert.doesNotThrow(() => assertSidecarOnlyCommands([command]));
+    assert.ok(command.endsWith(` exec -T openai-oauth node /app/services/codex-images.mjs ${subcommand}`), key);
+    for (const variant of [
+      `${command} --force`, `${command}; docker stop n8n`, `${command}\nid`,
+      command.replace(" exec -T openai-oauth ", " exec -T n8n "),
+      command.replace(" exec -T openai-oauth node ", " run --rm --no-deps -T --entrypoint node openai-oauth "),
+      `${command.slice(0, -subcommand.length)}login-poll ../auth`,
+    ]) assert.throws(() => assertSidecarOnlyCommands([variant]), /sidecar|n8n/i, variant);
+  }
+});
+
 test("untrusted catalog metadata cannot carry token-like fields into a failure view", () => {
   const accessToken = `sk-${"credential".repeat(5)}`;
   const failure = safeSiwcCatalogFailure({

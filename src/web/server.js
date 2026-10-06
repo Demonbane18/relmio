@@ -12,8 +12,8 @@ import packageManifest from "../../package.json" with { type: "json" };
 import { listSiwcModels } from "../gateway/openai-oauth-sidecar.mjs";
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
 import {
-  getVpsSiwcInstallationStatus, inspectStoppedVpsSiwcInstallation, installSidecar,
-  manageVpsSiwcInstallation, reviewVpsLegacyMigration, reviewVpsSiwcReplacement, reviewVpsSiwcTarget,
+  changeVpsCodexImages, getVpsCodexImagesStatus, getVpsSiwcInstallationStatus, inspectStoppedVpsSiwcInstallation,
+  installSidecar, manageVpsSiwcInstallation, reviewVpsLegacyMigration, reviewVpsSiwcReplacement, reviewVpsSiwcTarget,
   reviewVpsSiwcResume, reconcileVpsSiwcHandoff, reviewVpsSiwcRuntimeUpdate, updateVpsSiwcRuntime,
 } from "../services/installer.js";
 import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels } from "../services/vps-supergrok.js";
@@ -195,6 +195,8 @@ const defaultServices = {
   reconcileVpsSiwcHandoff,
   reviewVpsSiwcRuntimeUpdate,
   updateVpsSiwcRuntime,
+  getVpsCodexImagesStatus,
+  changeVpsCodexImages,
   inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels,
   inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus,
   installAssistant,
@@ -435,6 +437,7 @@ function invalidateSiwcWork(state) {
   state.localDashboardGeneration += 1;
   state.siwcRecoveryReview = null;
   state.vpsRuntimeUpdateReview = null;
+  state.vpsImagesTarget = null;
   state.localChatTest.resetAll?.();
 }
 
@@ -845,8 +848,9 @@ function requireFullVpsScope(connection) {
   }
 }
 
-const VPS_OWNER_TARGET_FIELDS = Object.freeze(["host", "port", "fingerprint", "username", "authentication",
-  "privilege", "loginUid", "effectiveUid", "containerName", "networkName"]);
+const VPS_IDENTITY_FIELDS = Object.freeze(["host", "port", "fingerprint", "username", "authentication",
+  "privilege", "loginUid", "effectiveUid"]);
+const VPS_OWNER_TARGET_FIELDS = Object.freeze([...VPS_IDENTITY_FIELDS, "containerName", "networkName"]);
 
 function requireReviewedVpsOwnerTarget(state, containerName, networkName) {
   const prior = state.vpsOwnerTargetReview;
@@ -859,11 +863,59 @@ function requireReviewedVpsOwnerTarget(state, containerName, networkName) {
   return prior.reviewedTarget;
 }
 
+const CODEX_IMAGES_VERIFICATION_URL = "https://auth.openai.com/codex/device";
+const VPS_IMAGES_STATES = new Set(["off", "pending", "signed-in", "reauthorize", "unavailable"]);
+const VPS_IMAGES_TARGET_MS = 20 * 60_000;
+
+function requireVpsImagesTarget(state, { pending = false } = {}) {
+  const target = state.vpsImagesTarget;
+  if (!target || target.expiresAt <= Date.now() || (pending && !target.pending) ||
+      !VPS_IDENTITY_FIELDS.every((key) => target.reviewedTarget[key] === state.connectionIdentity?.[key])) {
+    throw Object.assign(new Error("Check the installed account's image generation again."),
+      { statusCode: 409, recovery: "review-again" });
+  }
+  return target;
+}
+
+function boundedText(value, max) {
+  return typeof value === "string" && value.length > 0 && value.length <= max &&
+    !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+// Only known add-on fields reach the browser; tokens, device IDs and remote output never do.
+function copyVpsImagesStatus(result) {
+  const { state, account, pending } = result ?? {};
+  if (!VPS_IMAGES_STATES.has(state) || !/^[a-f0-9]{64}$/u.test(result.containerId ?? "") ||
+      (account !== undefined && (!/^[A-Za-z0-9_-]{6}$/u.test(account?.accountIdSuffix ?? "") ||
+        (account.email !== undefined && !boundedText(account.email, 254)) ||
+        (account.planType !== undefined && !boundedText(account.planType, 32)))) ||
+      (state === "pending" && (!/^[A-Z0-9]{2,16}(?:-[A-Z0-9]{2,16}){0,3}$/u.test(pending?.userCode ?? "") ||
+        pending.verificationUrl !== CODEX_IMAGES_VERIFICATION_URL ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(pending.expiresAt ?? "") ||
+        !Number.isFinite(Date.parse(pending.expiresAt))))) {
+    throw Object.assign(new Error("The VPS returned an invalid image generation status."), { statusCode: 502 });
+  }
+  return {
+    state,
+    ...(account === undefined ? {} : { account: {
+      ...(account.email === undefined ? {} : { email: account.email }),
+      ...(account.planType === undefined ? {} : { planType: account.planType }),
+      accountIdSuffix: account.accountIdSuffix,
+    } }),
+    ...(state === "pending" ? { pending: { userCode: pending.userCode,
+      verificationUrl: CODEX_IMAGES_VERIFICATION_URL, expiresAt: pending.expiresAt } } : {}),
+    ...(["declined", "expired"].includes(result.outcome) ? { outcome: result.outcome } : {}),
+    ...(["confirmed", "unconfirmed", "not-applicable"].includes(result.revocation)
+      ? { revocation: result.revocation } : {}),
+  };
+}
+
 function credentialBearingVpsRoute(path) {
   return path === "/api/plan" || path === "/api/install" ||
     path === "/api/siwc/vps/status" || path === "/api/siwc/vps/manage" ||
     path === "/api/siwc/vps/inspect-stopped" || path.startsWith("/api/siwc/vps/recovery/") ||
     path === "/api/siwc/vps/runtime-update/review" || path === "/api/siwc/vps/runtime-update/apply" ||
+    path.startsWith("/api/siwc/vps/images/") ||
     path === "/api/assistant/plan" || path === "/api/assistant/install" ||
     path.startsWith("/api/vps/supergrok/");
 }
@@ -979,6 +1031,7 @@ function invalidateVpsPlans(state) {
   state.vpsOwnerTargetReview = null;
   state.siwcRecoveryReview = null;
   state.vpsRuntimeUpdateReview = null;
+  state.vpsImagesTarget = null;
   state.sidecarPlan = null;
   state.assistantPlan = null;
   invalidateSuperGrokPlan(state);
@@ -5617,6 +5670,57 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (["/api/siwc/vps/images/status", "/api/siwc/vps/images/action", "/api/siwc/vps/images/login-status"].includes(path)) {
+    requireLiveLocalAction(state, "VPS image generation");
+    const checking = path.endsWith("/images/status");
+    const polling = path.endsWith("/login-status");
+    const action = checking ? null : polling ? "login-poll" : body?.action;
+    // ponytail: 5 s polls over a 15-minute code would exhaust the shared 10-per-15-minute limit.
+    // Polls are bounded instead by a stored pending sign-in, single-flight use and the code expiry.
+    if (!polling) enforceRateLimit(state, path);
+    requireExactRequestBody(body, checking ? ["containerName", "networkName", "registrationId"]
+      : polling ? [] : ["action", "confirmed"], "Check this installed account's image generation again.");
+    if (!checking && !polling && (!["login-start", "login-cancel", "sign-out"].includes(action) ||
+        typeof body.confirmed !== "boolean" || (action !== "login-cancel" && body.confirmed !== true))) {
+      throw Object.assign(new Error("Confirm this image sign-in change first."), { statusCode: 400 });
+    }
+    rejectActiveVpsMutation(state);
+    const stored = checking ? null : requireVpsImagesTarget(state, { pending: polling });
+    const containerName = stored ? stored.reviewedTarget.containerName : body.containerName;
+    const networkName = stored ? stored.reviewedTarget.networkName : body.networkName;
+    requireDiscoveredNetwork(state, containerName, networkName);
+    const registrationId = stored ? stored.registrationId : requireSiwcId(body.registrationId);
+    const reviewedTarget = stored ? stored.reviewedTarget
+      : requireReviewedVpsOwnerTarget(state, containerName, networkName);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    let operation;
+    let releaseMutation;
+    let detach = action === "sign-out";
+    try {
+      requireFullVpsScope(connection);
+      if (checking || polling) {
+        operation = acquireVpsCredentialOperation(state, polling ? "images-login-poll" : "images-status");
+      } else releaseMutation = acquireVpsMutationLock(state);
+      if (checking) state.vpsImagesTarget = null;
+      const result = checking
+        ? await state.services.getVpsCodexImagesStatus({ remote: connection, networkName, reviewedTarget, registrationId })
+        : await state.services.changeVpsCodexImages({ remote: connection, networkName, reviewedTarget, registrationId,
+          action, expectedContainerId: stored.containerId, confirmed: polling ? false : body.confirmed });
+      const view = copyVpsImagesStatus(result);
+      detach ||= polling && view.state !== "pending";
+      state.vpsImagesTarget = detach ? null : { reviewedTarget, registrationId, containerId: result.containerId,
+        pending: view.state === "pending", expiresAt: Date.now() + VPS_IMAGES_TARGET_MS };
+      sendJson(response, 200, view);
+    } finally {
+      operation?.release();
+      if (detach) detachVpsConnection(state, connection);
+      releaseMutation?.();
+      connectionUse.release();
+    }
+    return;
+  }
+
   if (path === "/api/plan") {
     rejectActiveVpsMutation(state);
     const connectionUse = acquireVpsConnectionUse(state);
@@ -6254,6 +6358,7 @@ export async function startWizardServer({
     vpsStoppedOwnerReview: null,
     vpsOwnerTargetReview: null,
     vpsRuntimeUpdateReview: null,
+    vpsImagesTarget: null,
     assistantPlan: null,
     supergrokPlan: null,
     supergrokPlanGeneration: 0,

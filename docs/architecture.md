@@ -18,6 +18,7 @@ flowchart LR
   L -->|"freeze, transfer, receipt"| R["Destination SIWC runtime<br>new host ID"]
   N["Existing n8n<br>unchanged"] -->|"one-time Relmio bearer<br>private Docker network"| S["ChatGPT plan sidecar<br>no host port"]
   S -->|"selected token + Responses request"| O["api.openai.com/v1"]
+  S -.->|"opt-in image add-on<br>separate Codex sign-in"| I["chatgpt.com/backend-api/codex/images"]
   V -->|"managed install"| S
   V --> Q["SuperGrok companion"]
   N -->|"private Docker DNS"| Q
@@ -67,7 +68,7 @@ These targets have different protocols and trust boundaries:
 | `n8n-supergrok-oauth`, experimental | Private Chat Completions `/v1` | Separate Grok CLI session and one-time local bearer; selected n8n only |
 | `codex-chatgpt` | Codex App Server JSON-RPC over local WebSocket relay | Selected SIWC registration plus a high-trust local bearer for a trusted native client |
 | `codex-chat` | Relmio `POST /chat` | Selected SIWC registration plus a separate bearer for a read-only local backend |
-| `n8n-openai-oauth` | Private `/v1/models`, `/v1/responses`, and limited Chat Completions compatibility | Selected SIWC registration plus one-time Relmio bearer; selected n8n network only |
+| `n8n-openai-oauth` | Private `/v1/models`, `/v1/responses`, and limited Chat Completions compatibility; on a VPS, optional `/v1/images/generations` and `/v1/images/edits` | Selected SIWC registration plus one-time Relmio bearer; selected n8n network only. Image routes use a separate opt-in Codex sign-in stored on the VPS |
 | `n8n-ai-assistant` | n8n Instance AI Code Sandbox plus optional SearXNG JSON search | Generated sandbox key; model-provider credential configured directly in n8n |
 | `n8n-local-model` | Private OpenAI-compatible Chat Completions `/v1` for n8n | No provider credential; Ollama API is unauthenticated |
 

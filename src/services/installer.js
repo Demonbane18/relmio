@@ -47,7 +47,7 @@ const ASSET_PATHS = new Set([
   "gateway/openai-oauth-sidecar.mjs", "gateway/codex-chat.js",
   "gateway/codex-app-server.mjs", "services/siwc-session.mjs",
   "services/siwc-handoff.mjs", "infrastructure/local-process.js",
-  "services/local-integration-lifecycle-lock.js", "infrastructure/process-identity.js",
+  "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "infrastructure/process-identity.js",
 ]);
 
 const DOCKER_ID = /^[a-f0-9]{64}$/u;
@@ -1415,6 +1415,11 @@ export async function manageVpsSiwcInstallation({
       throw new Error("This installed account needs a fresh authorized SIWC sign-in before plan use can resume.");
     }
     await reattestReviewedTarget(remote, reviewedTarget);
+    if (action === "sign-out") {
+      // Best effort while the sidecar still runs: a later account on this store must not inherit the
+      // image sign-in. A sidecar from before the add-on has no image module, so every outcome is ignored.
+      await remote.exec(verification.imagesSignOut, { timeoutMs: 90_000 }).catch(() => {});
+    }
     await runOrThrow(remote, verification.stop, "Owned sidecar stop");
     const running = await runOrThrow(remote, verification.runningService, "Owned sidecar stopped check");
     if (running.stdout.split(/\s+/u).includes("openai-oauth")) {
@@ -1477,6 +1482,86 @@ export async function manageVpsSiwcInstallation({
       account: changed.account, revocation: changed.revocation,
       runtimeStopped: action !== "enable-plan",
     };
+  });
+}
+
+const CODEX_IMAGES_COMMANDS = Object.freeze({
+  "login-start": "imagesLoginStart", "login-poll": "imagesLoginPoll",
+  "login-cancel": "imagesLoginCancel", "sign-out": "imagesSignOut",
+});
+const CODEX_IMAGES_STATES = new Set(["off", "pending", "signed-in", "reauthorize"]);
+const CODEX_IMAGES_CHANGED = "The installed sidecar changed. Check image sign-in status again.";
+// Local text for CLI codes a person can act on; the remote message itself never leaves here.
+const CODEX_IMAGES_ERRORS = new Map([
+  ["images_device_login_disabled", "Codex device code sign-in is off for this account. Turn it on in ChatGPT security settings, or ask your workspace admin, then try again."],
+  ["images_login_failed", "The Codex sign-in request failed. Try again. If it keeps failing, check that device code sign-in is on in ChatGPT security settings."],
+]);
+
+// The sidecar CLI prints one JSON line; only its known top-level fields leave here, never stderr.
+async function runCodexImagesCommand(remote, command, { allowUnavailable = false } = {}) {
+  const result = await remote.exec(command, { timeoutMs: 90_000 });
+  let output;
+  try { output = parseHandoffOutput(result.stdout, "Codex image sign-in"); }
+  catch { /* Classified below by exit code. */ }
+  if (result.code !== 0) {
+    if (typeof output?.error === "string" && /^[a-z_]{1,64}$/u.test(output.error)) {
+      throw Object.assign(new Error(CODEX_IMAGES_ERRORS.get(output.error) ??
+        "The Codex image sign-in step failed. Check image sign-in status and try again."),
+        { code: output.error });
+    }
+    // A sidecar built before the add-on has no image module to run.
+    if (allowUnavailable) return { state: "unavailable" };
+    throw new Error("The Codex image sign-in step failed. The existing n8n deployment was not changed.");
+  }
+  if (!CODEX_IMAGES_STATES.has(output?.state)) throw new Error("Codex image sign-in returned invalid attestation.");
+  const { state, account, pending, outcome, revocation } = output;
+  return Object.fromEntries(Object.entries({ state, account, pending, outcome, revocation })
+    .filter(([, value]) => value !== undefined));
+}
+
+export async function getVpsCodexImagesStatus({ remote, networkName, reviewedTarget, registrationId }) {
+  validateSiwcRegistrationId(registrationId);
+  const verification = createVerificationCommands();
+  assertSidecarOnlyCommands(Object.values(verification));
+  const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
+  if (owner.registrationId !== registrationId || !owner.running) {
+    throw new Error("The installed SIWC sidecar is not running for the reviewed account.");
+  }
+  return { ...await runCodexImagesCommand(remote, verification.imagesStatus, { allowUnavailable: true }),
+    containerId: owner.containerId };
+}
+
+export async function changeVpsCodexImages({
+  remote, networkName, reviewedTarget, registrationId, action, expectedContainerId, confirmed,
+}) {
+  if (!Object.hasOwn(CODEX_IMAGES_COMMANDS, action)) throw new TypeError("The image sign-in action is invalid.");
+  const fullReview = action === "login-start" || action === "sign-out";
+  if (fullReview && confirmed !== true) throw new Error("Confirm the Codex image sign-in change for this server.");
+  validateSiwcRegistrationId(registrationId);
+  if (!DOCKER_ID.test(expectedContainerId)) throw new TypeError("The reviewed sidecar container is invalid.");
+  validateReviewedTarget(remote, reviewedTarget, networkName);
+  const verification = createVerificationCommands();
+  const command = verification[CODEX_IMAGES_COMMANDS[action]];
+  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, command, ...Object.values(verification)]);
+  return withVpsOperationLock(remote, VPS_OPERATION_LOCKS.oauth, async () => {
+    if (fullReview) {
+      const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
+      if (owner.registrationId !== registrationId || !owner.running ||
+          owner.containerId !== expectedContainerId) throw new Error(CODEX_IMAGES_CHANGED);
+    } else {
+      // Polling stays light: the exact running container of the attested owner image.
+      await reattestReviewedTarget(remote, reviewedTarget);
+      const checkpoint = (await readStaging(remote, reviewedTarget))?.checkpoint;
+      const imageId = checkpoint?.imageId ?? checkpoint?.existingBinding?.imageId;
+      const container = parseHandoffOutput(
+        (await runOrThrow(remote, verification.ownerContainer, "Owned sidecar identity check")).stdout,
+        "Owned sidecar identity check", 64 * 1024,
+      );
+      if (checkpoint?.stage !== "complete" || checkpoint.registrationId !== registrationId ||
+          !IMAGE_ID.test(imageId) || container?.Id !== expectedContainerId ||
+          container.State?.Running !== true || container.Image !== imageId) throw new Error(CODEX_IMAGES_CHANGED);
+    }
+    return { ...await runCodexImagesCommand(remote, command), containerId: expectedContainerId };
   });
 }
 

@@ -70,10 +70,13 @@ interfaces and token-expiry recovery.
 
 The local gateway discovers models for the selected account and sends supported
 requests to the public Responses API. It rejects unsupported parameters,
-Routes, and capabilities rather than silently dropping them. Image generation
-or editing, audio, video, Files API management, moderation, stored responses or
-conversations, and other documented-unavailable features are not enabled.
-There is no account rotation or Platform API billing fallback.
+Routes, and capabilities rather than silently dropping them. Audio, video,
+Files API management, moderation, stored responses or conversations, and
+other documented-unavailable features are not enabled. Image generation needs
+the opt-in VPS add-on in
+[VPS and n8n](vps-and-n8n.md#turn-on-image-generation-optional), which uses
+a separate Codex sign-in. There is no account rotation or Platform API
+billing fallback.
 
 The website's `/api/chat` remains disabled with `410 Gone`. Local and
 self-hosted installation does not enable hosted website inference. OpenAI's VM

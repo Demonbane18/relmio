@@ -14,6 +14,7 @@ import {
   createVerificationCommands,
 } from "../src/domain/safety.js";
 import {
+  changeVpsCodexImages, getVpsCodexImagesStatus,
   getVpsSiwcInstallationStatus, installSidecar,
   inspectStoppedVpsSiwcInstallation, manageVpsSiwcInstallation,
   reviewVpsSiwcReplacement, reviewVpsLegacyMigration, reviewVpsSiwcTarget,
@@ -229,6 +230,9 @@ function fakeRemote({ destinationRoot, rejectAccept = false, managed = false, le
         code: 0, stdout: faults.activeOneOff ? "a".repeat(64) : "",
       };
       if (command === verification.account || command === verification.accountLive) return cli("account");
+      if (command.includes("/app/services/codex-images.mjs ")) {
+        return faults.images?.(command) ?? { code: 0, stdout: JSON.stringify({ state: "off" }) };
+      }
       if (command === verification.signOut) return cli("sign-out", input);
       if (command === verification.disablePlan) return cli("disable-plan", input);
       if (command === verification.enablePlan) return cli("enable-plan", input);
@@ -1331,4 +1335,169 @@ test("frozen handoff reconciliation refuses an interrupted runtime update record
     reviewedTarget, registration, confirmed: true }));
   assert.deepEqual(remote.files.get(SIWC_STAGING_PATH), updating);
   assert.equal((await readRegistration(registration)).handoff.state, "handoff-pending");
+});
+
+const imageRuns = remote => remote.commands.map(item => item.command)
+  .filter(command => command.includes("/app/services/codex-images.mjs "));
+const LOCK_ACQUIRE = "&& mkdir /docker/n8n-openai-oauth/.openai-oauth-operation.lock &&";
+const LOCK_RELEASE = "rmdir /docker/n8n-openai-oauth/.openai-oauth-operation.lock";
+
+test("Codex image status attests the running owner, keeps only known fields and reports an older sidecar", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  const { containerId } = await reviewVpsSiwcReplacement(scope);
+  remote.faults.images = command => command === verification.imagesStatus
+    ? { code: 0, stdout: JSON.stringify({ state: "signed-in", account: { accountIdSuffix: "abc123" },
+      accessToken: "fake-images-access" }) }
+    : { code: 1, stdout: "" };
+  const status = await getVpsCodexImagesStatus(scope);
+  assert.deepEqual(status, { state: "signed-in", account: { accountIdSuffix: "abc123" }, containerId });
+  assert.equal(JSON.stringify(status).includes("fake-images-access"), false);
+  remote.faults.images = () => ({ code: 1, stdout: "" });
+  assert.deepEqual(await getVpsCodexImagesStatus(scope), { state: "unavailable", containerId });
+  remote.faults.images = () => ({ code: 1, stdout: JSON.stringify({ error: "images_unavailable", message: "busy" }) });
+  await assert.rejects(getVpsCodexImagesStatus(scope), { code: "images_unavailable" });
+  for (const stdout of ["not json", JSON.stringify({ state: "unavailable" }), JSON.stringify({ error: "images_off" })]) {
+    remote.faults.images = () => ({ code: 0, stdout });
+    await assert.rejects(getVpsCodexImagesStatus(scope));
+  }
+  remote.faults.images = () => ({ code: 0, stdout: JSON.stringify({ state: "off" }) });
+  const runs = imageRuns(remote).length;
+  await assert.rejects(getVpsCodexImagesStatus({ ...scope, registrationId: "registration_other" }));
+  await assert.rejects(getVpsCodexImagesStatus({ ...scope, registrationId: "../auth" }));
+  const { account } = await getVpsSiwcInstallationStatus(scope);
+  await manageVpsSiwcInstallation({ ...scope, action: "disable-plan",
+    expectedGeneration: account.generation, confirmed: true });
+  await assert.rejects(getVpsCodexImagesStatus(scope));
+  assert.equal(imageRuns(remote).length, runs);
+});
+
+test("Codex image actions run only their fixed command while holding the OAuth operation lock", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  const { containerId } = await reviewVpsSiwcReplacement(scope);
+  const pending = { userCode: "ABCD-EFGH", verificationUrl: "https://auth.openai.com/codex/device",
+    expiresAt: "2026-10-06T12:15:00.000Z" };
+  const outputs = {
+    [verification.imagesLoginStart]: { state: "pending", pending, deviceAuthId: "fake-device-auth" },
+    [verification.imagesLoginPoll]: { state: "off", outcome: "declined" },
+    [verification.imagesLoginCancel]: { state: "off" },
+    [verification.imagesSignOut]: { state: "off", revocation: "confirmed" },
+  };
+  remote.faults.images = command => ({ code: 0, stdout: JSON.stringify(outputs[command]) });
+  for (const [action, key, confirmed] of [["login-start", "imagesLoginStart", true],
+    ["login-poll", "imagesLoginPoll"], ["login-cancel", "imagesLoginCancel"], ["sign-out", "imagesSignOut", true]]) {
+    const start = remote.commands.length;
+    const result = await changeVpsCodexImages({ ...scope, action, expectedContainerId: containerId, confirmed });
+    const expected = { ...outputs[verification[key]], containerId };
+    delete expected.deviceAuthId;
+    assert.deepEqual(result, expected);
+    const commands = remote.commands.slice(start).map(item => item.command);
+    assert.deepEqual(commands.filter(command => command.includes("/app/services/codex-images.mjs ")), [verification[key]]);
+    const acquired = commands.findIndex(command => command.includes(LOCK_ACQUIRE));
+    const ran = commands.indexOf(verification[key]);
+    const released = commands.findIndex(command => command.endsWith(LOCK_RELEASE));
+    assert.ok(acquired >= 0 && acquired < ran && ran < released, action);
+  }
+});
+
+test("Codex image changes refuse missing confirmation, a changed sidecar or a held lock before running", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  const { containerId } = await reviewVpsSiwcReplacement(scope);
+  const change = fields => changeVpsCodexImages({ ...scope, expectedContainerId: containerId, confirmed: true, ...fields });
+  const actions = ["login-start", "login-poll", "login-cancel", "sign-out"];
+  const before = remote.commands.length;
+  for (const fields of [
+    { action: "login-start", confirmed: false }, { action: "sign-out", confirmed: "yes" },
+    { action: "status" }, { action: "login-start; docker stop n8n" }, { action: "toString" },
+    { action: "login-poll", expectedContainerId: "short" },
+    { action: "login-poll", reviewedTarget: { ...scope.reviewedTarget, fingerprint: "SHA256:other" } },
+  ]) await assert.rejects(change(fields));
+  assert.equal(remote.commands.length, before);
+  for (const action of actions) {
+    await assert.rejects(change({ action, expectedContainerId: "f".repeat(64) }), action);
+    await assert.rejects(change({ action, registrationId: "registration_other" }), action);
+  }
+  remote.faults.containerImageId = `sha256:${"9".repeat(64)}`;
+  for (const action of actions) await assert.rejects(change({ action }), action);
+  delete remote.faults.containerImageId;
+  const exec = remote.exec.bind(remote);
+  remote.exec = async (command, options) => {
+    const result = await exec(command, options);
+    return command === verification.ownerContainer ? { ...result, stdout: JSON.stringify({
+      ...JSON.parse(result.stdout), State: { Running: false, Paused: false } }) } : result;
+  };
+  for (const action of actions) await assert.rejects(change({ action }), action);
+  remote.exec = async (command, options) => command.includes(LOCK_ACQUIRE)
+    ? { code: 1, stdout: "" } : exec(command, options);
+  for (const action of actions) await assert.rejects(change({ action }), action);
+  remote.exec = exec;
+  assert.deepEqual(imageRuns(remote), []);
+  assert.equal((await change({ action: "login-poll" })).state, "off");
+  remote.faults.images = () => ({ code: 1, stdout: "Error: Cannot find module '/app/services/codex-images.mjs'" });
+  await assert.rejects(change({ action: "login-poll" }));
+  remote.faults.images = () => ({ code: 1, stdout: JSON.stringify({ error: "images_signed_in", message: "Already on." }) });
+  await assert.rejects(change({ action: "login-start" }), { code: "images_signed_in" });
+  const failure = async error => {
+    remote.faults.images = () => ({ code: 1, stdout: JSON.stringify({ error, message: "remote text must not leak" }) });
+    return change({ action: "login-start" }).then(() => assert.fail("login-start must fail"), caught => caught);
+  };
+  const disabled = await failure("images_device_login_disabled");
+  const generic = await failure("images_unknown_step");
+  assert.equal(disabled.code, "images_device_login_disabled");
+  assert.notEqual(disabled.message, generic.message, "a disabled device code sign-in gets its own local explanation");
+  assert.equal((await failure("__proto__")).message, generic.message);
+  for (const error of [disabled, generic]) assert.equal(error.message.includes("remote text"), false);
+});
+
+test("SIWC sign-out first signs out of Codex images best effort; pausing plan use keeps them", async t => {
+  const verification = createVerificationCommands();
+  for (const images of [
+    () => ({ code: 0, stdout: JSON.stringify({ state: "off", revocation: "confirmed" }) }),
+    () => ({ code: 1, stdout: "Error: Cannot find module '/app/services/codex-images.mjs'" }),
+    () => { throw new Error("channel lost while printing private-images-output"); },
+  ]) {
+    const { remote, scope } = await installedOwner(t);
+    remote.faults.images = images;
+    const { account } = await getVpsSiwcInstallationStatus(scope);
+    const start = remote.commands.length;
+    const result = await manageVpsSiwcInstallation({ ...scope, action: "sign-out",
+      expectedGeneration: account.generation, confirmed: true });
+    assert.equal(result.account.session, "signed-out");
+    assert.equal(JSON.stringify(result).includes("private-images-output"), false);
+    const commands = remote.commands.slice(start).map(item => item.command);
+    assert.deepEqual(commands.filter(command => command.includes("/app/services/codex-images.mjs ")), [verification.imagesSignOut]);
+    assert.ok(commands.indexOf(verification.imagesSignOut) < commands.indexOf(verification.stop));
+  }
+  const { remote, scope } = await installedOwner(t);
+  const { account } = await getVpsSiwcInstallationStatus(scope);
+  const runs = imageRuns(remote).length;
+  const paused = await manageVpsSiwcInstallation({ ...scope, action: "disable-plan",
+    expectedGeneration: account.generation, confirmed: true });
+  assert.equal(paused.runtimeStopped, true);
+  assert.equal(imageRuns(remote).length, runs);
+});
+
+test("adding the image module makes an installed sidecar's runtime update available and ships it", async t => {
+  const { registration, destinationRoot, authBinding } = await fixture(t);
+  const { remote, reviewedTarget } = fakeRemote({ destinationRoot });
+  const imagesPath = "services/codex-images.mjs";
+  const older = { async collectAssets() {
+    const assets = await collectSiwcRuntimeAssets();
+    return { ...assets, files: assets.files.filter(file => file.path !== imagesPath) };
+  } };
+  await installSidecar({ remote, networkName: "proxy", registration,
+    authBinding, reviewedTarget, backgroundConsent, confirmed: true }, older);
+  assert.equal(remote.files.has(`${INSTALL_ROOT}/${imagesPath}`), false);
+  const scope = { remote, networkName: "proxy", reviewedTarget, registrationId };
+  assert.equal((await getVpsSiwcInstallationStatus(scope, older)).runtimeUpdateAvailable, false);
+  assert.equal((await getVpsSiwcInstallationStatus(scope)).runtimeUpdateAvailable, true);
+  const review = await reviewVpsSiwcRuntimeUpdate(scope);
+  assert.ok(review.changedFiles.includes(imagesPath));
+  assert.equal(review.rebuildRequired, true);
+  await updateVpsSiwcRuntime({ ...scope, review, confirmed: true });
+  const shipped = (await collectSiwcRuntimeAssets()).files.find(file => file.path === imagesPath);
+  assert.deepEqual(remote.files.get(`${INSTALL_ROOT}/${imagesPath}`), shipped.contents);
+  assert.equal((await getVpsSiwcInstallationStatus(scope)).runtimeUpdateAvailable, false);
 });

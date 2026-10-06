@@ -58,7 +58,7 @@ const SIWC_ASSET_PATHS = new Set([
   "gateway/openai-oauth-sidecar.mjs", "gateway/codex-chat.js",
   "gateway/codex-app-server.mjs", "services/siwc-session.mjs",
   "services/siwc-handoff.mjs", "infrastructure/local-process.js",
-  "services/local-integration-lifecycle-lock.js", "infrastructure/process-identity.js",
+  "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "infrastructure/process-identity.js",
 ]);
 const OFFICIAL_N8N_IMAGE = /^(?:(?:(?:docker\.n8n\.io|docker\.io)\/)?n8nio\/n8n)(?::[A-Za-z0-9_.-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/u;
 const VERIFIER_SCRIPT = [
@@ -283,10 +283,12 @@ export async function getLocalN8nSidecarStatus({
         "Dockerfile", ".dockerignore", "package.json", "package-lock.json",
         "services/siwc-session.mjs", "services/siwc-handoff.mjs",
         "gateway/openai-oauth-sidecar.mjs", "infrastructure/local-process.js",
-        "services/local-integration-lifecycle-lock.js", "infrastructure/process-identity.js",
+        "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "infrastructure/process-identity.js",
       ]) {
         const path = join(installRoot, relative);
         const metadata = await lstatIfExists(fileSystem, path);
+        // Installs made before the image add-on lack this file; verify it whenever present.
+        if (!metadata && relative === "services/codex-images.mjs") continue;
         if (!metadata?.isFile?.() || metadata.isSymbolicLink()) {
           throw new Error("The installed SIWC runtime asset is missing or unsafe.");
         }

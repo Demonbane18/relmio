@@ -221,9 +221,9 @@ Before the first plan request, confirm **Using ChatGPT plan** in the wizard.
 Open **Manage usage** for usage limits and credits. A listed model or connected
 account does not prove admission or entitlement. Relmio uses the selected
 registration and does not switch accounts or fall back to Platform API billing.
-Image generation/editing, audio, video, file-management routes, stored
-conversations, and unsupported Responses parameters are not available through
-this gateway.
+Audio, video, file-management routes, stored conversations, and unsupported
+Responses parameters are not available through this gateway. Image generation
+needs the optional VPS add-on described below.
 
 
 
@@ -291,9 +291,23 @@ clients receive only final-answer text; reasoning items and intermediate
 commentary are not passed on. The Responses route passes OpenAI's events
 unchanged. On 2026-10-05 a two-turn LangChain tool test passed through the
 real gateway on one ChatGPT account, streaming over both routes. That is not a
-guarantee for other accounts or models. Image generation/editing, audio,
-video, file-management routes, stored responses/conversations, moderation,
-and unsupported parameters are rejected; there is no automatic fallback.
+guarantee for other accounts or models. Audio, video, file-management routes,
+stored responses/conversations, moderation, the Responses `image_generation`
+tool, and unsupported parameters are rejected; there is no automatic fallback.
+
+On a VPS you can turn on image generation and editing as an opt-in add-on. In
+**Manage the installed ChatGPT session**, choose **Check installed account**,
+then **Sign in for images**, and enter the code at
+`https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's
+**Image** actions with the same Base URL and Relmio key, and enter the model
+ID `gpt-image-2`. The add-on uses a separate Codex sign-in, the way Hermes
+Agent does. OpenAI does not document this route for other apps, so it can stop
+working without notice. Images count against your plan's Codex limits, and the
+Codex refresh token is stored on the VPS. The ChatGPT plan session is never
+used for images. Each request returns one image; masks and URL responses are
+not supported. The local sidecar has no image sign-in. See
+[Turn on image generation](docs/vps-and-n8n.md#turn-on-image-generation-optional)
+for limits and sign-out.
 
 Installing on a server also requires express consent for n8n background
 workflows. The wizard does not edit n8n's credentials or Compose configuration.

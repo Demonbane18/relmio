@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { pathToFileURL } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import { getAccessToken, resolveSiwcStorageRoot } from "../services/siwc-session.mjs";
+import { CODEX_IMAGES_MODEL, codexImagesStatus, getCodexImagesLease } from "../services/codex-images.mjs";
 
 export const CODEX_CLI_VERSION = "0.160.0";
 const BASE_URL = "https://api.openai.com/v1";
@@ -17,6 +18,23 @@ const MAX_OUTPUT_ITEMS = 256;
 const unsupportedFields = new Set(["conversation", "max_output_tokens", "max_tool_calls", "metadata", "moderation", "multi_agent", "prompt", "prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs", "top_p", "truncation", "user", "previous_response_id"]);
 const unsupportedTools = new Set(["image_generation", "file_search", "code_interpreter", "computer", "computer_use", "mcp", "tool_search", "programmatic_tool_calling"]);
 const allowedFields = new Set(["model", "input", "instructions", "store", "stream", "background", "tools", "tool_choice", "parallel_tool_calls", "reasoning", "text", "include"]);
+const IMAGES_BASE_URL = "https://chatgpt.com/backend-api/codex";
+// The sidecar image does not carry the Relmio release version; pinning one here would change the image digest every release.
+const IMAGES_USER_AGENT = "Relmio (n8n sidecar)";
+const IMAGES_TIMEOUT_MS = 300_000;
+const MAX_IMAGE_JSON = 64 * 1024;
+const MAX_IMAGE_RESPONSE = 64 * 1024 * 1024;
+const MAX_EDIT_BODY = 48 * 1024 * 1024;
+const MAX_EDIT_IMAGE = 25 * 1024 * 1024;
+const MAX_EDIT_IMAGES = 16;
+const MAX_PARTS = 64;
+const MAX_PART_HEADERS = 8 * 1024;
+const IMAGE_FIELDS = new Set(["prompt", "model", "n", "quality", "size", "background", "response_format", "user", "output_format", "output_compression", "input_fidelity"]);
+const IMAGE_QUALITIES = new Set(["low", "medium", "high", "auto"]);
+const IMAGE_SIZES = new Set(["1024x1024", "1024x1536", "1536x1024", "auto"]);
+const IMAGE_BACKGROUNDS = new Set(["transparent", "opaque", "auto"]);
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+const IMAGES_OFF = "Image generation is off. It needs a separate Codex sign-in that OpenAI doesn't document for other apps. On a VPS sidecar, turn it on in Relmio under Manage the installed ChatGPT session.";
 
 function redactSecrets(value, secrets = []) {
   for (const secret of secrets) {
@@ -198,7 +216,7 @@ function validateResponses(body) {
       body.include.some((value) => typeof value !== "string" || /^(?:file_search_call|code_interpreter_call|computer_call|message\.output_text\.logprobs)/u.test(value)))) return "include";
   return null;
 }
-async function readJson(request, limit = MAX_BODY) {
+async function readBody(request, limit) {
   const reader = request.body?.getReader();
   if (!reader) throw new Error("empty_body");
   const chunks = [];
@@ -216,7 +234,10 @@ async function readJson(request, limit = MAX_BODY) {
     if (!completed) { try { await reader.cancel(); } catch { /* The caller returns an error. */ } }
     reader.releaseLock();
   }
-  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+  return Buffer.concat(chunks);
+}
+async function readJson(request, limit = MAX_BODY) {
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readBody(request, limit)));
 }
 async function providerError(response, secrets) {
   let body;
@@ -669,15 +690,163 @@ function translateChat(body) {
     ...(body.parallel_tool_calls !== undefined && { parallel_tool_calls: body.parallel_tool_calls }) },
   stream: body.stream === true, streamOptions: body.stream_options };
 }
+function imageRequest(fields) {
+  const { prompt, model, n, quality, size, background, response_format: format } = fields;
+  if (model !== CODEX_IMAGES_MODEL) return failure(`Only the model ${CODEX_IMAGES_MODEL} is available with the Codex image sign-in.`, "model", 400, "unsupported_model");
+  const unknown = Object.keys(fields).find((name) => !IMAGE_FIELDS.has(name));
+  if (unknown !== undefined) return failure("This parameter is not available with the Codex image sign-in.", unknown.slice(0, 64), 400, "unsupported_parameter");
+  if (typeof prompt !== "string" || prompt.length < 1 || prompt.length > 32_000) return failure("A prompt of 1 to 32000 characters is required.", "prompt", 400, "invalid_value");
+  if (n !== undefined && n !== 1 && n !== "1") return failure("The Codex image sign-in returns one image per request.", "n", 400, "unsupported_parameter");
+  if (format !== undefined && format !== "b64_json") return failure("The Codex image sign-in returns b64_json images only.", "response_format", 400, "unsupported_parameter");
+  const level = quality === "standard" ? "auto" : quality;
+  for (const [param, value, allowed] of [["quality", level, IMAGE_QUALITIES], ["size", size, IMAGE_SIZES], ["background", background, IMAGE_BACKGROUNDS]]) {
+    if (value !== undefined && !allowed.has(value)) return failure(`Use one of: ${[...allowed].join(", ")}.`, param, 400, "invalid_value");
+  }
+  return { prompt, model, ...(level !== undefined && { quality: level }), ...(size !== undefined && { size }), ...(background !== undefined && { background }) };
+}
+function generationRequest(raw) {
+  let fields;
+  try { fields = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(raw)); }
+  catch { return failure("Request body must be bounded JSON.", "body", 400, "invalid_json"); }
+  return isObject(fields) ? imageRequest(fields) : failure("Request body must be a JSON object.", "body", 400, "invalid_json");
+}
+function multipartBoundary(contentType) {
+  const [type, ...params] = (contentType ?? "").split(";");
+  if (type.trim().toLowerCase() !== "multipart/form-data") return null;
+  const match = params.map((param) => /^\s*boundary\s*=\s*(?:"([^"]*)"|([^\s"]*))\s*$/iu.exec(param)).find(Boolean);
+  const boundary = match?.[1] ?? match?.[2] ?? "";
+  return /^[0-9A-Za-z'()+_,.\/:=? -]{0,69}[0-9A-Za-z'()+_,.\/:=?-]$/u.test(boundary) ? boundary : null;
+}
+function partHeaders(text) {
+  let disposition, type;
+  for (const line of text.split("\r\n")) {
+    const header = /^([A-Za-z0-9-]+):(.*)$/u.exec(line);
+    if (!header) return null;
+    const key = header[1].toLowerCase();
+    if (key === "content-disposition") { if (disposition !== undefined) return null; disposition = header[2].trim(); }
+    else if (key === "content-type") { if (type !== undefined) return null; type = header[2].trim(); }
+  }
+  const params = /^form-data((?:[ \t]*;[ \t]*[A-Za-z0-9*-]+[ \t]*=[ \t]*(?:"[^"]*"|[^;"\s]+))*)[ \t]*$/iu.exec(disposition ?? "")?.[1];
+  let name;
+  for (const [, key, quoted, token] of params?.matchAll(/[ \t]*;[ \t]*([A-Za-z0-9*-]+)[ \t]*=[ \t]*(?:"([^"]*)"|([^;"\s]+))/gu) ?? []) {
+    if (key.toLowerCase() === "name") name ??= quoted ?? token;
+  }
+  return name ? { name, type: type?.split(";")[0].trim().toLowerCase() } : null;
+}
+// ponytail: buffers the whole bounded body (48 MiB) before parsing; stream parts if the limit grows.
+function parseMultipart(body, boundary) {
+  const delimiter = Buffer.from(`\r\n--${boundary}`);
+  if (!body.subarray(0, delimiter.length - 2).equals(delimiter.subarray(2))) return null;
+  const parts = [];
+  let position = delimiter.length - 2;
+  for (;;) {
+    if (body[position] === 0x2d && body[position + 1] === 0x2d) return parts;
+    if (body[position] !== 0x0d || body[position + 1] !== 0x0a || parts.length === MAX_PARTS) return null;
+    const headerEnd = body.subarray(position, position + MAX_PART_HEADERS + 4).indexOf("\r\n\r\n");
+    if (headerEnd < 0) return null;
+    const headers = partHeaders(body.toString("latin1", position + 2, position + headerEnd));
+    const start = position + headerEnd + 4;
+    const end = body.indexOf(delimiter, start);
+    if (!headers || end < 0) return null;
+    parts.push({ ...headers, content: body.subarray(start, end) });
+    position = end + delimiter.length;
+  }
+}
+function editRequest(raw, contentType) {
+  const boundary = multipartBoundary(contentType);
+  const parts = boundary && parseMultipart(raw, boundary);
+  if (!parts) return failure("Image edits need multipart/form-data with at most 64 parts and 8 KiB of headers per part.", "body", 400, "invalid_multipart");
+  const fields = Object.create(null);
+  const images = [];
+  for (const part of parts) {
+    if (part.name === "image" || part.name === "image[]") images.push(part);
+    else if (part.name in fields) return failure("Each image parameter may appear only once.", part.name.slice(0, 64), 400, "invalid_multipart");
+    else fields[part.name] = part.content.toString();
+  }
+  const upstream = imageRequest(fields);
+  if (upstream instanceof Response) return upstream;
+  if (images.length < 1 || images.length > MAX_EDIT_IMAGES) return failure("Send 1 to 16 images.", "image", 400, "invalid_value");
+  for (const image of images) {
+    if (!IMAGE_TYPES.has(image.type) || image.content.length === 0) return failure("Each image must be a non-empty PNG, JPEG, WebP or GIF file.", "image", 400, "invalid_value");
+    if (image.content.length > MAX_EDIT_IMAGE) return failure("Each image is limited to 25 MiB.", "image", 413, "image_too_large");
+  }
+  return { ...upstream, images: images.map((image) => ({ image_url: `data:${image.type};base64,${image.content.toString("base64")}` })) };
+}
+async function imagesRoute(request, path, { editSlot, ...deps }) {
+  if (request.method !== "POST") return failure("This method is not available.", "method", 405);
+  if (path !== "/v1/images/edits") return forwardImage(request, path, deps);
+  // ponytail: one edit per sidecar keeps a 48 MiB body and its base64 copies inside mem_limit; queue edits if parallel ones are needed.
+  if (editSlot.busy) return failure("Another image edit is in progress. Try again shortly.", null, 429, "images_busy", "retry-later");
+  editSlot.busy = true;
+  try { return await forwardImage(request, path, deps); }
+  finally { editSlot.busy = false; }
+}
+async function forwardImage(request, path, { fetchImpl, getImagesLease }) {
+  const edits = path === "/v1/images/edits";
+  // The add-on is checked before the body is read, so an off or expired sign-in never buffers an upload.
+  // ponytail: a lease slower than requestTimeout (a refresh queued behind a sign-in exchange) ends an unread upload with 408.
+  let lease;
+  try { lease = await getImagesLease(); }
+  catch (error) {
+    if (error?.code === "images_off") return failure(IMAGES_OFF, null, 404, "images_off");
+    if (error?.code === "images_reauthorize") return failure("The Codex image sign-in expired. Sign in for images again in Relmio.", null, 401, "images_reauthorize", "reauthorize");
+    return failure("Image generation is unavailable right now.", null, 503, "images_unavailable");
+  }
+  let raw;
+  try { raw = await readBody(request, edits ? MAX_EDIT_BODY : MAX_IMAGE_JSON); }
+  catch (error) {
+    if (error?.message === "body_too_large") return failure(edits ? "Image edit bodies are limited to 48 MiB." : "Image generation bodies are limited to 64 KiB.", "body", 413, "body_too_large");
+    return failure("The request body could not be read.", "body", 400, edits ? "invalid_multipart" : "invalid_json");
+  }
+  const body = edits ? editRequest(raw, request.headers.get("content-type")) : generationRequest(raw);
+  if (body instanceof Response) return body;
+  const secrets = [lease.accessToken, request.headers.get("authorization").slice("Bearer ".length), body.prompt];
+  let upstream;
+  try {
+    upstream = await fetchImpl(`${IMAGES_BASE_URL}${path.slice("/v1".length)}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${lease.accessToken}`, "chatgpt-account-id": lease.accountId,
+        ...(lease.residency && { "x-openai-internal-codex-residency": lease.residency }),
+        ...(lease.fedramp === true && { "x-openai-fedramp": "true" }),
+        originator: "relmio", "user-agent": IMAGES_USER_AGENT, "x-codex-image-turn-id": randomUUID(), "content-type": "application/json",
+      },
+      body: JSON.stringify(body), redirect: "error", signal: AbortSignal.any([request.signal, AbortSignal.timeout(IMAGES_TIMEOUT_MS)]),
+    });
+  } catch { return failure("The Codex image request failed.", null, 502, "images_upstream_failed"); }
+  if (!upstream.ok) {
+    let detail;
+    try { detail = await readJson(upstream, 16_384); } catch { detail = null; }
+    if (upstream.status === 429) {
+      const source = isObject(detail?.error) ? detail.error : {};
+      const code = [source.type, source.code].find((value) => typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/u.test(value)) ?? "rate_limited";
+      return Response.json({ error: { message: "Codex image usage is limited for this plan right now.", type: "rate_limit_error", code, ...(Number.isSafeInteger(source.resets_at) && { resets_at: source.resets_at }) }, status: 429, recovery: "retry-later" }, { status: 429, headers: { "cache-control": "no-store" } });
+    }
+    if (upstream.status === 401) return failure("Codex rejected the image sign-in. Sign in for images again in Relmio.", null, 502, "images_upstream_unauthorized", "reauthorize");
+    if (upstream.status >= 500) return failure("The Codex image request failed.", null, 502, "images_upstream_failed");
+    return Response.json(safeError(detail, upstream.status, upstream.headers.get("x-request-id"), secrets), { status: upstream.status, headers: { "cache-control": "no-store" } });
+  }
+  let result;
+  try { result = await readJson(upstream, MAX_IMAGE_RESPONSE); }
+  catch { return failure("The Codex image response was interrupted or too large.", null, 502, "images_upstream_failed"); }
+  const image = Array.isArray(result?.data) ? result.data[0]?.b64_json : undefined;
+  if (typeof image !== "string" || !image) return failure("Codex returned no image.", null, 502, "images_invalid_response");
+  const reported = ["size", "quality", "background"].filter((key) => typeof result[key] === "string" && result[key].length <= 64).map((key) => [key, result[key]]);
+  return Response.json({ created: Number.isSafeInteger(result.created) ? result.created : Math.floor(Date.now() / 1000), data: [{ b64_json: image }], ...Object.fromEntries(reported) }, { headers: { "cache-control": "no-store" } });
+}
 
-export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessToken, registration, runtimeId, tokenVerifier, baseUrl = BASE_URL } = {}) {
+export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessToken, registration, runtimeId, tokenVerifier, baseUrl = BASE_URL,
+  getImagesLease = () => getCodexImagesLease({ storageRoot: registration.storageRoot }),
+  imagesStatus = () => codexImagesStatus({ storageRoot: registration.storageRoot }) } = {}) {
   if (!registration?.storageRoot || !registration?.registrationId || !runtimeId || !Buffer.isBuffer(tokenVerifier) || tokenVerifier.length !== 32) throw new TypeError("The sidecar requires a selected owned registration and local credential verifier.");
+  const editSlot = { busy: false };
   return async (request) => {
     const path = new URL(request.url).pathname;
     if (request.headers.has("origin")) return failure("Browser origins are not allowed.", "origin", 403, "origin_rejected");
     if (!validPrivateHost(request.headers.get("host"))) return failure("The sidecar host is not allowed.", "host", 421, "host_rejected");
     if (path === "/health" && request.method === "GET") return Response.json({ status: "ok" });
     if (!validBearer(request, tokenVerifier)) return unauthorized();
+    if (path === "/v1/images/generations" || path === "/v1/images/edits") return imagesRoute(request, path, { fetchImpl, getImagesLease, editSlot });
     if (path !== "/v1/models" && path !== "/v1/responses" && path !== "/v1/chat/completions") return failure("This route is not available with ChatGPT plan usage.", "route", 404);
     if (path === "/v1/models" ? request.method !== "GET" : request.method !== "POST") return failure("This method is not available.", "method", 405);
     let body, streamOptions, stream = false, chat = false;
@@ -718,11 +887,16 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
     } catch { return failure("The provider request was interrupted.", null, 503, "request_interrupted"); }
     if (!upstream.ok) return Response.json(await providerError(upstream, [lease.accessToken]), { status: upstream.status, headers: { "cache-control": "no-store" } });
     if (path === "/v1/models") {
+      let data;
       try {
         const models = (await readJson(upstream)).models;
         if (!Array.isArray(models) || !models.every((m) => m && typeof m.slug === "string" && typeof m.visibility === "string")) throw new Error("invalid_catalog");
-        return Response.json({ object: "list", data: models.filter((m) => m.visibility === "list").map((m) => ({ id: redactSecrets(m.slug, [lease.accessToken]), object: "model", display_name: redactSecrets(typeof m.display_name === "string" ? m.display_name : m.slug, [lease.accessToken]) })) }, { headers: { "cache-control": "no-store" } });
+        data = models.filter((m) => m.visibility === "list").map((m) => ({ id: redactSecrets(m.slug, [lease.accessToken]), object: "model", display_name: redactSecrets(typeof m.display_name === "string" ? m.display_name : m.slug, [lease.accessToken]) }));
       } catch { return failure("The account model catalog was invalid.", null, 502, "invalid_catalog"); }
+      let images = false;
+      try { images = (await imagesStatus()).state === "signed-in"; } catch { /* Text models stay listed when the image add-on cannot be read. */ }
+      if (images) data.push({ id: CODEX_IMAGES_MODEL, object: "model", display_name: "GPT Image 2 (Codex sign-in)" });
+      return Response.json({ object: "list", data }, { headers: { "cache-control": "no-store" } });
     }
     if (!upstream.body) return failure("The provider returned no response stream.", null, 502, "stream_interrupted");
     return stream ? streamResponse(upstream, chat && { ...body, streamOptions }, [lease.accessToken]) : aggregate(upstream, chat, body.model, [lease.accessToken]);

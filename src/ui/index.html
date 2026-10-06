@@ -443,6 +443,39 @@
                           <button id="vps-owner-update-apply" class="rm-button rm-button--sm" type="button" disabled>Update the sidecar</button>
                         </div>
                       </div>
+                      <div id="vps-owner-images" hidden>
+                        <p id="vps-owner-images-status" class="rm-small" role="status" aria-live="polite"></p>
+                        <p class="rm-small rm-muted">Image generation uses a separate Codex sign-in, the way Hermes Agent does it. It isn't the official Sign in with ChatGPT, and OpenAI doesn't document this route for other apps, so it can stop working at any time. OpenAI recommends an API key for automation.</p>
+                        <ul class="rm-small rm-muted">
+                          <li>Images use your plan's Codex limits 3 to 5 times faster than text, then credits. Free plans can't use it.</li>
+                          <li>This server stores a full Codex sign-in for the account. Anyone with root or Docker access on it can read it.</li>
+                          <li>Device code sign-in must be on in ChatGPT security settings, or allowed by your workspace admin.</li>
+                          <li>Sign in with the same ChatGPT account as this sidecar. In n8n, choose the model gpt-image-2.</li>
+                        </ul>
+                        <div id="vps-owner-images-off" hidden>
+                          <label class="rm-check">
+                            <input id="vps-owner-images-confirm" type="checkbox" />
+                            <span id="vps-owner-images-confirm-label">I understand. Sign in to Codex for images on this server.</span>
+                          </label>
+                          <button id="vps-owner-images-start" class="rm-button rm-button--sm" type="button" disabled>Sign in for images</button>
+                        </div>
+                        <div id="vps-owner-images-pending" hidden>
+                          <p class="rm-small">Enter this code on the Codex sign-in page: <code id="vps-owner-images-code"></code></p>
+                          <p class="rm-small">Only enter this code at auth.openai.com. Never share it.</p>
+                          <div class="rm-cluster">
+                            <a id="vps-owner-images-link" class="rm-link rm-link--standalone" target="_blank" rel="noopener noreferrer">Open the Codex sign-in page<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+                            <button id="vps-owner-images-cancel" class="rm-button rm-button--sm rm-button--ghost" type="button">Cancel image sign-in</button>
+                          </div>
+                          <p id="vps-owner-images-expiry" class="rm-small rm-muted"></p>
+                        </div>
+                        <div id="vps-owner-images-on" hidden>
+                          <label class="rm-check">
+                            <input id="vps-owner-images-signout-confirm" type="checkbox" />
+                            <span>I approve signing out of images on this server. Relmio deletes the Codex sign-in here and asks OpenAI to revoke it.</span>
+                          </label>
+                          <button id="vps-owner-images-signout" class="rm-button rm-button--sm" type="button" disabled>Sign out of images</button>
+                        </div>
+                      </div>
                       <button id="vps-owner-replace" class="rm-button rm-button--sm" type="button" hidden>Review replacement with a fresh account</button>
                     </div>
                   </details>

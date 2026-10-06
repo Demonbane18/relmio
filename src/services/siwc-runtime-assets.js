@@ -10,6 +10,7 @@ const SOURCES = Object.freeze([
   'services/siwc-session.mjs',
   'services/siwc-handoff.mjs',
   'services/local-integration-lifecycle-lock.js',
+  'services/codex-images.mjs',
   'infrastructure/local-process.js',
   'infrastructure/process-identity.js',
 ]);

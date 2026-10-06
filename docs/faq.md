@@ -50,9 +50,13 @@ get only final-answer text. On 2026-10-05 a two-turn LangChain tool test
 passed through the real gateway on one ChatGPT account, streaming over both
 routes. That is not a guarantee for other accounts or models.
 
-Image generation and editing, audio, video, Files API routes, stored
-responses/conversations, moderation, and unsupported Responses parameters are
-not implemented. Audio input and transcription are unsupported. Relmio asks
+Audio, video, Files API routes, stored responses/conversations, moderation,
+and unsupported Responses parameters are not implemented. Audio input and
+transcription are unsupported. On a VPS, image generation and editing are an
+opt-in add-on with a separate Codex sign-in that OpenAI does not document for
+other apps; see
+[Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional).
+The local sidecar has no image sign-in. Relmio asks
 for the model list with its pinned Codex version (0.160.0), because OpenAI
 filters the catalog by an undocumented `client_version` parameter. A model
 shown in discovery is not an entitlement promise. The gateway reports

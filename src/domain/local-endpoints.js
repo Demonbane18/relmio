@@ -132,8 +132,8 @@ export function createLocalDockerignore(target) {
     return "**\n!Dockerfile\n!gateway.js\n!chat.js\n!session.js\n";
   }
   return safeTarget === "codex-chat"
-    ? "**\n!Dockerfile\n!package.json\n!package-lock.json\n!gateway/\n!gateway/codex-chat.js\n!gateway/openai-oauth-sidecar.mjs\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n!config.toml\n!requirements.toml\n"
-    : "**\n!Dockerfile\n!package.json\n!package-lock.json\n!gateway/\n!gateway/codex-app-server.mjs\n!gateway/openai-oauth-sidecar.mjs\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n!config.toml\n!requirements.toml\n";
+    ? "**\n!Dockerfile\n!package.json\n!package-lock.json\n!gateway/\n!gateway/codex-chat.js\n!gateway/openai-oauth-sidecar.mjs\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!services/codex-images.mjs\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n!config.toml\n!requirements.toml\n"
+    : "**\n!Dockerfile\n!package.json\n!package-lock.json\n!gateway/\n!gateway/codex-app-server.mjs\n!gateway/openai-oauth-sidecar.mjs\n!services/\n!services/siwc-session.mjs\n!services/siwc-handoff.mjs\n!services/local-integration-lifecycle-lock.js\n!services/codex-images.mjs\n!infrastructure/\n!infrastructure/local-process.js\n!infrastructure/process-identity.js\n!config.toml\n!requirements.toml\n";
 }
 
 export function createGrokBuildDockerfile() {

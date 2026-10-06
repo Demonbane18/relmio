@@ -37,6 +37,8 @@ const state = {
   catalogLabels: new Map(),
   vpsOwner: null,
   vpsOwnerUpdate: null,
+  vpsImagesGeneration: 0,
+  vpsImagesTimer: null,
   planMigrationRequired: false,
   planReplacementRequired: false,
   vpsReconnectRequired: false,
@@ -2012,7 +2014,129 @@ function renderVpsOwnerUpdate(status, account = null) {
     : status?.runtimeUpdateAvailable === true ? "A newer sidecar runtime is available."
       : status?.runtimeUpdateAvailable === false ? "The sidecar runtime is current."
         : "Review the sidecar update to compare it with this Relmio version.";
+  renderVpsOwnerImages(null, owned);
 }
+
+function stopVpsOwnerImagesPolling() {
+  state.vpsImagesGeneration += 1;
+  window.clearTimeout(state.vpsImagesTimer);
+  state.vpsImagesTimer = null;
+}
+
+function renderVpsOwnerImages(images, visible = true) {
+  stopVpsOwnerImagesPolling();
+  const view = images?.state;
+  const account = images?.account;
+  const identity = sshSession.adoptedIdentity();
+  element("vps-owner-images").hidden = !visible;
+  element("vps-owner-images-off").hidden = view !== "off" && view !== "reauthorize";
+  element("vps-owner-images-pending").hidden = view !== "pending";
+  element("vps-owner-images-on").hidden = view !== "signed-in" && view !== "reauthorize";
+  for (const id of ["vps-owner-images-confirm", "vps-owner-images-signout-confirm"]) element(id).checked = false;
+  for (const id of ["vps-owner-images-start", "vps-owner-images-signout"]) element(id).disabled = true;
+  element("vps-owner-images-confirm-label").textContent = "I understand. Sign in to Codex for images on " +
+    `${identity ? `${identity.username}@${identity.host}:${identity.port}` : "this server"}.`;
+  element("vps-owner-images-code").textContent = view === "pending" ? images.pending.userCode : "";
+  const link = element("vps-owner-images-link");
+  if (view === "pending") link.href = images.pending.verificationUrl;
+  else link.removeAttribute("href");
+  element("vps-owner-images-expiry").textContent = view === "pending"
+    ? `The code expires at ${new Date(images.pending.expiresAt).toLocaleTimeString()}. Relmio checks every 5 seconds.`
+    : "";
+  const who = account
+    ? ` for ${account.email ?? `account …${account.accountIdSuffix}`}${account.planType ? ` (${account.planType})` : ""}`
+    : "";
+  element("vps-owner-images-status").textContent = view === "signed-in" ? `Images on${who}.`
+    : view === "pending" ? "Open the Codex sign-in page and enter the code below. Image generation turns on when you approve it."
+      : view === "reauthorize" ? "The Codex image sign-in expired. Sign in for images again."
+        : view === "unavailable" ? "Update the sidecar first (Review sidecar update) to add image generation."
+          : images?.outcome === "declined" ? "The Codex sign-in was declined. Image generation is off."
+            : images?.outcome === "expired" ? "The sign-in code expired before it was used. Image generation is off."
+              : view === "off" ? "Image generation is off."
+                : "Check the installed account to see image generation.";
+  if (view === "pending") scheduleVpsOwnerImagesPoll(state.vpsImagesGeneration);
+}
+
+function scheduleVpsOwnerImagesPoll(generation, delay = 5_000) {
+  window.clearTimeout(state.vpsImagesTimer);
+  state.vpsImagesTimer = generation === state.vpsImagesGeneration
+    ? window.setTimeout(() => { void pollVpsOwnerImages(generation); }, delay)
+    : null;
+}
+
+// The server detaches SSH after sign-out or a finished sign-in, like other owner changes.
+async function endVpsOwnerImagesSession() {
+  await api("/api/disconnect", { method: "POST", body: {} }).catch(() => {});
+  clearEndedVpsConnectionState({ preserveOwner: true });
+  showStep(2);
+}
+
+async function pollVpsOwnerImages(generation) {
+  if (generation !== state.vpsImagesGeneration) return;
+  if (state.operationBusy) {
+    scheduleVpsOwnerImagesPoll(generation, 500);
+    return;
+  }
+  let result;
+  try {
+    result = await api("/api/siwc/vps/images/login-status", { method: "POST", body: {} });
+  } catch (error) {
+    if (generation !== state.vpsImagesGeneration) return;
+    element("vps-owner-images-status").textContent =
+      "The image sign-in status could not be checked. Check the installed account again to continue.";
+    showError(error, { focus: false });
+    return;
+  }
+  if (generation !== state.vpsImagesGeneration) return;
+  renderVpsOwnerImages(result);
+  if (result.state === "pending") return;
+  setMessage(element("vps-owner-images-status").textContent);
+  await endVpsOwnerImagesSession();
+}
+
+async function changeVpsOwnerImages(action, button, confirmId) {
+  const owner = state.vpsOwner;
+  if (!owner || (confirmId && !element(confirmId).checked)) {
+    showError(new Error("Confirm this image sign-in change first."));
+    return;
+  }
+  clearError();
+  try {
+    const result = await runOperation(button, action === "login-start" ? "Starting image sign-in…"
+      : action === "sign-out" ? "Signing out of images…" : "Cancelling image sign-in…", () =>
+      api("/api/siwc/vps/images/action", { method: "POST", body: { action, confirmed: true } }));
+    if (!result || state.vpsOwner !== owner) return;
+    renderVpsOwnerImages(result);
+    if (action === "login-start" && result.state === "pending") focusVisible(element("vps-owner-images-link"));
+    if (action === "login-cancel") focusVisible(element("vps-owner-images-confirm"));
+    if (action === "sign-out") {
+      const message = result.revocation === "unconfirmed"
+        ? "The Codex image sign-in was removed from this server, but OpenAI did not confirm the revocation."
+        : "Signed out of images. The Codex image sign-in was removed from this server.";
+      element("vps-owner-images-status").textContent = message;
+      setMessage(message);
+    }
+  } catch (error) { showError(error); }
+  finally {
+    if (action === "sign-out") await endVpsOwnerImagesSession();
+  }
+}
+
+element("vps-owner-images-confirm").addEventListener("change", (event) => {
+  element("vps-owner-images-start").disabled = !event.currentTarget.checked;
+});
+element("vps-owner-images-signout-confirm").addEventListener("change", (event) => {
+  element("vps-owner-images-signout").disabled = !event.currentTarget.checked;
+});
+element("vps-owner-images-start").addEventListener("click", (event) => {
+  void changeVpsOwnerImages("login-start", event.currentTarget, "vps-owner-images-confirm");
+});
+element("vps-owner-images-cancel").addEventListener("click", (event) => {
+  void changeVpsOwnerImages("login-cancel", event.currentTarget);
+});
+element("vps-owner-images-signout").addEventListener("click", (event) => {
+  void changeVpsOwnerImages("sign-out", event.currentTarget, "vps-owner-images-signout-confirm");
+});
 
 function updateVpsOwnerApproval() {
   const owner = state.vpsOwner;
@@ -2046,6 +2170,13 @@ element("vps-owner-check").addEventListener("click", async (event) => {
         result.registrationId === prior.registrationId && sameVpsOwnerTarget(prior, current)) {
       renderVpsOwner({ ...result, account: prior.account }, { reviewedStopped: true });
     } else renderVpsOwner(result);
+    const owner = state.vpsOwner;
+    if (element("vps-owner-images").hidden) return;
+    const images = await runOperation(button, "Checking image generation…", () =>
+      api("/api/siwc/vps/images/status", { method: "POST", body: {
+        containerName: owner.containerName, networkName: owner.networkName, registrationId: owner.registrationId,
+      } }));
+    if (images && state.vpsOwner === owner) renderVpsOwnerImages(images);
   } catch (error) { showError(error); }
 });
 

@@ -75,8 +75,10 @@ in the recording.
   account on 2026-10-05 (streaming, local macOS). Do not present it as
   verified for every account, model, or a VPS install.
 - Chat clients receive only final-answer text, not reasoning or commentary.
-- Image generation/editing, audio, video, Files management, Moderations,
-  stored conversations, and unsupported fields/tool types are rejected.
+- Audio, video, Files management, Moderations, stored conversations, and
+  unsupported fields/tool types are rejected. Image generation is an opt-in
+  VPS add-on with a separate Codex sign-in that OpenAI does not document for
+  other apps; do not present it as part of Sign in with ChatGPT.
 - Usage limits direct the user to ChatGPT **Manage usage**; errors do not switch
   accounts or fall back to Platform API billing.
 - `store:false` is not a zero-retention promise.

@@ -160,17 +160,29 @@ The sidecar requires a generated Relmio bearer and serves:
   rejected. Reasoning output items are skipped. Only message text with phase
   `final_answer`, or no phase, reaches Chat Completions clients; `commentary`
   text is dropped. The gateway never executes tools.
+- `POST /v1/images/generations` and `POST /v1/images/edits`, only when the
+  opt-in VPS image add-on is signed in; otherwise `404 images_off`. The add-on
+  uses a separate Codex device sign-in (Codex CLI client ID), stores its tokens
+  under `<storage root>/codex-images/` on the VPS, and calls
+  `https://chatgpt.com/backend-api/codex/images/{generations,edits}`. OpenAI
+  does not document that route for other apps, so it can stop working, and
+  images count against the plan's Codex limits. Only `gpt-image-2`, one image,
+  base64 output, no mask, and sizes `1024x1024`, `1024x1536`, `1536x1024` or
+  `auto` are accepted; edits take 1 to 16 PNG, JPEG, WebP or GIF images of up
+  to 25 MiB each within a 48 MiB body. `GET /v1/models` adds `gpt-image-2`
+  while the add-on is signed in. The local sidecar has no image sign-in.
 
-All inference requests use the selected SIWC registration and public
-`https://api.openai.com/v1/responses`. Errors preserve safe status, code,
-parameter, request ID, redacted upstream detail/error shape, and recovery. A
+All text inference requests use the selected SIWC registration and public
+`https://api.openai.com/v1/responses`; the SIWC token is never sent to the
+image route. Errors preserve safe status, code, parameter, request ID,
+redacted upstream detail/error shape, and recovery. A
 post-delta error, incomplete response, or interrupted stream is not reported
 as a completed answer. Requests do not fall back to a different account,
 provider, API key, or host.
 
 Unsupported Responses fields, `background:true`, `store:true`, stored
 response/conversation identifiers, system messages, audio/video inputs, and
-unsupported tool types are rejected. Image generation/editing, audio and
+unsupported tool types, including `image_generation`, are rejected. Audio and
 transcription, video, Files API management, stored responses/conversations,
 moderation, Live, and Realtime routes are not forwarded. Image/file input in a
 Responses request is usable only when supported by the selected model; this

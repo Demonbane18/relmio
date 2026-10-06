@@ -316,9 +316,23 @@ clients receive only final-answer text; reasoning items and intermediate
 commentary are not passed on. The Responses route passes OpenAI's events
 unchanged. On 2026-10-05 a two-turn LangChain tool test passed through the
 real gateway on one ChatGPT account, streaming over both routes. That is not a
-guarantee for other accounts or models. Image generation/editing, audio,
-video, Files routes, stored conversations, moderation, and unsupported
-parameters are rejected without a fallback.
+guarantee for other accounts or models. Audio, video, Files routes, stored
+conversations, moderation, the Responses `image_generation` tool, and
+unsupported parameters are rejected without a fallback.
+
+On a VPS you can turn on image generation and editing as an opt-in add-on. In
+**Manage the installed ChatGPT session**, choose **Check installed account**,
+then **Sign in for images**, and enter the code at
+`https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's
+**Image** actions with the same Base URL and Relmio key, and enter the model
+ID `gpt-image-2`. The add-on uses a separate Codex sign-in, the way Hermes
+Agent does. OpenAI does not document this route for other apps, so it can stop
+working without notice. Images count against your plan's Codex limits, and the
+Codex refresh token is stored on the VPS. The ChatGPT plan session is never
+used for images. Each request returns one image; masks and URL responses are
+not supported. The local sidecar has no image sign-in. See
+[Turn on image generation](https://github.com/Demonbane18/relmio/blob/main/docs/vps-and-n8n.md#turn-on-image-generation-optional)
+for limits and sign-out.
 
 Installing for n8n also requires express consent for background workflows.
 Relmio does not edit n8n's credentials or Compose configuration. Existing

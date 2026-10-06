@@ -4,8 +4,9 @@ The local ChatGPT plan flow stores a separately authorized SIWC registration.
 The selected n8n runtime can receive one registration after reviewed
 installation. Direct Codex clients and the read-only Chat Adapter use that
 registration through separate local interfaces. SuperGrok keeps its own
-session and does not require or read ChatGPT credentials. Treat every local
-bearer and stored provider token as a secret.
+session and does not require or read ChatGPT credentials. On a VPS, the
+opt-in [image add-on](#codex-image-add-on-vps) keeps a second, separate Codex
+sign-in. Treat every local bearer and stored provider token as a secret.
 
 ## ChatGPT plan token lifecycle
 
@@ -444,11 +445,59 @@ Local client credentials and the OpenAI session have different jobs:
 - The n8n bearer authorizes one private sidecar. It is not a provider token.
 - OpenAI access and refresh tokens stay in the selected protected SIWC
   registration and are never returned to browser JavaScript.
+- With the VPS image add-on on, a separate Codex access and refresh token
+  stays in the sidecar's protected folder and is used only for image
+  requests. It is never returned to browser JavaScript or n8n.
 - Do not expose local endpoints on a LAN, public IP, domain, reverse proxy, or
   hosted service. Keep each bearer in the trusted client that needs it.
 - If a local bearer is disclosed, use the offered ownership-checked
   maintenance action. If the provider session may be exposed, sign out from
   the owning installation and follow ChatGPT's disconnection controls.
+
+## Codex image add-on (VPS)
+
+The optional image add-on signs in a second time, with OpenAI's Codex
+device-code flow and the Codex CLI's public client ID
+(`app_EMoamEEZ73f0CkXaXp7hrann`), the way Hermes Agent's "OpenAI (Codex
+auth)" provider does. It is not Sign in with ChatGPT. OpenAI does not
+document this image route for other apps, so it can stop working without
+notice, and Relmio does not claim OpenAI approval for it. Images count against
+the plan's Codex limits. Owner-facing setup is in
+[Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional).
+
+- **Stores:** on the VPS, `/docker/n8n-openai-oauth/siwc/codex-images` holds
+  the Codex access and refresh tokens, the ChatGPT account ID, email, plan type
+  and token expiry. The ID token is not stored. While a sign-in is pending it
+  also holds the device code, which expires after 15 minutes. The folder is
+  `0700`, the files are `0600` and owned by the sidecar user, and symlinks,
+  hard links and group or other permissions are refused. Root on the VPS,
+  and any backup of that folder, can read the refresh token.
+- **Transmits:** sign-in, token exchange, refresh and revocation go to
+  `https://auth.openai.com`. Image requests go to
+  `https://chatgpt.com/backend-api/codex/images/generations` or
+  `/images/edits` with the Codex access token, the account ID, the prompt and
+  any input images, and identify as `originator: relmio`. The ChatGPT plan
+  token is never sent to this route, and the Codex token is never used for
+  text.
+- **Returns to the wizard:** only the sign-in state, email, plan type, the
+  last six characters of the account ID, and the pending code with its
+  verification page. Tokens and the device code's internal ID stay on the
+  server.
+- **Logs:** the sidecar's image errors are fixed text. Tokens, prompts and
+  image data are removed from any error it passes on.
+- **Refresh:** Relmio treats refresh tokens as single use and marks a
+  refresh as in progress before sending it. If OpenAI rejects the token as
+  expired, reused or invalid, or the outcome is unknown, the add-on needs a
+  new image sign-in; the old token is never retried. Other refresh errors
+  keep the sign-in and return `images_unavailable`.
+- **Sign-out:** deletes the files and asks OpenAI to revoke the refresh
+  token, waiting up to 10 seconds. An unconfirmed revocation is reported. It
+  is unknown whether revoking also affects other Codex sign-ins on the same
+  account. **Sign out and revoke** for the ChatGPT session first signs out of
+  images too, as a best effort; **Pause plan use** keeps the image sign-in.
+  Leftover temporary record files are removed on image sign-out.
+- **Unknown:** the scopes OpenAI grants to these tokens, their lifetimes, and
+  OpenAI's own limits on image size, count and prompt length.
 
 ## Product and policy limitations
 
@@ -458,9 +507,11 @@ Local client credentials and the OpenAI session have different jobs:
   availability, and successful requests remain separate checks.
 - The local gateway uses the selected registration only. It does not switch
   accounts or fall back to another provider or billing path.
-- Image generation/editing, audio, video, Files API management, moderation,
-  stored responses/conversations, and unsupported request parameters are not
-  enabled in the current plan gateway.
+- Audio, video, Files API management, moderation, stored
+  responses/conversations, and unsupported request parameters are not
+  enabled in the current plan gateway. Image generation and editing work only
+  through the optional VPS Codex image add-on above, never through the
+  ChatGPT sign-in.
 - The App Server child receives its short-lived access token in `ACCESS_TOKEN`.
   A trusted high-trust tool running as the same OS user can inspect its own
   process environment or files. Relmio does not claim an OS boundary that

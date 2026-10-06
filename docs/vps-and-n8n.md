@@ -208,6 +208,74 @@ fails its checks, Relmio stops it and the update stays open for another
 review. If Relmio cannot confirm that the sidecar stopped, do not use it until
 you inspect it.
 
+### Turn on image generation (optional)
+
+Image generation and editing are an opt-in add-on for an installed VPS
+sidecar. Read these points before you turn it on:
+
+- It uses a separate Codex sign-in, the way Hermes Agent's "OpenAI (Codex
+  auth)" provider does. It is not Sign in with ChatGPT. The ChatGPT plan
+  session is never used for images, and the Codex sign-in is never used for
+  text.
+- OpenAI does not document this route for other apps. It can stop working at
+  any time without notice. OpenAI recommends an API key for automation.
+- Images use your plan's Codex limits 3 to 5 times faster than text, then
+  credits. Free plans can't use it.
+- Device code sign-in must be on in ChatGPT security settings, or allowed by
+  your workspace admin.
+- Sign in with the same ChatGPT account as the sidecar.
+- The Codex access and refresh tokens are stored on the VPS in owner-only
+  files under `/docker/n8n-openai-oauth/siwc/codex-images`. Anyone with root
+  or Docker access on the server, or a copy of that folder, can read them.
+
+To turn it on, connect to the server and select its n8n container and
+network, then:
+
+1. Open **Manage the installed ChatGPT session** and choose **Check installed
+   account**. The image controls appear when this install owns the running
+   sidecar. If the panel says `Update the sidecar first (Review sidecar
+   update) to add image generation.`, [update the
+   sidecar](#update-the-installed-sidecar) and check again.
+2. Select **I understand. Sign in to Codex for images on …**, which names
+   your SSH user, host and port, then choose **Sign in for images**.
+3. Choose **Open the Codex sign-in page**
+   (`https://auth.openai.com/codex/device`), sign in, and enter the code the
+   panel shows. The code expires after 15 minutes. Relmio checks every
+   5 seconds; use **Cancel image sign-in** to stop.
+
+When you approve, the panel says `Images on for` your account and Relmio
+disconnects from the VPS. If you decline or the code expires, image
+generation stays off.
+
+In n8n, add an **OpenAI** node and choose **Image**, then **Generate an
+Image** or **Edit Image**. Use the same OpenAI credential as your chat nodes
+(the same Base URL and one-time Relmio key). For **Model**, choose **ID** and
+enter `gpt-image-2`. While images are on, the sidecar's model list also
+includes `gpt-image-2`.
+
+Limits:
+
+- Only `gpt-image-2`, one image per request, and prompts up to 32,000
+  characters.
+- No masks and no URL responses; images come back as base64, which n8n saves
+  as binary data.
+- Sizes `1024x1024`, `1024x1536`, `1536x1024` or `auto`.
+- Edits take 1 to 16 PNG, JPEG, WebP or GIF images, each up to 25 MiB, and at
+  most 48 MiB per request.
+- Relmio waits up to 5 minutes for an image and does not retry a failed one.
+
+To turn it off, choose **Check installed account**, select **I approve
+signing out of images on this server**, then choose **Sign out of images**.
+Relmio deletes the Codex sign-in from the server and asks OpenAI to revoke
+it. If OpenAI does not confirm the revocation, the panel says so; the files
+are deleted anyway. Relmio then disconnects from the VPS.
+
+The image controls need a running sidecar. **Sign out and revoke** first
+signs out of images too, as a best effort. **Pause plan use** stops the
+sidecar and keeps the Codex image sign-in on the server, so sign out of
+images first if you want it gone. For errors, see
+[Troubleshooting](troubleshooting.md#symptom-table).
+
 ## Next guides
 
 - [Configure n8n nodes](./n8n-configuration.md)
@@ -219,8 +287,10 @@ you inspect it.
 ## Unsupported ChatGPT plan capabilities
 
 The gateway provides model discovery and supported `/v1/responses` requests.
-Image generation/editing, audio, video, Files API management, moderation,
-stored responses/conversations, and unsupported parameters are rejected.
+Audio, video, Files API management, moderation, stored
+responses/conversations, and unsupported parameters are rejected. The
+Responses `image_generation` tool stays unsupported; image routes work only
+through the [optional image add-on](#turn-on-image-generation-optional).
 The Chat Completions compatibility route accepts function tools through
 `additional_tools`, with limits of 32 tool calls, 128 KiB of arguments per
 call, and 2 MiB of streamed arguments in total. It rejects a named

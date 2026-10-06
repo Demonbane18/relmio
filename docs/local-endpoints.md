@@ -239,8 +239,11 @@ unsupported request fields. Chat clients receive only final-answer text;
 reasoning items and intermediate commentary are not passed on. On 2026-10-05
 a two-turn LangChain tool test passed through the real gateway on one ChatGPT
 account, streaming over both routes. There is no account rotation or Platform
-API fallback. Image generation/edit, audio, video, Files API management,
-stored responses/conversations, and moderation are unsupported.
+API fallback. Audio, video, Files API management, stored
+responses/conversations, and moderation are unsupported. Image generation is
+an opt-in add-on for a VPS sidecar only; a local sidecar has no image sign-in,
+so its image routes return `images_off`. See
+[VPS and n8n](vps-and-n8n.md#turn-on-image-generation-optional).
 
 Legacy installations are not silently adopted or overwritten. The wizard
 requires fresh SIWC sign-in and a separately reviewed migration. A successful
@@ -847,9 +850,11 @@ confirmation and affects only the attested companion resources.
 
 The local plan gateway supports catalog discovery and text/image/file inputs
 that the selected model and documented Responses contract accept. It does not
-implement image generation or editing, audio, transcription, video, Files API
-management, moderation, stored responses/conversations, or unsupported
-Responses fields and tools. Discovery does not establish access to a model or
-capability. For exact errors and recovery, see
+implement audio, transcription, video, Files API management, moderation,
+stored responses/conversations, or unsupported Responses fields and tools,
+including the `image_generation` tool. Image generation and editing need the
+separate Codex sign-in of the VPS image add-on, which a local sidecar does not
+offer. Discovery does not establish access to a model or capability. For exact
+errors and recovery, see
 [Configure n8n nodes](n8n-configuration.md) and the
 [OpenAI source check](openai-source-check-2026-10-05.md).

@@ -76,7 +76,7 @@ const SIWC_ASSET_PATHS = new Set([
   "gateway/openai-oauth-sidecar.mjs", "gateway/codex-chat.js",
   "gateway/codex-app-server.mjs", "services/siwc-session.mjs",
   "services/siwc-handoff.mjs", "infrastructure/local-process.js",
-  "services/local-integration-lifecycle-lock.js", "infrastructure/process-identity.js",
+  "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "infrastructure/process-identity.js",
 ]);
 const DOCKER_SELECTION_VARIABLES = Object.freeze([
   "DOCKER_HOST",
@@ -1715,10 +1715,12 @@ export async function getManagedLocalEndpointStatus(
           "Dockerfile", ".dockerignore", "config.toml", "requirements.toml",
           "package.json", "package-lock.json", "services/siwc-session.mjs",
           "services/siwc-handoff.mjs", "infrastructure/local-process.js",
-          "services/local-integration-lifecycle-lock.js", "infrastructure/process-identity.js",
+          "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "infrastructure/process-identity.js",
           safeTarget === "codex-chat" ? "gateway/codex-chat.js" : "gateway/codex-app-server.mjs",
         ]) {
           const path = join(installRoot, relative);
+          // Installs made before the image add-on lack this file; verify it whenever present.
+          if (relative === "services/codex-images.mjs" && !await lstatIfExists(fileSystem, path)) continue;
           await assertRegularManagedMarker(fileSystem, path, "The installed Codex SIWC asset is unsafe.");
           await lockDownPath(path, {
             platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true,

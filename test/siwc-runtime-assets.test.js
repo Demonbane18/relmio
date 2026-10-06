@@ -9,6 +9,12 @@ import test from 'node:test';
 import { buildNpmPackage } from '../scripts/build-npm-package.js';
 import { collectSiwcRuntimeAssets } from '../src/services/siwc-runtime-assets.js';
 import {
+  INSTALL_ROOT, PRECHECK_COMMAND, SIDECAR_BUILD_IGNORE_CONTENT, SIDECAR_MANAGED_CONTEXT_GUARD,
+  createVerificationCommands,
+} from '../src/domain/safety.js';
+import { createLocalN8nSidecarDockerignore } from '../src/domain/local-n8n-sidecar.js';
+import { createLocalDockerignore } from '../src/domain/local-endpoints.js';
+import {
   commitAuthorization, ensureSiwcHost, prepareAuthHandoff, readPendingAuthHandoff, setPlanEnabled,
 } from '../src/services/siwc-session.mjs';
 
@@ -35,6 +41,7 @@ test('generated runtime package has pinned production closure and fixed credenti
   assert.equal(new Set(paths).size, paths.length);
   assert.ok(paths.includes('services/siwc-handoff.mjs'));
   assert.ok(paths.includes('services/siwc-session.mjs'));
+  assert.ok(paths.includes('services/codex-images.mjs'));
   assert.ok(paths.includes('infrastructure/local-process.js'));
   assert.ok(paths.every(path => !path.startsWith('/') && !path.includes('..') && !/auth\.json|\.codex/u.test(path)));
   assert.ok(result.files.every(file => Buffer.isBuffer(file.contents) && file.contents.length > 0));
@@ -54,6 +61,48 @@ test('collector rejects a symlinked runtime source instead of following it', asy
   await writeFile(join(tmp, 'package.json'), result.packageJson);
   await writeFile(join(tmp, 'package-lock.json'), result.packageLock);
   await assert.rejects(collectSiwcRuntimeAssets({ root }));
+});
+
+const shippedFiles = ignore => ignore.split('\n')
+  .filter(line => line.startsWith('!') && !line.endsWith('/')).map(line => line.slice(1));
+
+test('every collected runtime file is guarded and hashed, and every shipped file symlink-checked, on the VPS', async () => {
+  const { files } = await collectSiwcRuntimeAssets();
+  const tokens = command => new Set(command.split(/[\s;]+/u));
+  const guard = tokens(SIDECAR_MANAGED_CONTEXT_GUARD);
+  const staged = tokens(createVerificationCommands().stagedFiles);
+  const precheck = tokens(PRECHECK_COMMAND);
+  for (const { path } of files) {
+    assert.ok(guard.has(`${INSTALL_ROOT}/${path}`), path);
+    assert.ok(staged.has(`${INSTALL_ROOT}/${path}`), path);
+  }
+  for (const path of shippedFiles(SIDECAR_BUILD_IGNORE_CONTENT)) assert.ok(precheck.has(`${INSTALL_ROOT}/${path}`), path);
+});
+
+test('every sidecar build context ships the modules the sidecar and the image CLI import', async t => {
+  const assets = await collectSiwcRuntimeAssets();
+  for (const [name, ignore] of Object.entries({
+    vps: SIDECAR_BUILD_IGNORE_CONTENT, 'local-n8n': createLocalN8nSidecarDockerignore(),
+    'codex-chat': createLocalDockerignore('codex-chat'), 'codex-chatgpt': createLocalDockerignore('codex-chatgpt'),
+  })) await t.test(name, async t => {
+    const context = await mkdtemp(join(tmpdir(), 'relmio-siwc-context-'));
+    t.after(() => rm(context, { recursive: true, force: true }));
+    const shipped = new Set(shippedFiles(ignore));
+    for (const file of assets.files.filter(file => shipped.has(file.path))) {
+      await mkdir(dirname(join(context, file.path)), { recursive: true });
+      await writeFile(join(context, file.path), file.contents);
+    }
+    await writeFile(join(context, 'package.json'), assets.packageJson);
+    await mkdir(join(context, 'node_modules'));
+    for (const dependency of Object.keys(dependencies)) {
+      await symlink(fileURLToPath(new URL(`../node_modules/${dependency}`, import.meta.url)),
+        join(context, 'node_modules', dependency), 'junction');
+    }
+    const probe = `for (const path of ['gateway/openai-oauth-sidecar.mjs', 'services/codex-images.mjs'])
+      await import(new URL(path, process.env.RELMIO_CONTEXT_URL).href);`;
+    await execFileAsync(process.execPath, ['--input-type=module', '-e', probe], { cwd: context, timeout: 10000,
+      env: { ...process.env, RELMIO_CONTEXT_URL: pathToFileURL(`${context}/`).href } });
+  });
 });
 
 test('built npm tarball imports the collector without the repository package-lock', async t => {

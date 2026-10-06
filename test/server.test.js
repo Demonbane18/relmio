@@ -3316,3 +3316,209 @@ test("a changed host cannot authenticate with a consumed scan and must obtain a 
   assert.equal(connects, 2);
   assert.equal((await (await api(wizard.origin, "/api/ssh/connection")).json()).host, request.host);
 });
+
+const imagesContainerId = "c".repeat(64);
+const imagesTarget = Object.freeze({ containerName: "n8n-n8n-1", networkName: "proxy" });
+const imagesPending = Object.freeze({ userCode: "ABCD-1234", verificationUrl: "https://auth.openai.com/codex/device",
+  expiresAt: "2026-10-06T12:15:00.000Z", deviceAuthId: "must-not-leak-device" });
+const imagesAccount = Object.freeze({ email: "images@example.test", planType: "plus", accountIdSuffix: "abc123",
+  accountId: "must-not-leak-account", accessToken: "must-not-leak-access" });
+const imagesSecrets = Object.freeze({ accessToken: "must-not-leak-access", refreshToken: "must-not-leak-refresh",
+  containerId: imagesContainerId });
+
+async function startImagesWizard(t, services) {
+  const fixture = createServices();
+  const account = { ...siwcAccount, ownerRuntimeId: "vps_n8n" };
+  fixture.services.getVpsSiwcInstallationStatus = async () => ({ state: "owned", registrationId: account.registrationId,
+    account, runtimeUpdateAvailable: false });
+  Object.assign(fixture.services, services);
+  const wizard = await startWizardServer({ sessionToken, services: fixture.services });
+  t.after(() => wizard.close());
+  let setup;
+  const post = (path, body) => api(wizard.origin, path, { method: "POST", headers: setup.originHeader,
+    body: typeof body === "string" ? body : JSON.stringify(body) });
+  const connect = async () => { setup = await prepareVpsNetwork(wizard.origin); };
+  const reviewOwner = async () => {
+    assert.equal((await post("/api/siwc/vps/status", imagesTarget)).status, 200);
+  };
+  const checkImages = () => post("/api/siwc/vps/images/status",
+    { ...imagesTarget, registrationId: siwcAccount.registrationId });
+  await connect();
+  return { remote: fixture.remote, wizard, post, connect, reviewOwner, checkImages };
+}
+
+test("VPS image status needs the reviewed owner and returns only validated add-on fields", async (t) => {
+  const calls = [];
+  let next;
+  const images = await startImagesWizard(t, {
+    async getVpsCodexImagesStatus(input) { calls.push(input); return next; },
+    async changeVpsCodexImages() { throw new Error("must not change"); },
+  });
+  assert.equal((await images.checkImages()).status, 409);
+  assert.equal(calls.length, 0);
+
+  await images.reviewOwner();
+  next = { ...imagesSecrets, state: "signed-in", account: imagesAccount, pending: imagesPending };
+  const signedIn = await images.checkImages();
+  assert.equal(signedIn.status, 200);
+  const signedInText = await signedIn.text();
+  assert.equal(signedInText.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(signedInText), { state: "signed-in",
+    account: { email: "images@example.test", planType: "plus", accountIdSuffix: "abc123" } });
+  assert.equal(calls[0].registrationId, siwcAccount.registrationId);
+  assert.equal(calls[0].networkName, "proxy");
+  assert.equal(calls[0].reviewedTarget.n8nContainerId, "a".repeat(64));
+
+  next = { ...imagesSecrets, state: "pending", pending: imagesPending };
+  const pending = await images.checkImages();
+  assert.equal(pending.status, 200);
+  const pendingText = await pending.text();
+  assert.equal(pendingText.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(pendingText), { state: "pending", pending: { userCode: "ABCD-1234",
+    verificationUrl: "https://auth.openai.com/codex/device", expiresAt: "2026-10-06T12:15:00.000Z" } });
+
+  for (const invalid of [
+    { state: "pending", pending: { ...imagesPending, userCode: "abcd-1234" } },
+    { state: "pending", pending: { ...imagesPending, verificationUrl: "https://auth.openai.com/codex/device?next=https://example.test" } },
+    { state: "pending", pending: { ...imagesPending, verificationUrl: "http://auth.openai.com/codex/device" } },
+    { state: "signed-in", account: { ...imagesAccount, accountIdSuffix: "must-not-leak-account" } },
+    { state: "on" },
+  ]) {
+    next = { ...imagesSecrets, ...invalid };
+    const response = await images.checkImages();
+    assert.equal(response.status, 502, JSON.stringify(invalid));
+    assert.equal((await response.text()).includes("must-not-leak"), false);
+  }
+  // A rejected status leaves no target an image action could use.
+  assert.equal((await images.post("/api/siwc/vps/images/action", { action: "login-cancel", confirmed: false })).status, 409);
+});
+
+test("VPS image actions need confirmation and a live target; a finished sign-in poll detaches SSH", async (t) => {
+  const changes = [];
+  const polls = [{ state: "pending", pending: imagesPending }, { state: "signed-in", account: imagesAccount }];
+  const images = await startImagesWizard(t, {
+    async getVpsCodexImagesStatus() { return { ...imagesSecrets, state: "off" }; },
+    async changeVpsCodexImages(input) {
+      changes.push(input);
+      const result = input.action === "login-start" ? { state: "pending", pending: imagesPending }
+        : input.action === "login-poll" ? polls.shift() : { state: "off" };
+      return { ...imagesSecrets, ...result };
+    },
+  });
+  const act = (body) => images.post("/api/siwc/vps/images/action", body);
+  const poll = () => images.post("/api/siwc/vps/images/login-status", {});
+
+  assert.equal((await act({ action: "login-start", confirmed: true })).status, 409);
+  await images.reviewOwner();
+  assert.equal((await images.checkImages()).status, 200);
+  for (const body of [{ action: "login-start", confirmed: false }, { action: "login-start" },
+    { action: "login-poll", confirmed: true }, { action: "sign-out", confirmed: "true" }]) {
+    assert.equal((await act(body)).status, 400, JSON.stringify(body));
+  }
+  assert.equal((await poll()).status, 409);
+  assert.equal(changes.length, 0);
+
+  const started = await act({ action: "login-start", confirmed: true });
+  assert.equal(started.status, 200);
+  assert.equal((await started.json()).pending.userCode, "ABCD-1234");
+  assert.deepEqual({ ...changes[0], remote: undefined, reviewedTarget: undefined }, {
+    remote: undefined, reviewedTarget: undefined, networkName: "proxy", registrationId: siwcAccount.registrationId,
+    action: "login-start", expectedContainerId: imagesContainerId, confirmed: true });
+  assert.equal(changes[0].reviewedTarget.n8nContainerId, "a".repeat(64));
+  assert.equal(images.remote.closed, false);
+
+  const stillPending = await poll();
+  assert.equal(stillPending.status, 200);
+  assert.equal((await stillPending.json()).state, "pending");
+  assert.equal(changes[1].action, "login-poll");
+  assert.equal(changes[1].expectedContainerId, imagesContainerId);
+  assert.equal(images.remote.closed, false);
+
+  const finished = await poll();
+  assert.equal(finished.status, 200);
+  const finishedText = await finished.text();
+  assert.equal(finishedText.includes("must-not-leak"), false);
+  assert.equal(JSON.parse(finishedText).state, "signed-in");
+  assert.equal(images.remote.closed, true);
+  assert.equal((await poll()).ok, false);
+  assert.equal(changes.length, 3);
+
+  images.remote.closed = false;
+  await images.connect();
+  await images.reviewOwner();
+  assert.equal((await images.checkImages()).status, 200);
+  const cancelled = await act({ action: "login-cancel", confirmed: false });
+  assert.equal(cancelled.status, 200);
+  assert.deepEqual(await cancelled.json(), { state: "off" });
+  assert.equal(changes[3].action, "login-cancel");
+  assert.equal(images.remote.closed, false);
+  const later = Date.now() + 21 * 60_000;
+  t.mock.method(Date, "now", () => later);
+  assert.equal((await act({ action: "login-cancel", confirmed: true })).status, 409);
+  assert.equal(changes.length, 4);
+});
+
+test("VPS image sign-out is confirmed, always detaches SSH and needs a target from this connection", async (t) => {
+  const changes = [];
+  let failSignOut = false;
+  const images = await startImagesWizard(t, {
+    async getVpsCodexImagesStatus() { return { ...imagesSecrets, state: "signed-in", account: imagesAccount }; },
+    async changeVpsCodexImages(input) {
+      changes.push(input);
+      if (failSignOut) throw new Error("The Codex image sign-in step failed.");
+      return { ...imagesSecrets, state: "off", revocation: "unconfirmed" };
+    },
+  });
+  const signOut = (confirmed) => images.post("/api/siwc/vps/images/action", { action: "sign-out", confirmed });
+
+  await images.reviewOwner();
+  assert.equal((await images.checkImages()).status, 200);
+  assert.equal((await images.post("/api/siwc/vps/images/login-status", {})).status, 409);
+  assert.equal((await signOut(false)).status, 400);
+  assert.equal((await images.post("/api/disconnect", {})).status, 200);
+  images.remote.closed = false;
+  await images.connect();
+  assert.equal((await signOut(true)).status, 409);
+  assert.equal(changes.length, 0);
+
+  await images.reviewOwner();
+  assert.equal((await images.checkImages()).status, 200);
+  const signedOut = await signOut(true);
+  assert.equal(signedOut.status, 200);
+  const text = await signedOut.text();
+  assert.equal(text.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(text), { state: "off", revocation: "unconfirmed" });
+  assert.equal(changes[0].confirmed, true);
+  assert.equal(images.remote.closed, true);
+
+  images.remote.closed = false;
+  await images.connect();
+  await images.reviewOwner();
+  assert.equal((await images.checkImages()).status, 200);
+  failSignOut = true;
+  assert.equal((await signOut(true)).ok, false);
+  assert.equal(changes.length, 2);
+  assert.equal(images.remote.closed, true);
+});
+
+test("local-model-only SSH sessions cannot reach VPS image routes", async (t) => {
+  let calls = 0;
+  const { services } = createServices();
+  services.getVpsCodexImagesStatus = async () => { calls++; return { state: "off", containerId: imagesContainerId }; };
+  services.changeVpsCodexImages = async () => { calls++; return { state: "off", containerId: imagesContainerId }; };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const headers = { Origin: wizard.origin };
+  const { fingerprint } = await (await api(wizard.origin, "/api/ssh/fingerprint", { method: "POST", headers,
+    body: JSON.stringify({ host: exampleHost, port: 22 }) })).json();
+  assert.equal((await api(wizard.origin, "/api/ssh/connect", { method: "POST", headers, body: JSON.stringify({
+    host: exampleHost, port: 22, username: "ubuntu", useAgent: false, privilege: "sudo-n",
+    password: fixturePassword, expectedFingerprint: fingerprint,
+  }) })).status, 200);
+  for (const path of ["/api/siwc/vps/images/status", "/api/siwc/vps/images/action", "/api/siwc/vps/images/login-status"]) {
+    const response = await api(wizard.origin, path, { method: "POST", headers, body: "not-json:must-not-be-parsed" });
+    assert.equal(response.status, 403, path);
+    assert.match((await response.json()).error, /local-model-only/u);
+  }
+  assert.equal(calls, 0);
+});

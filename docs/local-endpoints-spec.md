@@ -80,7 +80,9 @@ owns the SIWC store. Connect only trusted local clients.
 ## n8n sidecar
 
 The sidecar accepts a Relmio bearer and forwards only `GET /v1/models`,
-`POST /v1/responses`, and a compatibility `POST /v1/chat/completions` route.
+`POST /v1/responses`, and a compatibility `POST /v1/chat/completions` route,
+plus `POST /v1/images/generations` and `/v1/images/edits` when the VPS image
+add-on is on.
 Responses requests are bound to the selected registration and public
 `api.openai.com/v1/responses`; only a completed provider response is success.
 Streamed Responses events pass through unchanged. When OpenAI's final event
@@ -101,9 +103,11 @@ real gateway on one ChatGPT account, streaming over both routes; other
 accounts, models, and non-streaming tool calls were not tested live.
 
 Unsupported request fields and tool types, background requests, stored response
-or conversation IDs, audio/video, image-generation/edit routes, audio endpoints,
-Files management, Moderations, Live/Realtime, Video, and other unimplemented
-routes are rejected, not forwarded. Model listing is not proof of entitlement
+or conversation IDs, audio/video, audio endpoints, Files management,
+Moderations, Live/Realtime, Video, and other unimplemented routes are rejected,
+not forwarded. The image routes answer only through the opt-in VPS image
+add-on, which uses a separate Codex sign-in; a local sidecar has no image
+sign-in and returns `images_off`. Model listing is not proof of entitlement
 or admission. Errors do not switch registrations or fall back to Platform API
 billing. `store:false` is not a zero-retention promise.
 
