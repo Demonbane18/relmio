@@ -3003,6 +3003,116 @@ test("VPS pending transfer reconciliation is confirmed, single-use and result-ba
     method: "POST", headers: setup.originHeader, body: JSON.stringify({ reviewId: body.reviewId, confirmed: true }) })).status, 409);
 });
 
+test("VPS sidecar runtime update is reviewed, confirmed, single-use, expiring and always detaches", async (t) => {
+  const { remote, services } = createServices();
+  const account = { ...siwcAccount, ownerRuntimeId: "vps_n8n" };
+  const target = { containerName: "n8n-n8n-1", networkName: "proxy" };
+  const review = Object.freeze({ installId: "must_not_leak_install", registrationId: account.registrationId,
+    stage: "complete", continuing: false, checkpointSha256: "c".repeat(64), containerId: "d".repeat(64),
+    imageId: `sha256:${"e".repeat(64)}`, changedFiles: ["Dockerfile", "src/server.js"], rebuildRequired: true,
+    operationLockIdentity: "must-not-leak" });
+  let nextReview = { ...review, rebuildRequired: false, changedFiles: [] };
+  let failNext = false;
+  const updates = [];
+  services.getVpsSiwcInstallationStatus = async () => ({ state: "owned", registrationId: account.registrationId,
+    account, runtimeUpdateAvailable: true, imageSourceSha256: "must-not-leak" });
+  services.reviewVpsSiwcRuntimeUpdate = async ({ reviewedTarget, registrationId }) => {
+    assert.equal(reviewedTarget.n8nContainerId, "a".repeat(64));
+    assert.equal(registrationId, account.registrationId);
+    return nextReview;
+  };
+  services.updateVpsSiwcRuntime = async (input) => {
+    updates.push(input);
+    if (failNext) {
+      throw Object.assign(new Error("compose up failed must-not-leak"), { recovery: "review-again",
+        safeMessage: "The updated sidecar did not start. Review the update again.",
+        runtimeState: "stopped", hostPublication: "none" });
+    }
+    return { registrationId: account.registrationId, imageId: `sha256:${"f".repeat(64)}`,
+      containerId: "9".repeat(64), account, runtimeState: "running", keyChanged: false,
+      clientCredential: "must-not-leak" };
+  };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  let setup;
+  const post = (path, body) => api(wizard.origin, path, { method: "POST", headers: setup.originHeader,
+    body: JSON.stringify(body) });
+  const leaks = (text) => text.includes("must-not-leak") || text.includes("must_not_leak");
+  const checkStatus = async () => {
+    const response = await post("/api/siwc/vps/status", target);
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.equal(JSON.parse(text).runtimeUpdateAvailable, true);
+    assert.equal(leaks(text), false);
+  };
+  const reviewUpdate = async () => {
+    const response = await post("/api/siwc/vps/runtime-update/review",
+      { ...target, registrationId: account.registrationId });
+    assert.equal(response.status, 200);
+    const text = await response.text();
+    assert.equal(leaks(text), false);
+    return JSON.parse(text);
+  };
+
+  setup = await prepareVpsNetwork(wizard.origin);
+  assert.equal((await post("/api/siwc/vps/runtime-update/apply",
+    { reviewId: "00000000-0000-4000-8000-000000000000", confirmed: true })).status, 409);
+  await checkStatus();
+  assert.deepEqual(await reviewUpdate(), { rebuildRequired: false });
+  nextReview = review;
+  const declined = await reviewUpdate();
+  assert.deepEqual({ ...declined, reviewId: undefined }, { reviewId: undefined, stage: "complete",
+    continuing: false, changedFiles: ["Dockerfile", "src/server.js"], rebuildRequired: true,
+    imageId: `sha256:${"e".repeat(12)}`, containerId: "d".repeat(12) });
+  assert.equal((await post("/api/siwc/vps/runtime-update/apply",
+    { reviewId: declined.reviewId, confirmed: false })).status, 409);
+  assert.equal(updates.length, 0);
+  assert.equal(remote.closed, false);
+
+  const approved = await reviewUpdate();
+  const applied = await post("/api/siwc/vps/runtime-update/apply", { reviewId: approved.reviewId, confirmed: true });
+  assert.equal(applied.status, 200);
+  const appliedText = await applied.text();
+  assert.equal(leaks(appliedText), false);
+  const result = JSON.parse(appliedText);
+  assert.equal(result.account.registrationId, account.registrationId);
+  assert.equal(result.runtimeState, "running");
+  assert.equal(result.keyChanged, false);
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].review, review);
+  assert.equal(updates[0].confirmed, true);
+  assert.equal(updates[0].registrationId, account.registrationId);
+  assert.equal(updates[0].reviewedTarget.networkId, "b".repeat(64));
+  assert.equal(remote.closed, true);
+
+  setup = await prepareVpsNetwork(wizard.origin);
+  await checkStatus();
+  assert.equal((await post("/api/siwc/vps/runtime-update/apply",
+    { reviewId: approved.reviewId, confirmed: true })).status, 409);
+  assert.equal(updates.length, 1);
+
+  const failing = await reviewUpdate();
+  failNext = true;
+  remote.closed = false;
+  const failed = await post("/api/siwc/vps/runtime-update/apply", { reviewId: failing.reviewId, confirmed: true });
+  assert.equal(failed.ok, false);
+  const failedText = await failed.text();
+  assert.equal(leaks(failedText), false);
+  assert.equal(JSON.parse(failedText).recovery, "review-again");
+  assert.equal(updates.length, 2);
+  assert.equal(remote.closed, true);
+
+  setup = await prepareVpsNetwork(wizard.origin);
+  await checkStatus();
+  const expiring = await reviewUpdate();
+  const later = Date.now() + 6 * 60_000;
+  t.mock.method(Date, "now", () => later);
+  await checkStatus();
+  assert.equal((await post("/api/siwc/vps/runtime-update/apply",
+    { reviewId: expiring.reviewId, confirmed: true })).status, 409);
+  assert.equal(updates.length, 2);
+});
+
 test("VPS resume keeps reviewed checkpoint and transferred source binding and delivers finalization key once", async (t) => {
   const { services } = createServices();
   const account = { ...siwcAccount, ownership: "transferred", session: "signed-out", planEnabled: false };

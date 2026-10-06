@@ -119,6 +119,10 @@ Installing a newer Relmio package updates the wizard, not an already-running
 sidecar. Use the current ownership-attested action for the exact target and
 review its plan; see the
 [maintenance guide](https://github.com/Demonbane18/relmio/blob/main/docs/maintenance.md).
+For an installed VPS ChatGPT sidecar, that action is **Review sidecar update**
+under **Manage the installed ChatGPT session**. It rebuilds only the sidecar
+and keeps the ChatGPT sign-in and the one-time key; see
+[Update the installed sidecar](https://github.com/Demonbane18/relmio/blob/main/docs/vps-and-n8n.md#update-the-installed-sidecar).
 Relmio leaves retired API-key gateways and their credential volumes untouched.
 
 Older credential-copy ChatGPT bridges are not silently adopted. A reviewed

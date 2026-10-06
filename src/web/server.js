@@ -14,7 +14,7 @@ import { discoverN8n, discoverNetworks } from "../services/discovery.js";
 import {
   getVpsSiwcInstallationStatus, inspectStoppedVpsSiwcInstallation, installSidecar,
   manageVpsSiwcInstallation, reviewVpsLegacyMigration, reviewVpsSiwcReplacement, reviewVpsSiwcTarget,
-  reviewVpsSiwcResume, reconcileVpsSiwcHandoff,
+  reviewVpsSiwcResume, reconcileVpsSiwcHandoff, reviewVpsSiwcRuntimeUpdate, updateVpsSiwcRuntime,
 } from "../services/installer.js";
 import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels } from "../services/vps-supergrok.js";
 import { inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus } from "../services/vps-local-model.js";
@@ -193,6 +193,8 @@ const defaultServices = {
   reviewVpsSiwcTarget,
   reviewVpsSiwcResume,
   reconcileVpsSiwcHandoff,
+  reviewVpsSiwcRuntimeUpdate,
+  updateVpsSiwcRuntime,
   inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels,
   inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus,
   installAssistant,
@@ -432,6 +434,7 @@ function invalidateSiwcWork(state) {
   state.vpsStoppedOwnerReview = null;
   state.localDashboardGeneration += 1;
   state.siwcRecoveryReview = null;
+  state.vpsRuntimeUpdateReview = null;
   state.localChatTest.resetAll?.();
 }
 
@@ -842,10 +845,25 @@ function requireFullVpsScope(connection) {
   }
 }
 
+const VPS_OWNER_TARGET_FIELDS = Object.freeze(["host", "port", "fingerprint", "username", "authentication",
+  "privilege", "loginUid", "effectiveUid", "containerName", "networkName"]);
+
+function requireReviewedVpsOwnerTarget(state, containerName, networkName) {
+  const prior = state.vpsOwnerTargetReview;
+  const current = { ...state.connectionIdentity, containerName, networkName };
+  if (!prior || prior.expiresAt <= Date.now() ||
+      !VPS_OWNER_TARGET_FIELDS.every((key) => prior.reviewedTarget[key] === current[key])) {
+    throw Object.assign(new Error("Review this VPS owner and destination again."),
+      { statusCode: 409, recovery: "review-again" });
+  }
+  return prior.reviewedTarget;
+}
+
 function credentialBearingVpsRoute(path) {
   return path === "/api/plan" || path === "/api/install" ||
     path === "/api/siwc/vps/status" || path === "/api/siwc/vps/manage" ||
     path === "/api/siwc/vps/inspect-stopped" || path.startsWith("/api/siwc/vps/recovery/") ||
+    path === "/api/siwc/vps/runtime-update/review" || path === "/api/siwc/vps/runtime-update/apply" ||
     path === "/api/assistant/plan" || path === "/api/assistant/install" ||
     path.startsWith("/api/vps/supergrok/");
 }
@@ -960,6 +978,7 @@ function advanceVpsLifecycleGeneration(state) {
 function invalidateVpsPlans(state) {
   state.vpsOwnerTargetReview = null;
   state.siwcRecoveryReview = null;
+  state.vpsRuntimeUpdateReview = null;
   state.sidecarPlan = null;
   state.assistantPlan = null;
   invalidateSuperGrokPlan(state);
@@ -5430,20 +5449,10 @@ async function handleApi(request, response, path, state) {
     let credentialOperation;
     try {
       requireFullVpsScope(connection);
-      const currentTarget = { ...state.connectionIdentity,
-        containerName: body.containerName, networkName: body.networkName };
-      const priorTarget = state.vpsOwnerTargetReview;
-      if ((managing || inspecting) &&
-          (!priorTarget || priorTarget.expiresAt <= Date.now() ||
-            !["host", "port", "fingerprint", "username", "authentication", "privilege",
-              "loginUid", "effectiveUid", "containerName", "networkName"].every(
-              (key) => priorTarget.reviewedTarget[key] === currentTarget[key]))) {
-        throw Object.assign(new Error("Review this VPS owner and destination again."),
-          { statusCode: 409, recovery: "review-again" });
-      }
       const reviewedTarget = managing || inspecting
-        ? priorTarget.reviewedTarget
-        : Object.freeze({ ...currentTarget,
+        ? requireReviewedVpsOwnerTarget(state, body.containerName, body.networkName)
+        : Object.freeze({ ...state.connectionIdentity,
+          containerName: body.containerName, networkName: body.networkName,
           ...await state.services.reviewVpsSiwcTarget({
             remote: connection, networkName: body.networkName, containerName: body.containerName,
           }) });
@@ -5460,7 +5469,9 @@ async function handleApi(request, response, path, state) {
             networkId: reviewedTarget.networkId },
           ...(status.account ? { account: copySiwcAccountView(status.account) } : {}),
           ...(status.registrationId ? { registrationId: requireSiwcId(status.registrationId) } : {}),
-          ...(status.state === "staged" ? { staging: copySiwcStaging(status.staging) } : {}),
+          ...(["staged", "updating"].includes(status.state) ? { staging: copySiwcStaging(status.staging) } : {}),
+          ...(status.state === "owned" && typeof status.runtimeUpdateAvailable === "boolean"
+            ? { runtimeUpdateAvailable: status.runtimeUpdateAvailable } : {}),
         });
         return;
       }
@@ -5514,6 +5525,89 @@ async function handleApi(request, response, path, state) {
       });
     } finally {
       credentialOperation?.release();
+      if (releaseMutation) {
+        detachVpsConnection(state, connection);
+        releaseMutation();
+      }
+      connectionUse.release();
+    }
+    return;
+  }
+
+  if (path === "/api/siwc/vps/runtime-update/review" || path === "/api/siwc/vps/runtime-update/apply") {
+    requireLiveLocalAction(state, "VPS ChatGPT sidecar update");
+    enforceRateLimit(state, path);
+    const applying = path.endsWith("/apply");
+    requireExactRequestBody(body, applying ? ["reviewId", "confirmed"] : ["containerName", "networkName", "registrationId"],
+      "Review this exact installed sidecar before updating it.");
+    // Also refuses while a ChatGPT sign-in or credential change is in flight.
+    rejectActiveVpsMutation(state);
+    const pending = applying ? state.vpsRuntimeUpdateReview : null;
+    if (applying) {
+      state.vpsRuntimeUpdateReview = null;
+      if (body.confirmed !== true || !pending || pending.expiresAt <= Date.now() ||
+          !tokenMatches(body.reviewId, pending.reviewId)) {
+        throw Object.assign(new Error("Review and confirm this sidecar update again."),
+          { statusCode: 409, recovery: "review-again" });
+      }
+    }
+    const containerName = applying ? pending.reviewedTarget.containerName : body.containerName;
+    const networkName = applying ? pending.reviewedTarget.networkName : body.networkName;
+    requireDiscoveredNetwork(state, containerName, networkName);
+    const registrationId = applying ? pending.registrationId : requireSiwcId(body.registrationId);
+    const ownerTarget = requireReviewedVpsOwnerTarget(state, containerName, networkName);
+    if (applying && ![...VPS_OWNER_TARGET_FIELDS, "n8nContainerId", "networkId"].every(
+      (key) => ownerTarget[key] === pending.reviewedTarget[key])) {
+      throw Object.assign(new Error("Review this VPS owner and destination again."),
+        { statusCode: 409, recovery: "review-again" });
+    }
+    const reviewedTarget = applying ? pending.reviewedTarget : ownerTarget;
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    let operation;
+    let releaseMutation;
+    try {
+      requireFullVpsScope(connection);
+      if (!applying) {
+        operation = acquireVpsCredentialOperation(state, "runtime-update-review");
+        state.vpsRuntimeUpdateReview = null;
+        const review = await state.services.reviewVpsSiwcRuntimeUpdate({
+          remote: connection, networkName, reviewedTarget, registrationId,
+        });
+        if (review?.rebuildRequired === false) {
+          sendJson(response, 200, { rebuildRequired: false });
+          return;
+        }
+        if (review?.rebuildRequired !== true || review.registrationId !== registrationId ||
+            typeof review.continuing !== "boolean" || !/^[a-z][a-z0-9-]{0,63}$/u.test(review.stage ?? "") ||
+            !/^[a-f0-9]{64}$/u.test(review.containerId ?? "") ||
+            !/^sha256:[a-f0-9]{64}$/u.test(review.imageId ?? "") ||
+            !Array.isArray(review.changedFiles) || review.changedFiles.some((file) => typeof file !== "string" ||
+              !/^[A-Za-z0-9._-]{1,128}(?:\/[A-Za-z0-9._-]{1,128}){0,15}$/u.test(file) ||
+              file.split("/").some((part) => part === "." || part === ".."))) {
+          throw Object.assign(new Error("The sidecar update review is invalid."), { statusCode: 502 });
+        }
+        const reviewId = randomUUID();
+        state.vpsRuntimeUpdateReview = { reviewId, review, reviewedTarget, registrationId,
+          expiresAt: Date.now() + 5 * 60_000 };
+        sendJson(response, 200, { reviewId, stage: review.stage, continuing: review.continuing,
+          changedFiles: [...review.changedFiles], rebuildRequired: true,
+          imageId: review.imageId.slice(0, 19), containerId: review.containerId.slice(0, 12) });
+        return;
+      }
+      releaseMutation = acquireVpsMutationLock(state);
+      const result = await state.services.updateVpsSiwcRuntime({
+        remote: connection, networkName, reviewedTarget, registrationId, review: pending.review, confirmed: true,
+      });
+      invalidateSiwcWork(state);
+      const account = copySiwcAccountView(result?.account);
+      if (result.registrationId !== registrationId || account.registrationId !== registrationId ||
+          account.ownership !== "owned" || result.runtimeState !== "running" || result.keyChanged !== false) {
+        throw Object.assign(new Error("The sidecar update result was not confirmed."), { statusCode: 502 });
+      }
+      sendJson(response, 200, { account, runtimeState: "running", keyChanged: false });
+    } finally {
+      operation?.release();
       if (releaseMutation) {
         detachVpsConnection(state, connection);
         releaseMutation();
@@ -5589,7 +5683,8 @@ async function handleApi(request, response, path, state) {
         const detail = {
           staged: "An earlier installation on this server was interrupted. Open Recover a transfer or staged installation to resume it.",
           partial: "An earlier migration on this server started but did not finish. Open Recover a transfer or staged installation.",
-          owned: "A ChatGPT plan sidecar is already installed and running here. Manage it, or sign it out before replacing it.",
+          owned: "A ChatGPT plan sidecar is already installed and running here. To update it, open Manage the installed ChatGPT session and review the sidecar update.",
+          updating: "A sidecar update on this server was interrupted. Open Manage the installed ChatGPT session to finish it.",
         }[installed?.state] ?? "The installed sidecar must be signed out or manually recovered before another write.";
         throw Object.assign(new Error(detail),
           { statusCode: 409, recovery: "review-again", code: `vps_sidecar_${installed?.state ?? "unknown"}` });
@@ -6158,6 +6253,7 @@ export async function startWizardServer({
     sidecarPlan: null,
     vpsStoppedOwnerReview: null,
     vpsOwnerTargetReview: null,
+    vpsRuntimeUpdateReview: null,
     assistantPlan: null,
     supergrokPlan: null,
     supergrokPlanGeneration: 0,

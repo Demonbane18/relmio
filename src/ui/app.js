@@ -36,6 +36,7 @@ const state = {
   loginIntent: { purpose: "sign-in" },
   catalogLabels: new Map(),
   vpsOwner: null,
+  vpsOwnerUpdate: null,
   planMigrationRequired: false,
   planReplacementRequired: false,
   vpsReconnectRequired: false,
@@ -981,6 +982,7 @@ function resetVpsOwner() {
   element("vps-owner-replace").hidden = true;
   element("vps-owner-confirm").checked = false;
   element("vps-owner-background-confirm").checked = false;
+  renderVpsOwnerUpdate(null);
   element("vps-owner-status").textContent = "Choose the n8n container and network, then check the installed account.";
 }
 
@@ -1967,13 +1969,14 @@ function renderVpsOwner(status, { reviewedStopped = false } = {}) {
     identity: sshSession.adoptedIdentity(),
   };
   state.vpsOwner = { ...target, state: status.state,
-    registrationId: status.registrationId ?? account?.registrationId, account, reviewedStopped };
+    registrationId: status.registrationId ?? account?.registrationId ?? status.staging?.registrationId, account, reviewedStopped };
   const stopped = status.state === "stopped" && !account && Boolean(status.registrationId);
   element("vps-owner-inspect-row").hidden = !stopped;
   element("vps-owner-inspect").hidden = !stopped;
   element("vps-owner-inspect-confirm").checked = false;
   element("vps-owner-confirm").checked = false;
   element("vps-owner-background-confirm").checked = false;
+  renderVpsOwnerUpdate(status, account);
   const mutable = account?.ownership === "owned" && account.session !== "signed-out" &&
     (status.state === "owned" || reviewedStopped);
   element("vps-owner-actions").hidden = !mutable;
@@ -1990,8 +1993,25 @@ function renderVpsOwner(status, { reviewedStopped = false } = {}) {
       ? account.planEnabled ? "Using ChatGPT plan." : "Plan use paused." : "Signed out."}`
     : stopped ? "The sidecar is stopped. Confirm a one-off owner inspection before changing its session."
       : status.state === "legacy" ? "Legacy bridge found. Review a fresh SIWC migration. The old credential stays offline."
-        : status.state === "partial" ? "Owner state is partial. Inspect the service manually before another write."
-          : "No attested installed ChatGPT account was found on this selected network.";
+        : status.state === "updating" ? "A sidecar update did not finish."
+          : status.state === "partial" ? "Owner state is partial. Inspect the service manually before another write."
+            : "No attested installed ChatGPT account was found on this selected network.";
+}
+
+function renderVpsOwnerUpdate(status, account = null) {
+  state.vpsOwnerUpdate = null;
+  const owned = status?.state === "owned" && account?.ownership === "owned";
+  const updating = status?.state === "updating";
+  element("vps-owner-update").hidden = !owned && !updating;
+  element("vps-owner-update-plan").hidden = true;
+  element("vps-owner-update-confirm").checked = false;
+  element("vps-owner-update-apply").disabled = true;
+  element("vps-owner-update-summary").textContent = "";
+  element("vps-owner-update-status").textContent = updating
+    ? `A sidecar update was interrupted at stage ${status.staging?.stage ?? "unknown"}. Review it to finish.`
+    : status?.runtimeUpdateAvailable === true ? "A newer sidecar runtime is available."
+      : status?.runtimeUpdateAvailable === false ? "The sidecar runtime is current."
+        : "Review the sidecar update to compare it with this Relmio version.";
 }
 
 function updateVpsOwnerApproval() {
@@ -2096,6 +2116,77 @@ for (const [id, action] of [
   ["vps-owner-enable", "enable-plan"], ["vps-owner-disable", "disable-plan"],
   ["vps-owner-logout", "sign-out"],
 ]) element(id).addEventListener("click", (event) => { void manageVpsOwner(action, event.currentTarget); });
+
+element("vps-owner-update-review").addEventListener("click", async (event) => {
+  const owner = state.vpsOwner;
+  if (!owner?.registrationId || !["owned", "updating"].includes(owner.state)) {
+    showError(new Error("Check the installed account before reviewing a sidecar update."));
+    return;
+  }
+  const button = event.currentTarget;
+  clearError();
+  state.vpsOwnerUpdate = null;
+  element("vps-owner-update-plan").hidden = true;
+  element("vps-owner-update-confirm").checked = false;
+  element("vps-owner-update-apply").disabled = true;
+  try {
+    const result = await runOperation(button, "Reviewing the sidecar update…", () =>
+      api("/api/siwc/vps/runtime-update/review", { method: "POST", body: {
+        containerName: owner.containerName, networkName: owner.networkName,
+        registrationId: owner.registrationId,
+      } }));
+    if (!result || state.vpsOwner !== owner) return;
+    if (result.rebuildRequired === false) {
+      element("vps-owner-update-status").textContent = "Already current. Nothing to update.";
+      return;
+    }
+    const identity = sshSession.adoptedIdentity();
+    const count = result.changedFiles.length;
+    element("vps-owner-update-summary").textContent = "Rebuild and restart only the Relmio sidecar from this Relmio version. " +
+      `${count} runtime ${count === 1 ? "file changes" : "files change"}. ` +
+      "The ChatGPT sign-in and the one-time Relmio key stay the same. " +
+      "The sidecar is unavailable for about a minute. n8n is not stopped or restarted. " +
+      `Image ${result.imageId}, container ${result.containerId}.`;
+    element("vps-owner-update-confirm-label").textContent =
+      `I approve rebuilding and restarting only this owned sidecar on ${identity.username}@${identity.host}:${identity.port}.`;
+    state.vpsOwnerUpdate = { reviewId: result.reviewId };
+    element("vps-owner-update-plan").hidden = false;
+  } catch (error) { showError(error); }
+});
+
+element("vps-owner-update-confirm").addEventListener("change", (event) => {
+  element("vps-owner-update-apply").disabled = !event.currentTarget.checked || !state.vpsOwnerUpdate;
+});
+
+element("vps-owner-update-apply").addEventListener("click", async (event) => {
+  const owner = state.vpsOwner;
+  const update = state.vpsOwnerUpdate;
+  if (!owner || !update || !element("vps-owner-update-confirm").checked) {
+    showError(new Error("Review the sidecar update and confirm it first."));
+    return;
+  }
+  const button = event.currentTarget;
+  clearError();
+  state.vpsOwnerUpdate = null;
+  try {
+    const result = await runOperation(button, "Updating the sidecar…", () =>
+      api("/api/siwc/vps/runtime-update/apply", { method: "POST", body: {
+        reviewId: update.reviewId, confirmed: true,
+      } }));
+    if (!result) return;
+    renderVpsOwner({ state: "owned", registrationId: result.account.registrationId, account: result.account,
+      runtimeUpdateAvailable: false,
+      destination: { n8nContainerId: owner.n8nContainerId, networkId: owner.networkId } });
+    const message = "Sidecar updated. The one-time key and sign-in are unchanged.";
+    element("vps-owner-update-status").textContent = message;
+    setMessage(message);
+  } catch (error) { showError(error); }
+  finally {
+    await api("/api/disconnect", { method: "POST", body: {} }).catch(() => {});
+    clearEndedVpsConnectionState({ preserveOwner: true });
+    showStep(2);
+  }
+});
 
 element("vps-owner-replace").addEventListener("click", () => {
   const owner = state.vpsOwner;

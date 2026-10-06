@@ -164,7 +164,9 @@ For local endpoints, select the exact target and use the dashboard's reviewed
 management action. For VPS, confirm the SSH host fingerprint before
 authentication, review the selected server identity, and give a separate
 final confirmation for remote writes. Never publish port `10531` or change
-the existing n8n service to recover the sidecar.
+the existing n8n service to recover the sidecar. To rebuild an installed VPS
+ChatGPT sidecar from the current version, follow
+[Update the installed sidecar](vps-and-n8n.md#update-the-installed-sidecar).
 
 ## Recheck OpenAI sources
 

@@ -431,6 +431,18 @@
                           <button id="vps-owner-logout" class="rm-button rm-button--sm" type="button" disabled>Sign out and revoke</button>
                         </div>
                       </div>
+                      <div id="vps-owner-update" hidden>
+                        <p id="vps-owner-update-status" class="rm-small" role="status" aria-live="polite"></p>
+                        <button id="vps-owner-update-review" class="rm-button rm-button--sm" type="button">Review sidecar update</button>
+                        <div id="vps-owner-update-plan" hidden>
+                          <p id="vps-owner-update-summary" class="rm-small"></p>
+                          <label class="rm-check">
+                            <input id="vps-owner-update-confirm" type="checkbox" />
+                            <span id="vps-owner-update-confirm-label">I approve rebuilding and restarting only this owned sidecar.</span>
+                          </label>
+                          <button id="vps-owner-update-apply" class="rm-button rm-button--sm" type="button" disabled>Update the sidecar</button>
+                        </div>
+                      </div>
                       <button id="vps-owner-replace" class="rm-button rm-button--sm" type="button" hidden>Review replacement with a fresh account</button>
                     </div>
                   </details>

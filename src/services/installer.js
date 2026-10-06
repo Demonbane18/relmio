@@ -51,6 +51,8 @@ const ASSET_PATHS = new Set([
 ]);
 
 const DOCKER_ID = /^[a-f0-9]{64}$/u;
+const IMAGE_ID = /^sha256:[a-f0-9]{64}$/u;
+const RUNTIME_UPDATE_PENDING = "Finish the interrupted sidecar update from Manage the installed ChatGPT session.";
 
 export async function reviewVpsSiwcTarget({ remote, networkName, containerName }) {
   const network = validateDockerName(networkName);
@@ -241,6 +243,51 @@ const TARGET_FIELDS = ["host", "port", "fingerprint", "username", "authenticatio
   "n8nContainerId", "networkId"];
 const STAGES = new Set(["preparing", "context", "built", "transferred", "complete"]);
 
+// Everything the image is built from; the Compose file (one-time key verifier) is per install.
+function managedRuntimeFiles(assets) {
+  const files = new Map([
+    [MANAGED_MARKER_PATH, SIDECAR_MARKER_CONTENT],
+    [SIDECAR_BUILD_IGNORE_PATH, SIDECAR_BUILD_IGNORE_CONTENT],
+    [`${INSTALL_ROOT}/Dockerfile`, createDockerfile()],
+    [`${INSTALL_ROOT}/package.json`, assets.packageJson],
+    [`${INSTALL_ROOT}/package-lock.json`, assets.packageLock],
+  ]);
+  for (const asset of assets.files) {
+    if (!ASSET_PATHS.has(asset.path) || !Buffer.isBuffer(asset.contents)) {
+      throw new Error("The packaged SIWC runtime assets are invalid.");
+    }
+    files.set(`${INSTALL_ROOT}/${asset.path}`, asset.contents);
+  }
+  return files;
+}
+
+function imageSourceDigest(files) {
+  return sha256([...files]
+    .filter(([path]) => path !== `${INSTALL_ROOT}/docker-compose.yml` && path !== MANAGED_MARKER_PATH)
+    .map(([path, contents]) => `${sha256(contents)}  ${path}\n`).sort().join(""));
+}
+
+async function inspectResumeLock(remote, allowHeld = true) {
+  const lock = (await runOrThrow(remote, inspectVpsResumeLockCommand(VPS_OPERATION_LOCKS.oauth),
+    "Interrupted SIWC operation lock check")).stdout.trim();
+  if (lock !== "none" && (!allowHeld || !/^\d+:\d+$/u.test(lock))) {
+    throw new Error("The interrupted operation lock is uncertain. An administrator must inspect it.");
+  }
+  return lock === "none" ? undefined : lock;
+}
+
+async function attestLiveAccount(remote, registrationId) {
+  const account = parseHandoffOutput(
+    (await runOrThrow(remote, createVerificationCommands().accountLive, "Destination SIWC account check")).stdout,
+    "Destination SIWC account check",
+  ).account;
+  if (account?.registrationId !== registrationId || account?.ownership !== "owned" ||
+      account?.ownerRuntimeId !== "vps_n8n") {
+    throw new Error("The installed SIWC account could not be attested.");
+  }
+  return account;
+}
+
 async function readStaging(remote, reviewedTarget, { allowTargetRefresh = false } = {}) {
   const output = (await runOrThrow(remote, createVerificationCommands().staging,
     "SIWC staging ownership check")).stdout;
@@ -275,6 +322,7 @@ async function attestStagedFiles(remote, checkpoint) {
       Object.keys(checkpoint.files ?? {}).some(path => !Object.hasOwn(files, path))) {
     throw new Error("A required staged SIWC file is missing.");
   }
+  return files;
 }
 
 async function publishCheckpoint(remote, checkpoint, stage) {
@@ -297,21 +345,18 @@ export async function reviewVpsSiwcResume({
   validateSiwcRegistrationId(registrationId);
   await reattestReviewedTarget(remote, reviewedTarget);
   const staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: true });
+  if (staging?.checkpoint.runtimeUpdate) throw new Error(RUNTIME_UPDATE_PENDING);
   if (!staging || (staging.checkpoint.registrationId !== registrationId &&
       staging.checkpoint.notAccepted !== true)) {
     throw new Error("There is no matching interrupted SIWC installation to resume.");
   }
   await attestStagedFiles(remote, staging.checkpoint);
-  const lock = (await runOrThrow(remote, inspectVpsResumeLockCommand(VPS_OPERATION_LOCKS.oauth),
-    "Interrupted SIWC operation lock check")).stdout.trim();
-  if (lock !== "none" && !/^\d+:\d+$/u.test(lock)) {
-    throw new Error("The interrupted operation lock is uncertain. An administrator must inspect it.");
-  }
+  const lock = await inspectResumeLock(remote);
   return Object.freeze({
     installId: staging.checkpoint.installId, registrationId,
     stage: staging.checkpoint.stage, checkpointSha256: staging.checkpointSha256,
     deploymentMode: staging.checkpoint.deploymentMode,
-    ...(lock === "none" ? {} : { operationLockIdentity: lock }),
+    ...(lock ? { operationLockIdentity: lock } : {}),
     ...(staging.checkpoint.registrationId === registrationId ? {} :
       { stagedRegistrationId: staging.checkpoint.registrationId }),
   });
@@ -327,6 +372,7 @@ export async function reconcileVpsSiwcHandoff({
   if (!pending) throw new Error("The selected account has no frozen SIWC handoff.");
   await reattestReviewedTarget(remote, reviewedTarget);
   const staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: true });
+  if (staging?.checkpoint.runtimeUpdate) throw new Error(RUNTIME_UPDATE_PENDING);
   if (!staging || staging.checkpoint.registrationId !== registration.registrationId ||
       staging.checkpoint.destination?.hostId !== pending.target.hostId ||
       staging.checkpoint.destination?.runtimeId !== pending.target.runtimeId) {
@@ -443,6 +489,7 @@ export async function installSidecar({
     SIDECAR_FRESH_CONTEXT_GUARD, ...deploymentCommands, ...Object.values(verification)]);
   let staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: !!resume });
   let checkpoint = staging?.checkpoint;
+  if (checkpoint?.runtimeUpdate) throw new Error(RUNTIME_UPDATE_PENDING);
   if (resume) {
     const current = await reviewVpsSiwcResume({
       remote, networkName, reviewedTarget, registrationId: binding.registrationId,
@@ -495,26 +542,12 @@ export async function installSidecar({
     }
     if (!replacing) await runOrThrow(remote, SIDECAR_FRESH_CONTEXT_GUARD, "Fresh sidecar directory check");
   }
-  const assets = await collectAssets();
+  const files = managedRuntimeFiles(await collectAssets());
   const clientCredential = randomBytes(32).toString("base64url");
-  const composeFile = createComposeFile({
+  files.set(`${INSTALL_ROOT}/docker-compose.yml`, createComposeFile({
     networkName, registrationId: binding.registrationId, runtimeId: "vps_n8n",
     tokenSha256: sha256(clientCredential),
-  });
-  const files = new Map([
-    [MANAGED_MARKER_PATH, SIDECAR_MARKER_CONTENT],
-    [SIDECAR_BUILD_IGNORE_PATH, SIDECAR_BUILD_IGNORE_CONTENT],
-    [`${INSTALL_ROOT}/Dockerfile`, createDockerfile()],
-    [`${INSTALL_ROOT}/docker-compose.yml`, composeFile],
-    [`${INSTALL_ROOT}/package.json`, assets.packageJson],
-    [`${INSTALL_ROOT}/package-lock.json`, assets.packageLock],
-  ]);
-  for (const asset of assets.files) {
-    if (!ASSET_PATHS.has(asset.path) || !Buffer.isBuffer(asset.contents)) {
-      throw new Error("The packaged SIWC runtime assets are invalid.");
-    }
-    files.set(`${INSTALL_ROOT}/${asset.path}`, asset.contents);
-  }
+  }));
   await runOrThrow(remote, SIDECAR_MANAGED_CONTEXT_GUARD, "Managed SIWC publication targets check");
   // Only the fixed root and its shared ownership marker precede the journal.
   const sharedRoot = (await runOrThrow(remote, verification.sharedRoot, "Shared root ownership check")).stdout.trim();
@@ -603,6 +636,12 @@ export async function installSidecar({
       }
       checkpoint.containerId = undefined;
     }
+    const imageSourceSha256 = imageSourceDigest(files);
+    const rebuild = !transferred && checkpoint.deploymentMode !== "replaced" &&
+      (!checkpoint.imageId || checkpoint.imageSourceSha256 !== imageSourceSha256);
+    // Forget the old image before uploading, so a crash after the build never pairs
+    // the moved tag with a recorded old image ID.
+    if (rebuild) Object.assign(checkpoint, { imageId: undefined, imageSourceSha256: undefined });
     checkpoint.files = Object.fromEntries([...files].map(([path, contents]) => [path, sha256(contents)]));
     await publishCheckpoint(remote, checkpoint,
       resume && checkpoint.stage !== "preparing" ? "context" : checkpoint.stage ?? "preparing");
@@ -629,11 +668,12 @@ export async function installSidecar({
         await remote.publishManagedFile(path, contents, 0o644);
       }
       await runOrThrow(remote, deploymentCommands[3], "Sidecar Compose validation");
-      if (!transferred && checkpoint.deploymentMode !== "replaced" && !checkpoint.imageId) {
+      if (rebuild) {
         await build(deploymentCommands[4]);
         await build.releaseState();
       }
       checkpoint.imageId = await attestInstalledImage(remote, checkpoint);
+      if (rebuild) checkpoint.imageSourceSha256 = imageSourceSha256;
     } catch (error) {
       if (!transferred || !credentialPublicationStarted) throw error;
       return partialFinalization({
@@ -1056,13 +1096,14 @@ export async function reviewVpsSiwcReplacement({
 
 export async function getVpsSiwcInstallationStatus({
   remote, networkName, reviewedTarget,
-}) {
+}, { collectAssets = collectSiwcRuntimeAssets } = {}) {
   validateReviewedTarget(remote, reviewedTarget, networkName);
   await reattestReviewedTarget(remote, reviewedTarget);
   const staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: true });
   if (staging && staging.checkpoint.stage !== "complete") {
     const { installId, registrationId, stage } = staging.checkpoint;
-    return { state: "staged", staging: { installId, registrationId, stage } };
+    return { state: staging.checkpoint.runtimeUpdate ? "updating" : "staged",
+      staging: { installId, registrationId, stage } };
   }
   const verification = createVerificationCommands();
   assertSidecarOnlyCommands(Object.values(verification));
@@ -1078,15 +1119,228 @@ export async function getVpsSiwcInstallationStatus({
   const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
   const { registrationId } = owner;
   if (!owner.running) return { state: "stopped", registrationId };
-  const account = parseHandoffOutput(
-    (await runOrThrow(remote, verification.accountLive, "Destination SIWC account check")).stdout,
-    "Destination SIWC account check",
-  ).account;
-  if (account?.registrationId !== registrationId || account?.ownership !== "owned" ||
-      account?.ownerRuntimeId !== "vps_n8n") {
-    throw new Error("The installed SIWC account could not be attested.");
+  const account = await attestLiveAccount(remote, registrationId);
+  let runtimeUpdateAvailable;
+  try {
+    runtimeUpdateAvailable = staging.checkpoint.imageSourceSha256 !==
+      imageSourceDigest(managedRuntimeFiles(await collectAssets()));
+  } catch { /* Without this version's runtime files the update state is unknown, not current. */ }
+  return { state: "owned", registrationId, account,
+    ...(runtimeUpdateAvailable === undefined ? {} : { runtimeUpdateAvailable }) };
+}
+
+export async function reviewVpsSiwcRuntimeUpdate(
+  { remote, networkName, reviewedTarget, registrationId },
+  { collectAssets = collectSiwcRuntimeAssets } = {},
+) {
+  validateReviewedTarget(remote, reviewedTarget, networkName);
+  validateSiwcRegistrationId(registrationId);
+  await reattestReviewedTarget(remote, reviewedTarget);
+  const staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: true });
+  const checkpoint = staging?.checkpoint;
+  const update = checkpoint?.runtimeUpdate;
+  if (!checkpoint || checkpoint.registrationId !== registrationId ||
+      (!update && checkpoint.stage !== "complete")) {
+    throw new Error("There is no matching installed SIWC sidecar to update.");
   }
-  return { state: "owned", registrationId, account };
+  await attestStagedFiles(remote, checkpoint);
+  let containerId = update?.fromContainerId;
+  let imageId = checkpoint.imageId;
+  if (update) {
+    if (!validRuntimeUpdate(update) || !IMAGE_ID.test(imageId)) {
+      throw new Error("The interrupted sidecar update record is invalid.");
+    }
+  } else {
+    const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
+    if (owner.registrationId !== registrationId) {
+      throw new Error("The installed SIWC account differs from the reviewed selection.");
+    }
+    if (!owner.running) throw new Error("Turn plan use back on before updating.");
+    await attestLiveAccount(remote, registrationId);
+    ({ containerId, imageId } = owner);
+  }
+  const lock = await inspectResumeLock(remote, !!update);
+  const files = managedRuntimeFiles(await collectAssets());
+  const imageSourceSha256 = imageSourceDigest(files);
+  const changedFiles = [...files].filter(([path, contents]) => checkpoint.files?.[path] !== sha256(contents))
+    .map(([path]) => path.slice(INSTALL_ROOT.length + 1)).sort();
+  return Object.freeze({
+    installId: checkpoint.installId, registrationId, stage: checkpoint.stage,
+    continuing: !!update, checkpointSha256: staging.checkpointSha256, containerId, imageId,
+    changedFiles, imageSourceSha256, rebuildRequired: !!update || changedFiles.length > 0 ||
+      checkpoint.imageSourceSha256 !== imageSourceSha256,
+    ...(lock ? { operationLockIdentity: lock } : {}),
+  });
+}
+
+function validRuntimeUpdate(update) {
+  return DOCKER_ID.test(update?.fromContainerId) && IMAGE_ID.test(update.fromImageId) &&
+    (update.fromImageSourceSha256 === undefined || /^[a-f0-9]{64}$/u.test(update.fromImageSourceSha256)) &&
+    (update.builtImageIds === undefined || (Array.isArray(update.builtImageIds) &&
+      update.builtImageIds.length <= 8 && update.builtImageIds.every(id => IMAGE_ID.test(id))));
+}
+
+export async function updateVpsSiwcRuntime(
+  { remote, networkName, reviewedTarget, registrationId, review, confirmed },
+  { collectAssets = collectSiwcRuntimeAssets } = {},
+) {
+  if (confirmed !== true || review?.rebuildRequired !== true || review.registrationId !== registrationId) {
+    throw new Error("Review and confirm the sidecar update before applying it.");
+  }
+  validateSiwcRegistrationId(registrationId);
+  validateReviewedTarget(remote, reviewedTarget, networkName);
+  const verification = createVerificationCommands();
+  const deploymentCommands = createDeploymentCommands();
+  assertSidecarOnlyCommands([SIDECAR_MANAGED_CONTEXT_GUARD, ...deploymentCommands.slice(1),
+    ...Object.values(verification)]);
+  const files = managedRuntimeFiles(await collectAssets());
+  const imageSourceSha256 = imageSourceDigest(files);
+  if (imageSourceSha256 !== review.imageSourceSha256) {
+    throw new Error("This Relmio version's sidecar files differ from the review. Review the update again.");
+  }
+  const reviewChanged = "The installed sidecar changed after review. Review the update again.";
+  return withVpsOperationLock(remote, VPS_OPERATION_LOCKS.oauth, async build => {
+    await reattestReviewedTarget(remote, reviewedTarget);
+    await runOrThrow(remote, SIDECAR_MANAGED_CONTEXT_GUARD, "Managed SIWC context check");
+    const staging = await readStaging(remote, reviewedTarget, { allowTargetRefresh: true });
+    if (!staging || staging.checkpointSha256 !== review.checkpointSha256) throw new Error(reviewChanged);
+    const { checkpoint } = staging;
+    if (checkpoint.runtimeUpdate && !validRuntimeUpdate(checkpoint.runtimeUpdate)) {
+      throw new Error("The interrupted sidecar update record is invalid.");
+    }
+    // Whatever an earlier attempt left on disk stays attestable if this attempt is interrupted.
+    checkpoint.previousFiles = await attestStagedFiles(remote, checkpoint);
+    const config = parseHandoffOutput((await runOrThrow(remote, verification.managementConfig,
+      "Sidecar Compose ownership check")).stdout, "Sidecar Compose ownership check", 64 * 1024);
+    if (attestVpsSiwcCompose(config, networkName) !== registrationId) throw new Error(reviewChanged);
+    const service = config.services["openai-oauth"];
+    if (!checkpoint.runtimeUpdate) {
+      const owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget });
+      if (!owner.running || owner.registrationId !== registrationId ||
+          owner.containerId !== review.containerId || owner.imageId !== review.imageId) {
+        throw new Error(reviewChanged);
+      }
+      checkpoint.runtimeUpdate = { fromImageId: owner.imageId, fromContainerId: owner.containerId,
+        fromImageSourceSha256: checkpoint.imageSourceSha256 };
+    }
+    checkpoint.files = { ...checkpoint.files,
+      ...Object.fromEntries([...files].map(([path, contents]) => [path, sha256(contents)])) };
+    checkpoint.reviewedTarget = Object.fromEntries(TARGET_FIELDS.map(field => [field, reviewedTarget[field]]));
+    await publishCheckpoint(remote, checkpoint, "context");
+
+    const inspectContainer = async () => parseHandoffOutput((await runOrThrow(remote,
+      verification.ownerContainer, "Previous sidecar identity check")).stdout,
+    "Previous sidecar identity check", 64 * 1024);
+    // Only the original writer or a container on an image this update built is recognized.
+    const attestUpdateContainer = container => {
+      const { fromImageId, fromContainerId, builtImageIds = [] } = checkpoint.runtimeUpdate;
+      const original = container?.Image === fromImageId;
+      if (!original && !builtImageIds.includes(container?.Image)) {
+        throw new Error("The previous sidecar container changed. Review the update again.");
+      }
+      const attested = attestVpsSiwcContainer(container, { service, networkName,
+        networkId: reviewedTarget.networkId, imageId: container.Image });
+      if (original && attested.containerId !== fromContainerId) {
+        throw new Error("The previous sidecar container changed. Review the update again.");
+      }
+      return attested;
+    };
+
+    await runOrThrow(remote, deploymentCommands[1], "SIWC storage directory creation");
+    await runOrThrow(remote, deploymentCommands[2], "Sidecar source directory creation");
+    await runOrThrow(remote, SIDECAR_MANAGED_CONTEXT_GUARD, "SIWC source-directory check");
+    for (const [path, contents] of files) await remote.publishManagedFile(path, contents, 0o644);
+    await runOrThrow(remote, deploymentCommands[3], "Sidecar Compose validation");
+
+    // Always rebuild: a continuation never trusts an image it did not record.
+    try {
+      await build(deploymentCommands[4]);
+    } catch (error) {
+      if (error?.remoteOutcomeUnknown || error?.timedOut) throw error;
+      const { fromImageId, fromContainerId, fromImageSourceSha256 } = checkpoint.runtimeUpdate;
+      try {
+        await attestInstalledImage(remote, { imageId: fromImageId });
+        const owner = attestVpsSiwcContainer(await inspectContainer(), { service, networkName,
+          networkId: reviewedTarget.networkId, imageId: fromImageId });
+        if (!owner.running || owner.containerId !== fromContainerId) throw new Error(reviewChanged);
+      } catch { throw error; }
+      // The confirmed failure left the original image tag and writer running: record them as installed.
+      const onDisk = await attestStagedFiles(remote, checkpoint);
+      delete checkpoint.runtimeUpdate;
+      Object.assign(checkpoint, { imageId: fromImageId, containerId: fromContainerId, files: onDisk });
+      if (fromImageSourceSha256 === undefined) delete checkpoint.imageSourceSha256;
+      else checkpoint.imageSourceSha256 = fromImageSourceSha256;
+      await publishCheckpoint(remote, checkpoint, "complete");
+      const message = "The sidecar image build failed. The previous sidecar keeps running; review the update again later.";
+      throw Object.assign(new Error(message), {
+        safeMessage: message, recovery: "review-again", runtimeState: "running", hostPublication: "none",
+      });
+    }
+    await build.releaseState();
+    const imageId = await attestInstalledImage(remote, {});
+    const { builtImageIds = [] } = checkpoint.runtimeUpdate;
+    checkpoint.runtimeUpdate = { ...checkpoint.runtimeUpdate,
+      builtImageIds: [...builtImageIds.filter(id => id !== imageId), imageId].slice(-8) };
+    Object.assign(checkpoint, { imageId, imageSourceSha256, containerId: undefined });
+    await publishCheckpoint(remote, checkpoint, "built");
+
+    if ((await runOrThrow(remote, verification.ownerPresence, "Previous sidecar presence check")).stdout.trim()) {
+      const container = await inspectContainer();
+      // A container on the new image was started by this update after the built journal.
+      if (container?.Image !== imageId) {
+        const previous = attestUpdateContainer(container);
+        if (previous.running) {
+          await reattestReviewedTarget(remote, reviewedTarget);
+          try { await remote.exec(verification.stop, { timeoutMs: 90_000 }); }
+          catch { /* A lost stop acknowledgment is resolved by exact container inspection. */ }
+          const stopped = attestUpdateContainer(await inspectContainer());
+          if (stopped.running || stopped.containerId !== previous.containerId) {
+            throw new Error("The previous sidecar did not stop. The updated sidecar was not started.");
+          }
+        }
+      }
+    }
+
+    let owner;
+    let account;
+    try {
+      await runOrThrow(remote, deploymentCommands.at(-1), "Updated sidecar start");
+      const running = await runOrThrow(remote, verification.runningService, "Updated sidecar status");
+      if (!running.stdout.split(/\s+/u).includes("openai-oauth")) {
+        throw new Error("The updated sidecar did not reach the running state.");
+      }
+      const publication = await runOrThrow(remote, verification.publicationState, "Sidecar publication check");
+      if (hasPublishedHostPort(publication.stdout)) throw new Error("Unexpected sidecar host publication.");
+      owner = await reviewVpsSiwcReplacement({ remote, networkName, reviewedTarget, allowStaged: true });
+      if (!owner.running || owner.imageId !== imageId || owner.registrationId !== registrationId) {
+        throw new Error("The updated sidecar could not be attested.");
+      }
+      account = await attestLiveAccount(remote, registrationId);
+    } catch (cause) {
+      let stopped = await stopAttestedService(remote, reviewedTarget);
+      if (!stopped) {
+        // The start may have failed before recreation, leaving the original writer stopped.
+        try { stopped = !attestUpdateContainer(await inspectContainer()).running; }
+        catch { /* An unrecognized container is never declared stopped. */ }
+      }
+      throw Object.assign(new Error(stopped
+        ? "The sidecar update could not be verified. The sidecar was stopped; review the update again to finish it."
+        : "The sidecar update could not be verified and stopping could not be confirmed. Do not use the sidecar."), {
+        safeMessage: stopped
+          ? "The sidecar update could not be verified. The sidecar was stopped; review the update again."
+          : "The sidecar update and stop outcomes are unknown. Inspect the sidecar before use.",
+        recovery: "review-again", runtimeState: stopped ? "stopped" : "unknown",
+        hostPublication: stopped ? "none" : "unknown",
+        ...(stopped ? {} : { remoteOutcomeUnknown: true }),
+        ...(cause?.timedOut ? { timedOut: true } : {}),
+      });
+    }
+    delete checkpoint.runtimeUpdate;
+    checkpoint.containerId = owner.containerId;
+    await publishCheckpoint(remote, checkpoint, "complete");
+    return { registrationId, imageId, containerId: owner.containerId, account,
+      runtimeState: "running", keyChanged: false };
+  }, { resumeIdentity: review.operationLockIdentity });
 }
 
 export async function inspectStoppedVpsSiwcInstallation({

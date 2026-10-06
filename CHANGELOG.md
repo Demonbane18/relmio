@@ -23,6 +23,14 @@ checks the registry separately after publication.
 - If the destination accepted a session but the acknowledgment was lost, a
   reviewed reconcile finishes the handoff from the destination's receipt.
   Without a receipt the sender stays frozen and needs a fresh sign-in.
+- An installed VPS ChatGPT sidecar can now be updated from Manage the
+  installed ChatGPT session with Review sidecar update. Relmio rebuilds the
+  image from the current Relmio version and recreates only the sidecar
+  container. The ChatGPT sign-in and the one-time Relmio key stay the same,
+  n8n is not stopped or restarted, and the sidecar is briefly unavailable
+  while it restarts. Plan use must be on. An interrupted update shows as
+  `updating`; review it again to finish it. The staged-install resume refuses
+  it.
 
 ### Changed
 
@@ -70,6 +78,12 @@ checks the registry separately after publication.
   sidecar's `command` and `entrypoint` as `null`, which the ownership check
   treated as a change. A real override is still rejected. Checked against real
   Compose output, a Docker 29.2.1 container test and a live VPS resume.
+- Resuming an interrupted VPS install now rebuilds the sidecar image unless
+  the recorded image was built from the same runtime files. Before, a resume
+  uploaded the current files but could keep running an older image, for
+  example one without the empty-`output` fix above, so answers came back
+  empty. A resume after the session moved, or of an account replacement, keeps
+  its image; run Review sidecar update once it completes.
 - Sign-in no longer fails when OpenAI's callback includes its documented
   optional `scope`. An `iss` value, when present, must match the issuer.
 - Declining in ChatGPT now shows a declined message instead of a generic

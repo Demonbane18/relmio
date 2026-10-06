@@ -128,8 +128,12 @@ process for that terminal and leaves no persistent command behind.
 
 Installing a newer Relmio package updates the wizard, not an already-running
 sidecar. Use the current ownership-attested action for the exact target and
-review its plan; see the [maintenance guide](docs/maintenance.md). Relmio
-leaves retired API-key gateways and their credential volumes untouched.
+review its plan; see the [maintenance guide](docs/maintenance.md). For an
+installed VPS ChatGPT sidecar, that action is **Review sidecar update** under
+**Manage the installed ChatGPT session**. It rebuilds only the sidecar and
+keeps the ChatGPT sign-in and the one-time key; see
+[Update the installed sidecar](docs/vps-and-n8n.md#update-the-installed-sidecar).
+Relmio leaves retired API-key gateways and their credential volumes untouched.
 
 Older credential-copy ChatGPT bridges are not silently adopted. In a reviewed
 local migration, sign in with a fresh SIWC registration and give the separate

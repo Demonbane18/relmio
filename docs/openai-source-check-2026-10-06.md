@@ -70,6 +70,18 @@ Relmio process and its protected storage, the local browser, OpenAI's
 authentication and API services, the selected VPS and its administrator, and
 n8n through its separate local bearer.
 
+## Addendum: VPS sidecar update
+
+Reviewed the same day against the sources above. The new **Review sidecar
+update** action rebuilds the installed VPS sidecar image from the current
+Relmio files and recreates only the sidecar container. It runs no sign-in,
+refresh, handoff or accept step, uploads no credential and does not rewrite
+the Compose file, so the one-time Relmio key and the stored session are
+unchanged. It reads the installed account view from the running sidecar, as
+status already does. What Relmio reads, stores, transmits and logs, its OAuth
+scopes and its recipients are unchanged. Building the image contacts the npm
+registry for the pinned dependencies, as the original install does.
+
 ## Unknowns
 
 - Which plans are eligible is unclear while the Help Center and Quickstart

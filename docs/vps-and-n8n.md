@@ -168,6 +168,46 @@ No port is published and n8n remains unchanged. ChatGPT plan use through a VM
 is not described here as provider-approved: OpenAI's self-hosted VM guide and
 SIWC Terms leave persistent remote token storage unresolved.
 
+### Update the installed sidecar
+
+Installing a newer Relmio package does not change a sidecar that is already
+running. To rebuild an installed VPS sidecar from your current Relmio version,
+connect to the server, select its n8n container and network, and then:
+
+1. Open **Manage the installed ChatGPT session** and choose **Check installed
+   account**. The panel says whether a newer sidecar runtime is available.
+2. Choose **Review sidecar update**. The review shows how many runtime files
+   change and the short image and container IDs. If nothing needs rebuilding,
+   it says `Already current. Nothing to update.`
+3. Select **I approve rebuilding and restarting only this owned sidecar**,
+   which also names your SSH user, host and port. Then choose **Update the
+   sidecar**. The account check and the review each expire after five
+   minutes; check and review again if they do.
+
+Relmio uploads this version's runtime files, builds a new image and replaces
+only the sidecar container. The old container keeps serving while the image
+builds, so the sidecar is unavailable only while it restarts. Relmio does not
+rewrite the Compose file, so the one-time Relmio key stays the same. The
+ChatGPT session stays in `/docker/n8n-openai-oauth/siwc` and is not
+transferred again. n8n is not stopped or restarted, and no host port is
+published. Relmio disconnects from the VPS when the update ends.
+
+The sidecar must be running with plan use on. Pausing plan use stops the
+sidecar, and Relmio refuses to update a stopped sidecar.
+
+If the image build fails and Relmio can confirm the old sidecar is still the
+one running, it keeps that sidecar and marks the install as complete again, so
+status, pause and sign-out keep working. Review the update again later.
+
+If the update stops partway for another reason, status reports `updating` and
+the panel says the update did not finish. Choose **Check installed account**,
+then **Review sidecar update** again and confirm to finish it. Relmio rebuilds
+the image on every attempt. The staged-install resume and new install plans
+for this server are refused until the update finishes. If the new sidecar
+fails its checks, Relmio stops it and the update stays open for another
+review. If Relmio cannot confirm that the sidecar stopped, do not use it until
+you inspect it.
+
 ## Next guides
 
 - [Configure n8n nodes](./n8n-configuration.md)

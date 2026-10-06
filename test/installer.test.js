@@ -18,7 +18,9 @@ import {
   inspectStoppedVpsSiwcInstallation, manageVpsSiwcInstallation,
   reviewVpsSiwcReplacement, reviewVpsLegacyMigration, reviewVpsSiwcTarget,
   reviewVpsSiwcResume, reconcileVpsSiwcHandoff,
+  reviewVpsSiwcRuntimeUpdate, updateVpsSiwcRuntime,
 } from "../src/services/installer.js";
+import { collectSiwcRuntimeAssets } from "../src/services/siwc-runtime-assets.js";
 import { runSiwcHandoffCli } from "../src/services/siwc-handoff.mjs";
 import {
   commitAuthorization, getAccessToken, listRegistrations, setPlanEnabled, readRegistration,
@@ -106,7 +108,9 @@ function fakeRemote({ destinationRoot, rejectAccept = false, managed = false, le
   let migrationState = legacy ? "legacy" : null;
   let locked = false, buildState = false, recoveryClaim = false;
   let delayedHandoff;
-  const imageId = `sha256:${"7".repeat(64)}`;
+  // A build tags a new image; `up -d` recreates the container only when the tag moved.
+  let builds = 0, recreations = 0;
+  let taggedImage = `sha256:${"7".repeat(64)}`, containerImage = taggedImage, containerId = "c".repeat(64);
   if (legacy) {
     files.set(`${INSTALL_ROOT}/Dockerfile`, Buffer.from("legacy image"));
     files.set(`${INSTALL_ROOT}/docker-compose.yml`, Buffer.from("legacy compose"));
@@ -145,6 +149,10 @@ function fakeRemote({ destinationRoot, rejectAccept = false, managed = false, le
         throw new Error("Journal publication failed.");
       }
       if (faults.failMigratedMarker && path === SIWC_MIGRATED_PATH) throw new Error("Marker publication failed.");
+      if (faults.failUpload === path) {
+        faults.failUpload = null;
+        throw new Error("Confirmed publication failure.");
+      }
       uploads.push({ path, contents, mode });
       files.set(path, Buffer.from(contents));
       if (path.endsWith("/.managed-by-n8n-openai-oauth")) managed = true;
@@ -241,16 +249,16 @@ function fakeRemote({ destinationRoot, rejectAccept = false, managed = false, le
         return { code: 0, stdout: "" };
       }
       if (command === verification.legacyStatus) return { code: 0, stdout: migrationState ?? (managed ? "managed" : "absent") };
-      if (command === verification.ownerPresence) return { code: 0, stdout: containerExists ? "c".repeat(64) : "" };
+      if (command === verification.ownerPresence) return { code: 0, stdout: containerExists ? containerId : "" };
       if (command === verification.ownerImage) return { code: 0, stdout: JSON.stringify({
-        Id: faults.imageId ?? imageId, Config: { User: "node", WorkingDir: "/app",
+        Id: faults.imageId ?? taggedImage, Config: { User: "node", WorkingDir: "/app",
           Entrypoint: ["node", "/app/gateway/openai-oauth-sidecar.mjs"], Cmd: null },
       }) };
       if (command === verification.ownerContainer) return {
         code: containerExists ? 0 : 1,
         stdout: JSON.stringify({
-          Id: faults.ownerContainerId ?? "c".repeat(64), Name: "/n8n-openai-oauth-openai-oauth-1",
-          Image: faults.containerImageId ?? imageId, State: { Running: active, Paused: false },
+          Id: faults.ownerContainerId ?? containerId, Name: "/n8n-openai-oauth-openai-oauth-1",
+          Image: faults.containerImageId ?? containerImage, State: { Running: active, Paused: false },
           Config: { Image: "n8n-openai-oauth:local", User: "node", WorkingDir: "/app",
             Entrypoint: ["node", "/app/gateway/openai-oauth-sidecar.mjs"], Cmd: null,
             Env: Object.entries(containerService.environment).map(([key, value]) => `${key}=${value}`),
@@ -301,9 +309,14 @@ function fakeRemote({ destinationRoot, rejectAccept = false, managed = false, le
       if (command.includes("DOCKER_BUILDKIT=1")) {
         if (faults.buildTimeout) throw Object.assign(new Error("Build deadline elapsed."), { timedOut: true, remoteOutcomeUnknown: true });
         if (faults.buildFailed) return { code: 1, stdout: "" };
+        taggedImage = `sha256:${String(++builds).padStart(64, "8")}`;
       }
       if (command.includes(" up -d ")) {
         if (faults.failStart) return { code: 1, stdout: "" };
+        if (!containerExists || containerImage !== taggedImage) {
+          containerId = String(++recreations).padStart(64, "b");
+          containerImage = taggedImage;
+        }
         active = true; containerExists = true; legacy = false;
         containerService = effectiveService(selected, verifier);
       }
@@ -1040,4 +1053,282 @@ test("complete installed owner survives reviewed n8n recreation and changed SSH 
     assert.equal(result.account.session, "signed-out");
     assert.equal(result.runtimeStopped, true);
   });
+});
+
+const runtimeVariant = label => ({ async collectAssets() {
+  const assets = await collectSiwcRuntimeAssets();
+  const [first, ...rest] = assets.files;
+  return { ...assets, files: [
+    { ...first, contents: Buffer.concat([first.contents, Buffer.from(`\n// ${label}\n`)]) }, ...rest,
+  ] };
+} });
+const changed = runtimeVariant("updated runtime");
+
+async function installedOwner(t) {
+  const { registration, destinationRoot, authBinding } = await fixture(t);
+  const { remote, reviewedTarget } = fakeRemote({ destinationRoot });
+  const installed = await installSidecar({ remote, networkName: "proxy", registration,
+    authBinding, reviewedTarget, backgroundConsent, confirmed: true });
+  return { registration, destinationRoot, authBinding, installed, remote,
+    scope: { remote, networkName: "proxy", reviewedTarget, registrationId } };
+}
+
+test("reviewed runtime update rebuilds and recreates only the owned sidecar and keeps key and session", async t => {
+  const { destinationRoot, installed, remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  assert.equal((await getVpsSiwcInstallationStatus(scope)).runtimeUpdateAvailable, false);
+  assert.equal((await getVpsSiwcInstallationStatus(scope, changed)).runtimeUpdateAvailable, true);
+  const review = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+  const [{ path: changedPath }] = (await collectSiwcRuntimeAssets()).files;
+  assert.deepEqual(review.changedFiles, [changedPath]);
+  assert.equal(review.rebuildRequired, true);
+  assert.equal(review.continuing, false);
+  const compose = Buffer.from(remote.files.get(`${INSTALL_ROOT}/docker-compose.yml`));
+  const commandsBefore = remote.commands.length;
+  const uploadsBefore = remote.uploads.length;
+  const result = await updateVpsSiwcRuntime({ ...scope, review, confirmed: true }, changed);
+  assert.equal(result.runtimeState, "running");
+  assert.equal(result.keyChanged, false);
+  assert.equal(result.account.registrationId, registrationId);
+  assert.notEqual(result.imageId, review.imageId);
+  assert.notEqual(result.containerId, review.containerId);
+  assert.equal(JSON.stringify(result).includes(installed.clientCredential), false);
+  assert.deepEqual(remote.files.get(`${INSTALL_ROOT}/docker-compose.yml`), compose);
+  assert.deepEqual(remote.files.get(`${INSTALL_ROOT}/${changedPath}`), (await changed.collectAssets()).files[0].contents);
+  assert.equal(remote.uploads.slice(uploadsBefore).some(item => item.path.endsWith("/docker-compose.yml") ||
+    item.path.startsWith(`${INSTALL_ROOT}/siwc`)), false);
+  const applied = remote.commands.slice(commandsBefore);
+  const commands = applied.map(item => item.command);
+  for (const forbidden of [verification.accept, verification.host, verification.receipt, verification.account]) {
+    assert.equal(commands.includes(forbidden), false);
+  }
+  assert.equal(applied.some(item => item.input?.includes("fake-refresh-value")), false);
+  assert.equal(commands.some(command => /docker (?:restart|stop|rm) n8n\b|10531:10531/u.test(command)), false);
+  const stopAt = commands.indexOf(verification.stop);
+  assert.ok(stopAt >= 0 && stopAt < commands.findIndex(command => command.includes(" up -d ")));
+  const status = await getVpsSiwcInstallationStatus(scope, changed);
+  assert.equal(status.state, "owned");
+  assert.equal(status.runtimeUpdateAvailable, false);
+  assert.equal((await readRegistration({ storageRoot: destinationRoot, registrationId })).session.refreshToken,
+    "fake-refresh-value");
+});
+
+test("runtime update review of a current install needs no rebuild and its apply is refused", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const review = await reviewVpsSiwcRuntimeUpdate(scope);
+  assert.equal(review.rebuildRequired, false);
+  assert.deepEqual(review.changedFiles, []);
+  const commandsBefore = remote.commands.length;
+  const uploadsBefore = remote.uploads.length;
+  await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review, confirmed: true }));
+  assert.equal(remote.commands.length, commandsBefore);
+  assert.equal(remote.uploads.length, uploadsBefore);
+});
+
+test("runtime update refuses unconfirmed, stale, mismatched or stopped owners before any write", async t => {
+  const { installed, remote, scope } = await installedOwner(t);
+  const review = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+  await assert.rejects(() => reviewVpsSiwcRuntimeUpdate({ ...scope, registrationId: "registration_other" }, changed));
+  const commandsBefore = remote.commands.length;
+  const uploadsBefore = remote.uploads.length;
+  for (const invalid of [{ confirmed: false }, { registrationId: "registration_other" },
+    { review: { ...review, rebuildRequired: false } }]) {
+    await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review, confirmed: true, ...invalid }, changed));
+  }
+  // This Relmio version's runtime files must be the ones reviewed.
+  await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review, confirmed: true }));
+  assert.equal(remote.commands.length, commandsBefore);
+  await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, confirmed: true,
+    review: { ...review, checkpointSha256: "0".repeat(64) } }, changed));
+  await manageVpsSiwcInstallation({ ...scope, action: "disable-plan",
+    expectedGeneration: installed.account.generation, confirmed: true });
+  await assert.rejects(() => reviewVpsSiwcRuntimeUpdate(scope, changed));
+  await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review, confirmed: true }, changed));
+  assert.equal(remote.uploads.length, uploadsBefore);
+  assert.equal(remote.commands.slice(commandsBefore).some(item => item.command.includes("DOCKER_BUILDKIT=1") ||
+    item.command.includes(" up -d ")), false);
+});
+
+test("interrupted runtime update start stays updating, refuses generic resume and finishes from a new review", async t => {
+  const modes = { start: { failStart: true }, verification: { publishedHostPort: true },
+    "unknown-stop": { publishedHostPort: true } };
+  for (const [mode, faults] of Object.entries(modes)) await t.test(mode, async t => {
+    const { registration, authBinding, remote, scope } = await installedOwner(t);
+    const uncertain = mode === "unknown-stop";
+    const review = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+    Object.assign(remote.faults, faults);
+    const exec = remote.exec.bind(remote);
+    // Only the stop of the started, unverified sidecar loses its outcome.
+    if (uncertain) remote.exec = async (command, options) => {
+      if (command === createVerificationCommands().publicationState) remote.faults.unknownStop = true;
+      return exec(command, options);
+    };
+    await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review, confirmed: true }, changed), error => {
+      assert.equal(error.recovery, "review-again");
+      assert.equal(error.runtimeState, uncertain ? "unknown" : "stopped");
+      assert.equal(error.hostPublication, uncertain ? "unknown" : "none");
+      assert.equal(error.remoteOutcomeUnknown === true, uncertain);
+      return true;
+    });
+    remote.exec = exec;
+    for (const fault of [...Object.keys(faults), "unknownStop"]) remote.faults[fault] = false;
+    const status = await getVpsSiwcInstallationStatus(scope);
+    assert.equal(status.state, "updating");
+    await assert.rejects(() => reviewVpsSiwcResume(scope));
+    const uploadsBefore = remote.uploads.length;
+    await assert.rejects(() => installSidecar({ remote, networkName: "proxy", registration, authBinding,
+      reviewedTarget: scope.reviewedTarget, backgroundConsent, confirmed: true,
+      resume: { ...status.staging, deploymentMode: "installed" } }));
+    assert.equal(remote.uploads.length, uploadsBefore);
+    const next = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+    assert.equal(next.continuing, true);
+    assert.equal(next.rebuildRequired, true);
+    assert.equal(next.operationLockIdentity !== undefined, uncertain);
+    const result = await updateVpsSiwcRuntime({ ...scope, review: next, confirmed: true }, changed);
+    assert.equal(result.runtimeState, "running");
+    const finished = await getVpsSiwcInstallationStatus(scope, changed);
+    assert.equal(finished.state, "owned");
+    assert.equal(finished.runtimeUpdateAvailable, false);
+  });
+});
+
+test("runtime update interrupted before its built journal is finished by a rebuilding continuation", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  const review = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+  remote.faults.failJournalStage = "built";
+  const before = remote.commands.length;
+  await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review, confirmed: true }, changed));
+  const attempted = remote.commands.slice(before).map(item => item.command);
+  assert.equal(attempted.filter(command => command.includes("DOCKER_BUILDKIT=1")).length, 1);
+  assert.equal(attempted.some(command => command === verification.stop || command === verification.accountLive ||
+    command.includes(" up -d ")), false);
+  remote.faults.failJournalStage = undefined;
+  const status = await getVpsSiwcInstallationStatus(scope);
+  assert.equal(status.state, "updating");
+  assert.equal(status.staging.stage, "context");
+  const next = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+  assert.equal(next.continuing, true);
+  assert.equal(next.containerId, review.containerId);
+  const resumedAt = remote.commands.length;
+  const result = await updateVpsSiwcRuntime({ ...scope, review: next, confirmed: true }, changed);
+  const resumed = remote.commands.slice(resumedAt).map(item => item.command);
+  assert.equal(resumed.filter(command => command.includes("DOCKER_BUILDKIT=1")).length, 1);
+  assert.ok(resumed.includes(verification.stop));
+  assert.equal(result.runtimeState, "running");
+  assert.notEqual(result.containerId, review.containerId);
+  assert.equal((await getVpsSiwcInstallationStatus(scope, changed)).runtimeUpdateAvailable, false);
+});
+
+test("non-transferred resume from built rebuilds changed runtime files and records the new image", async t => {
+  const { registration, destinationRoot, authBinding } = await fixture(t);
+  const { remote, reviewedTarget } = fakeRemote({ destinationRoot });
+  const exec = remote.exec.bind(remote);
+  remote.exec = async (command, options) => {
+    const result = await exec(command, options);
+    if (command.includes("DOCKER_BUILDKIT=1")) remote.faults.networkId = "f".repeat(64);
+    return result;
+  };
+  await assert.rejects(() => installSidecar({ remote, networkName: "proxy", registration,
+    authBinding, reviewedTarget, backgroundConsent, confirmed: true }));
+  remote.exec = exec;
+  delete remote.faults.networkId;
+  const staged = JSON.parse(remote.files.get(SIWC_STAGING_PATH));
+  assert.equal(staged.stage, "built");
+  const resume = await reviewVpsSiwcResume({ remote, networkName: "proxy", reviewedTarget, registrationId });
+  const commandsBefore = remote.commands.length;
+  const uploadsBefore = remote.uploads.length;
+  const result = await installSidecar({ remote, networkName: "proxy", registration, authBinding,
+    reviewedTarget, backgroundConsent, resume, confirmed: true }, changed);
+  assert.equal(result.runtimeState, "running");
+  assert.equal(remote.commands.slice(commandsBefore).filter(item => item.command.includes("DOCKER_BUILDKIT=1")).length, 1);
+  const uploads = remote.uploads.slice(uploadsBefore);
+  const context = uploads.findIndex(item => item.path === SIWC_STAGING_PATH &&
+    JSON.parse(String(item.contents)).stage === "context");
+  assert.ok(context >= 0 && context < uploads.findIndex(item => item.path !== SIWC_STAGING_PATH));
+  assert.equal(JSON.parse(String(uploads[context].contents)).imageId, undefined);
+  const finished = JSON.parse(remote.files.get(SIWC_STAGING_PATH));
+  assert.notEqual(finished.imageId, staged.imageId);
+  assert.equal(finished.imageId, JSON.parse((await exec(createVerificationCommands().ownerImage)).stdout).Id);
+  assert.notEqual(finished.imageSourceSha256, staged.imageSourceSha256);
+  assert.equal((await getVpsSiwcInstallationStatus({ remote, networkName: "proxy", reviewedTarget },
+    changed)).runtimeUpdateAvailable, false);
+});
+
+test("runtime update continuation keeps files left by an earlier interrupted attempt attestable", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const first = runtimeVariant("first attempt"), second = runtimeVariant("second attempt");
+  const [, laterAsset] = (await collectSiwcRuntimeAssets()).files;
+  const review = await reviewVpsSiwcRuntimeUpdate(scope, first);
+  // The first attempt publishes its changed asset, then stops at the next upload.
+  remote.faults.failUpload = `${INSTALL_ROOT}/${laterAsset.path}`;
+  await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review, confirmed: true }, first));
+  const retry = await reviewVpsSiwcRuntimeUpdate(scope, second);
+  assert.equal(retry.continuing, true);
+  // The continuation stops before replacing the first attempt's asset.
+  remote.faults.failUpload = `${INSTALL_ROOT}/Dockerfile`;
+  await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review: retry, confirmed: true }, second));
+  assert.equal((await getVpsSiwcInstallationStatus(scope)).state, "updating");
+  const last = await reviewVpsSiwcRuntimeUpdate(scope, second);
+  const result = await updateVpsSiwcRuntime({ ...scope, review: last, confirmed: true }, second);
+  assert.equal(result.runtimeState, "running");
+  assert.equal((await getVpsSiwcInstallationStatus(scope, second)).runtimeUpdateAvailable, false);
+});
+
+test("confirmed runtime build failure keeps the running previous sidecar installed; an uncertain one stays updating", async t => {
+  for (const mode of ["confirmed", "uncertain"]) await t.test(mode, async t => {
+    const { installed, remote, scope } = await installedOwner(t);
+    const review = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+    const fault = mode === "confirmed" ? "buildFailed" : "buildTimeout";
+    remote.faults[fault] = true;
+    await assert.rejects(() => updateVpsSiwcRuntime({ ...scope, review, confirmed: true }, changed), error => {
+      assert.equal(error.remoteOutcomeUnknown === true, mode === "uncertain");
+      if (mode === "confirmed") {
+        assert.equal(error.recovery, "review-again");
+        assert.equal(error.runtimeState, "running");
+      }
+      return true;
+    });
+    remote.faults[fault] = false;
+    const status = await getVpsSiwcInstallationStatus(scope, changed);
+    if (mode === "uncertain") {
+      assert.equal(status.state, "updating");
+      return;
+    }
+    assert.equal(status.state, "owned");
+    assert.equal(status.runtimeUpdateAvailable, true);
+    const owner = await reviewVpsSiwcReplacement(scope);
+    assert.deepEqual([owner.containerId, owner.imageId, owner.running], [review.containerId, review.imageId, true]);
+    const again = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+    assert.equal(again.continuing, false);
+    assert.equal(again.rebuildRequired, true);
+    const disabled = await manageVpsSiwcInstallation({ ...scope, action: "disable-plan",
+      expectedGeneration: installed.account.generation, confirmed: true });
+    assert.equal(disabled.runtimeStopped, true);
+  });
+});
+
+test("fresh runtime update review refuses a held operation lock", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const exec = remote.exec.bind(remote);
+  remote.exec = async (command, options) => command.includes("printf none")
+    ? { code: 0, stdout: "1:1" } : exec(command, options);
+  await assert.rejects(() => reviewVpsSiwcRuntimeUpdate(scope, changed));
+  remote.exec = exec;
+  assert.equal((await reviewVpsSiwcRuntimeUpdate(scope, changed)).operationLockIdentity, undefined);
+});
+
+test("frozen handoff reconciliation refuses an interrupted runtime update record", async t => {
+  const { registration, destinationRoot, authBinding } = await fixture(t);
+  const { remote, reviewedTarget } = fakeRemote({ destinationRoot, rejectAccept: true });
+  await assert.rejects(() => installSidecar({ remote, networkName: "proxy", registration,
+    authBinding, reviewedTarget, backgroundConsent, confirmed: true }));
+  const checkpoint = JSON.parse(remote.files.get(SIWC_STAGING_PATH));
+  const updating = Buffer.from(`${JSON.stringify({ ...checkpoint,
+    runtimeUpdate: { fromImageId: checkpoint.imageId, fromContainerId: "c".repeat(64) } })}\n`);
+  remote.files.set(SIWC_STAGING_PATH, updating);
+  await assert.rejects(() => reconcileVpsSiwcHandoff({ remote, networkName: "proxy",
+    reviewedTarget, registration, confirmed: true }));
+  assert.deepEqual(remote.files.get(SIWC_STAGING_PATH), updating);
+  assert.equal((await readRegistration(registration)).handoff.state, "handoff-pending");
 });
