@@ -48,6 +48,13 @@ checks the registry separately after publication.
 
 ### Changed
 
+- The dark theme's accent is now pastel green instead of pastel yellow, in the
+  same hue as the light theme's greens. Primary buttons, links, focus rings,
+  the current step and selected items use it in the wizard and on the
+  website. Terminal prompts and the home page's night band, which are dark in
+  both themes, use it too; the night band's moon and stars stay yellow.
+  Success messages keep their cooler green, and contrast still meets WCAG AA.
+
 - The website's Doorway illustration is unframed again, spanning the page
   against its background instead of sitting inside a rounded, layered card.
   The current colors, animation and Pause control are preserved.

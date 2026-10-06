@@ -139,9 +139,10 @@
   pointer-events: none;
 }
 
+/* The moon and stars are illustration, not accent, so they stay yellow. */
 .moon,
 .star {
-  fill: var(--rm-terminal-prompt);
+  fill: #ffd54a;
 }
 
 .safetyGrid {

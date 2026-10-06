@@ -3,7 +3,7 @@
 Relmio opens a door between the AI accounts people already use and the tools
 where they work. The brand is friendly and calm: a small green character in a
 cream doorway, set on soft sage. The interface pairs pastel green with warm
-black: a pastel green light theme and a black dark theme with a yellow accent.
+black: a pastel green light theme and a black dark theme with a pastel green accent.
 Use this kit with [DESIGN.md](DESIGN.md), which explains how the interface uses
 these values.
 
@@ -78,10 +78,11 @@ in illustration, never for interface state.
 Interface palette. CSS variables live in `src/ui/relmio-ui.css`. The light
 theme is pastel green with warm black ink. The dark theme is black with warm
 white ink and no green tint. The accent swaps between them: black buttons with
-pale green text in light, yellow buttons with black text in dark. In the light
-theme, success uses a cooler green than the surfaces and the accent, so a
-success notice does not look like an info notice. Teal is reserved for the
-logo and mascot.
+pale green text in light, pastel green buttons with black text in dark. The
+dark accent uses the same hue as the light theme's greens. Success uses a
+cooler green than the accent and the light theme's surfaces, so a success
+notice does not look like an info notice or an action. Teal is reserved for
+the logo and mascot.
 
 | Token | Light | Dark |
 | --- | --- | --- |
@@ -95,17 +96,17 @@ logo and mascot.
 | `--rm-line` | `#cadfac` | `#2b2a26` |
 | `--rm-line-strong` | `#afc88d` | `#3e3c37` |
 | `--rm-field-line` | `#727959` | `#757164` |
-| `--rm-accent` | `#1d1b16` | `#ffe17a` |
-| `--rm-accent-hover` | `#36322a` | `#ffe994` |
+| `--rm-accent` | `#1d1b16` | `#ccf394` |
+| `--rm-accent-hover` | `#36322a` | `#d6f7a8` |
 | `--rm-on-accent` | `#ebf8cf` | `#161512` |
-| `--rm-accent-soft` | `#cae7a3` | `#2c2611` |
-| `--rm-accent-line` | `#8bae5d` | `#6e5c1f` |
-| `--rm-accent-ink` | `#41591d` | `#ffe17a` |
-| `--rm-focus` | `#1d1b16` | `#ffe17a` |
+| `--rm-accent-soft` | `#cae7a3` | `#222a16` |
+| `--rm-accent-line` | `#8bae5d` | `#516631` |
+| `--rm-accent-ink` | `#41591d` | `#ccf394` |
+| `--rm-focus` | `#1d1b16` | `#ccf394` |
 | `--rm-success` / soft | `#186739` / `#d9f6e0` | `#86d39a` / `#13241a` |
 | `--rm-warning` / soft | `#9a4a00` / `#ffdfc0` | `#ffb36b` / `#2e1f10` |
 | `--rm-danger` / soft | `#b42318` / `#fde0dc` | `#ff9a8f` / `#2e1615` |
-| `--rm-terminal-bg` / fg / prompt | `#141413` / `#f5f1e3` / `#ffd54a` | same |
+| `--rm-terminal-bg` / fg / prompt | `#141413` / `#f5f1e3` / `#bdec74` | same |
 
 Measured contrast (WCAG 2.2 ratio):
 
@@ -116,10 +117,10 @@ Measured contrast (WCAG 2.2 ratio):
 | Muted ink on canvas | 6.89 | 9.45 |
 | Subtle ink on surface | 5.98 | 5.56 |
 | Form control border on surface | 4.30 | 3.68 |
-| Primary button on surface | 16.18 | 13.94 |
-| Text on primary button | 15.45 | 14.18 |
-| Accent ink on accent soft | 5.79 | 11.71 |
-| Focus ring on canvas | 14.88 | 15.19 |
+| Primary button on surface | 16.18 | 14.37 |
+| Text on primary button | 15.45 | 14.62 |
+| Accent ink on accent soft | 5.79 | 11.92 |
+| Focus ring on canvas | 14.88 | 15.67 |
 | Success on success soft | 5.99 | 9.11 |
 | Warning on warning soft | 4.94 | 9.03 |
 | Danger on danger soft | 5.28 | 8.27 |

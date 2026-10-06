@@ -22,7 +22,7 @@ CI. Edit only the source file.
 3. Same parts everywhere. A button, field, notice or top bar looks and behaves
    the same in the wizard and on the website.
 4. Two themes, one accent. Light is pastel green, dark is black. The accent
-   (black in light, yellow in dark) marks the primary action, the current
+   (black in light, pastel green in dark) marks the primary action, the current
    place and selection.
 5. Plain words. Short sentences, sentence case, no jargon without a hint. See
    the voice rules in BRANDKIT.md.
@@ -347,10 +347,11 @@ BRANDKIT.md.
 
 Light theme: pastel green surfaces, warm black ink, black primary buttons
 with pale green text. Dark theme: black surfaces with no green tint, warm white
-ink, yellow primary buttons with black text. Orange is only for warnings, red
-only for failures and destructive actions, and the success green only for
-success. In the light theme that success green is cooler than the yellow-green
-surfaces and accent, so status never blends into the page. Teal
+ink, pastel green primary buttons with black text. Orange is only for warnings,
+red only for failures and destructive actions, and the success green only for
+success. That success green is cooler than the accent in both themes and
+than the light theme's yellow-green surfaces, so status never blends into the
+page or looks like an action. Teal
 appears only in the logo and mascot artwork, plus the hosted site's
 illustration accents described above. No purple AI gradients, neon glows,
 glass panels or decorative gradients.

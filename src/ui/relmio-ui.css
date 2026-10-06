@@ -68,7 +68,7 @@
   --rm-field-line: #727959;
 
   /* Accent: primary action, current place, selection. Black on green in the
-     light theme, yellow on black in the dark theme. */
+     light theme, pastel green on black in the dark theme. */
   --rm-accent: #1d1b16;
   --rm-accent-hover: #36322a;
   --rm-accent-press: #0f0e0b;
@@ -95,7 +95,7 @@
   --rm-terminal-line: #2e2c28;
   --rm-terminal-fg: #f5f1e3;
   --rm-terminal-muted: #a8a293;
-  --rm-terminal-prompt: #ffd54a;
+  --rm-terminal-prompt: #bdec74;
   --rm-terminal-hover: rgb(255 255 255 / 8%);
 
   /* Elevation: soft shadows tinted to suit the green surfaces */
@@ -223,14 +223,14 @@
   --rm-line: #2b2a26;
   --rm-line-strong: #3e3c37;
   --rm-field-line: #757164;
-  --rm-accent: #ffe17a;
-  --rm-accent-hover: #ffe994;
-  --rm-accent-press: #f3d35c;
+  --rm-accent: #ccf394;
+  --rm-accent-hover: #d6f7a8;
+  --rm-accent-press: #bce67d;
   --rm-on-accent: #161512;
-  --rm-accent-soft: #2c2611;
-  --rm-accent-line: #6e5c1f;
-  --rm-accent-ink: #ffe17a;
-  --rm-focus: #ffe17a;
+  --rm-accent-soft: #222a16;
+  --rm-accent-line: #516631;
+  --rm-accent-ink: #ccf394;
+  --rm-focus: #ccf394;
   --rm-success: #86d39a;
   --rm-success-soft: #13241a;
   --rm-success-line: #2d5038;
@@ -261,14 +261,14 @@
     --rm-line: #2b2a26;
     --rm-line-strong: #3e3c37;
     --rm-field-line: #757164;
-    --rm-accent: #ffe17a;
-    --rm-accent-hover: #ffe994;
-    --rm-accent-press: #f3d35c;
+    --rm-accent: #ccf394;
+    --rm-accent-hover: #d6f7a8;
+    --rm-accent-press: #bce67d;
     --rm-on-accent: #161512;
-    --rm-accent-soft: #2c2611;
-    --rm-accent-line: #6e5c1f;
-    --rm-accent-ink: #ffe17a;
-    --rm-focus: #ffe17a;
+    --rm-accent-soft: #222a16;
+    --rm-accent-line: #516631;
+    --rm-accent-ink: #ccf394;
+    --rm-focus: #ccf394;
     --rm-success: #86d39a;
     --rm-success-soft: #13241a;
     --rm-success-line: #2d5038;
@@ -2006,7 +2006,7 @@ a.rm-chip:hover {
 /* Terminal: a command with an optional title bar and copy action. It is dark in
    both themes, so tokens inside it are re-pointed to dark values. */
 .rm-terminal {
-  --rm-focus: #ffe17a;
+  --rm-focus: #ccf394;
 
   min-width: 0;
   overflow: hidden;
