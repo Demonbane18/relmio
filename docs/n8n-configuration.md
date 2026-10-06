@@ -125,7 +125,7 @@ Limits:
   characters.
 - No masks and no URL responses (`response_format` may only be `b64_json`).
 - Sizes `1024x1024`, `1024x1536`, `1536x1024` or `auto`. `256x256` and
-  `512x512` are refused.
+  `512x512` are refused. OpenAI may return a different size than requested.
 - Quality `low`, `medium`, `high` or `auto` (`standard` is sent as `auto`);
   background `transparent`, `opaque` or `auto`.
 - Edits take 1 to 16 PNG, JPEG, WebP or GIF images, each up to 25 MiB, and at

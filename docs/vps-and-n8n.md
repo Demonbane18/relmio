@@ -259,7 +259,9 @@ Limits:
   characters.
 - No masks and no URL responses; images come back as base64, which n8n saves
   as binary data.
-- Sizes `1024x1024`, `1024x1536`, `1536x1024` or `auto`.
+- Sizes `1024x1024`, `1024x1536`, `1536x1024` or `auto`. OpenAI treats size
+  and quality as requests: a `1024x1024` test on 2026-10-06 came back
+  1254x1254.
 - Edits take 1 to 16 PNG, JPEG, WebP or GIF images, each up to 25 MiB, and at
   most 48 MiB per request.
 - Relmio waits up to 5 minutes for an image and does not retry a failed one.

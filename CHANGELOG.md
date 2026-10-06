@@ -37,7 +37,8 @@ checks the registry separately after publication.
   `https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's Image
   actions with the same Base URL and Relmio key and the model ID
   `gpt-image-2`. Each request returns one image; masks and URL responses are
-  not supported. The add-on signs in to Codex the way Hermes Agent does.
+  not supported. A low-quality generation passed live on one Pro account on
+  2026-10-06. The add-on signs in to Codex the way Hermes Agent does.
   OpenAI does not document this route for other apps, so it can stop working
   without notice, and images count against the plan's Codex limits. The Codex
   refresh token is stored on the VPS. The ChatGPT plan session is never used
