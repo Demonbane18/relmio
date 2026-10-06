@@ -299,10 +299,10 @@ conversational contract for a trusted local backend.
 - The sidecar publishes no host port and joins only the reviewed n8n network.
   Relmio does not edit n8n credentials or Compose settings.
 - Tool definitions, arguments, and results from n8n pass through the sidecar
-  to OpenAI; the sidecar never executes a tool. The Chat Completions route
-  limits a request to 32 tool calls, 128 KiB of arguments per call, and 2 MiB
-  of streamed arguments in total. Reasoning output items are never returned to
-  Chat Completions clients.
+  to OpenAI; the sidecar never executes a tool. A request can list up to 128
+  tools. The Chat Completions route limits a request to 32 tool calls,
+  128 KiB of arguments per call, and 2 MiB of streamed arguments in total.
+  Reasoning output items are never returned to Chat Completions clients.
 - The raw Codex App Server target uses a trusted local bearer and has a
   high-trust native-client boundary. The relay forwards every client JSON-RPC
   call except a short deny-list to the official App Server, which runs as the
@@ -536,6 +536,35 @@ is in [Model discovery and checks](n8n-configuration.md#model-discovery-and-chec
   reading the catalog can still refresh the SIWC token. Stopping the sidecar
   stops any check in progress.
 
+## Remembered Responses items
+
+The n8n sidecar keeps some output from completed Responses requests, so that a
+later request can refer to it by ID. n8n's AI Assistant does this in tool
+steps and follow-up messages. Owner-facing behavior is in
+[AI Assistant requests](n8n-configuration.md#ai-assistant-requests).
+
+- **Stores:** in the sidecar process's memory only, never on disk. From each
+  `/v1/responses` request that reaches `response.completed`, it keeps
+  reasoning items (OpenAI's encrypted reasoning as received, and the
+  reasoning summary) and assistant messages (output text and `phase`).
+  Failed, incomplete or interrupted responses and Chat Completions requests
+  add nothing. It holds at most 4,096 items and 32 MiB, keeps each item for up
+  to 6 hours and drops the least recently used first. A restart or update
+  empties it.
+- **Transmits:** a kept item goes only to
+  `https://api.openai.com/v1/responses`, with the selected registration's
+  token, as input to a later request that refers to its ID. Responses
+  requests that set `reasoning` ask OpenAI for `reasoning.encrypted_content`,
+  so those clients, such as n8n's Assistant, also receive the encrypted
+  reasoning that OpenAI returns. Only reasoning items that carry it are kept.
+- **Returns to the wizard:** nothing. Callers get OpenAI's response, not the
+  kept items.
+- **Logs:** the memory adds no log lines.
+
+Every caller that holds the sidecar's Relmio key shares this memory. A caller
+that knows an item ID can have that item added to its own request, and the
+model may repeat its content. Share the key only with trusted callers.
+
 ## Product and policy limitations
 
 - ChatGPT sign-in is not an OpenAI Platform API key. SIWC plan permission is a
@@ -590,8 +619,8 @@ Relmio applies the documented distinctions as engineering controls:
   behind its own private-network bearer.
 - The n8n AI Assistant's **OpenAI** provider uses an operator's Platform API
   key entered directly in n8n; Relmio never receives it. Pointing the
-  Assistant at the SIWC sidecar is the owner's choice, untested, and open
-  under SIWC Terms §2; see [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
+  Assistant at the SIWC sidecar is the owner's choice, not yet tested live,
+  and open under SIWC Terms §2; see [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
 - Consent to background workflow use is separate from the ChatGPT plan grant.
 
 This security page does not establish live account eligibility or turn the

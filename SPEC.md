@@ -150,26 +150,41 @@ The sidecar requires a generated Relmio bearer and serves:
   checks (VPS, off by default, consent recorded) list only models that
   answered a short test once any has. See
   [model discovery](docs/n8n-configuration.md#model-discovery-and-checks).
-- `POST /v1/responses` for validated Responses requests. Upstream requests set
-  `store:false` and `stream:true`; only `response.completed` is success.
-  Streamed events, including any `phase`, pass through unchanged. OpenAI's
-  final `response.completed` event can carry an empty `output`; for
+- `POST /v1/responses` for validated Responses requests. `max_output_tokens`
+  is dropped before validation: SIWC lists it as unsupported, so no cap can
+  be honored. Upstream requests set `store:false` and `stream:true`. When the
+  client sets `reasoning`, `reasoning.encrypted_content` is added to its valid
+  `include` values; otherwise `include` is sent as the client wrote it. Only
+  `response.completed` is success. Streamed events, including any `phase`,
+  pass through unchanged, with two exceptions. A stream error the sidecar adds
+  is an `error` event with `type: "error"`, `sequence_number`, `code`,
+  `message`, and `param: null`. Rewritten `response.failed` and
+  `response.incomplete` events keep the upstream `sequence_number` (or the
+  next number), a redacted `incomplete_details.reason`, and `usage`. Usage is
+  passed on only when its input and output token counts are whole numbers,
+  keeps only whole-number counts, and is left out of an incomplete event
+  without a reason.
+  OpenAI's final `response.completed` event can carry an empty `output`; for
   non-streaming requests and Chat translation, Relmio rebuilds the output from
   the `response.output_item.done` events.
 - `POST /v1/chat/completions` as a compatibility route translated into a
   Responses request. It accepts `model`, `messages`, `tools`, `tool_choice`
-  (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, and
-  `stream_options.include_usage` with streaming. Messages are text `user`,
-  `assistant`, or `developer` messages, assistant `tool_calls`, and matching
-  `tool` results; every call needs exactly one result. Function and custom
-  tools are sent upstream in one developer `additional_tools` input item, with
-  omitted function `parameters` and `strict` sent as `null`. Limits are 32
-  tools or tool calls, 128 KiB of arguments per call, and 2 MiB of streamed
-  arguments in total. A named `tool_choice`, tool namespaces, custom tools in
-  streamed requests, system messages, and fields it cannot preserve are
-  rejected. Reasoning output items are skipped. Only message text with phase
-  `final_answer`, or no phase, reaches Chat Completions clients; `commentary`
-  text is dropped. The gateway never executes tools.
+  (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`,
+  `stream_options.include_usage` with streaming, and `reasoning_effort`
+  (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`), which is
+  sent as `reasoning.effort`. `max_completion_tokens` and `max_tokens` are
+  accepted and dropped. Messages are text `user`, `assistant`, or `developer`
+  messages, assistant `tool_calls`, and matching `tool` results; every call
+  needs exactly one result. Function and custom tools are sent upstream in
+  one developer `additional_tools` input item, with omitted function
+  `parameters` and `strict` sent as `null`. Limits are 128 tools, 32 tool
+  calls per message or response, 128 KiB of arguments per call, and 2 MiB of
+  streamed arguments in total. A named `tool_choice`, tool namespaces, custom
+  tools in streamed requests, system messages, and other fields it cannot
+  preserve are rejected. Reasoning output items are skipped. Only message
+  text with phase `final_answer`, or no phase, reaches Chat Completions
+  clients; `commentary` text is dropped. Stream errors keep the Chat
+  Completions error body. The gateway never executes tools.
 - `POST /v1/images/generations` and `POST /v1/images/edits`, only when the
   opt-in VPS image add-on is signed in; otherwise `404 images_off`. The add-on
   uses a separate Codex device sign-in (Codex CLI client ID), stores its tokens
@@ -184,6 +199,21 @@ The sidecar requires a generated Relmio bearer and serves:
   `openai-platform` header (Chat Model node and Chat Hub). The local sidecar
   has no image sign-in.
 
+Item references are resolved from memory. From each `/v1/responses` request,
+streamed or not, that reaches `response.completed`, the sidecar keeps
+reasoning items that carry `encrypted_content` (type, ID, encrypted content,
+and summary) and assistant messages made only of `output_text` parts (text,
+plus `phase` when it is `commentary` or `final_answer`), keyed by item IDs
+that match `^[A-Za-z0-9_-]{1,128}$`. Before validation, each `item_reference`
+input item with a kept ID becomes a copy of that item, and references to
+unknown IDs are dropped. An invalid ID, or input left empty, fails with 400
+`param: input`; copies above 2 MiB in one request fail with 413
+`body_too_large`. The memory is per process and never written to disk. It
+holds at most 4,096 items and 32 MiB of JSON, expires an item 6 hours after
+it is stored, evicts the least recently used item first, and is lost on
+restart. Failed, incomplete, or interrupted responses add nothing, and Chat
+Completions requests neither fill nor use it.
+
 All text inference requests use the selected SIWC registration and public
 `https://api.openai.com/v1/responses`; the SIWC token is never sent to the
 image route. Errors preserve safe status, code, parameter, request ID,
@@ -192,14 +222,16 @@ post-delta error, incomplete response, or interrupted stream is not reported
 as a completed answer. Requests do not fall back to a different account,
 provider, API key, or host.
 
-Unsupported Responses fields, `background:true`, `store:true`, stored
-response/conversation identifiers, system messages, audio/video inputs, and
-unsupported tool types, including `image_generation`, are rejected. Audio and
-transcription, video, Files API management, stored responses/conversations,
-moderation, Live, and Realtime routes are not forwarded. Image/file input in a
-Responses request is usable only when supported by the selected model; this
+Unsupported Responses fields (except `max_output_tokens`, which is dropped),
+`background:true`, `store:true`, stored response/conversation identifiers,
+system messages, audio/video inputs, and unsupported tool types, including
+`image_generation`, are rejected. Audio and transcription, video, Files API
+management, stored responses/conversations, moderation, Live, and Realtime
+routes are not forwarded. Image/file input in a Responses request is usable
+only when supported by the selected model; this
 never enables the Files API. Flat function and custom tools in a Responses
-request are moved into the same `additional_tools` item. Tool use remains
+request are moved into the same `additional_tools` item. A `tools` list,
+`additional_tools` item, or namespace holds at most 128 tools. Tool use remains
 conditional on the exact accepted Responses input, model, account, and
 workspace policy. On 2026-10-05 a two-turn LangChain function-tool test
 passed through the real gateway on one ChatGPT account, streaming over both

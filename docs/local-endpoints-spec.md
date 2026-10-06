@@ -111,7 +111,8 @@ accounts, models, and non-streaming tool calls were not tested live.
 Unsupported request fields and tool types, background requests, stored response
 or conversation IDs, audio/video, audio endpoints, Files management,
 Moderations, Live/Realtime, Video, and other unimplemented routes are rejected,
-not forwarded. The image routes answer only through the opt-in VPS image
+not forwarded; output-token caps are dropped instead. The image routes answer
+only through the opt-in VPS image
 add-on, which uses a separate Codex sign-in; a local sidecar has no image
 sign-in and returns `images_off`. Model listing is not proof of entitlement
 or admission. Errors do not switch registrations or fall back to Platform API

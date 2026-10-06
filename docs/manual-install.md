@@ -70,7 +70,8 @@ interfaces and token-expiry recovery.
 
 The local gateway discovers models for the selected account and sends supported
 requests to the public Responses API. It rejects unsupported parameters,
-Routes, and capabilities rather than silently dropping them. Audio, video,
+routes, and capabilities rather than silently dropping them; only
+output-token caps, which SIWC doesn't accept, are dropped. Audio, video,
 Files API management, moderation, stored responses or conversations, and
 other documented-unavailable features are not enabled. Image generation needs
 the opt-in VPS add-on in

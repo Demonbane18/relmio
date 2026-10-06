@@ -76,7 +76,8 @@ in the recording.
   verified for every account, model, or a VPS install.
 - Chat clients receive only final-answer text, not reasoning or commentary.
 - Audio, video, Files management, Moderations, stored conversations, and
-  unsupported fields/tool types are rejected. Image generation is an opt-in
+  unsupported fields/tool types are rejected; output-token caps are dropped.
+  Image generation is an opt-in
   VPS add-on with a separate Codex sign-in that OpenAI does not document for
   other apps; do not present it as part of Sign in with ChatGPT.
 - Usage limits direct the user to ChatGPT **Manage usage**; errors do not switch

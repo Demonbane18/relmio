@@ -326,11 +326,15 @@ in total. It rejects a named `tool_choice`, tool namespaces, custom tools in
 streamed requests, system messages, and inputs it cannot preserve. Chat
 clients receive only final-answer text; reasoning items and intermediate
 commentary are not passed on. The Responses route passes OpenAI's events
-unchanged. On 2026-10-05 a two-turn LangChain tool test passed through the
-real gateway on one ChatGPT account, streaming over both routes. That is not a
+through unchanged, except failure events, which it rewrites with a safe
+error. On 2026-10-05 a two-turn LangChain tool test passed through the real
+gateway on one ChatGPT account, streaming over both routes. That is not a
 guarantee for other accounts or models. Audio, video, Files routes, stored
 conversations, moderation, the Responses `image_generation` tool, and
-unsupported parameters are rejected without a fallback.
+unsupported parameters are rejected without a fallback. The exception is an
+output-token cap (`max_output_tokens`, or `max_completion_tokens` and
+`max_tokens` on the chat route). SIWC doesn't accept one, so the sidecar
+drops it and the cap is not enforced.
 
 On a VPS you can turn on image generation and editing as an opt-in add-on. In
 **Manage the installed ChatGPT session**, choose **Check installed account**,
@@ -356,11 +360,14 @@ on n8n's image node. See
 [image limits and test evidence](https://github.com/Demonbane18/relmio/blob/main/docs/n8n-configuration.md#generate-and-edit-images-vps-add-on).
 
 n8n's AI Assistant cannot list sidecar models. To try one, choose
-**Self-hosted or OpenAI-compatible endpoint** in its settings, use the same
-Base URL and Relmio key, and paste a model ID. Only do this if nobody else uses
-this n8n: their Assistant chats would use your ChatGPT plan. Relmio has not
-tested the Assistant with this sidecar, and OpenAI has not said whether this
-use fits its Sign in with ChatGPT terms. See
+**Self-hosted or OpenAI-compatible endpoint** under
+**Settings > n8n Assistant > Model**, use the same Base URL and Relmio key,
+and paste a model ID. Only do this if nobody else uses this n8n: their
+Assistant chats would use your ChatGPT plan. The sidecar keeps the
+Assistant's earlier reasoning and replies in memory only, for up to 6 hours;
+after a sidecar restart or update, start a new Assistant conversation. Relmio
+has not completed a live Assistant test with this sidecar, and OpenAI has not
+said whether this use fits its Sign in with ChatGPT terms. See
 [Assistant setup](https://github.com/Demonbane18/relmio/blob/main/docs/ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
 
 Installing for n8n also requires express consent for background workflows.

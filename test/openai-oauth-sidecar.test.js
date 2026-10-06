@@ -14,10 +14,10 @@ const fakeDiscovery = (listModels = async () => ({ models: [], clientVersion: CO
   return { outcomes, listModels, recordOutcome: recordOutcome ?? (async (outcome) => { outcomes.push(outcome); }) };
 };
 const fake = (onFetch = () => new Response(terminal("response.completed", completed), { headers: { "content-type": "text/event-stream" } }),
-  { discovery = fakeDiscovery(), imagesStatus = async () => ({ state: "off" }) } = {}) => {
+  { discovery = fakeDiscovery(), imagesStatus = async () => ({ state: "off" }), now } = {}) => {
   const calls = [];
   const tokenCalls = [];
-  const handler = createSidecarHandler({ registration, runtimeId: "runtime-1", tokenVerifier: verifier, discovery, imagesStatus,
+  const handler = createSidecarHandler({ registration, runtimeId: "runtime-1", tokenVerifier: verifier, discovery, imagesStatus, now,
     getToken: async (selected, options) => { tokenCalls.push(selected); assert.deepEqual(selected, registration); assert.equal(options.runtimeId, "runtime-1"); return { accessToken: "provider-token" }; },
     fetchImpl: async (url, options) => { calls.push({ url, options }); return onFetch(url, options); },
   });
@@ -202,7 +202,7 @@ test("rejects unsupported parameters, tools, routes, and storage before provider
   const { handler, calls } = fake();
   const base = { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }] };
   for (const [body, param] of [
-    [{ ...base, store: true }, "store"], [{ ...base, max_output_tokens: 20 }, "max_output_tokens"],
+    [{ ...base, store: true }, "store"],
     [{ ...base, previous_response_id: "resp" }, "previous_response_id"], [{ ...base, tools: [{ type: "image_generation" }] }, "tools"],
     [{ ...base, input: [{ type: "message", role: "system", content: "bypass" }] }, "input"],
     [{ ...base, include: ["file_search_call.results"] }, "include"],
@@ -542,7 +542,7 @@ test("malformed tools, duplicate definitions and unsafe replay are rejected befo
   const { handler, calls, tokenCalls } = fake();
   const input = [{ role: "user", content: "Hi" }];
   for (const tools of [
-    [functionTool, functionTool], Array.from({ length: 33 }, (_, i) => ({ ...functionTool, name: `lookup${i}` })),
+    [functionTool, functionTool], Array.from({ length: 129 }, (_, i) => ({ ...functionTool, name: `lookup${i}` })),
     [{ ...functionTool, parameters: [] }], [{ ...functionTool, strict: "yes" }],
     [{ ...functionTool, defer_loading: false }], [{ ...functionTool, allowed_callers: ["program"] }],
     [{ type: "custom", name: "query", format: { type: "grammar", syntax: "shell", definition: "*" } }],
@@ -1003,4 +1003,316 @@ test("Chat buffers unknown-phase text until done or populated terminal items est
       assert.equal(content, phase === "commentary" ? "" : "Phase-bound text");
     }
   }
+});
+
+test("output caps are dropped, chat effort becomes Responses reasoning, and other unsupported fields stay refused", async () => {
+  const { handler, calls, tokenCalls } = fake();
+  const base = { model: "gpt-6.1-sol", input: [{ role: "user", content: "Reply with OK." }] };
+  assert.equal((await handler(request("/v1/responses", { ...base, max_output_tokens: 16 }))).status, 200);
+  assert.equal("max_output_tokens" in JSON.parse(calls[0].options.body), false);
+  const chat = { model: "gpt-6.1-sol", messages: [{ role: "user", content: "Reply with OK." }] };
+  for (const cap of [{ max_completion_tokens: 16 }, { max_tokens: 64 }]) {
+    assert.equal((await handler(request("/v1/chat/completions", { ...chat, ...cap }))).status, 200);
+    const forwarded = JSON.parse(calls.at(-1).options.body);
+    for (const name of ["max_completion_tokens", "max_tokens", "max_output_tokens"]) assert.equal(name in forwarded, false);
+  }
+  for (const effort of ["none", "minimal", "low", "medium", "high", "xhigh", "max"]) {
+    assert.equal((await handler(request("/v1/chat/completions", { ...chat, reasoning_effort: effort }))).status, 200);
+    const forwarded = JSON.parse(calls.at(-1).options.body);
+    assert.deepEqual(forwarded.reasoning, { effort });
+    assert.equal("reasoning_effort" in forwarded, false);
+  }
+  const dispatched = calls.length;
+  for (const reasoning_effort of ["HIGH", "", "extreme", null, 1, { effort: "high" }]) {
+    const response = await handler(request("/v1/chat/completions", { ...chat, reasoning_effort }));
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.param, "reasoning_effort");
+  }
+  for (const name of ["conversation", "max_tool_calls", "metadata", "moderation", "multi_agent", "prompt", "prompt_cache_retention",
+    "safety_identifier", "temperature", "top_logprobs", "top_p", "truncation", "user", "previous_response_id"]) {
+    const response = await handler(request("/v1/responses", { ...base, max_output_tokens: 16, [name]: 1 }));
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.param, name);
+  }
+  assert.deepEqual([calls.length, tokenCalls.length], [dispatched, dispatched]);
+});
+
+const question = { role: "user", content: "Weather in Paris?" };
+const reference = (id) => ({ type: "item_reference", id });
+const reasoningItem = (id, extra = {}) => ({ type: "reasoning", id, status: "completed",
+  summary: [{ type: "summary_text", text: `${id} summary` }], encrypted_content: `${id}-encrypted`, ...extra });
+const replayedReasoning = (id) => ({ type: "reasoning", id, encrypted_content: `${id}-encrypted`, summary: [{ type: "summary_text", text: `${id} summary` }] });
+function replayFixture(options) {
+  const replies = [];
+  const fixture = fake(() => new Response(replies.shift() ?? terminal("response.completed", completed)), options);
+  const turn = async (input, extra = {}) => (await fixture.handler(request("/v1/responses", { model: "gpt-6.1-sol", input, ...extra }))).text();
+  const replayed = async (...ids) => {
+    await turn([question, ...ids.map(reference)]);
+    return JSON.parse(fixture.calls.at(-1).options.body).input.slice(1).map((item) => item.id);
+  };
+  return { ...fixture, replies, turn, replayed };
+}
+
+test("completed streamed and aggregated items replace item references in order and other references are dropped", async () => {
+  const streamed = [reasoningItem("rs_streamed"), finalMessage("Checking.", { id: "msg_streamed", phase: "commentary" }), functionCall("streamed")];
+  // Only reasoning with encrypted content and plain assistant text can be replayed under store:false.
+  const unreplayable = [{ type: "reasoning", id: "rs_plain", status: "completed", summary: [] }, reasoningItem("rs_no_summary", { summary: null }),
+    finalMessage("", { id: "msg_refusal", content: [{ type: "refusal", refusal: "No." }] }),
+    finalMessage("", { id: "msg_mixed", content: [{ type: "output_text", text: "Yes" }, { type: "refusal", refusal: "No." }] }),
+    { type: "web_search_call", id: "ws_1", status: "completed", action: { type: "search", query: "Paris" } }];
+  // A valid phase is replayed with the text; a missing or unknown one is left out.
+  const phased = [finalMessage("Done.", { id: "msg_aggregated" }), finalMessage("Plain.", { id: "msg_unphased", phase: null }),
+    finalMessage("Odd.", { id: "msg_odd_phase", phase: "analysis" })];
+  const aggregated = [reasoningItem("rs_aggregated"), ...phased, ...unreplayable];
+  const { handler, calls, replies, turn } = replayFixture();
+  // The live route sends response.completed with empty output, so streamed items come from output_item.done.
+  replies.push(liveOutputEvents(streamed).map(event).join(""), terminal("response.completed", toolResponse(aggregated)));
+  await turn([question], { stream: true });
+  assert.deepEqual(JSON.parse(await turn([question])).output, aggregated);
+  const result = { type: "function_call_output", call_id: "call_streamed", output: "20C" };
+  const followUp = { role: "user", content: "And tomorrow?" };
+  const response = await handler(request("/v1/responses", { model: "gpt-6.1-sol", input: [question, reference("rs_streamed"), reference("msg_streamed"),
+    reference("fc_streamed"), functionCall("streamed"), result, reference("rs_unknown"), ...unreplayable.map((item) => reference(item.id)),
+    reference("rs_aggregated"), ...phased.map((item) => reference(item.id)), followUp] }));
+  assert.equal(response.status, 200);
+  const replayedMessage = (id, text, phase) => ({ type: "message", role: "assistant", id, content: [{ type: "output_text", text }], ...(phase && { phase }) });
+  assert.deepEqual(JSON.parse(calls[2].options.body).input, [question, replayedReasoning("rs_streamed"),
+    replayedMessage("msg_streamed", "Checking.", "commentary"), functionCall("streamed"), result, replayedReasoning("rs_aggregated"),
+    replayedMessage("msg_aggregated", "Done.", "final_answer"), replayedMessage("msg_unphased", "Plain."), replayedMessage("msg_odd_phase", "Odd."), followUp]);
+});
+
+test("item references that leave no input or lack a valid id are refused before credentials", async () => {
+  const { handler, calls, tokenCalls } = fake();
+  for (const input of [[reference("rs_unknown")], [reference("rs_unknown"), reference("msg_unknown")], [question, reference("rs.invalid")],
+    [question, reference("r".repeat(129))], [question, { type: "item_reference" }], [question, reference(42)]]) {
+    const response = await handler(request("/v1/responses", { model: "gpt-6.1-sol", input, tools: [functionTool] }));
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.param, "input");
+  }
+  assert.deepEqual([calls.length, tokenCalls.length], [0, 0]);
+});
+
+test("a repeated item reference expands once", async () => {
+  const { replies, turn, replayed } = replayFixture();
+  replies.push(terminal("response.completed", toolResponse([reasoningItem("rs_once"), finalMessage("Two parts.", { id: "msg_once" })])));
+  await turn([question]);
+  assert.deepEqual(await replayed("rs_once", "msg_once", "msg_once", ...Array(250).fill("rs_once")), ["rs_once", "msg_once"]);
+});
+
+test("a pass-through stream whose items cannot be tracked reaches the client unchanged and caches nothing", async () => {
+  // About 1.1 MiB each: every event fits the 2 MiB event limit, but together they exceed the tracked-output limit.
+  const large = (index) => ({ type: "reasoning", id: `rs_untracked_${index}`, summary: [], encrypted_content: "e".repeat(1_150_000) });
+  const events = [
+    { type: "response.output_item.done", sequence_number: 0, output_index: 0, item: large(0) },
+    { type: "response.output_item.done", sequence_number: 1, output_index: 1, item: large(1) },
+    { type: "response.completed", sequence_number: 2, response: toolResponse([]) },
+  ];
+  const chunks = events.map(event);
+  let turn = 0;
+  const { handler, calls } = fake(() => ++turn > 1 ? new Response(terminal("response.completed", completed)) : new Response(new ReadableStream({
+    pull(controller) {
+      if (chunks.length) controller.enqueue(new TextEncoder().encode(chunks.shift()));
+      else controller.close();
+    },
+  })));
+  const response = await handler(request("/v1/responses", { model: "gpt-6.1-sol", input: [question], stream: true }));
+  assert.deepEqual(parseEvents(await response.text()), events);
+  const followUp = await handler(request("/v1/responses", { model: "gpt-6.1-sol", input: [question, reference("rs_untracked_0"), reference("rs_untracked_1")] }));
+  assert.equal(followUp.status, 200);
+  assert.deepEqual(JSON.parse(calls[1].options.body).input, [question]);
+});
+
+test("only items from completed responses are replayed, never from failed, incomplete or interrupted ones", async () => {
+  const started = liveOutputEvents([reasoningItem("rs_unfinished")]).slice(0, -1).map(event);
+  for (const [ending, cached] of [
+    [event({ type: "response.completed", response: toolResponse([]) }), true],
+    [event({ type: "response.failed", response: { error: { code: "server_error", message: "Failed" } } }), false],
+    [event({ type: "response.incomplete", response: { incomplete_details: { reason: "max_output_tokens" } } }), false],
+    [event({ type: "response.completed", response: { ...toolResponse([]), status: "failed" } }), false],
+    ["", false], [null, false],
+  ]) {
+    for (const stream of [true, false]) {
+      const chunks = [...started, ...(ending ? [ending] : [])];
+      let turn = 0;
+      const { handler, calls } = fake(() => ++turn > 1 ? new Response(terminal("response.completed", completed)) : new Response(new ReadableStream({
+        pull(controller) {
+          if (chunks.length) controller.enqueue(new TextEncoder().encode(chunks.shift()));
+          else if (ending === null) controller.error(new Error("socket failed"));
+          else controller.close();
+        },
+      })));
+      await (await handler(request("/v1/responses", { model: "gpt-6.1-sol", input: [question], stream }))).text();
+      assert.equal((await handler(request("/v1/responses", { model: "gpt-6.1-sol", input: [question, reference("rs_unfinished")] }))).status, 200);
+      assert.deepEqual(JSON.parse(calls[1].options.body).input, cached ? [question, replayedReasoning("rs_unfinished")] : [question],
+        `${ending?.split("\n")[0]} stream=${stream}`);
+    }
+  }
+});
+
+test("upstream asks for encrypted reasoning only when the request sets reasoning and keeps valid client include values", async () => {
+  const { handler, calls } = fake();
+  const base = { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }] };
+  const encrypted = "reasoning.encrypted_content";
+  for (const [reasoning, include, expected] of [
+    [undefined, undefined, undefined], [null, undefined, undefined], [undefined, [], []],
+    [undefined, ["web_search_call.action.sources"], ["web_search_call.action.sources"]], [undefined, [encrypted], [encrypted]],
+    [{ effort: "high" }, undefined, [encrypted]], [{}, [], [encrypted]],
+    [{ effort: "low" }, ["web_search_call.action.sources"], ["web_search_call.action.sources", encrypted]],
+    [{ effort: "low" }, [encrypted, "message.input_image.image_url"], [encrypted, "message.input_image.image_url"]],
+  ]) {
+    for (const stream of [false, true]) {
+      assert.equal((await handler(request("/v1/responses", { ...base, reasoning, include, stream }))).status, 200);
+      assert.deepEqual(JSON.parse(calls.at(-1).options.body).include, expected, `${JSON.stringify(reasoning)} ${JSON.stringify(include)}`);
+    }
+  }
+  const refused = await handler(request("/v1/responses", { ...base, reasoning: { effort: "high" }, include: [encrypted, "file_search_call.results"] }));
+  assert.equal(refused.status, 400);
+  assert.equal((await refused.json()).error.param, "include");
+  assert.equal(calls.length, 18);
+});
+
+test("cached items expire six hours after insertion even when recently used", async () => {
+  let clock = 1_000_000;
+  const { replies, turn, replayed } = replayFixture({ now: () => clock });
+  replies.push(terminal("response.completed", toolResponse([reasoningItem("rs_aged")])));
+  await turn([question]);
+  clock += 6 * 60 * 60 * 1000 - 1;
+  assert.deepEqual(await replayed("rs_aged"), ["rs_aged"]);
+  clock += 1;
+  assert.deepEqual(await replayed("rs_aged"), []);
+});
+
+test("expired items leave the item cache before unexpired ones are evicted", async () => {
+  let clock = 0;
+  const { replies, turn, replayed } = replayFixture({ now: () => clock });
+  replies.push(terminal("response.completed", toolResponse([reasoningItem("rs_old")])));
+  await turn([question]);
+  clock = 60 * 60 * 1000;
+  for (let batch = 0; batch < 16; batch++) {
+    replies.push(terminal("response.completed", toolResponse(Array.from({ length: Math.min(256, 4095 - batch * 256) },
+      (_, index) => reasoningItem(`rs_fresh_${batch * 256 + index}`)))));
+    await turn([question]);
+  }
+  clock = 5 * 60 * 60 * 1000;
+  assert.deepEqual(await replayed("rs_old"), ["rs_old"]);
+  clock = 6 * 60 * 60 * 1000;
+  replies.push(terminal("response.completed", toolResponse([reasoningItem("rs_new")])));
+  await turn([question]);
+  assert.deepEqual(await replayed("rs_old", "rs_fresh_0", "rs_new"), ["rs_fresh_0", "rs_new"]);
+});
+
+test("the item cache holds 4096 items and evicts the least recently used first", async () => {
+  const { replies, turn, replayed } = replayFixture();
+  for (let batch = 0; batch < 16; batch++) {
+    replies.push(terminal("response.completed", toolResponse(Array.from({ length: 256 }, (_, index) => reasoningItem(`rs_${batch * 256 + index}`)))));
+    await turn([question]);
+  }
+  assert.deepEqual(await replayed("rs_0"), ["rs_0"]);
+  replies.push(terminal("response.completed", toolResponse([reasoningItem("rs_4096")])));
+  await turn([question]);
+  assert.deepEqual(await replayed("rs_0", "rs_1", "rs_2", "rs_4095", "rs_4096"), ["rs_0", "rs_2", "rs_4095", "rs_4096"]);
+});
+
+test("the item cache holds at most 32 MiB of serialized items and evicts the least recently used first", async () => {
+  const { replies, turn, replayed } = replayFixture();
+  // About 2 MB each: sixteen fit in 32 MiB and a seventeenth does not.
+  const large = (index) => ({ type: "reasoning", id: `rs_large_${index}`, summary: [], encrypted_content: "e".repeat(1_999_900) });
+  for (let index = 0; index < 16; index++) {
+    replies.push(terminal("response.completed", toolResponse([large(index)])));
+    await turn([question]);
+  }
+  assert.deepEqual(await replayed("rs_large_0"), ["rs_large_0"]);
+  replies.push(terminal("response.completed", toolResponse([large(16)])));
+  await turn([question]);
+  for (const [id, kept] of [["rs_large_1", false], ["rs_large_0", true], ["rs_large_2", true], ["rs_large_16", true]]) {
+    assert.deepEqual(await replayed(id), kept ? [id] : [], id);
+  }
+});
+
+test("item references cannot expand a request past the body limit", async () => {
+  const { handler, calls, replies, turn } = replayFixture();
+  // About 750 KB each: two fit the 2 MiB copy budget and three do not.
+  const wide = (index) => ({ type: "reasoning", id: `rs_wide_${index}`, summary: [], encrypted_content: "e".repeat(750_000) });
+  replies.push(terminal("response.completed", toolResponse([wide(0), wide(1)])), terminal("response.completed", toolResponse([wide(2)])));
+  await turn([question]);
+  await turn([question]);
+  const refused = await handler(request("/v1/responses", { model: "gpt-6.1-sol",
+    input: [question, reference("rs_wide_0"), reference("rs_wide_1"), reference("rs_wide_2")] }));
+  assert.equal(refused.status, 413);
+  assert.equal((await refused.json()).error.param, "input");
+  assert.equal(calls.length, 2);
+  await turn([question, reference("rs_wide_0"), reference("rs_wide_2")]);
+  assert.deepEqual(JSON.parse(calls[2].options.body).input.map((item) => item.encrypted_content?.length), [undefined, 750_000, 750_000]);
+});
+
+test("Responses stream errors carry type, sequence numbers and a top-level error, terminal frames keep usage and reasons, Chat keeps its error body, and no frame leaks the token", async () => {
+  const started = [{ type: "response.created", sequence_number: 0, response: { id: "resp_1", status: "in_progress", output: [] } },
+    { type: "response.output_text.delta", sequence_number: 1, item_id: "msg_1", output_index: 0, content_index: 0, delta: "provider-token partial", logprobs: [] }];
+  const streamed = async (ending, path, body) => {
+    const chunks = [...started.map(event), ...(ending ? [ending] : [])];
+    const { handler } = fake(() => new Response(new ReadableStream({
+      pull(controller) {
+        if (chunks.length) controller.enqueue(new TextEncoder().encode(chunks.shift()));
+        else if (ending === null) controller.error(new Error("socket failed"));
+        else controller.close();
+      },
+    }), { headers: { "x-request-id": "provider-token" } }));
+    const wire = await (await handler(request(path, body))).text();
+    assert.equal(wire.includes("provider-token"), false);
+    return wire;
+  };
+  const interrupted = { type: "error", sequence_number: 2, code: "stream_interrupted", param: null };
+  const usage = { input_tokens: 5, input_tokens_details: { cached_tokens: 1 }, output_tokens: 7, output_tokens_details: { reasoning_tokens: 3 }, total_tokens: 12 };
+  const terminalFrame = (type, sequence_number, incomplete_details, frameUsage) => ({ type, sequence_number, response: { incomplete_details, usage: frameUsage } });
+  for (const [ending, last] of [
+    ["", interrupted], [null, interrupted], ["data: {broken\n\n", interrupted],
+    [event({ type: "response.failed", sequence_number: 7, response: { error: { code: "server_error", message: "Failed for provider-token" },
+      usage: { ...usage, output_tokens_details: { reasoning_tokens: "3" } } } }),
+      terminalFrame("response.failed", 7, undefined, { ...usage, output_tokens_details: {} })],
+    [event({ type: "response.incomplete", response: { incomplete_details: { reason: "max_output_tokens" }, usage } }),
+      terminalFrame("response.incomplete", 2, { reason: "max_output_tokens" }, usage)],
+    // AI SDK would read usage without a reason as a clean stop.
+    [event({ type: "response.incomplete", response: { usage } }), terminalFrame("response.incomplete", 2, undefined, undefined)],
+    // AI SDK would drop the whole frame for a count it cannot parse.
+    [event({ type: "response.incomplete", response: { incomplete_details: { reason: "content_filter" }, usage: { ...usage, input_tokens: "5" } } }),
+      terminalFrame("response.incomplete", 2, { reason: "content_filter" }, undefined)],
+  ]) {
+    const wire = await streamed(ending, "/v1/responses", { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }], stream: true });
+    assert.match(wire, new RegExp(`event: ${last.type}\\ndata: [^\\n]*\\n\\n$`, "u"));
+    const frame = parseEvents(wire).at(-1);
+    for (const [key, value] of Object.entries(last)) {
+      if (key !== "response") assert.deepEqual(frame[key], value, key);
+      else for (const [field, expected] of Object.entries(value)) assert.deepEqual(frame.response[field], expected, field);
+    }
+    assert.equal(typeof (frame.message ?? frame.response.error.message), "string");
+    // openai-node raises only on a top-level error. No type inside it: AI SDK would then parse the nested shape and lose the message.
+    if (frame.type === "error") assert.deepEqual(frame.error, { code: frame.code, message: frame.message });
+    if (frame.type === "response.failed") assert.deepEqual(frame.error, { code: frame.response.error.code, message: frame.response.error.message });
+  }
+  for (const ending of ["", null]) {
+    const frame = parseEvents(await streamed(ending, "/v1/chat/completions", chatBody({ stream: true }))).at(-1);
+    assert.deepEqual([frame.error.code, frame.status, frame.sequence_number], ["stream_interrupted", 502, undefined]);
+  }
+});
+
+test("requests may define up to 128 tools while one response still carries at most 32 tool calls", async () => {
+  const { handler, calls } = fake();
+  const defined = (count) => Array.from({ length: count }, (_, index) => ({ ...functionTool, name: `lookup${index}` }));
+  const input = [{ role: "user", content: "Hi" }];
+  for (const [count, status] of [[128, 200], [129, 400]]) {
+    for (const [path, body, param] of [
+      ["/v1/responses", { model: "gpt-6.1-sol", input, tools: defined(count) }, "tools"],
+      ["/v1/responses", { model: "gpt-6.1-sol", input: [{ type: "additional_tools", role: "developer", tools: defined(count) }, ...input] }, "input"],
+      ["/v1/responses", { model: "gpt-6.1-sol", input, tools: [{ type: "namespace", name: "crm", description: "CRM", tools: defined(count) }] }, "tools"],
+      ["/v1/chat/completions", { model: "gpt-6.1-sol", messages: input, tools: defined(count).map(({ type, ...definition }) => ({ type, function: definition })) }, "tools"],
+    ]) {
+      const response = await handler(request(path, body));
+      assert.equal(response.status, status, `${path} ${param} ${count}`);
+      if (status === 400) assert.equal((await response.json()).error.param, param);
+    }
+  }
+  assert.equal(calls.length, 4);
+  const thirtyThree = fake(() => new Response(terminal("response.completed", toolResponse(Array.from({ length: 33 }, (_, index) => functionCall(String(index)))))));
+  const refused = await thirtyThree.handler(request("/v1/chat/completions", chatBody()));
+  assert.equal(refused.status, 422);
 });

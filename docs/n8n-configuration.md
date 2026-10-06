@@ -34,8 +34,8 @@ entitlement or host admission.
 | Route | Behavior |
 | --- | --- |
 | `GET /v1/models` | Returns the selected account's text models in OpenAI's order, with IDs and display names. See [Model discovery and checks](#model-discovery-and-checks). While the VPS image add-on is on, requests without n8n's `openai-platform` header also get `gpt-image-2`. |
-| `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false` and requests streaming; only a completed response counts as success. Streamed events, including `phase`, pass through unchanged. |
-| `POST /v1/chat/completions` | Compatibility route translated into a Responses request. It accepts `model`, `messages`, `tools`, `tool_choice` (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, and `stream_options.include_usage`. Messages are text `user`, `assistant`, or `developer` messages, assistant tool calls, and `tool` results. Only final-answer text is returned. |
+| `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false`, requests streaming and, when the request sets `reasoning`, asks for `reasoning.encrypted_content`; only a completed response counts as success. It drops `max_output_tokens` and fills in `item_reference` items from memory; see [AI Assistant requests](#ai-assistant-requests). Streamed events, including `phase`, pass through unchanged, except failure events, which carry a safe error. |
+| `POST /v1/chat/completions` | Compatibility route translated into a Responses request. It accepts `model`, `messages`, `tools`, `tool_choice` (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, `stream_options.include_usage`, and `reasoning_effort`, which is sent as `reasoning.effort`. It drops `max_completion_tokens` and `max_tokens`. Messages are text `user`, `assistant`, or `developer` messages, assistant tool calls, and `tool` results. Only final-answer text is returned. |
 | `POST /v1/images/generations` and `POST /v1/images/edits` | VPS image add-on only. See [Generate and edit images](#generate-and-edit-images-vps-add-on). Without it, these return `404 images_off`. |
 
 For a basic OpenAI Chat Model workflow, select a catalog model and begin with
@@ -167,7 +167,7 @@ matching call ID.
 
 Limits:
 
-- At most 32 tools in one list, and at most 32 tool calls in one Chat
+- At most 128 tools in one list, and at most 32 tool calls in one Chat
   Completions message or response.
 - At most 128 KiB of arguments for one call.
 - At most 2 MiB of streamed tool-call arguments in one Chat Completions
@@ -185,6 +185,55 @@ gateway on one ChatGPT account, streaming over both Chat Completions and
 Responses. Other accounts, models, and non-streaming tool calls were not
 tested live. The SIWC guide names `additional_tools`, but only the general
 Responses reference documents its shape.
+
+## AI Assistant requests
+
+n8n's AI Assistant reaches the sidecar's Responses route through the AI SDK.
+Setup is in [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar-untested).
+The rules below are based on the requests n8n 2.40.7 sends, not on a live
+Assistant test, and they apply to every client.
+
+Output-token caps are dropped. n8n's model check sends `max_output_tokens: 16`.
+SIWC lists `max_output_tokens` as unsupported
+([source check](openai-source-check-2026-10-05.md#check-3-model-and-inference-capability-no-tts)),
+so no cap can be honored: the sidecar removes the field and the reply is not
+capped. The Chat Completions route drops `max_completion_tokens` and
+`max_tokens` the same way. Other unsupported fields are still refused.
+
+Earlier output is filled in from memory. In tool steps and follow-up
+messages, the AI SDK sends an `item_reference` that holds only an item ID in
+place of earlier reasoning and assistant text. A Responses request that sets
+`reasoning`, as the Assistant's do, asks OpenAI for
+`reasoning.encrypted_content`, added to any valid `include` values the client
+sent; other requests keep the client's `include` as is. When a request reaches
+`response.completed`, the sidecar
+keeps its reasoning items (encrypted content and summary) and assistant
+messages (text and a valid `phase`). A later reference to a kept ID is
+replaced with a copy of that item before the request goes to OpenAI.
+References to unknown IDs are dropped. A reference without a valid ID, or a
+request left with no input, is refused with `param: input`. The copies in one
+request can total at most 2 MiB; more returns `413 body_too_large`.
+
+The memory belongs to one sidecar process and is never written to disk. It
+holds at most 4,096 items and 32 MiB. An item expires 6 hours after it is
+kept, and when the memory is full the least recently used item goes first.
+Items from failed, incomplete or interrupted responses are not kept, and Chat
+Completions requests neither fill nor use the memory. A restart or update
+empties it. References from an open Assistant conversation are then dropped,
+and the model no longer sees that earlier reasoning and those replies; start a
+new conversation. Data handling is in
+[Security](security.md#remembered-responses-items).
+
+Stream failures use OpenAI's event format. On `/v1/responses`, an error the
+sidecar adds to a stream, such as `stream_interrupted`, is an `error` event
+with `type`, `sequence_number`, `code`, `message` and `param`. Rewritten
+`response.failed` and `response.incomplete` events keep their
+`sequence_number`. AI SDK clients then see the error, or the reason a response
+was incomplete, instead of a type-validation error or an empty answer. The
+Chat Completions route keeps its own error body.
+
+A request can list up to 128 tools; see [Function tools](#function-tools). The
+Assistant sends its own tools plus any from connected MCP servers.
 
 ## Generate and edit images (VPS add-on)
 
@@ -256,8 +305,10 @@ the selected model and account policy and is not guaranteed by catalog
 discovery.
 
 The gateway reports unsupported parameters instead of silently dropping them.
-It does not switch registrations, replay a partially received inference, or
-fall back to separately billed API access. A usage-limit error on the text
+Output-token caps are the exception; see
+[AI Assistant requests](#ai-assistant-requests). The gateway does not switch
+registrations, replay a partially received inference, or fall back to
+separately billed API access. A usage-limit error on the text
 routes directs you to [Manage usage](https://chatgpt.com/settings/usage).
 Other request, permission, connection, and provider failures require the
 recovery shown by the wizard.

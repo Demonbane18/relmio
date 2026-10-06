@@ -13,11 +13,16 @@ const BASE_URL = "https://api.openai.com/v1";
 const MAX_BODY = 2 * 1024 * 1024;
 const MAX_EVENT = 2 * 1024 * 1024;
 const MAX_TOOL_CALLS = 32;
+const MAX_TOOLS = 128;
 const MAX_TOOL_ARGUMENT_BYTES = 128 * 1024;
 const MAX_OUTPUT_ITEMS = 256;
-const unsupportedFields = new Set(["conversation", "max_output_tokens", "max_tool_calls", "metadata", "moderation", "multi_agent", "prompt", "prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs", "top_p", "truncation", "user", "previous_response_id"]);
+const MAX_CACHED_ITEMS = 4096;
+const MAX_CACHED_BYTES = 32 * 1024 * 1024;
+const CACHED_ITEM_TTL_MS = 6 * 60 * 60 * 1000;
+const unsupportedFields = new Set(["conversation", "max_tool_calls", "metadata", "moderation", "multi_agent", "prompt", "prompt_cache_retention", "safety_identifier", "temperature", "top_logprobs", "top_p", "truncation", "user", "previous_response_id"]);
 const unsupportedTools = new Set(["image_generation", "file_search", "code_interpreter", "computer", "computer_use", "mcp", "tool_search", "programmatic_tool_calling"]);
 const allowedFields = new Set(["model", "input", "instructions", "store", "stream", "background", "tools", "tool_choice", "parallel_tool_calls", "reasoning", "text", "include"]);
+const REASONING_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const IMAGES_BASE_URL = "https://chatgpt.com/backend-api/codex";
 // The sidecar image does not carry the Relmio release version; pinning one here would change the image digest every release.
 const IMAGES_USER_AGENT = "Relmio (n8n sidecar)";
@@ -132,7 +137,7 @@ function supportedTool(tool, nested = false) {
   }
   if (tool.type === "namespace") return validModel(tool.name) && typeof tool.description === "string"
     && Object.keys(tool).every((key) => ["type", "name", "description", "tools"].includes(key))
-    && Array.isArray(tool.tools) && tool.tools.length > 0 && tool.tools.length <= MAX_TOOL_CALLS
+    && Array.isArray(tool.tools) && tool.tools.length > 0 && tool.tools.length <= MAX_TOOLS
     && tool.tools.every((member) => supportedTool(member, true))
     && new Set(tool.tools.map((member) => member.name)).size === tool.tools.length;
   return ["web_search", "web_search_preview", "web_search_preview_2025_03_11"].includes(tool.type);
@@ -152,7 +157,7 @@ function checkInput(input) {
     if (item.role === "system" || item.type === "message" && item.role === "system") return "input";
     if (JSON.stringify(item).match(/"type":"(?:input_audio|audio|input_video|video|image_generation_call|file_search_call|code_interpreter_call|computer_call|mcp_call|tool_search)"/u)) return "input";
     if (item.type === "additional_tools") {
-      if (item.role !== "developer" || !Array.isArray(item.tools) || !item.tools.length || item.tools.length > MAX_TOOL_CALLS ||
+      if (item.role !== "developer" || !Array.isArray(item.tools) || !item.tools.length || item.tools.length > MAX_TOOLS ||
           !item.tools.every((tool) => supportedTool(tool, true) || supportedTool(tool)) ||
           Object.keys(item).some((key) => !["type", "role", "tools", "id"].includes(key)) ||
           item.id !== undefined && !validCallId(item.id)) return "input";
@@ -188,7 +193,7 @@ function normalizeFlatTools(body) {
       ? { ...item, tools: item.tools.map(additionalTool) } : item) };
   }
   if (!Array.isArray(body.tools)) return { body };
-  if (body.tools.length > MAX_TOOL_CALLS) return { error: "tools" };
+  if (body.tools.length > MAX_TOOLS) return { error: "tools" };
   const flat = body.tools.filter((tool) => tool?.type === "function" || tool?.type === "custom");
   if (!flat.length) return { body };
   if (flat.some((tool) => !supportedTool(tool, true)) ||
@@ -210,7 +215,7 @@ function validateResponses(body) {
   if (!validModel(body.model)) return "model";
   const inputError = checkInput(body.input);
   if (inputError) return inputError;
-  if (body.tools !== undefined && (!Array.isArray(body.tools) || body.tools.length > MAX_TOOL_CALLS || !body.tools.every((tool) => supportedTool(tool)))) return "tools";
+  if (body.tools !== undefined && (!Array.isArray(body.tools) || body.tools.length > MAX_TOOLS || !body.tools.every((tool) => supportedTool(tool)))) return "tools";
   if (body.parallel_tool_calls !== undefined && typeof body.parallel_tool_calls !== "boolean") return "parallel_tool_calls";
   if (body.tool_choice !== undefined && (
     typeof body.tool_choice === "string" ? !["auto", "none", "required"].includes(body.tool_choice) ||
@@ -334,6 +339,69 @@ function resolvedOutput(response, state) {
   if (Buffer.byteLength(JSON.stringify(completed)) > MAX_EVENT) throw new Error("unsupported_output");
   return { response: completed, byIndex };
 }
+const validItemId = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,128}$/u.test(value);
+// With store:false nothing is kept upstream, so only reasoning with encrypted content and plain assistant text can be replayed.
+function cacheableItem(item) {
+  if (!isObject(item) || !validItemId(item.id)) return null;
+  if (item.type === "reasoning") return typeof item.encrypted_content === "string" && item.encrypted_content && Array.isArray(item.summary)
+    ? { type: "reasoning", id: item.id, encrypted_content: item.encrypted_content, summary: item.summary } : null;
+  return item.type === "message" && item.role === "assistant" && Array.isArray(item.content) && item.content.length > 0 &&
+    item.content.every((part) => part?.type === "output_text" && typeof part.text === "string")
+    ? { type: "message", role: "assistant", id: item.id, content: item.content.map(({ text }) => ({ type: "output_text", text })),
+      ...(item.phase != null && validChatPhase(item) && { phase: item.phase }) } : null;
+}
+// ponytail: per-process memory, lost on restart; references are then dropped and the model loses that earlier context.
+function createItemCache(now) {
+  const entries = new Map();
+  let bytes = 0;
+  const drop = (id) => { bytes -= entries.get(id).data.length; entries.delete(id); };
+  const put = (id, entry) => { entries.set(id, entry); bytes += entry.data.length; };
+  return {
+    remember(output) {
+      const time = now();
+      for (const [id, entry] of entries) if (entry.expires <= time) drop(id);
+      for (const item of output) {
+        const cached = cacheableItem(item);
+        if (!cached) continue;
+        const json = JSON.stringify(cached);
+        // Unpooled bytes keep the count exact and off the V8 heap; a pooled small item could pin a shared 8 KiB slab.
+        const data = Buffer.allocUnsafeSlow(Buffer.byteLength(json));
+        data.write(json);
+        if (entries.has(cached.id)) drop(cached.id);
+        put(cached.id, { data, expires: time + CACHED_ITEM_TTL_MS });
+        // Map order is recency order, so the first entry is the least recently used.
+        while (entries.size > MAX_CACHED_ITEMS || bytes > MAX_CACHED_BYTES) drop(entries.keys().next().value);
+      }
+    },
+    recall(id) {
+      const entry = entries.get(id);
+      if (!entry) return undefined;
+      drop(id);
+      if (entry.expires <= now()) return undefined;
+      put(id, entry);
+      return entry;
+    },
+  };
+}
+function expandReferences(input, itemCache) {
+  if (!Array.isArray(input) || !input.some((item) => item?.type === "item_reference")) return input;
+  const expanded = [];
+  let bytes = 0;
+  const seen = new Set();
+  for (const item of input) {
+    if (item?.type !== "item_reference") { expanded.push(item); continue; }
+    if (!validItemId(item.id)) return failure("An input item reference needs a valid item id.", "input");
+    // AI SDK references a multi-part message once per part; the item itself goes upstream once.
+    if (seen.has(item.id)) continue;
+    seen.add(item.id);
+    const cached = itemCache.recall(item.id);
+    if (!cached) continue;
+    // Copies have their own MAX_BODY budget on top of the client body, so references cannot grow an upstream body without bound.
+    if ((bytes += cached.data.length) > MAX_BODY) return failure("The referenced input items are too large for one request.", "input", 413, "body_too_large");
+    expanded.push(JSON.parse(cached.data.toString()));
+  }
+  return expanded.length ? expanded : failure("No input remains after dropping unknown item references.", "input");
+}
 const finalChatPhase = (item) => item.phase === undefined || item.phase === null || item.phase === "final_answer";
 const validChatPhase = (item) => finalChatPhase(item) || item.phase === "commentary";
 
@@ -352,13 +420,19 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
   let argumentBytes = 0;
   const textParts = [];
   let textBytes = 0;
-  const output = chat ? outputState() : null;
+  // Chat validates every output item; the Responses pass-through tracks them only for the item cache.
+  let output = outputState();
+  let sequence = 0;
   const pendingText = new Map();
   const body = new ReadableStream({
     async pull(controller) {
       if (closed) return;
       started = true;
       const send = (event, value) => controller.enqueue(encoder.encode(`event: ${event}\ndata: ${redactSecrets(JSON.stringify(value), secrets)}\n\n`));
+      // Responses clients need Responses error events; Chat clients keep the chat error body.
+      const streamError = (code, message, status) => send("error", chat
+        ? safeError({ error: { code, message } }, status, upstream.headers.get("x-request-id"), secrets)
+        : { type: "error", sequence_number: sequence, code, message, param: null, error: { code, message } });
       const chatChunk = (delta, finishReason = null) => {
         send("message", { id, object: "chat.completion.chunk", model,
           choices: [{ index: 0, delta: { ...(!roleSent && { role: "assistant" }), ...delta }, finish_reason: finishReason }] });
@@ -401,12 +475,16 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
           const next = await events.next();
           if (closed) return;
           if (next.done) {
-            send("error", safeError({ error: { code: "stream_interrupted", message: "The upstream stream ended before completion." } }, 502, upstream.headers.get("x-request-id"), secrets));
+            streamError("stream_interrupted", "The upstream stream ended before completion.", 502);
             finish();
             return;
           }
           const value = next.value.value;
           if (typeof value?.type !== "string") throw new Error("invalid_event");
+          const sequenceNumber = Number.isSafeInteger(value.sequence_number) ? value.sequence_number : sequence;
+          sequence = sequenceNumber + 1;
+          // An inconsistent pass-through stream still reaches the client; its items are just not cached.
+          if (!chat && output) { try { trackOutputItem(output, value); } catch { output = null; } }
           if (chat && ["response.output_item.added", "response.output_item.done"].includes(value.type)) {
             trackOutputItem(output, value);
             if (value.item.type === "message" && !validChatPhase(value.item)) throw new Error("unsupported_output");
@@ -488,7 +566,11 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
           }
           if (["response.completed", "response.failed", "response.incomplete"].includes(value.type)) {
             if (value.type === "response.completed" && value.response?.status && value.response.status !== "completed") throw new Error("invalid_terminal");
-            if (value.type === "response.completed") onCompleted();
+            if (value.type === "response.completed") {
+              let items;
+              if (!chat && output) { try { items = resolvedOutput(value.response, output).response.output; } catch { /* Passed through uncached. */ } }
+              onCompleted(items);
+            }
             if (chat) {
               if (value.type === "response.completed") {
                 const resolved = resolvedOutput(value.response, output);
@@ -524,7 +606,14 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
             } else if (value.type === "response.completed") send(value.type, value);
             else {
               const safe = terminalFailure(value, eventRequestId(value, upstream), secrets);
-              send(value.type, { type: value.type, response: { error: safe.error, status: value.type === "response.incomplete" ? "incomplete" : "failed" },
+              const reason = safeText(value.response?.incomplete_details?.reason, secrets);
+              // AI SDK reads usage without a reason on an incomplete frame as a clean stop, so usage needs the reason there.
+              const usage = value.type === "response.incomplete" && !reason ? undefined : usageCounts(value.response?.usage);
+              send(value.type, { type: value.type, sequence_number: sequenceNumber,
+                // openai-node, and so LangChain, raises only on a top-level error; AI SDK reads response.error.
+                ...(value.type === "response.failed" && { error: { code: safe.error.code, message: safe.error.message } }),
+                response: { error: safe.error, status: value.type === "response.incomplete" ? "incomplete" : "failed",
+                  ...(reason && { incomplete_details: { reason } }), ...(usage && { usage }) },
                 status: safe.status, requestId: safe.requestId, recovery: safe.recovery, ...(safe.upstream && { upstream: safe.upstream }) });
             }
             finish();
@@ -536,8 +625,8 @@ function streamResponse(upstream, chat, secrets, onCompleted) {
       } catch (error) {
         if (closed) return;
         const code = error?.message === "unsupported_output" ? "unsupported_output" : "stream_interrupted";
-        send("error", safeError({ error: { code, message: code === "unsupported_output" ? "The output cannot be represented as a chat completion." : "The upstream stream was interrupted." } },
-          code === "unsupported_output" ? 422 : 502, upstream.headers.get("x-request-id"), secrets));
+        streamError(code, code === "unsupported_output" ? "The output cannot be represented as a chat completion." : "The upstream stream was interrupted.",
+          code === "unsupported_output" ? 422 : 502);
         finish();
       }
     },
@@ -593,6 +682,12 @@ function chatUsage(usage) {
     ...(usage.input_tokens_details && { prompt_tokens_details: usage.input_tokens_details }),
     ...(usage.output_tokens_details && { completion_tokens_details: usage.output_tokens_details }) };
 }
+// AI SDK drops a whole terminal frame whose usage breaks its schema, so only whole token counts are forwarded.
+function usageCounts(usage) {
+  if (!isObject(usage) || !Number.isSafeInteger(usage.input_tokens) || !Number.isSafeInteger(usage.output_tokens)) return undefined;
+  const counts = (value) => isObject(value) ? Object.fromEntries(Object.entries(value).filter(([, count]) => Number.isSafeInteger(count))) : undefined;
+  return { ...counts(usage), input_tokens_details: counts(usage.input_tokens_details), output_tokens_details: counts(usage.output_tokens_details) };
+}
 async function aggregate(upstream, chat, model, secrets, onCompleted) {
   let completed;
   const output = outputState();
@@ -612,7 +707,7 @@ async function aggregate(upstream, chat, model, secrets, onCompleted) {
     return failure("The upstream stream was interrupted.", null, 502, "stream_interrupted");
   }
   if (!completed || completed.status && completed.status !== "completed") return failure("The upstream stream ended before completion.", null, 502, "stream_interrupted");
-  onCompleted();
+  onCompleted(completed.output);
   const serialized = JSON.stringify(completed);
   if (Buffer.byteLength(serialized) > MAX_EVENT) return failure("The response was too large to aggregate.", null, 502, "response_too_large");
   if (!chat) return new Response(redactSecrets(serialized, secrets), { headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
@@ -626,10 +721,13 @@ async function aggregate(upstream, chat, model, secrets, onCompleted) {
 }
 function translateChat(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "body" };
-  const allowed = new Set(["model", "messages", "tools", "tool_choice", "parallel_tool_calls", "stream", "stream_options"]);
+  // Output caps are dropped: SIWC rejects max_output_tokens, so no cap can be honored either way.
+  const allowed = new Set(["model", "messages", "tools", "tool_choice", "parallel_tool_calls", "stream", "stream_options",
+    "reasoning_effort", "max_completion_tokens", "max_tokens"]);
   const invalid = Object.keys(body).find((key) => !allowed.has(key));
   if (invalid) return { error: invalid };
   if (!validModel(body.model)) return { error: "model" };
+  if (body.reasoning_effort !== undefined && !REASONING_EFFORTS.has(body.reasoning_effort)) return { error: "reasoning_effort" };
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.length > 256) return { error: "messages" };
   if (body.stream !== undefined && typeof body.stream !== "boolean") return { error: "stream" };
   if (body.stream_options !== undefined && (body.stream !== true || !isObject(body.stream_options) ||
@@ -641,7 +739,7 @@ function translateChat(body) {
   const tools = [];
   const names = new Set();
   if (body.tools !== undefined) {
-    if (!Array.isArray(body.tools) || body.tools.length > MAX_TOOL_CALLS) return { error: "tools" };
+    if (!Array.isArray(body.tools) || body.tools.length > MAX_TOOLS) return { error: "tools" };
     for (const tool of body.tools) {
       const type = tool?.type;
       const definition = tool?.[type];
@@ -699,6 +797,7 @@ function translateChat(body) {
   }
   if (completedCalls.size !== seenCalls.size) return { error: "messages" };
   return { request: { model: body.model, input, store: false, stream: true,
+    ...(body.reasoning_effort !== undefined && { reasoning: { effort: body.reasoning_effort } }),
     ...(body.tool_choice !== undefined && { tool_choice: body.tool_choice }),
     ...(body.parallel_tool_calls !== undefined && { parallel_tool_calls: body.parallel_tool_calls }) },
   stream: body.stream === true, streamOptions: body.stream_options };
@@ -868,11 +967,12 @@ async function modelsRoute(request, discovery, imagesStatus) {
 
 export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessToken, registration, runtimeId, tokenVerifier, baseUrl = BASE_URL,
   getImagesLease = () => getCodexImagesLease({ storageRoot: registration.storageRoot }),
-  imagesStatus = () => codexImagesStatus({ storageRoot: registration.storageRoot }), discovery } = {}) {
+  imagesStatus = () => codexImagesStatus({ storageRoot: registration.storageRoot }), discovery, now = Date.now } = {}) {
   if (!registration?.storageRoot || !registration?.registrationId || !runtimeId || !Buffer.isBuffer(tokenVerifier) || tokenVerifier.length !== 32) throw new TypeError("The sidecar requires a selected owned registration and local credential verifier.");
   discovery ??= createModelDiscovery({ storageRoot: registration.storageRoot, registrationId: registration.registrationId, pinnedClientVersion: CODEX_CLI_VERSION,
     getLease: ({ signal } = {}) => getToken(registration, { runtimeId, minValidityMs: 60_000, signal }), deps: { fetchImpl } });
   const editSlot = { busy: false };
+  const itemCache = createItemCache(now);
   const handler = async (request) => {
     const path = new URL(request.url).pathname;
     if (request.headers.has("origin")) return failure("Browser origins are not allowed.", "origin", 403, "origin_rejected");
@@ -893,6 +993,13 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
       if (invalid) return failure("This chat request cannot be represented by Responses.", invalid);
       stream = translated.stream; streamOptions = translated.streamOptions; body = translated.request; chat = true;
     } else {
+      if (isObject(body)) {
+        // n8n's model check sends max_output_tokens; SIWC rejects it, so the cap cannot be honored either way.
+        const { max_output_tokens: _cap, ...rest } = body;
+        const input = expandReferences(rest.input, itemCache);
+        if (input instanceof Response) return input;
+        body = { ...rest, input };
+      }
       const normalized = normalizeFlatTools(body);
       if (normalized.error) return failure("The tool definitions cannot be represented by this plan route.", normalized.error);
       body = normalized.body;
@@ -900,6 +1007,8 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
       if (invalid) return failure("This Responses parameter is unavailable with ChatGPT plan usage.", invalid);
       stream = body.stream === true;
       body = { ...body, store: false, stream: true };
+      // Codex's rule: a request that sets reasoning also asks for encrypted reasoning, so later item references can be replayed under store:false.
+      if (body.reasoning != null) body.include = [...new Set([...(body.include ?? []), "reasoning.encrypted_content"])];
       delete body.background;
     }
     let lease;
@@ -918,7 +1027,11 @@ export function createSidecarHandler({ fetchImpl = fetch, getToken = getAccessTo
       return Response.json(safeError(detail, upstream.status, upstream.headers.get("x-request-id"), [lease.accessToken]), { status: upstream.status, headers: { "cache-control": "no-store" } });
     }
     if (!upstream.body) return failure("The provider returned no response stream.", null, 502, "stream_interrupted");
-    const completed = () => learn(discovery, body.model, "completed");
+    const { model } = body;
+    const completed = (output) => {
+      learn(discovery, model, "completed");
+      if (!chat && output) itemCache.remember(output);
+    };
     return stream ? streamResponse(upstream, chat && { ...body, streamOptions }, [lease.accessToken], completed)
       : aggregate(upstream, chat, body.model, [lease.accessToken], completed);
   };

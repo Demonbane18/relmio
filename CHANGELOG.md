@@ -62,6 +62,18 @@ checks the registry separately after publication.
   that failed. Once any model has answered, n8n lists only models that
   answered. Each test uses a little of your plan. Consent is recorded; turning
   checks off stops further tests, and Sign out and revoke turns them off first.
+- The ChatGPT plan sidecar now fills in earlier output that a client refers
+  to by ID, as n8n's AI Assistant does in tool steps and follow-up messages.
+  From each Responses request that completes, it keeps reasoning items
+  (encrypted content and summary) and assistant text in memory, and replaces
+  each later `item_reference` with a copy. For this, Responses requests that
+  set `reasoning` now ask OpenAI for `reasoning.encrypted_content`. The memory holds at most
+  4,096 items and 32 MiB, keeps an item for up to 6 hours and is never
+  written to disk. A restart or update empties it; references it no longer
+  knows are dropped, so an open Assistant conversation loses that earlier
+  context. Relmio hasn't completed a live Assistant test yet.
+- The sidecar's `/v1/chat/completions` route accepts `reasoning_effort` and
+  sends it to OpenAI as `reasoning.effort`.
 
 ### Changed
 
@@ -87,9 +99,12 @@ checks the registry separately after publication.
   separate OpenAI credential with your own Platform API key.
 - The AI Assistant docs now explain how to point its Self-hosted or
   OpenAI-compatible endpoint at the sidecar with a pasted model ID, instead of
-  saying the sidecar is not offered. Relmio has not tested this, and whether
-  it fits OpenAI's Sign in with ChatGPT terms is open. Only do it if nobody
-  else uses that n8n.
+  saying the sidecar is not offered. Relmio has not completed a live test of
+  this, and whether it fits OpenAI's Sign in with ChatGPT terms is open. Only
+  do it if nobody else uses that n8n.
+- One sidecar request can now list up to 128 tools, up from 32, which leaves
+  n8n's AI Assistant room for its own tools plus those from MCP servers. Tool
+  calls stay at 32 per Chat Completions message or response.
 
 - Document the local SIWC account, permission, and model-access flow, including
   protected per-registration credentials, private n8n/VPS transfer boundaries,
@@ -113,6 +128,21 @@ checks the registry separately after publication.
   `response.output_item.done` events. Chat Completions clients get only
   final-answer text, not intermediate `commentary`. The Responses route passes
   events and `phase` through unchanged.
+- The sidecar no longer refuses n8n's AI Assistant model check with "This
+  Responses parameter is unavailable with ChatGPT plan usage." The check
+  sends `max_output_tokens: 16`. The sidecar now drops output-token caps
+  instead of refusing them: `max_output_tokens` on Responses, and
+  `max_completion_tokens` and `max_tokens` on Chat Completions. SIWC lists
+  `max_output_tokens` as unsupported, so no cap can be honored, and the
+  16-token cap is not enforced. Other unsupported fields are still refused.
+  A VPS sidecar needs Review sidecar update to get this fix and the related
+  item memory, tool and error changes.
+- Failures in a streamed `/v1/responses` request now reach AI SDK clients,
+  such as n8n's AI Assistant, as errors. The sidecar's own stream errors use
+  OpenAI's `error` event format, and rewritten `response.failed` and
+  `response.incomplete` events keep their `sequence_number` and any
+  incomplete reason. Before, the AI SDK reported a cut-off stream as a
+  type-validation error and could end a failed response as an empty answer.
 - The model list now includes the account's current models. On the tested
   account that added GPT-6.1-Sol, GPT-6-Sol and GPT-6-Luna. OpenAI filters the
   catalog by an undocumented `client_version` parameter; the sidecar now

@@ -45,7 +45,8 @@ and tool results. Function tools go upstream in one `additional_tools` item;
 n8n runs the tools, not the gateway. Limits are 32 tool calls, 128 KiB of
 arguments per call, and 2 MiB of streamed arguments in total. The route
 rejects a named `tool_choice`, tool namespaces, custom tools in streamed
-requests, system messages, and other fields it cannot preserve. Chat clients
+requests, system messages, and other fields it cannot preserve, but drops
+output-token caps (`max_completion_tokens`, `max_tokens`). Chat clients
 get only final-answer text. On 2026-10-05 a two-turn LangChain tool test
 passed through the real gateway on one ChatGPT account, streaming over both
 routes. That is not a guarantee for other accounts or models.

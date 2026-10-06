@@ -335,7 +335,8 @@ if it does. For the status messages, see
 
 The gateway provides model discovery and supported `/v1/responses` requests.
 Audio, video, Files API management, moderation, stored
-responses/conversations, and unsupported parameters are rejected. The
+responses/conversations, and unsupported parameters are rejected, except
+output-token caps, which are dropped. The
 Responses `image_generation` tool stays unsupported; image routes work only
 through the [optional image add-on](#turn-on-image-generation-optional).
 The Chat Completions compatibility route accepts function tools through
