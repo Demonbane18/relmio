@@ -35,3 +35,33 @@ test("invalid catalog identifiers and missing plan permission cannot produce mod
     });
   }
 });
+
+test("a token refresh during discovery keeps the catalog, but an account switch does not", async (t) => {
+  for (const switchAccount of [false, true]) {
+    await t.test(switchAccount ? "switched" : "refreshed", async (subtest) => {
+      let current = siwcAccount;
+      const wizard = await startIsolatedWizard({ sessionToken, services: {
+        async listAuthRegistrations() { return [current]; },
+        async getSelectedRegistration() { return current.registrationId; },
+        async getAuthStatus() { return { ...current, exists: true }; },
+        async listSiwcModels() {
+          // getAccessToken refresh writes a new generation; a switch selects another registration.
+          current = { ...current, generation: "0b9c2f4e-6d1a-4c3b-9e8f-7a6b5c4d3e2f",
+            ...(switchAccount ? { registrationId: "fixture_registration_2" } : {}) };
+          return [{ slug: "listed-model", display_name: "Listed model" }];
+        },
+      } });
+      subtest.after(() => wizard.close());
+      const response = await fetch(`${wizard.origin}/api/siwc/models`, { headers: { "X-Setup-Token": sessionToken } });
+      const body = await response.json();
+      if (switchAccount) {
+        assert.equal(response.status, 409);
+        assert.equal(body.models, undefined);
+      } else {
+        assert.equal(response.status, 200);
+        assert.equal(body.account.generation, current.generation);
+        assert.deepEqual(body.models, [{ slug: "listed-model", display_name: "Listed model" }]);
+      }
+    });
+  }
+});

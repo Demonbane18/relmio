@@ -3502,13 +3502,17 @@ async function handleApi(request, response, path, state) {
     const models = await state.services.listSiwcModels({
       storageRoot: state.storageRoot, registrationId: account.registrationId, runtimeId: state.runtimeId,
     });
+    // Token refresh inside listSiwcModels rotates `generation`; the re-read below
+    // still re-validates ownership, connection and plan use for this registration.
     const latest = await selectedSiwcAccount(state, { requirePlan: true });
-    if (latest.registrationId !== account.registrationId || latest.generation !== account.generation ||
-        !Array.isArray(models) ||
+    if (latest.registrationId !== account.registrationId) {
+      throw Object.assign(new Error("The selected ChatGPT account changed. Refresh it."), { statusCode: 409 });
+    }
+    if (!Array.isArray(models) ||
         models.some((model) => typeof model?.slug !== "string" ||
           !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(model.slug) ||
           typeof model.display_name !== "string" || model.display_name.length > 256)) {
-      throw Object.assign(new Error("The selected account or model catalog changed. Refresh it."), { statusCode: 409 });
+      throw Object.assign(new Error("The account model catalog could not be verified."), { statusCode: 409 });
     }
     sendJson(response, 200, { models, account: latest });
     return;

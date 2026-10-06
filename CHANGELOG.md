@@ -60,6 +60,16 @@ checks the registry separately after publication.
   keeps the verified connection and offers Retry discovery without asking for
   the password again. Changing the server details still needs a fresh identity
   check.
+- Reviewing a ChatGPT sidecar install or bridge update no longer fails with
+  "The selected account or model catalog changed" when the account's access
+  token refreshes while the model list loads. Switching to another account
+  during the review is still refused, and an invalid model list now has its
+  own message.
+- VPS installs and resumes no longer stop after the image build with "The VPS
+  sidecar execution configuration changed". Docker Compose reports the
+  sidecar's `command` and `entrypoint` as `null`, which the ownership check
+  treated as a change. A real override is still rejected. Checked against real
+  Compose output, a Docker 29.2.1 container test and a live VPS resume.
 - Sign-in no longer fails when OpenAI's callback includes its documented
   optional `scope`. An `iss` value, when present, must match the issuer.
 - Declining in ChatGPT now shows a declined message instead of a generic

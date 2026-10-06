@@ -86,8 +86,10 @@ export function attestVpsSiwcCompose(config, networkName) {
       Object.keys(service ?? {}).some(key => ![
         "image", "build", "environment", "volumes", "restart", "init", "read_only",
         "cap_drop", "security_opt", "pids_limit", "mem_limit", "cpus", "tmpfs",
-        "networks", "expose", "healthcheck", "labels", "ports",
+        "networks", "expose", "healthcheck", "labels", "ports", "command", "entrypoint",
       ].includes(key)) ||
+      // `docker compose config --format json` always emits these as null; any override is foreign.
+      service.command != null || service.entrypoint != null ||
       Object.keys(config?.networks ?? {}).join() !== "n8n-shared" ||
       config.networks["n8n-shared"].name !== validateDockerName(networkName) ||
       config.networks["n8n-shared"].external !== true ||

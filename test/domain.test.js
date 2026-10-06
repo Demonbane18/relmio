@@ -87,17 +87,21 @@ const service = {
 };
 
 test("full Compose attestation rejects image, storage and execution changes despite same account strings", () => {
-  const config = { services: { "openai-oauth": service },
-    networks: { "n8n-shared": { name: "proxy", external: true } } };
+  // Shape emitted by `docker compose config --format json` (Compose 5.x): null command/entrypoint,
+  // string memory, empty bind options and IPAM on the external network.
+  const rendered = { ...service, command: null, entrypoint: null, mem_limit: "536870912",
+    volumes: [{ ...service.volumes[0], bind: {} }] };
+  const config = { services: { "openai-oauth": rendered },
+    networks: { "n8n-shared": { name: "proxy", ipam: {}, external: true } } };
   assert.equal(attestVpsSiwcCompose(config, "proxy"), binding.registrationId);
   for (const mutation of [
-    { image: "foreign:latest" }, { command: ["sh", "-c", "id"] }, { user: "0" },
+    { image: "foreign:latest" }, { command: ["sh", "-c", "id"] }, { entrypoint: ["sh"] }, { user: "0" },
     { read_only: false }, { cap_add: ["SYS_ADMIN"] }, { privileged: true },
     { volumes: [{ type: "bind", source: "/outside", target: "/home/node/.relmio-siwc" }] },
     { ports: [{ target: 10531, published: "10531" }] },
     { environment: { ...service.environment, NODE_OPTIONS: "--require=/tmp/inject.js" } },
   ]) assert.throws(() => attestVpsSiwcCompose({
-    ...config, services: { "openai-oauth": { ...service, ...mutation } },
+    ...config, services: { "openai-oauth": { ...rendered, ...mutation } },
   }, "proxy"));
 });
 
