@@ -5,10 +5,19 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
-## Unreleased
+## [0.19.1] - 2026-10-07
+
+Relmio 0.19.1 fixes the VPS sidecar update route and adds a ChatGPT sign-in
+refresh for an installed VPS sidecar. It also fixes n8n's AI Agent with Use
+Responses API off, keeps the wizard's star count, and adds change-aware CI.
 
 ### Changed
 
+- Release QA uses one n8n workflow, "Relmio release acceptance", on every
+  self-hosted n8n: the Hostinger VPS, a local Docker n8n or another setup.
+  Each n8n keeps one copy and every QA run reuses it. Its `Settings` node now
+  holds the sidecar Base URL and the workflow version, so the HTTP Request
+  nodes work where n8n reaches the sidecar at another address.
 - The 0.16.0 notes and the GPT Image 2.5 experiment record now say that
   choosing Flare or Sunburst in Relmio 0.16.0 through 0.18.6 never selected
   those models. The Codex image route ignores the model ID, so every image
@@ -1853,6 +1862,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.19.1]: https://github.com/Demonbane18/relmio/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/Demonbane18/relmio/compare/v0.18.6...v0.19.0
 [0.18.6]: https://github.com/Demonbane18/relmio/compare/v0.18.5...v0.18.6
 [0.18.5]: https://github.com/Demonbane18/relmio/compare/v0.18.4...v0.18.5
