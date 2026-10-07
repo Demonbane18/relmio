@@ -2925,7 +2925,7 @@ export async function removeLocalN8nSidecar(
       // The volume delete below would drop a live image refresh token without revoking it. An install
       // made before the add-on has no image module, so it cannot hold an image sign-in.
       if (await lstatIfExists(fileSystem, join(installRoot, "services", "codex-images.mjs"))) {
-        const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker }).catch(() => null);
+        const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker });
         imagesRevocation = await signOutLocalCodexImages({
           runProcess, installRoot, marker, running: runtime?.running === true && !runtime.paused,
         });
