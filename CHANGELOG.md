@@ -17,8 +17,10 @@ checks the registry separately after publication.
 ### Fixed
 
 - On a VPS, the main button on **Choose your n8n** now follows what is
-  installed on the selected n8n. A read-only check of the installed sidecar
-  runs when the step opens. Where Relmio's ChatGPT plan sidecar already runs,
+  installed on the selected n8n. A check of the installed sidecar runs when
+  the step opens. It does not change the sidecar, but a running sidecar may
+  renew its ChatGPT sign-in and ask OpenAI for the account's model list.
+  Where Relmio's ChatGPT plan sidecar already runs,
   the button reads **Review sidecar update**: it opens **Manage the installed
   ChatGPT session**, checks the installed account again if that check is more
   than four minutes old, and runs the update review there. It reads **Finish
@@ -32,15 +34,19 @@ checks the registry separately after publication.
   restarted.
 - **Manage ChatGPT plan sidecar** now opens **Manage the installed ChatGPT
   session** and checks the installed account.
-- When OpenAI no longer accepts the VPS sidecar's sign-in, **Check installed
-  account** says `Needs a fresh sign-in.` instead of `Signed out.`, and the
-  main button reads **Refresh ChatGPT sign-in**. The new **Refresh ChatGPT
-  sign-in** button in the panel starts a fresh ChatGPT sign-in on this
+- When OpenAI no longer accepts the VPS sidecar's sign-in, or Relmio cannot
+  confirm its last renewal, **Check installed account** says `Needs a fresh
+  sign-in.` instead of `Signed out.`, and the main button reads **Refresh
+  ChatGPT sign-in**. The panel shows the new **Refresh ChatGPT sign-in**
+  button only in that case. It starts a fresh ChatGPT sign-in on this
   computer and hands it to the sidecar through the existing reviewed
   replacement: sign out the old sign-in, reconnect, then review and confirm
-  the replacement, whose button reads **Replace the sidecar**. The
-  replacement must use the registration from that new sign-in; another
-  account saved on this computer is refused. n8n needs the new Relmio key
+  the replacement, whose button reads **Replace the sidecar**. The wizard
+  accepts only the registration from that new sign-in and refuses other
+  accounts saved on this computer. It also refuses a new sign-in with a
+  different email, but it cannot tell two workspaces with the same email
+  apart. ChatGPT treats the new sign-in as a new connection, so the old
+  connection's usage settings do not carry over. n8n needs the new Relmio key
   afterwards. No new kind of server write was added.
 - The setup guide explains `vps_sidecar_owned`, `vps_sidecar_updating`,
   `vps_sidecar_staged` and `vps_sidecar_partial` and points at the panel that

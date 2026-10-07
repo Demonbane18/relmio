@@ -1374,6 +1374,7 @@ function renderDiscovery({ discovery, networks }) {
 
 element("login-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  const intent = state.loginIntent;
   if (state.oauthRetryBlocked) {
     return;
   }
@@ -1393,7 +1394,7 @@ element("login-button").addEventListener("click", async (event) => {
       async () => {
         const result = await api("/api/oauth/login", {
           method: "POST",
-          body: state.loginIntent,
+          body: intent,
         });
         if (result.launchMode !== "system-browser") {
           throw new Error(
@@ -1411,7 +1412,7 @@ element("login-button").addEventListener("click", async (event) => {
         if (state.oauthLoginGeneration !== loginGeneration) {
           return undefined;
         }
-        return siwc.authorized(state.loginIntent);
+        return siwc.authorized(intent);
       },
       {
         allowedSelector: OPERATION_ALLOWED_SELECTOR,
@@ -1420,17 +1421,16 @@ element("login-button").addEventListener("click", async (event) => {
       },
     );
     if (!status || state.oauthLoginGeneration !== loginGeneration) {
+      if (state.oauthLoginGeneration === loginGeneration) abandonVpsSignInRefresh();
       return;
     }
     loginLink.hidden = true;
     loginLink.removeAttribute("href");
     renderAuthStatus(status, { fresh: true });
-    if (state.vpsSignInRefresh) {
-      state.vpsSignInRefresh.newRegistrationId = status.registrationId;
-      setMessage("New sign-in saved. Once plan use is on, press Check the server to give it to the installed sidecar.");
-    }
+    finishVpsSignInRefresh(intent, status);
   } catch (error) {
     if (state.oauthLoginGeneration === loginGeneration) {
+      abandonVpsSignInRefresh();
       if (error.oauthRetryBlocked === true) {
         blockOAuthRetry();
       }
@@ -2106,10 +2106,11 @@ function renderVpsOwner(status, { reviewedStopped = false, reviewedAt = reviewed
   element("vps-owner-replace").hidden = !(account?.session === "signed-out" &&
     account.planEnabled === false && reviewedStopped);
   const live = status.state === "owned" && account?.ownership === "owned";
-  element("vps-owner-refresh-row").hidden = !live;
+  // Refresh only a sign-in that needs it: each refresh makes a new ChatGPT connection.
+  element("vps-owner-refresh-row").hidden = !(live && account.session === "reauthorize");
   const refreshNext = element("vps-owner-refresh-next");
   refreshNext.hidden = currentSidecarRoute() !== "sign-out";
-  refreshNext.textContent = refreshNext.hidden ? "" : vpsRefreshNext(account);
+  refreshNext.textContent = refreshNext.hidden ? "" : vpsRefreshNext();
   element("vps-owner-status").textContent = account
     ? `${account.label}${account.email ? ` (${account.email})` : ""} · ${account.registrationId.slice(-8)}. ${account.session === "connected"
       ? account.planEnabled ? "Using ChatGPT plan." : "Plan use paused."
@@ -2125,11 +2126,32 @@ function renderVpsOwner(status, { reviewedStopped = false, reviewedAt = reviewed
 }
 
 // The sign-in refresh's next step, once the new sign-in on this computer can take over.
-function vpsRefreshNext(account) {
-  const email = siwc.selected().email;
-  return [account.email && email && account.email !== email && `The new sign-in is for ${email}, not ${account.email}.`,
-    "Your new sign-in is ready. Tick the approval and press Sign out and revoke.",
-    "Then reconnect and press Review replacement within four minutes."].filter(Boolean).join(" ");
+function vpsRefreshNext() {
+  return "Your new sign-in is ready. Tick the approval and press Sign out and revoke. " +
+    "Then reconnect and press Review replacement within four minutes.";
+}
+
+// A sign-in refresh takes only the first-time sign-in its own button started, and only for the
+// email the installed sidecar uses. Any other finished sign-in ends a refresh still waiting for
+// one; once it has its sign-in, later sign-ins such as allowing plan use leave it alone.
+function finishVpsSignInRefresh(intent, account) {
+  const refresh = state.vpsSignInRefresh;
+  if (!refresh || refresh.newRegistrationId) return;
+  if (refresh.intent !== intent || intent.registrationId !== undefined) {
+    state.vpsSignInRefresh = null;
+    return;
+  }
+  if (refresh.email && account.email !== refresh.email) {
+    state.vpsSignInRefresh = null;
+    throw new Error(`The new sign-in is for ${account.email ?? "an account without an email"}, but the installed sidecar uses ${refresh.email}. ` +
+      "The sign-in refresh stopped. Refresh again with the sidecar's account, or sign the sidecar out and use Review replacement to move it to another account.");
+  }
+  refresh.newRegistrationId = account.registrationId;
+  setMessage("New sign-in saved. Once plan use is on, press Check the server to give it to the installed sidecar.");
+}
+
+function abandonVpsSignInRefresh() {
+  if (!state.vpsSignInRefresh?.newRegistrationId) state.vpsSignInRefresh = null;
 }
 
 function renderVpsOwnerUpdate(status, account = null) {
@@ -2553,7 +2575,9 @@ async function manageVpsOwner(action, button) {
       destination: { n8nContainerId: owner.n8nContainerId, networkId: owner.networkId } },
     { reviewedStopped: result.runtimeStopped === true });
     const message = (result.revocation === "unconfirmed"
-      ? "Local credentials were cleared but provider revocation was not confirmed. Disconnect Relmio in ChatGPT settings."
+      ? "Local credentials were cleared but provider revocation was not confirmed. " + (state.vpsSignInRefresh?.newRegistrationId
+        ? "Finish the replacement first. Then you can disconnect the old Relmio connection in ChatGPT settings and keep the new one."
+        : "Disconnect Relmio in ChatGPT settings.")
       : action === "sign-out" ? "The installed account was signed out. Old credentials stay separate."
         : action === "disable-plan" ? "Plan use paused. Only this owned sidecar stopped."
           : "Plan use enabled. Only this owned sidecar started.") +
@@ -2666,10 +2690,11 @@ element("vps-owner-replace").addEventListener("click", () => {
 // replacement: sign out the installed sign-in, reconnect, then review and confirm the replacement.
 element("vps-owner-refresh").addEventListener("click", () => {
   const owner = state.vpsOwner;
-  if (owner?.state !== "owned" || !owner.account) return;
+  if (owner?.state !== "owned" || owner.account?.session !== "reauthorize") return;
   clearError();
-  state.vpsSignInRefresh = { registrationId: owner.registrationId };
-  state.loginIntent = { purpose: "sign-in" };
+  const intent = { purpose: "sign-in" };
+  state.vpsSignInRefresh = { registrationId: owner.registrationId, email: owner.account.email, intent };
+  state.loginIntent = intent;
   element("login-button").click();
 });
 

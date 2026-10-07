@@ -1927,7 +1927,7 @@ test("a sign-in refresh replaces the installed sign-in only with the registratio
     "a refresh for another installed sidecar leaves this replacement to the account the person chose");
 });
 
-test("the owner panel offers a ChatGPT sign-in refresh and says when it is needed", async () => {
+async function ownerPanel() {
   const script = await readFile("src/ui/app.js", "utf8");
   const start = script.indexOf("function renderVpsOwner(");
   const end = script.indexOf("\nfunction renderVpsOwnerUpdate(", start);
@@ -1940,35 +1940,121 @@ test("the owner panel offers a ChatGPT sign-in refresh and says when it is neede
       addEventListener(_event, handler) { this.handler = handler; }, click() { this.clicked = true; } });
     return nodes.get(id);
   };
-  let route = "update";
+  const routes = { value: "update" };
   const state = { loginIntent: null, vpsSignInRefresh: null };
   const panel = vm.runInNewContext(`${script.slice(start, end)}\n${script.slice(clickStart, clickEnd)}\n({ renderVpsOwner });`, {
     state, element, normalizeSiwcAccount, siwc: { selected: () => freshAccount },
-    sshSession: { adoptedIdentity: () => rootIdentity }, currentSidecarRoute: () => route,
-    renderVpsOwnerUpdate() {}, renderIntegrationManagement() {}, clearError() {},
+    sshSession: { adoptedIdentity: () => rootIdentity }, currentSidecarRoute: () => routes.value,
+    renderVpsOwnerUpdate() {}, renderIntegrationManagement() {}, clearError() {}, setMessage() {},
   });
   const destination = { n8nContainerId: "a".repeat(64), networkId: "b".repeat(64) };
+  const render = (status) => panel.renderVpsOwner({ registrationId: installedId, destination, ...status });
+  return { element, state, routes, render };
+}
+
+test("the owner panel offers a ChatGPT sign-in refresh and says when it is needed", async () => {
+  const { element, state, routes, render } = await ownerPanel();
   const reauthorize = { ...installedAccount, email: "owner@example.test", session: "reauthorize" };
-  panel.renderVpsOwner({ state: "owned", registrationId: installedId, account: reauthorize, destination });
+  render({ state: "owned", account: reauthorize });
   assert.equal(element("vps-owner-refresh-row").hidden, false);
   assert.match(element("vps-owner-status").textContent, /fresh sign-in.*Refresh ChatGPT sign-in/u);
   assert.equal(element("vps-owner-refresh-next").hidden, true);
 
   element("vps-owner-refresh").handler();
-  assert.deepEqual({ ...state.vpsSignInRefresh }, { registrationId: installedId });
-  assert.equal(state.loginIntent.purpose, "sign-in");
+  assert.equal(state.vpsSignInRefresh.registrationId, installedId);
+  assert.equal(state.vpsSignInRefresh.email, "owner@example.test");
+  assert.equal(state.vpsSignInRefresh.intent, state.loginIntent, "the refresh is tied to the sign-in it starts");
+  assert.deepEqual({ ...state.loginIntent }, { purpose: "sign-in" });
   assert.equal(element("login-button").clicked, true, "the refresh starts a fresh ChatGPT sign-in on this computer");
 
-  route = "sign-out";
-  panel.renderVpsOwner({ state: "owned", registrationId: installedId, account: reauthorize, destination });
+  routes.value = "sign-out";
+  render({ state: "owned", account: reauthorize });
   assert.equal(element("vps-owner-refresh-next").hidden, false);
-  assert.match(element("vps-owner-refresh-next").textContent, /account@example\.test, not owner@example\.test/u,
-    "a different account is named before the old sign-in is replaced");
+  assert.match(element("vps-owner-refresh-next").textContent, /Sign out and revoke/u);
 
-  route = "manage";
+  routes.value = "manage";
   element("login-button").clicked = false;
-  panel.renderVpsOwner({ state: "stopped", registrationId: installedId, destination });
+  render({ state: "stopped" });
   assert.equal(element("vps-owner-refresh-row").hidden, true, "a stopped sidecar is inspected before any session change");
   element("vps-owner-refresh").handler();
   assert.equal(element("login-button").clicked, false);
+});
+
+test("Refresh ChatGPT sign-in is offered only for an installed sign-in that needs it", async () => {
+  const { element, state, render } = await ownerPanel();
+  for (const account of [installedAccount, { ...installedAccount, planEnabled: false }]) {
+    render({ state: "owned", account });
+    assert.equal(element("vps-owner-refresh-row").hidden, true, "a working sign-in is not replaced by a new connection");
+    assert.doesNotMatch(element("vps-owner-status").textContent, /Refresh ChatGPT sign-in/u);
+    element("vps-owner-refresh").handler();
+    assert.equal(element("login-button").clicked, undefined);
+    assert.equal(state.vpsSignInRefresh, null);
+  }
+});
+
+// Runs the sign-in button's handler with the refresh bookkeeping and fake sign-in services.
+async function refreshSignIn({ refresh, intent, account, fail = false }) {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf('element("login-button").addEventListener("click"');
+  const end = script.indexOf('\nelement("stop-login-button")', start);
+  const helpersStart = script.indexOf("function finishVpsSignInRefresh(");
+  const helpersEnd = script.indexOf("\nfunction renderVpsOwnerUpdate(", helpersStart);
+  assert.ok(start >= 0 && end > start && helpersStart >= 0 && helpersEnd > helpersStart, "missing sign-in refresh bookkeeping");
+  const calls = [];
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { hidden: true, disabled: false,
+      addEventListener(_event, handler) { this.handler = handler; }, removeAttribute() {} });
+    return nodes.get(id);
+  };
+  const state = { oauthRetryBlocked: false, oauthLoginGeneration: 0, oauthAttemptId: null,
+    loginIntent: intent, vpsSignInRefresh: refresh };
+  vm.runInNewContext(`${script.slice(start, end)}\n${script.slice(helpersStart, helpersEnd)}`, {
+    state, element, OPERATION_ALLOWED_SELECTOR: "#login-link",
+    invalidateReviewedPlan() {}, clearError() {}, setOAuthStopControlVisible() {}, selectChatGptSetup() {},
+    renderAuthStatus() {}, blockOAuthRetry() {}, finishOAuthCancellation() {},
+    validateOAuthAttemptId: (value) => value,
+    runOperation: async (_button, _label, work) => work(),
+    api: async () => ({ launchMode: "system-browser", attemptId: "attempt-1" }),
+    async waitForOAuthCompletion() { if (fail) throw new Error("ChatGPT sign-in was stopped. Start again."); },
+    siwc: { authorized: async () => account, load: async () => account },
+    setMessage(text) { calls.push(["message", text]); },
+    showError(error) { calls.push(["error", error.message]); },
+  });
+  await element("login-button").handler({ currentTarget: element("login-button") });
+  return { state, calls };
+}
+
+test("a sign-in refresh takes only the sign-in its own button started, for the installed account's email", async () => {
+  const sameEmail = { ...freshAccount, email: "owner@example.test" };
+  const pending = () => {
+    const intent = { purpose: "sign-in" };
+    return { intent, refresh: { registrationId: installedId, email: "owner@example.test", intent } };
+  };
+
+  const own = pending();
+  const done = await refreshSignIn({ ...own, account: sameEmail });
+  assert.equal(done.state.vpsSignInRefresh.newRegistrationId, freshAccount.registrationId);
+
+  const another = await refreshSignIn({ refresh: pending().refresh,
+    intent: { purpose: "sign-in", registrationId: siwcAccount.registrationId }, account: siwcAccount });
+  assert.equal(another.state.vpsSignInRefresh, null, "Sign in again for another saved account ends the refresh");
+
+  const newAccount = await refreshSignIn({ refresh: pending().refresh, intent: { purpose: "sign-in" }, account: sameEmail });
+  assert.equal(newAccount.state.vpsSignInRefresh, null, "a sign-in the refresh did not start is not its sign-in");
+
+  const failed = pending();
+  const stopped = await refreshSignIn({ ...failed, account: sameEmail, fail: true });
+  assert.equal(stopped.state.vpsSignInRefresh, null, "a stopped or failed sign-in leaves no refresh behind");
+
+  const otherEmail = pending();
+  const refused = await refreshSignIn({ ...otherEmail, account: { ...freshAccount, email: "someone@example.test" } });
+  assert.equal(refused.state.vpsSignInRefresh, null);
+  assert.match(refused.calls.find(([name]) => name === "error")?.[1] ?? "",
+    /someone@example\.test.*owner@example\.test.*Review replacement/u, "a different email stops the refresh");
+
+  const ready = { ...pending().refresh, newRegistrationId: freshAccount.registrationId };
+  const allowPlan = await refreshSignIn({ refresh: ready, account: sameEmail,
+    intent: { purpose: "enable-plan", registrationId: freshAccount.registrationId } });
+  assert.equal(allowPlan.state.vpsSignInRefresh, ready, "allowing plan use for the new sign-in keeps the refresh");
 });

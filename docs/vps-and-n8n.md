@@ -66,8 +66,10 @@ ChatGPT sign-in. It is available from stable `@latest` and hosted installers.
    this read-only check fails, fix the problem on the server and choose
    **Retry discovery**. The wizard keeps the verified connection and does not
    ask for the password again. Changing the server details requires a fresh
-   identity check. Relmio then reads the installed sidecar on that n8n with a
-   read-only check, and the main button says what comes next:
+   identity check. Relmio then checks the installed sidecar on that n8n. The
+   check does not change the sidecar, but a running sidecar may renew its
+   ChatGPT sign-in and ask OpenAI for the account's model list. The main
+   button then says what comes next:
    **Review the exact plan** for a new install, **Review sidecar update** when
    Relmio's sidecar already runs there, **Refresh ChatGPT sign-in** when that
    sidecar's sign-in needs a fresh sign-in, **Finish sidecar update** after an
@@ -228,26 +230,33 @@ it until you inspect it.
 ### Refresh the ChatGPT sign-in
 
 The installed sidecar renews its own ChatGPT sign-in. If OpenAI stops
-accepting it, **Check installed account** shows `Needs a fresh sign-in.`, and
-model checks may pause with `Checks paused: ChatGPT sign-in is needed.`
-Relmio cannot sign in again for the registration on the server, because the
-server's sidecar owns it. It gives the sidecar a new sign-in for the same
-ChatGPT account through the reviewed replacement instead:
+accepting it, or Relmio cannot confirm that a renewal worked, **Check
+installed account** shows `Needs a fresh sign-in.`, and model checks may pause
+with `Checks paused: ChatGPT sign-in is needed.` Relmio does not yet renew the
+registration that the server's sidecar owns. OpenAI's guides renew a sign-in
+by repeating it with the registration's saved client ID. Relmio instead makes
+a new registration for the same ChatGPT account and gives it to the sidecar
+through the reviewed replacement:
 
 1. Open **Manage the installed ChatGPT session**, choose **Check installed
-   account**, then **Refresh ChatGPT sign-in**. When the installed sign-in
-   needs it, the main button on **Choose your n8n** reads **Refresh ChatGPT
-   sign-in** too. Sign in with the same ChatGPT account in the browser window
-   Relmio opens. The new sign-in is a separate registration, even with the
-   same email.
-2. Allow ChatGPT plan use and read the plan notice if Relmio asks. Then choose
-   **Check the server**. Relmio reuses the verified SSH connection while it is
-   open.
+   account**, then **Refresh ChatGPT sign-in**. The button appears only when
+   the panel says `Needs a fresh sign-in.`, and the main button on **Choose
+   your n8n** then reads **Refresh ChatGPT sign-in** too. Sign in with the
+   same ChatGPT account, and choose the same workspace, in the browser window
+   Relmio opens. ChatGPT treats this as a new connection: it asks you to
+   approve it again, and usage settings for the old connection, such as a
+   weekly app limit, do not carry over. You can change the app name ChatGPT
+   shows so you can tell the two apart.
+2. If the new sign-in has a different email from the installed account,
+   Relmio stops the refresh. To move the sidecar to another account on
+   purpose, sign it out and use **Review replacement**. Relmio cannot tell two
+   workspaces that share one email apart. Otherwise, allow ChatGPT plan use and
+   read the plan notice if Relmio asks, then choose **Check the server**.
+   Relmio reuses the verified SSH connection while it is open.
 3. On **Choose your n8n**, the main button reads **Continue sign-in refresh**
-   and opens the installed account's controls. The panel warns if the new
-   sign-in uses a different email. Select the approval box and choose **Sign
-   out and revoke**. Relmio stops only the sidecar, signs out the old sign-in
-   and disconnects.
+   and opens the installed account's controls. Select the approval box and
+   choose **Sign out and revoke**. Relmio stops only the sidecar, signs out the
+   old sign-in and disconnects.
 4. Reconnect to the same server and choose **Review replacement** within four
    minutes of the sign-out. After that, Relmio first asks for a one-off
    inspection of the stopped sidecar. Keep the account from the new sign-in
@@ -257,10 +266,18 @@ ChatGPT account through the reviewed replacement instead:
    and choose **Replace the sidecar**.
 6. Copy the new one-time Relmio key into your n8n OpenAI credential, and into
    the Assistant's API key if you use it. The old key no longer works.
+7. If you used image generation, turn it on again under
+   [Turn on image generation](#turn-on-image-generation-optional). **Sign out
+   and revoke** also signed out of images.
 
 The sidecar is unavailable from the sign-out until the replacement finishes.
 n8n is not stopped or restarted. The old registration's mapping stays offline
 on the server, and its tokens and history are not reused.
+
+Revoking the old sign-in does not remove its connection from ChatGPT. Once
+the replacement works, you can disconnect the old Relmio connection under
+**Settings > Security and login > Login connections** if ChatGPT lists it.
+Check that you pick the old one.
 
 ### Turn on image generation (optional)
 

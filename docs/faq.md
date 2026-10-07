@@ -114,7 +114,10 @@ change does not implement hosted chat. See the
 This documentation does not claim that. Relmio gives the destination its own
 host ID, freezes the source before transfer, and clears source tokens only after
 a matching destination receipt. An uncertain transfer stays frozen, and the
-destination is the only refresh owner after completion. OpenAI's self-hosted VM
+destination is the only refresh owner after completion. When that sign-in
+needs renewing, Relmio makes a new registration for the same account and
+replaces the old one. OpenAI's guides instead repeat the sign-in with the saved
+client ID and the VM's own host ID. OpenAI's self-hosted VM
 guide describes transfers, while SIWC Terms also say persistent tokens must be
 local and user-controlled. The published wording does not resolve that tension.
 

@@ -251,7 +251,7 @@ export const GUIDE_ERRORS = {
       say: "The sidecar could not read OpenAI's model list and has no recent copy.",
       steps: [
         "If the message says to retry later, try again later.",
-        "If it asks for a sign-in, press Check installed account, then Refresh ChatGPT sign-in.",
+        "If it asks for a sign-in, press Check installed account, and press Refresh ChatGPT sign-in only if the panel asks for a fresh sign-in.",
         "Do not switch accounts or servers because of this.",
       ],
       targets: { vps: "#vps-owner-check" },

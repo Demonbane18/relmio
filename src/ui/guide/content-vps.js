@@ -293,7 +293,7 @@ export const GUIDE = {
           target: "#vps-owner-refresh",
           action: "read",
           title: "Refresh the ChatGPT sign-in",
-          say: "Use this when the panel says the sign-in needs a fresh ChatGPT sign-in. Sign in again with the same account, then follow the main button: sign out the old sign-in, reconnect and review the replacement. n8n then needs the new Relmio key.",
+          say: "Use this only when the panel says the sign-in needs a fresh ChatGPT sign-in. Sign in with the same account and workspace; ChatGPT treats it as a new connection with its own usage settings. Then follow the main button to sign out the old sign-in and review the replacement, and give n8n the new Relmio key.",
           done: "manual",
         },
         {
