@@ -469,8 +469,10 @@ async function loadCatalog() {
         return group;
       }));
     el("hosting-provider").disabled = false;
-    renderMatrix();
-    el("hosting-status").textContent = "Choose hosting and what to set up.";
+    // Hostinger KVM VPS is the tested VPS route, so it starts selected; any other choice stays one click away.
+    if (state.providers.some((provider) => provider.id === "hostinger")) el("hosting-provider").value = "hostinger";
+    renderProvider();
+    el("hosting-status").textContent = activeProvider() ? "Choose what to set up." : "Choose hosting and what to set up.";
   } catch {
     el("hosting-status").textContent = "Catalog unavailable; no plan can be generated.";
     error("The authenticated hosting catalog could not be loaded. Reopen this page from Relmio.");

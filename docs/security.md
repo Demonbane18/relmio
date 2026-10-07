@@ -158,6 +158,15 @@ conversational contract for a trusted local backend.
   tab keeps the same choice in session storage for reloads. The guide's tips,
   examples and error help are static files shipped with Relmio and shown as
   text. The guide never fills in a field and sends nothing else.
+- The top bar's GitHub chip shows the running Relmio version and the
+  repository's star count. For the count, the wizard server sends one `GET`
+  to `https://api.github.com/repos/Demonbane18/relmio` and keeps the answer for
+  15 minutes. If GitHub refuses (it allows 60 unsigned requests an hour per
+  address) or cannot be reached, it asks Relmio's website,
+  `https://relmio.jpfusin.tech/api/project-meta`, which caches the same count.
+  Both requests carry only a `relmio/<version>` User-Agent; GitHub and the
+  website's host see your IP address and the request time. When both fail,
+  the chip keeps the last count from this run or shows `?`.
 - Each registration has a session lock. Its owner record binds the holder
   process, its PID namespace, and on Linux the boot ID. A lock from an earlier
   boot is reclaimed at once. A lock held from another container or PID

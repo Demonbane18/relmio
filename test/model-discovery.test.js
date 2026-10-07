@@ -280,7 +280,8 @@ test('concurrent callers share one catalog request, and a caller that gives up d
   assert.deepEqual(ids(await staying), CATALOG_IDS);
   assert.equal(calls.catalog.length, 1);
   assert.equal(calls.leases.length, 2, 'each caller takes its own lease first');
-  assert.deepEqual(calls.leases.map(options => options.signal.aborted), [true, false], 'each lease wait follows its own caller');
+  // The two callers take their leases concurrently, so record order is not call order.
+  assert.deepEqual(calls.leases.map(options => options.signal.aborted).sort(), [false, true], 'each lease wait follows its own caller');
   assert.deepEqual(ids(await discovery.listModels()), CATALOG_IDS);
   assert.equal(calls.catalog.length, 1, 'the shared answer fills the cache');
 });

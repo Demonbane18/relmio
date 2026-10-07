@@ -27,6 +27,7 @@ import {
   selectRegistration, setPlanEnabled, signOut,
 } from "../services/siwc-session.mjs";
 import { readUiPreferences, writeUiPreferences } from "../services/ui-preferences.js";
+import { createProjectMetaReader } from "../services/project-meta.js";
 import {
   connectVerified,
   scanHostFingerprint,
@@ -146,31 +147,7 @@ const OAUTH_VPS_CONFLICT_MESSAGE =
 const VPS_OAUTH_CONFLICT_MESSAGE =
   "A VPS change is already in progress. Wait for it to finish before starting ChatGPT sign-in.";
 
-async function getProjectMeta({ fetchImpl = fetch } = {}) {
-  let stars = null;
-  try {
-    const response = await fetchImpl(
-      "https://api.github.com/repos/Demonbane18/relmio",
-      {
-        headers: {
-          Accept: "application/vnd.github+json",
-          "User-Agent": `relmio/${PACKAGE_VERSION}`,
-        },
-        redirect: "error",
-        signal: AbortSignal.timeout(5_000),
-      },
-    );
-    if (response.ok) {
-      const value = (await response.json())?.stargazers_count;
-      if (Number.isSafeInteger(value) && value >= 0) {
-        stars = value;
-      }
-    }
-  } catch {
-    // The local control keeps a visible fallback when GitHub is unavailable.
-  }
-  return { stars, version: PACKAGE_VERSION };
-}
+const getProjectMeta = createProjectMetaReader({ version: PACKAGE_VERSION });
 
 const defaultServices = {
   getAuthStatus,

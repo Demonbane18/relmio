@@ -13,6 +13,9 @@ checks the registry separately after publication.
   choosing Flare or Sunburst in Relmio 0.16.0 through 0.18.6 never selected
   those models. The Codex image route ignores the model ID, so every image
   came from Codex's single image model, which Codex names `gpt-image-2`.
+- Hosting options and Self-hosted model on my server now start with Hostinger
+  KVM VPS selected, the VPS that Relmio is tested on. Pick another provider to
+  change it.
 - CI now runs only the checks a change can affect, adds macOS, Linux and an
   n8n node compatibility job, and reports one required `CI gate` check. A
   change to the website or docs no longer reruns the Windows, macOS and Linux
@@ -25,6 +28,13 @@ checks the registry separately after publication.
   AI Assistant's AI SDK calls. No ChatGPT account is used.
 
 ### Fixed
+
+- The local wizard's GitHub chip no longer shows `?` for the star count after
+  GitHub's limit of 60 unsigned requests an hour is used up. The wizard keeps
+  the count for 15 minutes, shares one request between pages that load
+  together, asks Relmio's website when GitHub refuses, and keeps the last
+  count when both fail. The chip still shows the Relmio version you are
+  running.
 
 - The ChatGPT plan sidecar's `/v1/chat/completions` route no longer refuses
   n8n's AI Agent on its second turn when the OpenAI Chat Model has Use
