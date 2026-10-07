@@ -52,6 +52,9 @@ const state = {
   dashboardFocusIdentity: null,
   dashboardUsage: null,
   installedUsage: null,
+  installedImages: null,
+  imagesGeneration: 0,
+  imagesTimer: null,
   chatTester: {
     activeController: null,
     conversationId: null,
@@ -1407,6 +1410,7 @@ function resetDashboardActionReview() {
   element("result-credential").textContent = "";
   element("result-sandbox-key").textContent = "";
   element("result-n8n-settings").textContent = "";
+  renderInstalledImages(null, false);
 }
 
 function renderInstalledSiwcOwner({ target, state: serviceState, snapshot, reviewedStopped = false }) {
@@ -1446,6 +1450,12 @@ function renderInstalledSiwcOwner({ target, state: serviceState, snapshot, revie
       : needsInspection
         ? "This owned service is stopped. Confirm the separate owner inspection before changing its session."
         : "The installed account could not be attested. No provider action is available.";
+  const sidecar = target === "n8n-openai-oauth";
+  element("local-siwc-images-signout-note").hidden = !sidecar || element("local-siwc-logout").hidden;
+  element("local-siwc-images-pause-note").hidden = !sidecar || element("local-siwc-disable").hidden;
+  // Image generation needs the running sidecar this install owns; its status is read when opened.
+  renderInstalledImages(null, sidecar && serviceState === "healthy" && account?.ownership === "owned");
+  element("installed-images").open = false;
 }
 
 function showDashboardSiwcOwner(service) {
@@ -2202,6 +2212,155 @@ function initializeLocalUsage() {
   });
 }
 
+// Image generation for the running installed n8n sidecar: the same opt-in Codex device sign-in
+// as on a VPS. Status is read when the section opens; a pending sign-in is checked every 5 seconds.
+const CODEX_IMAGES_VERIFICATION_URL = "https://auth.openai.com/codex/device";
+
+function stopInstalledImagesPolling() {
+  state.imagesGeneration += 1;
+  window.clearTimeout(state.imagesTimer);
+  state.imagesTimer = null;
+}
+
+function renderInstalledImages(images, visible = true) {
+  stopInstalledImagesPolling();
+  state.installedImages = images;
+  const view = images?.state;
+  const account = images?.account;
+  element("installed-images").hidden = !visible;
+  element("installed-images-off").hidden = view !== "off" && view !== "reauthorize";
+  element("installed-images-pending").hidden = view !== "pending";
+  element("installed-images-on").hidden = view !== "signed-in" && view !== "reauthorize";
+  for (const id of ["installed-images-confirm", "installed-images-signout-confirm"]) element(id).checked = false;
+  for (const id of ["installed-images-start", "installed-images-signout"]) element(id).disabled = true;
+  element("installed-images-code").textContent = view === "pending" ? images.pending.userCode : "";
+  const link = element("installed-images-link");
+  if (view === "pending") link.href = CODEX_IMAGES_VERIFICATION_URL;
+  else link.removeAttribute("href");
+  element("installed-images-expiry").textContent = view === "pending"
+    ? `The code expires at ${new Date(images.pending.expiresAt).toLocaleTimeString()}. Relmio checks every 5 seconds.`
+    : "";
+  const who = account
+    ? ` for ${account.email ?? `account …${account.accountIdSuffix}`}${account.planType ? ` (${account.planType})` : ""}`
+    : "";
+  element("installed-images-status").textContent = view === "signed-in" ? `Images on${who}.`
+    : view === "pending" ? "Open the Codex sign-in page and enter the code below. Image generation turns on when you approve it."
+      : view === "reauthorize" ? "The Codex image sign-in expired. Sign in for images again."
+        : view === "unavailable"
+          ? "Update the sidecar first to add image generation. An older Relmio version built this sidecar. Under Installed ChatGPT account, choose Sign out and revoke, then Review replacement with a fresh account. Removing the bridge and setting it up again also works."
+          : images?.outcome === "declined" ? "The Codex sign-in was declined. Image generation is off."
+            : images?.outcome === "expired" ? "The sign-in code expired before it was used. Image generation is off."
+              : view === "off" ? "Image generation is off."
+                : "Open this section to check image generation.";
+  if (view === "pending") scheduleInstalledImagesPoll(state.imagesGeneration);
+}
+
+function scheduleInstalledImagesPoll(generation, delay = 5_000) {
+  window.clearTimeout(state.imagesTimer);
+  state.imagesTimer = generation === state.imagesGeneration
+    ? window.setTimeout(() => { void pollInstalledImages(generation); }, delay)
+    : null;
+}
+
+async function pollInstalledImages(generation) {
+  if (generation !== state.imagesGeneration) return;
+  if (state.operationBusy) {
+    scheduleInstalledImagesPoll(generation, 500);
+    return;
+  }
+  let result;
+  try {
+    result = await api("/api/local/n8n/siwc/images/login-status", { method: "POST", body: {} });
+  } catch {
+    if (generation !== state.imagesGeneration) return;
+    element("installed-images-status").textContent =
+      "The image sign-in status could not be checked. Press Check image generation to continue.";
+    return;
+  }
+  if (generation !== state.imagesGeneration) return;
+  renderInstalledImages(result);
+  if (result.state !== "pending") setMessage(element("installed-images-status").textContent);
+}
+
+// Results render after the operation ends, so its control restore cannot re-enable an
+// unapproved button.
+async function runInstalledImagesRequest(button, label, path, body) {
+  const owner = state.installedOwner;
+  if (setBusy(button, true, label) === false) return null;
+  clearError();
+  let result = null;
+  try {
+    result = await api(path, { method: "POST", body });
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+  return result && state.installedOwner === owner ? result : null;
+}
+
+async function checkInstalledImages() {
+  const registrationId = state.installedOwner?.account?.registrationId;
+  if (!registrationId || element("installed-images").hidden) return;
+  const generation = state.imagesGeneration;
+  const result = await runInstalledImagesRequest(element("installed-images-check"), "Checking image generation…",
+    "/api/local/n8n/siwc/images/status", { registrationId });
+  // A reset while the request ran (the block was hidden) makes this answer stale.
+  if (result && generation === state.imagesGeneration) renderInstalledImages(result);
+}
+
+async function changeInstalledImages(action, button, confirmId) {
+  if (confirmId && !element(confirmId).checked) {
+    showError(new Error("Confirm this image sign-in change first."));
+    return;
+  }
+  const result = await runInstalledImagesRequest(button, action === "login-start" ? "Starting image sign-in…"
+    : action === "sign-out" ? "Signing out of images…" : "Cancelling image sign-in…",
+  "/api/local/n8n/siwc/images/action", { action, confirmed: true });
+  if (!result) return;
+  renderInstalledImages(result);
+  if (action === "login-start" && result.state === "pending") element("installed-images-link").focus();
+  if (action === "login-cancel") element("installed-images-confirm").focus();
+  if (action === "sign-out") {
+    const message = result.revocation === "unconfirmed"
+      ? "The Codex image sign-in was removed from this computer's sidecar, but OpenAI did not confirm the revocation."
+      : "Signed out of images. The Codex image sign-in was removed from this computer's sidecar.";
+    element("installed-images-status").textContent = message;
+    setMessage(message);
+  }
+}
+
+function initializeInstalledImages() {
+  element("installed-images").addEventListener("toggle", (event) => {
+    if (event.currentTarget.open && !state.installedImages) void checkInstalledImages();
+  });
+  element("installed-images-check").addEventListener("click", () => { void checkInstalledImages(); });
+  element("installed-images-confirm").addEventListener("change", (event) => {
+    element("installed-images-start").disabled = !event.currentTarget.checked;
+  });
+  element("installed-images-signout-confirm").addEventListener("change", (event) => {
+    element("installed-images-signout").disabled = !event.currentTarget.checked;
+  });
+  element("installed-images-start").addEventListener("click", (event) => {
+    void changeInstalledImages("login-start", event.currentTarget, "installed-images-confirm");
+  });
+  element("installed-images-cancel").addEventListener("click", (event) => {
+    void changeInstalledImages("login-cancel", event.currentTarget);
+  });
+  element("installed-images-signout").addEventListener("click", (event) => {
+    void changeInstalledImages("sign-out", event.currentTarget, "installed-images-signout-confirm");
+  });
+}
+
+// The image sign-out that sidecar sign-out and removal run first, before the account or volume goes.
+function imagesRevocationText(revocation) {
+  return revocation === "confirmed" ? " The image sign-in was signed out too, and OpenAI confirmed its revocation."
+    : revocation === "unconfirmed" ? " The image sign-in was removed too, but OpenAI did not confirm its revocation."
+      : revocation === "unknown"
+        ? " Relmio could not run the image sign-out, so an image sign-in, if there was one, was not revoked."
+        : "";
+}
+
 function clearOneTimeSetupValues() {
   for (const id of [
     "result-endpoint",
@@ -2291,6 +2450,7 @@ function resetPendingSetupState() {
   element("local-siwc-owner-actions").hidden = true;
   element("local-siwc-inspect-row").hidden = true;
   element("local-siwc-inspect").hidden = true;
+  renderInstalledImages(null, false);
   element("assistant-searxng-edit-status").textContent =
     "This is available only for a Relmio-owned Assistant installation without SearXNG.";
 }
@@ -4591,13 +4751,14 @@ async function manageInstalledSiwc(action, button) {
       element("chat-tester").hidden = false;
       element("chat-tester-status").textContent = "Secure the saved local client key again before testing.";
     } else element("chat-tester").hidden = true;
-    const message = result.revocation === "unconfirmed"
+    const message = (result.revocation === "unconfirmed"
       ? "Local credentials were cleared, but provider revocation was not confirmed. Disconnect Relmio in ChatGPT settings."
       : action === "sign-out"
         ? "The installed session was signed out. Old Codex credentials remain separate."
         : action === "disable-plan"
           ? "Plan use paused at this installation. Its Relmio service is stopped."
-          : "Plan use was enabled at this installation. Only its owned Relmio service was started.";
+          : "Plan use was enabled at this installation. Only its owned Relmio service was started.") +
+      imagesRevocationText(result.imagesRevocation);
     element("local-siwc-owner-status").textContent = message;
     setMessage(message);
   } catch (error) {
@@ -5038,9 +5199,11 @@ element("remove-bridge-button").addEventListener("click", async (event) => {
     element("done-title").textContent = "Private n8n bridge was removed";
     element("done-detail").textContent =
       "Relmio removed only its sidecar, private auth volume, and managed files. n8n and the external Docker network were left unchanged.";
+    const images = imagesRevocationText(result.imagesRevocation);
     element("remove-bridge-status").textContent =
-      "Bridge removed. The selected n8n container and external Docker network were not changed.";
-    setMessage("Private n8n bridge removed; n8n and its external Docker network remain unchanged.");
+      `Bridge removed. The selected n8n container and external Docker network were not changed.${images}`;
+    setMessage(`Private n8n bridge removed; n8n and its external Docker network remain unchanged.${images}`);
+    renderInstalledImages(null, false);
   } catch (error) {
     showError(error);
   } finally {
@@ -5676,3 +5839,4 @@ async function initializeLocalWizard() {
 renderTarget();
 initializeLocalDashboard();
 initializeLocalUsage();
+initializeInstalledImages();

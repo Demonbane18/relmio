@@ -56,6 +56,7 @@ export const RULES = [
   [/^src\/services\/(model-discovery|codex-images)\.mjs$/u, ["sidecar"]],
   [/^src\/(domain\/templates|domain\/vps-build-state|services\/installer)\.js$/u, ["vps", "sidecar"]],
   [/^src\/(domain\/local-n8n-sidecar|services\/local-n8n-sidecar-installer)\.js$/u, ["sidecar", "local-docker"]],
+  [/^src\/domain\/codex-images\.js$/u, ["vps", "sidecar", "local-docker"]],
   [/^src\/services\/(siwc-|oauth\.js|codex-login\.js|local-chat-test\.js)/u, ["siwc-auth"]],
   [/^src\/domain\/local-endpoints\.js$/u, ["siwc-auth"]],
   [/^src\/services\/local-installer\.js$/u, ["local-docker", "siwc-auth", "supergrok"]],

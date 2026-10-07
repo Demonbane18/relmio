@@ -7,12 +7,39 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- The local ChatGPT plan sidecar can now generate and edit images through the
+  same opt-in add-on as a VPS sidecar. Open **Image generation** in the
+  installed sidecar's view on the local dashboard, choose **Sign in for
+  images** and enter the code at `https://auth.openai.com/codex/device`. The
+  Codex sign-in is stored in the sidecar's Docker volume on this computer,
+  where administrators and Docker users can read it. **Sign out and revoke**
+  and **Remove bridge** sign out of images first and report the revocation
+  result; removal keeps the volume if that step does not finish. A local
+  sidecar built by an older Relmio version needs a
+  replacement or a fresh setup first. The `images_off` message now names both
+  places; that sidecar file change makes an installed VPS sidecar report a
+  runtime update. The Configure n8n heading for images is now **Generate and
+  edit images**.
+
 ### Changed
 
 - The website's docs now include **Configure n8n**, with the sidecar's request
   routes, models, tools, image generation and their limits. The FAQ answers
   whether n8n can generate images and lists the image limits, and the VPS
   guide's summary mentions image generation.
+
+### Fixed
+
+- Installing the ChatGPT plan sidecar for an n8n on this computer works again.
+  In 0.19.0 and 0.19.1 it always failed, first with "Local SIWC private volume
+  initialization failed." and then, past that step, with "Local SIWC
+  installation operation failed." Docker Compose replaced the setup script's
+  `$owner` with an empty value, and the image copied `package.json` without
+  making it readable for the user the sidecar runs as. Both failures happen
+  before the sign-in is handed over, so it stays on this computer. Found in
+  local QA on Docker Desktop with Compose 5.5.1.
 
 ## [0.19.1] - 2026-10-07
 

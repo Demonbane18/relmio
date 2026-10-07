@@ -23,7 +23,7 @@ credentials by name only, so nothing secret is in this file.
 | AI Agent, with Agent Chat Model (Responses API on) and Calculator | Responses route with one tool call | `391`, and `intermediateSteps` shows a Calculator action whose observation is `391` (an answer without that step fails) |
 | Basic LLM Chain, with Chain Chat Model (Responses API on) | Responses route | `chain ok` |
 | OpenAI: Message a Model (node 2.3) | Responses route | `openai node ok` |
-| OpenAI: Generate an Image (node 2.3, `gpt-image-2`) | `POST /v1/images/generations` | one binary image; VPS image add-on only |
+| OpenAI: Generate an Image (node 2.3, `gpt-image-2`) | `POST /v1/images/generations` | one binary image; image add-on only (VPS or local) |
 | Local Model Chain, with Local Chat Model (Responses API off) | `http://n8n-local-model:11434/v1` | `4`; only where the local model is installed |
 
 `Settings` holds the text model ID, the local model ID, the sidecar Base URL

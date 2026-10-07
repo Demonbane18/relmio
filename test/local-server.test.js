@@ -4495,3 +4495,141 @@ test("n8n resume rejects malformed paired IDs and non-attached networks before i
   assert.equal(discoveryCalls, 1);
   assert.equal(reviews, 0);
 });
+
+const localImagesContainerId = "c".repeat(64);
+const localImagesPending = Object.freeze({ userCode: "ABCD-1234", verificationUrl: "https://auth.openai.com/codex/device",
+  expiresAt: "2026-10-07T12:15:00.000Z", deviceAuthId: "must-not-leak-device" });
+const localImagesAccount = Object.freeze({ email: "images@example.test", planType: "plus", accountIdSuffix: "abc123",
+  accountId: "must-not-leak-account", accessToken: "must-not-leak-access" });
+const localImagesSecrets = Object.freeze({ accessToken: "must-not-leak-access", refreshToken: "must-not-leak-refresh",
+  deviceAuthId: "must-not-leak-device", containerId: localImagesContainerId });
+
+test("local image status returns only validated add-on fields and pins the verification URL", async (t) => {
+  const calls = [];
+  let next;
+  const wizard = await startLocalWizard(t, {
+    async getLocalN8nCodexImagesStatus(input) { calls.push(input); return next; },
+    async changeLocalN8nCodexImages() { throw new Error("must not change"); },
+  });
+  const check = (body = { registrationId: siwcAccount.registrationId }) =>
+    postJson(wizard, "/api/local/n8n/siwc/images/status", body);
+  assert.equal((await postJson(wizard, "/api/local/n8n/siwc/images/action",
+    { action: "login-cancel", confirmed: false })).status, 409, "an action needs a status check first");
+  // The status check shares the 10-in-15-minutes limit, so each case below is one of those ten.
+  assert.equal((await check({ registrationId: siwcAccount.registrationId, containerId: "c".repeat(64) })).status, 400);
+  assert.equal(calls.length, 0);
+
+  next = { ...localImagesSecrets, state: "signed-in", account: localImagesAccount, pending: localImagesPending };
+  const signedIn = await check();
+  assert.equal(signedIn.status, 200);
+  const signedInText = await signedIn.text();
+  assert.equal(signedInText.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(signedInText), { state: "signed-in",
+    account: { email: "images@example.test", planType: "plus", accountIdSuffix: "abc123" } });
+  assert.deepEqual(calls, [{ registrationId: siwcAccount.registrationId }]);
+
+  next = { ...localImagesSecrets, state: "pending", pending: localImagesPending };
+  const pending = await check();
+  const pendingText = await pending.text();
+  assert.equal(pendingText.includes("must-not-leak"), false);
+  assert.deepEqual(JSON.parse(pendingText), { state: "pending", pending: { userCode: "ABCD-1234",
+    verificationUrl: "https://auth.openai.com/codex/device", expiresAt: "2026-10-07T12:15:00.000Z" } });
+
+  for (const invalid of [
+    { state: "pending", pending: { ...localImagesPending, userCode: "abcd-1234" } },
+    { state: "pending", pending: { ...localImagesPending, verificationUrl: "https://auth.openai.com/codex/device?next=https://example.test" } },
+    { state: "pending", pending: { ...localImagesPending, verificationUrl: "http://auth.openai.com/codex/device" } },
+    { state: "pending", pending: { ...localImagesPending, verificationUrl: "https://example.test/codex/device" } },
+    { state: "signed-in", account: { ...localImagesAccount, accountIdSuffix: "must-not-leak-account" } },
+    { state: "on" },
+  ]) {
+    next = { ...localImagesSecrets, ...invalid };
+    const response = await check();
+    assert.equal(response.status, 502, JSON.stringify(invalid));
+    assert.equal((await response.text()).includes("must-not-leak"), false);
+  }
+  assert.equal((await postJson(wizard, "/api/local/n8n/siwc/images/action",
+    { action: "login-cancel", confirmed: false })).status, 409, "a rejected status leaves no target");
+});
+
+test("local image actions need confirmation and the checked container; polls need a pending sign-in", async (t) => {
+  const changes = [];
+  const polls = [{ state: "pending", pending: localImagesPending }, { state: "signed-in", account: localImagesAccount }];
+  const wizard = await startLocalWizard(t, {
+    async getLocalN8nCodexImagesStatus() { return { ...localImagesSecrets, state: "off" }; },
+    async changeLocalN8nCodexImages(input) {
+      changes.push(input);
+      const result = input.action === "login-start" ? { state: "pending", pending: localImagesPending }
+        : input.action === "login-poll" ? polls.shift()
+          : input.action === "sign-out" ? { state: "off", revocation: "unconfirmed" } : { state: "off" };
+      return { ...localImagesSecrets, ...result };
+    },
+  });
+  const act = (body) => postJson(wizard, "/api/local/n8n/siwc/images/action", body);
+  const poll = () => postJson(wizard, "/api/local/n8n/siwc/images/login-status", {});
+  const check = () => postJson(wizard, "/api/local/n8n/siwc/images/status", { registrationId: siwcAccount.registrationId });
+
+  assert.equal((await act({ action: "login-start", confirmed: true })).status, 409);
+  assert.equal((await check()).status, 200);
+  for (const body of [{ action: "login-start", confirmed: false }, { action: "login-start" },
+    { action: "login-poll", confirmed: true }, { action: "status", confirmed: true },
+    { action: "sign-out", confirmed: "true" }, { action: "sign-out", confirmed: true, registrationId: "other_registration" }]) {
+    assert.equal((await act(body)).status, 400, JSON.stringify(body));
+  }
+  assert.equal((await poll()).status, 409, "polling needs a pending sign-in");
+  assert.equal(changes.length, 0);
+
+  const started = await act({ action: "login-start", confirmed: true });
+  assert.equal(started.status, 200);
+  assert.equal((await started.json()).pending.userCode, "ABCD-1234");
+  assert.deepEqual(changes[0], { registrationId: siwcAccount.registrationId, action: "login-start",
+    expectedContainerId: localImagesContainerId, confirmed: true });
+
+  assert.equal((await (await poll()).json()).state, "pending");
+  assert.deepEqual(changes[1], { registrationId: siwcAccount.registrationId, action: "login-poll",
+    expectedContainerId: localImagesContainerId, confirmed: false });
+  const finished = await poll();
+  const finishedText = await finished.text();
+  assert.equal(finishedText.includes("must-not-leak"), false);
+  assert.equal(JSON.parse(finishedText).state, "signed-in");
+  assert.equal((await poll()).status, 409, "a finished sign-in is no longer polled");
+
+  const cancelled = await act({ action: "login-cancel", confirmed: false });
+  assert.deepEqual(await cancelled.json(), { state: "off" });
+  const signedOut = await act({ action: "sign-out", confirmed: true });
+  assert.deepEqual(await signedOut.json(), { state: "off", revocation: "unconfirmed" });
+  assert.equal(changes.at(-1).confirmed, true);
+
+  const later = Date.now() + 21 * 60_000;
+  t.mock.method(Date, "now", () => later);
+  assert.equal((await act({ action: "login-cancel", confirmed: false })).status, 409, "the checked target expires");
+  assert.equal(changes.length, 5);
+});
+
+test("local sidecar sign-out and removal report only a known image revocation result", async (t) => {
+  let imagesRevocation = "confirmed";
+  const healthy = { managed: true, state: "healthy", snapshot: {
+    target: "n8n-openai-oauth", registrationId: siwcAccount.registrationId, migrationRequired: false,
+    auth: { configured: true, disclosure: "server-managed", account: siwcAccount } } };
+  const wizard = await startLocalWizard(t, {
+    async getLocalN8nSidecarStatus() { return healthy; },
+    async manageLocalN8nSiwcInstallation() {
+      return { account: { ...siwcAccount, session: "signed-out", planEnabled: false }, revocation: "confirmed",
+        runtimeStopped: true, imagesRevocation };
+    },
+    async removeLocalN8nSidecar() {
+      return { target: "n8n-openai-oauth", removed: true, imagesRevocation, accessToken: "must-not-leak" };
+    },
+  });
+  const signOut = () => postJson(wizard, "/api/local/n8n/siwc/manage", { registrationId: siwcAccount.registrationId,
+    expectedGeneration: siwcAccount.generation, action: "sign-out", confirmed: true });
+  const remove = () => postJson(wizard, "/api/local/n8n/remove", { confirmed: true });
+  assert.equal((await (await signOut()).json()).imagesRevocation, "confirmed");
+  imagesRevocation = "unknown";
+  assert.deepEqual(await (await remove()).json(), { target: "n8n-openai-oauth", removed: true, imagesRevocation: "unknown" });
+  imagesRevocation = "must-not-leak";
+  const signedOut = await (await signOut()).text();
+  const removed = await (await remove()).text();
+  assert.equal(signedOut.includes("must-not-leak") || removed.includes("must-not-leak"), false);
+  assert.equal(JSON.parse(removed).imagesRevocation, undefined);
+});

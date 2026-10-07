@@ -232,7 +232,7 @@ account does not prove admission or entitlement. Relmio uses the selected
 registration and does not switch accounts or fall back to Platform API billing.
 Audio, video, file-management routes, stored conversations, and unsupported
 Responses parameters are not available through this gateway. Image generation
-needs the optional VPS add-on described below.
+needs the optional add-on described below.
 
 
 
@@ -329,19 +329,24 @@ The exception is an output-token cap (`max_output_tokens`, or
 `max_completion_tokens` and `max_tokens` on the chat route). SIWC doesn't
 accept one, so the sidecar drops it and the cap is not enforced.
 
-On a VPS you can turn on image generation and editing as an opt-in add-on. In
-**Manage the installed ChatGPT session**, choose **Check installed account**,
-then **Sign in for images**, and enter the code at
+You can turn on image generation and editing as an opt-in add-on, for a VPS
+sidecar or for the local sidecar. On a VPS, open **Manage the installed ChatGPT
+session**, choose **Check installed account**, then **Sign in for images**. On
+this computer, select **ChatGPT plan sidecar** on the dashboard, choose
+**Manage ChatGPT sign-out**, open **Image generation**, then choose **Sign in
+for images**. Either way, enter the code at
 `https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's
 **Image** actions with the same Base URL and Relmio key, and pick
 `gpt-image-2` from the list or enter it as the ID. The add-on uses a separate
 Codex sign-in, the way Hermes
 Agent does. OpenAI does not document this route for other apps, so it can stop
-working without notice. Images count against your plan's Codex limits, and the
-Codex refresh token is stored on the VPS. The ChatGPT plan session is never
-used for images. Each request returns one image; masks and URL responses are
-not supported. The local sidecar has no image sign-in. See
-[Turn on image generation](docs/vps-and-n8n.md#turn-on-image-generation-optional)
+working without notice. Images count against your plan's Codex limits. The
+Codex refresh token is stored on the VPS, or for the local sidecar in its
+Docker volume on this computer, where anyone with administrator or Docker
+access can read it. The ChatGPT plan session is never used for images. Each
+request returns one image; masks and URL responses are not supported. See
+[Turn on image generation on a VPS](docs/vps-and-n8n.md#turn-on-image-generation-optional)
+or [on this computer](docs/local-endpoints.md#turn-on-image-generation-optional)
 for limits and sign-out.
 
 The OpenAI Chat Model node (v1.2 and newer) and Chat Hub do not list
@@ -350,7 +355,7 @@ model request with the image picker; use that ID only for images. A 2026-10-06
 test showed the Codex image route ignores the model ID, so GPT Image 2.5 Flare
 and Sunburst need a separate OpenAI credential with your own Platform API key
 on n8n's image node. See
-[image limits and test evidence](docs/n8n-configuration.md#generate-and-edit-images-vps-add-on).
+[image limits and test evidence](docs/n8n-configuration.md#generate-and-edit-images).
 
 n8n's AI Assistant cannot list sidecar models. To try one, choose
 **Self-hosted or OpenAI-compatible endpoint** under

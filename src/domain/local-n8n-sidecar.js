@@ -90,7 +90,7 @@ LABEL io.relmio.managed="true" \\
       io.relmio.install="${safeInstallId}"
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --chown=node:node services/ ./services/
 COPY --chown=node:node gateway/ ./gateway/
@@ -184,14 +184,14 @@ export function createLocalN8nSidecarComposeFile({
     command:
       - |
         set -eu
-        owner="$(stat -c '%u:%g:%a' /run/relmio-auth)"
-        if [ "$owner" = "0:0:755" ] || [ "$owner" = "0:0:700" ]; then
+        owner="$$(stat -c '%u:%g:%a' /run/relmio-auth)"
+        if [ "$$owner" = "0:0:755" ] || [ "$$owner" = "0:0:700" ]; then
           chmod 0700 /run/relmio-auth
           chown 1000:1000 /run/relmio-auth
-        elif [ "$owner" != "1000:1000:700" ]; then
+        elif [ "$$owner" != "1000:1000:700" ]; then
           exit 1
         fi
-        [ "$(stat -c '%u:%g:%a' /run/relmio-auth)" = "1000:1000:700" ]
+        [ "$$(stat -c '%u:%g:%a' /run/relmio-auth)" = "1000:1000:700" ]
     volumes:
       - siwc-store:/run/relmio-auth
     security_opt:

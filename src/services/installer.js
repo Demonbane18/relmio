@@ -34,6 +34,7 @@ import {
   createDockerfile,
 } from "../domain/templates.js";
 import { validateDockerName } from "../domain/validation.js";
+import { readCodexImagesCliResult } from "../domain/codex-images.js";
 
 import { VPS_OPERATION_LOCKS, inspectVpsResumeLockCommand } from "../domain/vps-build-state.js";
 import { withVpsOperationLock } from "./vps-operation-lock.js";
@@ -1492,34 +1493,10 @@ const CODEX_IMAGES_COMMANDS = Object.freeze({
   "login-start": "imagesLoginStart", "login-poll": "imagesLoginPoll",
   "login-cancel": "imagesLoginCancel", "sign-out": "imagesSignOut",
 });
-const CODEX_IMAGES_STATES = new Set(["off", "pending", "signed-in", "reauthorize"]);
 const CODEX_IMAGES_CHANGED = "The installed sidecar changed. Check image sign-in status again.";
-// Local text for CLI codes a person can act on; the remote message itself never leaves here.
-const CODEX_IMAGES_ERRORS = new Map([
-  ["images_device_login_disabled", "Codex device code sign-in is off for this account. Turn it on in ChatGPT security settings, or ask your workspace admin, then try again."],
-  ["images_login_failed", "The Codex sign-in request failed. Try again. If it keeps failing, check that device code sign-in is on in ChatGPT security settings."],
-]);
 
-// The sidecar CLI prints one JSON line; only its known top-level fields leave here, never stderr.
-async function runCodexImagesCommand(remote, command, { allowUnavailable = false } = {}) {
-  const result = await remote.exec(command, { timeoutMs: 90_000 });
-  let output;
-  try { output = parseHandoffOutput(result.stdout, "Codex image sign-in"); }
-  catch { /* Classified below by exit code. */ }
-  if (result.code !== 0) {
-    if (typeof output?.error === "string" && /^[a-z_]{1,64}$/u.test(output.error)) {
-      throw Object.assign(new Error(CODEX_IMAGES_ERRORS.get(output.error) ??
-        "The Codex image sign-in step failed. Check image sign-in status and try again."),
-        { code: output.error });
-    }
-    // A sidecar built before the add-on has no image module to run.
-    if (allowUnavailable) return { state: "unavailable" };
-    throw new Error("The Codex image sign-in step failed. The existing n8n deployment was not changed.");
-  }
-  if (!CODEX_IMAGES_STATES.has(output?.state)) throw new Error("Codex image sign-in returned invalid attestation.");
-  const { state, account, pending, outcome, revocation } = output;
-  return Object.fromEntries(Object.entries({ state, account, pending, outcome, revocation })
-    .filter(([, value]) => value !== undefined));
+async function runCodexImagesCommand(remote, command, options) {
+  return readCodexImagesCliResult(await remote.exec(command, { timeoutMs: 90_000 }), options);
 }
 
 export async function getVpsCodexImagesStatus({ remote, networkName, reviewedTarget, registrationId }) {

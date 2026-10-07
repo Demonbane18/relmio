@@ -39,7 +39,7 @@ const IMAGE_QUALITIES = new Set(["low", "medium", "high", "auto"]);
 const IMAGE_SIZES = new Set(["1024x1024", "1024x1536", "1536x1024", "auto"]);
 const IMAGE_BACKGROUNDS = new Set(["transparent", "opaque", "auto"]);
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-const IMAGES_OFF = "Image generation is off. It needs a separate Codex sign-in that OpenAI doesn't document for other apps. On a VPS sidecar, turn it on in Relmio under Manage the installed ChatGPT session.";
+const IMAGES_OFF = "Image generation is off. It needs a separate Codex sign-in that OpenAI doesn't document for other apps. Turn it on in Relmio: for a VPS under Manage the installed ChatGPT session, or for this computer in the local dashboard.";
 
 function redactSecrets(value, secrets = []) {
   for (const secret of secrets) {

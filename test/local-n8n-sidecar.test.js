@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
@@ -13,8 +13,9 @@ import {
   createLocalN8nSidecarComposeFile,
 } from "../src/domain/local-n8n-sidecar.js";
 import {
+  changeLocalN8nCodexImages, getLocalN8nCodexImagesStatus,
   getLocalN8nSidecarStatus, getLocalN8nSidecarUsage, installLocalN8nSidecar,
-  inspectStoppedLocalN8nSiwcInstallation, manageLocalN8nSiwcInstallation,
+  inspectStoppedLocalN8nSiwcInstallation, manageLocalN8nSiwcInstallation, removeLocalN8nSidecar,
   resolveLocalN8nSidecarInstallRoot, reviewLocalN8nLegacyMigration,
   reviewLocalN8nSiwcReplacement, reviewLocalN8nSiwcResume, reconcileLocalN8nSiwcHandoff,
 } from "../src/services/local-n8n-sidecar-installer.js";
@@ -506,6 +507,158 @@ test("local usage reads only the running owned sidecar's counts, with its read-o
   assert.equal(reads.length, before);
 });
 
+const IMAGES_CLI = "/app/services/codex-images.mjs";
+const cliLine = (value, code = 0) => ({ code, stdout: `${JSON.stringify(value)}\n`, stderr: "" });
+
+// The fake container answers the image CLI itself and logs it in the shared call order.
+function withImagesCli(runner, respond, calls = runner.calls) {
+  return async spec => {
+    if (!spec.args.includes(IMAGES_CLI)) return runner(spec);
+    calls.push(spec);
+    return respond(spec);
+  };
+}
+
+test("local image sign-in runs one fixed CLI command in the owned running sidecar, under the operation lock", async t => {
+  const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
+  const runner = fakeDocker(destinationRoot);
+  await installLocalN8nSidecar({ plan, registration, backgroundConsent: consent, confirmed: true }, deps(homeDirectory, runner));
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({ homeDirectory, env: {} });
+  const lockPath = join(dirname(dirname(dirname(installRoot))), ".relmio-local-n8n-openai-oauth.lock");
+  const lockHeld = [];
+  let respond = () => cliLine({ state: "off" });
+  const images = withImagesCli(runner, async spec => {
+    lockHeld.push(await lstat(lockPath).then(() => true, () => false));
+    return respond(spec);
+  });
+  const imageCalls = () => runner.calls.filter(call => call.args.includes(IMAGES_CLI));
+  const status = () => getLocalN8nCodexImagesStatus({ registrationId }, deps(homeDirectory, images));
+  const change = input => changeLocalN8nCodexImages({ registrationId, expectedContainerId: SIDECAR_ID, ...input },
+    deps(homeDirectory, images));
+
+  assert.deepEqual(await status(), { state: "off", containerId: SIDECAR_ID });
+  assert.deepEqual(imageCalls().at(-1).args, ["compose", "--project-name", projectName, "--file", "docker-compose.yml",
+    "exec", "-T", "openai-oauth", "node", IMAGES_CLI, "status"]);
+  assert.deepEqual(lockHeld, [true], "the CLI runs while the local sidecar operation lock is held");
+  await assert.rejects(() => lstat(lockPath), "the lock is released afterwards");
+
+  const pending = { userCode: "ABCD-1234", verificationUrl: "https://auth.openai.com/codex/device",
+    expiresAt: "2026-10-07T12:15:00.000Z" };
+  respond = () => cliLine({ state: "pending", pending, accessToken: "must-not-leak", deviceAuthId: "must-not-leak" });
+  const started = await change({ action: "login-start", confirmed: true });
+  assert.deepEqual(started, { state: "pending", pending, containerId: SIDECAR_ID });
+  for (const action of ["login-poll", "login-cancel", "sign-out"]) {
+    await change({ action, confirmed: true });
+    assert.deepEqual(imageCalls().at(-1).args.slice(5), ["exec", "-T", "openai-oauth", "node", IMAGES_CLI, action]);
+  }
+
+  const before = imageCalls().length;
+  for (const [input, pattern] of [
+    [{ action: "login-start", confirmed: false }, /Confirm/u],
+    [{ action: "sign-out" }, /Confirm/u],
+    [{ action: "status", confirmed: true }, /invalid/u],
+    [{ action: "sign-out; docker rm -f n8n", confirmed: true }, /invalid/u],
+    [{ action: "login-poll", expectedContainerId: "not-a-container" }, /invalid/u],
+    [{ action: "login-poll", expectedContainerId: "e".repeat(64) }, /changed/u],
+  ]) await assert.rejects(() => change(input), pattern, JSON.stringify(input));
+  await assert.rejects(() => getLocalN8nCodexImagesStatus({ registrationId: "registration_other" },
+    deps(homeDirectory, images)));
+
+  // A sidecar container or project volume this install does not own blocks every image command.
+  const foreignContainer = async spec => {
+    const result = await images(spec);
+    if (spec.args[0] !== "container" || spec.args.at(-1) !== SIDECAR_ID) return result;
+    const inspected = JSON.parse(result.stdout);
+    inspected.Config.Labels["io.relmio.install"] = "e".repeat(32);
+    return { ...result, stdout: JSON.stringify(inspected) };
+  };
+  const foreignVolume = async spec => spec.args[0] === "volume" && spec.args.includes("{{json .Labels}}")
+    ? cliLine({ "com.docker.compose.project": projectName }) : images(spec);
+  for (const foreign of [foreignContainer, foreignVolume]) {
+    await assert.rejects(() => getLocalN8nCodexImagesStatus({ registrationId }, deps(homeDirectory, foreign)));
+  }
+  await assert.rejects(() => changeLocalN8nCodexImages({ registrationId, action: "login-poll",
+    expectedContainerId: SIDECAR_ID }, deps(homeDirectory, foreignContainer)));
+  assert.equal(imageCalls().length, before, "nothing rejected reaches the container");
+
+  // Results pass the shared validator: unknown states fail, CLI text stays inside, and a sidecar
+  // without the image module reads as unavailable only for status.
+  respond = () => cliLine({ state: "on" });
+  await assert.rejects(status, /invalid attestation/u);
+  respond = () => cliLine({ error: "images_device_login_disabled", message: "must-not-leak" }, 1);
+  await assert.rejects(() => change({ action: "login-start", confirmed: true }),
+    error => error.code === "images_device_login_disabled" && !error.message.includes("must-not-leak"));
+  respond = () => ({ code: 1, stdout: "", stderr: `Error: Cannot find module '${IMAGES_CLI}'\n` });
+  assert.deepEqual(await status(), { state: "unavailable", containerId: SIDECAR_ID });
+  await assert.rejects(() => change({ action: "login-poll" }), /failed/u);
+
+  const current = await getLocalN8nSidecarStatus(deps(homeDirectory, runner));
+  await manageLocalN8nSiwcInstallation({ registrationId, action: "disable-plan",
+    expectedGeneration: current.snapshot.auth.account.generation, confirmed: true }, deps(homeDirectory, runner));
+  const stoppedCalls = imageCalls().length;
+  await assert.rejects(status, /not running/u);
+  assert.equal(imageCalls().length, stoppedCalls, "a stopped sidecar is not started for an image command");
+});
+
+for (const [outcome, cli, expected] of [
+  ["confirmed", () => cliLine({ state: "off", revocation: "confirmed" }), "confirmed"],
+  ["failed", () => ({ code: 1, stdout: "", stderr: "Error: Cannot find module\n" }), "unknown"],
+]) {
+  test(`local SIWC sign-out signs out of images in the running sidecar first (${outcome})`, async t => {
+    const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
+    const runner = fakeDocker(destinationRoot);
+    await installLocalN8nSidecar({ plan, registration, backgroundConsent: consent, confirmed: true }, deps(homeDirectory, runner));
+    const current = await getLocalN8nSidecarStatus(deps(homeDirectory, runner));
+    const start = runner.calls.length;
+    const container = withImagesCli(runner, () => {
+      assert.equal(runner.isRunning(), true, "the image sign-out runs before the sidecar stops");
+      return cli();
+    });
+    const result = await manageLocalN8nSiwcInstallation({ registrationId, action: "sign-out",
+      expectedGeneration: current.snapshot.auth.account.generation, confirmed: true }, deps(homeDirectory, container));
+    const calls = runner.calls.slice(start).map(call => call.args.join(" "));
+    const images = calls.findIndex(call => call.endsWith(`exec -T openai-oauth node ${IMAGES_CLI} sign-out`));
+    const stop = calls.findIndex(call => call.includes("stop --timeout 30 openai-oauth"));
+    const signOut = calls.findIndex(call => call.endsWith("/app/services/siwc-handoff.mjs sign-out"));
+    assert.ok(images >= 0 && images < stop && stop < signOut, calls.join("\n"));
+    assert.equal(result.imagesRevocation, expected);
+    assert.equal(result.revocation, "confirmed", "an image sign-out outcome never blocks the account sign-out");
+    assert.equal(result.account.session, "signed-out");
+  });
+}
+
+test("removing the local sidecar signs out of images before deleting its volume, and keeps it when that fails", async t => {
+  const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
+  const runner = fakeDocker(destinationRoot);
+  await installLocalN8nSidecar({ plan, registration, backgroundConsent: consent, confirmed: true }, deps(homeDirectory, runner));
+  const current = await getLocalN8nSidecarStatus(deps(homeDirectory, runner));
+  await manageLocalN8nSiwcInstallation({ registrationId, action: "sign-out",
+    expectedGeneration: current.snapshot.auth.account.generation, confirmed: true }, deps(homeDirectory, runner));
+  const start = runner.calls.length;
+  let down = false;
+  const removing = withImagesCli(async spec => {
+    const joined = spec.args.join(" ");
+    if (joined.includes("down --volumes")) { runner.calls.push(spec); down = true; return cliLine(""); }
+    if (down && (joined.includes("ps -q openai-oauth") || (["container", "volume"].includes(spec.args[0]) && spec.args[1] === "ls"))) {
+      return { code: 0, stdout: "", stderr: "" };
+    }
+    return runner(spec);
+  }, () => {
+    assert.equal(down, false, "the image sign-out runs before the volume is deleted");
+    return imagesResult;
+  }, runner.calls);
+  let imagesResult = cliLine({ error: "images_unavailable", message: "Codex image sign-in is busy." }, 1);
+  await assert.rejects(() => removeLocalN8nSidecar({ confirmed: true }, deps(homeDirectory, removing)), /kept/u);
+  assert.equal(down, false, "a failed image sign-out keeps the volume for a retry");
+  imagesResult = cliLine({ state: "off", revocation: "unconfirmed" });
+  const result = await removeLocalN8nSidecar({ confirmed: true }, deps(homeDirectory, removing));
+  assert.deepEqual(result, { removed: true, target: "n8n-openai-oauth", imagesRevocation: "unconfirmed" });
+  const calls = runner.calls.slice(start).map(call => call.args.join(" "));
+  const images = calls.findIndex(call => call.endsWith(
+    `run --rm --no-deps -T --entrypoint node openai-oauth ${IMAGES_CLI} sign-out`));
+  assert.ok(images >= 0 && images < calls.findIndex(call => call.includes("down --volumes")), calls.join("\n"));
+});
+
 test("Windows sidecar asset ACL drift blocks status before inspecting the runtime", async t => {
   const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
   const contextHost = "npipe:////./pipe/dockerDesktopLinuxEngine";
@@ -828,8 +981,11 @@ test("generated credential initializer obeys root plus CHOWN-only ownership mode
   assert.deepEqual(values("cap_add"), ["CHOWN"]);
   assert.deepEqual(values("volumes"), ["siwc-store:/run/relmio-auth"]);
   assert.equal(seed.match(/^    network_mode: (.*)$/m)[1], "none");
-  const shell = seed.split("      - |\n")[1].split("    volumes:\n")[0]
+  const yamlShell = seed.split("      - |\n")[1].split("    volumes:\n")[0]
     .split("\n").map(line => line.slice(8)).join("\n");
+  // Compose substitutes $name and ${name} before the container runs; only $$ reaches the shell as $.
+  assert.doesNotMatch(yamlShell.replaceAll("$$", ""), /\$/u, "every shell $ must be written as $$");
+  const shell = yamlShell.replaceAll("$$", "$");
   const model = join(root, "owner");
   const calls = join(root, "calls");
   const functions = `
@@ -864,6 +1020,37 @@ chown() {
     assert.equal(result.status === 0, succeeds, `${initial}: ${result.stderr}`);
     assert.equal(await readFile(calls, "utf8"), order);
     if (succeeds) assert.equal((await readFile(model, "utf8")).trim(), "1000:1000:700");
+  }
+});
+
+test("every file the image copies is readable by the node user that runs it", {
+  skip: process.platform === "win32" && "POSIX modes decide readability inside the Linux image",
+}, async t => {
+  const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
+  await installLocalN8nSidecar({ plan, registration, backgroundConsent: consent, confirmed: true },
+    deps(homeDirectory, fakeDocker(destinationRoot)));
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({ homeDirectory, env: {} });
+  const dockerfile = await readFile(join(installRoot, "Dockerfile"), "utf8");
+  assert.match(dockerfile, /^USER node$/mu);
+  const copies = [...dockerfile.matchAll(/^COPY (.+)$/gmu)].map(([, rest]) => rest.trim().split(/\s+/u));
+  assert.ok(copies.length > 0);
+  // Docker keeps host modes. --chown=node:node makes node the owner, so owner bits apply; otherwise
+  // the files stay root's and node needs the "other" bits. Directories also need search (x).
+  const check = async (path, chownNode) => {
+    const metadata = await stat(path);
+    const shift = chownNode ? 6 : 0;
+    const need = metadata.isDirectory() ? 0o5 : 0o4;
+    assert.equal(((metadata.mode >> shift) & need), need,
+      `${path} (mode ${(metadata.mode & 0o777).toString(8)}) must be readable by node`);
+    if (metadata.isDirectory()) {
+      for (const child of await readdir(path)) await check(join(path, child), chownNode);
+    }
+  };
+  for (const parts of copies) {
+    const chownNode = parts.includes("--chown=node:node");
+    for (const source of parts.filter(part => !part.startsWith("--")).slice(0, -1)) {
+      await check(join(installRoot, source), chownNode);
+    }
   }
 });
 

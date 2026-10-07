@@ -147,7 +147,8 @@ test("installed SIWC management requires final confirmation and never sends cred
     async api(path, options) { calls.push({ path, options }); return {
       account: { ...siwcAccount, session: "signed-out", planEnabled: false }, runtimeStopped: true, revocation: "unconfirmed" }; },
     setBusy() { return true; }, clearError() {}, clearChatTesterState() {},
-    renderInstalledSiwcOwner() {}, setMessage() {}, showError(error) { harness.errors.push(error); },
+    renderInstalledSiwcOwner() {}, imagesRevocationText: () => "", setMessage() {},
+    showError(error) { harness.errors.push(error); },
   });
   await manage("sign-out", harness.element("local-siwc-logout"));
   assert.equal(calls.length, 0);
