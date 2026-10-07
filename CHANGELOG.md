@@ -13,6 +13,9 @@ checks the registry separately after publication.
   choosing Flare or Sunburst in Relmio 0.16.0 through 0.18.6 never selected
   those models. The Codex image route ignores the model ID, so every image
   came from Codex's single image model, which Codex names `gpt-image-2`.
+- Hosting options and Self-hosted model on my server now start with Hostinger
+  KVM VPS selected, the VPS that Relmio is tested on. Pick another provider to
+  change it.
 
 ### Fixed
 
