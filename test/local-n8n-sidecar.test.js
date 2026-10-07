@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -1020,6 +1020,27 @@ chown() {
     assert.equal(result.status === 0, succeeds, `${initial}: ${result.stderr}`);
     assert.equal(await readFile(calls, "utf8"), order);
     if (succeeds) assert.equal((await readFile(model, "utf8")).trim(), "1000:1000:700");
+  }
+});
+
+test("every file the image copies is readable by the node user that runs it", {
+  skip: process.platform === "win32" && "POSIX modes decide readability inside the Linux image",
+}, async t => {
+  const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
+  await installLocalN8nSidecar({ plan, registration, backgroundConsent: consent, confirmed: true },
+    deps(homeDirectory, fakeDocker(destinationRoot)));
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({ homeDirectory, env: {} });
+  const dockerfile = await readFile(join(installRoot, "Dockerfile"), "utf8");
+  assert.match(dockerfile, /^USER node$/mu);
+  const copies = [...dockerfile.matchAll(/^COPY (.+)$/gmu)].map(([, rest]) => rest.trim().split(/\s+/u));
+  assert.ok(copies.length > 0);
+  for (const parts of copies) {
+    const chownNode = parts.includes("--chown=node:node");
+    for (const source of parts.filter(part => !part.startsWith("--")).slice(0, -1)) {
+      const mode = (await stat(join(installRoot, source))).mode;
+      // Docker keeps host modes; a root-owned file without the world read bit is unreadable as node.
+      assert.ok(chownNode || (mode & 0o004) !== 0, `${source} (mode ${(mode & 0o777).toString(8)}) must be readable by node`);
+    }
   }
 });
 

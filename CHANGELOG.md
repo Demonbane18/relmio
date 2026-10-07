@@ -32,12 +32,14 @@ checks the registry separately after publication.
 
 ### Fixed
 
-- Installing the ChatGPT plan sidecar for an n8n on this computer no longer
-  fails with "Local SIWC private volume initialization failed." In 0.19.0 and
-  0.19.1 this step always failed: Docker Compose replaced the setup script's
-  `$owner` with an empty value, so the script exited before the sign-in was
-  handed over. The sign-in stayed on this computer. Found in local QA on
-  Docker Desktop with Compose 5.5.1.
+- Installing the ChatGPT plan sidecar for an n8n on this computer works again.
+  In 0.19.0 and 0.19.1 it always failed, first with "Local SIWC private volume
+  initialization failed." and then, past that step, with "Local SIWC
+  installation operation failed." Docker Compose replaced the setup script's
+  `$owner` with an empty value, and the image copied `package.json` without
+  making it readable for the user the sidecar runs as. Both failures happen
+  before the sign-in is handed over, so it stays on this computer. Found in
+  local QA on Docker Desktop with Compose 5.5.1.
 
 ## [0.19.1] - 2026-10-07
 

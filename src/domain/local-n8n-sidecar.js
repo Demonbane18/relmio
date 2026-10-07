@@ -90,7 +90,7 @@ LABEL io.relmio.managed="true" \\
       io.relmio.install="${safeInstallId}"
 
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 COPY --chown=node:node services/ ./services/
 COPY --chown=node:node gateway/ ./gateway/
