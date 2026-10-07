@@ -87,6 +87,20 @@ test("the local image block shows only for the running owned sidecar and starts 
   assert.equal(ui.element("installed-images-start").disabled, false);
 });
 
+test("a manual status check that returns after the block was reset does not show it again", async () => {
+  let answer;
+  const ui = await harness(() => new Promise((resolve) => { answer = resolve; }));
+  ui.context.renderInstalledSiwcOwner({ target: "n8n-openai-oauth", state: "healthy",
+    snapshot: { registrationId: owner.registrationId, migrationRequired: false, auth: { configured: true, account: owner } } });
+  const pending = ui.context.checkInstalledImages();
+  await settle();
+  ui.context.renderInstalledImages(null, false);
+  answer({ state: "signed-in", account: { accountIdSuffix: "abc123" } });
+  await pending;
+  assert.equal(ui.element("installed-images").hidden, true);
+  assert.deepEqual(visibleBlocks(ui.element).filter((name) => name === "on"), []);
+});
+
 test("a pending code shows as text with the fixed sign-in link, polls every 5 seconds and stops when hidden", async () => {
   let pollResult = { state: "pending", pending: { userCode: "<img src=x onerror=alert(1)>", verificationUrl: "https://evil.example/", expiresAt: "2026-10-07T12:15:00.000Z" } };
   const ui = await harness(() => pollResult);

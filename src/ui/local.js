@@ -2302,9 +2302,11 @@ async function runInstalledImagesRequest(button, label, path, body) {
 async function checkInstalledImages() {
   const registrationId = state.installedOwner?.account?.registrationId;
   if (!registrationId || element("installed-images").hidden) return;
+  const generation = state.imagesGeneration;
   const result = await runInstalledImagesRequest(element("installed-images-check"), "Checking image generation…",
     "/api/local/n8n/siwc/images/status", { registrationId });
-  if (result) renderInstalledImages(result);
+  // A reset while the request ran (the block was hidden) makes this answer stale.
+  if (result && generation === state.imagesGeneration) renderInstalledImages(result);
 }
 
 async function changeInstalledImages(action, button, confirmId) {
