@@ -32,8 +32,6 @@ checks the registry separately after publication.
   list, which the sidecar now treats like no content. To get this fix on a
   VPS sidecar, run **Review sidecar update**.
 
-### Fixed
-
 - On Windows, a ChatGPT plan request no longer fails at once with "SIWC session
   lock is unavailable" when the Relmio process holding the sign-in lock exits
   while another process is checking it. Windows PowerShell could find the
