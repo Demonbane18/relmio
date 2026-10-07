@@ -1,4 +1,4 @@
-// Opt-in, images-only Codex sign-in for the VPS ChatGPT sidecar. It uses the Codex CLI
+// Opt-in, images-only Codex sign-in for the VPS and local ChatGPT sidecars. It uses the Codex CLI
 // device flow, as Hermes Agent's "OpenAI (Codex auth)" provider does. OpenAI does not
 // document this route for other apps, so it can stop working. Built-ins only: this file
 // ships alone inside the sidecar image.

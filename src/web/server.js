@@ -96,6 +96,8 @@ import {
   inspectStoppedLocalN8nSiwcInstallation,
   installLocalN8nSidecar,
   manageLocalN8nSiwcInstallation,
+  getLocalN8nCodexImagesStatus,
+  changeLocalN8nCodexImages,
   reviewLocalN8nSiwcResume,
   reconcileLocalN8nSiwcHandoff,
   removeLocalN8nSidecar,
@@ -195,6 +197,8 @@ const defaultServices = {
   inspectStoppedLocalN8nSiwcInstallation,
   inspectStoppedLocalSiwcInstallation,
   manageLocalN8nSiwcInstallation,
+  getLocalN8nCodexImagesStatus,
+  changeLocalN8nCodexImages,
   manageLocalSiwcInstallation,
   getLocalN8nModelStatus,
   inspectLocalN8nModelResources,
@@ -425,6 +429,7 @@ function invalidateSiwcWork(state) {
   state.siwcRecoveryReview = null;
   state.vpsRuntimeUpdateReview = null;
   state.vpsImagesTarget = null;
+  state.localImagesTarget = null;
   state.vpsModelsTarget = null;
   state.localChatTest.resetAll?.();
 }
@@ -852,7 +857,9 @@ function requireReviewedVpsOwnerTarget(state, containerName, networkName) {
 }
 
 const CODEX_IMAGES_VERIFICATION_URL = "https://auth.openai.com/codex/device";
-const VPS_IMAGES_STATES = new Set(["off", "pending", "signed-in", "reauthorize", "unavailable"]);
+const CODEX_IMAGES_STATES = new Set(["off", "pending", "signed-in", "reauthorize", "unavailable"]);
+// The image sign-out that local SIWC sign-out and removal run first; "unknown" means it could not run.
+const IMAGES_REVOCATIONS = new Set(["confirmed", "unconfirmed", "not-applicable", "unknown"]);
 const VPS_MODEL_STATES = new Set(["verified", "failed", "unchecked"]);
 const VPS_MODEL_CATALOG_ERRORS = new Set(["catalog_unavailable", "registration_unavailable"]);
 const VPS_MODEL_STOP_REASONS = new Set(["usage_limit", "reauthorize", "probe_rejected", "checks_off", "time_limit",
@@ -879,17 +886,17 @@ function isoTime(value) {
     Number.isFinite(Date.parse(value));
 }
 
-// Only known add-on fields reach the browser; tokens, device IDs and remote output never do.
-function copyVpsImagesStatus(result) {
+// Only known add-on fields reach the browser; tokens, device IDs and sidecar output never do.
+function copyCodexImagesStatus(result) {
   const { state, account, pending } = result ?? {};
-  if (!VPS_IMAGES_STATES.has(state) || !/^[a-f0-9]{64}$/u.test(result.containerId ?? "") ||
+  if (!CODEX_IMAGES_STATES.has(state) || !/^[a-f0-9]{64}$/u.test(result.containerId ?? "") ||
       (account !== undefined && (!/^[A-Za-z0-9_-]{6}$/u.test(account?.accountIdSuffix ?? "") ||
         (account.email !== undefined && !boundedText(account.email, 254)) ||
         (account.planType !== undefined && !boundedText(account.planType, 32)))) ||
       (state === "pending" && (!/^[A-Z0-9]{2,16}(?:-[A-Z0-9]{2,16}){0,3}$/u.test(pending?.userCode ?? "") ||
         pending.verificationUrl !== CODEX_IMAGES_VERIFICATION_URL ||
         !isoTime(pending.expiresAt)))) {
-    throw Object.assign(new Error("The VPS returned an invalid image generation status."), { statusCode: 502 });
+    throw Object.assign(new Error("The sidecar returned an invalid image generation status."), { statusCode: 502 });
   }
   return {
     state,
@@ -3263,6 +3270,7 @@ function createSafeLocalN8nRemovalResult(result) {
   return {
     target: result.target,
     removed: true,
+    ...(IMAGES_REVOCATIONS.has(result.imagesRevocation) ? { imagesRevocation: result.imagesRevocation } : {}),
   };
 }
 
@@ -4268,7 +4276,50 @@ async function handleApi(request, response, path, state) {
       }
       sendJson(response, 200, {
         account: updated, revocation: result.revocation, runtimeStopped: result.runtimeStopped,
+        ...(sidecar && body.action === "sign-out" && IMAGES_REVOCATIONS.has(result.imagesRevocation)
+          ? { imagesRevocation: result.imagesRevocation } : {}),
       });
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
+  if (["/api/local/n8n/siwc/images/status", "/api/local/n8n/siwc/images/action",
+      "/api/local/n8n/siwc/images/login-status"].includes(path)) {
+    requireLiveLocalAction(state, "Local image generation");
+    const checking = path.endsWith("/images/status");
+    const polling = path.endsWith("/login-status");
+    const action = checking ? null : polling ? "login-poll" : body?.action;
+    // As on a VPS, polls skip the shared rate limit; a stored pending sign-in, the single-flight
+    // flag and the code expiry bound them instead.
+    if (!polling) enforceRateLimit(state, path);
+    requireExactRequestBody(body, checking ? ["registrationId"] : polling ? [] : ["action", "confirmed"],
+      "Check this installed sidecar's image generation again.");
+    if (!checking && !polling && (!["login-start", "login-cancel", "sign-out"].includes(action) ||
+        typeof body.confirmed !== "boolean" || (action !== "login-cancel" && body.confirmed !== true))) {
+      throw Object.assign(new Error("Confirm this image sign-in change first."), { statusCode: 400 });
+    }
+    const stored = checking ? null : state.localImagesTarget;
+    if (!checking && (!stored || stored.expiresAt <= Date.now() || (polling && !stored.pending))) {
+      throw Object.assign(new Error("Check the installed sidecar's image generation again."),
+        { statusCode: 409, recovery: "review-again" });
+    }
+    const registrationId = checking ? requireSiwcId(body.registrationId) : stored.registrationId;
+    if (state.localInstallInFlight || state.localCredentialRotationInFlight) {
+      throw Object.assign(new Error("An installation or account change is in progress."), { statusCode: 409 });
+    }
+    state.localInstallInFlight = true;
+    try {
+      if (checking) state.localImagesTarget = null;
+      const result = checking
+        ? await state.services.getLocalN8nCodexImagesStatus({ registrationId })
+        : await state.services.changeLocalN8nCodexImages({ registrationId, action,
+          expectedContainerId: stored.containerId, confirmed: polling ? false : body.confirmed });
+      const view = copyCodexImagesStatus(result);
+      state.localImagesTarget = { registrationId, containerId: result.containerId,
+        pending: view.state === "pending", expiresAt: Date.now() + VPS_ADDON_TARGET_MS };
+      sendJson(response, 200, view);
     } finally {
       state.localInstallInFlight = false;
     }
@@ -5777,7 +5828,7 @@ async function handleApi(request, response, path, state) {
         ? await state.services.getVpsCodexImagesStatus({ remote: connection, networkName, reviewedTarget, registrationId })
         : await state.services.changeVpsCodexImages({ remote: connection, networkName, reviewedTarget, registrationId,
           action, expectedContainerId: stored.containerId, confirmed: polling ? false : body.confirmed });
-      const view = copyVpsImagesStatus(result);
+      const view = copyCodexImagesStatus(result);
       detach ||= polling && view.state !== "pending";
       state.vpsImagesTarget = detach ? null : { reviewedTarget, registrationId, containerId: result.containerId,
         pending: view.state === "pending", expiresAt: Date.now() + VPS_ADDON_TARGET_MS };
@@ -6502,6 +6553,7 @@ export async function startWizardServer({
     vpsOwnerTargetReview: null,
     vpsRuntimeUpdateReview: null,
     vpsImagesTarget: null,
+    localImagesTarget: null,
     vpsModelsTarget: null,
     assistantPlan: null,
     supergrokPlan: null,

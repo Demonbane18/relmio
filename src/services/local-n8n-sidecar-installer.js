@@ -18,6 +18,7 @@ import {
   validateSiwcAuthBinding, validateSiwcRegistrationId,
 } from "../domain/safety.js";
 import { validateDockerName } from "../domain/validation.js";
+import { readCodexImagesCliResult } from "../domain/codex-images.js";
 import {
   runLocalProcess,
   lockDownLocalPath,
@@ -2681,6 +2682,11 @@ export async function manageLocalN8nSiwcInstallation(
           (before.planPermission !== "granted" || before.session !== "connected")) {
         throw new Error("This installed account needs a fresh authorized SIWC sign-in before plan use can resume.");
       }
+      // Before the account goes and while the sidecar still runs, as on a VPS: a later sign-in on this
+      // volume must not inherit the image sign-in.
+      const imagesRevocation = action === "sign-out"
+        ? await signOutLocalCodexImages({ runProcess, installRoot, marker, running: runtime.running })
+        : undefined;
       await runOrThrow(runProcess, {
         file: "docker",
         args: createComposeArgs(marker.projectName, ["stop", "--timeout", "30", SERVICE_NAME]),
@@ -2741,9 +2747,110 @@ export async function manageLocalN8nSiwcInstallation(
       return {
         account: changed.account, revocation: changed.revocation,
         runtimeStopped: action !== "enable-plan",
+        ...(imagesRevocation === undefined ? {} : { imagesRevocation }),
       };
     },
   });
+}
+
+// Best effort: signs out of the image add-on in the running sidecar, or in a one-off container
+// when it is stopped, and returns OpenAI's revocation result. "unknown" means the step could not
+// run or failed; a sidecar built before the add-on has no image module.
+async function signOutLocalCodexImages({ runProcess, installRoot, marker, running }) {
+  try {
+    const { revocation } = readCodexImagesCliResult(await runProcess({
+      file: "docker",
+      args: createComposeArgs(marker.projectName, [
+        ...(running ? ["exec", "-T", SERVICE_NAME, "node"]
+          : ["run", "--rm", "--no-deps", "-T", "--entrypoint", "node", SERVICE_NAME]),
+        "/app/services/codex-images.mjs", "sign-out",
+      ]),
+      cwd: installRoot, dockerHost: marker.dockerHost,
+    }));
+    return ["confirmed", "unconfirmed", "not-applicable"].includes(revocation) ? revocation : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+const CODEX_IMAGES_ACTIONS = new Set(["login-start", "login-poll", "login-cancel", "sign-out"]);
+const CODEX_IMAGES_NOT_RUNNING = "The installed SIWC sidecar is not running for the reviewed account.";
+
+// The image add-on's CLI runs in the exact running owned container, one fixed command per action.
+// Status, sign-in start and sign-out re-attest the whole owned project; polling and cancelling a
+// pending sign-in check only that the container from the status check still runs.
+async function runLocalCodexImages(
+  { registrationId, action, expectedContainerId },
+  {
+    fileSystem = defaultFileSystem, env = process.env,
+    homeDirectory = homedir(), runProcess = runLocalProcess,
+    platform = process.platform, lockDownPath = lockDownLocalPath,
+    getProcessIdentity, lifecycleLockNow = Date.now,
+  } = {},
+) {
+  validateSiwcRegistrationId(registrationId);
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalN8nSidecarInstallRoot({ env, homeDirectory, fileSystem, platform });
+  const releaseLock = await acquireSidecarLock({
+    fileSystem, getProcessIdentity, installRoot, lockDownPath, now: lifecycleLockNow, platform,
+  });
+  return settleLocalIntegrationLifecycleOperation({
+    completionLabel: "Local n8n Codex image sign-in operation",
+    releaseLock,
+    operation: async () => {
+      await verifyWindowsSidecarStatusPathSecurity({ fileSystem, installRoot, platform, lockDownPath });
+      const marker = validateMarker((await inspectManagedInstall({ fileSystem, installRoot })).marker);
+      if (marker.registrationId !== registrationId) throw new Error(CODEX_IMAGES_NOT_RUNNING);
+      await assertManagedSiwcCompose(fileSystem, installRoot, marker);
+      if (await resolveLocalDockerHost({ runProcess, cwd: installRoot, env, platform }) !== marker.dockerHost) {
+        throw new Error("The selected Docker context changed.");
+      }
+      if (["status", "login-start", "sign-out"].includes(action)) {
+        await attestPlanAndAlias({
+          plan: marker, runProcess, cwd: installRoot,
+          installId: marker.installId, projectName: marker.projectName,
+        });
+        const ownership = await attestProjectOwnership({
+          runProcess, cwd: installRoot, dockerHost: marker.dockerHost,
+          installId: marker.installId, projectName: marker.projectName, returnDetails: true,
+        });
+        if (!ownership.exact) throw new Error("The exact owned sidecar project is missing.");
+      }
+      const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker });
+      if (!runtime?.running || runtime.paused) throw new Error(CODEX_IMAGES_NOT_RUNNING);
+      if (expectedContainerId !== undefined && runtime.containerId !== expectedContainerId) {
+        throw new Error("The installed sidecar changed. Check image generation again.");
+      }
+      const result = await runProcess({
+        file: "docker",
+        args: createComposeArgs(marker.projectName, [
+          "exec", "-T", SERVICE_NAME, "node", "/app/services/codex-images.mjs", action,
+        ]),
+        cwd: installRoot, dockerHost: marker.dockerHost,
+      });
+      return {
+        ...readCodexImagesCliResult(result, { allowUnavailable: action === "status" }),
+        containerId: runtime.containerId,
+      };
+    },
+  });
+}
+
+// "unavailable" means the running sidecar predates the image add-on.
+export function getLocalN8nCodexImagesStatus({ registrationId }, deps = {}) {
+  return runLocalCodexImages({ registrationId, action: "status" }, deps);
+}
+
+export async function changeLocalN8nCodexImages(
+  { registrationId, action, expectedContainerId, confirmed }, deps = {},
+) {
+  if (!CODEX_IMAGES_ACTIONS.has(action)) throw new TypeError("The image sign-in action is invalid.");
+  if ((action === "login-start" || action === "sign-out") && confirmed !== true) {
+    throw new Error("Confirm the Codex image sign-in change for this computer.");
+  }
+  validateDockerObjectId(expectedContainerId, "reviewed sidecar container");
+  return runLocalCodexImages({ registrationId, action, expectedContainerId }, deps);
 }
 
 export async function removeLocalN8nSidecar(
@@ -2803,6 +2910,7 @@ export async function removeLocalN8nSidecar(
       installId: marker.installId,
       projectName: marker.projectName,
     });
+    let imagesRevocation;
     if (marker.schemaVersion === MARKER_SCHEMA_VERSION) {
       await assertManagedSiwcCompose(fileSystem, installRoot, marker);
       const status = await runSiwcCli({
@@ -2814,6 +2922,11 @@ export async function removeLocalN8nSidecar(
           status.account?.planEnabled !== false) {
         throw new Error("Sign out of the installed SIWC account before removing its protected storage.");
       }
+      // The volume delete below would drop a live image refresh token without revoking it.
+      const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker }).catch(() => null);
+      imagesRevocation = await signOutLocalCodexImages({
+        runProcess, installRoot, marker, running: runtime?.running === true && !runtime.paused,
+      });
     }
     await cleanupSidecarProject({
       runProcess,
@@ -2843,7 +2956,8 @@ export async function removeLocalN8nSidecar(
       );
     }
     await fileSystem.rm(installRoot, { recursive: true, force: false });
-      return { removed: true, target: LOCAL_N8N_SIDECAR_TARGET };
+      return { removed: true, target: LOCAL_N8N_SIDECAR_TARGET,
+        ...(imagesRevocation === undefined ? {} : { imagesRevocation }) };
     },
   });
 }

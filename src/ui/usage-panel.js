@@ -31,8 +31,8 @@ const EVENTS = Object.freeze({
   subscription_sharing_user_not_eligible: ["Plan use not available",
     "OpenAI said plan use is not available for this account, workspace or policy. Check that this is the account you meant to use. Signing in again does not change it."],
 });
-// The local sidecar runs no model checks and has no image sign-in, so only the VPS note
-// says that those requests are not counted.
+// Image requests are not counted on either page. The local sidecar runs no model checks, so only
+// the VPS strings mention them.
 const MESSAGES = {
   vps: {
     idle: "Press Refresh usage to read this sidecar's request counts.",
@@ -43,10 +43,10 @@ const MESSAGES = {
   },
   local: {
     idle: "Press Refresh usage to read the request counts.",
-    empty: "No requests counted in the last 30 days. A sidecar from this Relmio version counts each text request it sends to OpenAI. An older sidecar counts nothing until it is updated.",
+    empty: "No requests counted in the last 30 days. A sidecar from this Relmio version counts each text request it sends to OpenAI. Image requests are not counted. An older sidecar counts nothing until it is updated.",
     unavailable: "The request counts could not be read, so none are shown. Check that the sidecar is running, then press Refresh usage.",
     409: "The dashboard changed while the counts were read. Press Refresh usage again.",
-    note: "These are Relmio's counts of text requests through the sidecar. ChatGPT measures plan usage its own way. Plan limits, reset times and credits stay in ChatGPT. ",
+    note: "These are Relmio's counts of text requests through the sidecar. Image requests are not counted, and ChatGPT measures plan usage its own way. Plan limits, reset times and credits stay in ChatGPT. ",
   },
 };
 const RATE_LIMITED = "Relmio can read the counts 10 times in 15 minutes. Wait a few minutes, then press Refresh usage.";

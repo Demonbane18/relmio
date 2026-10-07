@@ -58,11 +58,10 @@ routes. That is not a guarantee for other accounts or models.
 
 Audio, video, Files API routes, stored responses/conversations, moderation,
 and unsupported Responses parameters are not implemented. Audio input and
-transcription are unsupported. On a VPS, image generation and editing are an
-opt-in add-on with a separate Codex sign-in that OpenAI does not document for
-other apps; see
-[Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional).
-The local sidecar has no image sign-in.
+transcription are unsupported. Image generation and editing are an opt-in
+add-on, on a VPS or on this computer, with a separate Codex sign-in that
+OpenAI does not document for other apps; see
+[Can n8n generate images through Relmio?](#can-n8n-generate-images-through-relmio).
 
 The n8n sidecar asks for text models as the newest stable Codex release from
 npm, checked about every 12 hours and never below Relmio's pin (0.160.0).
@@ -78,16 +77,20 @@ fallback.
 
 ## Can n8n generate images through Relmio?
 
-Only on a VPS, and only after you turn on the image add-on. It uses a separate
-Codex sign-in that OpenAI does not document for other apps, so it can stop
-working without notice. In n8n, use the OpenAI node's **Generate an Image** or
-**Edit Image** with the same credential as your chat nodes and the model
-`gpt-image-2`.
+Yes, after you turn on the image add-on for an installed ChatGPT plan sidecar,
+on a VPS or on this computer. It uses a separate Codex sign-in that OpenAI does
+not document for other apps, so it can stop working without notice. In n8n,
+use the OpenAI node's **Generate an Image** or **Edit Image** with the same
+credential as your chat nodes and the model `gpt-image-2`.
 
 Limits:
 
 - Images use your plan's Codex limits 3 to 5 times faster than text, then
-  credits. Free plans can't use them.
+  credits. Free plans can't use them. Your Codex limits are at
+  `chatgpt.com/codex/settings/usage`.
+- The Codex sign-in is stored on the VPS, or for a local sidecar in its Docker
+  volume on this computer. Anyone who can run workflows in that n8n can make
+  images with the account.
 - Only `gpt-image-2`, one image per request, returned as base64. Masks and URL
   responses are not supported. For GPT Image 2.5 Flare or Sunburst, use your
   own OpenAI Platform API key in a separate n8n credential.
@@ -97,10 +100,10 @@ Limits:
 - Relmio waits up to 5 minutes for an image and does not retry a failed one.
 
 Setup and sign-out are in
-[Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional).
+[Turn on image generation on a VPS](vps-and-n8n.md#turn-on-image-generation-optional)
+and [on this computer](local-endpoints.md#turn-on-image-generation-optional).
 Every limit is in
-[Generate and edit images](n8n-configuration.md#generate-and-edit-images-vps-add-on).
-The local sidecar has no image sign-in.
+[Generate and edit images](n8n-configuration.md#generate-and-edit-images).
 
 ## How do I connect n8n?
 

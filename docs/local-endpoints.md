@@ -255,9 +255,9 @@ a two-turn LangChain tool test passed through the real gateway on one ChatGPT
 account, streaming over both routes. There is no account rotation or Platform
 API fallback. Audio, video, Files API management, stored
 responses/conversations, and moderation are unsupported. Image generation is
-an opt-in add-on for a VPS sidecar only; a local sidecar has no image sign-in,
-so its image routes return `images_off`. See
-[VPS and n8n](vps-and-n8n.md#turn-on-image-generation-optional).
+an opt-in add-on with a separate Codex sign-in; until you turn it on, the
+image routes return `images_off`. See
+[Turn on image generation](#turn-on-image-generation-optional).
 
 Legacy installations are not silently adopted or overwritten. The wizard
 requires fresh SIWC sign-in and a separately reviewed migration. A successful
@@ -281,6 +281,57 @@ automatically.
 Transferred credentials are refreshed only by the destination installation.
 The published VM guide and SIWC Terms do not resolve whether this persistent
 remote storage is allowed; Relmio does not claim provider approval for VPS use.
+
+### Turn on image generation (optional)
+
+The installed local sidecar can generate and edit images with `gpt-image-2`,
+the same opt-in add-on as on a VPS. Read these points first:
+
+- It uses a separate Codex sign-in, the way Hermes Agent's "OpenAI (Codex
+  auth)" provider does. It isn't the official Sign in with ChatGPT, and OpenAI
+  doesn't document this route for other apps, so it can stop working at any
+  time. OpenAI recommends an API key for automation.
+- Images use your plan's Codex limits 3 to 5 times faster than text, then
+  credits. Free plans can't use it. Your Codex limits are at
+  `chatgpt.com/codex/settings/usage`.
+- This computer stores a full Codex sign-in for the account in the sidecar's
+  `siwc-store` Docker volume, under `codex-images`. Anyone with administrator
+  or Docker access on this computer, and any backup of Docker's data, can read
+  it.
+- Anyone who can run workflows in this n8n can make images with this account.
+  Turn this on only if nobody else uses it.
+- Device code sign-in must be on in ChatGPT security settings, or allowed by
+  your workspace admin.
+- Sign in with the same ChatGPT account as this sidecar.
+
+To turn it on:
+
+1. On the dashboard, select **ChatGPT plan sidecar** and choose **Manage
+   ChatGPT sign-out**. The setup flow's Ready step shows the same controls
+   right after an install.
+2. Open **Image generation**. Relmio checks the running sidecar this install
+   owns. If the panel says `Update the sidecar first`, an older Relmio version
+   built the sidecar: choose **Sign out and revoke** under **Installed ChatGPT
+   account**, then **Review replacement with a fresh account**, or remove the
+   bridge and set it up again.
+3. Select **I understand. Sign in to Codex for images on this computer.**,
+   then choose **Sign in for images**.
+4. Choose **Open the Codex sign-in page**
+   (`https://auth.openai.com/codex/device`), sign in, and enter the code the
+   panel shows. The code expires after 15 minutes. Relmio checks every
+   5 seconds; use **Cancel image sign-in** to stop.
+
+When you approve, the panel says `Images on for` your account. In n8n, use the
+OpenAI node's **Image** actions with the same credential as your chat nodes
+and pick `gpt-image-2`. The limits are in
+[Generate and edit images](n8n-configuration.md#generate-and-edit-images).
+
+To turn it off, open **Image generation**, select **I approve signing out of
+images on this computer**, then choose **Sign out of images**. Relmio deletes
+the Codex sign-in from the sidecar's volume and asks OpenAI to revoke it. If
+OpenAI does not confirm the revocation, the panel says so. **Sign out and
+revoke** and **Remove bridge** sign out of images first and report the
+revocation result; **Pause plan use** keeps the image sign-in.
 
 ## SuperGrok OAuth for n8n
 
@@ -867,8 +918,9 @@ that the selected model and documented Responses contract accept. It does not
 implement audio, transcription, video, Files API management, moderation,
 stored responses/conversations, or unsupported Responses fields and tools,
 including the `image_generation` tool. Image generation and editing need the
-separate Codex sign-in of the VPS image add-on, which a local sidecar does not
-offer. Discovery does not establish access to a model or capability. For exact
+separate Codex sign-in of the optional
+[image add-on](#turn-on-image-generation-optional), on this computer or on a
+VPS. Discovery does not establish access to a model or capability. For exact
 errors and recovery, see
 [Configure n8n nodes](n8n-configuration.md) and the
 [OpenAI source check](openai-source-check-2026-10-05.md).

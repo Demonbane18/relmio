@@ -7,6 +7,21 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- The local ChatGPT plan sidecar can now generate and edit images through the
+  same opt-in add-on as a VPS sidecar. Open **Image generation** in the
+  installed sidecar's view on the local dashboard, choose **Sign in for
+  images** and enter the code at `https://auth.openai.com/codex/device`. The
+  Codex sign-in is stored in the sidecar's Docker volume on this computer,
+  where administrators and Docker users can read it. **Sign out and revoke**
+  and **Remove bridge** sign out of images first and report the revocation
+  result. A local sidecar built by an older Relmio version needs a
+  replacement or a fresh setup first. The `images_off` message now names both
+  places; that sidecar file change makes an installed VPS sidecar report a
+  runtime update. The Configure n8n heading for images is now **Generate and
+  edit images**.
+
 ### Changed
 
 - The website's docs now include **Configure n8n**, with the sidecar's request

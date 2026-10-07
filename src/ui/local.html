@@ -440,7 +440,7 @@
                     <details class="rm-disclosure rm-disclosure--plain setup-help connection-details">
                       <summary>Connection details and limits</summary>
                       <div class="rm-disclosure__body">
-                        <p><strong>n8n with ChatGPT sign-in</strong> uses a local SIWC preview registration, separate from personal Codex credentials and Platform API billing. Verified identity alone cannot use the plan. You approve plan permission in ChatGPT and background n8n use separately. Relmio transfers one selected registration to an owned sidecar on the reviewed Docker network; n8n itself stays unchanged. The one-time Relmio client key is entered in n8n by you. Models come from that account's catalog, but a list does not prove a request will finish. This integration does not support image generation, audio, video, Files upload, or stored conversations. Old bridges need an explicit reviewed migration with a fresh sign-in.</p>
+                        <p><strong>n8n with ChatGPT sign-in</strong> uses a local SIWC preview registration, separate from personal Codex credentials and Platform API billing. Verified identity alone cannot use the plan. You approve plan permission in ChatGPT and background n8n use separately. Relmio transfers one selected registration to an owned sidecar on the reviewed Docker network; n8n itself stays unchanged. The one-time Relmio client key is entered in n8n by you. Models come from that account's catalog, but a list does not prove a request will finish. Image generation needs a separate, optional Codex sign-in that OpenAI doesn't document for other apps. This integration does not support audio, video, Files upload, or stored conversations. Old bridges need an explicit reviewed migration with a fresh sign-in.</p>
                         <p><strong>Grok for n8n</strong> uses official SuperGrok sign-in only. It adds a private Chat Completions companion. No provider token or API key is entered here.</p>
                         <p><strong>Codex App Server</strong> is an experimental JSON-RPC WebSocket for a trusted native app. It is not OpenAI <code>/v1</code>. Browsers cannot connect directly.</p>
                         <p><strong>Codex Chat Adapter</strong> is an experimental <code>POST /chat</code> endpoint for a trusted local backend. It is not <code>/v1</code>. Do not put it in browser code.</p>
@@ -1149,6 +1149,8 @@
                         <button id="local-siwc-disable" class="rm-button rm-button--sm" type="button" disabled>Pause plan use</button>
                         <button id="local-siwc-logout" class="rm-button rm-button--sm" type="button" disabled>Sign out and revoke</button>
                       </div>
+                      <p id="local-siwc-images-signout-note" class="rm-small rm-muted" hidden>Sign out and revoke: this signs out of images first and asks OpenAI to revoke that sign-in.</p>
+                      <p id="local-siwc-images-pause-note" class="rm-small rm-muted" hidden>Pausing keeps the image sign-in. Sign out of images if you want it gone.</p>
                     </div>
                     <button id="local-siwc-replace" class="rm-button rm-button--sm" type="button" hidden>Review replacement with a fresh account</button>
                   </div>
@@ -1161,6 +1163,44 @@
                       <button id="installed-usage-refresh" class="rm-button rm-button--sm" type="button">Refresh usage</button>
                     </div>
                     <div id="installed-usage-view" class="usage-panel__view"></div>
+                  </div>
+                </details>
+                <details id="installed-images" class="rm-disclosure" hidden>
+                  <summary><span id="installed-images-title">Image generation</span></summary>
+                  <div class="rm-disclosure__body">
+                    <p id="installed-images-status" class="rm-small" role="status" aria-live="polite">Open this section to check image generation.</p>
+                    <button id="installed-images-check" class="rm-button rm-button--sm" type="button">Check image generation</button>
+                    <p class="rm-small rm-muted">Image generation uses a separate Codex sign-in, the way Hermes Agent does it. It isn't the official Sign in with ChatGPT, and OpenAI doesn't document this route for other apps, so it can stop working at any time. OpenAI recommends an API key for automation.</p>
+                    <ul class="rm-small rm-muted">
+                      <li>Images use your plan's Codex limits 3 to 5 times faster than text, then credits. Free plans can't use it. Your Codex limits are at <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noopener noreferrer">chatgpt.com/codex/settings/usage<span class="rm-visually-hidden"> (opens in a new tab)</span></a>.</li>
+                      <li>This computer stores a full Codex sign-in for the account in the sidecar's Docker volume. Anyone with administrator or Docker access on this computer, and any backup of Docker's data, can read it.</li>
+                      <li>Anyone who can run workflows in this n8n can make images with this account. Turn this on only if nobody else uses it.</li>
+                      <li>Device code sign-in must be on in ChatGPT security settings, or allowed by your workspace admin.</li>
+                      <li>Sign in with the same ChatGPT account as this sidecar. In n8n, choose the model gpt-image-2.</li>
+                    </ul>
+                    <div id="installed-images-off" hidden>
+                      <label class="rm-check check-row">
+                        <input id="installed-images-confirm" type="checkbox" />
+                        <span>I understand. Sign in to Codex for images on this computer.</span>
+                      </label>
+                      <button id="installed-images-start" class="rm-button rm-button--sm" type="button" disabled>Sign in for images</button>
+                    </div>
+                    <div id="installed-images-pending" hidden>
+                      <p class="rm-small">Enter this code on the Codex sign-in page: <code id="installed-images-code"></code></p>
+                      <p class="rm-small">Only enter this code at auth.openai.com. Never share it.</p>
+                      <div class="rm-cluster">
+                        <a id="installed-images-link" class="rm-link rm-link--standalone" target="_blank" rel="noopener noreferrer">Open the Codex sign-in page<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+                        <button id="installed-images-cancel" class="rm-button rm-button--sm rm-button--ghost" type="button">Cancel image sign-in</button>
+                      </div>
+                      <p id="installed-images-expiry" class="rm-small rm-muted"></p>
+                    </div>
+                    <div id="installed-images-on" hidden>
+                      <label class="rm-check check-row">
+                        <input id="installed-images-signout-confirm" type="checkbox" />
+                        <span>I approve signing out of images on this computer. Relmio deletes the Codex sign-in here and asks OpenAI to revoke it.</span>
+                      </label>
+                      <button id="installed-images-signout" class="rm-button rm-button--sm" type="button" disabled>Sign out of images</button>
+                    </div>
                   </div>
                 </details>
                 <section id="n8n-stack-removal" class="rm-card rm-card--flat rm-card--compact n8n-sidecar-removal" aria-labelledby="n8n-stack-removal-title" hidden>
@@ -1344,6 +1384,7 @@
                     <input id="remove-bridge-confirm" type="checkbox" />
                     <span>I authorize Relmio to remove only this bridge and its private files. Leave n8n and its Docker network unchanged.</span>
                   </label>
+                  <p class="rm-small rm-muted">This signs out of images first and asks OpenAI to revoke that sign-in.</p>
                   <div class="sidecar-removal-actions">
                     <button
                       id="remove-bridge-button"

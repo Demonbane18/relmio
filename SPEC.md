@@ -213,9 +213,11 @@ The sidecar requires a generated Relmio bearer and serves:
   clients; `commentary` text is dropped. Stream errors keep the Chat
   Completions error body. The gateway never executes tools.
 - `POST /v1/images/generations` and `POST /v1/images/edits`, only when the
-  opt-in VPS image add-on is signed in; otherwise `404 images_off`. The add-on
-  uses a separate Codex device sign-in (Codex CLI client ID), stores its tokens
-  under `<storage root>/codex-images/` on the VPS, and calls
+  opt-in image add-on is signed in, on a VPS or on the local sidecar;
+  otherwise `404 images_off`. The add-on uses a separate Codex device sign-in
+  (Codex CLI client ID), stores its tokens under `<storage root>/codex-images/`
+  (on a VPS in `/docker/n8n-openai-oauth/siwc`, locally in the sidecar's
+  `siwc-store` Docker volume), and calls
   `https://chatgpt.com/backend-api/codex/images/{generations,edits}`. OpenAI
   does not document that route for other apps, so it can stop working, and
   images count against the plan's Codex limits. Only `gpt-image-2`, one image,
@@ -223,8 +225,10 @@ The sidecar requires a generated Relmio bearer and serves:
   `auto` are accepted; edits take 1 to 16 PNG, JPEG, WebP or GIF images of up
   to 25 MiB each within a 48 MiB body. `GET /v1/models` adds `gpt-image-2`
   while the add-on is signed in, except for requests with n8n's
-  `openai-platform` header (Chat Model node and Chat Hub). The local sidecar
-  has no image sign-in.
+  `openai-platform` header (Chat Model node and Chat Hub). The VPS wizard runs
+  the add-on's CLI over SSH; the local dashboard runs it with
+  `docker compose exec` in the owned running sidecar. SIWC sign-out and local
+  removal sign out of images first.
 
 Item references are resolved from memory. From each `/v1/responses` request,
 streamed or not, that reaches `response.completed`, the sidecar keeps

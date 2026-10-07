@@ -86,7 +86,7 @@ another address.
 | `sidecar`, `siwc-auth`, `vps` | Hostinger VPS n8n | Run the acceptance workflow. Read HTTP Request: Responses, HTTP Request: Chat Completions, AI Agent, Basic LLM Chain, OpenAI: Message a Model, and OpenAI: Generate an Image when the image add-on is on. In the n8n AI Assistant, send "Reply with OK" and one question that makes it use a tool. |
 | `sidecar` with a runtime change | Hostinger VPS, Relmio wizard | Walk through **Review sidecar update** and apply it only after the owner's final confirmation. Then rerun the workflow. |
 | `siwc-auth` | Relmio wizard | Exercise the ChatGPT sign-in refresh path, then rerun one text node. |
-| `local-docker`, `sidecar` | Local Docker n8n | Run the same acceptance workflow and read the same nodes. There is no image add-on locally. |
+| `local-docker`, `sidecar` | Local Docker n8n | Run the same acceptance workflow and read the same nodes, including OpenAI: Generate an Image when the local image add-on is on. |
 | `local-model` | VPS and local Docker n8n | Read Local Model Chain on both. |
 | `assistant` | Hostinger VPS n8n | The two AI Assistant messages above. |
 | `wizard-ui` | Isolated Chrome | Wizard QA per `relmio-isolated-chrome-qa`, never the owner's browser. The main agent supplies that skill's text to the release run. |

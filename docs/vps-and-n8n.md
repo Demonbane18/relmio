@@ -283,7 +283,9 @@ Check that you pick the old one.
 ### Turn on image generation (optional)
 
 Image generation and editing are an opt-in add-on for an installed VPS
-sidecar. Read these points before you turn it on:
+sidecar. The local sidecar has the same add-on; see
+[Turn on image generation on this computer](local-endpoints.md#turn-on-image-generation-optional).
+Read these points before you turn it on:
 
 - It uses a separate Codex sign-in, the way Hermes Agent's "OpenAI (Codex
   auth)" provider does. It is not Sign in with ChatGPT. The ChatGPT plan
@@ -324,7 +326,7 @@ Image** or **Edit Image**. Use the same OpenAI credential as your chat nodes
 (the same Base URL and one-time Relmio key). For **Model**, pick `gpt-image-2`
 from the list or choose **ID** and enter it. The OpenAI Chat Model node and
 Chat Hub do not list it. Flare and Sunburst need your own OpenAI API key; see
-[the image test](n8n-configuration.md#generate-and-edit-images-vps-add-on).
+[the image test](n8n-configuration.md#generate-and-edit-images).
 
 Limits:
 

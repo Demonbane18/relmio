@@ -19,7 +19,7 @@ only `gpt-image-2` and has no setting to choose another image model, so each
 below as proof that the route accepted those names and returned an image, not
 that GPT Image 2.5 ran. Flare and Sunburst need a Platform API key; the current
 sidecar offers only `gpt-image-2`. See
-[Generate and edit images](n8n-configuration.md#generate-and-edit-images-vps-add-on).
+[Generate and edit images](n8n-configuration.md#generate-and-edit-images).
 
 This report records source, access, data-flow, and bounded live evidence for the
 experimental model check. It does not approve a release, deployment, credential

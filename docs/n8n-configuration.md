@@ -35,10 +35,10 @@ entitlement or host admission.
 
 | Route | Behavior |
 | --- | --- |
-| `GET /v1/models` | Returns the selected account's text models in OpenAI's order, with IDs and display names. See [Model discovery and checks](#model-discovery-and-checks). While the VPS image add-on is on, requests without n8n's `openai-platform` header also get `gpt-image-2`. |
+| `GET /v1/models` | Returns the selected account's text models in OpenAI's order, with IDs and display names. See [Model discovery and checks](#model-discovery-and-checks). While the image add-on is on, requests without n8n's `openai-platform` header also get `gpt-image-2`. |
 | `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false`, even when the client asks for `store:true` as n8n's OpenAI node does by default, requests streaming and, when the request sets `reasoning`, asks for `reasoning.encrypted_content`; only a completed response counts as success. It drops `max_output_tokens` and fills in `item_reference` items from memory; see [AI Assistant requests](#ai-assistant-requests). Streamed events, including `phase`, pass through unchanged, except failure events, which carry a safe error. |
 | `POST /v1/chat/completions` | Compatibility route translated into a Responses request. It accepts `model`, `messages`, `tools`, `tool_choice` (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, `stream_options.include_usage`, and `reasoning_effort`, which is sent as `reasoning.effort`. It drops `max_completion_tokens` and `max_tokens`. Messages are text `user`, `assistant`, or `developer` messages, assistant tool calls, and `tool` results. Only final-answer text is returned. |
-| `POST /v1/images/generations` and `POST /v1/images/edits` | VPS image add-on only. See [Generate and edit images](#generate-and-edit-images-vps-add-on). Without it, these return `404 images_off`. |
+| `POST /v1/images/generations` and `POST /v1/images/edits` | Image add-on only, on a VPS or on this computer. See [Generate and edit images](#generate-and-edit-images). Without it, these return `404 images_off`. |
 
 For a basic OpenAI Chat Model workflow, select a catalog model and begin with
 a simple text prompt. A Responses request uses the full input array; send
@@ -239,17 +239,18 @@ Chat Completions route keeps its own error body.
 A request can list up to 128 tools; see [Function tools](#function-tools). The
 Assistant sends its own tools plus any from connected MCP servers.
 
-## Generate and edit images (VPS add-on)
+## Generate and edit images
 
-Image generation works only after you turn on the optional image add-on for an
-installed VPS sidecar. It uses a separate Codex sign-in, the way Hermes Agent
-does. OpenAI does not document this route for other apps, so it can stop
-working without notice. Images use your plan's Codex limits 3 to 5 times
-faster than text, then credits, and Free plans can't use them. The Codex
-refresh token is stored on the VPS. The ChatGPT plan session is
-never used for images. A local sidecar has no image sign-in. See
-[Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional)
-for setup and sign-out.
+Image generation works only after you turn on the optional image add-on for
+an installed sidecar, on a VPS or on this computer. It uses a separate Codex
+sign-in, the way Hermes Agent does. OpenAI does not document this route for
+other apps, so it can stop working without notice. Images use your plan's
+Codex limits 3 to 5 times faster than text, then credits, and Free plans can't
+use them. The Codex refresh token is stored on the VPS, or for a local sidecar
+in its Docker volume on this computer. The ChatGPT plan session is never used
+for images. For setup and sign-out, see
+[Turn on image generation on a VPS](vps-and-n8n.md#turn-on-image-generation-optional)
+or [on this computer](local-endpoints.md#turn-on-image-generation-optional).
 
 In n8n:
 
@@ -304,7 +305,7 @@ input, and invalid input shapes. The Responses `image_generation` tool is
 one of the rejected tool types. Audio, video, Files API upload/list/delete,
 stored conversation, moderation, Live, and Realtime routes are not forwarded.
 Image routes work only through the
-[VPS image add-on](#generate-and-edit-images-vps-add-on). Image or
+[image add-on](#generate-and-edit-images). Image or
 file content inside a Responses input is usable only when the selected model
 supports it; this does not enable the Files API. Tool availability depends on
 the selected model and account policy and is not guaranteed by catalog
@@ -334,8 +335,9 @@ sign-in never turns on image generation.
 The bearer shown by Relmio protects the local sidecar boundary. Store it as an
 n8n credential and share it only with trusted callers on the selected Docker
 network. The provider token remains in the sidecar's protected SIWC record; n8n
-receives the Relmio bearer, not that provider token. The VPS image add-on keeps
-its Codex tokens in the same protected folder, and n8n never receives them
+receives the Relmio bearer, not that provider token. The image add-on keeps
+its Codex tokens in the same protected store (on a VPS, its `siwc` folder; on
+this computer, the sidecar's Docker volume), and n8n never receives them
 either. The sidecar has no host port, and the wizard leaves n8n configuration
 to its owner.
 

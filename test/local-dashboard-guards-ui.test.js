@@ -112,7 +112,7 @@ test("returning to dashboard discards pending setup reviews and one-time values"
   const calls = []; const clearedTimers = [];
   const openDisclosures = [{ open: true }, { open: true }];
   const document = { body: { dataset: {} }, querySelectorAll: () => openDisclosures };
-  await runInNewContext(`${clearPoll}\n${transition}\nenterDashboardView();`, { state, element, document, window: { clearTimeout(timer) { clearedTimers.push(timer); }, scrollTo(options) { calls.push(options); } }, async api(path, options) { calls.push([path, options]); return { discarded: true }; }, clearChatTesterState() { calls.push("chat-cleared"); }, clearDashboardStaleTimer() {}, invalidatePlan() { state.plan = null; state.planId = null; }, preferredScrollBehavior: () => "auto", async loadLocalDashboard() { calls.push("inventory"); }, scheduleDashboardStaleExpiry() {} });
+  await runInNewContext(`${clearPoll}\n${transition}\nenterDashboardView();`, { state, element, document, window: { clearTimeout(timer) { clearedTimers.push(timer); }, scrollTo(options) { calls.push(options); } }, async api(path, options) { calls.push([path, options]); return { discarded: true }; }, clearChatTesterState() { calls.push("chat-cleared"); }, clearDashboardStaleTimer() {}, invalidatePlan() { state.plan = null; state.planId = null; }, preferredScrollBehavior: () => "auto", async loadLocalDashboard() { calls.push("inventory"); }, renderInstalledImages(images, visible) { calls.push(["images", images, visible]); }, scheduleDashboardStaleExpiry() {} });
   await Promise.resolve();
   assert.deepEqual(JSON.parse(JSON.stringify(calls[0])), ["/api/local/discard", { method: "POST", body: {} }]);
   assert.equal(state.plan, null);
