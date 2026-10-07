@@ -792,8 +792,10 @@ function translateChat(body) {
     } else if (["user", "assistant", "developer"].includes(message.role)) {
       if (Object.keys(message).some((key) => !["role", "content", "tool_calls"].includes(key)) ||
           message.role !== "assistant" && message.tool_calls !== undefined ||
+          // n8n's AI Agent (LangChain) replays a tool-call turn with `content: []`; treat it like no content.
           !(typeof message.content === "string" || message.role === "assistant" &&
-            (message.content === null || message.content === undefined) && Array.isArray(message.tool_calls))) return { error: "messages" };
+            (message.content === null || message.content === undefined ||
+              Array.isArray(message.content) && message.content.length === 0) && Array.isArray(message.tool_calls))) return { error: "messages" };
       if (typeof message.content === "string" && (message.content !== "" || !message.tool_calls?.length)) input.push({ role: message.role, content: message.content });
       if (message.tool_calls !== undefined) {
         if (!Array.isArray(message.tool_calls) || !message.tool_calls.length || message.tool_calls.length > MAX_TOOL_CALLS) return { error: "messages" };

@@ -1,0 +1,56 @@
+{
+  "id": "RelmioHttpRequest",
+  "name": "Relmio harness: HTTP Request",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "0b5f3c1e-6d2a-4c11-9f0e-1a0000000001",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {}
+    },
+    {
+      "id": "0b5f3c1e-6d2a-4c11-9f0e-1a0000000002",
+      "name": "Responses API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [220, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "http://n8n-openai-oauth:10531/v1/responses",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\":\"gpt-5-relmio-harness\",\"input\":[{\"role\":\"user\",\"content\":\"Reply with the harness answer.\"}]}",
+        "options": {}
+      },
+      "credentials": { "openAiApi": { "id": "RelmioHarnessOpenAi", "name": "OpenAI Relmio" } }
+    },
+    {
+      "id": "0b5f3c1e-6d2a-4c11-9f0e-1a0000000003",
+      "name": "Chat Completions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [440, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "http://n8n-openai-oauth:10531/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\":\"gpt-5-relmio-harness\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the harness answer.\"}]}",
+        "options": {}
+      },
+      "credentials": { "openAiApi": { "id": "RelmioHarnessOpenAi", "name": "OpenAI Relmio" } }
+    }
+  ],
+  "connections": {
+    "Start": { "main": [[{ "node": "Responses API", "type": "main", "index": 0 }]] },
+    "Responses API": { "main": [[{ "node": "Chat Completions", "type": "main", "index": 0 }]] }
+  }
+}

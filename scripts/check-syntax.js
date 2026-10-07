@@ -10,6 +10,7 @@ async function collectJavaScriptFiles(directory) {
 
   for (const entry of entries) {
     const path = join(directory, entry.name);
+    if (entry.isDirectory() && entry.name === "node_modules") continue;
     if (entry.isDirectory()) {
       files.push(...(await collectJavaScriptFiles(path)));
     } else if ([".js", ".mjs"].includes(extname(entry.name))) {

@@ -51,6 +51,7 @@
     "preview": "node scripts/preview.js",
     "package:build": "node scripts/build-npm-package.js",
     "test": "node --test test/*.test.js",
+    "test:n8n-nodes": "node --test test/integration/n8n-nodes/*.test.js && node test/integration/n8n-nodes/run.mjs",
     "lint": "node scripts/check-syntax.js",
     "release:check": "node scripts/check-release-metadata.js",
     "check": "npm run lint && npm run release:check && npm test"
