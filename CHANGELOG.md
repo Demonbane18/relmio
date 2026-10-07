@@ -14,6 +14,15 @@ checks the registry separately after publication.
   those models. The Codex image route ignores the model ID, so every image
   came from Codex's single image model, which Codex names `gpt-image-2`.
 
+### Fixed
+
+- The local wizard's GitHub chip no longer shows `?` for the star count after
+  GitHub's limit of 60 unsigned requests an hour is used up. The wizard keeps
+  the count for 15 minutes, shares one request between pages that load
+  together, asks Relmio's website when GitHub refuses, and keeps the last
+  count when both fail. The chip still shows the Relmio version you are
+  running.
+
 ## [0.19.0] - 2026-10-07
 
 Relmio 0.19.0 adds a skippable setup guide with Relmio the mascot, Plan and
