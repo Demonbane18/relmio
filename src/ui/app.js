@@ -18,7 +18,7 @@ const state = {
   oauthLoginGeneration: 0,
   oauthLoginWindow: null,
   integrationKind: "sidecar",
-  managingDetectedIntegration: false,
+  vpsSignInRefresh: null,
   operationBusy: false,
   operationAllowedSelector: null,
   operationButton: null,
@@ -988,10 +988,13 @@ function resetVpsOwner() {
   element("vps-owner-inspect-row").hidden = true;
   element("vps-owner-inspect").hidden = true;
   element("vps-owner-replace").hidden = true;
+  element("vps-owner-refresh-row").hidden = true;
+  element("vps-owner-refresh-next").hidden = true;
   element("vps-owner-confirm").checked = false;
   element("vps-owner-background-confirm").checked = false;
   renderVpsOwnerUpdate(null);
   element("vps-owner-status").textContent = "Choose the n8n container and network, then check the installed account.";
+  renderIntegrationManagement();
 }
 
 const siwc = createSiwcControls({
@@ -1099,11 +1102,7 @@ function renderIntegrationManagement() {
     ? "Manage Assistant companion"
     : "Manage ChatGPT plan sidecar";
   const reviewButton = element("review-button");
-  reviewButton.textContent = assistant
-    ? "Review Assistant plan"
-    : state.managingDetectedIntegration
-      ? "Review bridge update"
-      : "Review the exact plan";
+  reviewButton.textContent = assistant ? "Review Assistant plan" : SIDECAR_ACTIONS[currentSidecarRoute()];
   reviewButton.dataset.label = reviewButton.textContent;
 }
 
@@ -1212,9 +1211,7 @@ function renderIntegrationReview(plan) {
   const installButton = element("install-button");
   installButton.textContent = assistant
     ? "Install Assistant companion"
-    : state.managingDetectedIntegration
-      ? "Update the bridge"
-      : "Install the sidecar";
+    : state.planReplacementRequired ? "Replace the sidecar" : "Install the sidecar";
   installButton.dataset.label = installButton.textContent;
   state.reviewedIdentity = identity;
 }
@@ -1370,10 +1367,14 @@ function renderDiscovery({ discovery, networks }) {
   element("detected-vps-integration-management").hidden = false;
   renderIntegrationManagement();
   showStep(3);
+  // Read the installed owner once the caller's own operation has settled, so the main button
+  // can say what it will do. A refused read keeps the install review, which the server guards.
+  queueMicrotask(() => { if (!isAssistantIntegration()) void checkVpsOwner(null, { quiet: true }); });
 }
 
 element("login-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
+  const intent = state.loginIntent;
   if (state.oauthRetryBlocked) {
     return;
   }
@@ -1393,7 +1394,7 @@ element("login-button").addEventListener("click", async (event) => {
       async () => {
         const result = await api("/api/oauth/login", {
           method: "POST",
-          body: state.loginIntent,
+          body: intent,
         });
         if (result.launchMode !== "system-browser") {
           throw new Error(
@@ -1411,7 +1412,7 @@ element("login-button").addEventListener("click", async (event) => {
         if (state.oauthLoginGeneration !== loginGeneration) {
           return undefined;
         }
-        return siwc.authorized(state.loginIntent);
+        return siwc.authorized(intent);
       },
       {
         allowedSelector: OPERATION_ALLOWED_SELECTOR,
@@ -1420,13 +1421,16 @@ element("login-button").addEventListener("click", async (event) => {
       },
     );
     if (!status || state.oauthLoginGeneration !== loginGeneration) {
+      if (state.oauthLoginGeneration === loginGeneration) abandonVpsSignInRefresh();
       return;
     }
     loginLink.hidden = true;
     loginLink.removeAttribute("href");
     renderAuthStatus(status, { fresh: true });
+    finishVpsSignInRefresh(intent, status);
   } catch (error) {
     if (state.oauthLoginGeneration === loginGeneration) {
+      abandonVpsSignInRefresh();
       if (error.oauthRetryBlocked === true) {
         blockOAuthRetry();
       }
@@ -1720,8 +1724,11 @@ element("container-select").addEventListener("change", async (event) => {
   }
 });
 
-element("review-button").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
+element("review-button").addEventListener("click", (event) => {
+  void reviewNextStep(event.currentTarget);
+});
+
+async function reviewPlan(button) {
   clearError();
   invalidateReviewedPlan();
   try {
@@ -1755,9 +1762,13 @@ element("review-button").addEventListener("click", async (event) => {
     dismissToast(messageToast);
     showStep(4);
   } catch (error) {
+    // A new install is refused where Relmio's sidecar already runs. Read that owner and take its
+    // route, so the refusal is never a dead end.
+    if (SIDECAR_REFUSALS.has(error.code) && await checkVpsOwner(null, { quiet: true }) &&
+        currentSidecarRoute() !== "plan") return reviewNextStep(button);
     showError(error);
   }
-});
+}
 
 element("network-select").addEventListener("change", () => {
   invalidateReviewedPlan();
@@ -1797,7 +1808,9 @@ function clearEndedVpsConnectionState({ preserveOwner = false } = {}) {
   element("container-select").replaceChildren();
   element("network-select").replaceChildren();
   element("detected-vps-integration-management").hidden = true;
+  // A kept owner still guides replacement, but its check ended with the connection.
   if (!preserveOwner) resetVpsOwner();
+  else if (state.vpsOwner) state.vpsOwner.checkedAt = 0;
 }
 
 
@@ -1843,6 +1856,7 @@ element("install-button").addEventListener("click", async (event) => {
     const verifiedCatalog = assistant || result.readiness === "verified";
     invalidateReviewedPlan();
     if (!assistant) {
+      state.vpsSignInRefresh = null;
       element("result-url").textContent = result.baseUrl;
       element("result-key").textContent = result.clientCredential;
       element("result-http-auth").textContent = `Bearer ${result.clientCredential}`;
@@ -1930,7 +1944,6 @@ for (const input of document.querySelectorAll('input[name="vps-integration"]')) 
   input.addEventListener("change", (event) => {
     invalidateReviewedPlan();
     state.integrationKind = event.currentTarget.value;
-    state.managingDetectedIntegration = true;
     renderIntegrationManagement();
   });
 }
@@ -1940,21 +1953,20 @@ element("manage-vps-searxng").addEventListener("change", () => {
   setMessage("Assistant options changed. Review a fresh plan before installing.");
 });
 
+// Manage opens the installed owner's controls and reads them; the Assistant has no owner panel.
 element("manage-vps-integration").addEventListener("click", () => {
   clearError();
-  state.managingDetectedIntegration = true;
-  renderIntegrationManagement();
-  setMessage(
-    isAssistantIntegration()
-      ? "Review a private Assistant companion plan. SearXNG remains opt-in and n8n stays untouched."
-      : "Review a separately authorized registration before replacing an owned sidecar. The installed owner can be managed below.",
-  );
+  if (isAssistantIntegration()) {
+    setMessage("Review a private Assistant companion plan. SearXNG remains opt-in and n8n stays untouched.");
+    return;
+  }
+  element("vps-siwc-owner").open = true;
+  element("vps-owner-check").click();
 });
 
 element("refresh-vps-chatgpt").addEventListener("click", () => {
   clearError();
   state.integrationKind = "sidecar";
-  state.managingDetectedIntegration = true;
   element("manage-vps-sidecar").checked = true;
   renderIntegrationManagement();
   state.loginIntent = { purpose: "sign-in" };
@@ -1967,6 +1979,95 @@ element("result-model-picker").addEventListener("change", (event) => {
   renderHttpRequestBody(model);
 });
 
+// Step 3's main button follows the installed owner: a new install review, or the existing
+// owner or recovery control that updates, recovers or replaces Relmio's sidecar. Nothing here
+// writes; every write keeps its own review and confirmation.
+const SIDECAR_ACTIONS = Object.freeze({
+  plan: "Review the exact plan",
+  update: "Review sidecar update",
+  finish: "Finish sidecar update",
+  recover: "Open recovery",
+  manage: "Open installed sidecar",
+  refresh: "Refresh ChatGPT sign-in",
+  replace: "Review replacement",
+  "sign-out": "Continue sign-in refresh",
+});
+const SIDECAR_REFUSALS = new Set(["vps_sidecar_owned", "vps_sidecar_updating", "vps_sidecar_staged", "vps_sidecar_partial"]);
+// The server keeps an owner check and a stopped-owner review for five minutes.
+const VPS_OWNER_REVIEW_MS = 4 * 60_000;
+const recentOwnerReview = (time) => time > Date.now() - VPS_OWNER_REVIEW_MS;
+
+function sidecarRoute(owner, selected, refresh) {
+  switch (owner?.state) {
+    case "owned":
+      if (refresh?.registrationId === owner.registrationId && refresh.newRegistrationId &&
+        selected?.registrationId === refresh.newRegistrationId && accountUiState(selected) === "plan-active" &&
+        !selected.needsPlanWelcome) return "sign-out";
+      return owner.account?.session === "reauthorize" ? "refresh" : "update";
+    case "updating": return "finish";
+    case "staged":
+    case "partial": return "recover";
+    case "stopped": return owner.reviewedStopped && owner.account?.session === "signed-out" ? "replace" : "manage";
+    default: return "plan";
+  }
+}
+
+function currentSidecarRoute() {
+  return sidecarRoute(state.vpsOwner, siwc.selected(), state.vpsSignInRefresh);
+}
+
+function vpsOwnerFresh(owner = state.vpsOwner) {
+  return Boolean(owner && recentOwnerReview(owner.checkedAt) &&
+    (!owner.reviewedStopped || recentOwnerReview(owner.reviewedAt)));
+}
+
+async function reviewNextStep(button) {
+  if (isAssistantIntegration()) return reviewPlan(button);
+  clearError();
+  if (!vpsOwnerFresh()) {
+    // Nothing read yet usually means a new install: a refused read keeps that review, and the
+    // server still refuses a second install. A known owner shows why its read failed.
+    const known = Boolean(state.vpsOwner);
+    if (!await checkVpsOwner(null, { quiet: !known })) return known ? undefined : reviewPlan(button);
+  }
+  const route = currentSidecarRoute();
+  if (route === "plan") return reviewPlan(button);
+  if (route === "replace") return reviewReplacement(button);
+  if (route === "recover") {
+    const recovery = element("vps-siwc-recovery").querySelector("details");
+    recovery.open = true;
+    return focusVisible(recovery.querySelector("summary"));
+  }
+  element("vps-siwc-owner").open = true;
+  if (route === "refresh") return element("vps-owner-refresh").click();
+  if (route === "sign-out") return focusVisible(element("vps-owner-confirm"));
+  if (route === "manage") {
+    return focusVisible(["vps-owner-inspect-confirm", "vps-owner-confirm", "vps-owner-check"]
+      .map(element).find((control) => !control.closest("[hidden]")));
+  }
+  element("vps-owner-update-review").click();
+  await vpsOwnerUpdateReviewing;
+}
+
+function reviewReplacement(button) {
+  const selected = siwc.selected();
+  if (accountUiState(selected) !== "plan-active" || selected.needsPlanWelcome) {
+    selectChatGptSetup();
+    setMessage("Sign in with a fresh independent registration, then inspect the stopped old owner again before reviewing replacement.");
+    return undefined;
+  }
+  // A sign-in refresh replaces the old sign-in only with the one it just made, never with
+  // another account saved on this computer.
+  const refresh = state.vpsSignInRefresh;
+  if (refresh?.newRegistrationId && refresh.registrationId === state.vpsOwner?.registrationId &&
+      selected.registrationId !== refresh.newRegistrationId) {
+    selectChatGptSetup();
+    setMessage("Select the account from your new ChatGPT sign-in. Then check the server again and inspect the stopped sidecar before the replacement.");
+    return undefined;
+  }
+  return reviewPlan(button);
+}
+
 function sameVpsOwnerTarget(left, right) {
   return Boolean(left && right && left.containerName === right.containerName &&
     left.networkName === right.networkName && left.n8nContainerId === right.n8nContainerId &&
@@ -1975,7 +2076,7 @@ function sameVpsOwnerTarget(left, right) {
       "loginUid", "effectiveUid"].every((key) => left.identity[key] === right.identity[key]));
 }
 
-function renderVpsOwner(status, { reviewedStopped = false } = {}) {
+function renderVpsOwner(status, { reviewedStopped = false, reviewedAt = reviewedStopped ? Date.now() : 0 } = {}) {
   const account = status.account ? normalizeSiwcAccount(status.account) : null;
   const target = {
     containerName: element("container-select").value,
@@ -1984,7 +2085,8 @@ function renderVpsOwner(status, { reviewedStopped = false } = {}) {
     identity: sshSession.adoptedIdentity(),
   };
   state.vpsOwner = { ...target, state: status.state,
-    registrationId: status.registrationId ?? account?.registrationId ?? status.staging?.registrationId, account, reviewedStopped };
+    registrationId: status.registrationId ?? account?.registrationId ?? status.staging?.registrationId, account,
+    reviewedStopped, reviewedAt, checkedAt: 0 };
   const stopped = status.state === "stopped" && !account && Boolean(status.registrationId);
   element("vps-owner-inspect-row").hidden = !stopped;
   element("vps-owner-inspect").hidden = !stopped;
@@ -2003,14 +2105,53 @@ function renderVpsOwner(status, { reviewedStopped = false } = {}) {
   for (const id of ["vps-owner-enable", "vps-owner-disable", "vps-owner-logout"]) element(id).disabled = true;
   element("vps-owner-replace").hidden = !(account?.session === "signed-out" &&
     account.planEnabled === false && reviewedStopped);
+  const live = status.state === "owned" && account?.ownership === "owned";
+  // Refresh only a sign-in that needs it: each refresh makes a new ChatGPT connection.
+  element("vps-owner-refresh-row").hidden = !(live && account.session === "reauthorize");
+  const refreshNext = element("vps-owner-refresh-next");
+  refreshNext.hidden = currentSidecarRoute() !== "sign-out";
+  refreshNext.textContent = refreshNext.hidden ? "" : vpsRefreshNext();
   element("vps-owner-status").textContent = account
     ? `${account.label}${account.email ? ` (${account.email})` : ""} · ${account.registrationId.slice(-8)}. ${account.session === "connected"
-      ? account.planEnabled ? "Using ChatGPT plan." : "Plan use paused." : "Signed out."}`
+      ? account.planEnabled ? "Using ChatGPT plan." : "Plan use paused."
+      : account.session === "reauthorize" ? `Needs a fresh sign-in.${live ? " Press Refresh ChatGPT sign-in." : ""}`
+        : "Signed out."}`
     : stopped ? "The sidecar is stopped. Confirm a one-off owner inspection before changing its session."
       : status.state === "legacy" ? "Legacy bridge found. Review a fresh SIWC migration. The old credential stays offline."
         : status.state === "updating" ? "A sidecar update did not finish."
-          : status.state === "partial" ? "Owner state is partial. Inspect the service manually before another write."
-            : "No attested installed ChatGPT account was found on this selected network.";
+          : status.state === "staged" ? "An earlier install stopped partway. Open Recover a transfer or staged installation to resume it."
+            : status.state === "partial" ? "An earlier migration did not finish. Open Recover a transfer or staged installation."
+              : "No attested installed ChatGPT account was found on this selected network.";
+  renderIntegrationManagement();
+}
+
+// The sign-in refresh's next step, once the new sign-in on this computer can take over.
+function vpsRefreshNext() {
+  return "Your new sign-in is ready. Tick the approval and press Sign out and revoke. " +
+    "Then reconnect and press Review replacement within four minutes.";
+}
+
+// A sign-in refresh takes only the first-time sign-in its own button started, and only for the
+// email the installed sidecar uses. Any other finished sign-in ends a refresh still waiting for
+// one; once it has its sign-in, later sign-ins such as allowing plan use leave it alone.
+function finishVpsSignInRefresh(intent, account) {
+  const refresh = state.vpsSignInRefresh;
+  if (!refresh || refresh.newRegistrationId) return;
+  if (refresh.intent !== intent || intent.registrationId !== undefined) {
+    state.vpsSignInRefresh = null;
+    return;
+  }
+  if (account.email !== refresh.email) {
+    state.vpsSignInRefresh = null;
+    throw new Error(`The new sign-in is for ${account.email ?? "an account without an email"}, but the installed sidecar uses ${refresh.email}. ` +
+      "The sign-in refresh stopped. Refresh again with the sidecar's account, or sign the sidecar out and use Review replacement to move it to another account.");
+  }
+  refresh.newRegistrationId = account.registrationId;
+  setMessage("New sign-in saved. Once plan use is on, press Check the server to give it to the installed sidecar.");
+}
+
+function abandonVpsSignInRefresh() {
+  if (!state.vpsSignInRefresh?.newRegistrationId) state.vpsSignInRefresh = null;
 }
 
 function renderVpsOwnerUpdate(status, account = null) {
@@ -2320,9 +2461,16 @@ function updateVpsOwnerApproval() {
 element("vps-owner-confirm").addEventListener("change", updateVpsOwnerApproval);
 element("vps-owner-background-confirm").addEventListener("change", updateVpsOwnerApproval);
 
-element("vps-owner-check").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  clearError();
+element("vps-owner-check").addEventListener("click", (event) => {
+  void checkVpsOwner(event.currentTarget);
+});
+
+// Reads the installed owner, then its images and models, and resolves whether the owner was read.
+// Step 3's own reads are quiet: a refused read shows no error, and the install review it falls
+// back to still passes the server's owner check.
+async function checkVpsOwner(button, { quiet = false } = {}) {
+  if (!quiet) clearError();
+  let read = false;
   try {
     const result = await runOperation(button, "Checking installed owner…", () =>
       api("/api/siwc/vps/status", {
@@ -2330,19 +2478,22 @@ element("vps-owner-check").addEventListener("click", async (event) => {
         body: { containerName: element("container-select").value,
           networkName: element("network-select").value },
       }));
-    if (!result) return;
+    if (!result) return false;
     const current = { containerName: element("container-select").value,
       networkName: element("network-select").value, identity: sshSession.adoptedIdentity() };
     const destination = result.destination;
     current.n8nContainerId = destination?.n8nContainerId;
     current.networkId = destination?.networkId;
     const prior = state.vpsOwner;
-    if (result.state === "stopped" && prior?.reviewedStopped && prior.account &&
-        result.registrationId === prior.registrationId && sameVpsOwnerTarget(prior, current)) {
-      renderVpsOwner({ ...result, account: prior.account }, { reviewedStopped: true });
+    // The server keeps a stopped owner's review for five minutes, so an older one is read again.
+    if (result.state === "stopped" && prior?.reviewedStopped && recentOwnerReview(prior.reviewedAt) &&
+        prior.account && result.registrationId === prior.registrationId && sameVpsOwnerTarget(prior, current)) {
+      renderVpsOwner({ ...result, account: prior.account }, { reviewedStopped: true, reviewedAt: prior.reviewedAt });
     } else renderVpsOwner(result);
     const owner = state.vpsOwner;
-    if (element("vps-owner-images").hidden) return;
+    owner.checkedAt = Date.now();
+    read = true;
+    if (element("vps-owner-images").hidden) return true;
     const target = { containerName: owner.containerName, networkName: owner.networkName,
       registrationId: owner.registrationId };
     const images = await runOperation(button, "Checking image generation…", () =>
@@ -2351,8 +2502,11 @@ element("vps-owner-check").addEventListener("click", async (event) => {
     const models = await runOperation(button, "Checking models…", () =>
       api("/api/siwc/vps/models/status", { method: "POST", body: target }));
     if (models && state.vpsOwner === owner) renderVpsOwnerModels(models);
-  } catch (error) { showError(error); }
-});
+  } catch (error) {
+    if (!quiet) showError(error);
+  }
+  return read;
+}
 
 // Read-only. The route allows 10 reads in 15 minutes and answers 409 once the owner check expires.
 element("vps-usage-refresh").addEventListener("click", async (event) => {
@@ -2420,11 +2574,15 @@ async function manageVpsOwner(action, button) {
       registrationId: result.account.registrationId, account: result.account,
       destination: { n8nContainerId: owner.n8nContainerId, networkId: owner.networkId } },
     { reviewedStopped: result.runtimeStopped === true });
-    const message = result.revocation === "unconfirmed"
-      ? "Local credentials were cleared but provider revocation was not confirmed. Disconnect Relmio in ChatGPT settings."
+    const message = (result.revocation === "unconfirmed"
+      ? "Local credentials were cleared but provider revocation was not confirmed. " + (state.vpsSignInRefresh?.newRegistrationId
+        ? "Finish the replacement first. Then you can disconnect the old Relmio connection in ChatGPT settings and keep the new one."
+        : "Disconnect Relmio in ChatGPT settings.")
       : action === "sign-out" ? "The installed account was signed out. Old credentials stay separate."
         : action === "disable-plan" ? "Plan use paused. Only this owned sidecar stopped."
-          : "Plan use enabled. Only this owned sidecar started.";
+          : "Plan use enabled. Only this owned sidecar started.") +
+      (action === "sign-out" && state.vpsSignInRefresh?.newRegistrationId
+        ? " To finish the sign-in refresh, reconnect and press Review replacement within four minutes." : "");
     element("vps-owner-status").textContent = message;
     setMessage(message);
   } catch (error) { showError(error); }
@@ -2439,13 +2597,17 @@ for (const [id, action] of [
   ["vps-owner-logout", "sign-out"],
 ]) element(id).addEventListener("click", (event) => { void manageVpsOwner(action, event.currentTarget); });
 
-element("vps-owner-update-review").addEventListener("click", async (event) => {
+let vpsOwnerUpdateReviewing = Promise.resolve();
+element("vps-owner-update-review").addEventListener("click", (event) => {
+  vpsOwnerUpdateReviewing = reviewVpsOwnerUpdate(event.currentTarget);
+});
+
+async function reviewVpsOwnerUpdate(button) {
   const owner = state.vpsOwner;
   if (!owner?.registrationId || !["owned", "updating"].includes(owner.state)) {
     showError(new Error("Check the installed account before reviewing a sidecar update."));
     return;
   }
-  const button = event.currentTarget;
   clearError();
   state.vpsOwnerUpdate = null;
   element("vps-owner-update-plan").hidden = true;
@@ -2473,9 +2635,13 @@ element("vps-owner-update-review").addEventListener("click", async (event) => {
     element("vps-owner-update-confirm-label").textContent =
       `I approve rebuilding and restarting only this owned sidecar on ${identity.username}@${identity.host}:${identity.port}.`;
     state.vpsOwnerUpdate = { reviewId: result.reviewId };
-    element("vps-owner-update-plan").hidden = false;
+    const plan = element("vps-owner-update-plan");
+    plan.hidden = false;
+    // The approval goes with its summary, so both come into view.
+    element("vps-owner-update-confirm").focus({ preventScroll: true });
+    plan.scrollIntoView({ block: "nearest" });
   } catch (error) { showError(error); }
-});
+}
 
 element("vps-owner-update-confirm").addEventListener("change", (event) => {
   element("vps-owner-update-apply").disabled = !event.currentTarget.checked || !state.vpsOwnerUpdate;
@@ -2514,15 +2680,28 @@ element("vps-owner-update-apply").addEventListener("click", async (event) => {
 element("vps-owner-replace").addEventListener("click", () => {
   const owner = state.vpsOwner;
   if (!owner?.reviewedStopped || owner.account?.session !== "signed-out") return;
-  if (accountUiState(siwc.selected()) !== "plan-active" || siwc.selected()?.needsPlanWelcome) {
-    selectChatGptSetup();
-    setMessage("Sign in with a fresh independent registration, then inspect the stopped old owner again before reviewing replacement.");
-    return;
-  }
   state.integrationKind = "sidecar";
   element("manage-vps-sidecar").checked = true;
   renderIntegrationManagement();
-  element("review-button").click();
+  void reviewReplacement(element("review-button"));
+});
+
+// A fresh ChatGPT sign-in on this computer, for the same account, takes over through the reviewed
+// replacement: sign out the installed sign-in, reconnect, then review and confirm the replacement.
+element("vps-owner-refresh").addEventListener("click", () => {
+  const owner = state.vpsOwner;
+  if (owner?.state !== "owned" || owner.account?.session !== "reauthorize") return;
+  clearError();
+  // Without an email Relmio cannot check that the new sign-in is the same account.
+  if (!owner.account.email) {
+    showError(new Error("Relmio cannot tell which ChatGPT account the installed sidecar uses, so it cannot refresh that sign-in. " +
+      "Tick the approval and press Sign out and revoke, then reconnect and use Review replacement with the account you want."));
+    return;
+  }
+  const intent = { purpose: "sign-in" };
+  state.vpsSignInRefresh = { registrationId: owner.registrationId, email: owner.account.email, intent };
+  state.loginIntent = intent;
+  element("login-button").click();
 });
 
 createSiwcRecovery({

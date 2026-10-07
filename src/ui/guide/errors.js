@@ -219,7 +219,7 @@ export const GUIDE_ERRORS = {
     reauthorize: {
       title: "Sign-in needed for checks",
       say: "OpenAI rejected the ChatGPT sign-in during a model test.",
-      steps: ["Press Check installed account.", "Follow the sign-in step it shows."],
+      steps: ["Press Check installed account.", "If it says the sign-in needs a fresh sign-in, press Refresh ChatGPT sign-in."],
       targets: { vps: "#vps-owner-check" },
     },
     probe_rejected: {
@@ -251,7 +251,7 @@ export const GUIDE_ERRORS = {
       say: "The sidecar could not read OpenAI's model list and has no recent copy.",
       steps: [
         "If the message says to retry later, try again later.",
-        "If it asks for a sign-in, press Check installed account and follow the sign-in it shows.",
+        "If it asks for a sign-in, press Check installed account, and press Refresh ChatGPT sign-in only if the panel asks for a fresh sign-in.",
         "Do not switch accounts or servers because of this.",
       ],
       targets: { vps: "#vps-owner-check" },
@@ -264,6 +264,45 @@ export const GUIDE_ERRORS = {
         "Allow or resume plan use if Relmio offers it.",
         "Sign in again if Relmio asks for it.",
       ],
+    },
+    vps_sidecar_owned: {
+      title: "Relmio already runs here",
+      say: "A ChatGPT plan sidecar from Relmio already runs on this n8n, so a second install is refused. Update it from its own panel instead.",
+      steps: [
+        "Open Manage the installed ChatGPT session and press Check installed account.",
+        "Press Review sidecar update.",
+        "Tick the approval box, then press Update the sidecar.",
+      ],
+      targets: { vps: "#vps-siwc-owner" },
+    },
+    vps_sidecar_updating: {
+      title: "Finish the sidecar update",
+      say: "A sidecar update on this server stopped before it finished. A new install waits until it does.",
+      steps: [
+        "Open Manage the installed ChatGPT session and press Check installed account.",
+        "Press Review sidecar update.",
+        "Tick the approval box, then press Update the sidecar.",
+      ],
+      targets: { vps: "#vps-siwc-owner" },
+    },
+    vps_sidecar_staged: {
+      title: "Finish the earlier install",
+      say: "An earlier install on this server stopped partway. Resume it instead of starting another.",
+      steps: [
+        "Open Recover a transfer or staged installation.",
+        "Choose the account and press Review staged resume.",
+        "Approve the reviewed plan.",
+      ],
+      targets: { vps: "#vps-siwc-recovery" },
+    },
+    vps_sidecar_partial: {
+      title: "Finish the earlier migration",
+      say: "An earlier migration on this server started but did not finish. A new install waits until it is resolved.",
+      steps: [
+        "Open Recover a transfer or staged installation.",
+        "Review what it finds before you approve anything.",
+      ],
+      targets: { vps: "#vps-siwc-recovery" },
     },
     "runtime-unavailable": modelRetry("Model runtime not reachable", "The model runtime could not be reached during its check."),
     "invalid-response": modelRetry("Unexpected model reply", "The model runtime answered with something Relmio did not expect."),
