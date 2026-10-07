@@ -42,7 +42,7 @@ The workflows and the credential in `n8n/credentials.json` use the production ad
 
 No n8n server runs in the container. Each `n8n import:credentials`, `n8n import:workflow` and `n8n execute --id` call is its own process, so they never share the SQLite database or the task broker port. `N8N_LOG_FORMAT=json` lets `run.mjs` read the run from `n8n execute --rawOutput`.
 
-The model id is `gpt-5-relmio-harness`. LangChain 1.4.4, which n8n 2.40.7 uses, sends the agent's system prompt with role `developer` only when the model id starts with `gpt-5` or `o` and a digit. Otherwise it sends role `system`, which the sidecar refuses. The OpenAI node sends `store:true` unless its Store option is off, so that workflow turns it off.
+The model id is `gpt-5-relmio-harness`. LangChain 1.4.4, which n8n 2.40.7 uses, sends the agent's system prompt with role `developer` only when the model id starts with `gpt-5` or `o` and a digit. Otherwise it sends role `system`, which the sidecar refuses. The OpenAI node keeps its defaults, so it sends `store:true`; the check that every upstream request carries `store:false` proves the sidecar replaces it.
 
 ## Node types and versions
 

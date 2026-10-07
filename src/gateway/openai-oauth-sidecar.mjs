@@ -210,7 +210,9 @@ function validateResponses(body) {
     if (unsupportedFields.has(name) || !allowedFields.has(name)) return name;
   }
   if (body.background !== undefined && body.background !== false) return "background";
-  if (body.store !== undefined && body.store !== false) return "store";
+  // n8n's OpenAI node sends store:true by default. Every upstream request is sent with store:false, and
+  // previous_response_id stays refused, so nothing can come to depend on a stored response.
+  if (body.store !== undefined && typeof body.store !== "boolean") return "store";
   if (body.stream !== undefined && typeof body.stream !== "boolean") return "stream";
   if (!validModel(body.model)) return "model";
   const inputError = checkInput(body.input);

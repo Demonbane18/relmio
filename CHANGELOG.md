@@ -8,8 +8,9 @@ checks the registry separately after publication.
 ## [0.19.1] - 2026-10-07
 
 Relmio 0.19.1 fixes the VPS sidecar update route and adds a ChatGPT sign-in
-refresh for an installed VPS sidecar. It also fixes n8n's AI Agent with Use
-Responses API off, keeps the wizard's star count, and adds change-aware CI.
+refresh for an installed VPS sidecar. It also fixes n8n's OpenAI node and its
+AI Agent with Use Responses API off, keeps the wizard's star count, and adds
+change-aware CI.
 
 ### Changed
 
@@ -44,6 +45,14 @@ Responses API off, keeps the wizard's star count, and adds change-aware CI.
   together, asks Relmio's website when GitHub refuses, and keeps the last
   count when both fail. The chip still shows the Relmio version you are
   running.
+
+- n8n's OpenAI node (**Message a Model**) no longer fails with "Bad request -
+  please check your parameters" through the ChatGPT plan sidecar. The node
+  asks for `store:true` unless its Store option is off. The sidecar now
+  accepts that and still sends `store:false` to OpenAI, as it does for every
+  request; a later request that names a stored response is still refused.
+  Found in the 0.19.1 release check on the VPS. To get this fix on a VPS
+  sidecar, run **Review sidecar update**.
 
 - The ChatGPT plan sidecar's `/v1/chat/completions` route no longer refuses
   n8n's AI Agent on its second turn when the OpenAI Chat Model has Use
