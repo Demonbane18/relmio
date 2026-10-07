@@ -14,6 +14,15 @@ checks the registry separately after publication.
   those models. The Codex image route ignores the model ID, so every image
   came from Codex's single image model, which Codex names `gpt-image-2`.
 
+### Fixed
+
+- On Windows, a ChatGPT plan request no longer fails at once with "SIWC session
+  lock is unavailable" when the Relmio process holding the sign-in lock exits
+  while another process is checking it. Windows PowerShell could find the
+  exiting process and then fail to read its start time. Relmio now treats that
+  process as gone once Windows also confirms the process ID no longer exists,
+  as it already did for a process PowerShell could not find.
+
 ## [0.19.0] - 2026-10-07
 
 Relmio 0.19.0 adds a skippable setup guide with Relmio the mascot, Plan and
