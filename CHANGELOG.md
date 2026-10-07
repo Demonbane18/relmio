@@ -74,10 +74,11 @@ checks the registry separately after publication.
   the replacement, whose button reads **Replace the sidecar**. The wizard
   accepts only the registration from that new sign-in and refuses other
   accounts saved on this computer. It also refuses a new sign-in with a
-  different email, but it cannot tell two workspaces with the same email
+  different email, and offers no refresh when the installed account has no
+  email to check against. It cannot tell two workspaces with the same email
   apart. ChatGPT treats the new sign-in as a new connection, so the old
   connection's usage settings do not carry over. n8n needs the new Relmio key
-  afterwards. No new kind of server write was added.
+  afterward. No new kind of server write was added.
 - The setup guide explains `vps_sidecar_owned`, `vps_sidecar_updating`,
   `vps_sidecar_staged` and `vps_sidecar_partial` and points at the panel that
   resolves each one. It also has tips for the sign-in refresh.

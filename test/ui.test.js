@@ -1941,11 +1941,12 @@ async function ownerPanel() {
     return nodes.get(id);
   };
   const routes = { value: "update" };
-  const state = { loginIntent: null, vpsSignInRefresh: null };
+  const state = { loginIntent: null, vpsSignInRefresh: null, errors: [] };
   const panel = vm.runInNewContext(`${script.slice(start, end)}\n${script.slice(clickStart, clickEnd)}\n({ renderVpsOwner });`, {
     state, element, normalizeSiwcAccount, siwc: { selected: () => freshAccount },
     sshSession: { adoptedIdentity: () => rootIdentity }, currentSidecarRoute: () => routes.value,
     renderVpsOwnerUpdate() {}, renderIntegrationManagement() {}, clearError() {}, setMessage() {},
+    showError(error) { state.errors.push(error.message); },
   });
   const destination = { n8nContainerId: "a".repeat(64), networkId: "b".repeat(64) };
   const render = (status) => panel.renderVpsOwner({ registrationId: installedId, destination, ...status });
@@ -1990,6 +1991,15 @@ test("Refresh ChatGPT sign-in is offered only for an installed sign-in that need
     assert.equal(element("login-button").clicked, undefined);
     assert.equal(state.vpsSignInRefresh, null);
   }
+});
+
+test("a sign-in refresh needs the installed account's email to check the new sign-in against", async () => {
+  const { element, state, render } = await ownerPanel();
+  render({ state: "owned", account: { ...installedAccount, email: undefined, session: "reauthorize" } });
+  element("vps-owner-refresh").handler();
+  assert.equal(element("login-button").clicked, undefined, "no sign-in starts that any account could finish");
+  assert.equal(state.vpsSignInRefresh, null);
+  assert.match(state.errors.at(-1) ?? "", /cannot tell which ChatGPT account.*Review replacement/u);
 });
 
 // Runs the sign-in button's handler with the refresh bookkeeping and fake sign-in services.

@@ -2141,7 +2141,7 @@ function finishVpsSignInRefresh(intent, account) {
     state.vpsSignInRefresh = null;
     return;
   }
-  if (refresh.email && account.email !== refresh.email) {
+  if (account.email !== refresh.email) {
     state.vpsSignInRefresh = null;
     throw new Error(`The new sign-in is for ${account.email ?? "an account without an email"}, but the installed sidecar uses ${refresh.email}. ` +
       "The sign-in refresh stopped. Refresh again with the sidecar's account, or sign the sidecar out and use Review replacement to move it to another account.");
@@ -2692,6 +2692,12 @@ element("vps-owner-refresh").addEventListener("click", () => {
   const owner = state.vpsOwner;
   if (owner?.state !== "owned" || owner.account?.session !== "reauthorize") return;
   clearError();
+  // Without an email Relmio cannot check that the new sign-in is the same account.
+  if (!owner.account.email) {
+    showError(new Error("Relmio cannot tell which ChatGPT account the installed sidecar uses, so it cannot refresh that sign-in. " +
+      "Tick the approval and press Sign out and revoke, then reconnect and use Review replacement with the account you want."));
+    return;
+  }
   const intent = { purpose: "sign-in" };
   state.vpsSignInRefresh = { registrationId: owner.registrationId, email: owner.account.email, intent };
   state.loginIntent = intent;
