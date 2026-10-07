@@ -31,10 +31,11 @@ Use Node.js for byte comparisons, hashing, and HTTPS checks so the same evidence
 1. Start from a clean isolated release branch based on current `origin/main`; preserve every unrelated checkout and worktree.
 2. Choose a deliberate pre-1.0 version, then update package metadata and the curated changelog together.
 3. Run focused tests followed by root, native Windows, web, package, installer, and distribution checks that apply to the diff.
-4. Open a reviewable PR and wait for required checks, especially the native Windows installer/browser-wizard job.
-5. Merge only through the protected flow after explicit authorization. Resolve the exact merged commit before tagging.
-6. Publish npm only through the repository's OIDC trusted publisher. Never request, read, store, or use a local npm token.
-7. Treat npm, GitHub release, Vercel, Homebrew, and WinGet as separate external writes. Perform only the writes currently authorized by the user.
-8. Re-run the public matrix and report exact versions, commits, hashes, URLs, skipped surfaces, and failures.
+4. Open a reviewable PR and wait for the required `CI gate` check, which includes the native Windows installer/browser-wizard job when the diff needs it. Resolve every CodeRabbit thread.
+5. Complete `.agents/skills/release-qa/SKILL.md` for `<last release tag>...<candidate>` and post its evidence comment on the PR. Run live checks only for the areas `scripts/release-impact.mjs` reports.
+6. Merge only through the protected flow after explicit authorization. Resolve the exact merged commit before tagging.
+7. Publish npm only through the repository's OIDC trusted publisher. Never request, read, store, or use a local npm token.
+8. Treat npm, GitHub release, Vercel, Homebrew, and WinGet as separate external writes. Perform only the writes currently authorized by the user.
+9. Re-run the public matrix and report exact versions, commits, hashes, URLs, skipped surfaces, the release QA comment, and failures.
 
-Stop on an ambiguous commit or version, a required failing check, metadata drift, unexpected package content, missing Windows evidence, branch-protection bypass, secret exposure, or an unapproved external write. Never repair a published version by force-pushing, retagging, or replacing a registry artifact.
+Stop on an ambiguous commit or version, a required failing check, missing release QA evidence or a failed live check for a touched area, metadata drift, unexpected package content, missing Windows evidence, branch-protection bypass, secret exposure, or an unapproved external write. Never repair a published version by force-pushing, retagging, or replacing a registry artifact.

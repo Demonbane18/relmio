@@ -13,8 +13,38 @@ checks the registry separately after publication.
   choosing Flare or Sunburst in Relmio 0.16.0 through 0.18.6 never selected
   those models. The Codex image route ignores the model ID, so every image
   came from Codex's single image model, which Codex names `gpt-image-2`.
+- CI now runs only the checks a change can affect, adds macOS, Linux and an
+  n8n node compatibility job, and reports one required `CI gate` check. A
+  change to the website or docs no longer reruns the Windows, macOS and Linux
+  wizard suites; pushes to `main`, release tags and hotfixes still run
+  everything. The website's dependency audit blocks only on production
+  advisories and lists the rest in the job summary.
+- The n8n node compatibility job runs n8n 2.40.7 in Docker against the real
+  sidecar and a mock OpenAI upstream, and checks the HTTP Request node, AI
+  Agent (Responses API on and off), Basic LLM Chain, the OpenAI node and the
+  AI Assistant's AI SDK calls. No ChatGPT account is used.
 
 ### Fixed
+
+- The ChatGPT plan sidecar's `/v1/chat/completions` route no longer refuses
+  n8n's AI Agent on its second turn when the OpenAI Chat Model has Use
+  Responses API off. n8n replays the tool-call message with an empty content
+  list, which the sidecar now treats like no content. To get this fix on a
+  VPS sidecar, run **Review sidecar update**.
+
+- On Windows, a ChatGPT plan request no longer fails at once with "SIWC session
+  lock is unavailable" when the Relmio process holding the sign-in lock exits
+  while another process is checking it. Windows PowerShell could find the
+  exiting process and then fail to read its start time. Relmio now treats that
+  process as gone once Windows also confirms the process ID no longer exists,
+  as it already did for a process PowerShell could not find.
+
+- `relmio stop` no longer fails now and then with "Relmio refuses changed local
+  dashboard control state" or "could not safely read its local dashboard
+  control state" after the dashboard has accepted the stop. While stop waits,
+  the dashboard moves its control files away one by one, and a check could list
+  a file just before it moved. Stop now checks again. A control file that stays
+  changed is still refused.
 
 - On a VPS, the main button on **Choose your n8n** now follows what is
   installed on the selected n8n. A check of the installed sidecar runs when

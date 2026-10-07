@@ -138,7 +138,13 @@ test("CI pins reviewed actions and the repository npm version", async () => {
   );
   assert.match(workflow, /npm install --global --ignore-scripts npm@10\.9\.8/u);
   assert.match(workflow, /test "\$\(npm --version\)" = "10\.9\.8"/u);
-  assert.equal((workflow.match(/node-version: "24"/gu) ?? []).length, 3);
+  const setupNodeSteps = workflow.match(/uses: actions\/setup-node@/gu) ?? [];
+  assert.ok(setupNodeSteps.length > 0);
+  assert.equal((workflow.match(/node-version: "24"/gu) ?? []).length, setupNodeSteps.length);
+  const actionReferences = [...workflow.matchAll(/uses:\s+[^\s@]+@([^\s#]+)/gu)];
+  for (const [, reference] of actionReferences) {
+    assert.match(reference, /^[a-f0-9]{40}$/u);
+  }
 });
 
 test("trusted publishing uses short-lived GitHub OIDC credentials", async () => {

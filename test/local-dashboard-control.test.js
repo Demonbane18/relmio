@@ -1936,6 +1936,111 @@ test("stop polling recognizes the exact daemon after nested retirement is remove
   assert.equal(paused, true);
 });
 
+test("stop polling rereads a record the exact daemon moves into retirement mid-inspection", async (t) => {
+  const setup = await fixture(t);
+  const publicationPath = join(setup.relmioHome, "control", "dashboard.json");
+  const signal = () => {
+    let resolveSignal;
+    const promise = new Promise((resolvePromise) => { resolveSignal = resolvePromise; });
+    return { promise, resolve: resolveSignal };
+  };
+  const listed = signal();
+  const moved = signal();
+  const release = signal();
+  let polling = false;
+  let paused = false;
+  // The daemon moves the publication only after the stop poll has listed it,
+  // then holds still until that poll's inspection has finished.
+  const daemonFileSystem = {
+    ...fileSystem,
+    async rename(from, to) {
+      if (from !== publicationPath) return fileSystem.rename(from, to);
+      await listed.promise;
+      await fileSystem.rename(from, to);
+      moved.resolve();
+      await release.promise;
+    },
+  };
+  const stopFileSystem = {
+    ...fileSystem,
+    async readdir(path, options) {
+      const entries = await fileSystem.readdir(path, options);
+      if (polling && !paused && path === dirname(publicationPath)) {
+        paused = true;
+        listed.resolve();
+        await moved.promise;
+      }
+      return entries;
+    },
+  };
+  const identity = async () => ({ state: "active", startIdentity: "test-current-process-start" });
+  const controller = await runLocalDashboardDaemon({
+    ...setup,
+    fileSystem: daemonFileSystem,
+    lockDownPath: async () => {},
+    getProcessIdentity: identity,
+    randomBytes: () => Buffer.alloc(32, 37),
+    randomUUID: () => INSTANCE_ID,
+    now: () => PUBLICATION.publishedAtMs,
+    sendMessage: () => {},
+    startServer: async () => ({ origin: PUBLICATION.origin, close: async () => {} }),
+  });
+  let daemonStop;
+  t.after(async () => {
+    release.resolve();
+    await daemonStop?.catch(() => {});
+  });
+  const result = await stopLocalDashboardControlPlane({
+    ...setup,
+    fileSystem: stopFileSystem,
+    lockDownPath: async () => {},
+    getProcessIdentity: identity,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/status")) return healthyResponse(controller.publication);
+      daemonStop = controller.stop();
+      polling = true;
+      return {
+        ok: true,
+        status: 202,
+        async json() { return { stopping: true, instanceId: INSTANCE_ID }; },
+      };
+    },
+    sleep: async () => {
+      release.resolve();
+      await daemonStop;
+    },
+    stopChecks: 2,
+    stopPollMs: 0,
+  });
+  assert.deepEqual(result, { state: "stopped" });
+  assert.equal(paused, true);
+});
+
+test("stop polling still refuses a control record that stays changed", async (t) => {
+  const setup = await fixture(t);
+  await writeManagedControl(setup);
+  let sleeps = 0;
+  await assert.rejects(stopLocalDashboardControlPlane({
+    ...setup,
+    fileSystem,
+    lockDownPath: async () => {},
+    getProcessIdentity: async () => ({ state: "active", startIdentity: PUBLICATION.processStartIdentity }),
+    fetchImpl: async (url) => {
+      if (url.endsWith("/status")) return healthyResponse();
+      await writeFile(join(setup.relmioHome, "control", "browser.key"), `x${"C".repeat(42)}`);
+      return {
+        ok: true,
+        status: 202,
+        async json() { return { stopping: true, instanceId: INSTANCE_ID }; },
+      };
+    },
+    sleep: async () => { sleeps += 1; },
+    stopChecks: 3,
+    stopPollMs: 0,
+  }), /refuses changed local dashboard control state/u);
+  assert.equal(sleeps, 2);
+});
+
 test("stop rejects an otherwise-valid control document returned with HTTP 200", async (t) => {
   const setup = await fixture(t);
   await writeManagedControl(setup);

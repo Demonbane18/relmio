@@ -1,0 +1,11 @@
+{
+  "name": "relmio-n8n-nodes-harness",
+  "private": true,
+  "description": "Checks n8n 2.40.7's real nodes and the AI SDK n8n's AI Assistant uses against the Relmio sidecar.",
+  "type": "module",
+  "dependencies": {
+    "@ai-sdk/openai": "4.0.20",
+    "ai": "7.0.74",
+    "zod": "3.25.76"
+  }
+}

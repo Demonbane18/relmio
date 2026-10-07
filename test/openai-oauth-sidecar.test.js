@@ -698,6 +698,9 @@ test("malformed tools, duplicate definitions and unsafe replay are rejected befo
     [{ role: "assistant", content: null, tool_calls: [call] }, { role: "tool", tool_call_id: "call_1", content: "1" }, { role: "tool", tool_call_id: "call_1", content: "2" }],
     [{ role: "assistant", content: null, tool_calls: [{ ...call, function: { name: "lookup", arguments: "x".repeat(128 * 1024 + 1) } }] },
       { role: "tool", tool_call_id: "call_1", content: "1" }],
+    // Only an empty content list stands in for "no content"; parts, and empty lists without tool calls, stay refused.
+    [{ role: "assistant", content: [{ type: "text", text: "hi" }], tool_calls: [call] }, { role: "tool", tool_call_id: "call_1", content: "1" }],
+    [{ role: "user", content: "Hi" }, { role: "assistant", content: [] }],
   ]) {
     assert.equal((await handler(request("/v1/chat/completions", chatBody({ messages })))).status, 400);
   }
@@ -741,6 +744,15 @@ test("Chat streaming emits indexed parallel arguments once and preserves ids on 
   ] })));
   assert.equal(second.status, 200);
   assert.deepEqual(JSON.parse(calls[1].options.body).input.filter((item) => item.type === "function_call_output").map((item) => item.call_id), ["call_2", "call_1"]);
+  // n8n's AI Agent replays the tool-call turn with `content: []` when the Chat Model's Responses API is off.
+  const replayed = await handler(request("/v1/chat/completions", chatBody({ messages: [
+    { role: "user", content: "Look up cities" }, { role: "assistant", content: [], tool_calls: toolCalls },
+    { role: "tool", tool_call_id: "call_2", content: "Rome" }, { role: "tool", tool_call_id: "call_1", content: "Paris" },
+  ] })));
+  assert.equal(replayed.status, 200);
+  assert.deepEqual(JSON.parse(calls[2].options.body).input.filter((item) => item.role === "assistant"), [],
+    "an empty content list sends no empty assistant message upstream");
+  assert.deepEqual(JSON.parse(calls[2].options.body).input.filter((item) => item.type === "function_call").map((item) => item.call_id), ["call_1", "call_2"]);
 });
 
 test("Chat streaming completed-only tools emit complete deltas and output-index ordering stays stable", async () => {

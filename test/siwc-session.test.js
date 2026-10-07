@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
 import * as fs from 'node:fs/promises';
 import { chmod, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -890,6 +891,47 @@ test('separate processes share one rotating refresh owner', async t => {
       assert.equal((await fs.readFile(logPath, 'utf8')).match(/refresh/gu)?.length, 1);
     });
   }
+});
+
+test('a Windows holder that exits while PowerShell reads its start time is proven dead, not ambiguous', async t => {
+  const storageRoot = await root(t);
+  const first = await registration(storageRoot);
+  const source = { storageRoot, registrationId: first.registrationId };
+  await setPlanEnabled(source, { enabled: true, expectedGeneration: first.generation });
+  const lockPath = join(storageRoot, 'registrations', `${first.registrationId}.lock`);
+  const holderScript = `
+    import * as fileSystem from 'node:fs/promises';
+    const { acquireLocalIntegrationLifecycleLock } = await import(process.argv[1]);
+    const release = await acquireLocalIntegrationLifecycleLock({ fileSystem, lockPath: process.argv[2], platform: 'win32',
+      lockDownPath: async () => {}, getProcessIdentity: async () => ({ state: 'active', startIdentity: 'win32:1' }),
+      reclaimIncomplete: false, atomicPublication: true, leaseMs: 600000 });
+    process.stdout.write('claimed');
+    process.stdin.once('data', async () => { await release(); process.exit(0); });
+  `;
+  const holder = spawn(process.execPath, ['--input-type=module', '-e', holderScript,
+    new URL('../src/services/local-integration-lifecycle-lock.js', import.meta.url).href, lockPath],
+  { cwd: fileURLToPath(new URL('..', import.meta.url)), stdio: ['pipe', 'pipe', 'inherit'] });
+  const exited = once(holder, 'exit');
+  t.after(() => holder.kill());
+  assert.equal(String((await once(holder.stdout, 'data'))[0]), 'claimed');
+  let raced = 0;
+  const result = await getAccessToken(source, { runtimeId: 'local' }, {
+    platform: 'win32', lockDownPath: async () => {}, now: () => 1700000000000,
+    // Real Windows parsing; only the PowerShell run is replaced. Get-Process finds the holder, then
+    // StartTime fails because it released and exited meanwhile, so the script prints 'ambiguous'.
+    getProcessIdentity: (pid, options) => getLocalProcessIdentity(pid, { ...options, systemRoot: 'C:\\Windows',
+      async runCommand(_file, _args, { input }) {
+        if (Number(input) !== holder.pid) return { code: 0, stdout: 'active:1' };
+        raced++;
+        holder.stdin.end('exit');
+        await exited;
+        return { code: 0, stdout: 'ambiguous' };
+      } }),
+    fetchImpl: async () => { throw new Error('Cached access must not refresh.'); },
+  });
+  assert.equal(raced, 1);
+  assert.equal(result.accessToken, 'private-access-first');
+  await assert.rejects(fs.access(lockPath), { code: 'ENOENT' });
 });
 
 test('post-rotation write, sync and rename failures never expose R0 to a fresh process', async t => {

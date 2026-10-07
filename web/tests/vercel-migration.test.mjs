@@ -33,5 +33,5 @@ test("runs web quality gates in GitHub CI for repository-driven deploys", async 
   assert.match(workflow, /run: npm run typecheck/u);
   assert.match(workflow, /run: npm run build:vercel/u);
   assert.match(workflow, /run: npm test/u);
-  assert.match(workflow, /run: npm audit --audit-level=high/u);
+  assert.match(workflow, /run: npm audit --omit=dev --audit-level=high/u);
 });

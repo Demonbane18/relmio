@@ -13,8 +13,41 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Change impact
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      areas: ${{ steps.impact.outputs.areas }}
+      reason: ${{ steps.impact.outputs.reason }}
+      run_root: ${{ steps.impact.outputs.run_root }}
+      run_web: ${{ steps.impact.outputs.run_web }}
+      run_windows: ${{ steps.impact.outputs.run_windows }}
+      run_macos: ${{ steps.impact.outputs.run_macos }}
+      run_linux: ${{ steps.impact.outputs.run_linux }}
+      run_n8n_nodes: ${{ steps.impact.outputs.run_n8n_nodes }}
+
+    steps:
+      - name: Check out the repository with full history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Classify changed paths into release areas
+        id: impact
+        run: node scripts/ci-changes.mjs
+
   quality:
     name: Quality and release metadata
+    needs: changes
+    if: needs.changes.outputs.run_root == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -48,8 +81,51 @@ jobs:
       - name: Preview the npm package
         run: npm pack --dry-run
 
+  docs-checks:
+    name: Documentation and release metadata
+    needs: changes
+    # Docs-only and web-only changes skip the full suite, but these tests read
+    # README.md, CHANGELOG.md, docs/ and web/ files, so they still run.
+    if: needs.changes.outputs.run_root != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install and verify npm 10.9.8
+        shell: bash
+        run: |
+          npm install --global --ignore-scripts npm@10.9.8
+          test "$(npm --version)" = "10.9.8"
+
+      - name: Install pinned dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run lint and release-sync checks
+        run: |
+          npm run lint
+          npm run release:check
+
+      - name: Test documentation, brand assets, and package contents
+        run: >-
+          node --test
+          test/documentation.test.js test/project.test.js
+          test/brand-assets.test.js test/package-contents.test.js
+
   web-quality:
     name: Hosted web quality
+    needs: changes
+    if: needs.changes.outputs.run_web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -90,10 +166,25 @@ jobs:
         run: npm test
 
       - name: Audit hosted web production dependencies
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Report the full hosted web audit without blocking
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          {
+            echo "## Hosted web audit including development tools (not blocking)"
+            echo
+            echo '```text'
+            npm audit || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   windows-bootstrap:
     name: Native Windows installer and browser wizard
+    needs: changes
+    if: needs.changes.outputs.run_windows == 'true'
     runs-on: windows-latest
     timeout-minutes: 40
 
@@ -169,3 +260,181 @@ jobs:
         run: >-
           node --test --test-name-pattern="temporary Windows Node runtime"
           test/install-script.test.js
+
+  macos:
+    name: macOS installer and browser wizard
+    needs: changes
+    if: needs.changes.outputs.run_macos == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install and verify npm 10.9.8
+        shell: bash
+        run: |
+          npm install --global --ignore-scripts npm@10.9.8
+          test "$(npm --version)" = "10.9.8"
+
+      - name: Install pinned dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run the complete release checks on macOS
+        run: npm run check
+
+      - name: Test the POSIX curl installer
+        run: node --test test/install-script.test.js
+
+      - name: Test the macOS browser launcher and private browser handoff
+        run: node --test test/browser.test.js test/browser-handoff.test.js
+
+      - name: Start the wizard and fetch it over loopback with its session
+        run: node scripts/wizard-start-smoke.mjs
+
+  linux:
+    name: Linux installer and browser wizard
+    needs: changes
+    if: needs.changes.outputs.run_linux == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install and verify npm 10.9.8
+        shell: bash
+        run: |
+          npm install --global --ignore-scripts npm@10.9.8
+          test "$(npm --version)" = "10.9.8"
+
+      - name: Install pinned dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run the complete release checks on Linux
+        run: npm run check
+
+      - name: Test the sh web/public/install.sh bootstrap
+        run: node --test test/install-script.test.js
+
+      - name: Test the Linux browser launcher and private browser handoff
+        run: node --test test/browser.test.js test/browser-handoff.test.js
+
+      - name: Start the wizard and fetch it over loopback with its session
+        run: node scripts/wizard-start-smoke.mjs
+
+  n8n-nodes:
+    name: n8n node compatibility
+    needs: changes
+    if: needs.changes.outputs.run_n8n_nodes == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install and verify npm 10.9.8
+        shell: bash
+        run: |
+          npm install --global --ignore-scripts npm@10.9.8
+          test "$(npm --version)" = "10.9.8"
+
+      - name: Install pinned dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Install the pinned AI SDK harness dependencies
+        run: npm ci --ignore-scripts --prefix test/integration/n8n-nodes
+
+      - name: Run n8n's real nodes against the sidecar wire format
+        run: npm run test:n8n-nodes
+
+  ci-gate:
+    name: CI gate
+    if: always()
+    needs:
+      - changes
+      - quality
+      - docs-checks
+      - web-quality
+      - windows-bootstrap
+      - macos
+      - linux
+      - n8n-nodes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every job to pass or be skipped by change impact
+        shell: bash
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          flag_for() {
+            case "$1" in
+              quality|docs-checks) echo run_root ;;
+              web-quality) echo run_web ;;
+              windows-bootstrap) echo run_windows ;;
+              macos) echo run_macos ;;
+              linux) echo run_linux ;;
+              n8n-nodes) echo run_n8n_nodes ;;
+            esac
+          }
+          reason="$(jq -r '.changes.outputs.reason // "Change impact did not finish, so nothing was classified."' <<< "$NEEDS")"
+          failed=0
+          table="$RUNNER_TEMP/ci-gate.md"
+          {
+            echo "## CI gate"
+            echo
+            echo "$reason"
+            echo
+            echo "| Job | Result | Why it ran or was skipped |"
+            echo "| --- | --- | --- |"
+            for job in $(jq -r 'keys[]' <<< "$NEEDS"); do
+              result="$(jq -r --arg job "$job" '.[$job].result' <<< "$NEEDS")"
+              name="$(flag_for "$job")"
+              value="$(jq -r --arg name "$name" '.changes.outputs[$name] // "unset"' <<< "$NEEDS")"
+              if [[ "$job" == "changes" ]]; then
+                why="Always runs."
+              elif [[ "$job" == "docs-checks" ]]; then
+                why="Runs when \`${name}\` is false; it is \`${value}\`."
+              else
+                why="Runs when \`${name}\` is true; it is \`${value}\`."
+              fi
+              echo "| \`${job}\` | ${result} | ${why} |"
+              case "$result" in
+                success|skipped) ;;
+                *) failed=1 ;;
+              esac
+            done
+          } > "$table"
+          cat "$table" >> "$GITHUB_STEP_SUMMARY"
+          cat "$table"
+          exit "$failed"

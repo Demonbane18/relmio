@@ -1,0 +1,35 @@
+{
+  "id": "RelmioOpenAiMessage",
+  "name": "Relmio harness: OpenAI node, Message a model",
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "nodes": [
+    {
+      "id": "0b5f3c1e-6d2a-4c11-9f0e-5a0000000001",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": {}
+    },
+    {
+      "id": "0b5f3c1e-6d2a-4c11-9f0e-5a0000000002",
+      "name": "Message a model",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [220, 0],
+      "parameters": {
+        "resource": "text",
+        "operation": "response",
+        "modelId": { "__rl": true, "mode": "id", "value": "gpt-5-relmio-harness" },
+        "responses": { "values": [{ "type": "text", "role": "user", "content": "Reply with the harness answer." }] },
+        "simplify": true,
+        "options": { "store": false }
+      },
+      "credentials": { "openAiApi": { "id": "RelmioHarnessOpenAi", "name": "OpenAI Relmio" } }
+    }
+  ],
+  "connections": {
+    "Start": { "main": [[{ "node": "Message a model", "type": "main", "index": 0 }]] }
+  }
+}
