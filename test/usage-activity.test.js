@@ -54,7 +54,8 @@ function sidecar(storageRoot, { now = T0 } = {}) {
     storageRoot, registrationId: REGISTRATION, pinnedClientVersion: CODEX_CLI_VERSION,
     getLease: async () => ({ accessToken: 'fake-siwc-access-token-0123456789' }),
     deps: {
-      now: () => clock.t, fileSystem, sleep: async () => {},
+      // Lock waits must yield real time: a no-op sleep spends every lock attempt at once on a loaded runner.
+      now: () => clock.t, fileSystem, sleep: () => new Promise(resolve => setTimeout(resolve, 1)),
       fetchImpl: async () => { throw new Error('Counting requests makes no network call.'); },
       setTimer: (callback, ms) => { const timer = { callback, ms, cleared: false, unref() {} }; timers.push(timer); return timer; },
       clearTimer: timer => { timer.cleared = true; },
@@ -71,7 +72,12 @@ function sidecar(storageRoot, { now = T0 } = {}) {
   return { clock, timers, writes, discovery, elapse };
 }
 
-test('counts add up per UTC day and model, with tokens only from completed responses', async t => {
+// The request count store exists only in the Linux sidecar container, and its owner-only mode
+// checks cannot pass on NTFS. Windows runs the tests that need no store.
+const containerStoreSkip = process.platform === 'win32' &&
+  'the request count store exists only in the Linux sidecar container; NTFS has no POSIX modes';
+
+test('counts add up per UTC day and model, with tokens only from completed responses', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { discovery } = sidecar(storageRoot);
   const usage = { input_tokens: 100, input_tokens_details: { cached_tokens: 40 }, output_tokens: 30,
@@ -127,14 +133,14 @@ test('counts add up per UTC day and model, with tokens only from completed respo
   assert.deepEqual([merged.startedAt, merged.updatedAt], [iso(T0), iso(T0 + MINUTE)]);
 });
 
-test('a model is named once OpenAI accepts the request or the last catalog lists it; two writers merge', async t => {
+test('a model is named once OpenAI accepts the request or the last catalog lists it; two writers merge', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { discovery } = sidecar(storageRoot);
   discovery.recordActivity({ model: 'gpt-6-luna', outcome: 'failed' });
   const listed = createModelDiscovery({
     storageRoot, registrationId: REGISTRATION, pinnedClientVersion: CODEX_CLI_VERSION,
     getLease: async () => ({ accessToken: 'fake-siwc-access-token-0123456789' }),
-    deps: { now: () => T0, sleep: async () => {}, setTimer: () => ({ unref() {} }), clearTimer: () => {},
+    deps: { now: () => T0, sleep: () => new Promise(resolve => setTimeout(resolve, 1)), setTimer: () => ({ unref() {} }), clearTimer: () => {},
       fetchImpl: async url => new URL(url).origin === 'https://registry.npmjs.org' ? Response.json({ version: CODEX_CLI_VERSION })
         : Response.json({ models: [{ slug: 'gpt-6-luna', display_name: 'GPT-6 Luna', visibility: 'list' }] }) },
   });
@@ -149,7 +155,7 @@ test('a model is named once OpenAI accepts the request or the last catalog lists
   });
 });
 
-test('day rollover keeps the 31 most recent UTC days on disk; the view covers the last 30', async t => {
+test('day rollover keeps the 31 most recent UTC days on disk; the view covers the last 30', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const run = async (at, entry = {}) => {
     const { discovery } = sidecar(storageRoot, { now: at });
@@ -185,7 +191,7 @@ test('day rollover keeps the 31 most recent UTC days on disk; the view covers th
     ...blank('empty'), since: '2026-12-07T00:00:00.000Z', updatedAt: record.updatedAt });
 });
 
-test('each day names at most 64 models and folds the rest into other; the view keeps the 64 busiest', async t => {
+test('each day names at most 64 models and folds the rest into other; the view keeps the 64 busiest', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const first = sidecar(storageRoot);
   for (let index = 0; index < 70; index++) {
@@ -224,7 +230,7 @@ test('each day names at most 64 models and folds the rest into other; the view k
   assert.equal(view.totals.requests, 137);
 });
 
-test('the last plan-usage event is kept until a later completed response clears it', async t => {
+test('the last plan-usage event is kept until a later completed response clears it', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const step = async (at, entries) => {
     const { discovery } = sidecar(storageRoot, { now: at });
@@ -254,7 +260,7 @@ test('the last plan-usage event is kept until a later completed response clears 
   assert.equal(await step(later + MINUTE, [{ outcome: 'failed', code: 'subscription_sharing_usage_unavailable' }, { outcome: 'completed' }]), null);
 });
 
-test('counts are written 30 seconds after the first one, once per wait, and close writes the rest', async t => {
+test('counts are written 30 seconds after the first one, once per wait, and close writes the rest', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { discovery, timers, writes, elapse } = sidecar(storageRoot);
   const count = () => discovery.recordActivity({ model: 'gpt-6-sol', accepted: true, outcome: 'completed' });
@@ -284,7 +290,7 @@ test('counts are written 30 seconds after the first one, once per wait, and clos
   assert.equal(writes.length, 3, 'with nothing pending, nothing is written');
 });
 
-test('a failed write keeps its counts for the next one, and odd input never throws', async t => {
+test('a failed write keeps its counts for the next one, and odd input never throws', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await mkdir(activityDir(storageRoot), { mode: 0o700 });
   await chmod(activityDir(storageRoot), 0o755);
@@ -305,7 +311,7 @@ test('a failed write keeps its counts for the next one, and odd input never thro
   } });
 });
 
-test('a malformed record reads as unavailable and the next write replaces it; an unsafe one is never touched', async t => {
+test('a malformed record reads as unavailable', () => {
   const row = counts({ requests: 1, completed: 1, input: 5, total: 5 });
   const valid = { schemaVersion: 1, registrationId: REGISTRATION, startedAt: iso(T0), updatedAt: iso(T0),
     days: { '2026-10-07': { 'gpt-6-sol': row } }, lastUsageEvent: null };
@@ -333,7 +339,9 @@ test('a malformed record reads as unavailable and the next write replaces it; an
     assert.deepEqual(usageView(malformed, { registrationId: REGISTRATION, now: T0 }), blank('unavailable'),
       JSON.stringify(malformed)?.slice(0, 120));
   }
+});
 
+test('the next write replaces a malformed stored record, and an unsafe one is never touched', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seed(storageRoot, '{"schemaVersion":1,');
   const corrupt = sidecar(storageRoot);
@@ -368,13 +376,29 @@ test('the usage command prints the stored record or null, and its result maps to
   assert.equal(await exists(activityDir(storageRoot)), false, 'reading creates nothing');
   assert.deepEqual(usageView(usageRecordFromCli(nothing, REGISTRATION)), blank('empty'));
 
-  const { discovery } = sidecar(storageRoot);
-  discovery.recordActivity({ model: 'gpt-6-sol', accepted: true, outcome: 'failed', code: 'subscription_sharing_usage_limit_exceeded' });
-  await discovery.close();
-  const printed = await usage();
-  const stored = await readRecordFile(storageRoot);
-  assert.equal(printed.code, 0);
-  assert.deepEqual(JSON.parse(printed.stdout), stored);
+  // The record the sidecar below writes for one plan-usage failure, as the usage command prints it.
+  const stored = { schemaVersion: 1, registrationId: REGISTRATION, startedAt: iso(T0), updatedAt: iso(T0),
+    days: { '2026-10-07': { 'gpt-6-sol': counts({ requests: 1, failed: 1 }) } },
+    lastUsageEvent: { at: iso(T0), code: 'subscription_sharing_usage_limit_exceeded' } };
+  await t.test('a sidecar\'s stored record is printed as it is, and an unsafe one is refused', { skip: containerStoreSkip }, async () => {
+    const { discovery } = sidecar(storageRoot);
+    discovery.recordActivity({ model: 'gpt-6-sol', accepted: true, outcome: 'failed', code: 'subscription_sharing_usage_limit_exceeded' });
+    await discovery.close();
+    const printed = await usage();
+    assert.equal(printed.code, 0);
+    assert.deepEqual([JSON.parse(printed.stdout), await readRecordFile(storageRoot)], [stored, stored]);
+    await chmod(activityFile(storageRoot), 0o644);
+    const unsafe = await usage();
+    assert.deepEqual([unsafe.code, JSON.parse(unsafe.stdout)], [1,
+      { error: 'store_unsafe', message: 'The request count record is unsafe. An administrator must inspect it.' }]);
+    assert.equal(usageView(usageRecordFromCli(unsafe, REGISTRATION)).state, 'unavailable');
+
+    const script = fileURLToPath(new URL('../src/services/model-discovery.mjs', import.meta.url));
+    const fresh = await root(t);
+    const { stdout } = await promisify(execFile)(process.execPath, [script, 'usage'], { env: { ...env, N8N_OPENAI_OAUTH_HOME: fresh } });
+    assert.equal(stdout, 'null\n');
+  });
+  const printed = { code: 0, stdout: `${JSON.stringify(stored)}\n` };
   assert.deepEqual(usageRecordFromCli(printed, REGISTRATION), stored);
   assert.deepEqual(usageView(usageRecordFromCli(printed, REGISTRATION), { registrationId: REGISTRATION, now: T0 }).lastUsageEvent,
     { at: iso(T0), code: 'subscription_sharing_usage_limit_exceeded', recovery: 'manage-usage' });
@@ -403,14 +427,4 @@ test('the usage command prints the stored record or null, and its result maps to
 
   const invalid = await usage({ RELMIO_REGISTRATION_ID: '../escape' });
   assert.deepEqual([invalid.code, JSON.parse(invalid.stdout).error], [1, 'invalid_configuration']);
-  await chmod(activityFile(storageRoot), 0o644);
-  const unsafe = await usage();
-  assert.deepEqual([unsafe.code, JSON.parse(unsafe.stdout)], [1,
-    { error: 'store_unsafe', message: 'The request count record is unsafe. An administrator must inspect it.' }]);
-  assert.equal(usageView(usageRecordFromCli(unsafe, REGISTRATION)).state, 'unavailable');
-
-  const script = fileURLToPath(new URL('../src/services/model-discovery.mjs', import.meta.url));
-  const fresh = await root(t);
-  const { stdout } = await promisify(execFile)(process.execPath, [script, 'usage'], { env: { ...env, N8N_OPENAI_OAUTH_HOME: fresh } });
-  assert.equal(stdout, 'null\n');
 });

@@ -93,6 +93,11 @@ const hang = (body, options) => new Promise((_, reject) => {
   options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
 });
 
+// The model-check store exists only in the Linux sidecar container, and its owner-only mode
+// checks cannot pass on NTFS. Windows runs the tests that need no store.
+const containerStoreSkip = process.platform === 'win32' &&
+  'the model-check store exists only in the Linux sidecar container; NTFS has no POSIX modes';
+
 test('the catalog version is the newest stable Codex release on npm, checked at most every 12 h, and never fails', async () => {
   const calls = [];
   const resolveWith = (cache, answer) => resolveCatalogClientVersion({ pinned: PINNED, cache, now: () => T0,
@@ -280,7 +285,7 @@ test('concurrent callers share one catalog request, and a caller that gives up d
   assert.equal(calls.catalog.length, 1, 'the shared answer fills the cache');
 });
 
-test('processes share one npm check through the store, except a check dated in the future', async t => {
+test('processes share one npm check through the store, except a check dated in the future', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedWith(storageRoot, storeJson({ checksEnabled: false, consent: null, codexRelease: { version: '0.162.0', checkedAt: iso(T0 - HOUR) } }));
   const shared = harness({ storageRoot });
@@ -296,14 +301,17 @@ test('processes share one npm check through the store, except a check dated in t
   assert.deepEqual((await readStoreFile(storageRoot)).codexRelease, { version: LATEST, checkedAt: iso(T0) });
 });
 
-test('status asks no npm and writes nothing: it reads the last shared npm check, or the pin', async t => {
+test('status asks no npm and writes nothing; without a shared npm check it asks as the pin', async t => {
   const storageRoot = await root(t);
   const fresh = harness({ storageRoot });
   const view = await fresh.discovery.status();
   assert.deepEqual([view.clientVersion, view.catalogCheckedAt, view.models.length], [CODEX_CLI_VERSION, iso(T0), 3]);
   assert.equal(fresh.calls.catalog[0].url, `https://api.openai.com/v1/models?client_version=${CODEX_CLI_VERSION}`);
   assert.deepEqual([fresh.calls.npm.length, await readdir(storageRoot)], [0, []]);
+});
 
+test('status reads the last shared npm check as it is and writes nothing; listing still makes the 12 h check', { skip: containerStoreSkip }, async t => {
+  const storageRoot = await root(t);
   await seedWith(storageRoot, storeJson({ checksEnabled: false, consent: null,
     codexRelease: { version: '0.162.0', checkedAt: iso(T0 - 2 * VERSION_TTL_MS) } }));
   const before = await readFile(storeFile(storageRoot));
@@ -318,7 +326,7 @@ test('status asks no npm and writes nothing: it reads the last shared npm check,
   assert.equal(shared.calls.npm.length, 1);
 });
 
-test('a failure hides a model by its source and the mode, and status rows say what n8n lists', async t => {
+test('a failure hides a model by its source and the mode, and status rows say what n8n lists', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const catalog = ['alpha', 'beta', 'gamma', 'delta', 'epsilon'].map(slug => entry(slug));
   const models = {
@@ -375,14 +383,16 @@ test('a failure hides a model by its source and the mode, and status rows say wh
   }
   await settle();
   assert.equal(calls.probe.length, 0, 'no run without the current approval');
+});
 
+test('status shows at most 64 rows while n8n still gets every listed model', async () => {
   const wide = harness({ catalog: Array.from({ length: 100 }, (_, index) => entry(`model-${index}`)) });
   const view = await wide.discovery.status();
   assert.deepEqual([view.models.length, view.models.at(-1).id], [64, 'model-63']);
   assert.equal((await wide.discovery.listModels()).models.length, 100);
 });
 
-test('with checks on, n8n keeps the full list until a model answers, from one background run that listing never awaits', { timeout: 30_000 }, async t => {
+test('with checks on, n8n keeps the full list until a model answers, from one background run that listing never awaits', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const catalog = ['alpha', 'beta', 'gamma', 'delta'].map(slug => entry(slug));
   const beta = record('failed', HOUR, { source: 'traffic', code: 'model_not_found' });
@@ -421,7 +431,7 @@ test('with checks on, n8n keeps the full list until a model answers, from one ba
   assert.deepEqual(ids(await discovery.listModels()), ['delta']);
 });
 
-test('a background run that stops or leaves a model unanswered pauses background checks for an hour', { timeout: 30_000 }, async t => {
+test('a background run that stops or leaves a model unanswered pauses background checks for an hour', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   for (const [name, answer, probed] of [['usage limit', apiError(429, { code: 'rate_limit_exceeded' }), 1], ['server error', apiError(503, { code: 'busy' }), 2]]) {
     const storageRoot = await root(t);
     await seedStore(storageRoot, { checksEnabled: true });
@@ -456,7 +466,7 @@ test('a background run that stops or leaves a model unanswered pauses background
   assert.equal(calls.probe[1].body.model, 'beta');
 });
 
-test('turning checks off, or an outdated approval, stops a background run before its next probe', { timeout: 30_000 }, async t => {
+test('turning checks off, or an outdated approval, stops a background run before its next probe', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedStore(storageRoot, { checksEnabled: true });
   let open;
@@ -488,7 +498,7 @@ test('turning checks off, or an outdated approval, stops a background run before
   assert.equal(other.calls.probe.length, 1);
 });
 
-test('turning checks off while a probe waits for its lease sends no probe', { timeout: 30_000 }, async t => {
+test('turning checks off while a probe waits for its lease sends no probe', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedStore(storageRoot, { checksEnabled: true });
   let release;
@@ -510,7 +520,7 @@ test('turning checks off while a probe waits for its lease sends no probe', { ti
   assert.deepEqual([saved.checksEnabled, saved.consent, saved.models], [false, null, {}]);
 });
 
-test('close() aborts work in flight, stops a background run before its next probe and starts no new run', { timeout: 30_000 }, async t => {
+test('close() aborts work in flight, stops a background run before its next probe and starts no new run', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedStore(storageRoot, { checksEnabled: true });
   const hung = harness({ storageRoot, probe: hang });
@@ -545,8 +555,9 @@ test('close() aborts work in flight, stops a background run before its next prob
   await until(() => waiting.calls.leases.length === 2);
   await waiting.discovery.close();
   assert.deepEqual([waiting.calls.leases[1].signal.aborted, waiting.calls.probe.length], [true, 0]);
+});
 
-  // A catalog lease taken without a caller's signal is aborted too.
+test('close() aborts a catalog lease taken without a caller\'s signal', { timeout: 30_000 }, async t => {
   const opening = harness({ storageRoot: await root(t), lease: () => new Promise(() => {}) });
   const run = opening.discovery.verifyNow({ enabling: true });
   await until(() => opening.calls.leases.length === 1);
@@ -555,7 +566,7 @@ test('close() aborts work in flight, stops a background run before its next prob
   assert.deepEqual([opening.calls.leases[0].signal.aborted, networkCalls(opening.calls)], [true, 1]);
 });
 
-test('each probe answer is saved, skipped or ends the run as classified', { timeout: 60_000 }, async t => {
+test('each probe answer is saved, skipped or ends the run as classified', { timeout: 60_000, skip: containerStoreSkip }, async t => {
   let cancelled = false;
   const openStream = () => new Response(new ReadableStream({
     start(controller) {
@@ -612,7 +623,7 @@ test('each probe answer is saved, skipped or ends the run as classified', { time
   assert.equal(cancelled, true, 'the probe ends the stream after the terminal event');
 });
 
-test('a probe is one tiny streamed request at the lowest listed reasoning effort, with a fresh lease each time', async t => {
+test('a probe is one tiny streamed request at the lowest listed reasoning effort, with a fresh lease each time', { skip: containerStoreSkip }, async t => {
   const catalog = [
     entry('e-objects', { supported_reasoning_levels: [{ effort: 'medium' }, { effort: 'low' }] }),
     entry('e-strings', { supported_reasoning_levels: ['xhigh', 'none'] }),
@@ -644,7 +655,7 @@ test('a probe is one tiny streamed request at the lowest listed reasoning effort
   assert.equal(off.calls.probe.length, 0);
 });
 
-test('a run stops at its budget, cutting the probe in flight', { timeout: 30_000 }, async t => {
+test('a run stops at its budget, cutting the probe in flight', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   const cut = harness({ storageRoot: await root(t), catalog: [entry('hung')], probe: hang });
   cut.routes.catalog = () => {
     cut.clock.t += 1_000 - 50;
@@ -657,7 +668,7 @@ test('a run stops at its budget, cutting the probe in flight', { timeout: 30_000
   assert.equal(cut.calls.probe[0].options.signal.aborted, true);
 });
 
-test('turning checks on probes first, then saves the setting and approval in one write', { timeout: 30_000 }, async t => {
+test('turning checks on probes first, then saves the setting and approval in one write', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const catalog = [entry('alpha'), entry('beta'), entry('gamma')];
   let open;
@@ -698,7 +709,7 @@ test('turning checks on probes first, then saves the setting and approval in one
   assert.deepEqual(wide.models.map(({ state }) => state), [...Array(12).fill('verified'), 'unchecked', 'unchecked']);
 });
 
-test('turning checks off makes no network call, clears the approval and reports from the cached catalog', async t => {
+test('turning checks off makes no network call, clears the approval and reports from the cached catalog', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedWith(storageRoot, storeJson({ codexRelease: { version: '0.162.0', checkedAt: iso(T0 - HOUR) } }));
   const cold = harness({ storageRoot });
@@ -720,7 +731,7 @@ test('turning checks off makes no network call, clears the approval and reports 
     'with checks off a probe failure no longer hides the model');
 });
 
-test('passive learning writes once per change, only for catalog models, and never throws', async t => {
+test('passive learning writes once per change, only for catalog models, and never throws', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedStore(storageRoot, { models: { 'gpt-6-astra': record('failed', HOUR) } });
   let renames = 0;
@@ -777,7 +788,7 @@ test('passive learning writes once per change, only for catalog models, and neve
   assert.equal(renames, mark);
 });
 
-test('an unsafe or corrupt store reads as missing, and only turning checks off may replace a safe corrupt file', async t => {
+test('an unsafe or corrupt store reads as missing, and only turning checks off may replace a safe corrupt file', { skip: containerStoreSkip }, async t => {
   const unsafe = {
     'symlinked file': async (storageRoot, outside) => {
       await seedWith(storageRoot, storeJson());
@@ -841,13 +852,16 @@ test('an unsafe or corrupt store reads as missing, and only turning checks off m
       assert.deepEqual([replaced.registrationId, replaced.checksEnabled, replaced.consent, replaced.models], [REGISTRATION, false, null, {}], name);
     }
   }
+});
+
+test('a relative storage root lists every model and refuses both check changes', async () => {
   const relative = harness({ storageRoot: 'relative/root' });
   assert.deepEqual(ids(await relative.discovery.listModels()), CATALOG_IDS);
   await assert.rejects(relative.discovery.setChecks({ enabled: true }), { code: 'store_unsafe' });
   await assert.rejects(relative.discovery.setChecks({ enabled: false }), { code: 'store_unsafe' });
 });
 
-test('the store lock serializes writers, waits for a live holder until a deadline and replaces only a stale one', { timeout: 30_000 }, async t => {
+test('the store lock serializes writers, waits for a live holder until a deadline and replaces only a stale one', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const tick = () => new Promise(done => setTimeout(done, 5));
   const catalog = Array.from({ length: 12 }, (_, index) => entry(`model-${index}`));
@@ -881,7 +895,7 @@ test('the store lock serializes writers, waits for a live holder until a deadlin
   assert.ok(timed.clock.t >= T0 + 1_000 && timed.clock.t < T0 + 2_000, 'the wait ends at the deadline');
 });
 
-test('the CLI prints one JSON line per command and never the token', { timeout: 30_000 }, async t => {
+test('the CLI prints one JSON line per command and never the token', { timeout: 30_000, skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const catalog = [entry('gpt-6-sol', { display_name: `Sol ${TOKEN}` }), entry('gpt-6-luna'), entry('gpt-6-astra')];
   const answers = {
@@ -952,10 +966,6 @@ test('the CLI prints one JSON line per command and never the token', { timeout: 
     const { exitCode, result } = await run(command, overrides);
     assert.deepEqual([exitCode, Object.keys(result), result.error], [1, ['error', 'message'], code], command);
   };
-  await failure('refresh', 'invalid_command');
-  await failure('status', 'invalid_configuration', { RELMIO_REGISTRATION_ID: '../escape' });
-  await failure('status', 'invalid_configuration', { RELMIO_RUNTIME_ID: '' });
-  await failure('status', 'invalid_configuration', { N8N_OPENAI_OAUTH_HOME: 'relative' });
   await chmod(storeFile(storageRoot), 0o644);
   const unsafeBefore = quiet();
   await failure('checks-on', 'store_unsafe');
@@ -972,6 +982,22 @@ test('the CLI prints one JSON line per command and never the token', { timeout: 
   const noLease = await exec(['status']);
   assert.deepEqual([noLease.code, JSON.parse(noLease.stdout).catalogError], [0, 'registration_unavailable']);
   for (const { stdout } of [unknown, noLease]) assert.equal(stdout.includes(TOKEN), false);
+});
+
+test('the CLI refuses an unknown command and an invalid configuration in one JSON line', async t => {
+  const env = { N8N_OPENAI_OAUTH_HOME: await root(t), RELMIO_REGISTRATION_ID: REGISTRATION, RELMIO_RUNTIME_ID: 'runtime-1' };
+  for (const [command, code, overrides] of [
+    ['refresh', 'invalid_command'],
+    ['status', 'invalid_configuration', { RELMIO_REGISTRATION_ID: '../escape' }],
+    ['status', 'invalid_configuration', { RELMIO_RUNTIME_ID: '' }],
+    ['status', 'invalid_configuration', { N8N_OPENAI_OAUTH_HOME: 'relative' }],
+  ]) {
+    const output = { text: '', write(chunk) { this.text += chunk; } };
+    const exitCode = await runModelDiscoveryCli({ command, env: { ...env, ...overrides }, output });
+    assert.match(output.text, /^[^\n]+\n$/u);
+    const result = JSON.parse(output.text);
+    assert.deepEqual([exitCode, Object.keys(result), result.error], [1, ['error', 'message'], code], command);
+  }
 });
 
 test('CLI commands answer by their deadline, even when a lease never settles or probes run long', { timeout: 30_000 }, async t => {
@@ -993,25 +1019,27 @@ test('CLI commands answer by their deadline, even when a lease never settles or 
     result: { checksEnabled: false, clientVersion: CODEX_CLI_VERSION, catalogCheckedAt: null, catalogError: 'catalog_unavailable',
       models: [] } });
 
-  const onRoot = await root(t);
-  const on = harness({ storageRoot: onRoot });
-  assert.deepEqual(await run('checks-on', onRoot, { ...on.deps, now: startedBefore(180_000 - 50), getAccessToken: stuck }), { exitCode: 0,
-    result: { checksEnabled: true, clientVersion: CODEX_CLI_VERSION, catalogCheckedAt: null, catalogError: 'catalog_unavailable',
-      lastRun: timeLimited, models: [] } });
-  assert.ok(performance.now() - began < 10_000);
-  assert.equal(networkCalls(status.calls) + networkCalls(on.calls), 0);
+  await t.test('checks-on answers by its deadline and still saves the setting', { skip: containerStoreSkip }, async () => {
+    const onRoot = await root(t);
+    const on = harness({ storageRoot: onRoot });
+    assert.deepEqual(await run('checks-on', onRoot, { ...on.deps, now: startedBefore(180_000 - 50), getAccessToken: stuck }), { exitCode: 0,
+      result: { checksEnabled: true, clientVersion: CODEX_CLI_VERSION, catalogCheckedAt: null, catalogError: 'catalog_unavailable',
+        lastRun: timeLimited, models: [] } });
+    assert.ok(performance.now() - began < 10_000);
+    assert.equal(networkCalls(status.calls) + networkCalls(on.calls), 0);
 
-  const slowRoot = await root(t);
-  const catalog = ['b-1', 'b-2', 'b-3', 'b-4', 'b-5'].map(slug => entry(slug));
-  const starts = [];
-  const slow = harness({ storageRoot: slowRoot, catalog, probe: () => {
-    starts.push(slow.clock.t);
-    slow.clock.t += 70_000;
-    return apiError(503, { code: 'busy' })();
-  } });
-  const limited = await run('checks-on', slowRoot, { ...slow.deps, getAccessToken: async () => ({ accessToken: TOKEN }) });
-  assert.equal(limited.exitCode, 0);
-  assert.deepEqual([limited.result.checksEnabled, limited.result.lastRun.stoppedReason], [true, 'time_limit']);
-  assert.ok(starts.length < catalog.length && starts.every(at => at < T0 + 180_000), 'no probe starts after the deadline');
-  assert.deepEqual(limited.result.models.map(({ state }) => state), catalog.map(() => 'unchecked'));
+    const slowRoot = await root(t);
+    const catalog = ['b-1', 'b-2', 'b-3', 'b-4', 'b-5'].map(slug => entry(slug));
+    const starts = [];
+    const slow = harness({ storageRoot: slowRoot, catalog, probe: () => {
+      starts.push(slow.clock.t);
+      slow.clock.t += 70_000;
+      return apiError(503, { code: 'busy' })();
+    } });
+    const limited = await run('checks-on', slowRoot, { ...slow.deps, getAccessToken: async () => ({ accessToken: TOKEN }) });
+    assert.equal(limited.exitCode, 0);
+    assert.deepEqual([limited.result.checksEnabled, limited.result.lastRun.stoppedReason], [true, 'time_limit']);
+    assert.ok(starts.length < catalog.length && starts.every(at => at < T0 + 180_000), 'no probe starts after the deadline');
+    assert.deepEqual(limited.result.models.map(({ state }) => state), catalog.map(() => 'unchecked'));
+  });
 });

@@ -462,14 +462,25 @@ test("local usage reads only the running owned sidecar's counts, with its read-o
   assert.deepEqual(reads.at(-1).args, ["compose", "--project-name", projectName, "--file", "docker-compose.yml",
     "exec", "-T", "openai-oauth", "node", "/app/services/model-discovery.mjs", "usage"]);
 
-  const discovery = createModelDiscovery({ storageRoot: destinationRoot, registrationId, pinnedClientVersion: CODEX_CLI_VERSION,
-    getLease: async () => ({ accessToken: "fake-unused-access-token" }) });
-  discovery.recordActivity({ model: "selected-model", accepted: true, outcome: "completed",
-    usage: { input_tokens: 3, output_tokens: 4 } });
-  await discovery.close();
-  const record = await getLocalN8nSidecarUsage(deps(homeDirectory, container));
-  assert.equal(record.registrationId, registrationId);
-  assert.deepEqual(Object.values(record.days).map(day => day["selected-model"].total), [7]);
+  await t.test("the counts the running sidecar wrote come back as its usage command prints them", {
+    skip: process.platform === "win32" && "the request count store exists only in the Linux sidecar container; NTFS has no POSIX modes",
+  }, async () => {
+    const discovery = createModelDiscovery({ storageRoot: destinationRoot, registrationId, pinnedClientVersion: CODEX_CLI_VERSION,
+      getLease: async () => ({ accessToken: "fake-unused-access-token" }) });
+    discovery.recordActivity({ model: "selected-model", accepted: true, outcome: "completed",
+      usage: { input_tokens: 3, output_tokens: 4 } });
+    await discovery.close();
+    const record = await getLocalN8nSidecarUsage(deps(homeDirectory, container));
+    assert.equal(record.registrationId, registrationId);
+    assert.deepEqual(Object.values(record.days).map(day => day["selected-model"].total), [7]);
+  });
+  // A record as a running sidecar prints it; the read checks only that it belongs to this registration.
+  const record = { schemaVersion: 1, registrationId, startedAt: "2026-10-07T12:00:00.000Z", updatedAt: "2026-10-07T12:00:00.000Z",
+    days: { "2026-10-07": { "selected-model": { requests: 1, completed: 1, failed: 0, incomplete: 0, input: 3, cached: 0, output: 4,
+      reasoning: 0, total: 7 } } }, lastUsageEvent: null };
+  const printing = async spec => spec.args.includes("/app/services/model-discovery.mjs")
+    ? { code: 0, stdout: JSON.stringify(record), stderr: "" } : runner(spec);
+  assert.deepEqual(await getLocalN8nSidecarUsage(deps(homeDirectory, printing)), record, "the running owner's record is returned as printed");
   for (const [result, expected] of [
     [{ code: 1, stdout: JSON.stringify({ error: "invalid_command", message: "Unknown command." }), stderr: "" }, null],
     [{ code: 1, stdout: "", stderr: "Error: Cannot find module '/app/services/model-discovery.mjs'\n" }, null],

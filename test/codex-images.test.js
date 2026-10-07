@@ -58,7 +58,12 @@ async function seedSession(storageRoot, overrides = {}) {
 const readSession = async storageRoot => JSON.parse(await readFile(join(storeDir(storageRoot), 'session.json'), 'utf8'));
 const rejectsWith = (promise, code) => assert.rejects(promise, error => error.code === code);
 
-test('device sign-in saves one images session and returns no secrets', async t => {
+// The image sign-in store exists only in the Linux sidecar container, and its owner-only mode
+// checks cannot pass on NTFS. Windows runs the tests that need no store.
+const containerStoreSkip = process.platform === 'win32' &&
+  'the Codex images store exists only in the Linux sidecar container; NTFS has no POSIX modes';
+
+test('device sign-in saves one images session and returns no secrets', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { clock, calls, deps } = harness({
     '/api/accounts/deviceauth/usercode': deviceCode({ user_code: undefined, usercode: 'ABCD-1234', interval: '7' }),
@@ -101,7 +106,7 @@ test('device sign-in saves one images session and returns no secrets', async t =
   assert.equal(calls.length, 3);
 });
 
-test('polling honours the 5 s floor and keeps the pending sign-in until it succeeds', async t => {
+test('polling honours the 5 s floor and keeps the pending sign-in until it succeeds', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { clock, calls, handlers, deps } = harness({ '/api/accounts/deviceauth/usercode': deviceCode({ interval: '2' }) });
   await startCodexImagesLogin({ storageRoot }, deps);
@@ -135,7 +140,7 @@ test('polling honours the 5 s floor and keeps the pending sign-in until it succe
   assert.equal((await readSession(storageRoot)).accountId, 'acct-from-access-zyxwvu');
 });
 
-test('declined and expired sign-ins end in off and clear the pending code', async t => {
+test('declined and expired sign-ins end in off and clear the pending code', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { clock, calls, handlers, deps } = harness({
     '/api/accounts/deviceauth/usercode': deviceCode(),
@@ -163,7 +168,7 @@ test('declined and expired sign-ins end in off and clear the pending code', asyn
   assert.deepEqual(await readdir(storeDir(storageRoot)), []);
 });
 
-test('starting again replaces the pending sign-in and cancel clears it', async t => {
+test('starting again replaces the pending sign-in and cancel clears it', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { handlers, deps } = harness({ '/api/accounts/deviceauth/usercode': deviceCode() });
   await startCodexImagesLogin({ storageRoot }, deps);
@@ -174,7 +179,7 @@ test('starting again replaces the pending sign-in and cancel clears it', async t
   assert.deepEqual(await codexImagesStatus({ storageRoot }, deps), { state: 'off' });
 });
 
-test('a 404 on the device code request means device code sign-in is off; other start failures stay generic', async t => {
+test('a 404 on the device code request means device code sign-in is off; other start failures stay generic', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { handlers, deps } = harness({ '/api/accounts/deviceauth/usercode': json({ error: 'not_found' }, 404) });
   await rejectsWith(startCodexImagesLogin({ storageRoot }, deps), 'images_device_login_disabled');
@@ -185,7 +190,7 @@ test('a 404 on the device code request means device code sign-in is off; other s
   assert.deepEqual(await codexImagesStatus({ storageRoot }, deps), { state: 'off' });
 });
 
-test('refresh persists in-flight first, then stores the rotated pair', async t => {
+test('refresh persists in-flight first, then stores the rotated pair', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedSession(storageRoot, { accessExpiresAt: iso(T0 + 5 * 60_000 + 1_000) });
   const rotated = jwt({ exp: (T0 + 7_200_000) / 1000, [AUTH]: { chatgpt_data_residency: 'eu', chatgpt_account_is_fedramp: true } });
@@ -221,7 +226,7 @@ test('refresh persists in-flight first, then stores the rotated pair', async t =
   assert.equal(await readdir(storeDir(storageRoot)).then(names => names.includes('lock')), false);
 });
 
-test('lease sends residency only from a valid claim', async t => {
+test('lease sends residency only from a valid claim', { skip: containerStoreSkip }, async t => {
   const cases = [
     [{ chatgpt_data_residency: 'EU!', chatgpt_compute_residency: 'us' }, 'us'],
     [{ chatgpt_data_residency: 'a-very-long-region-name' }, undefined],
@@ -237,7 +242,7 @@ test('lease sends residency only from a valid claim', async t => {
   }
 });
 
-test('refresh answers that need a new sign-in mark reauthorize and never retry the token', async t => {
+test('refresh answers that need a new sign-in mark reauthorize and never retry the token', { skip: containerStoreSkip }, async t => {
   const cases = [
     [401, {}],
     [400, { error: { code: 'refresh_token_expired' } }],
@@ -261,7 +266,7 @@ test('refresh answers that need a new sign-in mark reauthorize and never retry t
   }
 });
 
-test('a transport error or unreadable answer after sending never replays the refresh token', async t => {
+test('a transport error or unreadable answer after sending never replays the refresh token', { skip: containerStoreSkip }, async t => {
   const cases = [
     () => { throw new Error('socket hang up private-refresh-1'); },
     () => { throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' }); },
@@ -280,7 +285,7 @@ test('a transport error or unreadable answer after sending never replays the ref
   }
 });
 
-test('other refresh errors restore the session so a later lease can retry', async t => {
+test('other refresh errors restore the session so a later lease can retry', { skip: containerStoreSkip }, async t => {
   for (const [status, body] of [[400, { error: 'invalid_request' }], [500, {}], [429, { error: { code: 'rate_limited' } }]]) {
     const storageRoot = await root(t);
     await seedSession(storageRoot, { accessExpiresAt: iso(T0 + 60_000) });
@@ -294,7 +299,7 @@ test('other refresh errors restore the session so a later lease can retry', asyn
   }
 });
 
-test('a session left in-flight by a crash requires a new sign-in', async t => {
+test('a session left in-flight by a crash requires a new sign-in', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedSession(storageRoot, { refreshState: 'in-flight' });
   const { calls, deps } = harness();
@@ -308,7 +313,7 @@ test('a session left in-flight by a crash requires a new sign-in', async t => {
   await rejectsWith(getCodexImagesLease({ storageRoot: other }, deps), 'images_reauthorize');
 });
 
-test('the lock excludes other work and is replaced only when stale', async t => {
+test('the lock excludes other work and is replaced only when stale', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await mkdir(storeDir(storageRoot), { mode: 0o700 });
   const lock = join(storeDir(storageRoot), 'lock');
@@ -328,19 +333,22 @@ test('the lock excludes other work and is replaced only when stale', async t => 
   await assert.rejects(stat(lock), { code: 'ENOENT' });
 });
 
-test('concurrent leases refresh the token once', async t => {
+test('concurrent leases refresh the token once', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   await seedSession(storageRoot, { accessExpiresAt: iso(T0 + 60_000) });
   const rotated = jwt({ exp: (T0 + 7_200_000) / 1000 });
-  let answer;
+  let answer, reached;
   const gate = new Promise(done => { answer = done; });
+  const refreshSent = new Promise(done => { reached = done; });
   const { calls, deps } = harness({ '/oauth/token': async () => {
+    reached();
     await gate;
     return Response.json({ access_token: rotated, refresh_token: 'private-refresh-2' });
   } });
   const realWait = { ...deps, sleep: () => new Promise(done => setTimeout(done, 2)) };
   const first = getCodexImagesLease({ storageRoot }, realWait);
-  while (calls.length === 0) await new Promise(done => setTimeout(done, 2));
+  // A first lease that fails before its refresh fails the test here; polling for the refresh would never end.
+  await Promise.race([refreshSent, first]);
   const second = getCodexImagesLease({ storageRoot }, realWait);
   await new Promise(done => setTimeout(done, 20));
   answer();
@@ -348,7 +356,7 @@ test('concurrent leases refresh the token once', async t => {
   assert.equal(calls.length, 1);
 });
 
-test('storage refuses symlinks, hard links, loose permissions and relative roots', async t => {
+test('storage refuses symlinks, hard links and loose permissions', { skip: containerStoreSkip }, async t => {
   const { deps } = harness({ '/oauth/revoke': json({}) });
   const cases = {
     'symlinked session': async (storageRoot, outside) => {
@@ -380,7 +388,6 @@ test('storage refuses symlinks, hard links, loose permissions and relative roots
     await rejectsWith(getCodexImagesLease({ storageRoot }, deps), 'images_unavailable', name);
     await rejectsWith(codexImagesStatus({ storageRoot }, deps), 'images_unavailable', name);
   }
-  await rejectsWith(codexImagesStatus({ storageRoot: 'relative/root' }, deps), 'images_unavailable');
 
   const storageRoot = await root(t);
   const outside = join(await root(t), 'outside');
@@ -390,7 +397,11 @@ test('storage refuses symlinks, hard links, loose permissions and relative roots
   assert.deepEqual(await readdir(storeDir(storageRoot)), []);
 });
 
-test('sign-out clears local state even when revocation fails', async t => {
+test('storage refuses a relative root', async () => {
+  await rejectsWith(codexImagesStatus({ storageRoot: 'relative/root' }, harness().deps), 'images_unavailable');
+});
+
+test('sign-out clears local state even when revocation fails', { skip: containerStoreSkip }, async t => {
   const cases = [
     [{}, () => { throw new Error('offline'); }, 'unconfirmed'],
     [{}, json({}, 500), 'unconfirmed'],
@@ -414,7 +425,7 @@ test('sign-out clears local state even when revocation fails', async t => {
   assert.deepEqual(await codexImagesStatus({ storageRoot }, deps), { state: 'off' });
 });
 
-test('sign-out also removes leftover temp records but never follows links or touches other names', async t => {
+test('sign-out also removes leftover temp records but never follows links or touches other names', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const outside = await root(t);
   await seedSession(storageRoot);
@@ -447,7 +458,19 @@ test('without a store every call except sign-in is off and creates nothing', asy
   assert.equal(calls.length, 0);
 });
 
-test('the CLI prints one JSON line per command and never a secret', async t => {
+test('the CLI answers off without a store and refuses an unknown command, one JSON line each', async t => {
+  const storageRoot = await root(t);
+  for (const [command, exitCode, result] of [
+    ['status', 0, { state: 'off' }],
+    ['refresh', 1, { error: 'invalid_command', message: 'Unknown Codex images command.' }],
+  ]) {
+    const output = { text: '', write(chunk) { this.text += chunk; } };
+    assert.equal(await runCodexImagesCli({ command, storageRoot, output, deps: harness().deps }), exitCode);
+    assert.equal(output.text, `${JSON.stringify(result)}\n`);
+  }
+});
+
+test('the CLI prints one JSON line per command and never a secret', { skip: containerStoreSkip }, async t => {
   const storageRoot = await root(t);
   const { clock, handlers, deps } = harness({
     '/api/accounts/deviceauth/usercode': deviceCode(),
@@ -462,7 +485,6 @@ test('the CLI prints one JSON line per command and never a secret', async t => {
     for (const secret of SECRETS) assert.equal(output.text.includes(secret), false, `${command} printed a secret`);
     return { exitCode, result: JSON.parse(output.text) };
   };
-  assert.deepEqual(await run('status'), { exitCode: 0, result: { state: 'off' } });
   assert.equal((await run('login-start')).result.state, 'pending');
   clock.t = T0 + 5_000;
   const failed = await run('login-poll');
@@ -476,7 +498,6 @@ test('the CLI prints one JSON line per command and never a secret', async t => {
   assert.equal((await run('login-start')).exitCode, 1);
   assert.deepEqual(await run('sign-out'), { exitCode: 0, result: { state: 'off', revocation: 'unconfirmed' } });
   assert.deepEqual(await run('login-cancel'), { exitCode: 0, result: { state: 'off' } });
-  assert.deepEqual(await run('refresh'), { exitCode: 1, result: { error: 'invalid_command', message: 'Unknown Codex images command.' } });
 
   const script = fileURLToPath(new URL('../src/services/codex-images.mjs', import.meta.url));
   const { stdout } = await promisify(execFile)(process.execPath, [script, 'status'], { env: { N8N_OPENAI_OAUTH_HOME: storageRoot } });

@@ -3,13 +3,14 @@ import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import { CODEX_CLI_VERSION, createSidecarHandler, createSidecarServer, listSiwcModels } from "../src/gateway/openai-oauth-sidecar.mjs";
 
 const credential = "local_client_credential_123456789";
 const verifier = createHash("sha256").update(credential).digest();
-const registration = { storageRoot: "/tmp/test-siwc", registrationId: "first" };
+// Resolved like the container's root: the image store refuses an unresolved one, and Windows resolves "/tmp/..." onto a drive.
+const registration = { storageRoot: resolve("/tmp/test-siwc"), registrationId: "first" };
 const terminal = (type, response) => `event: ${type}\ndata: ${JSON.stringify({ type, response })}\n\n`;
 const completed = { id: "resp_1", status: "completed", output: [{ type: "message", content: [{ type: "output_text", text: "Hello" }] }] };
 const fakeDiscovery = (listModels = async () => ({ models: [], clientVersion: CODEX_CLI_VERSION, checksEnabled: false }), recordOutcome) => {
@@ -297,7 +298,9 @@ test("a hanging or failing request counter never delays or alters the client res
   }
 });
 
-test("the sidecar's own discovery keeps the counts and writes them when the handler closes", async (t) => {
+test("the sidecar's own discovery keeps the counts and writes them when the handler closes", {
+  skip: process.platform === "win32" && "the request count store exists only in the Linux sidecar container; NTFS has no POSIX modes",
+}, async (t) => {
   const storageRoot = await mkdtemp(join(tmpdir(), "relmio-sidecar-usage-"));
   t.after(() => rm(storageRoot, { recursive: true, force: true }));
   const usage = { input_tokens: 9, input_tokens_details: { cached_tokens: 2 }, output_tokens: 3,

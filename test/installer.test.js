@@ -1605,14 +1605,22 @@ test("usage status attests the running owner and runs only its read-only command
   assert.deepEqual(commands.filter(command => command.includes("/app/services/model-discovery.mjs ")), [verification.usageStatus]);
   assert.equal(commands.some(command => command.includes(LOCK_ACQUIRE)), false, "a read takes no operation lock");
 
-  const discovery = createModelDiscovery({ storageRoot: destinationRoot, registrationId, pinnedClientVersion: CODEX_CLI_VERSION,
-    getLease: async () => ({ accessToken: "fake-unused-access-token" }) });
-  discovery.recordActivity({ model: "account-model", accepted: true, outcome: "completed",
-    usage: { input_tokens: 5, output_tokens: 2 } });
-  await discovery.close();
-  const record = await getVpsUsageStatus(scope);
-  assert.equal(record.registrationId, registrationId);
-  assert.deepEqual(Object.values(record.days).map(day => day["account-model"].total), [7]);
+  await t.test("the counts the running sidecar wrote come back as its usage command prints them", {
+    skip: process.platform === "win32" && "the request count store exists only in the Linux sidecar container; NTFS has no POSIX modes",
+  }, async () => {
+    const discovery = createModelDiscovery({ storageRoot: destinationRoot, registrationId, pinnedClientVersion: CODEX_CLI_VERSION,
+      getLease: async () => ({ accessToken: "fake-unused-access-token" }) });
+    discovery.recordActivity({ model: "account-model", accepted: true, outcome: "completed",
+      usage: { input_tokens: 5, output_tokens: 2 } });
+    await discovery.close();
+    const stored = await getVpsUsageStatus(scope);
+    assert.equal(stored.registrationId, registrationId);
+    assert.deepEqual(Object.values(stored.days).map(day => day["account-model"].total), [7]);
+  });
+  // A record as a running sidecar prints it; the read checks only that it belongs to this registration.
+  const record = { schemaVersion: 1, registrationId, startedAt: "2026-10-07T12:00:00.000Z", updatedAt: "2026-10-07T12:00:00.000Z",
+    days: { "2026-10-07": { "account-model": { requests: 1, completed: 1, failed: 0, incomplete: 0, input: 5, cached: 0, output: 2,
+      reasoning: 0, total: 7 } } }, lastUsageEvent: null };
 
   // Only an older sidecar reads as empty: no usage command, or no model module at all. Any other failed run is unavailable.
   for (const [result, expected] of [
@@ -1629,6 +1637,7 @@ test("usage status attests the running owner and runs only its read-only command
   }
 
   remote.faults.models = () => ({ code: 0, stdout: JSON.stringify(record) });
+  assert.deepEqual(await getVpsUsageStatus(scope), record, "the running owner's record is returned as printed");
   const runs = modelRuns(remote).length;
   await assert.rejects(getVpsUsageStatus({ ...scope, registrationId: "registration_other" }));
   await assert.rejects(getVpsUsageStatus({ ...scope, registrationId: "../auth" }));
