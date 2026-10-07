@@ -81,6 +81,14 @@ ending the launcher before the page opens. Review exactly what the wizard will
 create, then confirm the install. Use `relmio local` only when you explicitly
 want the setup route for this computer.
 
+The first time the wizard opens, it asks whether to start the setup guide.
+Relmio, the mascot, then points at each box and button in turn, says what to
+enter or press, and explains errors with the next step. Skip it if you like;
+the **Setup guide** button in the top bar turns it on or off later. Once you
+answer, Relmio saves only that choice, in `ui-preferences.json` in its
+ChatGPT sign-in folder (`~/.n8n-openai-oauth`, or `N8N_OPENAI_OAUTH_HOME` when
+set). See [Use the setup guide](docs/getting-started.md#use-the-setup-guide).
+
 No Node.js yet? The hosted guide has native curl, Homebrew, PowerShell, and
 Command Prompt options. Homebrew installs the persistent `relmio` command; it
 does not launch the browser. The curl, PowerShell, and Command Prompt
@@ -290,6 +298,16 @@ says **In n8n** or **Not in n8n** and has **Copy ID**. Optional model checks
 send one short test request per new model, use a little of your plan, and
 need your confirmation. They are off by default. See
 [model discovery and checks](docs/n8n-configuration.md#model-discovery-and-checks).
+
+**Plan and usage** shows the requests and tokens sent through the sidecar in
+the last 30 days, per model, and the last plan-usage error with its next
+step. On a VPS it is under **Manage the installed ChatGPT session** after
+**Check installed account**; on this computer it is a dashboard section.
+These are Relmio's own counts, not your plan's usage. Plan percent, reset
+times and credits stay on ChatGPT's Usage page, which **Manage usage** opens.
+The sidecar keeps the counts without prompts or outputs. A VPS sidecar
+installed by an earlier Relmio version starts counting after **Review sidecar
+update**. See [Plan and usage](docs/vps-and-n8n.md#see-plan-and-usage).
 
 The sidecar sends supported requests to `/v1/responses`. The
 `/v1/chat/completions` compatibility route translates text messages and

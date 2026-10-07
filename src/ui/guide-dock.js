@@ -1,17 +1,118 @@
 // Setup guide dock: screen tracking, the dock and its mascot chip, the pointer,
 // Show me, the mascot in the quest track and the badges on Ready screens.
 // guide.js imports this module only while the guide or error help is in use,
-// so pages with the guide off never load it.
+// so pages with the guide off never load it. The placement helpers are pure
+// and exported for tests.
 import { ACTION_LABELS, box, choosePlacement, currentTip, errorTarget, overlaps, selectChapter, tipDone, visitOutcome } from "./guide.js";
 import { createMascot, setMascotPose } from "./mascot.js";
 
 const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]";
+// The rail column: the rail and the blocks the grid places under it, such as
+// the safety notes. Their children are its content.
+const RAIL = ".rm-split > :not(.rm-split__content, .rm-panel)";
 // Page content the dock should avoid covering when it has a choice; covering
 // a control costs three times as much as covering text.
-const SOFT = ".rm-split__rail > *, .rm-split > :not(.rm-split__rail, .rm-split__content, .rm-panel), .rm-panel__heading," +
-  " .rm-split__rail :is(button:not(:disabled), a[href], summary), .rm-panel__body :is(.rm-field, .rm-check, .rm-choice," +
-  " .rm-callout, .rm-notice, .rm-card, .rm-dl, .rm-disclosure, .rm-terminal, .rm-table-wrap, p, h2, h3, li, button, a, label)";
+const SOFT = `${RAIL} > *, .rm-panel__heading, ${RAIL} :is(button:not(:disabled), a[href], summary),` +
+  " .rm-panel__body :is(.rm-field, .rm-check, .rm-choice, .rm-callout, .rm-notice, .rm-card, .rm-dl, .rm-disclosure," +
+  " .rm-terminal, .rm-table-wrap, p, h2, h3, li, button, a, label)";
 const CONTROLS = "button, a, label, .rm-field, .rm-check, .rm-choice, .rm-disclosure";
+// Safety the dock keeps clear: the rail column's content apart from the quest
+// track (intros, notes, status and safety lists) and every warning.
+const SAFETY = `${RAIL} > *, [data-tone='warning'], .rm-callout--warning, .rm-notice`;
+// Also kept clear at first: the page and step titles and the quest track.
+const LEAD = "h1, .rm-panel__heading :is(h2, h3), .rm-stepper--track";
+// Text the pointer's action label never covers: choice labels and summaries.
+const LABELS = ":is(.rm-check, .rm-choice) > :not(input), summary";
+const CHOICE = "input[type=checkbox], input[type=radio]";
+
+// Wide screens: the rail column's foot, level with the panel or under its
+// content (12 px below it, or as low as the window allows down to 8 px), or
+// its top, then corners of the panel above its footer or under its header.
+// Narrow screens: a sheet at the bottom of the window, above the panel
+// footer, or under the top bar.
+export function candidates(view, measure) {
+  const list = [];
+  if (view.wide && view.rail) {
+    const { left, top, width } = view.rail;
+    const height = measure(width);
+    const foot = Math.min(view.railEnd + 12, view.vh - 8 - height);
+    list.push(box(left, view.columnBottom - height, width, height));
+    if (foot >= view.railEnd + 8) list.push(box(left, foot, width, height));
+    list.push(box(left, top, width, height));
+  }
+  if (view.wide && view.panel) {
+    const width = Math.min(352, view.panel.width - 32);
+    const height = measure(width);
+    const left = view.panel.right - 16 - width;
+    const above = view.footerTop - 12 - height;
+    list.push(box(left, above, width, height), box(view.panel.left + 16, above, width, height),
+      box(left, view.headerBottom + 8, width, height));
+  }
+  if (!view.wide) {
+    const width = Math.min(view.vw - 16, 512);
+    const height = measure(width);
+    const left = (view.vw - width) / 2;
+    list.push(box(left, view.vh - 8 - height, width, height));
+    if (view.bottom < view.vh - 1) list.push(box(left, view.bottom - 8 - height, width, height));
+    list.push(box(left, view.top, width, height));
+  }
+  return list.filter((rect) => rect.top >= view.top - 8 && rect.bottom <= view.vh && rect.left >= 0 && rect.right <= view.vw);
+}
+
+// The dock's spot, strictest rule first; null folds it into the chip. It never
+// covers the hard boxes (the focused element, the primary action, alerts and
+// footer actions). Until the person opens it, it also keeps the tip's target,
+// the titles, the quest track and safety clear. Opened, it gives up the
+// target, titles and track first and safety last.
+export function placeDock(list, { hard, safety, lead, aim }, soft, opened = false) {
+  const tiers = [[...hard, ...safety, ...lead, ...aim]];
+  if (opened) tiers.push([...hard, ...safety], hard);
+  for (const rects of tiers) {
+    const spot = choosePlacement(list, rects, soft);
+    if (spot) return spot;
+  }
+  return null;
+}
+
+// The part of a box inside every clip box, or null when none of it shows.
+export function visiblePart(rect, clips) {
+  let { left, top, right, bottom } = rect;
+  for (const clip of clips) {
+    [left, top] = [Math.max(left, clip.left), Math.max(top, clip.top)];
+    [right, bottom] = [Math.min(right, clip.right), Math.min(bottom, clip.bottom)];
+  }
+  return right > left && bottom > top ? box(left, top, right - left, bottom - top) : null;
+}
+
+// The pointer's cursor: its tip on the target's bottom right, or on a
+// checkbox or radio's left edge so the action label points away from its
+// text. The label takes the other side when it would leave the window or
+// cover an avoided box, and is left out when neither side is clear.
+export function cursorSpot(goal, { arrow, width, height, top }, view, avoid, control = false) {
+  const x = control ? goal.left + 4 : Math.min(goal.right - 12, view.vw - 24);
+  const y = Math.min(goal.bottom - 6, view.vh - 32);
+  const sides = control ? [true, false] : [false, true];
+  const flip = sides.find((side) => {
+    const label = box(side ? x - arrow - width : x + arrow, y + top, width, height);
+    return label.left >= 8 && label.right <= view.vw - 8 && !avoid.some((rect) => overlaps(label, rect));
+  });
+  return { x, y, flip: flip ?? sides[0], label: flip !== undefined };
+}
+
+// Show me markers under reduced motion: each starts above its target and moves
+// right past a marker it would overlap, or under it when the row is full.
+export function stackMarkers(boxes, width) {
+  const placed = [];
+  for (const start of boxes) {
+    let spot = start;
+    for (let hit; (hit = placed.find((other) => overlaps(spot, other)));) {
+      spot = hit.right + 4 + spot.width <= width ? box(hit.right + 4, spot.top, spot.width, spot.height)
+        : box(start.left, hit.bottom + 4, spot.width, spot.height);
+    }
+    placed.push(spot);
+  }
+  return placed;
+}
 
 export function mountGuide(host) {
   const doc = document;
@@ -23,6 +124,10 @@ export function mountGuide(host) {
   let hidden = false; let errorOpen = false; let seenFailure = null; let seenPref; let returnFocus = null;
   let demo = null; let demoTip = null; let markers = []; let look = {};
   let frame = 0; let placeFrame = 0; let shownKey = ""; let observedTarget = null;
+  // The dock content the person asked to see (the chip, Start the guide, Back
+  // or Next tip); "next" until it renders. Only that content, or a dock holding
+  // focus, may cover the page past the strict rules.
+  let openedKey = null;
 
   const all = (selector) => { try { return [...doc.querySelectorAll(selector)]; } catch { return []; } };
   const owned = (node) => toggles.includes(node) || ui.layer.contains(node) || ui.track.contains(node) ||
@@ -31,6 +136,9 @@ export function mountGuide(host) {
   const visible = (node) => Boolean(node) && !ui.layer.contains(node) && showing(node);
   const first = (selector) => (typeof selector === "string" ? all(selector).find(visible) ?? null : null);
   const shown = (selector) => first(selector) !== null;
+  // Boxes of the nodes on screen, leaving out visually hidden ones.
+  const boxes = (nodes) => nodes.filter(visible).map((node) => node.getBoundingClientRect())
+    .filter((rect) => rect.width > 1 && rect.height > 1);
   const matches = (node, selector) => { try { return Boolean(node?.closest?.(selector)); } catch { return false; } };
   const attr = (node, name, value) => { if (node.getAttribute(name) !== value) node.setAttribute(name, value); };
   const make = (tag, className = "", text = "") => {
@@ -123,7 +231,7 @@ export function mountGuide(host) {
     track.setAttribute("viewBox", "-6 -6 108 138");
     const finish = doc.querySelector("[data-guide-finish]");
 
-    const collapse = () => { hidden = true; errorOpen = false; refresh(); };
+    const collapse = () => { hidden = true; errorOpen = false; openedKey = null; refresh(); };
     // Focus moves to the visible guide toggle, or the menu that holds it.
     const turnOff = () => {
       host.choose("off");
@@ -132,12 +240,13 @@ export function mountGuide(host) {
     hide.addEventListener("click", () => { collapse(); chip.focus(); });
     close.addEventListener("click", turnOff);
     skip.addEventListener("click", turnOff);
-    start.addEventListener("click", () => { host.choose("on"); refresh(); focusDock(); });
+    start.addEventListener("click", () => { openedKey = "next"; host.choose("on"); refresh(); focusDock(); });
     back.addEventListener("click", () => { if (back.getAttribute("aria-disabled") !== "true") step(-1); });
     forward.addEventListener("click", () => { if (forward.getAttribute("aria-disabled") !== "true") step(1); });
     show.addEventListener("click", showMe);
     chip.addEventListener("click", () => {
       hidden = false;
+      openedKey = "next";
       if (host.failure?.entry) errorOpen = true;
       refresh();
       focusDock();
@@ -221,6 +330,7 @@ export function mountGuide(host) {
     let index = tipIndex + delta;
     while (tips[index] && !shown(tips[index].target)) index += delta;
     viewTip = tips[index] ? { index, base: currentTip(tips, probe(chapter)) } : null;
+    openedKey = "next";
     refresh();
   }
 
@@ -237,6 +347,7 @@ export function mountGuide(host) {
     const tip = current === "guide" ? chapter?.tips[tipIndex] : null;
     const entry = host.failure?.entry;
     const key = `${current}|${current === "guide" ? `${chapter?.id}/${tip?.id}` : current === "error" ? entry.title : ""}`;
+    if (openedKey === "next" && current !== "chip") openedKey = key;
     const focusInside = ui.dock.contains(doc.activeElement);
     // A Ready screen with the badges block lists them, so the dock does not repeat them.
     const listed = onPage(content);
@@ -253,9 +364,14 @@ export function mountGuide(host) {
       ui.find.open = false;
       ui.next.replaceChildren(...(current === "finish" && !listed ? content.finish?.next ?? [] : [])
         .map((text) => make("li", "", text)));
-      ui.eyebrow.textContent = current === "error" ? "Error help" : current === "guide" && chapter
-        ? `Quest ${active + 1} of ${content.chapters.length} · ${chapter.label}` : "Setup guide";
     }
+    // A quest takes the number of the page's current step, so the dock agrees
+    // with the quest track; a page without a track counts its chapters.
+    const item = content ? first(".rm-stepper__item[aria-current='step']") : null;
+    const quest = item ? [...item.parentElement.children].indexOf(item) + 1 : active + 1;
+    const eyebrow = current === "error" ? "Error help" : current === "guide" && chapter
+      ? `Quest ${quest} · ${chapter.label}` : "Setup guide";
+    if (current !== "chip" && ui.eyebrow.textContent !== eyebrow) ui.eyebrow.textContent = eyebrow;
     const chapters = current === "error" ? [] : content?.chapters ?? [];
     if (ui.dots.children.length !== chapters.length) ui.dots.replaceChildren(...chapters.map(() => make("li")));
     chapters.forEach((item, index) => attr(ui.dots.children[index], "data-state",
@@ -288,7 +404,7 @@ export function mountGuide(host) {
       : tip?.action === "wait" ? "waiting" : tip?.action === "read" ? "thinking" : tip ? "look" : "idle";
     setMascotPose(ui.mascot, pose, look);
     // Relmio stands in the quest track's current step while the guide is on.
-    const step = host.pref === "on" && content ? first(".rm-stepper__item[aria-current='step'] .rm-stepper__marker") : null;
+    const step = host.pref === "on" ? item?.querySelector(".rm-stepper__marker") : null;
     if (!step) ui.track.remove();
     else if (ui.track.parentNode !== step) step.append(ui.track);
     setMascotPose(ui.track, pose === "look" ? "idle" : pose);
@@ -338,6 +454,8 @@ export function mountGuide(host) {
     const header = panelNode && [...panelNode.querySelectorAll(".rm-panel__header")].find(visible)?.getBoundingClientRect();
     return {
       vw, vh, wide, top, rail, panel, footerNode,
+      // Where the rail column's content ends, so the dock can sit under it.
+      railEnd: rail ? Math.max(rail.top, ...all(`${RAIL} > *`).filter(visible).map((node) => node.getBoundingClientRect().bottom)) : 0,
       columnBottom: panel?.bottom ?? vh - 16,
       footerTop: footer && footer.top > (panel?.top ?? 0) ? footer.top : (panel?.bottom ?? vh) - 16,
       headerBottom: header?.bottom ?? (panel?.top ?? top) + 16,
@@ -345,33 +463,15 @@ export function mountGuide(host) {
     };
   }
 
-  // Wide screens: the step rail's foot or top, then corners of the panel above
-  // its footer or under its header. Narrow screens: a sheet at the bottom of
-  // the window, above the panel footer, or under the top bar.
-  function candidates(view, measure) {
-    const list = [];
-    if (view.wide && view.rail) {
-      const { left, top, width } = view.rail;
-      const height = measure(width);
-      list.push(box(left, view.columnBottom - height, width, height), box(left, top, width, height));
+  // A node's box inside the window below the top bar and inside every
+  // ancestor that clips it, such as a scrolled panel body; null when hidden.
+  function seen(node, clipTop) {
+    const clips = [box(0, clipTop, doc.documentElement.clientWidth, innerHeight - clipTop)];
+    for (let parent = node.parentElement; parent && parent !== doc.body; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (style.overflowX !== "visible" || style.overflowY !== "visible") clips.push(parent.getBoundingClientRect());
     }
-    if (view.wide && view.panel) {
-      const width = Math.min(352, view.panel.width - 32);
-      const height = measure(width);
-      const left = view.panel.right - 16 - width;
-      const above = view.footerTop - 12 - height;
-      list.push(box(left, above, width, height), box(view.panel.left + 16, above, width, height),
-        box(left, view.headerBottom + 8, width, height));
-    }
-    if (!view.wide) {
-      const width = Math.min(view.vw - 16, 512);
-      const height = measure(width);
-      const left = (view.vw - width) / 2;
-      list.push(box(left, view.vh - 8 - height, width, height));
-      if (view.bottom < view.vh - 1) list.push(box(left, view.bottom - 8 - height, width, height));
-      list.push(box(left, view.top, width, height));
-    }
-    return list.filter((rect) => rect.top >= view.top - 8 && rect.bottom <= view.vh && rect.left >= 0 && rect.right <= view.vw);
+    return visiblePart(node.getBoundingClientRect(), clips);
   }
 
   function place() {
@@ -384,25 +484,37 @@ export function mountGuide(host) {
     }
     if (current === "none") return;
     const view = layout();
-    const goal = node?.getBoundingClientRect();
-    const x = goal && Math.min(goal.right - 12, view.vw - 24);
-    const y = goal && Math.min(goal.bottom - 6, view.vh - 32);
-    const flip = goal && x + ui.label.offsetWidth + 32 > view.vw;
-    const guard = [];
+    const goal = node && seen(node, view.top - 8);
+    // Never covered: the focused element, the primary action, alerts and the
+    // panel footer's actions and consents.
+    const hard = [];
     const focused = doc.activeElement;
     if (focused && !owned(focused)) {
       const rect = focused.getBoundingClientRect();
-      if (rect.width * rect.height < (view.vw * view.vh) / 3) guard.push(rect);
+      if (rect.width * rect.height < (view.vw * view.vh) / 3) hard.push(rect);
     }
-    for (const item of all(".rm-button--primary, [role='alert']")) if (visible(item)) guard.push(item.getBoundingClientRect());
-    const blocked = guard.filter((rect) => rect.width > 0 && rect.height > 0);
-    // Prefer spots that also keep the pointed target and the cursor label in
-    // view; a target taller than half the window is only highlighted.
-    const guarded = [...blocked];
-    if (goal && goal.bottom > view.top && goal.top < view.vh && goal.height < (view.vh - view.top) / 2) {
-      const width = ui.cursor.offsetWidth || 130;
-      guarded.push(box(goal.left - 10, goal.top - 10, goal.width + 20, goal.height + 20),
-        box(flip ? x - width : x, y, width, ui.cursor.offsetHeight || 40));
+    const urgent = boxes(all(".rm-button--primary, [role='alert'], .rm-panel__footer :is(button, a[href], label)"));
+    hard.push(...urgent);
+    const track = first(".rm-stepper--track");
+    const safety = boxes(all(SAFETY).filter((item) => !item.contains(track)));
+    // The cursor and its action label are measured on screen before placing.
+    const tip = demoTip ?? chapterNow()?.tips[tipIndex];
+    const text = demoTip ? demoTip.title : current !== "error" && ACTION_LABELS[tip?.action] || inferAction(node);
+    if (ui.label.textContent !== text) ui.label.textContent = text;
+    ui.pointer.hidden = false;
+    const arrow = ui.cursor.offsetWidth - ui.label.offsetWidth;
+    const control = node?.matches(CHOICE) ? node : node?.matches("label") ? node.querySelector(CHOICE) : null;
+    const anchor = (control && seen(control, view.top - 8)) || goal;
+    const cursor = anchor && cursorSpot(anchor, {
+      arrow, width: ui.label.offsetWidth, height: ui.label.offsetHeight, top: ui.label.offsetTop,
+    }, view, [...urgent, ...safety, ...boxes(all(LABELS))], Boolean(control));
+    // Prefer spots that also keep the pointed target and the cursor in view; a
+    // target taller than half the window is only highlighted.
+    const aim = [];
+    if (goal && goal.height < (view.vh - view.top) / 2) {
+      const width = cursor.label ? ui.cursor.offsetWidth : arrow;
+      aim.push(box(goal.left - 10, goal.top - 10, goal.width + 20, goal.height + 20),
+        box(cursor.flip ? cursor.x - width : cursor.x, cursor.y, width, ui.cursor.offsetHeight));
     }
     const soft = [];
     for (const item of all(SOFT)) {
@@ -415,6 +527,7 @@ export function mountGuide(host) {
     // keeps its place and any focus inside it, and returns when the demo ends.
     const clear = Boolean(demo) && !view.wide;
     ui.dock.classList.toggle("is-clear", clear);
+    const lead = boxes(all(LEAD));
     let spot = null;
     if (current !== "chip") {
       ui.dock.hidden = false;
@@ -422,8 +535,11 @@ export function mountGuide(host) {
         ui.dock.style.width = `${width}px`;
         return ui.dock.offsetHeight;
       });
-      spot = choosePlacement(list, guarded, soft) ?? choosePlacement(list, blocked, soft);
+      const opened = openedKey === shownKey || ui.dock.contains(doc.activeElement);
+      spot = placeDock(list, { hard, safety, lead, aim }, soft, opened);
     }
+    // A dock that folds into the chip hands its focus to the chip.
+    const refocus = !spot && ui.dock.contains(doc.activeElement);
     ui.dock.hidden = !spot;
     ui.chip.hidden = Boolean(spot);
     if (spot) move(ui.dock, spot);
@@ -432,25 +548,24 @@ export function mountGuide(host) {
       const height = ui.chip.offsetHeight;
       const gap = view.wide ? 16 : 8;
       const right = view.vw - gap - width;
-      const list = [box(right, view.bottom - gap - height, width, height), box(right, view.top, width, height)];
+      const list = [box(right, view.bottom - gap - height, width, height), box(right, view.vh - gap - height, width, height),
+        box(right, view.top, width, height)];
       if (view.rail) list.unshift(box(view.rail.left, view.columnBottom - height, width, height));
-      move(ui.chip, choosePlacement(list, blocked, soft) ?? list.at(-1));
+      move(ui.chip, choosePlacement(list, [...hard, ...safety, ...lead], soft) ?? list.at(-1));
+      if (refocus) ui.chip.focus();
     }
     const shield = spot ?? ui.chip.getBoundingClientRect();
-    const off = !goal || goal.bottom < view.top || goal.top > view.vh || goal.right < 0 || goal.left > view.vw ||
-      current === "chip" || (!view.wide && ((!clear && overlaps(goal, shield)) ||
-        (goal.top >= view.bottom && !view.footerNode?.contains(node))));
+    const off = !goal || current === "chip" || (!view.wide && ((!clear && overlaps(goal, shield)) ||
+      (goal.top >= view.bottom && !view.footerNode?.contains(node))));
     ui.pointer.hidden = off;
     if (off) return;
     const pad = 6;
     ui.ring.style.width = `${Math.round(goal.width + 2 * pad)}px`;
     ui.ring.style.height = `${Math.round(goal.height + 2 * pad)}px`;
     ui.ring.style.transform = `translate(${Math.round(goal.left - pad)}px, ${Math.round(goal.top - pad)}px)`;
-    const tip = demoTip ?? chapterNow()?.tips[tipIndex];
-    const text = demoTip ? demoTip.title : current !== "error" && ACTION_LABELS[tip?.action] || inferAction(node);
-    if (ui.label.textContent !== text) ui.label.textContent = text;
-    ui.cursor.classList.toggle("is-flipped", flip);
-    ui.cursor.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    ui.cursor.classList.toggle("is-flipped", cursor.flip);
+    ui.cursor.classList.toggle("is-bare", !cursor.label);
+    ui.cursor.style.transform = `translate(${Math.round(cursor.x)}px, ${Math.round(cursor.y)}px)`;
     if (spot) {
       const dx = goal.left + goal.width / 2 - (spot.left + 32);
       const dy = goal.top + goal.height / 2 - (spot.top + 36);
@@ -484,15 +599,21 @@ export function mountGuide(host) {
     const tips = current === "guide" && chapter ? chapter.tips.filter((tip) => shown(tip.target)) : [];
     if (tips.length < 2) return reveal(goal);
     if (reduced()) {
-      tips.forEach((tip, index) => {
-        const rect = first(tip.target).getBoundingClientRect();
+      // The current target comes into view first, so each marker lands on its
+      // target; then the markers are numbered without overlapping.
+      reveal(goal);
+      const spots = tips.map((tip, index) => {
         const marker = make("div", "rm-guide-marker");
         marker.append(make("span", "rm-guide-marker__number", String(index + 1)), make("span", "", tip.title));
-        marker.style.transform = `translate(${Math.round(rect.left)}px, ${Math.round(Math.max(0, rect.top - 30))}px)`;
         ui.layer.append(marker);
         markers.push(marker);
+        const rect = first(tip.target).getBoundingClientRect();
+        return box(rect.left, Math.max(0, rect.top - 30), marker.offsetWidth, marker.offsetHeight);
       });
-      return reveal(goal);
+      stackMarkers(spots, doc.documentElement.clientWidth).forEach((spot, index) => {
+        markers[index].style.transform = `translate(${Math.round(spot.left)}px, ${Math.round(spot.top)}px)`;
+      });
+      return;
     }
     const wait = Math.min(900, 4200 / tips.length);
     let index = 0;

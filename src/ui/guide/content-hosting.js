@@ -136,7 +136,7 @@ export const GUIDE = {
     },
   ],
   finish: {
-    title: "Setup complete",
+    title: "Plan ready",
     say: "You have a plan for your hosting provider. Relmio did not change any server.",
     next: [
       "Follow the ordered steps in the plan",

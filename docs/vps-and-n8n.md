@@ -73,6 +73,10 @@ ChatGPT sign-in. It is available from stable `@latest` and hosted installers.
    After installation, enter the one-time Relmio bearer manually in n8n. Select
    **Disconnect from VPS** when finished.
 
+The first time you open the wizard, it asks whether to start the setup guide.
+The guide points at each box and button in turn and explains errors with the
+next step. See [Use the setup guide](getting-started.md#use-the-setup-guide).
+
 The plan review shows short IDs for the selected n8n container and network.
 Relmio checks those exact IDs again before its first write and before the
 credential transfer. If either changed, the install stops and asks for a new
@@ -321,6 +325,33 @@ effort.
 Turning checks on or off needs the same running sidecar that was checked, and
 the check expires after 20 minutes; choose **Check installed account** again
 if it does. For the status messages, see
+[Troubleshooting](troubleshooting.md#symptom-table).
+
+### See plan and usage
+
+**Check installed account** also shows **Plan and usage** when this install
+owns the sidecar. It lists the account and its email, whether plan use is on,
+the image add-on's plan type while that add-on is signed in, and how many
+models OpenAI lists and how many a completed request verified.
+
+Choose **Refresh usage** to read the sidecar's request counts for the last 30
+days: total requests and tokens, active days, the peak day, how requests
+ended, and the three busiest models, with the rest under a **more models**
+disclosure. Days are UTC days. A plan-usage error stays on the panel with what
+to do next until a later request completes; for a usage limit it offers
+**Manage usage**.
+
+These are requests sent through Relmio, not your plan's usage. Relmio shows no
+plan percent, reset time or credits; they stay on ChatGPT's Usage page, which
+**Manage usage** opens.
+
+Refresh usage only reads from the server. The wizard allows 10 reads in 15
+minutes. The account check lasts five minutes, so choose **Check installed
+account** again when it expires. A sidecar built before this Relmio version
+counts nothing until you [update the sidecar](#update-the-installed-sidecar),
+and requests from before the update never appear. The Ready screen after an
+install points here. What the sidecar stores is in
+[Request counts](security.md#request-counts), and the panel's messages are in
 [Troubleshooting](troubleshooting.md#symptom-table).
 
 ## Next guides

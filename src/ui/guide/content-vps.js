@@ -84,7 +84,7 @@ export const GUIDE = {
           target: "[data-siwc=welcome-accept]",
           action: "press",
           title: "Read the plan notice",
-          say: "Your ChatGPT plan pays for these requests, and OpenAI's limits apply. Press Continue when you have read it.",
+          say: "Requests count toward the usage in your ChatGPT plan, and OpenAI's limits apply. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. Press Continue when you have read it.",
           done: "clicked",
         },
         {
@@ -116,7 +116,7 @@ export const GUIDE = {
           target: "[data-siwc=return]",
           action: "press",
           title: "Sign in again",
-          say: "If the status says this account needs a fresh sign-in, press Sign in again. Relmio never reuses an old sign-in.",
+          say: "If the status says this account needs a fresh sign-in, press Sign in again. Relmio keeps the same saved account and replaces its old sign-in.",
           done: "visible:[data-siwc=plan-badge]",
         },
         {
@@ -140,8 +140,8 @@ export const GUIDE = {
           id: "usage",
           target: "[data-siwc=usage]",
           action: "read",
-          title: "Watch your plan limits",
-          say: "Manage usage opens ChatGPT's usage page. Check your plan's limits there at any time.",
+          title: "Watch usage and limits",
+          say: "Manage usage opens ChatGPT's usage page. There you can see each app's usage, set a weekly limit for an app and see when limits reset.",
           done: "manual",
         },
         {
@@ -285,7 +285,7 @@ export const GUIDE = {
           target: "#vps-usage-refresh",
           action: "press",
           title: "See your plan and usage",
-          say: "Press Refresh usage to read the requests Relmio sent for this account in the last 30 days. It only reads from your server. If the account check has expired, press Check installed account first.",
+          say: "Press Refresh usage to read the text requests the sidecar sent for this account in the last 30 days. It only reads from your server. If the account check has expired, press Check installed account first.",
           done: "clicked",
         },
         {
@@ -293,7 +293,7 @@ export const GUIDE = {
           target: "#vps-usage-view",
           action: "read",
           title: "Read your request counts",
-          say: "These are the requests and tokens that went through Relmio, not your plan's limits. Manage usage opens ChatGPT, which shows your limits and reset times.",
+          say: "These are the text requests and tokens that went through the sidecar, not your plan's limits. Model checks and images are not counted. Manage usage opens ChatGPT, which shows your limits and reset times.",
           done: "manual",
         },
         {
@@ -365,7 +365,8 @@ export const GUIDE = {
           target: "#vps-owner-confirm",
           action: "check",
           title: "Pause or sign out",
-          say: "Pause, resume and sign-out stop only this sidecar for a moment. Tick the box first, then press the action you want.",
+          say: "Pause stops this sidecar until you press Use ChatGPT plan. Sign out stops it until you sign in again. Tick the box first, then press the action you want.",
+          find: "To remove Relmio from ChatGPT as well, use Disconnect under Settings, Security and login, Login connections, if ChatGPT lists it.",
           done: "checked",
         },
         {
@@ -537,7 +538,7 @@ export const GUIDE = {
           target: "#result-readiness-usage",
           action: "press",
           title: "Usage limit reached",
-          say: "The account reached its plan usage limit. Press Manage usage to check it in ChatGPT.",
+          say: "OpenAI reported a usage limit. It can be your plan's limit or the weekly limit set for this app. Press Manage usage to check which one in ChatGPT.",
           done: "clicked",
         },
         {
@@ -579,7 +580,7 @@ export const GUIDE = {
           target: "#result-usage",
           action: "read",
           title: "Where to see your usage",
-          say: "Relmio counts each request n8n sends through the sidecar. To see the counts later, open Manage the installed ChatGPT session in Choose your n8n and press Refresh usage.",
+          say: "Relmio counts each text request n8n sends through the sidecar, but not model checks or images. To see the counts later, open Manage the installed ChatGPT session in Choose your n8n and press Refresh usage.",
           done: "manual",
         },
         {
@@ -600,7 +601,7 @@ export const GUIDE = {
       "Paste the Base URL and Relmio key into an n8n OpenAI credential",
       "Turn Use Responses API on in the OpenAI Chat Model node",
       "Run a short test workflow",
-      "Open Manage usage in ChatGPT to watch your plan limits",
+      "Open Manage usage in ChatGPT to watch usage and limits",
     ],
   },
 };

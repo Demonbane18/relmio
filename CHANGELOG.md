@@ -9,15 +9,40 @@ checks the registry separately after publication.
 
 ### Added
 
-- The ChatGPT plan sidecar counts its own text requests for the usage
-  dashboard: per UTC day and model, how each request ended, the token counts
-  of completed responses, and the last plan-usage error until a completed
-  response clears it. The counts stay in `activity/<registration ID>.json` next
-  to the model-check record for 31 days, without prompts, outputs, request IDs
-  or headers. The wizard reads them, read-only, through
-  `POST /api/siwc/vps/usage/status` and `GET /api/local/usage/status`. They
-  are requests sent through Relmio, not plan usage. A VPS sidecar starts
-  counting after Review sidecar update.
+- Every wizard page has an optional setup guide. Relmio, the mascot, points at
+  the box or button you need next, says what it is for in plain words and,
+  where it helps, shows an example value. The guide never types into a field.
+  Each quest you finish, such as Check your server, earns a badge. The first
+  visit asks whether to start the guide. Hide folds it into a small Guide
+  button, Skip guide turns it off, and the Setup guide button in the top bar
+  turns it on or off at any time. When a step fails, the guide explains the
+  error, lists the next steps and points at the control that fixes it. With
+  the guide off, a "Need help with this error?" button opens the same help.
+  Only the on or off choice is saved: `ui-preferences.json` in the SIWC
+  storage root (`N8N_OPENAI_OAUTH_HOME` or `~/.n8n-openai-oauth`), written
+  through the wizard's `/api/ui/preferences` route.
+- Plan and usage shows the requests sent through the ChatGPT plan sidecar in
+  the last 30 days: requests and tokens in total, active days, the peak day,
+  how requests ended and the busiest models. It also shows the account,
+  whether plan use is on, how many models OpenAI lists and how many a
+  completed request verified, and the last plan-usage error with its next
+  step. On a VPS it is under Manage the installed ChatGPT session after Check
+  installed account, and Refresh usage reads the counts over SSH, up to 10
+  times in 15 minutes. On this computer, the dashboard has a Plan and usage
+  section and the installed sidecar's view has a Plan and usage disclosure.
+  These counts are not your plan's usage. Relmio shows no plan percent, reset
+  time or credits; they stay on ChatGPT's Usage page, which Manage usage
+  opens.
+- For Plan and usage, the sidecar now counts each text request it sends to
+  OpenAI, per UTC day and model: how the request ended and, for completed
+  responses, the input, cached, output, reasoning and total tokens. It also
+  keeps the last plan-usage error until a completed response clears it. The
+  counts are stored in `activity/<registration ID>.json` next to the
+  model-check record, without prompts, outputs, request IDs, IP addresses or
+  headers. Each write keeps the 31 most recent UTC days. Nothing else deletes
+  the file, so after the last request the counts stay until the sidecar's
+  storage is removed. A VPS sidecar starts counting after Review sidecar
+  update.
 - The ChatGPT plan sidecar's `/v1/chat/completions` route now accepts function
   tools, assistant tool calls and tool results. Function tools go to OpenAI in
   one `additional_tools` item, and n8n still runs the tools. Limits are 32 tool
@@ -87,6 +112,13 @@ checks the registry separately after publication.
 
 ### Changed
 
+- The wizard's start cards now say who each route is for and what you need,
+  for example "You need a VPS that runs n8n in Docker, a root login to it and
+  a ChatGPT plan." The step list is now a compact quest track: one row of
+  steps at every width, a check on each finished step and, while the guide is
+  on, Relmio standing in the current step. With the guide on, the Ready screen
+  lists the badges earned and the next steps. The steps and the setup flow
+  are unchanged.
 - The dark theme's accent is now pastel green instead of pastel yellow, in the
   same hue as the light theme's greens. Primary buttons, links, focus rings,
   the current step and selected items use it in the wizard and on the

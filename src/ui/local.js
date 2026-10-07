@@ -2135,7 +2135,8 @@ async function loadLocalDashboard() {
 }
 
 // Plan and usage for the installed n8n sidecar, on the dashboard and the installed view. The
-// counts are read on demand, and the panel module loads on first use to keep first paint light.
+// counts are read on demand, and the panel module loads on first use with its stylesheet to
+// keep first paint light.
 let usagePanel = null;
 
 async function loadLocalUsage(name) {
@@ -3303,6 +3304,7 @@ function renderPlan(plan) {
       "Transfer one selected, independently authorized registration to a new user-controlled sidecar.",
       "Join the reviewed Docker network and expose port 10531 inside it only.",
       "Show a one-time Relmio client key for you to enter in n8n.",
+      "Let the sidecar keep daily request and token counts on this computer for 31 days, with no prompts or answers.",
     ]);
     replaceListItems(element("review-will-not"), [
       "Edit, rebuild, restart, stop, or recreate the selected n8n container.",

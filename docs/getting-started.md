@@ -43,6 +43,12 @@ ChatGPT consent step. Confirm the first-use plan notice before model access;
 **Manage usage** opens ChatGPT's usage settings. Existing personal Codex
 credentials are never imported.
 
+After an install, **Plan and usage** shows the requests sent through the n8n
+sidecar in the last 30 days. Relmio shows no plan percent, reset time or
+credits; they stay on ChatGPT's Usage page. See
+[VPS and n8n](vps-and-n8n.md#see-plan-and-usage) and
+[the local dashboard](local-dashboard.md#plan-and-usage).
+
 The VPS wizard has five visible steps: **Choose setup**, **Check server**,
 **Choose n8n**, **Review**, and **Ready**. It confirms the SSH fingerprint
 before authentication. Review shows the verified server identity and exact
@@ -67,6 +73,38 @@ curl -fsSL https://relmio.jpfusin.tech/install.sh | sh
 
 Direct NPX on Git Bash 2.38.1 still needs `MSYS=enable_pcon` for that one
 process. Native PowerShell and Command Prompt installers are also available.
+
+## Use the setup guide
+
+The first time you open the wizard, it asks whether to start the setup guide.
+Relmio, the mascot from the logo, then takes you through the page one quest
+at a time, such as **Check your server**. It points at the box or button you
+need with a short label like **Type here** or **Press this** and says what it
+is for in plain words. Where it helps, it shows an example such as
+`203.0.113.10`, and **Where do I find this?** says where to look the value
+up. Examples are documentation values, and the guide never types into a
+field for you.
+
+**Next tip** and **Back** move between tips. **Show me** points at the
+quest's tips one after another, then scrolls to the one you need and moves
+focus to it. A key press, click, scroll or touch stops it. If your system is
+set to reduce motion, it numbers the tips instead. Each finished quest earns
+a badge, and the Ready screen lists your badges and next steps.
+
+If a step fails, the guide explains the error, lists what to do next and
+points at the control that fixes it. With the guide off, a **Need help with
+this error?** button opens the same help.
+
+The down arrow at the top of the guide (**Hide guide**), or Escape while the
+guide has focus, folds it into a small **Guide** button. **Skip guide** turns
+it off. The **Setup guide** button in the top bar, or in the menu on very
+narrow windows, turns it on or off at any time. Every wizard page has the
+guide, including the dashboard on this computer, the Assistant wizard and
+**Hosting options**.
+
+Relmio saves only the on or off choice, in `ui-preferences.json` in the
+ChatGPT sign-in folder (`N8N_OPENAI_OAUTH_HOME`, or `~/.n8n-openai-oauth`), so
+the next run remembers it. See [Security](security.md#what-the-wizard-does).
 
 ## Existing cloud n8n and SSH access
 

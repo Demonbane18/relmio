@@ -146,6 +146,18 @@ conversational contract for a trusted local backend.
   `N8N_OPENAI_OAUTH_HOME` or `~/.n8n-openai-oauth`. Verified identity, issued
   client, granted scopes, token state, and owner are stored separately from
   browser views. Relmio does not import a personal `~/.codex` credential.
+- The setup guide saves one thing: whether it is on or off, as
+  `ui-preferences.json` in the same SIWC storage root. The wizard reads it
+  with `GET /api/ui/preferences` and saves it with `POST /api/ui/preferences`,
+  which accepts exactly `{"guide":"on"}` or `{"guide":"off"}`. Relmio does not
+  follow a symbolic link to the file and reads it only when it is a regular
+  file of at most 1 KB. Saving creates a missing root (never its parents)
+  with mode `0700`. On macOS, Linux and WSL it then writes the file with mode
+  `0600` only when the root is a directory this user owns with no group or
+  other access, and otherwise skips the write; Windows skips that check. The
+  tab keeps the same choice in session storage for reloads. The guide's tips,
+  examples and error help are static files shipped with Relmio and shown as
+  text. The guide never fills in a field and sends nothing else.
 - Each registration has a session lock. Its owner record binds the holder
   process, its PID namespace, and on Linux the boot ID. A lock from an earlier
   boot is reclaimed at once. A lock held from another container or PID
@@ -538,29 +550,35 @@ is in [Model discovery and checks](n8n-configuration.md#model-discovery-and-chec
 
 ## Request counts
 
-The n8n sidecar counts its own text requests for the usage dashboard. These
-are requests sent through Relmio, not your ChatGPT plan's usage. Plan limits,
-reset times and credits stay in ChatGPT under
-[Manage usage](https://chatgpt.com/settings/usage).
+The n8n sidecar counts the text requests it relays for **Plan and usage**.
+Model-check tests and image requests are not counted, and ChatGPT measures
+plan usage its own way. Relmio shows no plan percent, reset time or credits;
+they stay in ChatGPT under [Manage usage](https://chatgpt.com/settings/usage).
 
 - **Records:** each `/v1/responses` or `/v1/chat/completions` request the
-  sidecar sends to OpenAI counts once, under its UTC day and model, with how
-  it ended: completed, failed or incomplete. A request the client abandons
-  counts with no outcome. Completed responses add the input, cached input,
-  output, reasoning and total token counts from `response.completed.usage`.
-  Image requests, and requests the sidecar rejects before sending, are not
-  counted. A model keeps its ID only when OpenAI accepted the request or the
-  account's catalog lists it; anything else counts as `other`, so a typo or a
-  pasted key is never stored. The sidecar also keeps the time and code of the
-  last plan-usage error (`subscription_sharing_usage_limit_exceeded`,
+  sidecar relays to OpenAI counts once, under its UTC day and model, with how
+  it ended: completed, failed or incomplete. A request the client abandons,
+  or one that fails because the client cancelled it, counts with no outcome.
+  Completed responses add the input, cached input, output, reasoning and
+  total token counts from `response.completed.usage`. Image requests,
+  model-check tests and requests the sidecar rejects before sending are not
+  counted. A model keeps its ID only when the request completed or ended
+  incomplete, or when the catalog the sidecar last loaded lists it. Anything
+  else counts as `other`, so a typo or a pasted key is never stored. The
+  sidecar also keeps the time and code of the last plan-usage error
+  (`subscription_sharing_usage_limit_exceeded`,
   `subscription_sharing_usage_unavailable`,
   `subscription_sharing_user_unavailable` or
   `subscription_sharing_user_not_eligible`), whether it arrived before or
   during a stream. The next completed response clears it.
 - **Stores:** `activity/<registration ID>.json` next to the model-check record
   (`/docker/n8n-openai-oauth/siwc/activity` on a VPS, the sidecar's
-  `siwc-store` Docker volume on a local install). It keeps the 31 most recent
-  UTC days and at most 64 named models per day; the rest count as `other`.
+  `siwc-store` Docker volume on a local install). Each write keeps only the
+  31 most recent UTC days and at most 64 named models per day; the rest count
+  as `other`. Nothing else deletes the file. Signing out keeps it, and after
+  the last request the counts stay until the sidecar's storage is removed.
+  On this computer, removing the sidecar, which needs sign-out first, deletes
+  its `siwc-store` volume and the counts with it.
   Counts are whole numbers. It holds no prompts, outputs, request IDs, IP
   addresses, headers or tokens. The sidecar writes at most once every 30
   seconds and once when it stops, so a crash can lose the last 30 seconds of
@@ -569,17 +587,28 @@ reset times and credits stay in ChatGPT under
   safe record that fails to parse; an unsafe record is never touched. A failed
   write never affects a request.
 - **Transmits:** nothing. Counting adds no network request.
-- **Returns to the wizard:** when the dashboard asks, the sidecar's read-only
-  `usage` command prints the stored record, over the reviewed SSH connection
-  on a VPS or through `docker compose exec` on a local install. The wizard
-  checks every field and returns only the last 30 UTC days: totals, active
-  days, the peak day, requests and tokens per day, up to 64 models plus
-  `other`, and the last plan-usage event with its recovery. A record that
-  fails any check shows as `unavailable`. A sidecar built before request
-  counting has no `usage` command and counts nothing, so the view says
-  `empty` until the sidecar is updated; on a VPS, use **Review sidecar
-  update**.
+- **Returns to the wizard:** when you press **Refresh usage**, or open Plan
+  and usage on this computer, the sidecar's read-only `usage` command prints
+  the stored record. On a VPS it runs over the reviewed SSH connection. It
+  needs the approved direct-root session, a **Check installed account** from
+  the last five minutes for the same n8n container and network, and a
+  running sidecar for that account, and the wizard allows 10 reads in 15
+  minutes. On this computer it runs through `docker compose exec` after
+  Relmio confirms that it owns the running sidecar. The wizard checks every
+  field and returns only the last 30 UTC days: totals, active days, the peak
+  day, requests and tokens per day, up to 64 models plus `other`, and the
+  last plan-usage event with its recovery. A record that fails any check, or
+  a `usage` command that fails, shows as `unavailable` with no partial
+  counts. The view says `empty` when nothing was counted in the last 30 days,
+  and for a sidecar built before request counting, which has no `usage`
+  command and counts nothing until it is updated; on a VPS, use **Review
+  sidecar update**.
 - **Logs:** counting adds no log lines.
+- **Notice:** before you approve, the VPS install review lists "Keep 31 days
+  of request and token counts here" and gives the details under **Host key,
+  build and request count details**. The sidecar review on this computer and
+  the VPS sidecar update summary say that the sidecar keeps daily request and
+  token counts for 31 days, with no prompts or answers.
 
 ## Remembered Responses items
 

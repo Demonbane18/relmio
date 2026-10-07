@@ -12,7 +12,6 @@
     <link rel="stylesheet" href="/relmio-ui.css" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/siwc.css" />
-    <link rel="stylesheet" href="/usage-panel.css" />
     <link rel="stylesheet" href="/guide.css" />
     <script src="/session-bootstrap.js"></script>
     <script src="/theme.js" type="module"></script>
@@ -242,7 +241,7 @@
                       </div>
                       <dialog data-siwc="welcome" class="siwc-dialog" aria-labelledby="vps-siwc-welcome-title">
                         <h3 id="vps-siwc-welcome-title" class="rm-h3">You're using your ChatGPT plan</h3>
-                        <p>Your ChatGPT plan is used for this account's model requests. OpenAI applies your account limits. n8n background workflows need a separate approval before installation.</p>
+                        <p>Your ChatGPT plan is used for this account's model requests. OpenAI applies your account limits. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. n8n background workflows need a separate approval before installation.</p>
                         <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Manage usage (opens in a new tab)</a></p>
                         <button type="button" class="rm-button rm-button--primary" data-siwc="welcome-accept">Continue</button>
                       </dialog>
@@ -560,7 +559,7 @@
                       <li>Create or update only <code>/docker/n8n-openai-oauth</code></li>
                       <li>Transfer one selected registration to its user-controlled runtime</li>
                       <li>Build and start only the private sidecar</li>
-                      <li>Attach it to the reviewed Docker network</li>
+                      <li>Keep 31 days of request and token counts here</li>
                     </ul>
                   </section>
                   <section aria-labelledby="wont-title">
@@ -575,7 +574,7 @@
                 </div>
 
                 <details id="review-build-details" class="rm-disclosure rm-disclosure--plain">
-                  <summary>Host key and build details</summary>
+                  <summary id="review-build-summary">Host key, build and request count details</summary>
                   <div class="rm-disclosure__body">
                     <p class="rm-small setup-host-key">SSH host key <code id="ssh-review-fingerprint"></code></p>
                     <ul id="review-build-list" class="setup-list"></ul>
@@ -679,7 +678,7 @@
                     </section>
 
                     <p class="rm-small rm-muted">This key is not an OpenAI OAuth token.</p>
-                    <p id="result-usage" class="rm-small rm-muted"><strong>Plan and usage:</strong> Relmio counts the requests n8n sends through it. See them later under Manage the installed ChatGPT session.</p>
+                    <p id="result-usage" class="rm-small rm-muted"><strong>Plan and usage:</strong> Relmio counts the text requests n8n sends through it, but not model checks or images. See them later under Manage the installed ChatGPT session.</p>
                   </div>
 
                   <div class="setup-results__side">

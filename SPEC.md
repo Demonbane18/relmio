@@ -46,6 +46,15 @@ claim for VPS transfer/storage.
   record. POSIX files/directories use owner-only permissions; Windows uses the
   existing current-account ACL verification. Symlinks, insecure ownership, and
   unmanaged destinations fail closed.
+- The same root holds `ui-preferences.json`, which records only whether the
+  setup guide is on or off. `GET /api/ui/preferences` reads it without
+  following a symbolic link to the file and only as a regular file of at most
+  1 KiB. `POST /api/ui/preferences` accepts exactly `{"guide":"on"}` or
+  `{"guide":"off"}`. Saving creates a missing root (never its parents) with
+  mode `0700`. On POSIX hosts the file is then written with mode `0600` only
+  when the root is a non-symlink directory owned by the current user with no
+  group or other permission bits; otherwise the write is skipped. Windows
+  skips that ownership and mode check.
 - The persistent host ID belongs to each actual installation. A transferred
   registration binds to the destination host/runtime and is not refreshed by
   the sender after ownership transfer.
@@ -117,6 +126,24 @@ creates provider permission. A first-use confirmation is persisted for the
 selected registration and required before plan model use. The UI links to
 ChatGPT **Manage usage** at `https://chatgpt.com/settings/usage` on plan-use
 states and usage-limit recovery.
+
+Every wizard page loads an optional setup guide. The first visit asks whether
+to start it, and the saved choice applies after that. Its static tips point at
+page elements and never fill a field. When the page shows an error, the guide
+maps the error's flags, code, recovery, or HTTP status to next steps and a
+control to point at; with the guide off, one button offers the same help.
+
+**Plan and usage** shows the installed n8n sidecar's own request counts for
+the last 30 UTC days, the account and plan-use state, model counts, and the
+last plan-usage event with its recovery. It shows no plan percent, reset time,
+or credits and links to **Manage usage** for them. On a VPS,
+`POST /api/siwc/vps/usage/status` accepts exactly `containerName`,
+`networkName`, and `registrationId`. It needs a direct-root session and a
+**Check installed account** review from the last five minutes, allows 10
+reads per 15 minutes, and runs only the static allowlisted `usage` command on
+the running owned sidecar. On this computer, `GET /api/local/usage/status`
+runs the same command through `docker compose exec` after ownership
+attestation; sanitized preview reads nothing.
 
 n8n installation requires a separate, explicit approval for background
 workflow use plus confirmation of the reviewed installation. Neither approval
@@ -213,6 +240,21 @@ holds at most 4,096 items and 32 MiB of JSON, expires an item 6 hours after
 it is stored, evicts the least recently used item first, and is lost on
 restart. Failed, incomplete, or interrupted responses add nothing, and Chat
 Completions requests neither fill nor use it.
+
+Each text request the sidecar sends to OpenAI on `/v1/responses` or
+`/v1/chat/completions` is counted once per UTC day and model, with its
+outcome (completed, failed, incomplete, or none when the client leaves or
+cancels) and, for completed responses, the token counts from
+`response.completed.usage`. A model ID is kept only for a completed or
+incomplete request or an ID in the last loaded catalog; anything else counts
+as `other`. The last plan-usage error code is kept until a completed response.
+Counting is synchronous, in memory, and never delays or changes a response.
+The record, `<storage root>/activity/<registrationId>.json`, is written at
+most every 30 seconds and on close, with the model-check store's safety
+checks. Each write keeps the 31 most recent UTC days and at most 64 named
+models per day; nothing else deletes it. It holds no prompts, outputs, request
+IDs, IP addresses, or headers. See
+[request counts](docs/security.md#request-counts).
 
 All text inference requests use the selected SIWC registration and public
 `https://api.openai.com/v1/responses`; the SIWC token is never sent to the

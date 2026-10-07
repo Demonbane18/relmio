@@ -1,33 +1,52 @@
 // Plan and usage: the VPS owner panel, the /local dashboard section and the local
 // installed view. Pages fetch the data; this module only builds the DOM, always with
-// textContent. The counts are Relmio's own requests through the sidecar. OpenAI documents
-// no plan percent, reset time or credits for this sign-in, so none are shown or derived.
+// textContent. The counts are the text requests the sidecar relays; model checks and image
+// requests are not counted. OpenAI documents no plan percent, reset time or credits for this
+// sign-in, so none are shown or derived.
 
 const MANAGE_USAGE_URL = "https://chatgpt.com/settings/usage";
 const STATES = new Set(["ok", "empty", "unavailable"]);
 const TOTALS = ["requests", "completed", "failed", "incomplete", "total"];
 const SHOWN_MODELS = 3;
+
+// The stylesheet loads with this module, so a page that never shows the panel loads neither.
+// The import resolves only once the stylesheet has loaded, so the panel never renders unstyled.
+if (globalThis.document?.head) {
+  await new Promise((resolve) => {
+    const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: "/usage-panel.css" });
+    link.addEventListener("load", resolve);
+    link.addEventListener("error", resolve);
+    document.head.append(link);
+  });
+}
+
 // The four plan-usage codes the sidecar keeps: [title, next step, Manage usage is the recovery].
 const EVENTS = Object.freeze({
   subscription_sharing_usage_limit_exceeded: ["Usage limit reached",
-    "Pause new requests and open Manage usage. The limit can be your plan's, or one you set for this app in ChatGPT.", true],
-  subscription_sharing_usage_unavailable: ["Plan usage was unavailable", "Try again later with the same account."],
-  subscription_sharing_user_unavailable: ["The account was unavailable", "Try again later with the same account."],
-  subscription_sharing_user_not_eligible: ["This plan can't be used here",
-    "Check this account's plan in ChatGPT. Relmio does not switch accounts."],
+    "Pause the n8n workflows that use this account and open Manage usage. The limit can be your plan's, or one you set for this app in ChatGPT.", true],
+  subscription_sharing_usage_unavailable: ["Usage could not be checked",
+    "OpenAI could not check plan usage just then. This does not mean a limit was reached. Try again later with the same account."],
+  subscription_sharing_user_unavailable: ["Account details were unavailable",
+    "OpenAI could not read this account or workspace just then. Try again later with the same account."],
+  subscription_sharing_user_not_eligible: ["Plan use not available",
+    "OpenAI said plan use is not available for this account, workspace or policy. Check that this is the account you meant to use. Signing in again does not change it."],
 });
+// The local sidecar runs no model checks and has no image sign-in, so only the VPS note
+// says that those requests are not counted.
 const MESSAGES = {
   vps: {
     idle: "Press Refresh usage to read this sidecar's request counts.",
-    empty: "No requests counted in the last 30 days. A sidecar from this Relmio version counts each text request it sends to OpenAI. An older sidecar counts nothing until you update it with Review sidecar update above.",
+    empty: "No requests counted in the last 30 days. A sidecar from this Relmio version counts each text request n8n sends through it. Model checks and image requests are not counted. An older sidecar counts nothing until you update it with Review sidecar update above.",
     unavailable: "The request counts could not be read, so none are shown. Press Refresh usage to try again.",
     409: "Press Check installed account again, then Refresh usage. The account check lasts five minutes.",
+    note: "These are Relmio's counts of text requests through the sidecar. Model checks and image requests are not counted, and ChatGPT measures plan usage its own way. Plan limits, reset times and credits stay in ChatGPT. ",
   },
   local: {
     idle: "Press Refresh usage to read the request counts.",
     empty: "No requests counted in the last 30 days. A sidecar from this Relmio version counts each text request it sends to OpenAI. An older sidecar counts nothing until it is updated.",
     unavailable: "The request counts could not be read, so none are shown. Check that the sidecar is running, then press Refresh usage.",
     409: "The dashboard changed while the counts were read. Press Refresh usage again.",
+    note: "These are Relmio's counts of text requests through the sidecar. ChatGPT measures plan usage its own way. Plan limits, reset times and credits stay in ChatGPT. ",
   },
 };
 const RATE_LIMITED = "Relmio can read the counts 10 times in 15 minutes. Wait a few minutes, then press Refresh usage.";
@@ -99,7 +118,8 @@ function terms(className, rows) {
   return list;
 }
 
-const planUse = (account) => account.session !== "connected" ? "Signed out"
+const planUse = (account) => account.session === "reauthorize" ? "Needs a fresh sign-in"
+  : account.session !== "connected" ? "Signed out"
   : account.planEnabled ? "On" : account.planPermission === "granted" ? "Paused" : "Not allowed yet";
 
 function facts({ account, imagePlan, models }, view, format) {
@@ -107,7 +127,10 @@ function facts({ account, imagePlan, models }, view, format) {
   if (account) {
     rows.push(["Account", account.email ? `${account.label} (${account.email})` : account.label], ["Plan use", planUse(account)]);
   }
-  if (imagePlan) rows.push(["Image add-on plan type", imagePlan, "From the image add-on's separate Codex sign-in."]);
+  if (imagePlan) {
+    rows.push(["Image add-on plan type", imagePlan,
+      "From the image add-on's separate Codex sign-in. OpenAI does not document this value for other apps."]);
+  }
   // Without model checks (local), a model with tokens in the window completed a request through Relmio.
   const answered = view?.state === "ok" ? view.models.filter((model) => model.id !== "other" && model.total > 0).length : null;
   const modelText = [
@@ -147,10 +170,11 @@ function counts(view, format) {
   const scale = tokens ? { max: tokens, of: (model) => model.total }
     : { max: Math.max(1, ...models.map((model) => model.requests)), of: (model) => model.requests };
   const items = [
-    node("p", "usage-panel__label", "Requests through Relmio, last 30 days"),
+    node("p", "usage-panel__label", "Text requests through the sidecar, last 30 days"),
     terms("usage-panel__totals", [
       ["Requests", format.count(sum.requests)],
-      ["Tokens", format.count(sum.total)],
+      // The qualifier sits in the label: a hint line here would make the totals row taller.
+      ["Tokens (completed)", format.count(sum.total)],
       ["Active days", format.count(view.activeDays), "of the last 30"],
       ["Peak day", view.peakDay ? format.day(view.peakDay.date) : "No tokens yet",
         view.peakDay ? format.counted(view.peakDay.total, "token") : ""],
@@ -195,8 +219,7 @@ function statusText(info, view, format) {
 export function renderUsage(parts, info) {
   const format = formats(info.locale);
   const view = info.usage ? readView(info.usage) : null;
-  const note = node("p", "usage-panel__note",
-    "These are requests sent through Relmio, not your ChatGPT plan's usage. Plan limits, reset times and credits stay in ChatGPT. ");
+  const note = node("p", "usage-panel__note", MESSAGES[info.page].note);
   note.append(manageLink("rm-link"));
   // Counts read first; the account, the last plan event and the note sit beside them when wide.
   const about = [...facts(info, view, format), ...(view?.lastUsageEvent ? [usageEvent(view.lastUsageEvent, format)] : []), note];

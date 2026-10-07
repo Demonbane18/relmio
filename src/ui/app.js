@@ -1177,13 +1177,17 @@ function renderIntegrationReview(plan) {
               : "Create only /docker/n8n-openai-oauth.",
           "Transfer the selected registration to this user-controlled installation.",
           "Build and start only the private sidecar.",
-          `Attach the sidecar to ${plan.networkName}.`,
+          // The network shows twice in the facts above, so this line takes the attach line's place
+          // and the step keeps one screen. The details sit under the build details disclosure.
+          "Keep 31 days of request and token counts here.",
         ],
   );
   replaceReviewItems("review-build-list", assistant ? [] : [
     `After you confirm, use a temporary root-only Buildx folder at ${plan.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect.`,
     "Build only managed runtime files. The selected registration is transferred separately, outside the build context. Cleanup does not change n8n or model caches.",
+    "The sidecar keeps daily request and token counts on this server for 31 days, with no prompts or answers. Relmio reads them only when you press Refresh usage.",
   ]);
+  element("review-build-summary").textContent = assistant ? "Host key and build details" : "Host key, build and request count details";
   replaceReviewItems(
     "review-wont-list",
     assistant
@@ -2202,17 +2206,21 @@ function renderVpsOwnerModels(models, visible = true) {
 
 // Plan and usage on the owner panel: the checked account, the image add-on's plan type while it
 // is signed in, the model checks and the request counts that Refresh usage reads. The panel
-// module loads on first use, so the first paint of this page stays light.
+// module loads on first use with its stylesheet, so the first paint of this page stays light.
+// The section shows only once both have loaded, so it never appears unstyled.
 let usagePanel = null;
 
 async function renderVpsUsage({ loading = false } = {}) {
   const owner = state.vpsOwner;
   const section = element("vps-usage");
-  section.hidden = owner?.state !== "owned" || owner.account?.ownership !== "owned";
-  if (section.hidden) return;
+  if (owner?.state !== "owned" || owner.account?.ownership !== "owned") {
+    section.hidden = true;
+    return;
+  }
   usagePanel ??= import("./usage-panel.js");
   const { renderUsage } = await usagePanel;
   if (state.vpsOwner !== owner) return;
+  section.hidden = false;
   const models = state.vpsModels?.state === "available" ? { listed: state.vpsModels.models.length,
     verified: state.vpsModels.models.filter((model) => model.state === "verified").length } : null;
   renderUsage({ status: element("vps-usage-status"), view: element("vps-usage-view") }, {
@@ -2460,6 +2468,7 @@ element("vps-owner-update-review").addEventListener("click", async (event) => {
       `${count} runtime ${count === 1 ? "file changes" : "files change"}. ` +
       "The ChatGPT sign-in and the one-time Relmio key stay the same. " +
       "The sidecar is unavailable for about a minute. n8n is not stopped or restarted. " +
+      "The updated sidecar keeps daily request and token counts on the server for 31 days, with no prompts or answers. " +
       `Image ${result.imageId}, container ${result.containerId}.`;
     element("vps-owner-update-confirm-label").textContent =
       `I approve rebuilding and restarting only this owned sidecar on ${identity.username}@${identity.host}:${identity.port}.`;

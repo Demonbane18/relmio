@@ -35,6 +35,10 @@ A plan usage-limit error directs you to **Manage usage** at
 <https://chatgpt.com/settings/usage>. Other errors show their own recovery.
 Relmio does not retry through another account or switch to Platform API billing.
 
+**Plan and usage** in the wizard counts only the requests sent through the
+Relmio sidecar in the last 30 days. It shows no plan percent, reset time or
+credits. Those stay on ChatGPT's Usage page, which **Manage usage** opens.
+
 ## What can the OpenAI-compatible sidecar do?
 
 The sidecar exposes `GET /v1/models` and `POST /v1/responses` behind a local

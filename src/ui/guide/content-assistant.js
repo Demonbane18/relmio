@@ -214,7 +214,7 @@ export const GUIDE = {
           action: "press",
           title: "Disconnect when done",
           say: "Press Disconnect shared VPS session when you have copied everything.",
-          done: "clicked",
+          done: "manual",
         },
         {
           id: "another",
@@ -222,7 +222,7 @@ export const GUIDE = {
           action: "press",
           title: "Set up something else",
           say: "Press Set up another option to go back to the start.",
-          done: "clicked",
+          done: "manual",
         },
       ],
     },

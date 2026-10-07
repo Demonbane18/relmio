@@ -341,22 +341,33 @@ it on or off, and `/api/ui/preferences` keeps the choice.
 
 | Part | Classes | Rules |
 | --- | --- | --- |
-| Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide": the mascot, the quest name and progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use the default or ghost style, so the page keeps its one primary action. Escape collapses it and returns focus |
+| Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide": the mascot, the quest name, numbered by the page's current step, and progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use the default or ghost style, so the page keeps its one primary action. Escape collapses it and returns focus |
 | Chip | `rm-guide-chip` | The collapsed dock. With the guide off it appears only on an error, as "Need help with this error?" |
-| Pointer | `rm-guide-pointer`, `rm-guide-marker` | A ring around the target and a cursor with a short action label. It glides with `transform` only. With reduced motion, Show me numbers the targets instead |
+| Pointer | `rm-guide-pointer`, `rm-guide-marker` | A ring around the target and a cursor with a short action label. It glides with `transform` only. With reduced motion, Show me numbers the targets instead, and the numbers never overlap |
 | Mascot | `rm-mascot` from `mascot.js` | Inline SVG from the logo vectors, decorative and hidden in forced colors. Poses: idle, look, happy, thinking, worried, waiting. The sleep cap uses `--rm-brand-cap`. While the guide is on, the mascot also stands in the quest track's current step |
-| Badges | `rm-badge rm-badge--success`, `rm-guide-finish`, `__title`, `__badges`, `__next` | A chapter earns its badge when every action tip seen there is done; reading tips are optional. Ready screens show `#ready-quest` in the rail column with the badges earned and the page's next steps. The guide fills it and keeps it hidden while the guide is off |
+| Badges | `rm-badge rm-badge--success`, `rm-guide-finish`, `__title`, `__badges`, `__next` | A chapter earns its badge when every action tip seen there is done; reading tips are optional. On `/` and `/local`, the Ready screen shows `#ready-quest` in the rail column with the badges earned and the page's next steps; the guide fills it and keeps it hidden while the guide is off. The route pages show the finish, the badges and the next steps in the dock. A tip whose control reloads the page uses `done: "manual"`, so the finish can still show |
 | Toggle | `#guide-toggle`, `[data-guide-toggle]` | `aria-pressed` says whether the guide is on; the kit draws the pressed state |
 
 Placement:
 
 - The dock, chip and pointer are fixed layers. They never change page layout,
   so every view keeps the one-screen rule with the guide open.
-- The dock never covers the focused element, the view's primary action or an
-  error callout. On wide windows it sits at the foot of the rail column, where
-  the quest track leaves room, or beside the panel. On narrow windows it is a
-  sheet at the bottom or top of the window. When nothing fits, it collapses to
-  the chip.
+- The dock never covers the focused element, the view's primary action, an
+  error callout or the panel footer's actions. It also keeps the rail column's
+  content clear, apart from the quest track, and every warning. On wide
+  windows it sits at the foot of the rail column, under its content, or at a
+  corner of the panel. On narrow windows it is a sheet at the bottom of the
+  window, above the panel footer or under the top bar.
+- Until the person opens it from the chip, presses Start the guide, Back or
+  Next tip, or moves focus into it, the dock also keeps the tip's target, the
+  page and step titles and the quest track clear. When nothing fits, it
+  collapses to the chip and the pointer still marks the target. An opened dock
+  covers the target, titles or track before any safety content, and never the
+  items above.
+- The pointer hides while its target is scrolled out of view, including out
+  of a scrolling panel body. Its action label never covers a checkbox or radio
+  label or a disclosure summary. A checkbox or radio is pointed at from its
+  left edge, and the label is left out when neither side is clear.
 - Check placement at the five one-screen sizes plus 390 x 844 and 320 x 640,
   in the default and error states.
 - Game feel stays quiet: a badge chip, a checked progress dot and one hop of
@@ -365,12 +376,15 @@ Placement:
 
 ## Plan and usage panel
 
-`usage-panel.css` is linked on `/` and `/local`. `usage-panel.js` loads on
-first use and builds the panel with `textContent` from the page's own request
-(`renderUsage(parts, info)`). The panel shows requests sent through Relmio's
-sidecar in the last 30 days, not the plan's usage. OpenAI documents no plan
-percent, reset time or credits for this sign-in, so the panel shows none of
-them and links to Manage usage instead.
+`usage-panel.js` loads on first use on `/` and `/local` and adds
+`usage-panel.css` itself; its import finishes only once the stylesheet has
+loaded, so pages that never show the panel load neither and nothing blocks the
+first paint. It builds the panel with `textContent` from the page's own request
+(`renderUsage(parts, info)`). The panel shows Relmio's counts of text requests
+through the sidecar in the last 30 days, not the plan's usage. Model checks and
+image requests are not counted, and tokens come from completed responses only.
+OpenAI documents no plan percent, reset time or credits for this sign-in, so
+the panel shows none of them and links to Manage usage instead.
 
 Places:
 
@@ -392,10 +406,12 @@ Parts:
   polite `role="status"` line follows it.
 - `usage-panel__view` holds two `usage-panel__group` columns, side by side
   when two 16rem columns fit and stacked below that. The counts group appears
-  only with counts: the totals (`usage-panel__totals`: Requests, Tokens,
-  Active days, Peak day), an outcome line, and the three busiest models
-  (`usage-panel__models`, `usage-panel__model`), each with its values in text
-  and a decorative `rm-progress` bar. More models sit in a plain disclosure.
+  only with counts: the totals (`usage-panel__totals`: Requests, Tokens
+  (completed), Active days, Peak day), an outcome line, and the three busiest
+  models (`usage-panel__models`, `usage-panel__model`), each with its values in
+  text and a decorative `rm-progress` bar. More models sit in a plain
+  disclosure. The token qualifier stays in its label, since a hint line would
+  make the first row of totals taller.
 - The other group lists the account facts (`rm-dl usage-panel__facts`:
   account, plan use, the image add-on's plan type only while that add-on is
   signed in, models listed and verified), the last plan-usage event

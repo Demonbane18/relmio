@@ -117,6 +117,9 @@ test("counts are formatted numbers, never percentages, and the bars are decorati
     assert.ok(view.text.includes(value), `missing ${value}`);
   }
   assert.doesNotMatch(`${view.status} ${view.text}`, /%|percent/iu, "plan percent is never shown or derived");
+  const [tokenLabel, tokenTotal] = Object.entries(view.terms).find(([term]) => /^Tokens/u.test(term));
+  assert.equal(tokenTotal, "1,234,567");
+  assert.match(tokenLabel, /completed/u, "the token total says it counts completed responses only");
   assert.doesNotMatch(view.text, /resets? (?:at|in|on)\b/iu, "no reset time is shown");
 
   const bars = view.nodes.filter((node) => node.className === "rm-progress__bar");
@@ -135,7 +138,7 @@ test("the panel shows the account, plan use, image plan type and model checks it
   const vps = render({ page: "vps", account, imagePlan: "plus", models: { listed: 12, verified: 3 }, usage: ok() });
   assert.equal(vps.terms.Account, `${account.label} (${account.email})`, "untrusted text stays text");
   assert.equal(vps.terms["Plan use"], "On");
-  assert.match(vps.terms["Image add-on plan type"], /^plus /u);
+  assert.match(vps.terms["Image add-on plan type"], /^plus .*not document/u, "the plan type says OpenAI does not document it");
   assert.equal(vps.terms.Models, "12 listed by OpenAI · 3 verified by a completed request");
 
   const local = render({ page: "local", account: { ...account, planEnabled: false }, models: { listed: null }, usage: ok() });
@@ -144,22 +147,31 @@ test("the panel shows the account, plan use, image plan type and model checks it
   assert.equal(local.terms.Models, "6 verified by a completed request in the last 30 days",
     "without model checks, only named models that returned tokens count as verified");
   assert.equal(render({ page: "vps", account: { ...account, session: "signed-out" } }).terms["Plan use"], "Signed out");
+  const fresh = render({ page: "vps", account: { ...account, session: "reauthorize" } }).terms["Plan use"];
+  assert.notEqual(fresh, "Signed out", "an account that needs a fresh sign-in is not shown as signed out");
+  assert.match(fresh, /sign-in/u);
 });
 
 test("the last plan usage event names its next step, and only a usage limit offers Manage usage", () => {
-  const steps = {
-    subscription_sharing_usage_limit_exceeded: ["manage-usage", /Usage limit reached/u, /Pause new requests and open Manage usage/u],
-    subscription_sharing_usage_unavailable: ["retry-later", /Plan usage was unavailable/u, /Try again later/u],
-    subscription_sharing_user_unavailable: ["retry-later", /account was unavailable/u, /Try again later/u],
-    subscription_sharing_user_not_eligible: ["none", /can't be used here/u, /Check this account's plan/u],
+  const recoveries = {
+    subscription_sharing_usage_limit_exceeded: "manage-usage",
+    subscription_sharing_usage_unavailable: "retry-later",
+    subscription_sharing_user_unavailable: "retry-later",
+    subscription_sharing_user_not_eligible: "none",
   };
-  for (const [code, [recovery, title, next]] of Object.entries(steps)) {
+  const titles = new Set();
+  for (const [code, recovery] of Object.entries(recoveries)) {
     for (const usage of [ok({ lastUsageEvent: event(code, recovery) }), { ...blank("empty"), lastUsageEvent: event(code, recovery) }]) {
       const view = render({ page: "vps", account, usage });
       const box = view.nodes.find((node) => node.className === "usage-panel__event");
-      assert.match(box.textContent, title);
-      assert.match(box.textContent, next);
+      const [status, next] = box.children;
+      titles.add(status.textContent);
+      assert.match(status.textContent, /[A-Z][a-z]{2} \d{1,2}, /u, "the event says when it happened");
+      assert.ok(next.textContent.trim(), `${code} names a next step`);
+      assert.equal(/limit/iu.test(status.textContent), code === "subscription_sharing_usage_limit_exceeded",
+        `${code}: only a usage limit is titled as a limit`);
       assert.doesNotMatch(box.textContent, /switch to|another account/iu, "never suggests rotating accounts");
+      assert.doesNotMatch(box.textContent, /resets? (?:at|in|on)\b/iu, "no reset time is shown");
       const button = flat(box).find((node) => node.tag === "a");
       assert.equal(Boolean(button), recovery === "manage-usage", code);
       if (button) {
@@ -171,6 +183,7 @@ test("the last plan usage event names its next step, and only a usage limit offe
       assert.equal(view.manage.length, recovery === "manage-usage" ? 2 : 1);
     }
   }
+  assert.equal(titles.size, Object.keys(recoveries).length, "each code has its own title");
   assert.ok(!render({ page: "vps", account, usage: ok() }).nodes.some((node) => node.className === "usage-panel__event"));
 });
 
@@ -283,7 +296,7 @@ test("the local dashboard reads counts only from a running n8n sidecar and drops
   assert.match(element("installed-usage-view").textContent, /3 listed by OpenAI/u);
 });
 
-test("the wizard serves the usage panel and both pages load its stylesheet", async (t) => {
+test("the panel module brings its own stylesheet, so no page blocks on it", async (t) => {
   const wizard = await startWizardServer({ sessionToken });
   t.after(() => wizard.close());
   for (const [path, type] of [["/usage-panel.js", "text/javascript"], ["/usage-panel.css", "text/css"]]) {
@@ -293,6 +306,23 @@ test("the wizard serves the usage panel and both pages load its stylesheet", asy
   }
   for (const file of ["index.html", "local.html"]) {
     const html = await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8");
-    assert.match(html, /<link rel="stylesheet" href="\/usage-panel\.css" \/>/u, file);
+    assert.doesNotMatch(html, /usage-panel\.css/u, `${file} does not load the panel stylesheet up front`);
   }
+
+  // In a page, the module adds the stylesheet and finishes loading only once it has loaded.
+  const head = createNode("head");
+  let added;
+  const appended = new Promise((resolve) => { added = resolve; });
+  head.append = (...items) => { head.children.push(...items); added(items[0]); };
+  globalThis.document = { createElement: createNode, head };
+  t.after(() => { globalThis.document = { createElement: createNode }; });
+  let ready = false;
+  const loading = import("../src/ui/usage-panel.js?in-page").then((module) => { ready = true; return module; });
+  const link = await Promise.race([appended, loading.then(() => null)]);
+  assert.deepEqual([link?.tag, link?.rel, link?.href], ["link", "stylesheet", "/usage-panel.css"]);
+  await settle();
+  assert.equal(ready, false, "the panel cannot render before its stylesheet");
+  link.listeners.load();
+  assert.equal(typeof (await loading).renderUsage, "function");
+  assert.equal(head.children.length, 1);
 });

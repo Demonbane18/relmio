@@ -12,12 +12,12 @@ const FINGERPRINT = {
 const USAGE = { vps: "#global-error-recovery", local: "#global-error-recovery" };
 
 const usageLimit = {
-  title: "Plan usage limit reached",
-  say: "OpenAI paused requests for this account because its plan usage is limited. Relmio does not switch accounts or billing.",
+  title: "Usage limit reached",
+  say: "OpenAI refused the request because a usage limit was reached. It can be your plan's limit or the weekly limit set for this app in ChatGPT. Relmio does not switch accounts or billing.",
   steps: [
-    "Press Manage usage to open ChatGPT's usage page.",
-    "Wait until your plan allows requests again.",
-    "Try again with the same account.",
+    "Press Manage usage to see which limit applies and when it resets.",
+    "Wait for that reset, or raise this app's limit in ChatGPT if you set it lower.",
+    "Try again with the same account. Signing in again does not restore usage.",
   ],
   targets: USAGE,
 };
@@ -73,10 +73,10 @@ export const GUIDE_ERRORS = {
       ],
     },
     reauthorize: {
-      title: "Sign in to ChatGPT again",
-      say: "ChatGPT needs a fresh sign-in for this account. Relmio never reuses an old sign-in.",
+      title: "Check the ChatGPT sign-in",
+      say: "OpenAI did not accept this account's sign-in or plan permission. Check that the selected account is the one you meant to use.",
       steps: [
-        "Press Sign in again for the same account.",
+        "If Sign in again is shown, press it and use the same account.",
         "Finish the sign-in on the ChatGPT page.",
         "Come back and repeat the step that stopped.",
       ],
@@ -104,19 +104,19 @@ export const GUIDE_ERRORS = {
     },
     "fix-configuration": {
       title: "Sign-in setup needs a fix",
-      say: "The ChatGPT sign-in setup was rejected. Follow the repair the message shows before you sign in again.",
+      say: "OpenAI did not accept this sign-in setup or request. The message names the reason.",
       steps: [
         "Follow the repair the message names.",
-        "Start a fresh ChatGPT sign-in for the same account.",
+        "Sign in again only if the message asks for it.",
       ],
     },
     "review-again": {
-      title: "Review the plan again",
-      say: "Something changed since you reviewed the plan, so Relmio stopped and needs a fresh review.",
+      title: "Review the setup plan again",
+      say: "Something changed since you reviewed the setup plan, so Relmio stopped and needs a fresh review.",
       steps: [
         "Check the server, account and n8n choices again.",
         "Press Review again.",
-        "Approve the new plan.",
+        "Approve the new setup plan.",
       ],
       targets: { vps: "#review-button", local: "#review-button" },
     },
@@ -165,7 +165,7 @@ export const GUIDE_ERRORS = {
     },
     retryablePlan: {
       title: "Enter the secrets again",
-      say: "The install stopped and Relmio cleared the ngrok and Basic Auth boxes for safety. Your reviewed plan is kept.",
+      say: "The install stopped and Relmio cleared the ngrok and Basic Auth boxes for safety. Your reviewed setup plan is kept.",
       steps: [
         "Fix the problem the message names.",
         "Enter all three secrets again.",
@@ -194,6 +194,14 @@ export const GUIDE_ERRORS = {
       targets: FINGERPRINT,
     },
     subscription_sharing_usage_limit_exceeded: usageLimit,
+    subscription_sharing_user_not_eligible: {
+      title: "Plan use not available",
+      say: "OpenAI says ChatGPT plan use is not available for this account, workspace or policy. Signing in again or retrying does not change that.",
+      steps: [
+        "Check that you signed in with the ChatGPT account and workspace you meant to use.",
+        "If it should be eligible, contact OpenAI Support with the error shown.",
+      ],
+    },
     siwc_lock_unavailable: {
       title: "Account is busy",
       say: "Another Relmio action held this account's session for too long.",
@@ -201,7 +209,7 @@ export const GUIDE_ERRORS = {
     },
     usage_limit: {
       title: "Plan usage is paused",
-      say: "Your plan's usage limit was reached, or OpenAI said plan usage is not available right now. Untested models are tried again later.",
+      say: "A usage limit was reached, or OpenAI could not check the usage or the account just then. The limit can be your plan's or this app's limit in ChatGPT. Untested models are tried again later.",
       steps: [
         "Wait, or open Manage usage in ChatGPT.",
         "Model checks resume on their own, after 60 minutes at the earliest.",

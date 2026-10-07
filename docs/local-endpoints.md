@@ -129,6 +129,8 @@ project on the local computer.
 2. Relmio opens the local dashboard through an owner-only, single-use browser
    handoff. If it does not open, press Enter in the active foreground terminal
    or run `relmio open` from a persistent install. Then select **Add connection**.
+   The first time, the wizard asks whether to start the
+   [setup guide](getting-started.md#use-the-setup-guide).
 3. Choose **ChatGPT for n8n**, **Grok for n8n**, **Local model for n8n**,
    **Set up new n8n**, or **Grok on this computer**. Open **More connections
    and tools** for Codex endpoints and **n8n AI Assistant tools**.
@@ -236,6 +238,10 @@ Local Codex clients and the pre-install account picker still use the pin.
 Local n8n sidecars have no model-check controls and default to checks off; they
 still learn from completed requests and hide model-level failures for a day.
 See [model discovery and checks](n8n-configuration.md#model-discovery-and-checks).
+
+**Plan and usage** on the dashboard, and on the installed sidecar's view,
+shows the requests sent through this sidecar in the last 30 days. See
+[Plan and usage](local-dashboard.md#plan-and-usage).
 
 The sidecar also has a
 Chat Completions compatibility path that accepts text messages and function

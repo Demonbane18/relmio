@@ -195,6 +195,28 @@ The first-use plan notice must be acknowledged before plan models are
 available. **Manage usage** opens ChatGPT's usage settings. A plan usage-limit
 error does not switch accounts or billing; follow its recovery action.
 
+## Plan and usage
+
+Choose **Plan and usage** in the dashboard's navigation to see the requests
+sent through the ChatGPT plan sidecar on this computer in the last 30 days. When
+the sidecar is healthy, the section reads its counts when you open it and
+after each **Refresh status**, and **Refresh usage** reads them again. It
+shows total requests and tokens, active days, the peak day, how requests
+ended and the busiest models. It also shows the account, whether plan use is
+on, and the last plan-usage error with what to do next. A sidecar on this
+computer has no model checks, so a model counts as verified when it returned
+tokens in the last 30 days.
+
+If the sidecar is not set up or not running, the section says so and offers
+no **Refresh usage**. The installed sidecar's view, shown after an install or
+when you choose **Manage ChatGPT sign-out** on the dashboard, has a **Plan and
+usage** disclosure that reads the counts when you open it.
+
+These are requests sent through Relmio, not your plan's usage. Relmio shows no
+plan percent, reset time or credits; they stay on ChatGPT's Usage page, which
+**Manage usage** opens. What the sidecar stores is in
+[Request counts](security.md#request-counts).
+
 ## Keep credentials separate
 
 The dashboard returns sanitized account state and allowlisted URLs. It never

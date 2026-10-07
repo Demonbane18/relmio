@@ -25,7 +25,7 @@ const siwcTips = [
     target: "[data-siwc=welcome-accept]",
     action: "press",
     title: "Read the plan notice",
-    say: "Your ChatGPT plan pays for these requests, and OpenAI's limits apply. Press Continue when you have read it.",
+    say: "Requests count toward the usage in your ChatGPT plan, and OpenAI's limits apply. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. Press Continue when you have read it.",
     done: "clicked",
   },
   {
@@ -57,7 +57,7 @@ const siwcTips = [
     target: "[data-siwc=return]",
     action: "press",
     title: "Sign in again",
-    say: "If the status says this account needs a fresh sign-in, press Sign in again. Relmio never reuses an old sign-in.",
+    say: "If the status says this account needs a fresh sign-in, press Sign in again. Relmio keeps the same saved account and replaces its old sign-in.",
     done: "visible:[data-siwc=plan-badge]",
   },
   {
@@ -86,7 +86,7 @@ export const GUIDE = {
           id: "docker",
           target: "#dashboard-environment",
           action: "read",
-          title: "Is Docker running",
+          title: "Check that Docker is running",
           say: "Relmio first checks Docker on this computer. Docker is the program that runs apps in sealed boxes called containers. If Docker is not running, start it and press Refresh status.",
           find: "Start Docker Desktop or Docker Engine. It is ready when docker info works in a terminal.",
           done: "manual",
@@ -583,7 +583,8 @@ export const GUIDE = {
           target: "#local-siwc-owner-confirm",
           action: "check",
           title: "Pause or sign out",
-          say: "Pause, resume and sign-out stop only this service for a moment. Tick the box first, then press the action you want.",
+          say: "Pause stops this service until you press Use ChatGPT plan. Sign out stops it until you sign in again. Tick the box first, then press the action you want.",
+          find: "To remove Relmio from ChatGPT as well, use Disconnect under Settings, Security and login, Login connections, if ChatGPT lists it.",
           done: "checked",
         },
         {

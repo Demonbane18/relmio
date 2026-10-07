@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   box, choosePlacement, currentTip, errorInfo, errorTarget, lookupError, overlaps, selectChapter, tipDone, visitOutcome,
 } from "../src/ui/guide.js";
+import { candidates, cursorSpot, placeDock, stackMarkers, visiblePart } from "../src/ui/guide-dock.js";
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "guide-engine-test-session-token-0123456789abcdef";
@@ -155,6 +156,114 @@ test("placement never covers a protected rect and prefers covering less content"
     const chosen = choosePlacement(options, rects, rects.map((rect) => ({ ...rect, weight: 2 })));
     if (chosen) assert.ok(!rects.some((rect) => overlaps(chosen, rect)));
     else assert.ok(options.every((option) => rects.some((rect) => overlaps(option, rect))));
+  }
+});
+
+test("on wide windows the dock takes the free rail foot or a panel corner and keeps safety clear", () => {
+  // 1920 x 1080 with a short panel: room is left under the rail's safety list.
+  const view = {
+    vw: 1920, vh: 1080, wide: true, top: 64, rail: box(32, 72, 272, 900), railEnd: 520,
+    panel: box(336, 72, 912, 560), columnBottom: 632, footerTop: 572, headerBottom: 180, bottom: 572,
+  };
+  const list = candidates(view, () => 280);
+  const foot = list.find((spot) => spot.left === 32 && spot.top === 532);
+  assert.ok(foot, "a spot right under the rail's content");
+  const sets = { hard: [], safety: [box(32, 72, 272, 140), box(32, 400, 272, 120)], lead: [], aim: [] };
+  assert.equal(placeDock(list, sets, []), foot, "never the rail top over the intro");
+
+  // A shorter window has no room under the rail, so a panel corner it is.
+  const short = candidates({ ...view, vh: 720 }, () => 280);
+  assert.equal(short.some((spot) => spot.top === 532), false, "the foot spot must fit in the window");
+  assert.ok(candidates({ ...view, vh: 816 }, () => 280).some((spot) => spot.left === 32 && spot.top === 528),
+    "with little room it sits lower under the content, never closer than 8 px");
+  const corner = placeDock(short, sets, []);
+  assert.ok(corner && corner.left > view.rail.right, "a panel corner");
+  assert.equal(placeDock(short, { ...sets, aim: [corner] }, []), short.find((spot) => spot.left === view.panel.left + 16),
+    "the target stays clear when another spot fits");
+  assert.equal(placeDock(short, { ...sets, aim: short }, []), null, "covering its own target folds into the chip");
+  assert.equal(placeDock(short, { ...sets, aim: short }, [], true), corner, "opened from the chip, it may cover it");
+  assert.equal(placeDock(short, { ...sets, safety: short }, []), null, "safety everywhere folds into the chip");
+  assert.ok(placeDock(short, { ...sets, safety: short }, [], true), "opened from the chip, it may cover safety last");
+});
+
+test("on phones the dock keeps the target, titles, track and warnings clear until the person opens it", () => {
+  const view = { vw: 390, vh: 844, wide: false, top: 64, bottom: 772 };
+  const [bottom, above, top] = candidates(view, () => 240);
+  assert.deepEqual([bottom.top, above.top, top.top], [596, 524, 64]);
+  const hard = [box(260, 780, 110, 40)];
+  const lead = [box(16, 72, 358, 40), box(16, 180, 300, 36)];
+  const aim = [box(16, 560, 358, 60)];
+  const list = [bottom, above, top];
+  assert.equal(placeDock(list, { hard, safety: [], lead, aim }, []), null,
+    "covering the tip's target, the title or the track folds into the chip");
+  assert.equal(placeDock(list, { hard, safety: [], lead, aim: [] }, []), above);
+  assert.equal(placeDock(list, { hard, safety: [], lead, aim }, [], true), above, "opened from the chip, it may cover the target");
+  const warnings = [box(16, 600, 358, 40)];
+  assert.equal(placeDock(list, { hard, safety: warnings, lead, aim }, [], true), top, "it covers the title before a warning");
+  assert.equal(placeDock(list, { hard, safety: [...warnings, box(16, 120, 358, 40)], lead, aim }, [], true), above,
+    "only a hard box is never covered");
+  assert.equal(placeDock([bottom], { hard, safety: [], lead: [], aim: [] }, [], true), null);
+
+  // Random layouts: no rule ever covers a hard box, and nothing else until opened.
+  let seed = 11;
+  const random = (max) => { seed = (seed * 48271) % 2147483647; return seed % max; };
+  const rects = () => Array.from({ length: random(3) }, () => box(random(1200), random(700), 20 + random(300), 20 + random(200)));
+  for (let round = 0; round < 500; round++) {
+    const sets = { hard: rects(), safety: rects(), lead: rects(), aim: rects() };
+    const options = Array.from({ length: 1 + random(6) }, () => box(random(1100), random(600), 100 + random(300), 80 + random(300)));
+    for (const opened of [false, true]) {
+      const chosen = placeDock(options, sets, [], opened);
+      if (!chosen) {
+        if (opened) assert.ok(options.every((option) => sets.hard.some((rect) => overlaps(option, rect))));
+        continue;
+      }
+      assert.ok(!sets.hard.some((rect) => overlaps(chosen, rect)));
+      if (!opened) assert.ok(![...sets.safety, ...sets.lead, ...sets.aim].some((rect) => overlaps(chosen, rect)));
+    }
+  }
+});
+
+test("a target clipped by a scrolled panel body counts as off screen", () => {
+  const view = box(0, 56, 1280, 664);
+  const body = box(336, 200, 900, 400);
+  assert.equal(visiblePart(box(400, 120, 200, 32), [view, body]), null, "scrolled above the body");
+  assert.deepEqual(visiblePart(box(400, 300, 200, 32), [view, body]), box(400, 300, 200, 32));
+  assert.deepEqual(visiblePart(box(400, 580, 200, 40), [view, body]), box(400, 580, 200, 20), "only the part in view");
+  assert.deepEqual(visiblePart(box(400, 700, 200, 40), [view]), box(400, 700, 200, 20), "the window edge cuts it too");
+  assert.equal(visiblePart(box(400, 30, 200, 20), [view]), null, "under the top bar it is off screen");
+  assert.equal(visiblePart(box(400, 300, 0, 0), [view]), null, "an empty box shows nothing");
+});
+
+test("the cursor label never covers a choice's text or a summary", () => {
+  const view = { vw: 1280, vh: 720 };
+  const size = { arrow: 20, width: 64, height: 20, top: 16 };
+  const checkbox = box(360, 400, 18, 18);
+  assert.deepEqual(cursorSpot(checkbox, size, view, [box(386, 400, 500, 44)], true),
+    { x: 364, y: 412, flip: true, label: true }, "a checkbox is pointed at from its left edge");
+  assert.deepEqual(cursorSpot(box(24, 400, 18, 18), size, { vw: 390, vh: 844 }, [box(50, 400, 320, 44)], true),
+    { x: 28, y: 412, flip: true, label: false }, "no room on either side leaves the label out");
+
+  const button = box(600, 300, 160, 40);
+  assert.deepEqual(cursorSpot(button, size, view, []), { x: 748, y: 334, flip: false, label: true });
+  assert.deepEqual(cursorSpot(button, size, view, [box(740, 346, 120, 28)]), { x: 748, y: 334, flip: true, label: true },
+    "a summary under the corner sends the label to the other side");
+  assert.equal(cursorSpot(box(1180, 300, 90, 40), size, view, []).flip, true, "the window edge flips it as before");
+});
+
+test("reduced-motion markers never overlap", () => {
+  const [, port] = stackMarkers([box(400, 170, 220, 26), box(560, 170, 180, 26)], 1440);
+  assert.deepEqual(port, box(624, 170, 180, 26), "the next marker moves right of the one it hits");
+  const [, below] = stackMarkers([box(100, 170, 300, 26), box(200, 170, 200, 26)], 420);
+  assert.deepEqual(below, box(200, 200, 200, 26), "a full row sends it under");
+
+  let seed = 5;
+  const random = (max) => { seed = (seed * 48271) % 2147483647; return seed % max; };
+  for (let round = 0; round < 300; round++) {
+    const width = 320 + random(1600);
+    const start = Array.from({ length: 1 + random(8) }, () => box(random(width), random(800), 40 + random(260), 26));
+    const placed = stackMarkers(start, width);
+    assert.equal(placed.length, start.length);
+    placed.forEach((spot, index) => placed.slice(index + 1).forEach((other) => assert.ok(!overlaps(spot, other))));
   }
 });
 

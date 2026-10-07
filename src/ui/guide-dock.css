@@ -306,6 +306,11 @@
   white-space: nowrap;
 }
 
+/* The label keeps its size while left out, so the cursor stays measurable. */
+.rm-guide-pointer__cursor.is-bare .rm-guide-pointer__label {
+  visibility: hidden;
+}
+
 /* Reduced motion: Show me numbers the targets instead of moving. */
 .rm-guide-marker {
   z-index: 31;
