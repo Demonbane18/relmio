@@ -39,6 +39,13 @@ checks the registry separately after publication.
   process as gone once Windows also confirms the process ID no longer exists,
   as it already did for a process PowerShell could not find.
 
+- `relmio stop` no longer fails now and then with "Relmio refuses changed local
+  dashboard control state" or "could not safely read its local dashboard
+  control state" after the dashboard has accepted the stop. While stop waits,
+  the dashboard moves its control files away one by one, and a check could list
+  a file just before it moved. Stop now checks again. A control file that stays
+  changed is still refused.
+
 ## [0.19.0] - 2026-10-07
 
 Relmio 0.19.0 adds a skippable setup guide with Relmio the mascot, Plan and
