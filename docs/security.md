@@ -755,8 +755,9 @@ authentication. This bridge is neither: ChatGPT/Codex sign-in is not an
 OpenAI Platform API key, does not create API credits, and does not bypass
 account limits. The existing n8n recipe only exposes capabilities implemented
 by the pinned third-party OAuth runtime. Model listing is not account
-entitlement or successful completion. Flare/Sunburst model IDs are discovery
-entries, not proof of access. Audio/TTS, transcription, translation, Live and
+entitlement or successful completion. The image add-on offers only
+`gpt-image-2`: the Codex image route ignores the model ID, so earlier Flare and
+Sunburst listings never selected those models. Audio/TTS, transcription, translation, Live and
 Realtime are not implemented through this bridge. The
 [Audio speech documentation](https://developers.openai.com/api/docs/guides/text-to-speech)
 and [image-generation documentation](https://developers.openai.com/api/docs/guides/image-generation)

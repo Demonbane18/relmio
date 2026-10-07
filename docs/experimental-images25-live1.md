@@ -9,11 +9,16 @@ implementation and 2026-09-12 account-specific tests. Any “current” status b
 refers only to that dated implementation/account; it does not describe current
 SIWC behavior. See [current capability limits](n8n-configuration.md).
 
-A 2026-10-06 test found that the Codex image route returns the same token
-count, size and C2PA provenance for `gpt-image-2`, `gpt-image-2.5-flare` and a
-made-up ID, so the successful
-Flare and Sunburst requests below do not show which model ran. The current
-sidecar offers only `gpt-image-2`; see
+**Correction, 2026-10-07:** the Flare and Sunburst results below did not run
+Flare or Sunburst. These requests went to the Codex image route, which ignores
+the model ID: a 2026-10-06 test returned the same token count, size and C2PA
+provenance for `gpt-image-2`, `gpt-image-2.5-flare` and a made-up ID, and every
+image here came back at 1254x1254 although 1024x1024 was requested. Codex sends
+only `gpt-image-2` and has no setting to choose another image model, so each
+"Flare" or "Sunburst" image came from Codex's single image model. Read the rows
+below as proof that the route accepted those names and returned an image, not
+that GPT Image 2.5 ran. Flare and Sunburst need a Platform API key; the current
+sidecar offers only `gpt-image-2`. See
 [Generate and edit images](n8n-configuration.md#generate-and-edit-images-vps-add-on).
 
 This report records source, access, data-flow, and bounded live evidence for the

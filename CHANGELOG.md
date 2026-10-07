@@ -7,6 +7,13 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- The 0.16.0 notes and the GPT Image 2.5 experiment record now say that
+  choosing Flare or Sunburst in Relmio 0.16.0 through 0.18.6 never selected
+  those models. The Codex image route ignores the model ID, so every image
+  came from Codex's single image model, which Codex names `gpt-image-2`.
+
 ## [0.19.0] - 2026-10-07
 
 Relmio 0.19.0 adds a skippable setup guide with Relmio the mascot, Plan and
@@ -795,6 +802,11 @@ browser installer for new and existing OpenAI OAuth bridges.
 - Discover the exact Flare and Sunburst image model IDs alongside existing
   models, including GPT Image 2. Both 2.5 variants were tested with n8n's native
   image generation and editing nodes on the current account.
+  Correction, 2026-10-07: these requests went to the Codex image route, which
+  ignores the model ID. A test on 2026-10-06 got identical results for
+  `gpt-image-2`, Flare and a made-up ID, so choosing Flare or Sunburst in
+  0.16.0 through 0.18.6 produced Codex's own image model, not GPT Image 2.5
+  Flare or Sunburst. Relmio 0.19.0 offers only `gpt-image-2` on this route.
 - Show discovered image choices and copyable IDs after bridge installation or
   update, with instructions for n8n's image model selector.
 
