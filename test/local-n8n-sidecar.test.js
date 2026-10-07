@@ -981,8 +981,11 @@ test("generated credential initializer obeys root plus CHOWN-only ownership mode
   assert.deepEqual(values("cap_add"), ["CHOWN"]);
   assert.deepEqual(values("volumes"), ["siwc-store:/run/relmio-auth"]);
   assert.equal(seed.match(/^    network_mode: (.*)$/m)[1], "none");
-  const shell = seed.split("      - |\n")[1].split("    volumes:\n")[0]
+  const yamlShell = seed.split("      - |\n")[1].split("    volumes:\n")[0]
     .split("\n").map(line => line.slice(8)).join("\n");
+  // Compose substitutes $name and ${name} before the container runs; only $$ reaches the shell as $.
+  assert.doesNotMatch(yamlShell.replaceAll("$$", ""), /\$/u, "every shell $ must be written as $$");
+  const shell = yamlShell.replaceAll("$$", "$");
   const model = join(root, "owner");
   const calls = join(root, "calls");
   const functions = `

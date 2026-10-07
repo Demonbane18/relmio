@@ -30,6 +30,15 @@ checks the registry separately after publication.
   whether n8n can generate images and lists the image limits, and the VPS
   guide's summary mentions image generation.
 
+### Fixed
+
+- Installing the ChatGPT plan sidecar for an n8n on this computer no longer
+  fails with "Local SIWC private volume initialization failed." In 0.19.0 and
+  0.19.1 this step always failed: Docker Compose replaced the setup script's
+  `$owner` with an empty value, so the script exited before the sign-in was
+  handed over. The sign-in stayed on this computer. Found in local QA on
+  Docker Desktop with Compose 5.5.1.
+
 ## [0.19.1] - 2026-10-07
 
 Relmio 0.19.1 fixes the VPS sidecar update route and adds a ChatGPT sign-in
