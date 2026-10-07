@@ -38,8 +38,10 @@ checks the registry separately after publication.
   sign-in** button in the panel starts a fresh ChatGPT sign-in on this
   computer and hands it to the sidecar through the existing reviewed
   replacement: sign out the old sign-in, reconnect, then review and confirm
-  the replacement, whose button reads **Replace the sidecar**. n8n needs the
-  new Relmio key afterwards. No new kind of server write was added.
+  the replacement, whose button reads **Replace the sidecar**. The
+  replacement must use the registration from that new sign-in; another
+  account saved on this computer is refused. n8n needs the new Relmio key
+  afterwards. No new kind of server write was added.
 - The setup guide explains `vps_sidecar_owned`, `vps_sidecar_updating`,
   `vps_sidecar_staged` and `vps_sidecar_partial` and points at the panel that
   resolves each one. It also has tips for the sign-in refresh.

@@ -250,7 +250,9 @@ ChatGPT account through the reviewed replacement instead:
    and disconnects.
 4. Reconnect to the same server and choose **Review replacement** within four
    minutes of the sign-out. After that, Relmio first asks for a one-off
-   inspection of the stopped sidecar.
+   inspection of the stopped sidecar. Keep the account from the new sign-in
+   selected: during a refresh, Relmio refuses to review the replacement with
+   any other account saved on this computer.
 5. Review the plan, select the replacement approval and the other approvals,
    and choose **Replace the sidecar**.
 6. Copy the new one-time Relmio key into your n8n OpenAI credential, and into

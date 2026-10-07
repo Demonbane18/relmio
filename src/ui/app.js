@@ -2056,6 +2056,15 @@ function reviewReplacement(button) {
     setMessage("Sign in with a fresh independent registration, then inspect the stopped old owner again before reviewing replacement.");
     return undefined;
   }
+  // A sign-in refresh replaces the old sign-in only with the one it just made, never with
+  // another account saved on this computer.
+  const refresh = state.vpsSignInRefresh;
+  if (refresh?.newRegistrationId && refresh.registrationId === state.vpsOwner?.registrationId &&
+      selected.registrationId !== refresh.newRegistrationId) {
+    selectChatGptSetup();
+    setMessage("Select the account from your new ChatGPT sign-in. Then check the server again and inspect the stopped sidecar before the replacement.");
+    return undefined;
+  }
   return reviewPlan(button);
 }
 

@@ -1783,7 +1783,8 @@ async function sidecarRouter({ owner = null, selected = siwcAccount, refresh = n
     state, element, accountUiState, vpsOwnerUpdateReviewing: Promise.resolve(),
     siwc: { selected: () => selected, catalog: async () => [{ slug: "gpt-x", display_name: "GPT X" }] },
     isAssistantIntegration: () => false,
-    clearError() {}, invalidateReviewedPlan() {}, setMessage() {}, dismissToast() {}, messageToast: {},
+    clearError() {}, invalidateReviewedPlan() {}, dismissToast() {}, messageToast: {},
+    setMessage(text) { calls.push(["message", text]); },
     selectChatGptSetup() { calls.push(["sign-in"]); },
     focusVisible(node) { calls.push(["focus", node.id]); },
     showError(error) { calls.push(["error", error.code ?? error.message]); },
@@ -1902,6 +1903,28 @@ test("step 3 opens recovery, the stopped owner or the refresh sign-out instead o
   await expired.next();
   assert.deepEqual(expired.calls, [["check", false], ["focus", "vps-owner-inspect-confirm"]],
     "an expired sign-out review is inspected again before replacement");
+});
+
+test("a sign-in refresh replaces the installed sign-in only with the registration it just made", async () => {
+  const signedOut = { state: "stopped", registrationId: installedId, reviewedStopped: true, reviewedAt: Date.now(),
+    checkedAt: Date.now(), account: { ...installedAccount, session: "signed-out", planEnabled: false } };
+  const refresh = { registrationId: installedId, newRegistrationId: freshAccount.registrationId };
+
+  const other = await sidecarRouter({ owner: signedOut, refresh, selected: siwcAccount });
+  await other.next();
+  assert.equal(other.calls.some(([name]) => name === "api"), false, "another saved account is never reviewed");
+  assert.deepEqual(other.calls[0], ["sign-in"]);
+  assert.match(other.calls[1][1], /Select the account from your new ChatGPT sign-in/u);
+
+  const fresh = await sidecarRouter({ owner: signedOut, refresh, selected: freshAccount });
+  await fresh.next();
+  assert.deepEqual(fresh.calls, [["api", "/api/plan"], ["step", 4]]);
+
+  const otherServer = await sidecarRouter({ owner: signedOut, selected: siwcAccount,
+    refresh: { registrationId: "another_installed_9", newRegistrationId: freshAccount.registrationId } });
+  await otherServer.next();
+  assert.deepEqual(otherServer.calls, [["api", "/api/plan"], ["step", 4]],
+    "a refresh for another installed sidecar leaves this replacement to the account the person chose");
 });
 
 test("the owner panel offers a ChatGPT sign-in refresh and says when it is needed", async () => {
