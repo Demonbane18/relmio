@@ -29,8 +29,8 @@ checks the registry separately after publication.
 - The ChatGPT plan sidecar's `/v1/chat/completions` route no longer refuses
   n8n's AI Agent on its second turn when the OpenAI Chat Model has Use
   Responses API off. n8n replays the tool-call message with an empty content
-  list, which the sidecar now treats like no content. A VPS sidecar needs
-  Review sidecar update to get this fix.
+  list, which the sidecar now treats like no content. To get this fix on a
+  VPS sidecar, run **Review sidecar update**.
 
 ## [0.19.0] - 2026-10-07
 

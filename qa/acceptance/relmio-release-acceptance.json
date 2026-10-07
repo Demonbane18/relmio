@@ -102,7 +102,9 @@
       "parameters": {
         "promptType": "define",
         "text": "Use the calculator tool to work out 17 * 23, then reply with only the number.",
-        "options": {}
+        "options": {
+          "returnIntermediateSteps": true
+        }
       },
       "id": "00000000-0000-4000-8000-000000000007",
       "name": "AI Agent",
@@ -307,7 +309,7 @@
     },
     {
       "parameters": {
-        "content": "## Expected results\n\n- HTTP Request: Responses returns `http responses ok`\n- HTTP Request: Chat Completions returns `http chat ok`\n- AI Agent returns `391` after one Calculator call\n- Basic LLM Chain returns `chain ok`\n- OpenAI: Message a Model returns `openai node ok`\n- OpenAI: Generate an Image returns one binary image (image add-on only)\n- Local Model Chain returns `4` (local model only)\n\nAn `error` field in any output is a failure.",
+        "content": "## Expected results\n\n- HTTP Request: Responses returns `http responses ok`\n- HTTP Request: Chat Completions returns `http chat ok`\n- AI Agent returns `391`, and its `intermediateSteps` show one Calculator call that returned `391`\n- Basic LLM Chain returns `chain ok`\n- OpenAI: Message a Model returns `openai node ok`\n- OpenAI: Generate an Image returns one binary image (image add-on only)\n- Local Model Chain returns `4` (local model only)\n\nAn `error` field in any output is a failure.",
         "height": 300,
         "width": 420
       },

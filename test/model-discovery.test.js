@@ -865,7 +865,9 @@ test('the store lock serializes writers, waits for a live holder until a deadlin
   const storageRoot = await root(t);
   const tick = () => new Promise(done => setTimeout(done, 5));
   const catalog = Array.from({ length: 12 }, (_, index) => entry(`model-${index}`));
-  const writers = [harness({ storageRoot, catalog, deps: { sleep: tick } }), harness({ storageRoot, catalog, deps: { sleep: tick } })];
+  // Real clock: a waiter that reads a just-created, still-empty lock dates it by file mtime, which a fixed
+  // test clock 20 hours away would call stale, letting two writers in at once.
+  const writers = [harness({ storageRoot, catalog, deps: { sleep: tick, now: Date.now } }), harness({ storageRoot, catalog, deps: { sleep: tick, now: Date.now } })];
   for (const writer of writers) await writer.discovery.listModels();
   await Promise.all(catalog.map(({ slug }, index) => writers[index % 2].discovery.recordOutcome({ model: slug, outcome: 'completed' })));
   assert.deepEqual(Object.keys((await readStoreFile(storageRoot)).models).sort(), catalog.map(({ slug }) => slug).sort(), 'no write was lost');

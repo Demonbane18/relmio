@@ -15,7 +15,7 @@ credentials by name only, so nothing secret is in this file.
 | --- | --- | --- |
 | HTTP Request: Responses | `POST /v1/responses` | `http responses ok` |
 | HTTP Request: Chat Completions | `POST /v1/chat/completions` | `http chat ok` |
-| AI Agent, with Agent Chat Model (Responses API on) and Calculator | Responses route with one tool call | `391` |
+| AI Agent, with Agent Chat Model (Responses API on) and Calculator | Responses route with one tool call | `391`, and `intermediateSteps` shows a Calculator action whose observation is `391` (an answer without that step fails) |
 | Basic LLM Chain, with Chain Chat Model (Responses API on) | Responses route | `chain ok` |
 | OpenAI: Message a Model (node 2.3) | Responses route | `openai node ok` |
 | OpenAI: Generate an Image (node 2.3, `gpt-image-2`) | `POST /v1/images/generations` | one binary image; VPS image add-on only |

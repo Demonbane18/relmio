@@ -86,6 +86,7 @@ the wizard's **Check installed account** shows as Ready (default
 | `assistant` | Hostinger VPS n8n | The two AI Assistant messages above. |
 | `wizard-ui` | Isolated Chrome | Wizard QA per `relmio-isolated-chrome-qa`, never the owner's browser. The main agent supplies that skill's text to the release run. |
 | `web` or `docs` only | none | No live acceptance. CI plus a check of the Vercel preview. |
+| `qa/acceptance/` changed | Hostinger VPS n8n | Import the changed workflow and run it once, reading every node it changed, even when no other area is touched. |
 | `installers`, `packaging`, `hosting`, `supergrok`, `ci` | none | CI jobs above and the `release-relmio-everywhere` audit matrix. |
 | `root` | all of the above | Every row that applies to the installed targets. |
 
