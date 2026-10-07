@@ -7,6 +7,13 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.19.0] - 2026-10-07
+
+Relmio 0.19.0 adds a skippable setup guide with Relmio the mascot, Plan and
+usage counts, automatic model discovery and sidecar updates from the wizard,
+and moves ChatGPT plan sign-in to OpenAI's documented Sign in with ChatGPT
+flow.
+
 ### Added
 
 - Every wizard page has an optional setup guide. Relmio, the mascot, points at
@@ -1755,6 +1762,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.19.0]: https://github.com/Demonbane18/relmio/compare/v0.18.6...v0.19.0
 [0.18.6]: https://github.com/Demonbane18/relmio/compare/v0.18.5...v0.18.6
 [0.18.5]: https://github.com/Demonbane18/relmio/compare/v0.18.4...v0.18.5
 [0.18.4]: https://github.com/Demonbane18/relmio/compare/v0.18.3...v0.18.4

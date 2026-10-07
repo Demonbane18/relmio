@@ -26,8 +26,8 @@ not enable hosted chat. See the
 [2026-10-05 source check](docs/openai-source-check-2026-10-05.md) for the data
 flow, documented limits, unresolved prerequisites, and historical reviews.
 
-Relmio 0.18.6 is the current stable release. The redesigned five-step wizard
-is available through npm `latest` and the hosted installers.
+Relmio 0.19.0 is the current stable release. It adds the setup guide and Plan
+and usage, and is available through npm `latest` and the hosted installers.
 
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
@@ -58,7 +58,7 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-`@latest` selects stable 0.18.6, including the redesigned chooser. Hosted
+`@latest` selects stable 0.19.0, including the setup guide. Hosted
 installers use the same stable default.
 
 

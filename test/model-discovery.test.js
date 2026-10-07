@@ -428,6 +428,8 @@ test('a background run that stops or leaves a model unanswered pauses background
     const { clock, calls, routes, discovery } = harness({ storageRoot, catalog: [entry('alpha'), entry('beta')], probe: answer });
     await discovery.listModels();
     await until(() => calls.probe.length === probed);
+    // Wait for the run to save its pause and release the store lock; a fixed delay races under load.
+    await until(() => idle(storageRoot));
     await settle();
     assert.equal(calls.probe.length, probed, name);
     clock.t = T0 + HOUR - 1;
