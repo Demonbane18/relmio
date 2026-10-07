@@ -1,8 +1,9 @@
 # VPS and n8n
 
-Relmio can add private n8n companions beside an existing VPS installation. The
-ChatGPT sidecar uses a separately authorized SIWC registration; SuperGrok uses
-its own session and does not require or read ChatGPT credentials.
+Relmio can add private n8n companions beside an existing VPS installation,
+update them, and turn on optional image generation. The ChatGPT sidecar uses a
+separately authorized SIWC registration; SuperGrok uses its own session and
+does not require or read ChatGPT credentials.
 
 The VPS model setup is tested on Hostinger KVM VPS. Other Linux VPS hosts,
 including Hetzner, are experimental. Use the actual SSH username for your

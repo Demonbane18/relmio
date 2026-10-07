@@ -5,6 +5,15 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
+## Unreleased
+
+### Changed
+
+- The website's docs now include **Configure n8n**, with the sidecar's request
+  routes, models, tools, image generation and their limits. The FAQ answers
+  whether n8n can generate images and lists the image limits, and the VPS
+  guide's summary mentions image generation.
+
 ## [0.19.1] - 2026-10-07
 
 Relmio 0.19.1 fixes the VPS sidecar update route and adds a ChatGPT sign-in

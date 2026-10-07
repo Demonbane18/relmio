@@ -1,12 +1,14 @@
 # Configure n8n for ChatGPT plan use
 
-Use this guide for the current local/SIWC OpenAI-compatible sidecar. It does not
-cover an OpenAI Platform API-key connection or the separate Codex App Server
-relay.
+How n8n uses Relmio's ChatGPT plan sidecar: request routes, models, tools, the
+AI Assistant, image generation, and the limits of each.
+
+This guide does not cover an OpenAI Platform API-key connection or the separate
+Codex App Server relay.
 
 ## Before setup
 
-1. Open the local Relmio wizard and select **ChatGPT for n8n**.
+1. Open the Relmio wizard and select **n8n with ChatGPT sign-in**.
 2. Create a fresh Relmio sign-in or select one of your saved registrations.
    Personal Codex credentials are not imported, and matching email addresses do
    not merge registrations.
@@ -242,8 +244,9 @@ Assistant sends its own tools plus any from connected MCP servers.
 Image generation works only after you turn on the optional image add-on for an
 installed VPS sidecar. It uses a separate Codex sign-in, the way Hermes Agent
 does. OpenAI does not document this route for other apps, so it can stop
-working without notice. Images count against your plan's Codex limits, and
-the Codex refresh token is stored on the VPS. The ChatGPT plan session is
+working without notice. Images use your plan's Codex limits 3 to 5 times
+faster than text, then credits, and Free plans can't use them. The Codex
+refresh token is stored on the VPS. The ChatGPT plan session is
 never used for images. A local sidecar has no image sign-in. See
 [Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional)
 for setup and sign-out.

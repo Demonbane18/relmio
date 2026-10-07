@@ -43,6 +43,11 @@ const pages = [
     sourcePath: "docs/vps-and-n8n.md",
   },
   {
+    slug: "n8n-configuration",
+    title: "Configure n8n",
+    sourcePath: "docs/n8n-configuration.md",
+  },
+  {
     slug: "vps-supergrok",
     title: "SuperGrok on a VPS",
     sourcePath: "docs/vps-supergrok.md",
