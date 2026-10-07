@@ -198,7 +198,8 @@ async function inspectWindowsProcess(pid, { probeProcess, runCommand, systemRoot
       return Object.freeze({ state: "ambiguous" });
     }
     const output = result.stdout.trim();
-    if (output === "missing" && processIsConfirmedDead(pid, probeProcess)) {
+    // Get-Process can find a process that exits before StartTime is read; ESRCH still proves it is gone.
+    if ((output === "missing" || output === "ambiguous") && processIsConfirmedDead(pid, probeProcess)) {
       return Object.freeze({ state: "dead" });
     }
     const ticks = output.match(/^active:([0-9]{1,20})$/u)?.[1];
