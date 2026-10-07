@@ -67,14 +67,19 @@ finds. This is optional and never replaces the PR review.
 Every release runs live checks for the areas it touched, whether it is a
 patch, minor or major release. A release whose areas are only `web` and
 `docs` (`web_only` true) needs no live checks. Use the n8n workflow
-"Relmio release acceptance" (`qa/acceptance/relmio-release-acceptance.json`;
-import and credential steps in `qa/acceptance/README.md`). It stays inactive;
-run it with **Execute workflow** and open each node's output. A node passes
-only when its output shows the expected text. Use the statuses from the
+"Relmio release acceptance" (`qa/acceptance/relmio-release-acceptance.json`).
+It is the standard QA workflow for every self-hosted n8n: the Hostinger VPS,
+a local Docker n8n or any other setup. Search the target n8n for it first and
+reuse the copy that is there; never import a second copy. Update it in place
+when its `acceptanceVersion` is missing or older than the repository file, and create
+it only when that n8n has none (steps in `qa/acceptance/README.md`). It stays
+inactive; run it with **Execute workflow** and open each node's output. A node
+passes only when its output shows the expected text. Use the statuses from the
 `smoke-test-evidence` skill (PASS, EXPECTED-UNSUPPORTED, FAIL, BLOCKED,
 NOT-RUN). Before running, set the `Settings` node's `model` to a model that
 the wizard's **Check installed account** shows as Ready (default
-`gpt-6-astra`).
+`gpt-6-astra`), and `sidecarBaseUrl` where that n8n reaches the sidecar at
+another address.
 
 | Area touched | Where | Checks |
 | --- | --- | --- |
@@ -86,7 +91,7 @@ the wizard's **Check installed account** shows as Ready (default
 | `assistant` | Hostinger VPS n8n | The two AI Assistant messages above. |
 | `wizard-ui` | Isolated Chrome | Wizard QA per `relmio-isolated-chrome-qa`, never the owner's browser. The main agent supplies that skill's text to the release run. |
 | `web` or `docs` only | none | No live acceptance. CI plus a check of the Vercel preview. |
-| `qa/acceptance/` changed | Hostinger VPS n8n | Import the changed workflow and run it once, reading every node it changed, even when no other area is touched. |
+| `qa/acceptance/` changed | Hostinger VPS n8n | Update the existing workflow in place (README steps) and run it once, reading every node it changed, even when no other area is touched. |
 | `installers`, `packaging`, `hosting`, `supergrok`, `ci` | none | CI jobs above and the `release-relmio-everywhere` audit matrix. |
 | `root` | all of the above | Every row that applies to the installed targets. |
 

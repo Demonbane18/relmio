@@ -241,7 +241,7 @@ test("each text request sent to OpenAI counts once with its outcome, streamed or
   const discovery = countingDiscovery();
   const { handler } = fake(undefined, { discovery });
   for (const [path, body, headers] of [
-    ["/v1/responses", { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }], store: true }],
+    ["/v1/responses", { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }], previous_response_id: "resp" }],
     ["/v1/responses", { model: "gpt-7-nova", input: [{ role: "user", content: "Hi" }] }, { authorization: "Bearer wrong" }],
     ["/v1/images/generations", { model: "gpt-image-2", prompt: "A cat" }],
     ["/v1/models"],
@@ -329,7 +329,7 @@ test("rejects unsupported parameters, tools, routes, and storage before provider
   const { handler, calls } = fake();
   const base = { model: "gpt-6.1-sol", input: [{ role: "user", content: "Hi" }] };
   for (const [body, param] of [
-    [{ ...base, store: true }, "store"],
+    [{ ...base, store: "yes" }, "store"],
     [{ ...base, previous_response_id: "resp" }, "previous_response_id"], [{ ...base, tools: [{ type: "image_generation" }] }, "tools"],
     [{ ...base, input: [{ type: "message", role: "system", content: "bypass" }] }, "input"],
     [{ ...base, include: ["file_search_call.results"] }, "include"],
@@ -1149,6 +1149,9 @@ test("output caps are dropped, chat effort becomes Responses reasoning, and othe
   const base = { model: "gpt-6.1-sol", input: [{ role: "user", content: "Reply with OK." }] };
   assert.equal((await handler(request("/v1/responses", { ...base, max_output_tokens: 16 }))).status, 200);
   assert.equal("max_output_tokens" in JSON.parse(calls[0].options.body), false);
+  // n8n's OpenAI node sends store:true unless its Store option is off; OpenAI still gets store:false.
+  assert.equal((await handler(request("/v1/responses", { ...base, store: true }))).status, 200);
+  assert.equal(JSON.parse(calls.at(-1).options.body).store, false);
   const chat = { model: "gpt-6.1-sol", messages: [{ role: "user", content: "Reply with OK." }] };
   for (const cap of [{ max_completion_tokens: 16 }, { max_tokens: 64 }]) {
     assert.equal((await handler(request("/v1/chat/completions", { ...chat, ...cap }))).status, 200);

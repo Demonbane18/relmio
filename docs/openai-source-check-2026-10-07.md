@@ -422,3 +422,302 @@ Resolution, same day, before release: mismatches 1 to 14 are fixed. The guide ha
 - Unchanged from earlier entries: VPS token storage under §1, and whether n8n and its Assistant fit "connected application only" under §2.
 
 This review is not legal advice, OpenAI approval, proof of Terms compliance or permission to use a Codex credential bridge. It is not evidence that any model, account, usage figure or TTS works through Relmio. Identity sign-in, the approved permissions and model capability remain separate checks.
+
+## Addendum: 0.19.1 sign-in refresh and maintenance fixes
+
+Review date: 2026-10-07.
+
+This review covers the four pull requests in Relmio 0.19.1 on `Demonbane18/relmio`. Each was read from its `pr://` diff and from the local worktree on its head branch:
+
+- #105, `fix/local-project-meta` (`/private/tmp/relmio-local-project-meta`): the star count cache with a fallback to the website, and Hostinger KVM VPS preselected.
+- #106, `fix/vps-owned-sidecar-update` (`relmio-frontend-revamp`): step 3 routing and the VPS ChatGPT sign-in refresh.
+- #107, `ci/release-gates` (`/private/tmp/relmio-ci-gates`): CI, the n8n node harness, release QA and the `/v1/chat/completions` `content: []` fix.
+- #108, `fix/windows-siwc-lock` (`/private/tmp/relmio-win-lock`): the Windows lock-holder probe.
+
+Line numbers come from those worktrees and can move when the PRs merge. The refresh depends on code that #106 does not change: `src/services/oauth.js`, `siwc-session.mjs`, `installer.js`, `model-discovery.mjs`, `codex-images.mjs`, `src/web/server.js` and `src/domain/safety.js`. Those files were read on the #106 branch.
+
+Disclosures read: `CHANGELOG.md`, `README.md`, `docs/vps-and-n8n.md`, `docs/troubleshooting.md`, `docs/security.md`, `docs/faq.md`, `src/ui/index.html`, `src/ui/guide/content-vps.js` and `src/ui/guide/errors.js`. The Hostinger preselection in #105 only changes which hosting option starts selected and sends nothing, so it is not covered further.
+
+This review did not sign in, call a provider, read a credential, submit a form, use SSH or Docker, open a browser, build anything or run tests. Labels follow the entries above.
+
+### What changed
+
+- **#106.** When **Choose your n8n** opens, the wizard now reads the installed VPS sidecar and names the main button after what it will do (`src/ui/app.js:1370-1372,1995-2050`). When the installed account's session is `reauthorize`, the panel says `Needs a fresh sign-in.` and offers **Refresh ChatGPT sign-in** (`app.js:2108-2116`; `src/ui/index.html:451-454`).
+  - The refresh starts a new ChatGPT sign-in on the wizard's computer. It then reuses the reviewed sign-out and replacement: **Sign out and revoke** on the VPS, reconnect, **Review replacement**, **Replace the sidecar**, and a new Relmio key for n8n (`app.js:2128-2133,2555-2561,2667-2674`; `docs/vps-and-n8n.md:228-263`).
+  - The wizard refuses a replacement with any registration other than the one the refresh sign-in produced (`app.js:2052-2068`).
+- **#107.** `/v1/chat/completions` accepts an assistant message with `content: []` plus `tool_calls`. n8n's AI Agent sends this shape when Use Responses API is off (`src/gateway/openai-oauth-sidecar.mjs:795-799`).
+- **#105.** The wizard keeps the GitHub star count for 15 minutes. When GitHub fails, the wizard server asks `https://relmio.jpfusin.tech/api/project-meta` (`src/services/project-meta.js:7-8,28-40`).
+- **#108.** On Windows, a lock holder whose PowerShell probe prints `ambiguous` now counts as dead, but only after a separate probe returns ESRCH (`src/infrastructure/process-identity.js:131-133,201-203`).
+
+### Sources
+
+All sources were fetched on 2026-10-07, with the Sign in with ChatGPT article first. The developer pages were read as Markdown and show no date.
+
+| Source | Displayed date / note |
+| --- | --- |
+| [Sign in with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) | Updated: 5 days ago; fetched first |
+| [Using your ChatGPT plan in other apps and sites](https://help.openai.com/en/articles/20001542-using-your-chatgpt-plan-in-other-apps-and-sites) | Updated: yesterday. Earlier entries today showed 18 and 23 hours ago |
+| [SIWC open-source overview](https://developers.openai.com/siwc/token-sharing-open-source), "A client vs. an agent host" | None |
+| [SIWC registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) | None |
+| [SIWC accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions) | None |
+| [SIWC errors and recovery](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery) | None |
+| [SIWC self-hosted VMs](https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms) | None |
+| [SIWC token reference](https://developers.openai.com/siwc/token-sharing-open-source/token-reference) | None |
+| [SIWC models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) | None |
+| [SIWC preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) | None |
+| [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/) | September 29, 2026 |
+| [Service Terms, English-GB](https://openai.com/en-GB/policies/service-terms/), §15 | Updated: 29 September 2026 |
+| [Terms of Use](https://openai.com/policies/row-terms-of-use/) | Published: January 1, 2026; Effective: January 1, 2026 |
+| [Europe Terms of Use](https://openai.com/policies/eu-terms-of-use/) | Updated: January 16, 2026 |
+| [Privacy policy](https://openai.com/policies/privacy-policy/) | Updated: July 30, 2026. Canonical link reads `/policies/services-communications-privacy-policy/` |
+| [Europe privacy policy](https://openai.com/policies/eu-privacy-policy/) | Updated: August 24, 2026. Its link to the version for other regions reads `/policies/communications-privacy-policy/` |
+
+The policy dates match the entries above.
+
+The following sources are **Provisional**. They are not OpenAI policy:
+
+| Source | Used for |
+| --- | --- |
+| PR bodies for #105 to #108 and their CodeRabbit reviews, 2026-10-07 | Test counts, the n8n harness result and the retained review concern about refresh intent on #106. None was rerun |
+| Vercel bot comments on the PRs | They show that the website (`web/`) deploys on Vercel, so Vercel hosts `relmio.jpfusin.tech/api/project-meta` |
+| #107 n8n node harness: n8n 2.40.7 in Docker against a mock OpenAI upstream | The `content: []` replay shape. No ChatGPT account was used, and its CI run was not observed here |
+
+### What Relmio reads, stores, transmits and logs
+
+Everything in this section is **Observed** in source. None of it was exercised against OpenAI.
+
+#### Reads
+
+- **Refresh sign-in.** On OpenAI's callback, Relmio reads `code`, `state`, the issued `client_id`, `scope` and `iss` (`oauth.js:127-145`). It then reads the token response and validates the ID token against OpenAI's JWKS with the new client ID and nonce (`oauth.js:150-164`). No saved subject is compared, because the refresh has no saved registration (`oauth.js:164`).
+- **Owner check, now automatic on step 3.** The wizard reads the installed account's label, email, registration ID, session state and plan state from the VPS (`app.js:1372,2449-2472`).
+  - For a running sidecar that Relmio owns, it then reads image status and the model view (`app.js:2474-2482`).
+  - The model view runs `model-discovery.mjs status` inside the sidecar (`safety.js:120`; `installer.js:1645`). That command takes a SIWC lease, which may renew the token. With no catalog in that process, it sends `GET https://api.openai.com/v1/models?client_version=…` with the access token (`model-discovery.mjs:651-660,677-682,901-911`).
+  - [INFERENCE] `docker compose exec` starts a new process, so this read usually reaches OpenAI. Before #106, it ran only when the user pressed **Check installed account**.
+- **#107.** The chat route accepts one more request shape. It reads nothing new.
+- **#105.** The wizard reads only `stargazers_count` from GitHub or `stars` from the website. The website's `version` is ignored (`project-meta.js:29-31`; test "when GitHub refuses or fails, the website's cached count is used…").
+
+#### Stores
+
+| Item | Where | Detail | Code |
+| --- | --- | --- | --- |
+| Refresh intent | Wizard page memory | `{registrationId, newRegistrationId}`. Cleared only after a successful sidecar install, not when the refresh sign-in is cancelled or fails | `app.js:21,1428-1431,1859,2671` |
+| New registration | SIWC store on the wizard's computer, then the VPS | New issued client ID, verified issuer, subject and email, tokens and scopes. After transfer, the local copy keeps no tokens. On the VPS it keeps the VPS's existing host ID | `oauth.js:146-148,166-169`; `siwc-session.mjs:373`; `installer.js:704-705`; `README.md:253-256` |
+| Old registration | VPS SIWC store | Kept with an empty session, plan use off and background consent off. Its tokens and history are not reused. [INFERENCE] Its request-count file stays, because counts are kept per registration and no longer updated | `siwc-session.mjs:892`; `docs/vps-and-n8n.md:262-263` |
+| Codex image sign-in | VPS | Deleted by the sign-out step of the refresh, as a best effort | `installer.js:1420-1423`; `codex-images.mjs:459-486` |
+| Star count (#105) | Wizard process memory | 15 minutes. The last good count is kept for the rest of the run | `project-meta.js:23-40` |
+
+#108 and #107 store nothing new.
+
+#### Transmits
+
+| Recipient | Data | Code |
+| --- | --- | --- |
+| OpenAI authorization, from the browser and wizard on the user's computer | A first-time authorization: `client_id=dynamic_agent_client`, `agent_name_hint=Relmio`, that computer's `ext_agent_host_id`, all six scopes, `resource`, `state`, `nonce` and PKCE. Then the code exchange with the issued client ID | `app.js:2672`; `server.js:3758-3759`; `oauth.js:150-155,204-210` |
+| OpenAI authorization, from the VPS | **Sign out and revoke** posts the old refresh token, `token_type_hint=refresh_token` and the old client ID to the revocation endpoint, with up to three attempts. It also tries to revoke the Codex image refresh token. If a terminal refresh error already cleared the tokens, nothing is sent | `safety.js:119,124`; `siwc-session.mjs:858-893`; `codex-images.mjs:469-476`; `siwc-session.mjs:772-773` |
+| OpenAI API, from the VPS | The automatic owner check's catalog request, plus a token renewal when one is due | see Reads |
+| VPS, over the reviewed SSH session | The new registration's credential record, through the existing handoff. This happens only after the replacement, background-use and final approvals | `server.js:6097-6104`; `installer.js:477-479,534-538,655-657` |
+| n8n | A new one-time Relmio key, which the user copies. The old key stops working | `app.js:1858-1862` |
+| OpenAI, for #107 | For `content: []`, the upstream Responses body is the same as for `content: null`: `function_call` items and no empty assistant message. Assistant content with parts stays refused | `openai-oauth-sidecar.mjs:796-799`; `test/openai-oauth-sidecar.test.js:701-703,747-755` |
+| Relmio's website, `relmio.jpfusin.tech`, for #105 | New. Sent only when GitHub fails. The request carries a `relmio/<version>` User-Agent and an `Accept` header, with no cookies or credentials, `redirect: "error"` and a 5-second timeout. The host sees the IP address and the time. The website route then asks GitHub and npm from its own servers | `project-meta.js:16,24,29-31`; `web/app/api/project-meta/route.ts:25-32` |
+
+GitHub already received the star-count request before #105.
+
+#### Logs
+
+No log lines were added. #106 shows status only as page text. The sign-out and status commands print JSON to stdout for the wizard, as before. [INFERENCE] SSH or Docker auditing on the host can record that these commands ran.
+
+#107's release QA workflow runs in the owner's n8n. [INFERENCE] n8n may save execution data according to its settings. The CI harness logs contain only mock traffic (Provisional).
+
+#### Scopes and recipients
+
+OAuth scopes are unchanged: `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`, with resource `https://api.openai.com/v1` (`oauth.js:10-11`). The refresh requests all of them on a new registration, without `prompt=consent` (`oauth.js:207-210`).
+
+One recipient is new: the host of Relmio's website, for #105. The other recipients match the entries above:
+
+- OpenAI's authentication and API services
+- the VPS and its root or Docker administrators
+- n8n and anyone who holds the Relmio key
+- the local Relmio process and the browser tab
+- `registry.npmjs.org`
+- GitHub
+
+### Three separate checks
+
+#### 1. Identity sign-in
+
+**Confirmed:** The Help Center article says identity sign-in releases "only your name, email address, and profile picture". Service Terms §15 says the same.
+
+The sign-in page sets these rules:
+
+- A new registration uses `dynamic_agent_client`, `agent_name_hint` and the host ID.
+- A returning sign-in uses the saved issued `client_id`.
+- "For a returning account, confirm the new ID token's verified identity matches the selected account before replacing credentials."
+- "Email and `sub` are not workspace identifiers."
+
+The accounts page says: "When signing in again to the same account on the same host, reuse the registration's issued `client_id` and stable `ext_agent_host_id`. Signing out or switching back to a saved ChatGPT account does not create a new client." For reauthorization it says to omit `agent_name_hint` and send a retained `id_token` as `id_token_hint`.
+
+Errors and recovery says that after an unusable refresh token, apps should "Clear unusable tokens and repeat OAuth with the saved issued client ID."
+
+The self-hosted VMs page says to "Complete OAuth locally with the same tool/client for the same user and workspace you will use on the VM" and to "Preserve the host ID assigned to the VM when importing the credentials". It adds: "Use its own host ID for its next authorization."
+
+The overview says "Later sign-ins reuse the saved client ID."
+
+**Observed:** The refresh is a first-time registration. The wizard sends `{purpose: "sign-in"}` with no registration (`app.js:2672`; `server.js:3758-3759`). The authorization therefore uses `dynamic_agent_client`, `agent_name_hint: 'Relmio'` and the computer's host ID (`oauth.js:66,205,208-209`).
+
+Relmio cannot start a returning sign-in for the VPS registration. After the transfer, the local record belongs to another runtime, and `startOAuthLogin` refuses it (`oauth.js:67-69`).
+
+The VPS keeps its own host ID when the new credentials are imported (`installer.js:704-705`), which matches the VMs page.
+
+Relmio checks the new sign-in's identity only by email:
+
+- The wizard warns when the emails differ but does not refuse (`app.js:2128-2133`).
+- The server and the installer check only that the new registration is a different registration (`server.js:5946-5950`; `installer.js:534-538`).
+- Any successful sign-in on the page while a refresh is pending becomes the "new sign-in". That includes **Sign in again** for another saved account, and an intent left over from a cancelled or failed attempt (`app.js:1428-1431,1859`). CodeRabbit raised this, and the code confirms it.
+- `src/` sends no `id_token_hint` or `login_hint`. This predates 0.19.1.
+
+As earlier entries found, Relmio's flow is not the identity-only flow the article describes.
+
+**Open:** OpenAI's guides describe renewing a sign-in through the saved client. Whether a transferred VPS registration can be renewed that way was not tested; see Unknowns.
+
+#### 2. Separately approved permissions
+
+**Confirmed:**
+
+- The Help Center article says: "Review and approve any additional permissions separately."
+- The plan article says that when an app asks you to reconnect, you should "follow its connection flow and review the permissions again". It also says "Signing in again or repeatedly retrying does not restore your usage", and that each app has its own weekly limit under **Settings > Usage**.
+- The overview says an issued `client_id` "identifies that registration, its security boundaries, and its ChatGPT plan usage settings". It adds that one client can "share ChatGPT plan usage settings and limits" across a laptop and a VM.
+- The accounts page says "Revoking this session does not delete the registered client."
+- The VMs page says "Host-specific usage attribution and revocation of ChatGPT plan access for transferred sessions are not yet available."
+- SIWC Terms §1 requires persistent token storage to be "local and under the user's control". §2 requires express consent before background use and use only for the connected application.
+- SIWC Terms §4 forbids "Creating multiple accounts, splitting usage, rotating accounts, or otherwise bypassing usage limits" and "Using one user's subscription to fulfill another user's requests".
+- The Terms of Use say: "You may not share your account credentials or make your account available to anyone else."
+
+**Observed:** The refresh collects consent again. The new registration asks for the identity and plan scopes together (`oauth.js:11,207`). Reviewing the replacement requires plan use to be on and the plan notice to be read (`app.js:2054-2058`). The install requires `confirmed`, `backgroundConsent` and `replacementConsent` (`server.js:6097-6104`; `installer.js:477-479`).
+
+Sign-out clears the old registration's plan use and background consent (`siwc-session.mjs:892`) and turns model checks off (`docs/troubleshooting.md:266`). The replacement proceeds only when the old registration is signed out at the reviewed generation (`installer.js:889-894`).
+
+**Refresh ChatGPT sign-in** is shown for any live sidecar that Relmio owns, not only when the session needs renewing (`app.js:2108-2109`). The guide says to use it only when the panel asks (`content-vps.js:296`).
+
+**Open:**
+
+- Each refresh creates a new client. Per the overview, a new client has its own usage settings, so a lower weekly limit the user set for the old connection does not carry over. Whether OpenAI treats repeated new clients for one account as acceptable under §4 is not stated. [INFERENCE] Pressing refresh after an app limit was reached could reset that limit. The plan-wide limits still apply.
+- What a successful revocation response from the VPS means, given that the VMs page says revocation for transferred sessions is "not yet available".
+- Unchanged and exercised again by the refresh's transfer: VPS token storage under §1, and whether n8n fits "connected application only" under §2.
+
+#### 3. Model capability
+
+**Confirmed:** Models and inference says to request the catalog with `GET /v1/models` "with the same access token you will use for inference", and to run inference only through `POST /v1/responses` with `store:false` and `stream:true`. Preview limitations says to "Send `input` as an array containing the context needed for each request". It lists audio and video input and the transcription API as unsupported. The token reference gives a one-hour access token and a 30-day refresh token that each refresh renews.
+
+**Observed:**
+
+- #106 changes no inference path. Its automatic owner check can reach `/v1/models` and renew the token, as described under Reads.
+- #107 changes only which chat request shapes are accepted. It adds no field, tool or route.
+- #108 keeps one refresh owner at a time. Its regression test returns the cached token without a refresh request (`test/siwc-session.test.js:896-935`). This fits "serialize refreshes for the same session so two processes do not race a rotating token."
+- None of the PRs adds a speech, audio or TTS route.
+
+**Provisional:** The #107 harness ran against a mock upstream. The PR reports give the `npm run check` results.
+
+**Open:**
+
+- Whether the SIWC route accepts the chat route's translated tool replay. This was not observed live. The earlier live result covered the Assistant on Responses only.
+- Whether catalog requests count toward plan usage.
+
+### Findings on the change
+
+1. **A new client for every refresh** (Confirmed guidance, Observed code). OpenAI's guides renew a sign-in by repeating OAuth with the saved client ID and the VM's own host ID. Relmio registers a new client from the user's computer instead.
+
+   The consequences come from the overview and the accounts page:
+   - ChatGPT asks for workspace selection and consent again.
+   - The old connection's usage settings do not carry over.
+   - The old client stays registered after revocation.
+
+   [INFERENCE] ChatGPT may list two Relmio connections. Because refresh tokens expire after 30 days, an n8n that sits idle for a month will need a refresh, so these connections can pile up over time.
+
+2. **Sign-out and revocation match "End the renewable session"** (Confirmed and Observed). Relmio sends a POST with `token`, `token_type_hint` and `client_id` (`siwc-session.mjs:876-880`). It retries network errors and 5xx responses up to three times and stops on a 4xx (`siwc-session.mjs:873-889`). It always clears the local tokens (`siwc-session.mjs:892`).
+
+   When no 200 arrives, or after an uncertain rotation, Relmio reports `unconfirmed` and tells the user to disconnect Relmio in ChatGPT (`app.js:2555-2556`), as the accounts page asks. After a terminal refresh error, the tokens were already cleared at that point (`siwc-session.mjs:772-773`), as errors and recovery asks.
+
+   [INFERENCE] During a refresh, that disconnect advice could lead someone to disconnect the new connection by mistake (mismatch 4).
+
+3. **No token reuse** (Observed). The new registration has its own client and tokens. Thread bindings include the client ID (`siwc-session.mjs:836-857`), and the old registration must be signed out before the replacement. This matches "Never overwrite another account registration's credentials or combine one registration's client ID with another registration's tokens." `refresh_token_reused` is in Relmio's terminal set (`siwc-session.mjs:18`).
+
+4. **`Needs a fresh sign-in.` also covers uncertain renewals** (Observed). A network failure or an unverifiable rotation freezes the record as `refreshUncertain`, and the panel shows it as `reauthorize` (`siwc-session.mjs:401,758-774`). Relmio keeps those credentials frozen rather than erasing them. The refresh then revokes them, which is the cautious path for a rotating token. The copy says only that "OpenAI no longer accepts" the sign-in (mismatch 3).
+
+5. **The new account is checked by email only** (Observed). Two workspaces can share an email, and the warning does not stop a different email (finding under check 1). [INFERENCE] Another person's account, signed in on the same computer while a refresh is pending, could replace the VPS sign-in with only a warning. §4 forbids using one user's subscription for another user's requests. The earlier **Review replacement** flow already allowed a deliberate switch to another account.
+
+6. **The automatic owner check reaches OpenAI** (Observed). Step 3 calls a documented endpoint with the user's sign-in when the user opens the step, which is the user's own activity under §2. The CHANGELOG and the VPS guide call it a "read-only check" (mismatch 7).
+
+7. **The refresh signs out of image generation** (Observed). Sign-out first signs out of the Codex image add-on (`installer.js:1420-1423`). `docs/vps-and-n8n.md:330-331` says so for **Sign out and revoke**, but the refresh steps do not mention it.
+
+8. **#107 changes no upstream request** (Observed). The Responses `input` for `content: []` matches the `content: null` case. #107 also adds a release QA workflow that sends six text requests and one image request per run from the owner's own n8n (`qa/acceptance/README.md:45,73-76`). That is the owner's own activity under §2. The image request uses the Codex image sign-in, which is still Open.
+
+9. **#105 adds a new recipient but no OpenAI data** (Observed). `docs/security.md:161-169` discloses the website request accurately. [INFERENCE] SIWC Terms §3 covers personal data processed for SIWC, and an IP address in a star-count request falls outside it.
+
+10. **#108** (Observed). A holder counts as dead only when ESRCH is observed. A live or unverifiable holder stays `ambiguous` (`process-identity.js:131-133,202`), so a rotating refresh token is never raced.
+
+### Mismatches
+
+The fixes keep the guide content test's rules: at most three sentences in `say`, and no exclamation marks, en or em dashes, or emoji.
+
+1. `docs/vps-and-n8n.md:233-235` reads: "Relmio cannot sign in again for the registration on the server, because the server's sidecar owns it. It gives the sidecar a new sign-in for the same ChatGPT account through the reviewed replacement instead:"
+
+   Fix: "Relmio does not yet renew the registration that the server's sidecar owns. OpenAI's guides renew a sign-in by repeating it with the registration's saved client ID. Relmio instead makes a new registration for the same ChatGPT account and gives it to the sidecar through the reviewed replacement:"
+
+2. `docs/vps-and-n8n.md:240-242` reads: "Sign in with the same ChatGPT account in the browser window Relmio opens. The new sign-in is a separate registration, even with the same email."
+
+   Fix: "Sign in with the same ChatGPT account, and choose the same workspace, in the browser window Relmio opens. ChatGPT treats this as a new connection: it asks you to approve it again, and usage settings for the old connection, such as a weekly app limit, do not carry over. You can change the app name ChatGPT shows so you can tell the two apart."
+
+3. The uncertain-renewal case is missing in three places:
+   - `docs/vps-and-n8n.md:230-231`: change "If OpenAI stops accepting it," to "If OpenAI stops accepting it, or Relmio cannot confirm that a renewal worked,".
+   - `CHANGELOG.md:35`: change "When OpenAI no longer accepts the VPS sidecar's sign-in," to "When OpenAI no longer accepts the VPS sidecar's sign-in, or Relmio cannot confirm its last renewal,".
+   - `docs/troubleshooting.md:222`, cause column: "OpenAI no longer accepts the installed sidecar's ChatGPT sign-in, or Relmio could not confirm its last renewal. Relmio does not renew a registration that has moved to the server, so the refresh makes a new one."
+
+4. Nothing says the old connection stays registered in ChatGPT.
+   - After `docs/vps-and-n8n.md:263`, add: "Revoking the old sign-in does not remove its connection from ChatGPT. Once the replacement works, you can disconnect the old Relmio connection under **Settings > Security and login > Login connections** if ChatGPT lists it. Check that you pick the old one."
+   - In `app.js:2555-2556`, when `state.vpsSignInRefresh?.newRegistrationId` is set and revocation is `unconfirmed`, replace "Disconnect Relmio in ChatGPT settings." with "Finish the replacement first. Then you can disconnect the old Relmio connection in ChatGPT settings and keep the new one."
+
+5. The refresh steps leave out image generation (finding 7). After step 6 at `docs/vps-and-n8n.md:257-260`, add: "7. If you used image generation, turn it on again under `[Turn on image generation](#turn-on-image-generation-optional)`. **Sign out and revoke** also signed out of images."
+
+6. The UI copy does not say the refresh is a new connection.
+   - `src/ui/index.html:452`: "Sign in again on this computer with the same ChatGPT account and workspace. ChatGPT treats it as a new Relmio connection, and the old connection's usage settings do not carry over. Then sign out the old sign-in here and review the replacement. n8n needs the new Relmio key afterwards."
+   - `src/ui/guide/content-vps.js:296`, `say`: "Use this only when the panel says the sign-in needs a fresh ChatGPT sign-in. Sign in with the same account and workspace; ChatGPT treats it as a new connection with its own usage settings. Then follow the main button to sign out the old sign-in and review the replacement, and give n8n the new Relmio key."
+
+7. Two places call the step 3 check "read-only" (finding 6).
+   - `CHANGELOG.md:20-21`: "A check of the installed sidecar runs when the step opens. It does not change the sidecar, but a running sidecar may renew its ChatGPT sign-in and ask OpenAI for the account's model list."
+   - `docs/vps-and-n8n.md:69-70`: "Relmio then checks the installed sidecar on that n8n. The check does not change the sidecar, but a running sidecar may renew its ChatGPT sign-in and ask OpenAI for the account's model list. The main button then says what comes next:"
+
+8. `CHANGELOG.md:42-43` reads: "The replacement must use the registration from that new sign-in; another account saved on this computer is refused."
+
+   Fix: "The wizard accepts only the registration from that new sign-in and refuses other accounts saved on this computer. It warns when the new sign-in has a different email, but it cannot tell two workspaces with the same email apart."
+
+9. Two places send a 401 straight to a refresh. Errors and recovery says a direct-admission 401 means "Check the selected ChatGPT account and granted scopes."
+   - `docs/troubleshooting.md:256`: "For `reauthorize`, choose **Check installed account**. If it says `Needs a fresh sign-in.`, choose [Refresh ChatGPT sign-in](vps-and-n8n.md#refresh-the-chatgpt-sign-in); otherwise check that the installed account is the one you meant to use."
+   - `src/ui/guide/errors.js:254`: "If it asks for a sign-in, press Check installed account, and press Refresh ChatGPT sign-in only if the panel asks for a fresh sign-in."
+
+10. `docs/faq.md:114-118`, under "Is a VPS transfer approved by OpenAI?", should name the difference from OpenAI's guide. After "the destination is the only refresh owner after completion.", add: "When that sign-in needs renewing, Relmio makes a new registration for the same account and replaces the old one. OpenAI's guides instead repeat the sign-in with the saved client ID and the VM's own host ID."
+
+11. Code: show **Refresh ChatGPT sign-in** only when it is needed (finding 1 and the §4 Open item). At `app.js:2109`, use `element("vps-owner-refresh-row").hidden = !(live && account.session === "reauthorize");`.
+
+12. Code: tie the refresh to its own sign-in (finding 5). At `app.js:1428-1431`, set `newRegistrationId` only when the completed intent has no `registrationId`. In that handler's `catch`, clear `state.vpsSignInRefresh` while `newRegistrationId` is still unset. Also consider refusing, rather than warning about, a different email at `app.js:2130`, and leave deliberate account switches to **Review replacement**.
+
+### Unknowns
+
+- Whether a transferred VPS registration can be renewed by signing in locally with its saved client ID and the VM's host ID, then transferring the new tokens. The VMs page suggests this route, and it would keep the client's usage settings. It was not tested.
+- How ChatGPT lists several Relmio connections for one account under Login connections and App limits, and whether disconnecting one affects the others.
+- Which weekly limit and credit setting a new client starts with.
+- What the VMs page's "revocation of ChatGPT plan access for transferred sessions are not yet available" means for the VPS sign-out's revocation request and its HTTP 200.
+- Whether OpenAI accepts repeated new registrations for the same account under SIWC Terms §4.
+- Whether `/v1/models` requests count toward plan usage, now that step 3 can send one automatically.
+- Whether the SIWC route accepts the chat route's translated tool replay. Only the mock harness has run it.
+- How long the website's host keeps request logs with IP addresses (Provisional).
+- Unchanged from earlier entries: VPS token storage under §1, whether n8n and its Assistant fit "connected application only" under §2, and the image add-on's undocumented Codex sign-in.
+
+### Changes after this review
+
+- #106 (8c57160) applied all 12 mismatches above. Item 12 went further than suggested: a new sign-in with a different email is refused, not only warned about.
+- #106 (11eb6f7): **Refresh ChatGPT sign-in** no longer starts when the installed account has no email, because the new sign-in could not be checked against it. The wizard points to **Sign out and revoke** and **Review replacement** instead. This closes the gap in finding 5 for accounts without an email. Two workspaces with the same email still cannot be told apart.
+- #105 (947afb9): after GitHub and the website both fail, the wizard waits a minute before asking either again. No new recipient or data.
+- A CodeRabbit security comment on #106 raised the SIWC Terms §1 storage question for the VPS transfer. It is the Open item recorded under check 1 on 2026-10-06 and is unchanged by this release.
+- Release QA on the VPS found that n8n's OpenAI node sends `store:true` by default and the sidecar refused it. The sidecar now accepts `store:true` and forwards those requests with `store:false`, as SIWC models and inference requires; `previous_response_id` stays refused. Requests the sidecar used to refuse for `store:true` now reach OpenAI with the same fields as any other Responses request. No field or recipient is added.
+
+This review is not legal advice, OpenAI approval, proof of Terms compliance or permission to use a Codex credential bridge. It is not evidence that any model, account, sign-in refresh or TTS works through Relmio. Identity sign-in, the approved permissions and model capability remain separate checks.

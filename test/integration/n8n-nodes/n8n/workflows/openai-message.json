@@ -24,7 +24,7 @@
         "modelId": { "__rl": true, "mode": "id", "value": "gpt-5-relmio-harness" },
         "responses": { "values": [{ "type": "text", "role": "user", "content": "Reply with the harness answer." }] },
         "simplify": true,
-        "options": { "store": false }
+        "options": {}
       },
       "credentials": { "openAiApi": { "id": "RelmioHarnessOpenAi", "name": "OpenAI Relmio" } }
     }

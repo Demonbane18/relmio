@@ -28,6 +28,18 @@
               "name": "localModel",
               "value": "qwen3:0.6b",
               "type": "string"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000020",
+              "name": "sidecarBaseUrl",
+              "value": "http://n8n-openai-oauth:10531/v1",
+              "type": "string"
+            },
+            {
+              "id": "00000000-0000-4000-8000-000000000021",
+              "name": "acceptanceVersion",
+              "value": "2026-10-07.3",
+              "type": "string"
             }
           ]
         },
@@ -45,7 +57,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://n8n-openai-oauth:10531/v1/responses",
+        "url": "={{ $('Settings').first().json.sidecarBaseUrl.replace(/\\/+$/, '') }}/responses",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "openAiApi",
         "sendBody": true,
@@ -73,7 +85,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "http://n8n-openai-oauth:10531/v1/chat/completions",
+        "url": "={{ $('Settings').first().json.sidecarBaseUrl.replace(/\\/+$/, '') }}/chat/completions",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "openAiApi",
         "sendBody": true,
@@ -294,8 +306,8 @@
     },
     {
       "parameters": {
-        "content": "Inactive on purpose. Run with **Execute workflow** only.\n\nRe-link credentials after import: **OpenAI Relmio** (sidecar, Base URL `http://n8n-openai-oauth:10531/v1`) on every node except the local model, and **Relmio Local Model** (Base URL `http://n8n-local-model:11434/v1`) on Local Chat Model.\n\nSet the text model in **Settings**. Each check node keeps going on error, so open its output: a check passes only when it shows the expected text.",
-        "height": 300,
+        "content": "Inactive on purpose. Run with **Execute workflow** only.\n\nKeep one copy of this workflow per n8n and reuse it for every QA run. When `acceptanceVersion` in **Settings** is older than the file in the Relmio repository, update this workflow in place instead of importing a second copy.\n\nCredentials: **OpenAI Relmio** (the sidecar, Base URL `http://n8n-openai-oauth:10531/v1`) on every node except the local model, and **Relmio Local Model** (Base URL `http://n8n-local-model:11434/v1`) on Local Chat Model. On another self-hosted n8n, set `sidecarBaseUrl` in **Settings** and the credential Base URL to the address that n8n reaches the sidecar at.\n\nSet the text model in **Settings**. Each check node keeps going on error, so open its output: a check passes only when it shows the expected text.",
+        "height": 400,
         "width": 420
       },
       "id": "00000000-0000-4000-8000-000000000016",
@@ -319,7 +331,7 @@
       "typeVersion": 1,
       "position": [
         -520,
-        340
+        440
       ]
     }
   ],

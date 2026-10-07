@@ -34,7 +34,7 @@ entitlement or host admission.
 | Route | Behavior |
 | --- | --- |
 | `GET /v1/models` | Returns the selected account's text models in OpenAI's order, with IDs and display names. See [Model discovery and checks](#model-discovery-and-checks). While the VPS image add-on is on, requests without n8n's `openai-platform` header also get `gpt-image-2`. |
-| `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false`, requests streaming and, when the request sets `reasoning`, asks for `reasoning.encrypted_content`; only a completed response counts as success. It drops `max_output_tokens` and fills in `item_reference` items from memory; see [AI Assistant requests](#ai-assistant-requests). Streamed events, including `phase`, pass through unchanged, except failure events, which carry a safe error. |
+| `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false`, even when the client asks for `store:true` as n8n's OpenAI node does by default, requests streaming and, when the request sets `reasoning`, asks for `reasoning.encrypted_content`; only a completed response counts as success. It drops `max_output_tokens` and fills in `item_reference` items from memory; see [AI Assistant requests](#ai-assistant-requests). Streamed events, including `phase`, pass through unchanged, except failure events, which carry a safe error. |
 | `POST /v1/chat/completions` | Compatibility route translated into a Responses request. It accepts `model`, `messages`, `tools`, `tool_choice` (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, `stream_options.include_usage`, and `reasoning_effort`, which is sent as `reasoning.effort`. It drops `max_completion_tokens` and `max_tokens`. Messages are text `user`, `assistant`, or `developer` messages, assistant tool calls, and `tool` results. Only final-answer text is returned. |
 | `POST /v1/images/generations` and `POST /v1/images/edits` | VPS image add-on only. See [Generate and edit images](#generate-and-edit-images-vps-add-on). Without it, these return `404 images_off`. |
 
@@ -295,7 +295,8 @@ See the
 ## Limits and recovery
 
 The gateway rejects fields and tool types it cannot preserve, `background:true`,
-`store:true`, stored response/conversation IDs, system messages, audio/video
+a `store` value that is not `true` or `false`, stored response/conversation
+IDs, system messages, audio/video
 input, and invalid input shapes. The Responses `image_generation` tool is
 one of the rejected tool types. Audio, video, Files API upload/list/delete,
 stored conversation, moderation, Live, and Realtime routes are not forwarded.
@@ -308,7 +309,10 @@ discovery.
 
 The gateway reports unsupported parameters instead of silently dropping them.
 Output-token caps are the exception; see
-[AI Assistant requests](#ai-assistant-requests). The gateway does not switch
+[AI Assistant requests](#ai-assistant-requests). `store:true` is also accepted
+and sent as `store:false`, so the gateway never asks OpenAI to keep a
+retrievable Responses object, and a later request that names a stored response
+(`previous_response_id`) is still refused. The gateway does not switch
 registrations, replay a partially received inference, or fall back to
 separately billed API access. A usage-limit error on the text
 routes directs you to [Manage usage](https://chatgpt.com/settings/usage).

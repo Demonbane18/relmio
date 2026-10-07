@@ -6,6 +6,11 @@ calls the ChatGPT sidecar through each n8n node Relmio supports, plus the image
 add-on and the local model. A release run executes it once by hand and reads
 each node's output.
 
+It is the standard QA workflow for every self-hosted n8n that uses Relmio: the
+Hostinger VPS, a local Docker n8n, or any other setup. Each n8n keeps one copy,
+named "Relmio release acceptance", and every QA run reuses it. Never import a
+second copy into an n8n that already has one.
+
 The export is inactive and contains no credentials. Nodes refer to
 credentials by name only, so nothing secret is in this file.
 
@@ -21,9 +26,11 @@ credentials by name only, so nothing secret is in this file.
 | OpenAI: Generate an Image (node 2.3, `gpt-image-2`) | `POST /v1/images/generations` | one binary image; VPS image add-on only |
 | Local Model Chain, with Local Chat Model (Responses API off) | `http://n8n-local-model:11434/v1` | `4`; only where the local model is installed |
 
-`Settings` holds the text model ID and the local model ID. The defaults are
-`gpt-6-astra`, which is also the model the n8n AI Assistant uses, and
-`qwen3:0.6b`. Every node reads them from `Settings`.
+`Settings` holds the text model ID, the local model ID, the sidecar Base URL
+(`sidecarBaseUrl`) and the workflow version (`acceptanceVersion`). The
+defaults are `gpt-6-astra`, which is also the model the n8n AI Assistant uses,
+`qwen3:0.6b` and `http://n8n-openai-oauth:10531/v1`. Every node reads them
+from `Settings`. Raise `acceptanceVersion` whenever this file changes.
 
 Before a run, open the Relmio wizard's **Check installed account** for the
 target sidecar and set `model` to a model it shows as Ready. On 2026-10-07 the
@@ -47,25 +54,36 @@ Both credentials are n8n **OpenAI** credentials (`openAiApi`).
 
 The HTTP Request nodes use the predefined `OpenAI` credential type, so the
 bearer stays in the credential and never appears in the URL or body. Their URLs
-use the sidecar's Docker hostname, which is the same on the Hostinger VPS and a
-local Docker n8n.
+come from `sidecarBaseUrl`. The default is the sidecar's Docker hostname, which
+is the same on the Hostinger VPS and a local Docker n8n. On another self-hosted
+n8n, set `sidecarBaseUrl` and the `OpenAI Relmio` Base URL to the address that
+n8n reaches the sidecar at, and the `Relmio Local Model` Base URL to the local
+model's address.
 
-## Import and re-link
+## Find, reuse or update
 
-1. In n8n, open **Workflows**, choose **Import from File** and pick
-   `relmio-release-acceptance.json`. Keep it inactive. It has only a manual
-   trigger, so activating it would do nothing useful.
-2. The export carries credential names but no IDs, so n8n may not link them on
-   import. Open each node that shows a credential warning and pick the
-   credential from the table above: both HTTP Request nodes, both OpenAI
-   nodes, Agent Chat Model and Chain Chat Model use `OpenAI Relmio`, and Local
-   Chat Model uses `Relmio Local Model`. If the owner's n8n names them
-   differently, pick the matching credential by its Base URL; do not rename
-   the owner's credentials.
-3. Set the model IDs in `Settings`, then save.
+1. In n8n, open **Workflows** and search for "Relmio release acceptance".
+2. If it exists, reuse it. Open `Settings` and compare `acceptanceVersion`
+   with this file. When they match, go straight to the run. When the file is
+   newer, or the workflow predates `acceptanceVersion`, update it in place:
+   open the workflow, select all nodes, delete them, then choose **Import >
+   From URL** (or **From File**) in the same workflow's menu with this file.
+   The workflow keeps its ID, name and execution history.
+3. Only when no copy exists, create a workflow and import this file into it
+   the same way. Keep it inactive. It has only a manual trigger, so activating
+   it would do nothing useful.
+4. The export carries credential names but no IDs. n8n links an existing
+   credential with the same name, but check every node with a credential
+   warning and pick the credential from the table above: both HTTP Request
+   nodes, both OpenAI nodes, Agent Chat Model and Chain Chat Model use `OpenAI
+   Relmio`, and Local Chat Model uses `Relmio Local Model`. If that n8n names
+   them differently, pick the matching credential by its Base URL; do not
+   rename the owner's credentials.
+5. Set the model IDs, and `sidecarBaseUrl` where it differs, in `Settings`,
+   then save.
 
-Adding the workflow to the owner's n8n is a separate step that needs the
-owner's confirmation. Importing it changes nothing else in n8n and does not
+Creating or updating the workflow in the owner's n8n is a separate step that
+needs the owner's confirmation. It changes nothing else in n8n and does not
 restart it.
 
 ## Plan usage

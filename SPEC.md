@@ -265,12 +265,13 @@ as a completed answer. Requests do not fall back to a different account,
 provider, API key, or host.
 
 Unsupported Responses fields (except `max_output_tokens`, which is dropped),
-`background:true`, `store:true`, stored response/conversation identifiers,
+`background:true`, stored response/conversation identifiers,
 system messages, audio/video inputs, and unsupported tool types, including
-`image_generation`, are rejected. Audio and transcription, video, Files API
-management, stored responses/conversations, moderation, Live, and Realtime
-routes are not forwarded. Image/file input in a Responses request is usable
-only when supported by the selected model; this
+`image_generation`, are rejected. `store:true` is accepted and sent upstream as
+`store:false`, like every Responses request. Audio and transcription, video,
+Files API management, stored responses/conversations, moderation, Live, and
+Realtime routes are not forwarded. Image/file input in a Responses request is
+usable only when supported by the selected model; this
 never enables the Files API. Flat function and custom tools in a Responses
 request are moved into the same `additional_tools` item. A `tools` list,
 `additional_tools` item, or namespace holds at most 128 tools. Tool use remains
