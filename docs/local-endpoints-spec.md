@@ -116,8 +116,9 @@ only through the opt-in image add-on, which uses a separate Codex sign-in;
 without it they return `images_off`. For the local sidecar, the dashboard runs
 the add-on's CLI with `docker compose exec` in the owned running sidecar, under
 the local operation lock, and stores its tokens in the sidecar's `siwc-store`
-Docker volume. SIWC sign-out and removal sign out of images first, as a best
-effort, and report the revocation result. Model listing is not proof of entitlement
+Docker volume. SIWC sign-out and removal sign out of images first and report
+the revocation result. Sign-out continues if that step fails; removal stops and
+keeps the volume unless the install predates the image module. Model listing is not proof of entitlement
 or admission. Errors do not switch registrations or fall back to Platform API
 billing. `store:false` is not a zero-retention promise.
 

@@ -627,7 +627,7 @@ for (const [outcome, cli, expected] of [
   });
 }
 
-test("removing the local sidecar signs out of images before deleting its volume, and reports the result", async t => {
+test("removing the local sidecar signs out of images before deleting its volume, and keeps it when that fails", async t => {
   const { homeDirectory, registration, destinationRoot, plan } = await fixture(t);
   const runner = fakeDocker(destinationRoot);
   await installLocalN8nSidecar({ plan, registration, backgroundConsent: consent, confirmed: true }, deps(homeDirectory, runner));
@@ -645,8 +645,12 @@ test("removing the local sidecar signs out of images before deleting its volume,
     return runner(spec);
   }, () => {
     assert.equal(down, false, "the image sign-out runs before the volume is deleted");
-    return cliLine({ state: "off", revocation: "unconfirmed" });
+    return imagesResult;
   }, runner.calls);
+  let imagesResult = cliLine({ error: "images_unavailable", message: "Codex image sign-in is busy." }, 1);
+  await assert.rejects(() => removeLocalN8nSidecar({ confirmed: true }, deps(homeDirectory, removing)), /kept/u);
+  assert.equal(down, false, "a failed image sign-out keeps the volume for a retry");
+  imagesResult = cliLine({ state: "off", revocation: "unconfirmed" });
   const result = await removeLocalN8nSidecar({ confirmed: true }, deps(homeDirectory, removing));
   assert.deepEqual(result, { removed: true, target: "n8n-openai-oauth", imagesRevocation: "unconfirmed" });
   const calls = runner.calls.slice(start).map(call => call.args.join(" "));

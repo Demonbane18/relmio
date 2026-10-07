@@ -2922,11 +2922,17 @@ export async function removeLocalN8nSidecar(
           status.account?.planEnabled !== false) {
         throw new Error("Sign out of the installed SIWC account before removing its protected storage.");
       }
-      // The volume delete below would drop a live image refresh token without revoking it.
-      const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker }).catch(() => null);
-      imagesRevocation = await signOutLocalCodexImages({
-        runProcess, installRoot, marker, running: runtime?.running === true && !runtime.paused,
-      });
+      // The volume delete below would drop a live image refresh token without revoking it. An install
+      // made before the add-on has no image module, so it cannot hold an image sign-in.
+      if (await lstatIfExists(fileSystem, join(installRoot, "services", "codex-images.mjs"))) {
+        const runtime = await inspectOwnedSidecarRuntime({ runProcess, installRoot, marker }).catch(() => null);
+        imagesRevocation = await signOutLocalCodexImages({
+          runProcess, installRoot, marker, running: runtime?.running === true && !runtime.paused,
+        });
+        if (imagesRevocation === "unknown") {
+          throw new Error("The image sign-out did not finish, so the bridge and its volume were kept. Try removal again.");
+        }
+      } else imagesRevocation = "not-applicable";
     }
     await cleanupSidecarProject({
       runProcess,

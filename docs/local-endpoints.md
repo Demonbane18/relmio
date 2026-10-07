@@ -331,7 +331,9 @@ images on this computer**, then choose **Sign out of images**. Relmio deletes
 the Codex sign-in from the sidecar's volume and asks OpenAI to revoke it. If
 OpenAI does not confirm the revocation, the panel says so. **Sign out and
 revoke** and **Remove bridge** sign out of images first and report the
-revocation result; **Pause plan use** keeps the image sign-in.
+revocation result. If that step does not finish, **Remove bridge** stops and
+keeps the sidecar's volume so you can try again. **Pause plan use** keeps the
+image sign-in.
 
 ## SuperGrok OAuth for n8n
 

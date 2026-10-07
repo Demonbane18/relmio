@@ -498,9 +498,11 @@ and [on this computer](local-endpoints.md#turn-on-image-generation-optional).
   On this computer, the sidecar's `siwc-store` Docker volume holds the same
   files under `codex-images`. Administrators and Docker users on this
   computer, and any backup of Docker's data, can read the refresh token.
-  Signing out of ChatGPT or removing the sidecar signs out of images first;
-  removal then deletes the volume. Anyone who can run workflows in that n8n
-  can make images with the account.
+  Signing out of ChatGPT or removing the sidecar signs out of images first.
+  If that sign-out does not finish, removal stops and keeps the volume so you
+  can try again; if OpenAI does not confirm the revocation, the dashboard says
+  so and removal still deletes the volume. Anyone who can run workflows in
+  that n8n can make images with the account.
 - **Transmits:** sign-in, token exchange, refresh and revocation go to
   `https://auth.openai.com`. Image requests go to
   `https://chatgpt.com/backend-api/codex/images/generations` or
