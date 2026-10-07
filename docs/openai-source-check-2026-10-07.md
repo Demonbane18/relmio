@@ -676,7 +676,7 @@ The fixes keep the guide content test's rules: at most three sentences in `say`,
    - After `docs/vps-and-n8n.md:263`, add: "Revoking the old sign-in does not remove its connection from ChatGPT. Once the replacement works, you can disconnect the old Relmio connection under **Settings > Security and login > Login connections** if ChatGPT lists it. Check that you pick the old one."
    - In `app.js:2555-2556`, when `state.vpsSignInRefresh?.newRegistrationId` is set and revocation is `unconfirmed`, replace "Disconnect Relmio in ChatGPT settings." with "Finish the replacement first. Then you can disconnect the old Relmio connection in ChatGPT settings and keep the new one."
 
-5. The refresh steps leave out image generation (finding 7). After step 6 at `docs/vps-and-n8n.md:257-260`, add: "7. If you used image generation, turn it on again under [Turn on image generation](#turn-on-image-generation-optional). **Sign out and revoke** also signed out of images."
+5. The refresh steps leave out image generation (finding 7). After step 6 at `docs/vps-and-n8n.md:257-260`, add: "7. If you used image generation, turn it on again under `[Turn on image generation](#turn-on-image-generation-optional)`. **Sign out and revoke** also signed out of images."
 
 6. The UI copy does not say the refresh is a new connection.
    - `src/ui/index.html:452`: "Sign in again on this computer with the same ChatGPT account and workspace. ChatGPT treats it as a new Relmio connection, and the old connection's usage settings do not carry over. Then sign out the old sign-in here and review the replacement. n8n needs the new Relmio key afterwards."

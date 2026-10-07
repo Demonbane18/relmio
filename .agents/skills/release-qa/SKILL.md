@@ -71,7 +71,7 @@ patch, minor or major release. A release whose areas are only `web` and
 It is the standard QA workflow for every self-hosted n8n: the Hostinger VPS,
 a local Docker n8n or any other setup. Search the target n8n for it first and
 reuse the copy that is there; never import a second copy. Update it in place
-only when its `acceptanceVersion` is older than the repository file, and create
+when its `acceptanceVersion` is missing or older than the repository file, and create
 it only when that n8n has none (steps in `qa/acceptance/README.md`). It stays
 inactive; run it with **Execute workflow** and open each node's output. A node
 passes only when its output shows the expected text. Use the statuses from the

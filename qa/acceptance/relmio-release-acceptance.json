@@ -38,7 +38,7 @@
             {
               "id": "00000000-0000-4000-8000-000000000021",
               "name": "acceptanceVersion",
-              "value": "2026-10-07.2",
+              "value": "2026-10-07.3",
               "type": "string"
             }
           ]
@@ -57,7 +57,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Settings').first().json.sidecarBaseUrl }}/responses",
+        "url": "={{ $('Settings').first().json.sidecarBaseUrl.replace(/\\/+$/, '') }}/responses",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "openAiApi",
         "sendBody": true,
@@ -85,7 +85,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $('Settings').first().json.sidecarBaseUrl }}/chat/completions",
+        "url": "={{ $('Settings').first().json.sidecarBaseUrl.replace(/\\/+$/, '') }}/chat/completions",
         "authentication": "predefinedCredentialType",
         "nodeCredentialType": "openAiApi",
         "sendBody": true,
