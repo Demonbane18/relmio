@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!web/app/docs/generated-content.ts"
+    - "!web/app/relmio-ui.css"
+    - "!**/package-lock.json"
+  path_instructions:
+    - path: "src/**"
+      instructions: |
+        Check the change against the safety boundaries in AGENTS.md and flag any violation as a blocking issue:
+        - Every value is validated before it can reach a remote command, and remote commands stay static wherever possible.
+        - An SSH connection authenticates only after the host key is confirmed, and every remote write waits for a final human confirmation.
+        - OAuth tokens, SSH passwords and private keys never appear in logs, errors, API responses, test output or commits.
+        - Nothing edits the existing n8n Compose file or image, or rebuilds, recreates, stops or restarts the n8n container.
+        - Port 10531 is never published on the VPS host.
+        - Deployment stays inside /docker/n8n-openai-oauth.
+        - Untrusted status text is rendered with textContent, never innerHTML.
+        Domain logic in src/domain stays pure; SSH, file and process boundaries are injected.
+    - path: "src/gateway/**"
+      instructions: &openai-source-check |
+        This path affects ChatGPT sign-in, the sidecar or a user disclosure. AGENTS.md requires an OpenAI source check for every such update: the current official Sign in with ChatGPT article (https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) and the official capability, authentication, Terms and privacy documents for the changed flow, compared with the code and the disclosures. Ask for a dated docs/openai-source-check-*.md record (sources, findings, unknowns, and what Relmio reads, stores, transmits and logs, including OAuth scopes and every party that receives data) when the PR has none. Keep identity sign-in, separately approved permissions and model or TTS capability as separate checks. A successful OAuth login or the Help Center article is not proof of Terms compliance or model availability.
+    - path: "src/services/oauth.js"
+      instructions: *openai-source-check
+    - path: "src/services/siwc-*"
+      instructions: *openai-source-check
+    - path: "src/services/codex-login.js"
+      instructions: *openai-source-check
+    - path: "src/ui/siwc*"
+      instructions: *openai-source-check
+    - path: "src/ui/oauth-popup.js"
+      instructions: *openai-source-check
+    - path: "docs/security.md"
+      instructions: *openai-source-check
+    - path: "README.md"
+      instructions: *openai-source-check
+    - path: "test/**"
+      instructions: |
+        Tests must prove behavior: call the real code with injected fakes and assert on results, rejected inputs, boundaries and precedence. Flag tests that only match source text, wording or wiring, and tests that would still pass if the behavior they name broke. Tests never connect to a real VPS, a real OAuth provider or the owner's Docker, and never print secrets.
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "AGENTS.md"

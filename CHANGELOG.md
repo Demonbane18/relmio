@@ -13,6 +13,24 @@ checks the registry separately after publication.
   choosing Flare or Sunburst in Relmio 0.16.0 through 0.18.6 never selected
   those models. The Codex image route ignores the model ID, so every image
   came from Codex's single image model, which Codex names `gpt-image-2`.
+- CI now runs only the checks a change can affect, adds macOS, Linux and an
+  n8n node compatibility job, and reports one required `CI gate` check. A
+  change to the website or docs no longer reruns the Windows, macOS and Linux
+  wizard suites; pushes to `main`, release tags and hotfixes still run
+  everything. The website's dependency audit blocks only on production
+  advisories and lists the rest in the job summary.
+- The n8n node compatibility job runs n8n 2.40.7 in Docker against the real
+  sidecar and a mock OpenAI upstream, and checks the HTTP Request node, AI
+  Agent (Responses API on and off), Basic LLM Chain, the OpenAI node and the
+  AI Assistant's AI SDK calls. No ChatGPT account is used.
+
+### Fixed
+
+- The ChatGPT plan sidecar's `/v1/chat/completions` route no longer refuses
+  n8n's AI Agent on its second turn when the OpenAI Chat Model has Use
+  Responses API off. n8n replays the tool-call message with an empty content
+  list, which the sidecar now treats like no content. A VPS sidecar needs
+  Review sidecar update to get this fix.
 
 ## [0.19.0] - 2026-10-07
 
