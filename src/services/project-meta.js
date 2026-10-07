@@ -8,6 +8,8 @@ const GITHUB_URL = "https://api.github.com/repos/Demonbane18/relmio";
 const WEBSITE_URL = "https://relmio.jpfusin.tech/api/project-meta";
 export const PROJECT_META_TTL_MS = 15 * 60_000;
 const TIMEOUT_MS = 5_000;
+// After both sources fail, answer from the last count for a minute instead of waiting on them again.
+export const PROJECT_META_RETRY_MS = 60_000;
 
 const validStars = (value) => (Number.isSafeInteger(value) && value >= 0 ? value : null);
 
@@ -24,17 +26,20 @@ export function createProjectMetaReader({ version, fetchImpl = fetch, now = Date
   const headers = { "User-Agent": `relmio/${version}` };
   let cached = null;
   let pending = null;
+  let retryAt = 0;
 
   async function refresh() {
     const stars = await readStars(fetchImpl, GITHUB_URL, { ...headers, Accept: "application/vnd.github+json" },
       (body) => body?.stargazers_count)
       ?? await readStars(fetchImpl, WEBSITE_URL, { ...headers, Accept: "application/json" }, (body) => body?.stars);
     if (stars !== null) cached = { stars, at: now() };
+    else retryAt = now() + PROJECT_META_RETRY_MS;
     return cached?.stars ?? null;
   }
 
   return async function getProjectMeta() {
-    if (cached && now() - cached.at < PROJECT_META_TTL_MS) return { stars: cached.stars, version };
+    const at = now();
+    if ((cached && at - cached.at < PROJECT_META_TTL_MS) || at < retryAt) return { stars: cached?.stars ?? null, version };
     pending ??= refresh().finally(() => { pending = null; });
     return { stars: await pending, version };
   };

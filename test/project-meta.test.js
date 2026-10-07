@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { PROJECT_META_TTL_MS, createProjectMetaReader } from "../src/services/project-meta.js";
+import { PROJECT_META_RETRY_MS, PROJECT_META_TTL_MS, createProjectMetaReader } from "../src/services/project-meta.js";
 
 const GITHUB = "https://api.github.com/repos/Demonbane18/relmio";
 const WEBSITE = "https://relmio.jpfusin.tech/api/project-meta";
@@ -49,4 +49,27 @@ test("when GitHub refuses or fails, the website's cached count is used; when bot
   const { fetchImpl } = fakeFetch({ [GITHUB]: { status: 403, body: {} }, [WEBSITE]: { body: { stars: -1 } } });
   assert.deepEqual(await createProjectMetaReader({ version: "0.19.1", fetchImpl })(), { stars: null, version: "0.19.1" },
     "with no good count anywhere the chip shows its unavailable state");
+});
+
+test("after both sources fail, pages get the last answer at once for a minute before they are asked again", async () => {
+  const clock = { t: 0 };
+  const routes = { [GITHUB]: { body: { stargazers_count: 57 } } };
+  const { calls, fetchImpl } = fakeFetch(routes);
+  const read = createProjectMetaReader({ version: "0.19.1", fetchImpl, now: () => clock.t });
+  await read();
+  routes[GITHUB] = new TypeError("fetch failed");
+  clock.t = PROJECT_META_TTL_MS;
+  assert.deepEqual(await read(), { stars: 57, version: "0.19.1" });
+  assert.equal(calls.length, 3, "GitHub and the website were tried once");
+  clock.t += PROJECT_META_RETRY_MS - 1;
+  assert.deepEqual(await read(), { stars: 57, version: "0.19.1" });
+  assert.equal(calls.length, 3, "a failed refresh is not repeated by every page during the cooldown");
+  clock.t += 1;
+  await read();
+  assert.equal(calls.length, 5, "both are asked again after the cooldown");
+
+  const never = fakeFetch({});
+  const empty = createProjectMetaReader({ version: "0.19.1", fetchImpl: never.fetchImpl, now: () => 0 });
+  assert.deepEqual([await empty(), await empty()], Array(2).fill({ stars: null, version: "0.19.1" }));
+  assert.equal(never.calls.length, 2, "with no count yet, the cooldown still holds back retries");
 });
