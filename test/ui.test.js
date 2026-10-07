@@ -153,7 +153,6 @@ test("failed VPS install invalidates approval and returns to connection", async 
   const state = {
     planId: "reviewed-plan",
     reviewedIdentity: rootIdentity,
-    managingDetectedIntegration: true,
     installAttempted: false,
   };
   const elements = new Map([
@@ -374,7 +373,7 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
     },
   };
   const review = vm.runInNewContext(
-    `const state = { integrationKind: "sidecar", managingDetectedIntegration: false };
+    `const state = { integrationKind: "sidecar" };
      const element = (id) => document.getElementById(id);
      ${script.slice(functionStart, functionEnd)}
      ({ state, renderIntegrationReview });`,
@@ -390,7 +389,6 @@ test("VPS integration review can be rendered repeatedly without deleting its sum
     account: siwcAccount, containerName: "fixture-n8n", n8nContainerId: "a".repeat(64), networkId: "b".repeat(64),
   });
   review.state.integrationKind = "assistant";
-  review.state.managingDetectedIntegration = true;
   review.renderIntegrationReview({ includeSearxng: true, networkName: "n8n_default" });
   review.state.integrationKind = "sidecar";
   review.renderIntegrationReview({
@@ -444,7 +442,7 @@ test("review recipient follows the adopted guard identity and refuses missing or
     if (previousFetch === undefined) delete globalThis.fetch;
     else globalThis.fetch = previousFetch;
   });
-  const state = { integrationKind: "sidecar", managingDetectedIntegration: false, planId: "reviewed", reviewedIdentity: null };
+  const state = { integrationKind: "sidecar", planId: "reviewed", reviewedIdentity: null };
   const invalidateReviewedPlan = () => {
     state.planId = null;
     state.reviewedIdentity = null;
@@ -1752,4 +1750,202 @@ test("connected port, username and authentication edits invalidate the prior ide
       assert.equal(harness.element("password").value, "");
     });
   }
+});
+
+const installedId = "installed_registration_1";
+const installedAccount = { ...siwcAccount, registrationId: installedId, ownerRuntimeId: "vps_n8n" };
+const freshAccount = { ...siwcAccount, registrationId: "fresh_registration_2" };
+
+// Runs step 3's router and the install review together, with the owner panel stubbed.
+async function sidecarRouter({ owner = null, selected = siwcAccount, refresh = null, checks = [], plan = null } = {}) {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("const SIDECAR_ACTIONS");
+  const end = script.indexOf("\nfunction sameVpsOwnerTarget(", start);
+  const planStart = script.indexOf("async function reviewPlan(");
+  const planEnd = script.indexOf('\nelement("network-select").addEventListener', planStart);
+  assert.ok(start >= 0 && end > start && planStart >= 0 && planEnd > planStart, "missing step 3 sidecar router");
+  const calls = [];
+  const nodes = new Map();
+  const state = { vpsOwner: owner, vpsSignInRefresh: refresh, catalogLabels: new Map() };
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, {
+      id, hidden: false, open: false, value: "",
+      closest(selector) { return selector === "[hidden]" && this.hidden ? this : null; },
+      querySelector(selector) { return element(`${id} ${selector}`); },
+      click() {
+        calls.push(["click", id]);
+        if (id === "vps-owner-update-review") context.vpsOwnerUpdateReviewing = Promise.resolve();
+      },
+    });
+    return nodes.get(id);
+  };
+  const context = {
+    state, element, accountUiState, vpsOwnerUpdateReviewing: Promise.resolve(),
+    siwc: { selected: () => selected, catalog: async () => [{ slug: "gpt-x", display_name: "GPT X" }] },
+    isAssistantIntegration: () => false,
+    clearError() {}, invalidateReviewedPlan() {}, setMessage() {}, dismissToast() {}, messageToast: {},
+    selectChatGptSetup() { calls.push(["sign-in"]); },
+    focusVisible(node) { calls.push(["focus", node.id]); },
+    showError(error) { calls.push(["error", error.code ?? error.message]); },
+    showStep(step) { calls.push(["step", step]); },
+    validatePlanId: (value) => value,
+    renderIntegrationReview() {},
+    runOperation: async (_button, _label, work) => work(),
+    // Each read takes the next result: an owner object, or false for a refused read.
+    async checkVpsOwner(_button, { quiet = false } = {}) {
+      calls.push(["check", quiet]);
+      const next = checks.shift() ?? false;
+      if (next) state.vpsOwner = { ...next, checkedAt: Date.now() };
+      return Boolean(next);
+    },
+    async api(path) {
+      calls.push(["api", path]);
+      if (plan) throw plan;
+      return { planId: "reviewed-plan" };
+    },
+  };
+  const router = vm.runInNewContext(`${script.slice(start, end)}\n${script.slice(planStart, planEnd)}
+    ({ SIDECAR_ACTIONS, sidecarRoute, reviewNextStep });`, context);
+  return { ...router, calls, element, state, next: () => router.reviewNextStep({ id: "review-button" }) };
+}
+
+const ownedOwner = (extra = {}) => ({ state: "owned", registrationId: installedId, account: installedAccount,
+  checkedAt: Date.now(), ...extra });
+
+test("step 3's main button is labelled by the installed sidecar it leads to", async () => {
+  const { SIDECAR_ACTIONS, sidecarRoute } = await sidecarRouter();
+  const label = (owner, selected = siwcAccount, refresh = null) => SIDECAR_ACTIONS[sidecarRoute(owner, selected, refresh)];
+  assert.equal(label(null), "Review the exact plan");
+  assert.equal(label({ state: "absent" }), "Review the exact plan");
+  assert.equal(label({ state: "legacy" }), "Review the exact plan", "a legacy bridge keeps the reviewed migration");
+  assert.equal(label(ownedOwner()), "Review sidecar update");
+  assert.equal(label({ state: "updating", registrationId: installedId }), "Finish sidecar update");
+  assert.equal(label({ state: "staged" }), "Open recovery");
+  assert.equal(label({ state: "partial" }), "Open recovery");
+  assert.equal(label({ state: "stopped", registrationId: installedId }), "Open installed sidecar");
+  assert.equal(label({ state: "stopped", registrationId: installedId, reviewedStopped: true,
+    account: { ...installedAccount, session: "signed-out", planEnabled: false } }), "Review replacement");
+  const refresh = { registrationId: installedId };
+  assert.equal(label(ownedOwner(), freshAccount, refresh), "Review sidecar update", "no new sign-in has finished yet");
+  const ready = { ...refresh, newRegistrationId: freshAccount.registrationId };
+  assert.equal(label(ownedOwner(), freshAccount, ready), "Continue sign-in refresh");
+  assert.equal(label(ownedOwner(), { ...freshAccount, needsPlanWelcome: true }, ready), "Review sidecar update");
+  assert.equal(label(ownedOwner(), siwcAccount, ready), "Review sidecar update", "another selected account is not the refresh");
+  assert.equal(label(ownedOwner({ account: { ...installedAccount, session: "reauthorize" } })), "Refresh ChatGPT sign-in");
+});
+
+test("step 3 routes an owned sidecar to its update review instead of a refused install", async () => {
+  const owned = await sidecarRouter({ owner: ownedOwner() });
+  await owned.next();
+  assert.equal(owned.element("vps-siwc-owner").open, true);
+  assert.deepEqual(owned.calls, [["click", "vps-owner-update-review"]], "a fresh check is reused and no plan is requested");
+
+  const stale = await sidecarRouter({ owner: ownedOwner({ checkedAt: 0 }), checks: [ownedOwner()] });
+  await stale.next();
+  assert.deepEqual(stale.calls, [["check", false], ["click", "vps-owner-update-review"]]);
+
+  const finishing = await sidecarRouter({ checks: [{ state: "updating", registrationId: installedId }] });
+  await finishing.next();
+  assert.deepEqual(finishing.calls, [["check", true], ["click", "vps-owner-update-review"]]);
+
+  const fresh = await sidecarRouter({ checks: [{ state: "absent" }] });
+  await fresh.next();
+  assert.deepEqual(fresh.calls, [["check", true], ["api", "/api/plan"], ["step", 4]], "a new install keeps the plan review");
+
+  const unread = await sidecarRouter();
+  await unread.next();
+  assert.deepEqual(unread.calls, [["check", true], ["api", "/api/plan"], ["step", 4]], "a refused read falls back to the guarded plan");
+});
+
+test("a vps_sidecar_owned refusal reads the owner and continues to the update review", async () => {
+  const refusal = Object.assign(new Error("A ChatGPT plan sidecar is already installed and running here."),
+    { code: "vps_sidecar_owned", recovery: "review-again" });
+  const routed = await sidecarRouter({ checks: [false, ownedOwner()], plan: refusal });
+  await routed.next();
+  assert.deepEqual(routed.calls, [["check", true], ["api", "/api/plan"], ["check", true],
+    ["click", "vps-owner-update-review"]]);
+
+  const unreadable = await sidecarRouter({ plan: refusal });
+  await unreadable.next();
+  assert.deepEqual(unreadable.calls.at(-1), ["error", "vps_sidecar_owned"], "without an owner read the refusal and its help stay");
+});
+
+test("step 3 opens recovery, the stopped owner or the refresh sign-out instead of a plan", async () => {
+  const staged = await sidecarRouter({ owner: { state: "staged", checkedAt: Date.now() } });
+  await staged.next();
+  assert.equal(staged.element("vps-siwc-recovery details").open, true);
+  assert.deepEqual(staged.calls, [["focus", "vps-siwc-recovery details summary"]]);
+
+  const stopped = await sidecarRouter({ owner: { state: "stopped", registrationId: installedId, checkedAt: Date.now() } });
+  await stopped.next();
+  assert.deepEqual(stopped.calls, [["focus", "vps-owner-inspect-confirm"]]);
+
+  const signOut = await sidecarRouter({ owner: ownedOwner(), selected: freshAccount,
+    refresh: { registrationId: installedId, newRegistrationId: freshAccount.registrationId } });
+  await signOut.next();
+  assert.equal(signOut.element("vps-siwc-owner").open, true);
+  assert.deepEqual(signOut.calls, [["focus", "vps-owner-confirm"]], "signing out keeps its own approval");
+
+  const expiredSignIn = await sidecarRouter({ owner: ownedOwner({ account: { ...installedAccount, session: "reauthorize" } }) });
+  await expiredSignIn.next();
+  assert.deepEqual(expiredSignIn.calls, [["click", "vps-owner-refresh"]], "a dead installed sign-in starts the refresh");
+
+  const replace = await sidecarRouter({ selected: freshAccount, owner: { state: "stopped", registrationId: installedId,
+    reviewedStopped: true, reviewedAt: Date.now(), checkedAt: Date.now(),
+    account: { ...installedAccount, session: "signed-out", planEnabled: false } } });
+  await replace.next();
+  assert.deepEqual(replace.calls, [["api", "/api/plan"], ["step", 4]]);
+
+  const expired = await sidecarRouter({ selected: freshAccount, checks: [{ state: "stopped", registrationId: installedId }],
+    owner: { state: "stopped", registrationId: installedId, reviewedStopped: true, reviewedAt: Date.now() - 5 * 60_000,
+      checkedAt: Date.now(), account: { ...installedAccount, session: "signed-out", planEnabled: false } } });
+  await expired.next();
+  assert.deepEqual(expired.calls, [["check", false], ["focus", "vps-owner-inspect-confirm"]],
+    "an expired sign-out review is inspected again before replacement");
+});
+
+test("the owner panel offers a ChatGPT sign-in refresh and says when it is needed", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("function renderVpsOwner(");
+  const end = script.indexOf("\nfunction renderVpsOwnerUpdate(", start);
+  const clickStart = script.indexOf('element("vps-owner-refresh").addEventListener');
+  const clickEnd = script.indexOf("\ncreateSiwcRecovery({", clickStart);
+  assert.ok(start >= 0 && end > start && clickStart >= 0 && clickEnd > clickStart, "missing sign-in refresh controls");
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { hidden: true, checked: false, disabled: false, value: "", textContent: "",
+      addEventListener(_event, handler) { this.handler = handler; }, click() { this.clicked = true; } });
+    return nodes.get(id);
+  };
+  let route = "update";
+  const state = { loginIntent: null, vpsSignInRefresh: null };
+  const panel = vm.runInNewContext(`${script.slice(start, end)}\n${script.slice(clickStart, clickEnd)}\n({ renderVpsOwner });`, {
+    state, element, normalizeSiwcAccount, siwc: { selected: () => freshAccount },
+    sshSession: { adoptedIdentity: () => rootIdentity }, currentSidecarRoute: () => route,
+    renderVpsOwnerUpdate() {}, renderIntegrationManagement() {}, clearError() {},
+  });
+  const destination = { n8nContainerId: "a".repeat(64), networkId: "b".repeat(64) };
+  const reauthorize = { ...installedAccount, email: "owner@example.test", session: "reauthorize" };
+  panel.renderVpsOwner({ state: "owned", registrationId: installedId, account: reauthorize, destination });
+  assert.equal(element("vps-owner-refresh-row").hidden, false);
+  assert.match(element("vps-owner-status").textContent, /fresh sign-in.*Refresh ChatGPT sign-in/u);
+  assert.equal(element("vps-owner-refresh-next").hidden, true);
+
+  element("vps-owner-refresh").handler();
+  assert.deepEqual({ ...state.vpsSignInRefresh }, { registrationId: installedId });
+  assert.equal(state.loginIntent.purpose, "sign-in");
+  assert.equal(element("login-button").clicked, true, "the refresh starts a fresh ChatGPT sign-in on this computer");
+
+  route = "sign-out";
+  panel.renderVpsOwner({ state: "owned", registrationId: installedId, account: reauthorize, destination });
+  assert.equal(element("vps-owner-refresh-next").hidden, false);
+  assert.match(element("vps-owner-refresh-next").textContent, /account@example\.test, not owner@example\.test/u,
+    "a different account is named before the old sign-in is replaced");
+
+  route = "manage";
+  element("login-button").clicked = false;
+  panel.renderVpsOwner({ state: "stopped", registrationId: installedId, destination });
+  assert.equal(element("vps-owner-refresh-row").hidden, true, "a stopped sidecar is inspected before any session change");
+  element("vps-owner-refresh").handler();
+  assert.equal(element("login-button").clicked, false);
 });

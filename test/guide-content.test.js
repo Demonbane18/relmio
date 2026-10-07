@@ -166,6 +166,8 @@ test("error help covers every recovery code and the codes pages branch on", asyn
     "retryBlocked", "remoteOutcomeUnknown", "managedPartialStack",
     "usage_limit", "reauthorize", "probe_rejected", "checks_off", "time_limit", "lease_unavailable",
     "catalog_unavailable", "registration_unavailable",
+    // /api/plan refuses a second VPS install with vps_sidecar_<state>.
+    "vps_sidecar_owned", "vps_sidecar_updating", "vps_sidecar_staged", "vps_sidecar_partial",
   ];
   const acquisition = await readFile(new URL("../src/local-model/acquisition.mjs", import.meta.url), "utf8");
   const modelErrors = /const ERROR_CODES = new Set\(\[([^\]]+)\]\)/u.exec(acquisition);

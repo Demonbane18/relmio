@@ -14,6 +14,36 @@ checks the registry separately after publication.
   those models. The Codex image route ignores the model ID, so every image
   came from Codex's single image model, which Codex names `gpt-image-2`.
 
+### Fixed
+
+- On a VPS, the main button on **Choose your n8n** now follows what is
+  installed on the selected n8n. A read-only check of the installed sidecar
+  runs when the step opens. Where Relmio's ChatGPT plan sidecar already runs,
+  the button reads **Review sidecar update**: it opens **Manage the installed
+  ChatGPT session**, checks the installed account again if that check is more
+  than four minutes old, and runs the update review there. It reads **Finish
+  sidecar update** after an interrupted update, **Open recovery** for an
+  interrupted install or migration, and **Review replacement** once the
+  installed sign-in is signed out. Before, choosing **Manage ChatGPT plan
+  sidecar** changed the button to **Review bridge update**, which started a
+  new install review that the server refused with `vps_sidecar_owned`. If the
+  server still refuses a new install, the wizard reads the owner and takes the
+  same route. The update keeps its own review and approval, and n8n is not
+  restarted.
+- **Manage ChatGPT plan sidecar** now opens **Manage the installed ChatGPT
+  session** and checks the installed account.
+- When OpenAI no longer accepts the VPS sidecar's sign-in, **Check installed
+  account** says `Needs a fresh sign-in.` instead of `Signed out.`, and the
+  main button reads **Refresh ChatGPT sign-in**. The new **Refresh ChatGPT
+  sign-in** button in the panel starts a fresh ChatGPT sign-in on this
+  computer and hands it to the sidecar through the existing reviewed
+  replacement: sign out the old sign-in, reconnect, then review and confirm
+  the replacement, whose button reads **Replace the sidecar**. n8n needs the
+  new Relmio key afterwards. No new kind of server write was added.
+- The setup guide explains `vps_sidecar_owned`, `vps_sidecar_updating`,
+  `vps_sidecar_staged` and `vps_sidecar_partial` and points at the panel that
+  resolves each one. It also has tips for the sign-in refresh.
+
 ## [0.19.0] - 2026-10-07
 
 Relmio 0.19.0 adds a skippable setup guide with Relmio the mascot, Plan and

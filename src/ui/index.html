@@ -421,6 +421,7 @@
                       </label>
                       <button id="vps-owner-inspect" class="rm-button rm-button--sm" type="button" hidden>Inspect stopped owner</button>
                       <div id="vps-owner-actions" hidden>
+                        <p id="vps-owner-refresh-next" class="rm-small" hidden></p>
                         <label class="rm-check">
                           <input id="vps-owner-confirm" type="checkbox" />
                           <span>I approve stopping only this owned sidecar to change its ChatGPT session. n8n will not be stopped or restarted.</span>
@@ -446,6 +447,10 @@
                           </label>
                           <button id="vps-owner-update-apply" class="rm-button rm-button--sm" type="button" disabled>Update the sidecar</button>
                         </div>
+                      </div>
+                      <div id="vps-owner-refresh-row" hidden>
+                        <p id="vps-owner-refresh-hint" class="rm-small">Sign in again with the same ChatGPT account on this computer. Then sign out the old sign-in here and review the replacement. n8n needs the new Relmio key afterwards.</p>
+                        <button id="vps-owner-refresh" class="rm-button rm-button--sm" type="button" aria-describedby="vps-owner-refresh-hint">Refresh ChatGPT sign-in</button>
                       </div>
                       <section id="vps-usage" class="usage-panel usage-panel--divided" aria-labelledby="vps-usage-title" hidden>
                         <div class="usage-panel__head">
