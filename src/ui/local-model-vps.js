@@ -40,6 +40,7 @@ function error(text) {
   el("error").textContent = markRejectedField(text, el, "error");
   el("error").hidden = false;
   el("error").focus();
+  globalThis.relmioGuide?.error?.({ message: text });
 }
 function invalidate() {
   state.generation++;

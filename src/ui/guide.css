@@ -1,0 +1,17 @@
+/*
+ * Setup guide toggle (guide.js): the top bar button, repeated in the menu where
+ * the bar has no room. The kit styles its pressed state. The dock's own styles
+ * are in guide-dock.css, which loads only while the guide is in use.
+ */
+
+@media (max-width: 22rem) {
+  #guide-toggle {
+    display: none;
+  }
+}
+
+@media (min-width: 22.0625rem) {
+  [data-guide-toggle] {
+    display: none;
+  }
+}

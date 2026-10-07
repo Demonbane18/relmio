@@ -1,8 +1,8 @@
 # VPS and n8n
 
-Relmio can add OAuth or local-model companions beside an existing n8n VPS. Each
-joins a selected existing Docker network with its own endpoint and lifecycle.
-SuperGrok does not require or read ChatGPT credentials.
+Relmio can add private n8n companions beside an existing VPS installation. The
+ChatGPT sidecar uses a separately authorized SIWC registration; SuperGrok uses
+its own session and does not require or read ChatGPT credentials.
 
 The VPS model setup is tested on Hostinger KVM VPS. Other Linux VPS hosts,
 including Hetzner, are experimental. Use the actual SSH username for your
@@ -12,13 +12,14 @@ guidance, not credentials to try automatically.
 
 | Connection | Private Base URL | n8n API-key field | Use Responses API |
 | --- | --- | --- | --- |
-| OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in the Relmio OpenAI Chat Model v1.3 recipe |
+| ChatGPT plan use | `http://n8n-openai-oauth:10531/v1` | One-time local Relmio bearer | **On** for OpenAI Chat Model node 1.3 |
 | SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
 | Local Ollama model | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for the documented Chat Completions recipe |
 
-The OpenAI bridge is unofficial, private, and policy-uncertain. ChatGPT sign-in
-is not an OpenAI Platform API key. The SuperGrok adapter is experimental and
-uses a fresh official Grok device sign-in.
+The local plan route is not an OpenAI Platform API key. ChatGPT identity,
+plan-use permission, model availability, and successful requests are distinct.
+See the [OpenAI source check](openai-source-check-2026-10-04.md) for capability,
+account, and data-handling limits.
 
 Relmio's managed files stay below `/docker/n8n-openai-oauth`; the safe,
 root-owned `/docker` parent must already exist. Docker manages the companion's
@@ -26,19 +27,10 @@ approved images, containers and volumes in its own data root. Relmio does not
 edit, rebuild, recreate, execute inside, stop, or restart your n8n Compose
 project or image. No companion publishes a host port.
 
-Confirmed build-capable actions also use temporary mode-`0700` Buildx client
-state inside the reviewed operation lock: `.local-model-operation.lock/buildx`
-for model install/retry, `.supergrok-operation.lock/buildx` for SuperGrok
-install/sign-in/sign-out, and `.openai-oauth-operation.lock/buildx` for the
-OpenAI bridge. All are beneath the managed root. Verified cleanup removes
-owned temporary state only; ambiguous or interrupted cleanup retains the
-lock for administrator inspection, not automatic deletion. Registry
+Build-capable actions use temporary mode-`0700` Buildx state inside the reviewed
+operation lock. Verified cleanup removes owned temporary state only; ambiguous
+or interrupted cleanup retains the lock for administrator inspection. Registry
 credentials are not copied, moved or printed for this state.
-
-The OpenAI bridge's `Dockerfile.dockerignore` permits only its Dockerfile and
-runtime source in the build context, excluding `auth`, sibling companions and
-temporary state. Relmio accepts an absent file or its exact safe owned version;
-it does not overwrite an unknown operator-supplied ignore file.
 
 The local-model companion is not a provider sign-in or an OpenAI API-key
 connection. Ollama's API has no authentication by default, so any container on
@@ -54,30 +46,74 @@ The browser wizard has five steps: **Choose setup**, **Check server**,
 **Choose n8n**, **Review**, and **Ready**. The route chooser appears before
 ChatGPT sign-in. It is available from stable `@latest` and hosted installers.
 
-1. Choose the ChatGPT route and complete ChatGPT/Codex sign-in on this computer
-   before uploading the credential file. SuperGrok uses its own device sign-in
-   after installation. **Local model · your VPS** needs no provider sign-in.
+1. Choose the ChatGPT route and complete SIWC sign-in on this computer before
+   choosing the server. An identity-only registration stays connected but
+   cannot use models until you separately allow plan use in ChatGPT. SuperGrok
+   uses its own device sign-in; **Local model · your VPS** needs no provider
+   sign-in.
 2. Enter the server address and port, then independently compare and confirm
    the SSH host fingerprint. Only after that, enter the actual SSH username
    and choose **Local SSH agent** or approved password authentication. Never
    upload a private key or enable root/password SSH just for this wizard.
-3. Connect and check the verified administrative identity. OAuth bridge,
-   SuperGrok and Assistant VPS operations require an already-approved
+3. Connect and check the verified administrative identity. The ChatGPT
+   sidecar, SuperGrok and Assistant VPS operations require the approved
    direct-root connection; agent authentication does not change that privilege
    boundary. **Passwordless sudo -n (model only)** is limited to local-model
-   management and common read-only discovery, not credential-bearing routes.
+   management and common read-only discovery.
 4. Select a running official n8n container and one eligible existing Docker
    network. Rootful Docker Engine, Compose v2 and Buildx must use the same
-   local daemon in the selected administrative context; Podman, rootless or
-   remote daemons, external build targets and managed PaaS service shells are
-   not substitutes.
-5. Review the exact account, privilege, resources and managed paths. For the
-   OpenAI bridge, the displayed currently verified SSH identity names the
-   destination for the complete credential file. Going back, changing or
-   losing the verified identity clears review and approval. Final human
-   confirmation is still required before any remote write. In n8n, use the
-   matching private Base URL and Responses API setting from the table above,
-   never `127.0.0.1`. Select **Disconnect from VPS** when finished.
+   local daemon in the selected administrative context. If SSH connected but
+   this read-only check fails, fix the problem on the server and choose
+   **Retry discovery**. The wizard keeps the verified connection and does not
+   ask for the password again. Changing the server details requires a fresh
+   identity check.
+5. Review the selected registration, verified SSH identity, target, and exact
+   write plan. Confirm the SSH fingerprint before authentication and separately
+   confirm the final remote write. Explicitly approve background n8n use.
+   After installation, enter the one-time Relmio bearer manually in n8n. Select
+   **Disconnect from VPS** when finished.
+
+The first time you open the wizard, it asks whether to start the setup guide.
+The guide points at each box and button in turn and explains errors with the
+next step. See [Use the setup guide](getting-started.md#use-the-setup-guide).
+
+The plan review shows short IDs for the selected n8n container and network.
+Relmio checks those exact IDs again before its first write and before the
+credential transfer. If either changed, the install stops and asks for a new
+review. An interrupted install stays bound to the full reviewed target. After
+the install completes, status and sign-out need only the same SSH host
+identity and Docker network ID, so they keep working if n8n is recreated or
+you change the SSH login method. A changed network is still refused.
+
+The destination runtime has a distinct persistent host ID. Relmio freezes the
+source registration before transferring it and clears sender tokens only after
+the destination returns an attested receipt. Unknown transfer outcomes stay
+frozen for inspection; the destination is the only refresh owner after a
+confirmed handoff. The published SIWC VM guide and Terms do not resolve
+persistent remote token storage, so these implementation safeguards are not
+a provider approval claim.
+
+### Recover an interrupted install
+
+- **Install stopped partway:** status shows the install as staged. Select the
+  account, choose the resume action, review the plan, and confirm it. Relmio
+  continues the same installation without deleting data or starting a second
+  refresh writer. Turning plan use on or off, or a token refresh, before you
+  resume does not block it. If the session had already moved, the one-time
+  key is replaced.
+- **Destination accepted the session but the acknowledgment was lost:**
+  choose the reconcile action and confirm it within five minutes of the
+  review. Relmio reads the destination's receipt and finishes the handoff.
+  Without a receipt, the sender stays frozen and needs a fresh sign-in; old
+  tokens are never restored.
+- **Switching to a fresh account after "not accepted":** allowed only after a
+  confirmed not-accepted result. Relmio refuses while a one-off sidecar helper
+  container is still present or if the original receipt appears.
+- **Ownership moved but a finishing step failed:** the result still shows the
+  one-time key once. Save it, but do not use it until the reported issue is
+  resolved.
+
+Relmio never restarts an old writer automatically.
 
 See [Hosting compatibility](hosting-compatibility.md) for image-qualified
 accounts on Hetzner, Contabo, AWS, DigitalOcean and OCI, local-agent setup,
@@ -88,27 +124,235 @@ Relmio also closes the authenticated SSH session after 15 minutes of
 inactivity. An active VPS operation holds a bounded lease so discovery or an
 approved install can finish before the idle timer resumes.
 
-## Update an existing OpenAI bridge
+Every remote command has a finite deadline: 45 minutes by default, 30 minutes
+for an image build, 2 minutes for the destination's handoff acceptance, and
+5 minutes for publishing a managed file. When a deadline passes, Relmio closes
+that command and reports an unknown remote outcome. It does not retry
+automatically; inspect the target before trying again. Managed files are
+published atomically under `/docker/n8n-openai-oauth` through an exclusive
+temporary file and a rename. Relmio rejects symlinked, non-root-owned or
+group/other-writable parent directories and symlinked or hard-linked targets.
 
-Installing a newer Relmio package on your computer does not replace the bridge
-already running on the VPS. Start a Relmio release that contains the bridge
-compatibility update, then use the same browser wizard:
+## Install or manage the ChatGPT sidecar
 
-1. Run `relmio vps` and reconnect to the VPS.
-2. Compare and confirm its SSH host fingerprint.
-3. Select the n8n container and Docker network.
-4. Choose **OpenAI-OAuth/Codex bridge**, then select **Manage
-   OpenAI-OAuth/Codex bridge**.
-5. Choose **Review bridge update** and review the exact sidecar-only plan.
-6. Select the confirmation checkbox, then choose **Update the bridge**.
+The first install signs in locally, selects an authorized registration, and
+reviews a fresh n8n target and network. Enter the one-time local Relmio bearer
+shown after installation manually as n8n's credential:
 
-Relmio performs the SSH update from the browser flow, so no separate VPS
-terminal is required. It uploads the current local ChatGPT sign-in, keeps the
-selected network, rebuilds and verifies only the owned sidecar inside
-`/docker/n8n-openai-oauth`, and publishes no host port. n8n remains untouched.
+```text
+Base URL: http://n8n-openai-oauth:10531/v1
+API key: <one-time Relmio bearer shown by the wizard>
+Use Responses API: On
+```
 
-Use `local-only` only for the OpenAI bridge. It is a placeholder, not an OpenAI
-Platform API key. SuperGrok uses the one-time local bearer shown by its wizard.
+The sidecar uses the selected registration to discover public models and send
+supported Responses requests. It rejects unsupported routes and parameters;
+model discovery does not guarantee account entitlement or host admission.
+Legacy credential-copy installations are never adopted automatically. The
+reviewed VPS migration attests the exact old sidecar, image, network, and
+protected credential ownership, archives the old managed Docker files under
+`/docker/n8n-openai-oauth/legacy`, and writes a pending-migration marker before
+stopping only that sidecar. The old `/docker/n8n-openai-oauth/auth/auth.json`
+and credential volume stay offline; their token bytes are not copied into the
+SIWC runtime.
+
+The new SIWC record lives in `/docker/n8n-openai-oauth/siwc`, mounted inside
+the container at `/home/node/.relmio-siwc`. It receives its own host identity
+and becomes the only refresh owner after a matching transfer receipt. n8n is
+unchanged. If stop or transfer is uncertain, the pending marker and old data
+are retained, the old sidecar is not resumed automatically, and the transfer
+must be inspected rather than retried blindly.
+
+For an installed VPS account, Relmio verifies the managed Compose configuration
+and target identity, stops the exact owned sidecar, confirms it is stopped, then
+performs the selected sign-out or plan-disable operation. If it cannot attest
+that state, it does not mutate the registration.
+
+No port is published and n8n remains unchanged. ChatGPT plan use through a VM
+is not described here as provider-approved: OpenAI's self-hosted VM guide and
+SIWC Terms leave persistent remote token storage unresolved.
+
+### Update the installed sidecar
+
+Installing a newer Relmio package does not change a sidecar that is already
+running. To rebuild an installed VPS sidecar from your current Relmio version,
+connect to the server, select its n8n container and network, and then:
+
+1. Open **Manage the installed ChatGPT session** and choose **Check installed
+   account**. The panel says whether a newer sidecar runtime is available.
+2. Choose **Review sidecar update**. The review shows how many runtime files
+   change and the short image and container IDs. If nothing needs rebuilding,
+   it says `Already current. Nothing to update.`
+3. Select **I approve rebuilding and restarting only this owned sidecar**,
+   which also names your SSH user, host and port. Then choose **Update the
+   sidecar**. The account check and the review each expire after five
+   minutes; check and review again if they do.
+
+Relmio uploads this version's runtime files, builds a new image and replaces
+only the sidecar container. The old container keeps serving while the image
+builds, so the sidecar is unavailable only while it restarts. Relmio does not
+rewrite the Compose file, so the one-time Relmio key stays the same. The
+ChatGPT session stays in `/docker/n8n-openai-oauth/siwc` and is not
+transferred again. n8n is not stopped or restarted, and no host port is
+published. Relmio disconnects from the VPS when the update ends.
+
+The sidecar must be running with plan use on. Pausing plan use stops the
+sidecar, and Relmio refuses to update a stopped sidecar.
+
+If the image build fails and Relmio can confirm the old sidecar is still the
+one running, it keeps that sidecar and marks the install as complete again, so
+status, pause and sign-out keep working. Review the update again later.
+
+If the update stops partway for another reason, status reports `updating` and
+the panel says the update did not finish. Choose **Check installed account**,
+then **Review sidecar update** again and confirm to finish it. Relmio rebuilds
+the image on every attempt. The staged-install resume and new install plans
+for this server are refused until the update finishes. If the new sidecar
+fails its checks, Relmio stops it and the update stays open for another
+review. If Relmio cannot confirm that the sidecar stopped, do not use it until
+you inspect it.
+
+### Turn on image generation (optional)
+
+Image generation and editing are an opt-in add-on for an installed VPS
+sidecar. Read these points before you turn it on:
+
+- It uses a separate Codex sign-in, the way Hermes Agent's "OpenAI (Codex
+  auth)" provider does. It is not Sign in with ChatGPT. The ChatGPT plan
+  session is never used for images, and the Codex sign-in is never used for
+  text.
+- OpenAI does not document this route for other apps. It can stop working at
+  any time without notice. OpenAI recommends an API key for automation.
+- Images use your plan's Codex limits 3 to 5 times faster than text, then
+  credits. Free plans can't use it.
+- Device code sign-in must be on in ChatGPT security settings, or allowed by
+  your workspace admin.
+- Sign in with the same ChatGPT account as the sidecar.
+- The Codex access and refresh tokens are stored on the VPS in owner-only
+  files under `/docker/n8n-openai-oauth/siwc/codex-images`. Anyone with root
+  or Docker access on the server, or a copy of that folder, can read them.
+
+To turn it on, connect to the server and select its n8n container and
+network, then:
+
+1. Open **Manage the installed ChatGPT session** and choose **Check installed
+   account**. The image controls appear when this install owns the running
+   sidecar. If the panel says `Update the sidecar first (Review sidecar
+   update) to add image generation.`, [update the
+   sidecar](#update-the-installed-sidecar) and check again.
+2. Select **I understand. Sign in to Codex for images on …**, which names
+   your SSH user, host and port, then choose **Sign in for images**.
+3. Choose **Open the Codex sign-in page**
+   (`https://auth.openai.com/codex/device`), sign in, and enter the code the
+   panel shows. The code expires after 15 minutes. Relmio checks every
+   5 seconds; use **Cancel image sign-in** to stop.
+
+When you approve, the panel says `Images on for` your account and Relmio
+disconnects from the VPS. If you decline or the code expires, image
+generation stays off.
+
+In n8n, add an **OpenAI** node and choose **Image**, then **Generate an
+Image** or **Edit Image**. Use the same OpenAI credential as your chat nodes
+(the same Base URL and one-time Relmio key). For **Model**, pick `gpt-image-2`
+from the list or choose **ID** and enter it. The OpenAI Chat Model node and
+Chat Hub do not list it. Flare and Sunburst need your own OpenAI API key; see
+[the image test](n8n-configuration.md#generate-and-edit-images-vps-add-on).
+
+Limits:
+
+- Only `gpt-image-2`, one image per request, and prompts up to 32,000
+  characters.
+- No masks and no URL responses; images come back as base64, which n8n saves
+  as binary data.
+- Sizes `1024x1024`, `1024x1536`, `1536x1024` or `auto`. OpenAI treats size
+  and quality as requests: a `1024x1024` test on 2026-10-06 came back
+  1254x1254.
+- Edits take 1 to 16 PNG, JPEG, WebP or GIF images, each up to 25 MiB, and at
+  most 48 MiB per request.
+- Relmio waits up to 5 minutes for an image and does not retry a failed one.
+
+To turn it off, choose **Check installed account**, select **I approve
+signing out of images on this server**, then choose **Sign out of images**.
+Relmio deletes the Codex sign-in from the server and asks OpenAI to revoke
+it. If OpenAI does not confirm the revocation, the panel says so; the files
+are deleted anyway. Relmio then disconnects from the VPS.
+
+The image controls need a running sidecar. **Sign out and revoke** first
+signs out of images too, as a best effort. **Pause plan use** stops the
+sidecar and keeps the Codex image sign-in on the server, so sign out of
+images first if you want it gone. For errors, see
+[Troubleshooting](troubleshooting.md#symptom-table).
+
+### See models and turn on model checks
+
+**Check installed account** also loads a Models group when this install owns
+the running sidecar. It lists up to 64 models from your catalog. Each row has
+the model's name and ID, a **Copy ID** button, and two labels:
+
+- **In n8n** or **Not in n8n**: whether the sidecar lists the model to n8n
+  right now.
+- **Ready** (it answered a test or a real request), **Not working** (OpenAI
+  rejected it within the last day) or **Not checked yet**.
+
+If copying fails, the ID is selected so you can copy it with the keyboard.
+The status line names the Codex version the catalog was read as. How models
+are found and hidden is explained in
+[Model discovery and checks](n8n-configuration.md#model-discovery-and-checks).
+
+If the panel says `Update the sidecar first (Review sidecar update) to show
+models.`, [update the sidecar](#update-the-installed-sidecar) and check again.
+
+Model checks are off by default. The panel explains them:
+
+> When on, the sidecar sends one short test request ('Reply with OK') to
+> models in your catalog: now for up to 12 of them, then for each new model,
+> and again once a day for a model that failed. A test that gets no answer is
+> tried again after an hour. n8n lists a model only after it answers; until any
+> model has answered, n8n shows the full catalog except models that recently
+> failed. Each test uses a small amount of your plan.
+
+To turn them on, select **I approve model checks on …**, which names your SSH
+user, host and port, then choose **Turn on model checks**. The sidecar tests up
+to 12 models one at a time, which can take a few minutes. These controls show
+only when the catalog could be read.
+
+To turn them off, select **I approve turning off model checks. New models then
+show in n8n without a test request.**, then choose **Turn off model checks**.
+This makes no request to OpenAI and works even when the catalog is
+unavailable. **Sign out and revoke** also turns model checks off, as a best
+effort.
+
+Turning checks on or off needs the same running sidecar that was checked, and
+the check expires after 20 minutes; choose **Check installed account** again
+if it does. For the status messages, see
+[Troubleshooting](troubleshooting.md#symptom-table).
+
+### See plan and usage
+
+**Check installed account** also shows **Plan and usage** when this install
+owns the sidecar. It lists the account and its email, whether plan use is on,
+the image add-on's plan type while that add-on is signed in, and how many
+models OpenAI lists and how many a completed request verified.
+
+Choose **Refresh usage** to read the sidecar's request counts for the last 30
+days: total requests and tokens, active days, the peak day, how requests
+ended, and the three busiest models, with the rest under a **more models**
+disclosure. Days are UTC days. A plan-usage error stays on the panel with what
+to do next until a later request completes; for a usage limit it offers
+**Manage usage**.
+
+These are requests sent through Relmio, not your plan's usage. Relmio shows no
+plan percent, reset time or credits; they stay on ChatGPT's Usage page, which
+**Manage usage** opens.
+
+Refresh usage only reads from the server. The wizard allows 10 reads in 15
+minutes. The account check lasts five minutes, so choose **Check installed
+account** again when it expires. A sidecar built before this Relmio version
+counts nothing until you [update the sidecar](#update-the-installed-sidecar),
+and requests from before the update never appear. The Ready screen after an
+install points here. What the sidecar stores is in
+[Request counts](security.md#request-counts), and the panel's messages are in
+[Troubleshooting](troubleshooting.md#symptom-table).
 
 ## Next guides
 
@@ -118,22 +362,19 @@ Platform API key. SuperGrok uses the one-time local bearer shown by its wizard.
 - [Manual installation](./manual-install.md)
 - [Troubleshooting](./troubleshooting.md)
 
-## GPT Image 2.5 in n8n
+## Unsupported ChatGPT plan capabilities
 
-A new OpenAI OAuth bridge includes `gpt-image-2.5-flare` and
-`gpt-image-2.5-sunburst` in model discovery. For an existing managed bridge,
-use its reviewed browser runtime-update action to install the current adapter;
-upgrading only the Relmio dashboard does not update an already running bridge.
-The local update preserves its saved sign-in. A VPS update follows its separate
-reviewed sign-in upload flow. Both paths leave n8n unchanged.
-
-The completion screen shows image IDs from the verified model response. In
-n8n's OpenAI node, select **Image**, then **Generate an Image** or **Edit Image**,
-and pick the exact model from the list. Use **By ID** when needed by your n8n
-version. Existing `gpt-image-2` remains available. Do not use the generic
-`gpt-image-2.5` as a model ID or select an image model for a text-chat recipe.
-
-Both variants passed bounded generation and editing tests. Exact output
-size and all options remain unverified; begin with low quality. Discovery is
-not a promise of account entitlement. Live, Realtime and audio are separate
-capabilities and remain unsupported through this bridge.
+The gateway provides model discovery and supported `/v1/responses` requests.
+Audio, video, Files API management, moderation, stored
+responses/conversations, and unsupported parameters are rejected, except
+output-token caps, which are dropped. The
+Responses `image_generation` tool stays unsupported; image routes work only
+through the [optional image add-on](#turn-on-image-generation-optional).
+The Chat Completions compatibility route accepts function tools through
+`additional_tools`, with limits of 32 tool calls, 128 KiB of arguments per
+call, and 2 MiB of streamed arguments in total. It rejects a named
+`tool_choice`, tool namespaces, custom tools in streamed requests, and system
+messages. Tool roundtrips passed live on one ChatGPT account on a local macOS
+setup on 2026-10-05; a VPS install was not tested live. Discovery does not
+establish account access. See [Configure n8n nodes](n8n-configuration.md) and
+the [dated source check](openai-source-check-2026-10-05.md).

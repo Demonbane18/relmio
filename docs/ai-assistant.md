@@ -220,8 +220,9 @@ An example model shown in n8n documentation is not a migration requirement.
 Change models only if n8n rejects the current selection or you deliberately
 choose another supported model.
 
-ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key. Relmio
-does not offer it as a compliant model provider for AI Assistant.
+ChatGPT/Codex subscription sign-in is not an OpenAI Platform API key, so it
+does not work with the **OpenAI** provider. To try the ChatGPT plan sidecar
+instead, see [Optional: ChatGPT plan sidecar](#optional-chatgpt-plan-sidecar).
 
 A Relmio-managed local model for an n8n workflow is a separate **Chat Model**
 endpoint. Installing it does not install or enable n8n's Assistant sandbox, and
@@ -241,10 +242,84 @@ by a user-owned OpenAI Platform API key.
   OpenAI-issued API key.
 - **Model ID:** a model ID exposed by the Platform-key-backed endpoint.
 
-The assistant wizard does not deploy a new remote Platform gateway. Relmio's
-existing ChatGPT/Codex OAuth sidecar may be technically compatible, but is
-experimental/private/policy-uncertain. It is not auto-selected, enabled, or
-described as policy-approved for this configuration.
+### Optional: ChatGPT plan sidecar
+
+The Assistant wizard does not create or select the ChatGPT plan sidecar. You
+can point the Assistant at an installed sidecar yourself:
+
+1. Get a model ID. On a VPS, choose **Check installed account** in **Manage
+   the installed ChatGPT session**, then use **Copy ID** in the Models panel
+   on a model marked **In n8n**. On a local sidecar, copy an ID from the
+   OpenAI Chat Model node's list.
+2. In n8n, open **Settings > n8n Assistant**. Under **Model**, choose
+   **Self-hosted or OpenAI-compatible endpoint**. These labels are from n8n
+   2.40.7.
+3. Enter the Base URL `http://n8n-openai-oauth:10531/v1`, the same Relmio key
+   as your n8n OpenAI credential, and paste the model ID into **Model**.
+
+The Assistant never reads the sidecar's model list. For this endpoint type n8n
+shows a free-text **Model** field, so new models do not appear there. The
+Assistant also keeps its own copy of the key, so when Relmio issues a new key,
+update it here as well as in the OpenAI credential.
+
+n8n turns the Assistant on for everyone on the instance. Only do this if
+nobody else uses this n8n: their Assistant chats would use your ChatGPT plan.
+
+How the sidecar handles the Assistant's requests:
+
+- n8n's model check asks for at most 16 output tokens. Sign in with ChatGPT
+  doesn't accept an output-token cap, so the sidecar drops it and the
+  16-token cap is not enforced.
+- In tool steps and follow-up messages, the Assistant refers to its earlier
+  reasoning and replies by ID instead of sending them again. The sidecar
+  keeps them in memory from completed responses and puts them back into the
+  request. The memory is never written to disk, holds at most 4,096 items or
+  32 MiB, and keeps each item for up to 6 hours. A sidecar restart or update
+  empties it. The model then no longer sees its earlier reasoning and replies
+  in an open conversation, so start a new one. Earlier tool calls and results
+  are sent in full and are not affected.
+- When a streamed response fails or is cut off, the sidecar sends the error
+  in OpenAI's format, so the Assistant gets the real error instead of a
+  validation error or an empty answer.
+- One request can list up to 128 tools, including tools from MCP servers. A
+  request with more is refused.
+
+If the model check fails with
+`This Responses parameter is unavailable with ChatGPT plan usage.`, the
+sidecar was built by an older Relmio version. On a VPS, update it with
+**Review sidecar update**; see
+[Update the installed sidecar](vps-and-n8n.md#update-the-installed-sidecar).
+Request details are in
+[AI Assistant requests](n8n-configuration.md#ai-assistant-requests).
+
+On 2026-10-07 the sidecar on the owner's VPS was updated with this change.
+n8n 2.40.7's Assistant then used it on one ChatGPT account (Pro plan) with the
+model `gpt-6-astra`, set up as in the steps above. n8n's model check passed and
+the setting saved. "Reply with OK" returned "OK", and "Which workflows do I
+have?" ran a tool step and listed the instance's workflows, published and
+unpublished, in about 35 seconds. Before the update, the same setup failed.
+The key saved in the Assistant was out of date and got 401
+`A local client credential is required.`, and with the current key the model
+check failed with
+`This Responses parameter is unavailable with ChatGPT plan usage.` This one
+test is no guarantee for other accounts, models or longer conversations, or
+after a sidecar restart, which drops earlier context. The sidecar adds no
+logs, so the test also doesn't show whether earlier items were filled in from
+memory.
+
+The sidecar still refuses other request fields and tools it cannot keep, so
+some Assistant features may fail. OpenAI hasn't said whether this use fits its
+Sign in with ChatGPT terms; SIWC Terms §2 limits use to the connected
+application. See the
+[2026-10-06 source check](openai-source-check-2026-10-06.md#addendum-automatic-model-discovery)
+and the
+[2026-10-07 Assistant check](openai-source-check-2026-10-07.md#addendum-n8n-assistant-compatibility).
+
+n8n stores Assistant conversations and outputs in its own database, and sends
+traces to LangSmith if you set that up. The sidecar keeps earlier reasoning
+and replies only in memory, as described above, and adds no logs; see
+[Remembered Responses items](security.md#remembered-responses-items).
+Assistant model use counts toward your plan's limits.
 
 ## Platform account guardrails
 

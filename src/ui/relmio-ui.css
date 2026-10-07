@@ -48,6 +48,8 @@
   --rm-brand-teal: #087f7b;
   --rm-brand-teal-deep: #047c79;
   --rm-brand-pine: #12211f;
+  /* The mascot's blue sleep cap from the night scene. Illustration only. */
+  --rm-brand-cap: oklch(58% 0.08 230);
 
   /* Surfaces: pastel green. Panels are a lighter green than the page. */
   --rm-canvas: #e5f4ce;
@@ -68,7 +70,7 @@
   --rm-field-line: #727959;
 
   /* Accent: primary action, current place, selection. Black on green in the
-     light theme, yellow on black in the dark theme. */
+     light theme, pastel green on black in the dark theme. */
   --rm-accent: #1d1b16;
   --rm-accent-hover: #36322a;
   --rm-accent-press: #0f0e0b;
@@ -95,7 +97,7 @@
   --rm-terminal-line: #2e2c28;
   --rm-terminal-fg: #f5f1e3;
   --rm-terminal-muted: #a8a293;
-  --rm-terminal-prompt: #ffd54a;
+  --rm-terminal-prompt: #bdec74;
   --rm-terminal-hover: rgb(255 255 255 / 8%);
 
   /* Elevation: soft shadows tinted to suit the green surfaces */
@@ -223,14 +225,14 @@
   --rm-line: #2b2a26;
   --rm-line-strong: #3e3c37;
   --rm-field-line: #757164;
-  --rm-accent: #ffe17a;
-  --rm-accent-hover: #ffe994;
-  --rm-accent-press: #f3d35c;
+  --rm-accent: #ccf394;
+  --rm-accent-hover: #d6f7a8;
+  --rm-accent-press: #bce67d;
   --rm-on-accent: #161512;
-  --rm-accent-soft: #2c2611;
-  --rm-accent-line: #6e5c1f;
-  --rm-accent-ink: #ffe17a;
-  --rm-focus: #ffe17a;
+  --rm-accent-soft: #222a16;
+  --rm-accent-line: #516631;
+  --rm-accent-ink: #ccf394;
+  --rm-focus: #ccf394;
   --rm-success: #86d39a;
   --rm-success-soft: #13241a;
   --rm-success-line: #2d5038;
@@ -261,14 +263,14 @@
     --rm-line: #2b2a26;
     --rm-line-strong: #3e3c37;
     --rm-field-line: #757164;
-    --rm-accent: #ffe17a;
-    --rm-accent-hover: #ffe994;
-    --rm-accent-press: #f3d35c;
+    --rm-accent: #ccf394;
+    --rm-accent-hover: #d6f7a8;
+    --rm-accent-press: #bce67d;
     --rm-on-accent: #161512;
-    --rm-accent-soft: #2c2611;
-    --rm-accent-line: #6e5c1f;
-    --rm-accent-ink: #ffe17a;
-    --rm-focus: #ffe17a;
+    --rm-accent-soft: #222a16;
+    --rm-accent-line: #516631;
+    --rm-accent-ink: #ccf394;
+    --rm-focus: #ccf394;
     --rm-success: #86d39a;
     --rm-success-soft: #13241a;
     --rm-success-line: #2d5038;
@@ -680,6 +682,13 @@
   font-weight: 650;
 }
 
+button.rm-menu__link {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: start;
+}
+
 .rm-menu__section {
   display: flex;
   flex-wrap: wrap;
@@ -875,36 +884,38 @@
   mask: var(--rm-icon-check) center / contain no-repeat;
 }
 
-/* Horizontal stepper for narrow screens. Labels move under the markers. */
-@media (max-width: 63.99rem) {
-  .rm-stepper--auto {
-    grid-auto-columns: minmax(0, 1fr);
-    grid-auto-flow: column;
-  }
-
-  .rm-stepper--auto .rm-stepper__item:not(:last-child)::after {
-    top: calc(0.5rem + 0.875rem - 1px);
-    right: calc(-50% + 1.125rem);
-    bottom: auto;
-    left: calc(50% + 1.125rem);
-    width: auto;
-    height: 2px;
-  }
-
-  .rm-stepper--auto .rm-stepper__link {
-    grid-template-columns: 1fr;
-    justify-items: center;
-    gap: 0.375rem;
-    padding: 0.5rem 0.125rem;
-    font-size: var(--rm-text-sm);
-    text-align: center;
-  }
+/* Quest track: the steps in one row at every width. Finished steps show a
+   check and the current step is ringed. The wizards keep it in the rail,
+   where it stays short enough to leave room for the setup guide. */
+.rm-stepper--track {
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
 }
 
-/* On phones the panel header already names the current step, so the stepper
+.rm-stepper--track .rm-stepper__item:not(:last-child)::after {
+  top: calc(0.25rem + 0.875rem - 1px);
+  right: calc(-50% + 1.125rem);
+  bottom: auto;
+  left: calc(50% + 1.125rem);
+  width: auto;
+  height: 2px;
+}
+
+.rm-stepper--track .rm-stepper__link {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  gap: 0.25rem;
+  min-height: 0;
+  padding: 0.25rem 0.125rem;
+  font-size: var(--rm-text-sm);
+  line-height: 1.3;
+  text-align: center;
+}
+
+/* On phones the panel header already names the current step, so the track
    shows markers only. Labels stay available to screen readers. */
 @media (max-width: 29.99rem) {
-  .rm-stepper--auto .rm-stepper__label {
+  .rm-stepper--track .rm-stepper__label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -913,7 +924,7 @@
     white-space: nowrap;
   }
 
-  .rm-stepper--auto .rm-stepper__link {
+  .rm-stepper--track .rm-stepper__link {
     gap: 0;
   }
 }
@@ -1153,6 +1164,15 @@ details[open] > .rm-icon-button {
   width: 2rem;
   height: 2rem;
   border-radius: var(--rm-radius-sm);
+}
+
+/* A toggle that is on, such as the setup guide button in the top bar or its
+   menu copy: the same inset accent ring as a selected segment. */
+:is(.rm-icon-button, .rm-menu__link)[aria-pressed="true"] {
+  position: relative;
+  background: var(--rm-accent-soft);
+  box-shadow: inset 0 0 0 2px var(--rm-accent);
+  color: var(--rm-ink);
 }
 
 .rm-link {
@@ -1431,7 +1451,8 @@ a.rm-chip:hover {
 }
 
 .rm-choice__title,
-.rm-choice__text {
+.rm-choice__text,
+.rm-choice__meta {
   grid-column: 2;
   min-width: 0;
 }
@@ -1448,6 +1469,26 @@ a.rm-chip:hover {
   color: var(--rm-ink-muted);
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+
+/* A short fact under the description, such as what an option needs. */
+.rm-choice__meta {
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.rm-choice__meta::before {
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-inline-end: 0.375rem;
+  background-color: currentColor;
+  content: "";
+  vertical-align: -0.125rem;
+  -webkit-mask: var(--rm-icon-list-checks) center / contain no-repeat;
+  mask: var(--rm-icon-list-checks) center / contain no-repeat;
 }
 
 
@@ -1880,13 +1921,15 @@ a.rm-chip:hover {
   font-size: 0.9375rem;
 }
 
-/* Checkbox or radio with its label. Add --boxed for a bordered option row. */
+/* Checkbox or radio with its label. Add --boxed for a bordered option row.
+   The whole label is the target, so it stays at least 24 px tall. */
 .rm-check {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 0.625rem;
   min-width: 0;
+  min-height: 1.5rem;
   color: var(--rm-ink);
   font-size: 0.9375rem;
   line-height: 1.45;
@@ -2004,7 +2047,7 @@ a.rm-chip:hover {
 /* Terminal: a command with an optional title bar and copy action. It is dark in
    both themes, so tokens inside it are re-pointed to dark values. */
 .rm-terminal {
-  --rm-focus: #ffe17a;
+  --rm-focus: #ccf394;
 
   min-width: 0;
   overflow: hidden;
@@ -2513,6 +2556,7 @@ a.rm-chip:hover {
   .rm-icon,
   .rm-disclosure > summary::before,
   .rm-notice__toggle::after,
+  .rm-choice__meta::before,
   .rm-stepper__item[data-state="done"] .rm-stepper__marker::after {
     background-color: CanvasText;
     forced-color-adjust: none;
@@ -2529,6 +2573,15 @@ a.rm-chip:hover {
 
   /* Keep selection separate from the keyboard-focus outline. */
   .rm-segmented__item:is([aria-checked="true"], [aria-pressed="true"], :has(> .rm-segmented__input:checked))::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border: 2px solid Highlight;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  :is(.rm-icon-button, .rm-menu__link)[aria-pressed="true"]::after {
     content: "";
     position: absolute;
     inset: 0;

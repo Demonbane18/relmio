@@ -10,7 +10,7 @@ import { getLocalN8nModelStatus } from "./local-n8n-model-installer.js";
 const SERVICE_DEFINITIONS = Object.freeze([
   Object.freeze({
     target: "codex-chatgpt",
-    label: "Codex (ChatGPT login)",
+    label: "Codex (ChatGPT plan)",
     kind: "endpoint",
   }),
   Object.freeze({ target: "codex-chat", label: "Codex Chat adapter", kind: "endpoint" }),
@@ -18,7 +18,7 @@ const SERVICE_DEFINITIONS = Object.freeze([
   Object.freeze({ target: "local-n8n-stack", label: "n8n + ngrok", kind: "n8n-stack" }),
   Object.freeze({
     target: "n8n-openai-oauth",
-    label: "OpenAI OAuth bridge",
+    label: "ChatGPT plan sidecar",
     kind: "n8n-oauth-bridge",
   }),
   Object.freeze({
@@ -29,7 +29,7 @@ const SERVICE_DEFINITIONS = Object.freeze([
   Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok for n8n", kind: "n8n-supergrok" }),
   Object.freeze({ target: "n8n-local-model", label: "Local model for n8n", kind: "n8n-local-model" }),
 ]);
-const STATES = new Set(["absent", "healthy", "stopped", "partial", "unavailable"]);
+const STATES = new Set(["absent", "healthy", "stopped", "staged", "partial", "legacy", "unavailable"]);
 const ASSISTANT_MODES = new Set(["disabled", "sandbox", "sandbox-with-searxng"]);
 const PROVIDER_DEFINITIONS = Object.freeze([
   Object.freeze({
@@ -128,21 +128,85 @@ function copyBooleanRecord(value, keys) {
   }));
 }
 
-function copyEndpointSnapshot(target, snapshot) {
-  if (
-    !snapshot ||
-    snapshot.target !== target ||
-    snapshot.auth?.configured !== true ||
-    snapshot.auth?.disclosure !== "rotate-only" ||
-    snapshot.canRotateCredential !== true
-  ) {
-    throw new TypeError();
+const SIWC_SESSIONS = new Set(["signed-out", "connected", "reauthorize"]);
+const SIWC_OWNERSHIP = new Set(["owned", "handoff-pending", "transferred"]);
+
+export function copySiwcAccountView(account) {
+  if (!account || typeof account !== "object" || Array.isArray(account) ||
+      typeof account.registrationId !== "string" ||
+      !/^[A-Za-z0-9_-]{8,128}$/u.test(account.registrationId) ||
+      typeof account.label !== "string" || account.label.length > 160 ||
+      /[\u0000-\u001f\u007f]/u.test(account.label) ||
+      (account.email !== undefined && (typeof account.email !== "string" ||
+        account.email.length > 254 || /[\u0000-\u001f\u007f]/u.test(account.email))) ||
+      account.identity !== "verified" || !SIWC_SESSIONS.has(account.session) ||
+      !["granted", "not-granted"].includes(account.planPermission) ||
+      typeof account.planEnabled !== "boolean" ||
+      !SIWC_OWNERSHIP.has(account.ownership) ||
+      typeof account.generation !== "string" || !/^[A-Za-z0-9_-]{8,128}$/u.test(account.generation) ||
+      typeof account.needsPlanWelcome !== "boolean" ||
+      typeof account.ownerHostId !== "string" ||
+      !/^urn:uuid:[a-f0-9-]{36}$/iu.test(account.ownerHostId) ||
+      typeof account.ownerRuntimeId !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/u.test(account.ownerRuntimeId)) throw new TypeError();
+  return {
+    registrationId: account.registrationId, label: account.label,
+    ...(account.email !== undefined ? { email: account.email } : {}),
+    identity: "verified", session: account.session, planPermission: account.planPermission,
+    planEnabled: account.planEnabled, ownership: account.ownership,
+    generation: account.generation, ownerHostId: account.ownerHostId,
+    ownerRuntimeId: account.ownerRuntimeId, needsPlanWelcome: account.needsPlanWelcome,
+  };
+}
+
+export function copySiwcStaging(value) {
+  if (!value || !/^[A-Za-z0-9_-]{8,128}$/u.test(value.installId ?? "") ||
+      !/^[A-Za-z0-9_-]{8,128}$/u.test(value.registrationId ?? "") ||
+      !/^[a-z][a-z0-9-]{0,63}$/u.test(value.stage ?? "")) throw new TypeError("The staged installation is invalid.");
+  return { installId: value.installId, registrationId: value.registrationId, stage: value.stage };
+}
+
+function copyInstalledSiwc(snapshot) {
+  if (typeof snapshot.migrationRequired !== "boolean" ||
+      typeof snapshot.auth?.configured !== "boolean") throw new TypeError();
+  if (snapshot.migrationState !== undefined &&
+      (snapshot.migrationRequired !== true ||
+        !["incomplete", "prepared", "stopped"].includes(snapshot.migrationState) ||
+        snapshot.legacyResourcesPreserved !== true)) throw new TypeError();
+  const migration = snapshot.migrationState
+    ? { migrationState: snapshot.migrationState, legacyResourcesPreserved: true } : {};
+  if (snapshot.migrationRequired) {
+    if (snapshot.registrationId !== undefined || snapshot.auth.account !== undefined ||
+        snapshot.auth.configured) throw new TypeError();
+    return { migrationRequired: true, ...migration, auth: { configured: false } };
   }
+  if (!/^[A-Za-z0-9_-]{8,128}$/u.test(snapshot.registrationId ?? "")) throw new TypeError();
+  const account = snapshot.auth.account === undefined ? null : copySiwcAccountView(snapshot.auth.account);
+  if (account && account.registrationId !== snapshot.registrationId) throw new TypeError();
+  const active = account?.ownership === "owned" && account.session === "connected" &&
+    account.planPermission === "granted" && account.planEnabled === true;
+  if (snapshot.auth.configured !== active) throw new TypeError();
+  return {
+    registrationId: snapshot.registrationId, migrationRequired: false, ...migration,
+    auth: { configured: active, ...(account ? { account } : {}) },
+  };
+}
+
+function copyEndpointSnapshot(target, snapshot) {
+  if (!snapshot || snapshot.target !== target ||
+      snapshot.auth?.disclosure !== "rotate-only" ||
+      snapshot.canRotateCredential !== (snapshot.migrationRequired !== true)) throw new TypeError();
+  const chatgpt = target === "codex-chatgpt" || target === "codex-chat";
+  const siwc = chatgpt ? copyInstalledSiwc(snapshot) : null;
+  if (!chatgpt && snapshot.auth.configured !== true) throw new TypeError();
   return {
     target,
     endpoint: validateLoopbackEndpoint(snapshot.endpoint, { target }),
-    auth: { configured: true, disclosure: "rotate-only" },
-    canRotateCredential: true,
+    auth: { configured: chatgpt ? siwc.auth.configured : true, disclosure: "rotate-only",
+      ...(siwc?.auth.account ? { account: siwc.auth.account } : {}) },
+    ...(siwc ? { registrationId: siwc.registrationId, migrationRequired: siwc.migrationRequired,
+      ...(siwc.migrationState ? { migrationState: siwc.migrationState, legacyResourcesPreserved: true } : {}) } : {}),
+    canRotateCredential: snapshot.canRotateCredential,
   };
 }
 
@@ -179,21 +243,21 @@ function copyStackSnapshot(snapshot) {
 }
 
 function copySidecarSnapshot(snapshot) {
-  if (
-    snapshot?.target !== "n8n-openai-oauth" ||
-    snapshot.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
-    snapshot.auth?.configured !== true ||
-    snapshot.auth?.disclosure !== "server-managed" ||
-    snapshot.canRefreshCredential !== true ||
-    snapshot.canRemove !== true
-  ) {
-    throw new TypeError();
-  }
+  if (snapshot?.target !== "n8n-openai-oauth" ||
+      snapshot.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
+      snapshot.auth?.disclosure !== "server-managed" ||
+      snapshot.canRefreshCredential !== false ||
+      snapshot.canRemove !== true) throw new TypeError();
+  const siwc = copyInstalledSiwc(snapshot);
   return {
     target: "n8n-openai-oauth",
-    endpoint: "http://n8n-openai-oauth:10531/v1",
-    auth: { configured: true, disclosure: "server-managed" },
-    canRefreshCredential: true,
+    endpoint: snapshot.endpoint,
+    auth: { configured: siwc.auth.configured, disclosure: "server-managed",
+      ...(siwc.auth.account ? { account: siwc.auth.account } : {}) },
+    registrationId: siwc.registrationId,
+    migrationRequired: siwc.migrationRequired,
+    ...(siwc.migrationState ? { migrationState: siwc.migrationState, legacyResourcesPreserved: true } : {}),
+    canRefreshCredential: false,
     canRemove: true,
   };
 }
@@ -270,6 +334,11 @@ function copySnapshot(definition, snapshot) {
 
 function actionsFor(definition, state, snapshot) {
   const actions = [];
+  if (state === "legacy") return snapshot?.migrationRequired === true ? ["setup"] : [];
+  if (state === "partial" && snapshot?.migrationState) return [];
+  if (state === "stopped" && snapshot?.registrationId &&
+      (["codex-chatgpt", "codex-chat"].includes(definition.target) ||
+        definition.kind === "n8n-oauth-bridge")) actions.push("inspect-stopped-chatgpt");
   if (state === "stopped" && snapshot?.canResume === true) {
     actions.push("resume");
   }
@@ -279,18 +348,22 @@ function actionsFor(definition, state, snapshot) {
     snapshot?.canRotateCredential === true
   ) {
     if (["codex-chatgpt", "codex-chat"].includes(definition.target)) {
-      actions.push("sign-in-chatgpt", "sign-out-chatgpt");
+      actions.push("setup");
+      if (snapshot.auth.account?.ownership === "owned") {
+        actions.push("sign-out-chatgpt");
+        if (snapshot.auth.account.planEnabled) actions.push("disable-chatgpt-plan");
+      }
     } else if (definition.target === "xai-grok-build") {
       actions.push("sign-in-grok-build", "sign-out-grok-build");
     }
     actions.push("rotate-local-capability");
   }
-  if (
-    state === "healthy" &&
-    definition.kind === "n8n-oauth-bridge" &&
-    snapshot?.canRefreshCredential === true
-  ) {
-    actions.push("refresh-credential");
+  if (definition.kind === "n8n-oauth-bridge" && state === "healthy") {
+    actions.push("setup");
+    if (snapshot.auth.account?.ownership === "owned") {
+      actions.push("sign-out-chatgpt");
+      if (snapshot.auth.account.planEnabled) actions.push("disable-chatgpt-plan");
+    }
   }
   if (definition.kind === "n8n-local-model" && snapshot?.canRetry === true) {
     actions.push("retry-model");
@@ -322,6 +395,11 @@ function sanitizeService(definition, result) {
   }
   if (result.state === "unavailable" || result.managed !== true) {
     return unavailableService(definition);
+  }
+  if (result.state === "staged") {
+    if (!["codex-chatgpt", "codex-chat", "n8n-openai-oauth"].includes(definition.target)) throw new TypeError();
+    return { ...definition, managed: true, state: "staged", snapshot: null,
+      staging: copySiwcStaging(result.staging), actions: ["setup"] };
   }
   if (result.state === "partial" && result.snapshot == null) {
     return {

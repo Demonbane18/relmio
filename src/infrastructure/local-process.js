@@ -10,6 +10,9 @@ const MAX_ARGUMENT_BYTES = 16 * 1024;
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_DOCKER_HOST_BYTES = 4 * 1024;
 const WINDOWS_ACL_TIMEOUT_MS = 60_000;
+const WINDOWS_ACL_VERIFY_TIMEOUT_MS = 5_000;
+const WINDOWS_LOCKDOWN_MEMORY_LIMIT = 256;
+const windowsLockdownMemories = new WeakMap();
 const WINDOWS_ACL_MAX_OUTPUT_BYTES = 4 * 1024;
 const WINDOWS_SECURITY_TOOL_ERROR =
   "Windows could not locate the built-in security tool required to protect local Relmio files.";
@@ -359,6 +362,226 @@ export function runWindowsAclCommand(
   });
 }
 
+// One Windows ACL check, as the body of a PowerShell function whose only parameter is
+// $path. It returns $true only after every owner-only condition holds.
+function windowsAclCheckScript({ kind, verifyOnly, verifyEffectiveOwnerOnly }) {
+  return [
+    "$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()",
+    "$sid=$identity.User",
+    `$item=[System.IO.${kind === "directory" ? "DirectoryInfo" : "FileInfo"}]::new($path)`,
+    "if($item.PSObject.Methods.Name -contains 'GetAccessControl'){$before=$item.GetAccessControl()}else{$before=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
+    "$beforeOwner=$before.GetOwner([System.Security.Principal.SecurityIdentifier])",
+    `$expectedInheritance=[System.Security.AccessControl.InheritanceFlags]::${kind === "directory" ? "ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit" : "None"}`,
+    ...(!verifyOnly || verifyEffectiveOwnerOnly ? [
+      "$administratorsSid=[System.Security.Principal.SecurityIdentifier]::new([System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid,$null)",
+      "$principal=[System.Security.Principal.WindowsPrincipal]::new($identity)",
+    ] : []),
+    ...(verifyOnly ? [
+      "$actual=$before",
+    ] : [
+      "if($beforeOwner.Value -ne $sid.Value -and (-not ($beforeOwner.Value -eq $administratorsSid.Value -and $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)))){return $false}",
+      "$normalizeOwner=$beforeOwner.Value -ne $sid.Value",
+      `$acl=New-Object System.Security.AccessControl.${kind === "directory" ? "Directory" : "File"}Security`,
+      "if($normalizeOwner){$acl.SetOwner($sid)}",
+      "$acl.SetAccessRuleProtection($true,$false)",
+      "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,$expectedInheritance,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow)",
+      "$acl.SetAccessRule($rule)",
+      "if($item.PSObject.Methods.Name -contains 'SetAccessControl'){$item.SetAccessControl($acl);$actual=$item.GetAccessControl()}else{[System.IO.FileSystemAclExtensions]::SetAccessControl($item,$acl);$actual=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
+    ]),
+    ...(!verifyEffectiveOwnerOnly
+      ? ["if(-not $actual.AreAccessRulesProtected){return $false}"]
+      : []),
+    "$owner=$actual.GetOwner([System.Security.Principal.SecurityIdentifier])",
+    ...(!verifyEffectiveOwnerOnly ? [
+      "if($owner.Value -ne $sid.Value){return $false}",
+    ] : []),
+    "$rules=@($actual.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))",
+    "if($rules.Count -ne 1){return $false}",
+    "if($rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or $rules[0].InheritanceFlags -ne $expectedInheritance -or $rules[0].PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None){return $false}",
+    ...(verifyEffectiveOwnerOnly ? [
+      "$strictOwnerOnly=$actual.AreAccessRulesProtected -and (-not $rules[0].IsInherited)",
+      "$legacyInheritedOwnerOnly=(-not $actual.AreAccessRulesProtected) -and $rules[0].IsInherited",
+      "if(-not ($strictOwnerOnly -or $legacyInheritedOwnerOnly)){return $false}",
+      "$trustedLegacyAdministratorsOwner=$legacyInheritedOwnerOnly -and $owner.Value -eq $administratorsSid.Value -and $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)",
+      "if($owner.Value -ne $sid.Value -and (-not $trustedLegacyAdministratorsOwner)){return $false}",
+    ] : [
+      "if($rules[0].IsInherited){return $false}",
+    ]),
+    "return $true",
+  ].join(";");
+}
+
+// Every valid check, in a fixed order; a request names its check by index only.
+const WINDOWS_ACL_CHECK_OPTIONS = Object.freeze([
+  { kind: "directory", verifyOnly: false, verifyEffectiveOwnerOnly: false },
+  { kind: "directory", verifyOnly: true, verifyEffectiveOwnerOnly: false },
+  { kind: "file", verifyOnly: false, verifyEffectiveOwnerOnly: false },
+  { kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: false },
+  { kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true },
+]);
+const WINDOWS_ACL_CHECKS = Object.freeze(WINDOWS_ACL_CHECK_OPTIONS.map(windowsAclCheckScript));
+
+// Static helper: reads one JSON request per line as strict UTF-8 and answers
+// {"id":N,"ok":true|false}. Paths arrive only as JSON data. Any exception answers
+// false. [char]34 avoids double quotes, which the Windows PowerShell CLI can strip.
+const WINDOWS_ACL_HELPER_SCRIPT = [
+  "$utf8=[System.Text.UTF8Encoding]::new($false,$true)",
+  "$reader=[System.IO.StreamReader]::new([Console]::OpenStandardInput(),$utf8,$false)",
+  "$writer=[System.IO.StreamWriter]::new([Console]::OpenStandardOutput(),[System.Text.UTF8Encoding]::new($false))",
+  "$writer.AutoFlush=$true",
+  "$q=[char]34",
+  ...WINDOWS_ACL_CHECKS.map((check, index) => `function Test-RelmioAcl${index}([string]$path){${check}}`),
+  `while($null -ne ($line=$reader.ReadLine())){$id=0;$ok=$false;try{$request=ConvertFrom-Json -InputObject $line;$id=[long]$request.id;$check=[int]$request.check;if($check -lt 0 -or $check -gt ${WINDOWS_ACL_CHECKS.length - 1}){throw 'check'};$result=@(& ('Test-RelmioAcl'+$check) ([string]$request.path));$ok=$result.Count -gt 0 -and $result[-1] -is [bool] -and $result[-1]}catch{$ok=$false};$writer.WriteLine('{'+$q+'id'+$q+':'+$id+','+$q+'ok'+$q+':'+$(if($ok){'true'}else{'false'})+'}')}`,
+].join(";");
+const WINDOWS_ACL_RESPONSE = /^\{"id":([1-9][0-9]{0,15}),"ok":(true|false)\}\r?$/u;
+
+function asciiJsonLine(value) {
+  return `${JSON.stringify(value).replace(/[\u007f-\uffff]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`)}\n`;
+}
+
+/**
+ * Keeps one Windows PowerShell process per Node process to answer ACL checks, so a
+ * check costs a pipe round trip instead of a PowerShell start. Requests are serialized
+ * JSON lines; the path is data and is never interpolated into script text. A timeout,
+ * malformed or out-of-order reply, exit or spawn failure fails that request closed and
+ * retires the helper; the next request starts a fresh one. An idle helper does not keep
+ * Node alive and is killed when Node exits.
+ * A read-only check on a helper that has already answered gets `verifyTimeoutMs`, so a
+ * stalled check holds later checks back only briefly. A helper's first request covers
+ * PowerShell startup, and a lockdown writes a DACL, so both keep the longer `timeoutMs`.
+ */
+export function createWindowsAclHelper({
+  spawnProcess = spawn,
+  timeoutMs = WINDOWS_ACL_TIMEOUT_MS,
+  verifyTimeoutMs = WINDOWS_ACL_VERIFY_TIMEOUT_MS,
+  maxResponseBytes = WINDOWS_ACL_MAX_OUTPUT_BYTES,
+  onProcessExit = (listener) => {
+    process.once("exit", listener);
+    return () => process.removeListener("exit", listener);
+  },
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
+  let worker = null;
+  let nextId = 0;
+  let queue = Promise.resolve();
+
+  function setActive(current, active) {
+    const { child } = current;
+    for (const handle of [child, child.stdin, child.stdout, child.stderr]) {
+      try {
+        if (active) handle?.ref?.();
+        else handle?.unref?.();
+      } catch { /* Reference counting only affects process lifetime. */ }
+    }
+  }
+
+  function retire(current, error) {
+    if (worker === current) worker = null;
+    if (current.retired) return;
+    current.retired = true;
+    current.detachExit?.();
+    try { current.child.kill("SIGKILL"); } catch { /* The request still fails closed. */ }
+    const pending = current.pending;
+    current.pending = null;
+    if (pending) {
+      clearTimer(pending.timer);
+      pending.reject(error);
+    }
+  }
+
+  function receive(current, chunk) {
+    if (current.retired) return;
+    current.buffer += Buffer.isBuffer(chunk) ? chunk.toString("latin1") : String(chunk);
+    let newline;
+    while ((newline = current.buffer.indexOf("\n")) >= 0) {
+      const line = current.buffer.slice(0, newline);
+      current.buffer = current.buffer.slice(newline + 1);
+      const match = WINDOWS_ACL_RESPONSE.exec(line);
+      const pending = current.pending;
+      if (!pending || !match || Number(match[1]) !== pending.id) {
+        retire(current, new Error("Windows ACL helper returned an unexpected reply."));
+        return;
+      }
+      current.pending = null;
+      current.ready = true;
+      clearTimer(pending.timer);
+      setActive(current, false);
+      pending.resolve(match[2] === "true");
+    }
+    if (current.buffer.length > maxResponseBytes) {
+      retire(current, new Error("Windows ACL helper returned too much output."));
+    }
+  }
+
+  function start(powershell) {
+    const child = spawnProcess(
+      powershell,
+      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", WINDOWS_ACL_HELPER_SCRIPT],
+      { shell: false, windowsHide: true, stdio: ["pipe", "pipe", "pipe"] },
+    );
+    const current = { child, powershell, buffer: "", pending: null, retired: false, ready: false };
+    const fail = (message) => () => retire(current, new Error(message));
+    child.stdout.on("data", (chunk) => receive(current, chunk));
+    child.stderr.on("data", () => {}); // Never surface helper diagnostics.
+    child.stdin.on("error", fail("Windows ACL helper could not receive a request."));
+    child.once("error", fail("Windows ACL helper could not start."));
+    child.once("close", fail("Windows ACL helper stopped."));
+    current.detachExit = onProcessExit(() => {
+      try { child.kill("SIGKILL"); } catch { /* Node is exiting. */ }
+    });
+    setActive(current, false);
+    return current;
+  }
+
+  function send(powershell, check, path) {
+    if (worker && worker.powershell !== powershell) {
+      retire(worker, new Error("Windows ACL helper was replaced."));
+    }
+    let current;
+    try {
+      current = worker ?? start(powershell);
+    } catch {
+      return Promise.reject(new Error("Windows ACL helper could not start."));
+    }
+    worker = current;
+    const id = ++nextId;
+    const requestTimeoutMs = current.ready && WINDOWS_ACL_CHECK_OPTIONS[check].verifyOnly
+      ? verifyTimeoutMs : timeoutMs;
+    return new Promise((resolve, reject) => {
+      const timer = setTimer(
+        () => retire(current, new Error("Windows ACL helper timed out.")),
+        requestTimeoutMs,
+      );
+      current.pending = { id, resolve, reject, timer };
+      setActive(current, true);
+      try {
+        current.child.stdin.write(asciiJsonLine({ id, check, path }));
+      } catch {
+        retire(current, new Error("Windows ACL helper could not receive a request."));
+      }
+    });
+  }
+
+  return Object.freeze({
+    check({ powershell, script, path }) {
+      const check = WINDOWS_ACL_CHECKS.indexOf(script);
+      if (check < 0 || typeof powershell !== "string" || typeof path !== "string" || !path.isWellFormed()) {
+        return Promise.reject(new TypeError("The Windows ACL request is invalid."));
+      }
+      const result = queue.then(() => send(powershell, check, path));
+      queue = result.catch(() => {});
+      return result;
+    },
+    close() {
+      if (worker) retire(worker, new Error("Windows ACL helper was closed."));
+    },
+  });
+}
+
+const sharedWindowsAclHelper = createWindowsAclHelper();
+
 /**
  * Requires the current account to own the path before read-only verification. During
  * setup, an Administrator may also normalize a path initially owned by the trusted
@@ -374,14 +597,14 @@ export function runWindowsAclCommand(
  * directory with the strict protected ACL contract.
  * A directory rule is inheritable, so managed children receive the same protection.
  * Call this before writing secrets into a newly created managed directory or file.
- * The path is stdin data, decoded as strict UTF-8, and is never interpolated into the script.
+ * The check runs in this process's ACL helper; the path is request data, never script text.
  */
 export async function lockDownLocalPath(
   path,
   {
     platform = process.platform,
     kind = "directory",
-    runAclCommand = runWindowsAclCommand,
+    aclHelper = sharedWindowsAclHelper,
     systemRoot = process.env.SystemRoot,
     verifyOnly = false,
     verifyEffectiveOwnerOnly = false,
@@ -393,7 +616,7 @@ export async function lockDownLocalPath(
   if (kind !== "directory" && kind !== "file") {
     throw new TypeError("Windows ACL path kind is invalid.");
   }
-  if (typeof runAclCommand !== "function") {
+  if (typeof aclHelper?.check !== "function") {
     throw new TypeError("Windows ACL runner is invalid.");
   }
   if (typeof verifyOnly !== "boolean") {
@@ -405,60 +628,95 @@ export async function lockDownLocalPath(
   ) {
     throw new TypeError("Windows ACL effective owner-only verification mode is invalid.");
   }
-  const script = [
-    "$utf8=[System.Text.UTF8Encoding]::new($false,$true)",
-    "$reader=[System.IO.StreamReader]::new([Console]::OpenStandardInput(),$utf8,$false)",
-    "$path=$reader.ReadToEnd()",
-    "$identity=[System.Security.Principal.WindowsIdentity]::GetCurrent()",
-    "$sid=$identity.User",
-    `$item=[System.IO.${kind === "directory" ? "DirectoryInfo" : "FileInfo"}]::new($path)`,
-    "if($item.PSObject.Methods.Name -contains 'GetAccessControl'){$before=$item.GetAccessControl()}else{$before=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
-    "$beforeOwner=$before.GetOwner([System.Security.Principal.SecurityIdentifier])",
-    `$expectedInheritance=[System.Security.AccessControl.InheritanceFlags]::${kind === "directory" ? "ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit" : "None"}`,
-    ...(!verifyOnly || verifyEffectiveOwnerOnly ? [
-      "$administratorsSid=[System.Security.Principal.SecurityIdentifier]::new([System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid,$null)",
-      "$principal=[System.Security.Principal.WindowsPrincipal]::new($identity)",
-    ] : []),
-    ...(verifyOnly ? [
-      "$actual=$before",
-    ] : [
-      "if($beforeOwner.Value -ne $sid.Value -and (-not ($beforeOwner.Value -eq $administratorsSid.Value -and $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)))){exit 1}",
-      "$normalizeOwner=$beforeOwner.Value -ne $sid.Value",
-      `$acl=New-Object System.Security.AccessControl.${kind === "directory" ? "Directory" : "File"}Security`,
-      "if($normalizeOwner){$acl.SetOwner($sid)}",
-      "$acl.SetAccessRuleProtection($true,$false)",
-      "$rule=[System.Security.AccessControl.FileSystemAccessRule]::new($sid,[System.Security.AccessControl.FileSystemRights]::FullControl,$expectedInheritance,[System.Security.AccessControl.PropagationFlags]::None,[System.Security.AccessControl.AccessControlType]::Allow)",
-      "$acl.SetAccessRule($rule)",
-      "if($item.PSObject.Methods.Name -contains 'SetAccessControl'){$item.SetAccessControl($acl);$actual=$item.GetAccessControl()}else{[System.IO.FileSystemAclExtensions]::SetAccessControl($item,$acl);$actual=[System.IO.FileSystemAclExtensions]::GetAccessControl($item)}",
-    ]),
-    ...(!verifyEffectiveOwnerOnly
-      ? ["if(-not $actual.AreAccessRulesProtected){exit 1}"]
-      : []),
-    "$owner=$actual.GetOwner([System.Security.Principal.SecurityIdentifier])",
-    ...(!verifyEffectiveOwnerOnly ? [
-      "if($owner.Value -ne $sid.Value){exit 1}",
-    ] : []),
-    "$rules=@($actual.GetAccessRules($true,$true,[System.Security.Principal.SecurityIdentifier]))",
-    "if($rules.Count -ne 1){exit 1}",
-    "if($rules[0].IdentityReference.Value -ne $sid.Value -or $rules[0].AccessControlType -ne 'Allow' -or $rules[0].FileSystemRights -ne [System.Security.AccessControl.FileSystemRights]::FullControl -or $rules[0].InheritanceFlags -ne $expectedInheritance -or $rules[0].PropagationFlags -ne [System.Security.AccessControl.PropagationFlags]::None){exit 1}",
-    ...(verifyEffectiveOwnerOnly ? [
-      "$strictOwnerOnly=$actual.AreAccessRulesProtected -and (-not $rules[0].IsInherited)",
-      "$legacyInheritedOwnerOnly=(-not $actual.AreAccessRulesProtected) -and $rules[0].IsInherited",
-      "if(-not ($strictOwnerOnly -or $legacyInheritedOwnerOnly)){exit 1}",
-      "$trustedLegacyAdministratorsOwner=$legacyInheritedOwnerOnly -and $owner.Value -eq $administratorsSid.Value -and $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)",
-      "if($owner.Value -ne $sid.Value -and (-not $trustedLegacyAdministratorsOwner)){exit 1}",
-    ] : [
-      "if($rules[0].IsInherited){exit 1}",
-    ]),
-  ].join(";");
+  let protectedPath = false;
   try {
-    await runAclCommand(
-      windowsPowerShell,
-      ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
-      { input: path },
-    );
-  } catch {
-    throw new Error(WINDOWS_PATH_PROTECTION_ERROR);
+    protectedPath = await aclHelper.check({
+      powershell: windowsPowerShell,
+      script: windowsAclCheckScript({ kind, verifyOnly, verifyEffectiveOwnerOnly }),
+      path,
+    }) === true;
+  } catch { /* Any helper failure is unverified protection. */ }
+  if (!protectedPath) throw new Error(WINDOWS_PATH_PROTECTION_ERROR);
+}
+
+const WINDOWS_SHARING_ERROR_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
+const WINDOWS_SHARING_RETRY_DELAYS_MS = Object.freeze([10, 20, 40, 80, 160, 320, 640]);
+
+/**
+ * On Windows, antivirus scans, the search indexer and other processes' ACL checks
+ * briefly hold files without delete sharing, and a deleted name can linger until the
+ * last handle closes. Node reports those refusals as EACCES, EBUSY or EPERM. This
+ * retries only those codes, for about 1.3 seconds, then throws the last refusal.
+ * Every other error, and every platform but Windows, gets a single attempt.
+ */
+export async function retryWindowsFileSharing(operation, {
+  platform = process.platform,
+  wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+} = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (platform !== "win32" || !WINDOWS_SHARING_ERROR_CODES.has(error?.code) ||
+          attempt >= WINDOWS_SHARING_RETRY_DELAYS_MS.length) throw error;
+      await wait(WINDOWS_SHARING_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+}
+
+function windowsLockdownIdentity(metadata) {
+  return [metadata?.dev, metadata?.ino, metadata?.birthtimeMs, metadata?.ctimeMs].every(Number.isFinite)
+    ? `${metadata.dev}:${metadata.ino}:${metadata.birthtimeMs}`
+    : null;
+}
+
+function windowsLockdownDigest(contents) {
+  return createHash("sha256").update(contents).digest("hex");
+}
+
+/**
+ * Remembers, for this process only, an inode that this process has just locked
+ * down with `lockDownPath`; that lockdown reads the owner-only DACL back. The
+ * key is device, inode and birth time. A later match also needs the same change
+ * time and contents (use "" for a directory). NTFS updates the change time when
+ * a security descriptor changes, so an ACL edit forces full verification again.
+ * Memory is per lockdown adapter and bounded; the oldest entries are evicted.
+ */
+export function rememberWindowsLockdown(lockDownPath, metadata, contents) {
+  const identity = windowsLockdownIdentity(metadata);
+  if (typeof lockDownPath !== "function" || !identity) return;
+  let memory = windowsLockdownMemories.get(lockDownPath);
+  if (!memory) {
+    memory = new Map();
+    windowsLockdownMemories.set(lockDownPath, memory);
+  }
+  memory.delete(identity);
+  memory.set(identity, { ctimeMs: metadata.ctimeMs, digest: windowsLockdownDigest(contents) });
+  if (memory.size > WINDOWS_LOCKDOWN_MEMORY_LIMIT) memory.delete(memory.keys().next().value);
+}
+
+/**
+ * Returns true only for an unchanged inode this process locked down itself.
+ * Foreign, replaced, changed or evicted inodes return false and need full verification.
+ */
+export function recallWindowsLockdown(lockDownPath, metadata, contents) {
+  const identity = windowsLockdownIdentity(metadata);
+  const remembered = identity && typeof lockDownPath === "function"
+    ? windowsLockdownMemories.get(lockDownPath)?.get(identity)
+    : undefined;
+  return remembered !== undefined && remembered.ctimeMs === metadata.ctimeMs &&
+    remembered.digest === windowsLockdownDigest(contents);
+}
+
+/**
+ * After a full verify-only check succeeds, records the new change time of an
+ * inode this process locked down earlier (a link or rename can change it).
+ * An inode this process never locked down is never added.
+ */
+export function refreshWindowsLockdown(lockDownPath, metadata, contents) {
+  const identity = windowsLockdownIdentity(metadata);
+  if (identity && windowsLockdownMemories.get(lockDownPath)?.has(identity)) {
+    rememberWindowsLockdown(lockDownPath, metadata, contents);
   }
 }
 

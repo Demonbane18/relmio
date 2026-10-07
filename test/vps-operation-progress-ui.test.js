@@ -655,6 +655,7 @@ test("setup fingerprint result reveals confirmation after rendering without stea
   const source = [
     script.slice(focusStart, script.indexOf("\nfunction ", focusStart + 1)),
     script.slice(errorStart, script.indexOf("\nfunction ", errorStart + 1)),
+    script.slice(script.indexOf("function resetFingerprint()"), script.indexOf("\nfunction handleVpsConnectionInput")),
     script.slice(handlerStart, script.indexOf('\nelement("fingerprint-confirm").addEventListener', handlerStart)),
   ].join("\n");
 
@@ -683,6 +684,7 @@ test("setup fingerprint result reveals confirmation after rendering without stea
       ["port", Object.assign(new FakeElement("input"), { checkValidity: () => true, value: "22" })],
       ["password", Object.assign(new FakeElement("input"), { value: "old" })],
       ["connect-button", new FakeElement("button")],
+      ["global-error-recovery", new FakeElement("a", { hidden: true })],
     ]);
     const state = { fingerprint: null, operationBusy: false, operationOwner: 0 };
     runInNewContext(source, {

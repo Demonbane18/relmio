@@ -2,7 +2,13 @@
 
 The hosted Relmio product page and documentation. It presents the relay model,
 explains its safety boundaries, and links to the local install. Hosted chat and
-its ChatGPT sign-in are turned off while Relmio applies to OpenAI for access.
+its ChatGPT sign-in remain off; a public hosted integration has a separate
+registration and runtime contract.
+
+The installed wizard uses the documented local OSS SIWC flow with dynamic
+registration. That flow needs no commercial approval, partner client or client
+secret. Identity, consent to use a ChatGPT plan and completed inference are
+separate checks; account eligibility and provider limits still apply.
 
 ## Local development
 

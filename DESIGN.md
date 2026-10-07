@@ -22,7 +22,7 @@ CI. Edit only the source file.
 3. Same parts everywhere. A button, field, notice or top bar looks and behaves
    the same in the wizard and on the website.
 4. Two themes, one accent. Light is pastel green, dark is black. The accent
-   (black in light, yellow in dark) marks the primary action, the current
+   (black in light, pastel green in dark) marks the primary action, the current
    place and selection.
 5. Plain words. Short sentences, sentence case, no jargon without a hint. See
    the voice rules in BRANDKIT.md.
@@ -111,9 +111,9 @@ tokens, kit components, top bar and themes as the wizard.
 - Full-width bands carry the sections. A soft hill edge joins one band to the
   next. The safety boundary is a night band that re-points the ink, accent
   and focus tokens to the terminal values, which stay dark in both themes.
-- Depth comes from kit shadows and a tilted `--rm-accent-soft` sheet behind a
-  key surface, such as the scene, the notice's cleanup card or the install
-  toolbox.
+- Kit shadows and tilted `--rm-accent-soft` sheets add depth to cards such as
+  the notice's cleanup card and the install toolbox. The home illustration
+  stays unframed on the page canvas.
 - Brand teal and cream are illustration accents only: the doorway and mascot,
   and the teal wavy underline in the home headline. They never mark state.
 - Sections may rise into view with scroll-driven animation
@@ -127,7 +127,7 @@ tokens, kit components, top bar and themes as the wizard.
 - Pages never scroll sideways at 320 px, keep 24 px targets and AA contrast in
   both themes, and hide decoration in forced colors. The home Doorway scene is
   the one exception: it keeps its colors in forced colors because it is the
-  hero artwork and hiding it leaves an empty frame (owner decision,
+  hero artwork and hiding it leaves empty space (owner decision,
   2026-10-03).
 
 ## Layout
@@ -137,7 +137,7 @@ tokens, kit components, top bar and themes as the wizard.
 │ brand   nav links                     theme  GitHub  support  menu │
 ├ rm-split ──────────────────────────────────────────────────────────┤
 │ rail            │ rm-panel                                         │
-│  rm-stepper     │  header: eyebrow, title, one-line description    │
+│  quest track    │  header: eyebrow, title, one-line description    │
 │  safety summary │  body: the step                                  │
 │                 │  footer: Back · secondary · primary action       │
 └─────────────────┴──────────────────────────────────────────────────┘
@@ -145,10 +145,11 @@ tokens, kit components, top bar and themes as the wizard.
 
 - Top bar 56 px. Rail 272 px. Gutter 16 to 32 px, fluid.
 - Content width caps at 1216 px; long-form text caps at 46rem.
-- The rail holds the stepper and a compact status or safety summary. It never
-  holds long notices.
-- Below 1024 px the rail moves above the panel and the stepper turns
-  horizontal (`rm-stepper--auto`).
+- The rail holds the quest track and a compact status or safety summary. It
+  never holds long notices. The quest track (`rm-stepper--track`) keeps the
+  steps in one row at every width with a check on each finished step, so the
+  rail stays short and leaves room for the setup guide at its foot.
+- Below 1024 px the rail moves above the panel.
 - Web pages without a rail use `rm-container` inside `rm-app__main`, and
   full-width bands put their content in an `rm-container`.
 - Below 64rem, the panel footer sticks to the bottom of the viewport while its
@@ -184,8 +185,8 @@ Rules:
 - The theme switch is the same radio group in both apps: name `color-theme`,
   values `system`, `light`, `dark`, stored under `relmio-color-mode`. An explicit
   choice sets `data-theme` on `<html>`; System removes it.
-- Section navigation inside a page uses `rm-sidebar`. Guided flows use
-  `rm-stepper`.
+- Section navigation inside a page uses `rm-sidebar`. Guided flows use the
+  `rm-stepper rm-stepper--track` quest track.
 
 Top bar markup (the web renders the same structure from
 `web/app/components/ui/TopBar.tsx`):
@@ -228,12 +229,12 @@ caller in both apps.
 | App shell | `rm-app`, `rm-app--fit`, `rm-app__main`, `rm-split`, `rm-container` | Page frame; `rm-app--fit` applies the one-screen rule in the wizard and dashboard only |
 | Top bar | `rm-topbar`, `rm-brand`, `rm-nav`, `rm-menu`, `rm-topbar__actions` | Global navigation |
 | Sidebar | `rm-sidebar`, `rm-sidebar__link` | Views inside a page |
-| Stepper | `rm-stepper`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker` | Progress through a flow; `aria-current="step"`, `data-state="done"`. In forced colors the current step is a ringed Highlight disc and a done step shows only its check |
+| Stepper | `rm-stepper`, `--track`, `rm-stepper__item`, `rm-stepper__link`, `rm-stepper__marker`, `rm-stepper__label` | Progress through a flow; `aria-current="step"`, `data-state="done"`. `--track` is the wizards' quest track: one row at every width, markers only below 480 px. In forced colors the current step is a ringed Highlight disc and a done step shows only its check |
 | Panel | `rm-panel`, `__header`, `__heading`, `__body`, `__footer` | The working surface of a view |
 | Card | `rm-card`, `--flat`, `--muted`, `--compact` | Grouped content |
-| Choice | `rm-choice` and its `__icon`, `__title`, `__text` | A selectable option row or card |
+| Choice | `rm-choice` and its `__icon`, `__title`, `__text`, `__meta` | A selectable option row or card; `__meta` is one short fact under the text, such as what the option needs |
 | Button | `rm-button`, `--primary`, `--ghost`, `--danger`, `--sm` | Actions; `aria-busy="true"` shows progress; `--sm` only for secondary controls |
-| Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name |
+| Icon button | `rm-icon-button`, `--outline`, `--sm` | Icon-only actions with an accessible name; `aria-pressed="true"` marks a toggle that is on |
 | Link | `rm-link`, `--quiet`, `--standalone` | Text links; `--standalone` for a link outside a sentence |
 | Chip | `rm-chip`, `rm-chip__meta` | GitHub link with stars and version |
 | Field | `rm-field`, `__label`, `__hint`, `__error`, `rm-input`, `rm-select`, `rm-textarea`, `rm-form-grid`, `rm-fieldset` | Forms |
@@ -288,6 +289,11 @@ Component rules:
   Segmented controls use a 2 px inset `--rm-accent` ring without changing their
   size. Keep the outer keyboard-focus ring separate. In forced colors, an inset
   `Highlight` border marks selection without replacing the focus outline.
+  Toggles such as the setup guide button use `aria-pressed`; the kit draws a
+  pressed `rm-icon-button` or `rm-menu__link` the same way.
+- Start cards say who each route is for in `rm-choice__text` and what the
+  person needs in `rm-choice__meta`, in plain words. Give a duration only when
+  a doc states one.
 - Fields keep a visible label. Hints and errors connect through
   `aria-describedby`; invalid fields set `aria-invalid="true"`.
 - Status never relies on color: a status dot always sits next to text, and
@@ -323,6 +329,106 @@ Example step panel:
 </section>
 ```
 
+## Setup guide
+
+Every wizard page loads the small `/guide.css` and `/guide.js` and names its
+guide content in `<body data-guide-page>`. The dock (`/guide-dock.js` with its
+`/guide-dock.css`), the mascot (`/mascot.js`) and the page's tips load only
+while the guide or its error help is in use, so the guide adds little to a
+page's first load. The first visit asks once whether to start the guide.
+`#guide-toggle` in the top bar, repeated in the menu on narrow windows, turns
+it on or off, and `/api/ui/preferences` keeps the choice.
+
+| Part | Classes | Rules |
+| --- | --- | --- |
+| Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide": the mascot, the quest name, numbered by the page's current step, and progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use the default or ghost style, so the page keeps its one primary action. Escape collapses it and returns focus |
+| Chip | `rm-guide-chip` | The collapsed dock. With the guide off it appears only on an error, as "Need help with this error?" |
+| Pointer | `rm-guide-pointer`, `rm-guide-marker` | A ring around the target and a cursor with a short action label. It glides with `transform` only. With reduced motion, Show me numbers the targets instead, and the numbers never overlap |
+| Mascot | `rm-mascot` from `mascot.js` | Inline SVG from the logo vectors, decorative and hidden in forced colors. Poses: idle, look, happy, thinking, worried, waiting. The sleep cap uses `--rm-brand-cap`. While the guide is on, the mascot also stands in the quest track's current step |
+| Badges | `rm-badge rm-badge--success`, `rm-guide-finish`, `__title`, `__badges`, `__next` | A chapter earns its badge when every action tip seen there is done; reading tips are optional. On `/` and `/local`, the Ready screen shows `#ready-quest` in the rail column with the badges earned and the page's next steps; the guide fills it and keeps it hidden while the guide is off. The route pages show the finish, the badges and the next steps in the dock. A tip whose control reloads the page uses `done: "manual"`, so the finish can still show |
+| Toggle | `#guide-toggle`, `[data-guide-toggle]` | `aria-pressed` says whether the guide is on; the kit draws the pressed state |
+
+Placement:
+
+- The dock, chip and pointer are fixed layers. They never change page layout,
+  so every view keeps the one-screen rule with the guide open.
+- The dock never covers the focused element, the view's primary action, an
+  error callout or the panel footer's actions. It also keeps the rail column's
+  content clear, apart from the quest track, and every warning. On wide
+  windows it sits at the foot of the rail column, under its content, or at a
+  corner of the panel. On narrow windows it is a sheet at the bottom of the
+  window, above the panel footer or under the top bar.
+- Until the person opens it from the chip, presses Start the guide, Back or
+  Next tip, or moves focus into it, the dock also keeps the tip's target, the
+  page and step titles and the quest track clear. When nothing fits, it
+  collapses to the chip and the pointer still marks the target. An opened dock
+  covers the target, titles or track before any safety content, and never the
+  items above.
+- The pointer hides while its target is scrolled out of view, including out
+  of a scrolling panel body. Its action label never covers a checkbox or radio
+  label or a disclosure summary. A checkbox or radio is pointed at from its
+  left edge, and the label is left out when neither side is clear.
+- Check placement at the five one-screen sizes plus 390 x 844 and 320 x 640,
+  in the default and error states.
+- Game feel stays quiet: a badge chip, a checked progress dot and one hop of
+  the mascot. No points, confetti, emoji or exclamation marks. Decorative
+  motion stops within 5 seconds.
+
+## Plan and usage panel
+
+`usage-panel.js` loads on first use on `/` and `/local` and adds
+`usage-panel.css` itself; its import finishes only once the stylesheet has
+loaded, so pages that never show the panel load neither and nothing blocks the
+first paint. It builds the panel with `textContent` from the page's own request
+(`renderUsage(parts, info)`). The panel shows Relmio's counts of text requests
+through the sidecar in the last 30 days, not the plan's usage. Model checks and
+image requests are not counted, and tokens come from completed responses only.
+OpenAI documents no plan percent, reset time or credits for this sign-in, so
+the panel shows none of them and links to Manage usage instead.
+
+Places:
+
+- `/`: `#vps-usage` sits in the VPS owner panel after `#vps-owner-update`,
+  with `usage-panel--divided`. It appears for an owned sidecar after Check
+  installed account and reads only when the person presses Refresh usage.
+  The server allows 10 reads in 15 minutes and answers 409 until the account
+  check has run. The Ready screen has one line, `#result-usage`, in
+  `.setup-results__main`, hidden while the key is held.
+- `/local`: the dashboard has the nav link `#dashboard-usage-link` and the
+  section `#dashboard-usage`, which reads by itself for a healthy n8n sidecar
+  and shows a message otherwise. The installed view has
+  `<details id="installed-usage">` after `#local-siwc-owner`. It reads when
+  opened, for the n8n sidecar only.
+
+Parts:
+
+- `usage-panel__head` holds the title and Refresh usage (`rm-button--sm`). A
+  polite `role="status"` line follows it.
+- `usage-panel__view` holds two `usage-panel__group` columns, side by side
+  when two 16rem columns fit and stacked below that. The counts group appears
+  only with counts: the totals (`usage-panel__totals`: Requests, Tokens
+  (completed), Active days, Peak day), an outcome line, and the three busiest
+  models (`usage-panel__models`, `usage-panel__model`), each with its values in
+  text and a decorative `rm-progress` bar. More models sit in a plain
+  disclosure. The token qualifier stays in its label, since a hint line would
+  make the first row of totals taller.
+- The other group lists the account facts (`rm-dl usage-panel__facts`:
+  account, plan use, the image add-on's plan type only while that add-on is
+  signed in, models listed and verified), the last plan-usage event
+  (`usage-panel__event`) with its next step, and a note
+  (`usage-panel__note`) with the Manage usage link. The event shows its own
+  Manage usage button only when that is the recovery. `/local` has no model
+  checks, so there a verified model is one that returned tokens in the last
+  30 days, and its label says so.
+
+States: idle (the VPS panel before its first refresh), loading, `ok`, `empty`,
+`unavailable` and a refused refresh. `ok`, `empty` and `unavailable` come from
+the server's bounded view, and a malformed view reads as unavailable. On the
+VPS, `empty` points at Review sidecar update. A refused refresh (409 or 429)
+says what to do next in the panel's status line, not the page's error box, so
+the guide's error help stays closed. The last counts stay, labelled with
+their time.
+
 ## Color
 
 Use semantic tokens only. Never write a raw color in a page stylesheet; add a
@@ -343,14 +449,15 @@ BRANDKIT.md.
 | `--rm-success`, `--rm-warning`, `--rm-danger` and their `-soft`, `-line` pairs | Status |
 | `--rm-terminal-*` | Terminal and code blocks, dark in both themes |
 | `--rm-terminal-hover` | Terminal copy-button hover in both themes |
-| `--rm-brand-*` | Logo colors for illustration only, never for UI state |
+| `--rm-brand-*` | Logo colors and the mascot's sleep cap (`--rm-brand-cap`), for illustration only, never for UI state |
 
 Light theme: pastel green surfaces, warm black ink, black primary buttons
 with pale green text. Dark theme: black surfaces with no green tint, warm white
-ink, yellow primary buttons with black text. Orange is only for warnings, red
-only for failures and destructive actions, and the success green only for
-success. In the light theme that success green is cooler than the yellow-green
-surfaces and accent, so status never blends into the page. Teal
+ink, pastel green primary buttons with black text. Orange is only for warnings,
+red only for failures and destructive actions, and the success green only for
+success. That success green is cooler than the accent in both themes and
+than the light theme's yellow-green surfaces, so status never blends into the
+page or looks like an action. Teal
 appears only in the logo and mascot artwork, plus the hosted site's
 illustration accents described above. No purple AI gradients, neon glows,
 glass panels or decorative gradients.
@@ -406,8 +513,10 @@ characters per line. Use sentence case for headings, buttons and labels.
 - Keep these product labels exact and distinct: n8n with ChatGPT sign-in,
   SuperGrok OAuth, n8n Code Sandbox, Codex Chat Adapter, Codex App Server, and
   Local model.
-- The ChatGPT bridge is unofficial, private and policy-uncertain; say so where
-  the user chooses it. Sign-in is never an OpenAI Platform API key.
+- Distinguish verified ChatGPT identity, permission to use its plan, and a
+  completed model request. None implies the others or creates an OpenAI
+  Platform API key. Describe the new local/self-hosted flow as SIWC preview;
+  legacy Codex credential copies require a fresh SIWC sign-in.
 - Never imply a capability, permission or test result that has no recorded
   evidence. Hosted chat is off; never describe it as available.
 - Prerelease builds show an `rm-notice` whose summary names the version and
@@ -418,6 +527,27 @@ characters per line. Use sentence case for headings, buttons and labels.
   names the untested part. Do not repeat the warning on the same screen.
 - Field errors name the field with its visible label, for example "Server
   address is invalid.", never an internal name such as "Hostname".
+
+### ChatGPT plan controls
+
+- Use **Continue with ChatGPT** to start the documented local sign-in flow.
+  Keep account registrations distinct even when their email addresses match;
+  show the active account and retain its stable label.
+- After the first verified plan grant, explain **You're using your ChatGPT
+  plan** in a dismissible, keyboard-accessible confirmation. Persist the
+  acknowledgment; ordinary reauthorization must not show it again. Open it
+  only in a visible view. Escape closes it without acknowledging; the plan
+  stays unconfirmed and **Review plan notice** opens it again.
+- Put **Using ChatGPT plan** and **Manage usage** near the relevant model
+  selector or composer. Manage usage links to
+  `https://chatgpt.com/settings/usage`; do not invent usage totals or reset times.
+- A verified identity without the plan grant is signed in but cannot run
+  inference. Offer explicit consent, not automatic repeated sign-in.
+- Usage limits pause requests and make Manage usage the primary recovery.
+  Never suggest account rotation or silently switch billing.
+- Show where a transferred session is managed. Distinguish local cleanup from
+  confirmed provider revocation, and require explicit consent for background
+  n8n activity and the reviewed destination.
 
 ## Accessibility floor
 
@@ -496,8 +626,11 @@ For each changed view, before handing off:
 
 The home page keeps the Doorway scene: the green two-eyed mascot, its cream
 doorway, a VPS cloud and a local workshop, drawn as original vectors. It is
-the hero of the scrolling home page, a wide framed window below the headline
-and the install action.
+the hero of the scrolling home page, an unboxed landscape below the headline
+and the install action. Let it span the page width and blend into the canvas,
+without a card background, border, rounded clipping, shadow or backing sheet
+(owner decision, 2026-10-04). Keep the headline and actions in their content
+container. On phones, place Pause above the artwork so it does not cover it.
 Preserve the original logo files exactly; the scene is separate artwork. Its
 backdrop follows the theme: pastel green sky and darker green hills by day,
 black sky and charcoal hills by night. Night mode may add a moon, stars, a lit

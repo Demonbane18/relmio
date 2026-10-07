@@ -1,3 +1,4 @@
+import { accountUiState, createSiwcControls, createSiwcRecovery, normalizeSiwcAccount, siwcErrorFromResponse, siwcErrorText } from "./siwc-controls.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
 import { clearFieldError, setFieldError } from "./ssh-form.js";
 import {
@@ -33,6 +34,10 @@ const state = {
   n8nOAuthAttemptId: null,
   n8nOAuthRetryBlocked: false,
   n8nOAuthCancellationMessage: "",
+  n8nOAuthIntent: { purpose: "sign-in" },
+  installedOwner: null,
+  installedSiwcModelLocked: false,
+  catalogLabels: new Map(),
   assistantSearxngReviewId: null,
   assistantSearxngReview: null,
   localModelReview: null,
@@ -45,6 +50,8 @@ const state = {
   dashboardBusy: false,
   dashboardStaleTimer: null,
   dashboardFocusIdentity: null,
+  dashboardUsage: null,
+  installedUsage: null,
   chatTester: {
     activeController: null,
     conversationId: null,
@@ -52,39 +59,26 @@ const state = {
     endpointBaseUrl: null,
     expiresAt: null,
     generation: 0,
+    models: [],
     keyId: null,
     feedback: { ...INITIAL_CHAT_TESTER_FEEDBACK },
   },
 };
 
 const DASHBOARD_STATES = Object.freeze([
-  "checking",
-  "healthy",
-  "stopped",
-  "partial",
-  "unavailable",
-  "stale",
-  "absent",
+  "checking", "healthy", "stopped", "staged", "partial", "legacy", "unavailable", "stale", "absent",
 ]);
 const DASHBOARD_ACTIONS = Object.freeze([
-  "setup",
-  "resume",
-  "remove",
-  "sign-in-chatgpt",
-  "sign-out-chatgpt",
-  "sign-in-grok-build",
-  "sign-out-grok-build",
-  "remove-owned-supergrok",
-  "rotate-local-capability",
-  "refresh-credential",
-  "retry-model",
+  "setup", "resume", "remove", "sign-out-chatgpt", "disable-chatgpt-plan", "inspect-stopped-chatgpt",
+  "sign-in-grok-build", "sign-out-grok-build", "remove-owned-supergrok",
+  "rotate-local-capability", "retry-model",
 ]);
 const DASHBOARD_SERVICE_DEFINITIONS = Object.freeze([
-  Object.freeze({ target: "codex-chatgpt", label: "Codex (ChatGPT login)", kind: "endpoint" }),
+  Object.freeze({ target: "codex-chatgpt", label: "Codex (ChatGPT plan)", kind: "endpoint" }),
   Object.freeze({ target: "codex-chat", label: "Codex Chat adapter", kind: "endpoint" }),
   Object.freeze({ target: "xai-grok-build", label: "SuperGrok", kind: "endpoint" }),
   Object.freeze({ target: "local-n8n-stack", label: "n8n + ngrok", kind: "n8n-stack" }),
-  Object.freeze({ target: "n8n-openai-oauth", label: "OpenAI OAuth bridge", kind: "n8n-oauth-bridge" }),
+  Object.freeze({ target: "n8n-openai-oauth", label: "ChatGPT plan sidecar", kind: "n8n-oauth-bridge" }),
   Object.freeze({ target: "local-n8n-assistant", label: "AI Assistant tools", kind: "n8n-assistant" }),
   Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok for n8n", kind: "n8n-supergrok" }),
   Object.freeze({ target: "n8n-local-model", label: "Local model for n8n", kind: "n8n-local-model" }),
@@ -146,6 +140,7 @@ function showSetupStage(stage, { focus = true } = {}) {
 element("choose-continue").addEventListener("click", () => {
   if (state.operationBusy) return;
   showSetupStage("configure");
+  if (!element("local-siwc").hidden) siwc.load().catch(showError);
 });
 
 element("configure-back").addEventListener("click", () => {
@@ -180,15 +175,19 @@ function clearFieldErrors() {
 function clearError() {
   errorText.textContent = "";
   element("local-image-build-troubleshooting").hidden = true;
+  element("global-error-recovery").hidden = true;
   errorBox.hidden = true;
   clearFieldErrors();
+  globalThis.relmioGuide?.clearError?.();
 }
 
 function showError(error, invalidFields = []) {
   const localImageBuildFailed = error?.message === "Local image build failed.";
   errorText.textContent = localImageBuildFailed
     ? "Relmio could not build the local image. Check that Docker is running, has enough disk space, and can pull its base image."
-    : error?.message ?? "Something went wrong.";
+    : error?.recovery && error.recovery !== "none" ? siwcErrorText(error)
+      : error?.message ?? "Something went wrong.";
+  element("global-error-recovery").hidden = error?.recovery !== "manage-usage";
   element("local-image-build-troubleshooting").hidden = !localImageBuildFailed;
   clearFieldErrors();
   const rejected = LOCAL_PORT_REJECTION.test(errorText.textContent)
@@ -197,6 +196,7 @@ function showError(error, invalidFields = []) {
   for (const field of rejected) setFieldError(field, "global-error-text");
   errorBox.hidden = false;
   errorBox.focus();
+  globalThis.relmioGuide?.error?.(error);
 }
 
 function validateLocalN8nStackCredentials() {
@@ -542,6 +542,9 @@ function stopInstallProgress(button) {
     element("remove-supergrok-confirm").disabled = false;
     element("remove-supergrok-button").disabled = true;
   }
+  // The same snapshot would re-enable the installed model select after a
+  // finalization failure or an empty catalog.
+  if (state.installedSiwcModelLocked) element("installed-siwc-model").disabled = true;
   element("install-panel").setAttribute("aria-busy", "false");
 }
 
@@ -637,7 +640,7 @@ async function api(path, { method = "GET", body } = {}) {
     throw new Error("The local wizard returned an unexpected response.");
   }
   if (!response.ok) {
-    const error = new Error(result.error ?? "The local request failed.");
+    const error = siwcErrorFromResponse(result, response.status);
     error.retryablePlan = result.retryablePlan === true;
     error.retryableNgrokSetup = result.retryableNgrokSetup === true;
     error.managedPartialStack = result.managedPartialStack === true;
@@ -646,6 +649,48 @@ async function api(path, { method = "GET", body } = {}) {
   }
   return result;
 }
+
+const siwc = createSiwcControls({
+  root: element("local-siwc"),
+  api,
+  onChange(account) {
+    state.n8nOAuthExists = n8nOAuthReadiness(account).ready;
+    invalidatePlan();
+    state.catalogLabels.clear();
+    element("installed-siwc-model").replaceChildren();
+    element("installed-siwc-models").hidden = true;
+    void forgetChatTester({ announce: false });
+    element("n8n-oauth-status").textContent = n8nOAuthReadiness(account).status;
+    updateReviewAvailability();
+  },
+  onLogin(intent) {
+    if (state.operationBusy) return;
+    state.n8nOAuthIntent = intent;
+    element("n8n-oauth-sign-in").click();
+  },
+  onError: showError,
+});
+
+const siwcRecovery = createSiwcRecovery({
+  root: element("local-siwc-recovery"), api,
+  getTarget({ target, action }) {
+    if (target !== "n8n-openai-oauth" || action !== "resume") return {};
+    const n8nContainerId = element("n8n-container").value;
+    const dockerNetworkId = element("n8n-network").value;
+    return n8nContainerId && dockerNetworkId ? { n8nContainerId, dockerNetworkId } : {};
+  },
+  onReview(result) {
+    state.planId = result.planId;
+    state.plan = result.plan;
+    state.target = result.plan.target;
+    renderPlan(result.plan);
+    element("install-confirm").checked = false;
+    updateLocalReviewApproval();
+    showStep(2);
+  },
+  async onResult() { await siwc.load({ welcome: false }); },
+  onError: showError,
+});
 
 function dashboardContractError() {
   return new Error("The local wizard returned an unexpected dashboard response.");
@@ -737,27 +782,55 @@ function normalizeDashboardBooleans(value, names) {
   return normalized;
 }
 
-function normalizeEndpointDashboardSnapshot(snapshot, definition) {
-  assertDashboardKeys(snapshot, [
-    "target",
-    "endpoint",
-    "auth",
-    "canRotateCredential",
-  ]);
-  assertDashboardKeys(snapshot.auth, ["configured", "disclosure"]);
-  if (
-    snapshot.target !== definition.target ||
-    snapshot.auth.configured !== true ||
-    snapshot.auth.disclosure !== "rotate-only" ||
-    snapshot.canRotateCredential !== true
-  ) {
+function normalizeInstalledSiwc(snapshot) {
+  const legacy = snapshot.migrationRequired;
+  if (typeof legacy !== "boolean" || typeof snapshot.auth?.configured !== "boolean") {
     throw dashboardContractError();
   }
+  const account = snapshot.auth.account === undefined ? null : normalizeSiwcAccount(snapshot.auth.account);
+  if (legacy ? (snapshot.registrationId !== undefined || account !== null || snapshot.auth.configured)
+    : (typeof snapshot.registrationId !== "string" ||
+      !/^[A-Za-z0-9_-]{8,128}$/u.test(snapshot.registrationId) ||
+      (account && account.registrationId !== snapshot.registrationId) ||
+      snapshot.auth.configured !== (account?.ownership === "owned" &&
+        account?.session === "connected" && account?.planPermission === "granted" &&
+        account?.planEnabled === true))) throw dashboardContractError();
+  if (snapshot.migrationState !== undefined &&
+      (!legacy || !["incomplete", "prepared", "stopped"].includes(snapshot.migrationState) ||
+        snapshot.legacyResourcesPreserved !== true)) throw dashboardContractError();
+  return {
+    migrationRequired: legacy,
+    ...(legacy ? {} : { registrationId: snapshot.registrationId }),
+    ...(snapshot.migrationState ? { migrationState: snapshot.migrationState,
+      legacyResourcesPreserved: true } : {}),
+    auth: { configured: snapshot.auth.configured, ...(account ? { account } : {}) },
+  };
+}
+
+function normalizeEndpointDashboardSnapshot(snapshot, definition) {
+  const chatgpt = ["codex-chatgpt", "codex-chat"].includes(definition.target);
+  assertDashboardKeys(snapshot, chatgpt
+    ? ["target", "endpoint", "auth", "canRotateCredential", "migrationRequired",
+      ...(snapshot.registrationId !== undefined ? ["registrationId"] : []),
+      ...(snapshot.migrationState !== undefined ? ["migrationState", "legacyResourcesPreserved"] : [])]
+    : ["target", "endpoint", "auth", "canRotateCredential"]);
+  assertDashboardKeys(snapshot.auth, ["configured", "disclosure",
+    ...(snapshot.auth.account !== undefined ? ["account"] : [])]);
+  const siwc = chatgpt ? normalizeInstalledSiwc(snapshot) : null;
+  if (snapshot.target !== definition.target ||
+      snapshot.auth.disclosure !== "rotate-only" ||
+      snapshot.canRotateCredential !== (chatgpt && snapshot.migrationRequired ? false : true) ||
+      (!chatgpt && snapshot.auth.configured !== true)) throw dashboardContractError();
   return {
     target: definition.target,
     endpoint: normalizeDashboardEndpoint(snapshot.endpoint, definition.target),
-    auth: { configured: true, disclosure: "rotate-only" },
-    canRotateCredential: true,
+    auth: { configured: snapshot.auth.configured, disclosure: "rotate-only",
+      ...(siwc?.auth.account ? { account: siwc.auth.account } : {}) },
+    ...(siwc ? { migrationRequired: siwc.migrationRequired,
+      ...(siwc.registrationId ? { registrationId: siwc.registrationId } : {}),
+      ...(siwc.migrationState ? { migrationState: siwc.migrationState,
+        legacyResourcesPreserved: true } : {}) } : {}),
+    canRotateCredential: snapshot.canRotateCredential,
   };
 }
 
@@ -806,30 +879,25 @@ function normalizeStackDashboardSnapshot(snapshot) {
 }
 
 function normalizeBridgeDashboardSnapshot(snapshot) {
-  assertDashboardKeys(snapshot, [
-    "target",
-    "endpoint",
-    "auth",
-    "canRefreshCredential",
-    "canRemove",
-  ]);
-  assertDashboardKeys(snapshot.auth, ["configured", "disclosure"]);
-  if (
-    snapshot.target !== "n8n-openai-oauth" ||
-    snapshot.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
-    snapshot.auth.configured !== true ||
-    snapshot.auth.disclosure !== "server-managed" ||
-    snapshot.canRefreshCredential !== true ||
-    snapshot.canRemove !== true
-  ) {
-    throw dashboardContractError();
-  }
+  assertDashboardKeys(snapshot, ["target", "endpoint", "auth", "canRefreshCredential",
+    "canRemove", "migrationRequired",
+    ...(snapshot.registrationId !== undefined ? ["registrationId"] : []),
+    ...(snapshot.migrationState !== undefined ? ["migrationState", "legacyResourcesPreserved"] : [])]);
+  assertDashboardKeys(snapshot.auth, ["configured", "disclosure",
+    ...(snapshot.auth.account !== undefined ? ["account"] : [])]);
+  if (snapshot.target !== "n8n-openai-oauth" ||
+      snapshot.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
+      snapshot.auth.disclosure !== "server-managed" ||
+      snapshot.canRefreshCredential !== false || snapshot.canRemove !== true) throw dashboardContractError();
+  const siwc = normalizeInstalledSiwc(snapshot);
   return {
-    target: "n8n-openai-oauth",
-    endpoint: "http://n8n-openai-oauth:10531/v1",
-    auth: { configured: true, disclosure: "server-managed" },
-    canRefreshCredential: true,
-    canRemove: true,
+    target: "n8n-openai-oauth", endpoint: snapshot.endpoint,
+    auth: { configured: siwc.auth.configured, disclosure: "server-managed",
+      ...(siwc.auth.account ? { account: siwc.auth.account } : {}) },
+    ...(siwc.registrationId ? { registrationId: siwc.registrationId } : {}),
+    migrationRequired: siwc.migrationRequired,
+    ...(siwc.migrationState ? { migrationState: siwc.migrationState, legacyResourcesPreserved: true } : {}),
+    canRefreshCredential: false, canRemove: true,
   };
 }
 
@@ -915,10 +983,15 @@ function normalizeDashboardServiceSnapshot(snapshot, definition) {
 }
 
 function expectedDashboardActions(definition, serviceState, snapshot, provider) {
-  if (serviceState === "absent") return ["setup"];
+  if (serviceState === "absent" || serviceState === "staged") return ["setup"];
   if (serviceState === "unavailable") return [];
   if (snapshot === null) return [];
   const actions = [];
+  if (serviceState === "legacy") return snapshot.migrationRequired === true ? ["setup"] : [];
+  if (serviceState === "partial" && snapshot.migrationState) return [];
+  if (serviceState === "stopped" && snapshot.registrationId &&
+      (["codex-chatgpt", "codex-chat"].includes(snapshot.target) ||
+        definition.kind === "n8n-oauth-bridge")) actions.push("inspect-stopped-chatgpt");
   if (
     definition.kind === "n8n-stack" &&
     serviceState === "stopped" &&
@@ -932,18 +1005,22 @@ function expectedDashboardActions(definition, serviceState, snapshot, provider) 
     snapshot.canRotateCredential === true
   ) {
     if (["codex-chatgpt", "codex-chat"].includes(definition.target)) {
-      actions.push("sign-in-chatgpt", "sign-out-chatgpt");
+      actions.push("setup");
+      if (snapshot.auth.account?.ownership === "owned") {
+        actions.push("sign-out-chatgpt");
+        if (snapshot.auth.account.planEnabled) actions.push("disable-chatgpt-plan");
+      }
     } else if (definition.target === "xai-grok-build") {
       actions.push("sign-in-grok-build", "sign-out-grok-build");
     }
     actions.push("rotate-local-capability");
   }
-  if (
-    definition.kind === "n8n-oauth-bridge" &&
-    serviceState === "healthy" &&
-    snapshot.canRefreshCredential === true
-  ) {
-    actions.push("refresh-credential");
+  if (definition.kind === "n8n-oauth-bridge" && serviceState === "healthy") {
+    actions.push("setup");
+    if (snapshot.auth.account?.ownership === "owned") {
+      actions.push("sign-out-chatgpt");
+      if (snapshot.auth.account.planEnabled) actions.push("disable-chatgpt-plan");
+    }
   }
   if (definition.kind === "n8n-local-model" && snapshot.canRetry === true) {
     actions.push("retry-model");
@@ -977,6 +1054,7 @@ function normalizeDashboardService(service, definition, provider) {
     "state",
     "snapshot",
     "actions",
+    ...(service.state === "staged" ? ["staging"] : []),
   ]);
   if (
     service.target !== definition.target ||
@@ -996,10 +1074,15 @@ function normalizeDashboardService(service, definition, provider) {
     }
   } else if (
     service.managed !== true ||
-    (service.snapshot === null && service.state !== "partial")
+    (service.snapshot === null && !["partial", "staged"].includes(service.state))
   ) {
     throw dashboardContractError();
   }
+  if (service.state === "staged" &&
+      (!["codex-chatgpt", "codex-chat", "n8n-openai-oauth"].includes(service.target) ||
+        service.snapshot !== null || !/^[A-Za-z0-9_-]{8,128}$/u.test(service.staging?.installId ?? "") ||
+        !/^[A-Za-z0-9_-]{8,128}$/u.test(service.staging?.registrationId ?? "") ||
+        !/^[a-z][a-z0-9-]{0,63}$/u.test(service.staging?.stage ?? ""))) throw dashboardContractError();
   const snapshot = service.snapshot === null
     ? null
     : normalizeDashboardServiceSnapshot(service.snapshot, definition);
@@ -1022,6 +1105,7 @@ function normalizeDashboardService(service, definition, provider) {
     managed: service.managed,
     state: service.state,
     snapshot,
+    ...(service.state === "staged" ? { staging: service.staging } : {}),
     actions: [...service.actions],
   };
 }
@@ -1096,6 +1180,7 @@ function dashboardStateLabel(serviceState) {
     checking: "Checking",
     healthy: "Healthy",
     stopped: "Stopped",
+    staged: "Staged; review resume",
     partial: "Needs recovery",
     unavailable: "Unavailable",
     stale: "Stale",
@@ -1311,7 +1396,6 @@ function resetDashboardActionReview() {
   element("credential-rotation-note").hidden = true;
   element("client-warning").hidden = true;
   element("codex-production-warning").hidden = true;
-  element("codex-login").hidden = true;
   element("chat-tester").hidden = true;
   element("n8n-sidecar-removal").hidden = true;
   element("n8n-supergrok-removal").hidden = true;
@@ -1325,99 +1409,73 @@ function resetDashboardActionReview() {
   element("result-n8n-settings").textContent = "";
 }
 
-function showDashboardCodexSignInManagement(service) {
-  if (
-    service.kind !== "endpoint" ||
-    service.state !== "healthy" ||
-    !["codex-chatgpt", "codex-chat"].includes(service.target) ||
-    !service.actions.includes("sign-in-chatgpt") ||
-    !service.snapshot?.endpoint
-  ) {
-    throw new Error("Relmio refused an unattested Codex sign-in action.");
+function renderInstalledSiwcOwner({ target, state: serviceState, snapshot, reviewedStopped = false }) {
+  const ownerPanel = element("local-siwc-owner");
+  const account = snapshot?.auth?.account ?? null;
+  state.installedTarget = target;
+  state.installedOwner = account ? { target, account, serviceState, reviewedStopped } :
+    snapshot?.registrationId ? { target, registrationId: snapshot.registrationId, serviceState } : null;
+  ownerPanel.hidden = !state.installedOwner;
+  const needsInspection = serviceState === "stopped" && snapshot?.registrationId && !account;
+  element("local-siwc-inspect-row").hidden = !needsInspection;
+  element("local-siwc-inspect").hidden = !needsInspection;
+  element("local-siwc-inspect-confirm").checked = false;
+  element("local-siwc-owner-confirm").checked = false;
+  element("local-siwc-background-confirm").checked = false;
+  const mutable = account?.ownership === "owned" && account.session !== "signed-out" &&
+    (serviceState === "healthy" || reviewedStopped);
+  element("local-siwc-owner-actions").hidden = !mutable;
+  element("local-siwc-enable").hidden = !mutable || account.planEnabled ||
+    account.planPermission !== "granted";
+  element("local-siwc-background-row").hidden =
+    target !== "n8n-openai-oauth" || element("local-siwc-enable").hidden;
+  element("local-siwc-disable").hidden = !mutable || !account.planEnabled;
+  element("local-siwc-logout").hidden = !mutable;
+  for (const id of ["local-siwc-enable", "local-siwc-disable", "local-siwc-logout"]) {
+    element(id).disabled = true;
+  }
+  element("local-siwc-replace").hidden = !(account?.session === "signed-out" &&
+    account.planEnabled === false && account.ownership === "owned" && reviewedStopped);
+  element("local-siwc-owner-status").textContent = snapshot?.migrationRequired
+    ? "Legacy sign-in is not a Relmio SIWC registration. Review a fresh migration; old volumes stay offline."
+    : serviceState === "partial"
+      ? "This installation owns the registration, but its runtime could not be verified. Do not send requests; inspect it manually."
+      : account
+        ? `${account.label}${account.email ? ` (${account.email})` : ""} · ${account.registrationId.slice(-8)}. ${account.session === "connected"
+          ? account.planEnabled ? "Using ChatGPT plan." : "Plan use paused." : "Signed out."}`
+      : needsInspection
+        ? "This owned service is stopped. Confirm the separate owner inspection before changing its session."
+        : "The installed account could not be attested. No provider action is available.";
+}
+
+function showDashboardSiwcOwner(service) {
+  if (!["codex-chatgpt", "codex-chat", "n8n-openai-oauth"].includes(service.target) ||
+      !["healthy", "stopped"].includes(service.state) || !service.snapshot) {
+    throw new Error("The installed ChatGPT service must be checked again.");
   }
   resetDashboardActionReview();
   clearChatTesterState();
+  renderInstalledSiwcOwner(service);
+  element("local-siwc-owner").open = true;
+  // Plan and usage starts closed; only the running n8n sidecar keeps request counts.
+  const usage = service.target === "n8n-openai-oauth" && service.state === "healthy";
+  state.installedUsage = usage ? { account: service.snapshot.auth?.account ?? null, listed: null } : null;
+  element("installed-usage").hidden = !usage;
+  element("installed-usage").open = false;
   const codexChat = isCodexChat(service.target);
-  state.installedTarget = service.target;
-
-  element("install-result-list").hidden = false;
-  for (const id of [
-    "result-n8n-row",
-    "result-network-row",
-    "result-publication-row",
-    "result-deployment-row",
-    "result-public-url-row",
-    "result-assistant-mode-row",
-    "result-sandbox-key-row",
-    "result-searxng-row",
-    "result-n8n-settings-row",
-    "result-credential-row",
-  ]) {
-    element(id).hidden = true;
-  }
-  for (const id of [
-    "result-n8n",
-    "result-network",
-    "result-publication",
-    "result-deployment",
-    "result-public-url",
-    "result-assistant-mode",
-    "result-sandbox-key",
-    "result-searxng",
-    "result-n8n-settings",
-    "result-credential",
-  ]) {
-    element(id).textContent = "";
-  }
-  element("result-endpoint-row").hidden = false;
-  element("result-endpoint-label").textContent = "Attested endpoint";
-  element("result-endpoint").textContent = service.snapshot.endpoint;
-  element("copy-searxng-button").hidden = true;
-  element("one-time-note").hidden = true;
-  element("credential-rotation-note").hidden = false;
-  element("rotate-credential-button").disabled = false;
-
-  element("client-warning").hidden = false;
-  appendPolicyNotice(
-    element("client-warning"),
-    codexChat
-      ? "Saved local client bearer required"
-      : "Saved local capability required",
-    codexChat
-      ? "The local client bearer authorizes calls to the Chat Adapter. ChatGPT sign-in authorizes Codex inside its isolated container. They are separate, and this dashboard has not checked whether either saved credential is still valid."
-      : "The local client capability authorizes App Server control. ChatGPT sign-in authorizes Codex inside its isolated container. They are separate, and this dashboard has not checked whether either saved credential is still valid.",
-  );
-  element("codex-production-warning").hidden = false;
-  element("codex-production-warning-title").textContent = codexChat
-    ? "Experimental Chat Adapter. Trusted local backends or development servers only"
-    : "Experimental WebSocket transport";
-  element("codex-production-warning-detail").textContent = codexChat
-    ? "The adapter uses a Relmio-specific POST /chat contract with no browser CORS support. It is not OpenAI /v1."
-    : "Codex App Server WebSocket is experimental and unsupported for production workloads.";
-  element("codex-login").hidden = false;
-  element("device-code-result").hidden = true;
-  element("device-code").textContent = "";
-  element("device-code-link").removeAttribute("href");
-  element("device-code-status").textContent =
-    "No ChatGPT sign-in check has run. Start a fresh sign-in only if needed.";
-
-  element("chat-tester").hidden = !codexChat;
-  if (codexChat) {
+  element("chat-tester").hidden = !codexChat || service.snapshot.auth?.configured !== true;
+  if (codexChat && service.snapshot.auth?.configured === true) {
     element("chat-tester-endpoint").value = service.snapshot.endpoint;
     element("chat-tester-status").textContent =
-      "Paste your saved local client bearer capability, or rotate the client credential first. ChatGPT sign-in is separate and has not been checked.";
+      "Secure your saved local client key. The tester reads the installed account's current model list before sending.";
   }
-
-  element("done-title").textContent = codexChat
-    ? "Manage installed Codex Chat Adapter"
-    : "Manage installed Codex App Server";
-  element("done-detail").textContent = codexChat
-    ? "The loopback adapter endpoint is attested. ChatGPT sign-in has not been checked or started. Use a saved local client bearer in the tester, or rotate it first."
-    : "The loopback App Server endpoint is attested. ChatGPT sign-in has not been checked or started. Keep using your saved local capability, or rotate it first.";
+  element("credential-rotation-note").hidden =
+    !["codex-chatgpt", "codex-chat"].includes(service.target) ||
+    service.snapshot.canRotateCredential !== true;
+  element("done-title").textContent = `Manage ${service.label}`;
+  element("done-detail").textContent =
+    "Provider session changes run at this attested installation, not from the transferred source registration. A fresh sign-in for another installation needs its own reviewed transfer.";
   showStep(4);
-  setMessage(
-    "Installed Codex endpoint loaded. ChatGPT sign-in has not been checked or started.",
-  );
 }
 
 function showDashboardRotationReview(service) {
@@ -1434,22 +1492,16 @@ function showDashboardRotationReview(service) {
 }
 
 function showDashboardProviderRuntimeGuidance(service, action) {
+  if (!["xai-grok-build", "n8n-supergrok-oauth"].includes(service.target)) {
+    throw new Error("This provider guidance is not available for ChatGPT.");
+  }
   resetDashboardActionReview();
-  const provider = dashboardProviderForTarget(service.target);
-  const providerLabel = provider?.label ?? "provider";
-  const signingOut = action.startsWith("sign-out");
-  const n8nSuperGrok = service.target === "n8n-supergrok-oauth";
-  const command = `relmio grok ${signingOut ? "logout" : "login"}${n8nSuperGrok ? " --n8n" : ""}`;
-  element("done-title").textContent = `Guidance only: ${signingOut ? "sign out of" : "sign in to"} ${providerLabel}`;
-  element("done-detail").textContent = providerLabel === "ChatGPT"
-    ? signingOut
-      ? "Guidance only: use the installed Codex runtime's supported sign-out process. Then use Sign in to ChatGPT to start its existing device-code flow. Relmio does not inspect or end provider sessions."
-      : "Guidance only: use the installed Codex runtime's supported sign-in process. Relmio keeps provider identity separate from local capability management."
-    : signingOut
-      ? `Run ${command} in your terminal to sign this isolated SuperGrok runtime out through its official CLI. Opening this guidance does not change the provider session.`
-      : `Run ${command} in an interactive terminal, then confirm the displayed device code on the official provider page. OAuth stays in the isolated runtime; opening this guidance does not start sign-in.`;
+  const signingOut = action === "sign-out-grok-build";
+  const command = `relmio grok ${signingOut ? "logout" : "login"}${service.target === "n8n-supergrok-oauth" ? " --n8n" : ""}`;
+  element("done-title").textContent = `Guidance only: ${signingOut ? "sign out of" : "sign in to"} SuperGrok`;
+  element("done-detail").textContent = `Run ${command} in your terminal. Opening this guidance does not change the provider session.`;
   showStep(4, { showSetupProgress: false });
-  setMessage(`Guidance only: Relmio did not change the ${providerLabel} provider session.`);
+  setMessage("Guidance only: Relmio did not change the SuperGrok provider session.");
 }
 
 function showDashboardRemovalReview(service) {
@@ -1512,23 +1564,18 @@ async function runDashboardAction(service, action) {
   const wizardTarget = dashboardToWizardTarget(service.target);
   if (action === "setup") {
     await enterSetupView(wizardTarget);
+    if (service.state === "staged") {
+      element("local-siwc-recovery").querySelector("details").open = true;
+      await siwcRecovery.load({ target: service.target, registrationId: service.staging.registrationId });
+    }
     return;
   }
-  if (action === "refresh-credential") {
-    await enterSetupView(wizardTarget);
-    setMessage("Choose Update bridge runtime to apply bridge fixes, or apply a new sign-in separately. Each action needs its own confirmation.");
-    return;
-  }
-  if (action === "sign-in-chatgpt") {
+  if (["sign-out-chatgpt", "disable-chatgpt-plan", "inspect-stopped-chatgpt"].includes(action)) {
     await enterSetupView(wizardTarget, { checkDocker: false });
-    showDashboardCodexSignInManagement(service);
+    showDashboardSiwcOwner(service);
     return;
   }
-  if (
-    action === "sign-out-chatgpt" ||
-    action === "sign-in-grok-build" ||
-    action === "sign-out-grok-build"
-  ) {
+  if (["sign-in-grok-build", "sign-out-grok-build"].includes(action)) {
     await enterSetupView(wizardTarget, { checkDocker: false });
     showDashboardProviderRuntimeGuidance(service, action);
     return;
@@ -1555,19 +1602,19 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
     resume: "Resume",
     remove: compact ? "Remove" : "Review removal",
     "remove-owned-supergrok": compact ? "Remove" : "Review removal",
-    "sign-in-chatgpt": "Sign in to ChatGPT",
-    "sign-out-chatgpt": "ChatGPT sign-out guidance",
+    "sign-out-chatgpt": "Manage ChatGPT sign-out",
+    "disable-chatgpt-plan": "Pause ChatGPT plan",
+    "inspect-stopped-chatgpt": "Inspect stopped owner",
     "sign-in-grok-build": "Grok Build sign-in guidance",
     "sign-out-grok-build": "Grok Build sign-out guidance",
     "rotate-local-capability": compact ? "Rotate" : "Rotate local capability",
-    "refresh-credential": compact ? "Manage" : "Manage bridge",
     "retry-model": "Review model retry",
   };
   const button = document.createElement("button");
   button.type = "button";
   // Add connection is the view's one primary button. Setup, resume and sign-in
   // keep the standard 40 px size in the default style; the rest stay compact.
-  button.className = ["setup", "resume", "sign-in-chatgpt", "sign-in-grok-build"].includes(action)
+  button.className = ["setup", "resume", "sign-in-grok-build"].includes(action)
     ? "rm-button"
     : "rm-button rm-button--sm";
   button.dataset.dashboardService = service.target;
@@ -1580,12 +1627,12 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
       resume: `Resume ${service.label}`,
       remove: `Remove ${service.label}`,
       "remove-owned-supergrok": `Remove ${service.label}`,
-      "sign-in-chatgpt": `Sign in to ChatGPT for ${service.label}`,
-      "sign-out-chatgpt": `ChatGPT sign-out guidance for ${service.label}`,
+      "sign-out-chatgpt": `Manage ChatGPT sign-out for ${service.label}`,
+      "disable-chatgpt-plan": `Pause ChatGPT plan for ${service.label}`,
+      "inspect-stopped-chatgpt": `Inspect stopped ChatGPT owner for ${service.label}`,
       "sign-in-grok-build": `Grok Build sign-in guidance for ${service.label}`,
       "sign-out-grok-build": `Grok Build sign-out guidance for ${service.label}`,
       "rotate-local-capability": `Rotate local capability for ${service.label}`,
-      "refresh-credential": `Manage ${service.label}`,
       "retry-model": `Review model retry for ${service.label}`,
     };
     button.setAttribute("aria-label", accessibleLabels[action]);
@@ -1717,6 +1764,10 @@ function renderDashboardServiceDetail(
     appendDashboardFact(facts, "Model", service.snapshot.model.id);
     appendDashboardFact(facts, "Inference", service.snapshot.model.state === "ready" ? "Verified by generation" : service.snapshot.model.state);
     appendDashboardFact(facts, "Authentication", "None; placeholder ignored");
+  }
+  if (service.state === "staged") {
+    appendDashboardFact(facts, "Installation", service.staging.installId.slice(0, 12));
+    appendDashboardFact(facts, "Checkpoint", service.staging.stage);
   }
   if (service.kind === "n8n-stack" && service.snapshot) {
     appendDashboardFact(facts, "Local n8n", service.snapshot.endpoints.n8nLocal, {
@@ -2080,6 +2131,75 @@ async function loadLocalDashboard() {
   } catch {
     renderDashboardFailure();
   }
+  showDashboardUsage();
+}
+
+// Plan and usage for the installed n8n sidecar, on the dashboard and the installed view. The
+// counts are read on demand, and the panel module loads on first use with its stylesheet to
+// keep first paint light.
+let usagePanel = null;
+
+async function loadLocalUsage(name) {
+  const panel = name === "dashboard" ? state.dashboardUsage : state.installedUsage;
+  if (!panel) return;
+  const run = (panel.run ?? 0) + 1;
+  panel.run = run;
+  const current = () => panel.run === run &&
+    panel === (name === "dashboard" ? state.dashboardUsage : state.installedUsage);
+  const refresh = element(`${name}-usage-refresh`);
+  const parts = { status: element(`${name}-usage-status`), view: element(`${name}-usage-view`) };
+  const info = { page: "local", account: panel.account, models: { listed: panel.listed } };
+  usagePanel ??= import("./usage-panel.js");
+  const { renderUsage } = await usagePanel;
+  if (!current()) return;
+  renderUsage(parts, { ...info, usage: panel.view, loading: true });
+  refresh.disabled = true;
+  refresh.setAttribute("aria-busy", "true");
+  let error = null;
+  try {
+    panel.view = await api("/api/local/usage/status");
+  } catch (caught) {
+    error = caught;
+  }
+  if (!current()) return;
+  refresh.disabled = false;
+  refresh.removeAttribute("aria-busy");
+  renderUsage(parts, { ...info, usage: panel.view, error });
+}
+
+// Runs while the Plan and usage section is on screen: after each inventory check, on
+// navigation to the section and on Refresh usage.
+function showDashboardUsage() {
+  if (element("dashboard-usage").hidden) return;
+  const service = state.dashboardSnapshot?.services.find(({ target }) => target === "n8n-openai-oauth");
+  const healthy = service?.state === "healthy";
+  element("dashboard-usage-refresh").hidden = !healthy;
+  if (!healthy) {
+    state.dashboardUsage = null;
+    element("dashboard-usage-view").replaceChildren();
+    element("dashboard-usage-status").textContent = !service
+      ? "Plan and usage shows after the inventory check."
+      : ["absent", "staged"].includes(service.state)
+        ? "Plan and usage shows once n8n with ChatGPT sign-in is set up on this computer. Press Add connection to set it up."
+        : "The ChatGPT plan sidecar is not running, so its counts can't be read. Check it under Connections.";
+    return;
+  }
+  const account = service.snapshot?.auth?.account ?? null;
+  const prior = state.dashboardUsage;
+  state.dashboardUsage = { account, listed: null,
+    view: prior?.account?.registrationId === account?.registrationId ? prior.view : null };
+  void loadLocalUsage("dashboard");
+}
+
+function initializeLocalUsage() {
+  window.addEventListener("hashchange", showDashboardUsage);
+  element("dashboard-usage-refresh").addEventListener("click", showDashboardUsage);
+  element("installed-usage").addEventListener("toggle", (event) => {
+    if (event.currentTarget.open) void loadLocalUsage("installed");
+  });
+  element("installed-usage-refresh").addEventListener("click", () => {
+    void loadLocalUsage("installed");
+  });
 }
 
 function clearOneTimeSetupValues() {
@@ -2095,7 +2215,6 @@ function clearOneTimeSetupValues() {
     "result-sandbox-key",
     "result-searxng",
     "result-n8n-settings",
-    "device-code",
     "assistant-searxng-edit-sandbox",
     "assistant-searxng-edit-search",
     "assistant-searxng-edit-result",
@@ -2110,6 +2229,8 @@ function clearOneTimeSetupValues() {
   ]) {
     element(id).value = "";
   }
+  element("chat-tester-model").replaceChildren();
+  state.installedOwner = null;
   clearChatTesterState();
 }
 
@@ -2122,36 +2243,24 @@ function resetPendingSetupState() {
   clearOneTimeSetupValues();
 
   for (const id of [
-    "refresh-bridge-confirm",
-    "update-bridge-confirm",
-    "enable-assistant-searxng-confirm",
-    "remove-bridge-confirm",
-    "remove-supergrok-confirm",
-    "remove-assistant-confirm",
-    "remove-n8n-stack-confirm",
-    "include-local-searxng",
+    "local-migration-consent", "local-replacement-consent", "local-background-consent",
+    "local-siwc-inspect-confirm", "local-siwc-owner-confirm", "local-siwc-background-confirm",
+    "enable-assistant-searxng-confirm", "remove-bridge-confirm",
+    "remove-supergrok-confirm", "remove-assistant-confirm",
+    "remove-n8n-stack-confirm", "include-local-searxng",
   ]) {
     element(id).checked = false;
   }
   for (const id of [
-    "refresh-bridge-confirm",
-    "update-bridge-confirm",
-    "enable-assistant-searxng-confirm",
-    "remove-bridge-confirm",
-    "remove-supergrok-confirm",
-    "remove-assistant-confirm",
-    "remove-n8n-stack-confirm",
+    "enable-assistant-searxng-confirm", "remove-bridge-confirm",
+    "remove-supergrok-confirm", "remove-assistant-confirm", "remove-n8n-stack-confirm",
   ]) {
     element(id).disabled = true;
   }
   for (const id of [
-    "refresh-bridge-button",
-    "update-bridge-button",
-    "enable-assistant-searxng-button",
-    "remove-bridge-button",
-    "remove-supergrok-button",
-    "remove-assistant-button",
-    "remove-n8n-stack-button",
+    "enable-assistant-searxng-button", "remove-bridge-button",
+    "remove-supergrok-button", "remove-assistant-button", "remove-n8n-stack-button",
+    "local-siwc-disable", "local-siwc-logout",
   ]) {
     element(id).disabled = true;
   }
@@ -2163,32 +2272,25 @@ function resetPendingSetupState() {
     "credential-rotation-note",
     "client-warning",
     "codex-production-warning",
-    "codex-login",
     "chat-tester",
+    "local-siwc-owner",
+    "installed-usage",
     "n8n-sidecar-removal",
     "n8n-supergrok-removal",
     "n8n-assistant-removal",
     "n8n-stack-removal",
     "n8n-stack-resume",
-    "device-code-result",
   ]) {
     element(id).hidden = true;
   }
   for (const details of document.querySelectorAll(".ready-columns details[open]")) {
     details.open = false;
   }
-  for (const id of ["n8n-oauth-link", "device-code-link"]) {
-    element(id).removeAttribute("href");
-  }
   element("n8n-oauth-link").hidden = true;
-  if (element("n8n-oauth-link").dataset?.label) {
-    element("n8n-oauth-link").textContent = element("n8n-oauth-link").dataset.label;
-  }
-  element("n8n-sidecar-update").hidden = true;
-  element("refresh-bridge-status").textContent =
-    "No sign-in is copied until you complete ChatGPT sign-in and confirm this separate action.";
-  element("update-bridge-status").textContent =
-    "Confirm to update the bridge installed on this computer. No new sign-in is needed.";
+  element("n8n-oauth-link").textContent = "Stop ChatGPT sign-in";
+  element("local-siwc-owner-actions").hidden = true;
+  element("local-siwc-inspect-row").hidden = true;
+  element("local-siwc-inspect").hidden = true;
   element("assistant-searxng-edit-status").textContent =
     "This is available only for a Relmio-owned Assistant installation without SearXNG.";
 }
@@ -2386,11 +2488,7 @@ async function streamChatTesterMessage(body, onEvent, { signal } = {}) {
       return;
     }
     if (item.event === "error") {
-      const messages = {
-        timeout: "The adapter test took too long. Try again.",
-        upstream_failed: "The local adapter could not complete this response.",
-      };
-      streamError = messages[item.data.code] ?? messages.upstream_failed;
+      streamError = siwcErrorFromResponse(item.data, item.data.status ?? 502);
       return;
     }
     if (item.event === "terminal") {
@@ -2425,8 +2523,18 @@ async function streamChatTesterMessage(body, onEvent, { signal } = {}) {
     reader.releaseLock();
   }
 
+  if (streamError) throw streamError;
   if (!terminal || terminal.outcome !== "completed" || typeof terminal.conversationId !== "string") {
-    throw new Error(streamError ?? "The adapter response ended before completion.");
+    const reason = !terminal || terminal.outcome === "interrupted"
+      ? "The response was interrupted. Text already received remains visible."
+      : terminal.outcome === "incomplete"
+        ? "The response was incomplete. Text already received remains visible."
+        : "The adapter did not complete this response.";
+    const error = new Error(reason);
+    error.code = !terminal || terminal.outcome === "interrupted"
+      ? "request_interrupted" : terminal.outcome === "incomplete" ? "response_incomplete" : "upstream_failed";
+    error.recovery = "review-again";
+    throw error;
   }
   return { conversationId: terminal.conversationId };
 }
@@ -2536,8 +2644,9 @@ function updateReviewAvailability() {
       element("n8n-container").value !== "" &&
       element("n8n-network").value !== "" &&
       (!isN8nLocalModel(state.target) || LOCAL_MODEL_IDS.has(element("local-model-id").value)));
+  const chatGptTarget = sidecar || isCodexChat(state.target) || state.target === "codex-chatgpt";
   element("review-button").disabled =
-    !state.dockerAvailable || !n8nReady;
+    !state.dockerAvailable || !n8nReady || (chatGptTarget && !state.n8nOAuthExists);
 }
 
 function renderSidecarNetworkOptions() {
@@ -2642,9 +2751,6 @@ function selectN8nManagementTarget(target) {
   renderTarget();
 }
 
-function sidecarOAuthExists(result) {
-  return result?.authExists === true;
-}
 
 function hasExactKeys(value, expectedNames) {
   return (
@@ -2668,70 +2774,6 @@ function isSafeDockerDisplayName(value) {
     /^[A-Za-z0-9][A-Za-z0-9_.-]*$/u.test(value);
 }
 
-function updateManagedBridgeRefreshControls({ newSignIn = false } = {}) {
-  const confirmation = element("refresh-bridge-confirm");
-  const button = element("refresh-bridge-button");
-  const status = element("refresh-bridge-status");
-  if (!state.n8nOAuthExists) {
-    confirmation.checked = false;
-    confirmation.disabled = true;
-    button.disabled = true;
-    status.textContent =
-      "Complete ChatGPT sign-in first. Relmio will not apply it to any bridge automatically.";
-    return;
-  }
-  confirmation.disabled = false;
-  button.disabled = !confirmation.checked;
-  if (newSignIn) {
-    confirmation.checked = false;
-    button.disabled = true;
-    status.textContent =
-      "New ChatGPT sign-in is ready, but has not been copied to any bridge. Confirm the separate action only if Relmio created that bridge.";
-  } else if (status.textContent.startsWith("Complete ChatGPT sign-in") ||
-    status.textContent.startsWith("No sign-in")) {
-    status.textContent =
-      "Your local ChatGPT sign-in is ready. Confirm below only to apply it to an ownership-verified Relmio bridge.";
-  }
-}
-
-function validateManagedBridgeRefreshResult(value) {
-  const expectedNames = [
-    "target",
-    "credentialRefreshed",
-    "models",
-    "hostPublication",
-  ];
-  if (
-    !hasExactKeys(value, expectedNames) ||
-    value.target !== "n8n-openai-oauth" ||
-    value.credentialRefreshed !== true ||
-    value.hostPublication !== "none" ||
-    !Array.isArray(value.models) ||
-    value.models.some(
-      (model) =>
-        typeof model !== "string" ||
-        model.length === 0 ||
-        model.length > 128 ||
-        !/^[A-Za-z0-9_.:-]+$/u.test(model),
-    )
-  ) {
-    throw new Error("The local wizard returned an unexpected bridge refresh response.");
-  }
-  return value;
-}
-
-function validateManagedBridgeUpdateResult(value) {
-  if (
-    !hasExactKeys(value, ["target", "runtimeUpdated", "models", "hostPublication", "n8nChanged"]) ||
-    value.target !== "n8n-openai-oauth" || value.runtimeUpdated !== true ||
-    value.hostPublication !== "none" || value.n8nChanged !== false ||
-    !Array.isArray(value.models) || value.models.length === 0 ||
-    value.models.some((model) => typeof model !== "string" || model.length > 128 || !/^[A-Za-z0-9_.:-]+$/u.test(model))
-  ) {
-    throw new Error("The local wizard returned an unexpected bridge update response.");
-  }
-  return value;
-}
 
 function validateAssistantSearxngReview(value) {
   const expectedNames = [
@@ -2805,28 +2847,32 @@ function validateAssistantSearxngEnablementResult(value) {
   return value;
 }
 
-async function refreshN8nOAuthStatus({ announce = false, newSignIn = false } = {}) {
+async function refreshN8nOAuthStatus({ announce = false } = {}) {
   const status = element("n8n-oauth-status");
-  status.textContent = "Checking local ChatGPT sign-in…";
-  const result = await api("/api/status");
-  state.n8nOAuthExists = sidecarOAuthExists(result);
-  if (state.n8nOAuthExists) {
-    const updated = result.authUpdatedAt
-      ? ` Last updated ${new Date(result.authUpdatedAt).toLocaleString()}.`
-      : "";
-    status.textContent = `Signed in locally.${updated}`;
-    if (announce) {
-      setMessage("Local ChatGPT OAuth credential is ready for the private n8n bridge.");
-    }
-  } else {
-    status.textContent = "Not signed in. Complete ChatGPT sign-in before reviewing the bridge plan.";
-    if (announce) {
-      setMessage("A local ChatGPT OAuth credential is required before Relmio can prepare the bridge plan.");
-    }
-  }
-  updateManagedBridgeRefreshControls({ newSignIn });
+  status.textContent = "Checking ChatGPT registrations…";
+  const account = await siwc.load({ welcome: !element("local-siwc").hidden });
+  const readiness = n8nOAuthReadiness(account);
+  state.n8nOAuthExists = readiness.ready;
+  status.textContent = readiness.status;
+  if (announce) setMessage(readiness.message);
   updateReviewAvailability();
-  return result;
+  return account;
+}
+
+// The account card above already shows plan use, a usage limit and identity-only
+// sign-in, so the sidecar status line stays empty for those and names only the
+// review gate otherwise. The full sentence is still announced on request.
+function n8nOAuthReadiness(account) {
+  const mode = accountUiState(account);
+  const limited = siwc.isUsageLimited();
+  const ready = mode === "plan-active" && account?.needsPlanWelcome !== true && !limited;
+  const message = ready
+    ? `Using ChatGPT plan: ${account.label} · ${account.registrationId.slice(-8)}.`
+    : limited ? "ChatGPT usage limit reached. Manage usage before review."
+      : mode === "identity-only"
+        ? "Identity connected. Allow ChatGPT plan use separately before reviewing a sidecar."
+        : "Select an owned account with ChatGPT plan use enabled before reviewing a sidecar.";
+  return { ready, message, status: ready || limited || mode === "identity-only" ? "" : message };
 }
 
 async function refreshSelectedN8nContext(button = null) {
@@ -2865,7 +2911,6 @@ async function refreshSelectedN8nContext(button = null) {
       element("n8n-container").disabled = state.n8nContainers.length === 0;
       renderSidecarNetworkOptions();
     }
-    if (refreshOAuth) updateManagedBridgeRefreshControls();
     updateReviewAvailability();
   }
 }
@@ -2881,33 +2926,16 @@ const N8N_OAUTH_RETRY_BLOCKED_MESSAGE =
   "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
 
 function oauthRetryBlockedError(result) {
-  const error = new Error(
-    typeof result?.error === "string" && result.error.length > 0
-      ? result.error
-      : N8N_OAUTH_RETRY_BLOCKED_MESSAGE,
-  );
+  const error = siwcErrorFromResponse(result, result.upstreamStatus ?? 409);
   error.oauthRetryBlocked = true;
   return error;
 }
 
 function setN8nOAuthStopVisible(visible) {
-  const link = element("n8n-oauth-link");
-  if (!link.dataset.label) {
-    link.dataset.label = link.textContent.trim() || "Open fresh ChatGPT sign-in";
-  }
-  link.hidden = !visible;
-  link.removeAttribute("href");
-  if (visible) {
-    link.textContent = "Stop ChatGPT sign-in";
-    link.setAttribute("role", "button");
-    link.setAttribute("aria-disabled", "false");
-    link.tabIndex = 0;
-    return;
-  }
-  link.textContent = link.dataset.label;
-  link.removeAttribute("role");
-  link.removeAttribute("aria-disabled");
-  link.tabIndex = -1;
+  const button = element("n8n-oauth-link");
+  button.hidden = !visible;
+  button.disabled = !visible;
+  button.textContent = "Stop ChatGPT sign-in";
 }
 
 function blockN8nOAuthRetry() {
@@ -2936,7 +2964,7 @@ async function waitForN8nOAuth(expectedAttemptId, generation) {
     }
     if (result.status === "success") return true;
     if (result.status === "error") {
-      const error = new Error(result.error ?? "ChatGPT sign-in did not finish.");
+      const error = siwcErrorFromResponse(result, result.upstreamStatus ?? 400);
       error.oauthRetryBlocked = result.retryBlocked === true;
       throw error;
     }
@@ -2960,6 +2988,10 @@ function invalidatePlan() {
   state.planId = null;
   state.plan = null;
   element("install-confirm").checked = false;
+  element("local-migration-consent").checked = false;
+  element("local-replacement-consent").checked = false;
+  element("local-background-consent").checked = false;
+  element("install-button").disabled = true;
   element("install-settings-button").disabled = true;
   invalidateLocalModelReview();
 }
@@ -2973,7 +3005,6 @@ function showDetectedManagedLocalN8nStackRecovery() {
   element("credential-rotation-note").hidden = true;
   element("client-warning").hidden = true;
   element("codex-production-warning").hidden = true;
-  element("codex-login").hidden = true;
   element("chat-tester").hidden = true;
   element("n8n-sidecar-removal").hidden = true;
   element("n8n-assistant-removal").hidden = true;
@@ -3003,7 +3034,6 @@ function showStoppedManagedLocalN8nStack() {
   element("credential-rotation-note").hidden = true;
   element("client-warning").hidden = true;
   element("codex-production-warning").hidden = true;
-  element("codex-login").hidden = true;
   element("chat-tester").hidden = true;
   element("n8n-sidecar-removal").hidden = true;
   element("n8n-assistant-removal").hidden = true;
@@ -3019,38 +3049,15 @@ function showStoppedManagedLocalN8nStack() {
   setMessage("A complete owned local n8n + ngrok stack is stopped. Resume it safely or leave it stopped.");
 }
 
-function canUpdateManagedBridgeRuntime() {
-  if (
-    !isN8nSidecar(state.target) ||
-    state.dashboardSnapshotStale ||
-    !state.dashboardSnapshot ||
-    isDashboardSnapshotStale(state.dashboardSnapshot)
-  ) {
-    return false;
-  }
-  const service = state.dashboardSnapshot.services.find(
-    ({ target }) => target === "n8n-openai-oauth",
-  );
-  return service?.kind === "n8n-oauth-bridge" &&
-    service.managed === true &&
-    service.state === "healthy" &&
-    service.actions.includes("refresh-credential");
-}
-
-function updateManagedBridgeRuntimeControls() {
-  const available = canUpdateManagedBridgeRuntime();
-  const confirmation = element("update-bridge-confirm");
-  element("n8n-sidecar-update").hidden = !available;
-  if (!available) confirmation.checked = false;
-  confirmation.disabled = !available;
-  element("update-bridge-button").disabled =
-    !available || !confirmation.checked;
-}
 
 function renderFooterForTarget(target) {
   const localModel = isN8nLocalModel(target);
   const chatGptBridge = isN8nSidecar(target);
   element("local-footer-provider").hidden = localModel || chatGptBridge;
+  element("local-footer-provider").lastElementChild.textContent =
+    (isCodexChat(target) || target === "codex-chatgpt")
+    ? "ChatGPT sign-in starts in Relmio. Plan permission and first-use acknowledgment are separate; the installed runtime owns refresh after final approval."
+    : "Provider sign-in stays in its runtime. A local key is separate and is not a Platform API key.";
   element("local-footer-chatgpt").hidden = !chatGptBridge;
   element("local-footer-model").hidden = !localModel;
 }
@@ -3068,6 +3075,7 @@ function renderTarget() {
   const codexChat = isCodexChat(state.target);
   const sidecar = isN8nSidecar(state.target);
   const assistant = isN8nAssistant(state.target);
+  element("local-siwc").hidden = !(sidecar || codexChat || state.target === "codex-chatgpt");
   const stack = isN8nStack(state.target);
   const n8nTarget = isN8nDockerTarget(state.target);
   const advancedTarget = codexChat || state.target === "codex-chatgpt" || assistant;
@@ -3079,7 +3087,7 @@ function renderTarget() {
     : grokBuild
       ? "Grok on this computer"
       : sidecar
-        ? "ChatGPT for n8n"
+        ? "n8n with ChatGPT sign-in"
         : stack
           ? "New n8n"
           : assistant
@@ -3112,8 +3120,6 @@ function renderTarget() {
     element(id).value = "";
   }
   element("n8n-sidecar-oauth").hidden = !sidecar;
-  element("n8n-sidecar-refresh").hidden = !sidecar;
-  updateManagedBridgeRuntimeControls();
   element("n8n-sidecar-scope").hidden = !sidecar;
   element("supergrok-n8n-reminder").hidden = !n8nSuperGrok;
   element("n8n-assistant-options").hidden = !assistant;
@@ -3126,23 +3132,26 @@ function renderTarget() {
     : n8nTarget
       ? "No host port is published. Only the selected n8n Docker network can reach these services."
       : "The selected port is published on 127.0.0.1 only, not your network or the internet.";
+  // The ChatGPT account card and the rail safety note already state the sidecar's sign-in,
+  // transfer and one-time key facts, so its guidance would only repeat them.
+  element("target-guidance").hidden = sidecar;
   element("target-guidance-title").textContent = stack
     ? "Creates a separate n8n"
-    : sidecar ? "Copies a saved ChatGPT credential"
     : localModel ? "Runs a model with no sign-in"
     : n8nSuperGrok ? "Uses official SuperGrok sign-in"
     : assistant ? "Adds Assistant tools"
     : grokBuild ? "Uses official SuperGrok sign-in"
-    : "Uses Codex sign-in";
+    : "Uses a separate Relmio SIWC sign-in";
   element("target-guidance-detail").textContent = stack
     ? "Existing n8n is not changed. Code Sandbox, if selected, uses a privileged host-root-equivalent runner. Add the ChatGPT bridge later as a separate choice."
-    : sidecar ? "This copies the saved ChatGPT/Codex credential file into a private volume on this computer. It is not identity-only sign-in and not a Platform API key. Unofficial and policy-uncertain. You approve the copy before it happens."
     : localModel ? "No host port. Other containers on the selected network can reach the model API, which has no login. Relmio checks memory and disk, then downloads into an owned cache. No cloud fallback."
     : n8nSuperGrok ? "Adds only a private sidecar. Run relmio grok login --n8n after install. This browser does not ask for a provider token."
     : assistant ? "Code Sandbox is included. SearXNG is optional and off by default. The runner is privileged and host-root equivalent. For production, use Daytona. The sandbox key is shown once. Set model credentials in n8n."
     : grokBuild ? "Private Chat Completions for local apps. Official Grok sign-in uses its own session. Clients use a separate Relmio key."
-    : codexChat ? "Exposes POST /chat for a trusted local backend. It is not OpenAI /v1, has no CORS, and must not go in browser code."
-    : "Runs Codex App Server as its own protocol. It does not turn ChatGPT sign-in into OpenAI /v1, and browsers cannot connect directly.";
+    : codexChat ? "Exposes POST /chat for a trusted local backend. The selected account's verified SIWC plan is used through public Responses; no browser CORS."
+    : "Relays Codex App Server JSON-RPC over WebSocket for a trusted native client, using the selected SIWC plan and public Responses. Browsers cannot connect directly.";
+  if ((codexChat || state.target === "codex-chatgpt") &&
+      !element("configure-stage").hidden) siwc.load().catch(showError);
   if (n8nTarget && !state.suppressTargetRefresh) refreshSelectedN8nContext().catch(showError);
   updateReviewAvailability();
 }
@@ -3215,12 +3224,34 @@ function renderPlan(plan) {
   const assistant = isN8nAssistant(plan.target);
   const stack = isN8nStack(plan.target);
   const n8nTarget = isN8nDockerTarget(plan.target);
+  const chatgpt = sidecar || codexChat || plan.target === "codex-chatgpt";
+  const account = chatgpt ? normalizeSiwcAccount(plan.account) : null;
+  if (chatgpt && !plan.resumeRequired && (accountUiState(account) !== "plan-active" || account.needsPlanWelcome)) {
+    throw new Error("The reviewed ChatGPT account no longer has an enabled plan. Review it again.");
+  }
+  const migrating = chatgpt && plan.migrationRequired === true;
+  if (migrating && (plan.legacyResourcesPreserved !== true ||
+      plan.requiresMigrationConsent !== true)) throw new Error("The legacy migration plan is incomplete.");
+  const replacing = chatgpt && plan.replacementRequired === true;
+  if (replacing && (migrating || plan.oldSessionSignedOut !== true ||
+      plan.oldHistoryRetained !== true || plan.requiresReplacementConsent !== true)) {
+    throw new Error("The account replacement plan is incomplete.");
+  }
+  element("review-siwc-account-row").hidden = !chatgpt;
+  element("review-siwc-usage").hidden = !chatgpt;
+  element("review-siwc-account").textContent = chatgpt
+    ? `${account.label}${account.email ? ` (${account.email})` : ""} · ${account.registrationId.slice(-8)}`
+    : "";
+  element("local-migration-consent-row").hidden = !migrating;
+  element("local-migration-consent").checked = false;
+  element("local-replacement-consent-row").hidden = !replacing;
+  element("local-replacement-consent").checked = false;
   element("review-provider-context").textContent = localModel
     ? "Local model · Chat Completions"
     : n8nSuperGrok
     ? "SuperGrok for n8n · Chat Completions"
     : sidecar
-      ? "ChatGPT for n8n · Responses API on"
+      ? "n8n with ChatGPT sign-in · Responses API on"
       : grokBuild
         ? "Grok on this computer · sign-in after install"
         : stack
@@ -3231,7 +3262,7 @@ function renderPlan(plan) {
   element("review-endpoint-label").textContent = stack ? "Local n8n URL" : assistant ? "Support services" : "Endpoint";
   element("review-endpoint").textContent = stack ? plan.localUrl : assistant ? (plan.includeSearxng ? "Code Sandbox + SearXNG" : "Code Sandbox only") : plan.endpoint;
   element("review-protocol").textContent = localModel ? "Chat Completions /v1 inside Docker" : stack ? "New local n8n with ngrok Basic Auth" : sidecar ? "OpenAI-compatible /v1 inside Docker" : n8nSuperGrok ? "Chat Completions /v1 inside Docker" : assistant ? "n8n Assistant companion services" : grokBuild ? "SuperGrok Chat Completions: /v1/chat/completions" : codexChat ? "Relmio POST /chat" : "Codex App Server JSON-RPC over WebSocket";
-  element("review-auth").textContent = localModel ? "None. n8n's API key is an ignored placeholder." : stack ? "ngrok token plus Basic Auth, entered only at install" : sidecar ? "Saved ChatGPT/Codex credential file, not identity-only and not a Platform API key" : n8nSuperGrok ? "Official SuperGrok sign-in; local key shown once" : assistant ? "Model credential is set in n8n, not here" : grokBuild ? "Official SuperGrok sign-in" : "ChatGPT sign-in through official Codex";
+  element("review-auth").textContent = localModel ? "None. n8n's API key is an ignored placeholder." : stack ? "ngrok token plus Basic Auth, entered only at install" : sidecar ? "Verified Relmio SIWC registration; one-time local client key is separate" : n8nSuperGrok ? "Official SuperGrok sign-in; local key shown once" : assistant ? "Model credential is set in n8n, not here" : grokBuild ? "Official SuperGrok sign-in" : "Verified Relmio SIWC registration, with separately granted ChatGPT plan use";
   element("review-browser-row").hidden = n8nTarget || stack;
   element("review-browser").textContent = codexChat ? "No. Trusted local backends and development servers only" : "No. Trusted native local clients only";
   element("review-origins-row").hidden = true;
@@ -3267,10 +3298,26 @@ function renderPlan(plan) {
     element("install-confirm-copy").textContent = "I reviewed this exact plan and authorize Relmio to create a new owned n8n stack and a public ngrok URL that requires Basic Auth. Existing n8n stays untouched.";
     appendPolicyNotice(element("review-policy"), "Public link needs Basic Auth", "The ngrok token and Basic Auth are entered only after this review. Code Sandbox, if selected, uses a privileged host-root-equivalent runner. For production, use Daytona. The ChatGPT bridge stays a separate choice.");
   } else if (sidecar) {
-    replaceListItems(element("review-will"), ["Create only the new openai-oauth sidecar and its private credential volume.", "Join the selected Docker network.", "Expose port 10531 only inside that network.", "Check that the private API responds and lists models. That check does not prove a workflow or every model works."]);
-    replaceListItems(element("review-will-not"), ["Edit, exec into, rebuild, restart, stop, recreate, or change network membership on the selected n8n container.", "Publish port 10531 on this computer, your network, ngrok, or the internet.", "Show the saved ChatGPT credential in this browser.", "Install Code Sandbox or SearXNG."]);
-    element("install-confirm-copy").textContent = "I reviewed this exact plan and authorize Relmio to copy my saved ChatGPT/Codex credential file into its private volume and start only the new openai-oauth sidecar. This is unofficial and policy-uncertain. It is not identity-only sign-in and not a Platform API key. Relmio will not change n8n or publish port 10531.";
-    appendPolicyNotice(element("review-policy"), "Unofficial credential copy", "n8n will use http://n8n-openai-oauth:10531/v1 on the selected network. The API key placeholder is local-only. Availability depends on your account. A model list is not proof that a workflow works. This does not install Code Sandbox or SearXNG.");
+    replaceListItems(element("review-will"), [
+      ...(migrating ? ["Stop only the exact old Relmio sidecar. Keep its old auth volume offline."] :
+        replacing ? ["Replace only the signed-out owned sidecar. Keep its old account mapping and history offline."] : []),
+      "Transfer one selected, independently authorized registration to a new user-controlled sidecar.",
+      "Join the reviewed Docker network and expose port 10531 inside it only.",
+      "Show a one-time Relmio client key for you to enter in n8n.",
+      "Let the sidecar keep daily request and token counts on this computer for 31 days, with no prompts or answers.",
+    ]);
+    replaceListItems(element("review-will-not"), [
+      "Edit, rebuild, restart, stop, or recreate the selected n8n container.",
+      "Publish port 10531 on this computer or the internet.",
+      "Import old Codex credentials or use a Platform API key.",
+    ]);
+    element("install-confirm-copy").textContent = `I approve this reviewed sidecar for ${account.label} on ${plan.networkName}. n8n stays unchanged. Background plan use needs separate consent.`;
+    appendPolicyNotice(element("review-policy"), "Separate plan and local key",
+      migrating
+        ? "The old bridge is stopped only after final approval. Its auth volume stays offline. Copy the new Relmio key into n8n yourself."
+        : replacing
+          ? "The old sidecar was signed out before this review. Its mapping stays offline; the new registration gets a separate token owner and local client key."
+          : "The installed sidecar owns future refreshes. n8n uses the one-time Relmio key you enter yourself. A listed model does not prove a completed workflow.");
   } else if (localModel) {
     replaceListItems(element("review-will"), ["Start only the pinned private model runtime on the selected n8n Docker network.", `Download ${plan.modelId} into its owned cache. The download can continue after you leave this page.`, "Check model identity and one bounded inference request before reporting ready. That check does not prove every workflow."]);
     replaceListItems(element("review-will-not"), ["Read a ChatGPT credential or provider key. There is no cloud fallback.", "Change the selected n8n container or its network.", "Publish the model on a host port, tunnel, or your network."]);
@@ -3286,11 +3333,36 @@ function renderPlan(plan) {
     replaceListItems(element("review-will-not"), ["Change the selected n8n container or its network.", "Publish sandbox, runner, or SearXNG ports on this computer, your network, ngrok, or the internet.", "Store a model-provider credential for n8n.", "Apply the returned n8n settings or restart n8n for you."]);
     element("install-confirm-copy").textContent = "I reviewed this exact plan and authorize Relmio to start Code Sandbox with a privileged Docker-in-Docker runner, which is host-root equivalent, and the SearXNG option I chose. This is for local testing. Relmio will not change n8n or publish a companion port. For production, use Daytona.";
     appendPolicyNotice(element("review-policy"), "Privileged companion; you update n8n", plan.includeSearxng ? "Relmio installs Code Sandbox and private SearXNG. Copy the one-time sandbox key and returned URLs into n8n yourself. Any restart is yours. For production, use Daytona." : "Relmio installs Code Sandbox without web search. Copy the one-time sandbox key and returned URL into n8n yourself. Any restart is yours. For production, use Daytona.");
-  } else {
+  } else if (grokBuild) {
     replaceListItems(element("review-will"), ["Build one Docker image for this connection.", "Publish the selected port on 127.0.0.1 only.", "Make a separate one-time local key.", "Keep provider sign-in in a private Docker volume."]);
     replaceListItems(element("review-will-not"), ["Publish the endpoint on your network or the internet.", "Turn provider sign-in into an API key.", "Change or restart n8n.", "Reuse an existing server deployment."]);
     element("install-confirm-copy").textContent = "I reviewed this exact plan and authorize Relmio to write its managed local files and start this container.";
-    appendPolicyNotice(element("review-policy"), grokBuild ? "Experimental SuperGrok integration" : codexChat ? "Experimental Chat Adapter" : "Experimental Codex App Server", grokBuild ? "Official Grok sign-in uses a fresh private session. Relmio exposes Chat Completions for local apps. It does not take API keys, imported tokens, or switch accounts for you." : codexChat ? "This is a local POST /chat endpoint for a trusted backend. It has no CORS and is not OpenAI /v1. The ChatGPT credential stays in the Codex volume and does not become a Platform API key." : "This exposes Codex App Server on 127.0.0.1 only. The local key can control Codex in the container and may recover its ChatGPT session. Treat it like your ChatGPT password. It is not a browser API or OpenAI /v1.");
+    appendPolicyNotice(element("review-policy"), "Experimental SuperGrok integration", "Official Grok sign-in uses a fresh private session. Relmio exposes Chat Completions for local apps. It does not take API keys, imported tokens, or switch accounts for you.");
+  } else {
+    replaceListItems(element("review-will"), [
+      ...(migrating ? ["Stop only the attested old Relmio Codex service. Keep its old credential and workspace volumes offline."] :
+        replacing ? ["Replace only the signed-out owned Codex service. Keep its old account mapping and history offline."] : []),
+      "Transfer one selected SIWC registration to a new Codex runtime.",
+      "Bind a separate one-time Relmio client key to the selected local port.",
+      "Keep the previous account's conversation history separate.",
+    ]);
+    replaceListItems(element("review-will-not"), [
+      "Publish the endpoint outside 127.0.0.1.",
+      "Read personal Codex credentials or silently reuse the old account.",
+      "Change or restart n8n.",
+    ]);
+    element("install-confirm-copy").textContent = `I approve this reviewed ${plan.target === "codex-chat" ? "Codex Chat Adapter" : "Codex App Server"} for ${account.label}. I will update my trusted client with the new one-time key.`;
+    appendPolicyNotice(element("review-policy"), codexChat ? "Experimental Chat Adapter" : "Experimental Codex App Server",
+      migrating
+        ? "Legacy Codex volumes remain offline after the attested service stops. A new SIWC runtime and client key are created only after separate migration approval."
+        : replacing
+          ? "The old signed-out Codex state stays offline. The new registration owns a separate project, history and one-time local client key."
+          : "Relmio supplies its own verified SIWC token to the Codex app-server child using public Responses. The local client key is separate from OAuth.");
+  }
+  if (plan.resumeRequired) {
+    element("review-provider-context").textContent = `Resume ${plan.staging.installId.slice(0, 12)} · ${plan.staging.stage}`;
+    replaceListItems(element("review-will"), ["Resume only this ownership-attested installation without deleting its files.",
+      "Keep one refresh owner. If transfer completed, rotate the one-time local client key."]);
   }
 }
 
@@ -3304,6 +3376,9 @@ function prepareInstallPanel() {
   const stack = isN8nStack(state.plan.target);
   const n8nTarget = sidecar || n8nSuperGrok || localModel || assistant || stack;
   element("codex-install-warning").hidden = n8nTarget;
+  element("local-background-consent-row").hidden = !sidecar;
+  element("local-background-consent").checked = false;
+  element("install-button").disabled = sidecar;
   element("sidecar-install-note").hidden = !sidecar;
   element("assistant-install-note").hidden = !assistant;
   element("n8n-stack-install-note").hidden = !stack;
@@ -3322,7 +3397,14 @@ function prepareInstallPanel() {
     : codexChat
       ? "This key authorizes chat through your signed-in Codex container. Keep it in a trusted local backend. Do not put it in browser code."
       : "Anyone with this key can control Codex in its container, act through your ChatGPT sign-in, and may recover that container's ChatGPT session. Treat it like your ChatGPT password. Give it only to a trusted local app.";
-  element("install-intro").textContent = stack ? "Enter the ngrok token and Basic Auth for the reviewed new stack. They go only to this local Relmio process and are cleared after you submit." : sidecar ? "Relmio checks the selected n8n again, copies the saved credential file into its private volume, and installs only the new sidecar." : n8nSuperGrok ? "Relmio checks the selected n8n again, then installs only its private SuperGrok sidecar." : assistant ? "Relmio checks the selected n8n again, then installs only its Code Sandbox services and the SearXNG option you chose." : grokBuild ? "Relmio installs the reviewed SuperGrok runtime. Official sign-in happens after the container is ready." : codexChat ? "Relmio installs the reviewed adapter. ChatGPT device sign-in happens after the container is ready." : "Relmio installs Codex App Server. ChatGPT device sign-in happens after the container is ready.";
+  element("install-intro").textContent = stack
+    ? "Enter the ngrok token and Basic Auth for the reviewed new stack. They stay in this local Relmio process."
+    : sidecar
+      ? "Relmio checks the selected n8n and the account again. Approve this account's background workflow use, then install only the reviewed sidecar."
+      : n8nSuperGrok ? "Relmio checks the selected n8n again, then installs only its private SuperGrok sidecar."
+        : assistant ? "Relmio checks n8n again, then installs only its Code Sandbox services and the SearXNG option you chose."
+          : grokBuild ? "Relmio installs the reviewed SuperGrok runtime. Official sign-in happens afterward."
+            : "Relmio transfers the selected SIWC registration to this owned Codex runtime. The one-time local client key is separate from ChatGPT sign-in.";
   setButtonLabel(element("install-button"), stack ? "Create new local n8n + ngrok" : sidecar ? "Install private n8n bridge" : n8nSuperGrok ? "Install SuperGrok for n8n" : assistant ? "Install n8n Assistant tools" : grokBuild ? "Install SuperGrok integration" : codexChat ? "Install Codex Chat Adapter" : "Install Codex App Server");
   if (localModel) {
     element("install-intro").textContent = "Relmio checks Docker again, starts only the private runtime, and downloads the model in the background. Return here for verified readiness.";
@@ -3349,32 +3431,6 @@ function hasExactAssistantSettings(value, expectedSettings) {
   );
 }
 
-const IMAGE_MODELS_FOR_N8N = Object.freeze([
-  Object.freeze({
-    id: "gpt-image-2",
-    key: "2",
-  }),
-  Object.freeze({
-    id: "gpt-image-2.5-flare",
-    key: "flare",
-  }),
-  Object.freeze({
-    id: "gpt-image-2.5-sunburst",
-    key: "sunburst",
-  }),
-]);
-
-function renderImageModelsForN8n(prefix, models) {
-  const modelIds = new Set(Array.isArray(models) ? models : []);
-  let hasImageModel = false;
-  for (const { id, key } of IMAGE_MODELS_FOR_N8N) {
-    const available = modelIds.has(id);
-    element(`${prefix}-image-model-${key}`).textContent = available ? id : "";
-    element(`${prefix}-image-model-${key}-row`).hidden = !available;
-    hasImageModel ||= available;
-  }
-  element(`${prefix}-image-models`).hidden = !hasImageModel;
-}
 
 function validateLocalModelStatus(result) {
   if (!hasExactKeys(result, [
@@ -3542,6 +3598,39 @@ function updateLocalModelActionConfirmation() {
     (review.action === "remove" && !element("local-model-cache-confirm").checked);
 }
 
+function renderInstalledSiwcModels(models, account, { readiness = "verified", catalogFailure, runtimeFailure, finalizationFailure, runtimeState = "running", hostPublication = "none" } = {}) {
+  const selector = element("installed-siwc-model");
+  selector.replaceChildren();
+  if (!Array.isArray(models)) throw new Error("The installed account model catalog is invalid.");
+  for (const slug of models) {
+    if (typeof slug !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(slug)) {
+      throw new Error("The installed account model catalog is invalid.");
+    }
+    const option = document.createElement("option");
+    option.value = slug;
+    option.textContent = state.catalogLabels.get(slug) ?? slug;
+    selector.append(option);
+  }
+  selector.disabled = models.length === 0 || Boolean(finalizationFailure);
+  state.installedSiwcModelLocked = selector.disabled;
+  element("installed-siwc-models").hidden = false;
+  element("installed-siwc-account").textContent =
+    `${account.label}${account.email ? ` (${account.email})` : ""} · ${account.registrationId.slice(-8)}.`;
+  element("installed-siwc-plan-badge").hidden = Boolean(finalizationFailure) || runtimeState !== "running" || !account.planEnabled;
+  const failure = finalizationFailure ?? runtimeFailure ?? catalogFailure;
+  const diagnostic = failure ? siwcErrorText(siwcErrorFromResponse(failure, failure.status ?? 502)) : "";
+  element("installed-siwc-model-status").textContent = finalizationFailure
+    ? `Finalization did not finish. ${diagnostic}`
+    : runtimeState !== "running"
+    ? `The destination owns this registration, but its runtime outcome is ${runtimeState}. ${hostPublication === "unknown" ? "Host publication could not be verified. " : ""}Do not send requests; inspect the installed service manually. ${diagnostic}`
+    : readiness !== "verified"
+      ? `The installed account model check did not complete. Save the one-time key; do not assume model access. ${diagnostic}`
+      : models.length
+        ? "This account listed these models during installation. A listed model does not prove a completed request."
+        : "No models were listed during installation. Secure the local tester key to check the current catalog.";
+  element("installed-siwc-usage-recovery").hidden = failure?.recovery !== "manage-usage";
+}
+
 function renderInstallResult(result) {
   if (isN8nLocalModel(result?.target)) {
     renderLocalModelStatus(result);
@@ -3551,7 +3640,6 @@ function renderInstallResult(result) {
     element("credential-rotation-note").hidden = true;
     element("client-warning").hidden = true;
     element("codex-production-warning").hidden = true;
-    element("codex-login").hidden = true;
     element("chat-tester").hidden = true;
     element("n8n-sidecar-removal").hidden = true;
     element("n8n-supergrok-removal").hidden = true;
@@ -3631,6 +3719,8 @@ function renderInstallResult(result) {
     result.models.length === 1 &&
     result.models[0] === "grok-build";
   if (
+    (["codex-chatgpt", "codex-chat", "n8n-openai-oauth"].includes(result.target) &&
+      !["verified", "unverified"].includes(result.readiness)) ||
     typeof endpoint !== "string" ||
     (!n8nTarget && typeof result.clientCredential !== "string") ||
     (!endpointTargets.includes(result.target) && !n8nTarget) ||
@@ -3638,13 +3728,17 @@ function renderInstallResult(result) {
     (n8nSuperGrok && !n8nSuperGrokResultValid) ||
     (sidecar &&
       (result.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
-        result.apiKeyPlaceholder !== "local-only" ||
-        (result.responsesApi !== true && result.useResponsesApi !== true) ||
-        result.hostPublication !== "none" ||
+        (result.hostPublication !== "none" &&
+          !(result.deploymentMode === "partial" && result.runtimeState === "unknown" &&
+            result.hostPublication === "unknown")) ||
         typeof result.networkName !== "string" ||
-        result.deploymentMode !== "installed" ||
+        !["installed", "migrated", "replaced", "partial"].includes(result.deploymentMode) ||
+        !/^[A-Za-z0-9_-]{32,256}$/u.test(result.clientCredential ?? "") ||
+        result.credentialShownOnce !== true ||
         !Array.isArray(result.models) ||
-        result.models.some((model) => typeof model !== "string")))
+        result.models.some((model) => typeof model !== "string" ||
+          !/^[A-Za-z0-9_.:-]{1,128}$/u.test(model)) ||
+        !result.account))
     || (stack &&
       (!/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/u.test(result.localUrl ?? "") ||
         !/^https:\/\/[a-z0-9][a-z0-9.-]*\.[a-z0-9.-]+$/u.test(result.ngrokPublicUrl ?? "") ||
@@ -3706,8 +3800,7 @@ function renderInstallResult(result) {
     ? "Sandbox Service URL"
     : "Endpoint";
   element("result-endpoint").textContent = endpoint;
-  renderImageModelsForN8n("result", sidecar ? result.models : []);
-  element("one-time-note").hidden = sidecar || stack;
+  element("one-time-note").hidden = stack;
   element("one-time-note-title").textContent = assistant
     ? "Copy this sandbox key now"
     : n8nSuperGrok
@@ -3719,13 +3812,11 @@ function renderInstallResult(result) {
       ? "Relmio shows the local key only now. It cannot recover it after you leave."
       : "Relmio shows this key only now. It cannot recover it after you leave.";
   element("credential-rotation-note").hidden = n8nTarget;
-  element("result-credential-row").hidden = n8nTarget && !n8nSuperGrok;
-  element("result-credential-label").textContent = n8nSuperGrok ? "Local client bearer" : "Client credential";
-  if (!n8nTarget || n8nSuperGrok) {
-    element("result-credential").textContent = result.clientCredential;
-  } else {
-    element("result-credential").textContent = "";
-  }
+  element("result-credential-row").hidden = n8nTarget && !sidecar && !n8nSuperGrok;
+  element("result-credential-label").textContent = sidecar ? "One-time Relmio client key" :
+    n8nSuperGrok ? "Local client bearer" : "Client credential";
+  element("result-credential").textContent = !n8nTarget || sidecar || n8nSuperGrok
+    ? result.clientCredential : "";
   for (const id of [
     "result-n8n-row",
     "result-network-row",
@@ -3744,7 +3835,7 @@ function renderInstallResult(result) {
     : n8nTarget ? result.networkName : "";
   element("result-publication").textContent = stack
     ? result.hostPublication
-    : n8nTarget ? "None" : "";
+    : sidecar ? result.hostPublication : n8nTarget ? "None" : "";
   element("result-deployment").textContent = n8nTarget ? result.deploymentMode : "";
   element("result-public-url-row").hidden = !stack;
   element("result-assistant-mode-row").hidden = !stack;
@@ -3771,8 +3862,8 @@ function renderInstallResult(result) {
       .join("\n")
     : "";
   element("codex-production-warning").hidden = grokBuild || n8nTarget;
-  element("codex-login").hidden = n8nTarget || grokBuild;
-  element("chat-tester").hidden = n8nTarget || !codexChat;
+  element("chat-tester").hidden = n8nTarget || !codexChat || Boolean(result.finalizationFailure) ||
+    (result.runtimeState !== undefined && result.runtimeState !== "running");
   if (codexChat && !state.chatTester.keyId) {
     element("chat-tester-endpoint").value = result.endpoint;
   }
@@ -3782,63 +3873,94 @@ function renderInstallResult(result) {
   element("codex-production-warning-detail").textContent = codexChat
     ? "It uses POST /chat, has no browser CORS, and is not OpenAI /v1."
     : "Not for production.";
-  element("done-title").textContent = stack
-    ? "New local n8n is ready"
-    : sidecar
-    ? "Private n8n bridge is ready"
-    : n8nSuperGrok
-    ? "SuperGrok for n8n is ready"
-    : assistant
-      ? "Assistant tools are ready"
-    : grokBuild
-        ? "SuperGrok endpoint is installed"
-    : codexChat
-      ? "Codex Chat Adapter is installed"
-      : "Codex App Server is installed";
-  element("done-detail").textContent = stack
-    ? "Use the local n8n URL on this computer. Before using the public URL, check that a private window stays blocked until Basic Auth succeeds."
-    : sidecar
-    ? "Use these settings in n8n."
-    : n8nSuperGrok
-    ? "Run relmio grok login --n8n in a terminal before first use. grok-build is a legacy alias."
-    : assistant
-      ? "Relmio did not change or restart n8n."
-    : grokBuild
-        ? "Use the endpoint plus /v1 and the one-time Relmio key. grok-build is a legacy alias. Finish official SuperGrok sign-in before sending a request."
-    : codexChat
-      ? "Copy the endpoint and key into a trusted local backend, then sign the Codex container in to ChatGPT."
-      : "Copy the endpoint and key, then sign the Codex container in to ChatGPT.";
+  element("done-title").textContent = result.finalizationFailure
+    ? "Installation needs finalization"
+    : result.runtimeState && result.runtimeState !== "running"
+    ? "Installation owns the account; runtime needs inspection"
+    : (sidecar || result.target === "codex-chatgpt" || codexChat) && result.readiness !== "verified"
+      ? "Installed; model check unverified"
+      : stack ? "New local n8n is ready"
+        : sidecar ? "Private n8n sidecar is installed"
+          : n8nSuperGrok ? "SuperGrok for n8n is ready"
+            : assistant ? "Assistant tools are ready"
+              : grokBuild ? "SuperGrok endpoint is installed"
+                : codexChat ? "Codex Chat Adapter is installed"
+                  : "Codex App Server is installed";
+  // A finalization failure or an unverified runtime holds the one-time key: save it, but
+  // never tell the person to use it yet.
+  const siwcTarget = sidecar || result.target === "codex-chatgpt" || codexChat;
+  const runtimeUncertain = siwcTarget && result.runtimeState !== undefined && result.runtimeState !== "running";
+  element("done-detail").textContent = result.finalizationFailure
+    ? "Save the one-time key now. Do not use it until finalization is resolved."
+    : runtimeUncertain
+      ? "Save the one-time key now. Do not use it until the installed service is inspected."
+      : stack
+        ? "Use the local n8n URL on this computer. Check that the public URL requires Basic Auth in a private window."
+        : sidecar
+          ? "Copy the one-time Relmio client key into n8n yourself. The installed sidecar owns this ChatGPT session."
+          : n8nSuperGrok
+            ? "Run relmio grok login --n8n in a terminal before first use."
+            : assistant ? "Relmio did not change or restart n8n."
+              : grokBuild ? "Use the endpoint and one-time Relmio key. Finish official SuperGrok sign-in before sending a request."
+                : "The selected ChatGPT plan registration is owned by this Codex installation. Copy the one-time local key into your trusted client.";
+  const keyUse = sidecar ? "you enter the key in n8n" : "a client uses this key";
   appendPolicyNotice(
     element("client-warning"),
-    stack
-      ? "Public link needs Basic Auth"
-      : sidecar
-      ? "Copied credential, selected n8n only"
-      : n8nSuperGrok
-      ? "Selected n8n only"
-      : assistant
-        ? "You update n8n"
-      : grokBuild
-          ? "Trusted local apps"
-      : codexChat
-        ? "Trusted local backends only"
-        : "Trusted local apps only",
-    stack
-      ? "Use the local n8n URL on this computer. Open the public URL in a private window first. It must stay blocked until Basic Auth succeeds. This does not publish the n8n or inspector port. Export workflows before you remove this stack. Existing n8n stays untouched."
-      : sidecar
-      ? "Set the base URL to http://n8n-openai-oauth:10531/v1, use local-only as the API key placeholder, and turn Responses API on. No host port is published. This copied a saved credential file. It is unofficial, policy-uncertain, not identity-only sign-in, and not a Platform API key. A model list does not prove a workflow works. Availability depends on your account. This does not install Code Sandbox or SearXNG."
-      : n8nSuperGrok
-      ? "In n8n, set the base URL to http://n8n-supergrok:14502/v1 and use the one-time local key with Chat Completions. Workflow nodes: turn Use Responses API off and choose From list. Assistant: enter a discovered model name. Chat: turn Use Responses API off in Settings > Chat > OpenAI. No host port is published. Sign out with relmio grok logout --n8n."
-      : assistant
-        ? result.includeSearxng
-          ? `${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. Code Sandbox and SearXNG were checked. No host port is published. The runner is privileged and host-root equivalent. For production, use Daytona.`
-          : `${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. Code Sandbox was checked. SearXNG was not installed. No host port is published. The runner is privileged and host-root equivalent. For production, use Daytona.`
-      : grokBuild
-          ? "Use the one-time key only with this Relmio endpoint. Sign-in stays in its private runtime. This binds to 127.0.0.1. A private Docker connection for n8n is a separate reviewed setup."
-      : codexChat
-        ? "Use this key only as a Bearer token from a trusted local backend. It is not a Platform API key."
-        : "This key is not a Platform API key. Treat it like your ChatGPT password. The client can control the container and may recover its ChatGPT session. It must speak Codex App Server JSON-RPC over WebSocket.",
+    result.finalizationFailure || runtimeUncertain
+      ? "Do not use this key yet"
+      : stack
+        ? "Public link needs Basic Auth"
+        : sidecar
+          ? "Turn Responses API on in n8n"
+          : n8nSuperGrok
+            ? "Selected n8n only"
+            : assistant
+              ? "You update n8n"
+              : grokBuild
+                ? "Trusted local apps"
+                : codexChat
+                  ? "Trusted local backends only"
+                  : "Trusted local apps only",
+    result.finalizationFailure
+      ? `The installation owns the account, but finalization did not finish. Review the installed target again before ${keyUse}.`
+      : runtimeUncertain
+        ? `The installation owns the account, but its runtime${result.hostPublication === "unknown" ? " and host publication" : ""} could not be verified. Inspect the owned service before ${keyUse}.`
+        : stack
+          ? "Use the local n8n URL on this computer. Open the public URL in a private window first. It must stay blocked until Basic Auth succeeds. This does not publish the n8n or inspector port. Export workflows before you remove this stack. Existing n8n stays untouched."
+          : sidecar
+            ? "No Code Sandbox or SearXNG is installed with this bridge."
+            : n8nSuperGrok
+              ? "In n8n, set the base URL to http://n8n-supergrok:14502/v1 and use the one-time local key with Chat Completions. Workflow nodes: turn Use Responses API off and choose From list. Assistant: enter a discovered model name. Chat: turn Use Responses API off in Settings > Chat > OpenAI. No host port is published. Sign out with relmio grok logout --n8n."
+              : assistant
+                ? result.includeSearxng
+                  ? `${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. Code Sandbox and SearXNG were checked. No host port is published. The runner is privileged and host-root equivalent. For production, use Daytona.`
+                  : `${ASSISTANT_N8N_SETTINGS_NOTE} Restart n8n yourself. Code Sandbox was checked. SearXNG was not installed. No host port is published. The runner is privileged and host-root equivalent. For production, use Daytona.`
+                : grokBuild
+                  ? "Use the one-time key only with this Relmio endpoint. Sign-in stays in its private runtime. This binds to 127.0.0.1. A private Docker connection for n8n is a separate reviewed setup."
+                  : codexChat
+                    ? "Use this key only as a Bearer token from a trusted local backend. It is not a Platform API key."
+                    : "This key is not a Platform API key. Treat it like your ChatGPT password. The client can control the container and may recover its ChatGPT session. It must speak Codex App Server JSON-RPC over WebSocket.",
   );
+  if (sidecar || result.target === "codex-chatgpt" || codexChat) {
+    const account = normalizeSiwcAccount(result.account);
+    renderInstalledSiwcModels(result.models, account, result);
+    renderInstalledSiwcOwner({ target: result.target,
+      state: result.runtimeState && result.runtimeState !== "running" ? "partial" : "healthy",
+      snapshot: { registrationId: account.registrationId,
+        migrationRequired: false, auth: { configured: result.runtimeState !== "unknown" &&
+          result.runtimeState !== "stopped" && account.planEnabled, account } } });
+    // Session changes are a secondary task on the Ready step.
+    element("local-siwc-owner").open = false;
+    // Plan and usage reads the counts when opened; only the running n8n sidecar keeps them.
+    const usage = sidecar && (result.runtimeState ?? "running") === "running" && !result.finalizationFailure;
+    state.installedUsage = usage ? { account, listed: result.models.length } : null;
+    element("installed-usage").hidden = !usage;
+    element("installed-usage").open = false;
+  } else {
+    element("installed-siwc-models").hidden = true;
+    element("local-siwc-owner").hidden = true;
+    element("installed-usage").hidden = true;
+  }
 }
 
 function setChatTesterStatus(text) {
@@ -3860,12 +3982,26 @@ function chatTesterStatusMessage(phase) {
 function clearChatTesterError() {
   element("chat-tester-error").textContent = "";
   element("chat-tester-error").hidden = true;
+  element("chat-tester-usage").hidden = true;
 }
 
 function showChatTesterError(error) {
-  element("chat-tester-error").textContent =
-    error?.message ?? "The local adapter test could not be completed.";
-  element("chat-tester-error").hidden = false;
+  const box = element("chat-tester-error");
+  box.textContent = siwcErrorText(error);
+  box.hidden = false;
+  element("chat-tester-usage").hidden = error?.recovery !== "manage-usage";
+  revealChatTesterError();
+  box.focus({ preventScroll: true });
+}
+
+// Scrolls a shown error, then its Manage usage recovery, into the panel's
+// visible area, so neither sits below the window or under the footer.
+function revealChatTesterError() {
+  const box = element("chat-tester-error");
+  const usage = element("chat-tester-usage");
+  if (box.hidden) return;
+  box.scrollIntoView?.({ block: "nearest" });
+  if (!usage.hidden) usage.scrollIntoView?.({ block: "nearest" });
 }
 
 function appendChatTesterTurn(kind, text) {
@@ -3921,6 +4057,8 @@ function clearChatTesterState() {
   state.chatTester.endpointBaseUrl = null;
   state.chatTester.expiresAt = null;
   state.chatTester.keyId = null;
+  state.chatTester.models = [];
+  element("chat-tester-model").replaceChildren();
   state.chatTester.feedback = { ...INITIAL_CHAT_TESTER_FEEDBACK };
   state.chatTester.generation += 1;
   element("chat-tester-credential").value = "";
@@ -4000,57 +4138,10 @@ async function forgetChatTester({ announce = true } = {}) {
   }
 }
 
-function validateVerificationUrl(value) {
-  if (typeof value !== "string" || value.length > 2048) {
-    throw new Error("Relmio refused an unexpected sign-in destination.");
-  }
-
-  let url;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error("Relmio refused an unexpected sign-in destination.");
-  }
-
-  if (
-    url.origin !== "https://auth.openai.com" ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.hash !== ""
-  ) {
-    throw new Error("Relmio refused an unexpected sign-in destination.");
-  }
-  return url.toString();
-}
-
-function validateDeviceCode(value) {
-  if (
-    typeof value !== "string" ||
-    value.length < 4 ||
-    value.length > 32 ||
-    !/^[A-Z0-9]+(?:-[A-Z0-9]+)*$/u.test(value)
-  ) {
-    throw new Error("Codex returned an unexpected device code.");
-  }
-  return value;
-}
 
 const delay = (milliseconds) =>
   new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 
-async function waitForCodexLogin() {
-  for (let attempt = 0; attempt < 300; attempt += 1) {
-    const result = await api("/api/local/codex/login/status");
-    if (result.status === "success") {
-      return;
-    }
-    if (result.status === "error") {
-      throw new Error(result.error ?? "ChatGPT sign-in did not finish.");
-    }
-    await delay(1_000);
-  }
-  throw new Error("ChatGPT device sign-in expired. Start it again.");
-}
 
 // The wizard runs on 127.0.0.1, a secure context, so the Clipboard API is the
 // normal path. The fallback briefly focuses a visually hidden (not
@@ -4114,6 +4205,11 @@ element("target-form").addEventListener("submit", async (event) => {
           ? "Choose a running n8n container and shared Docker network."
           : "Choose a running n8n container and shared Docker network, then complete local ChatGPT sign-in.",
       );
+    }
+    if (sidecar || isCodexChat(state.target) || state.target === "codex-chatgpt") {
+      const models = await siwc.catalog();
+      if (!models.length) throw new Error("No models are listed for this selected ChatGPT account.");
+      state.catalogLabels = new Map(models.map(({ slug, display_name }) => [slug, display_name]));
     }
     const result = await api("/api/local/plan", {
       method: "POST",
@@ -4272,6 +4368,7 @@ element("refresh-local-n8n-chatgpt").addEventListener("click", () => {
   } finally {
     state.suppressTargetRefresh = false;
   }
+  state.n8nOAuthIntent = { purpose: "sign-in" };
   element("n8n-oauth-sign-in").click();
 });
 
@@ -4285,7 +4382,6 @@ element("n8n-oauth-refresh").addEventListener("click", async (event) => {
     showError(error);
   } finally {
     setBusy(button, false);
-    updateManagedBridgeRefreshControls();
     updateReviewAvailability();
   }
 });
@@ -4314,12 +4410,10 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
         "A ChatGPT sign-in is still in progress. Finish it in the existing sign-in window, or use Stop and try again.",
       );
     } else {
-      setMessage(
-        "Preparing a fresh local ChatGPT sign-in. Existing credentials change only after sign-in succeeds.",
-      );
+      setMessage("Relmio opens a fresh ChatGPT sign-in in your system browser. No saved Codex credential is imported.");
       const result = await api("/api/oauth/login", {
         method: "POST",
-        body: {},
+        body: state.n8nOAuthIntent,
       });
       if (state.n8nOAuthGeneration !== generation) return;
       if (result.launchMode !== "system-browser") {
@@ -4341,7 +4435,8 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
     const completed = await waitForN8nOAuth(attemptId, generation);
     if (!completed || state.n8nOAuthGeneration !== generation) return;
     setN8nOAuthStopVisible(false);
-    await refreshN8nOAuthStatus({ announce: true, newSignIn: true });
+    await siwc.authorized(state.n8nOAuthIntent);
+    await refreshN8nOAuthStatus({ announce: true });
   } catch (error) {
     if (state.n8nOAuthGeneration === generation) {
       if (error.oauthRetryBlocked === true) blockN8nOAuthRetry();
@@ -4349,6 +4444,7 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
         element("n8n-oauth-status").textContent =
           "ChatGPT sign-in did not complete. Start a fresh sign-in or refresh status.";
       }
+      await siwc.load({ welcome: false }).catch(() => {});
       showError(error);
     }
   } finally {
@@ -4357,7 +4453,6 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
       setN8nOAuthStopVisible(false);
       setBusy(button, false);
       if (state.n8nOAuthRetryBlocked) disableN8nOAuthRetryControls();
-      updateManagedBridgeRefreshControls();
       updateReviewAvailability();
     }
     if (state.n8nOAuthCancellationMessage) {
@@ -4418,98 +4513,111 @@ async function stopN8nOAuthSignIn(event) {
 element("n8n-oauth-link").addEventListener("click", (event) => {
   void stopN8nOAuthSignIn(event);
 });
-element("n8n-oauth-link").addEventListener("keydown", (event) => {
-  if (event.key !== "Enter" && event.key !== " ") return;
-  void stopN8nOAuthSignIn(event);
-});
 
-element("update-bridge-confirm").addEventListener("change", () => {
-  updateManagedBridgeRuntimeControls();
-});
 
-element("update-bridge-button").addEventListener("click", async (event) => {
+function updateInstalledOwnerApproval() {
+  const owner = state.installedOwner;
+  const accepted = element("local-siwc-owner-confirm").checked &&
+    owner?.account?.ownership === "owned" &&
+    (owner.serviceState === "healthy" || owner.reviewedStopped === true);
+  element("local-siwc-enable").disabled = !accepted ||
+    (owner?.target === "n8n-openai-oauth" && !element("local-siwc-background-confirm").checked);
+  element("local-siwc-disable").disabled = !accepted;
+  element("local-siwc-logout").disabled = !accepted;
+}
+element("local-siwc-owner-confirm").addEventListener("change", updateInstalledOwnerApproval);
+element("local-siwc-background-confirm").addEventListener("change", updateInstalledOwnerApproval);
+
+element("local-siwc-inspect").addEventListener("click", async (event) => {
+  const owner = state.installedOwner;
+  if (!owner || owner.serviceState !== "stopped" || !owner.registrationId ||
+      !element("local-siwc-inspect-confirm").checked) {
+    showError(new Error("Confirm the stopped service inspection first."));
+    return;
+  }
   const button = event.currentTarget;
-  const confirmation = element("update-bridge-confirm");
+  if (setBusy(button, true, "Inspecting stopped owner…") === false) return;
   clearError();
-  if (!canUpdateManagedBridgeRuntime()) {
-    updateManagedBridgeRuntimeControls();
-    showError(new Error("Refresh the dashboard and reopen its managed bridge action first."));
-    return;
-  }
-  if (!confirmation.checked) {
-    showError(new Error("Confirm updating the existing local bridge first."));
-    return;
-  }
-  if (setBusy(button, true, "Updating bridge…") === false) return;
-  // Any prior new-install review is stale after this existing-runtime action.
-  invalidatePlan();
-  renderImageModelsForN8n("update", []);
-  element("update-bridge-status").textContent =
-    "Checking the existing bridge, then building and verifying its update. Your saved sign-in stays in place.";
   try {
-    const result = validateManagedBridgeUpdateResult(await api("/api/local/n8n/sidecar/update", {
-      method: "POST", body: { confirmed: true },
-    }));
-    confirmation.checked = false;
-    renderImageModelsForN8n("update", result.models);
-    element("update-bridge-status").textContent =
-      `Bridge runtime updated. ${result.models.length} model${result.models.length === 1 ? "" : "s"} verified. Saved sign-in preserved; n8n unchanged.`;
-    setMessage("The existing local bridge now uses this version's runtime. Test your n8n node to confirm the workflow result.");
-  } catch (error) {
-    renderImageModelsForN8n("update", []);
-    element("update-bridge-status").textContent = "The bridge update did not complete. Review the error before retrying.";
-    showError(error);
-  } finally {
-    setBusy(button, false);
-    updateManagedBridgeRuntimeControls();
-  }
-});
-
-element("refresh-bridge-confirm").addEventListener("change", (event) => {
-  element("refresh-bridge-button").disabled =
-    !state.n8nOAuthExists || !event.currentTarget.checked;
-});
-
-element("refresh-bridge-button").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  const confirmation = element("refresh-bridge-confirm");
-  let applied = false;
-  clearError();
-  if (!state.n8nOAuthExists || !confirmation.checked) {
-    showError(
-      new Error("Complete ChatGPT sign-in and confirm the owned bridge refresh first."),
-    );
-    return;
-  }
-  if (setBusy(button, true, "Applying sign-in…") === false) return;
-  setMessage(
-    "Re-attesting the owned bridge before applying the current ChatGPT sign-in. n8n will not be changed.",
-  );
-  try {
-    const result = validateManagedBridgeRefreshResult(
-      await api("/api/local/n8n/sidecar/refresh", {
-        method: "POST",
-        body: { confirmed: true },
-      }),
-    );
-    applied = true;
-    confirmation.checked = false;
-    confirmation.disabled = true;
-    button.disabled = true;
-    element("refresh-bridge-status").textContent =
-      `Current sign-in applied only to the owned bridge. ${result.models.length} model${result.models.length === 1 ? "" : "s"} verified; n8n was not changed.`;
-    setMessage(
-      "The current ChatGPT sign-in was applied to the ownership-verified bridge. n8n and its network were not changed.",
-    );
+    const sidecar = owner.target === "n8n-openai-oauth";
+    const result = await api(sidecar
+      ? "/api/local/n8n/siwc/inspect-stopped" : "/api/local/siwc/inspect-stopped", {
+      method: "POST",
+      body: { registrationId: owner.registrationId, confirmed: true,
+        ...(sidecar ? {} : { target: owner.target }) },
+    });
+    const account = normalizeSiwcAccount(result.account);
+    renderInstalledSiwcOwner({
+      target: owner.target, state: "stopped", reviewedStopped: true,
+      snapshot: { migrationRequired: false, registrationId: account.registrationId,
+        auth: { configured: false, account } },
+    });
+    setMessage("Stopped owner verified. Changing its session needs a separate confirmation.");
   } catch (error) {
     showError(error);
   } finally {
     setBusy(button, false);
-    if (applied) {
-      confirmation.disabled = true;
-      button.disabled = true;
-    }
   }
+});
+
+async function manageInstalledSiwc(action, button) {
+  const owner = state.installedOwner;
+  if (!owner?.account || !element("local-siwc-owner-confirm").checked ||
+      (owner.target === "n8n-openai-oauth" && action === "enable-plan" &&
+        !element("local-siwc-background-confirm").checked)) {
+    showError(new Error("Confirm this installed account action before continuing."));
+    return;
+  }
+  if (setBusy(button, true, "Checking installed owner…") === false) return;
+  clearError();
+  try {
+    const sidecar = owner.target === "n8n-openai-oauth";
+    const result = await api(sidecar ? "/api/local/n8n/siwc/manage" : "/api/local/siwc/manage", {
+      method: "POST",
+      body: { registrationId: owner.account.registrationId,
+        expectedGeneration: owner.account.generation, action, confirmed: true,
+        ...(sidecar ? { ...(action === "enable-plan" ? { backgroundConsent: true } : {}) }
+          : { target: owner.target }) },
+    });
+    const account = normalizeSiwcAccount(result.account);
+    clearChatTesterState();
+    renderInstalledSiwcOwner({
+      target: owner.target, state: result.runtimeStopped ? "stopped" : "healthy",
+      reviewedStopped: result.runtimeStopped === true,
+      snapshot: { migrationRequired: false, registrationId: account.registrationId,
+        auth: { configured: !result.runtimeStopped && account.planEnabled, account } },
+    });
+    if (owner.target === "codex-chat" && result.runtimeStopped === false) {
+      element("chat-tester").hidden = false;
+      element("chat-tester-status").textContent = "Secure the saved local client key again before testing.";
+    } else element("chat-tester").hidden = true;
+    const message = result.revocation === "unconfirmed"
+      ? "Local credentials were cleared, but provider revocation was not confirmed. Disconnect Relmio in ChatGPT settings."
+      : action === "sign-out"
+        ? "The installed session was signed out. Old Codex credentials remain separate."
+        : action === "disable-plan"
+          ? "Plan use paused at this installation. Its Relmio service is stopped."
+          : "Plan use was enabled at this installation. Only its owned Relmio service was started.";
+    element("local-siwc-owner-status").textContent = message;
+    setMessage(message);
+  } catch (error) {
+    showError(error);
+  } finally {
+    setBusy(button, false);
+  }
+}
+for (const [id, action] of [
+  ["local-siwc-enable", "enable-plan"],
+  ["local-siwc-disable", "disable-plan"],
+  ["local-siwc-logout", "sign-out"],
+]) {
+  element(id).addEventListener("click", (event) => { void manageInstalledSiwc(action, event.currentTarget); });
+}
+element("local-siwc-replace").addEventListener("click", async () => {
+  const owner = state.installedOwner;
+  if (!owner?.account || owner.account.session !== "signed-out" || owner.reviewedStopped !== true) return;
+  await enterSetupView(owner.target);
+  setMessage("Choose a fresh, independently authorized ChatGPT account, then review this signed-out target's replacement. Old history stays offline.");
 });
 
 element("review-assistant-searxng-edit").addEventListener("click", async (event) => {
@@ -4606,8 +4714,18 @@ element("enable-assistant-searxng-button").addEventListener("click", async (even
   }
 });
 
-element("install-confirm").addEventListener("change", (event) => {
-  element("install-settings-button").disabled = !event.currentTarget.checked;
+function updateLocalReviewApproval() {
+  element("install-settings-button").disabled = !element("install-confirm").checked ||
+    (state.plan?.migrationRequired === true && !element("local-migration-consent").checked) ||
+    (state.plan?.replacementRequired === true && !element("local-replacement-consent").checked);
+}
+element("install-confirm").addEventListener("change", updateLocalReviewApproval);
+element("local-migration-consent").addEventListener("change", updateLocalReviewApproval);
+element("local-replacement-consent").addEventListener("change", updateLocalReviewApproval);
+element("local-background-consent").addEventListener("change", () => {
+  if (isN8nSidecar(state.plan?.target)) {
+    element("install-button").disabled = !element("local-background-consent").checked;
+  }
 });
 
 for (const id of ["ngrok-authtoken", "ngrok-basic-auth-username", "ngrok-basic-auth-password"]) {
@@ -4649,7 +4767,9 @@ element("toggle-ngrok-basic-auth-password").addEventListener("click", (event) =>
 
 element("install-settings-button").addEventListener("click", () => {
   clearError();
-  if (!state.planId || !state.plan || !element("install-confirm").checked) {
+  if (!state.planId || !state.plan || !element("install-confirm").checked ||
+      (state.plan.migrationRequired && !element("local-migration-consent").checked) ||
+      (state.plan.replacementRequired && !element("local-replacement-consent").checked)) {
     showError(new Error("Review and confirm the local plan first."));
     return;
   }
@@ -4669,9 +4789,15 @@ element("install-button").addEventListener("click", async (event) => {
   ];
   let retryStackCredentials = false;
   clearError();
-  if (!state.planId || !state.plan || !element("install-confirm").checked) {
+  if (!state.planId || !state.plan || !element("install-confirm").checked ||
+      (state.plan.migrationRequired && !element("local-migration-consent").checked) ||
+      (state.plan.replacementRequired && !element("local-replacement-consent").checked)) {
     showStep(1);
     showError(new Error("Review and confirm a fresh local plan first."));
+    return;
+  }
+  if (isN8nSidecar(state.plan.target) && !element("local-background-consent").checked) {
+    showError(new Error("Approve this account's n8n background use before installing the sidecar."));
     return;
   }
   if (stack && !validateLocalN8nStackCredentials()) {
@@ -4680,6 +4806,12 @@ element("install-button").addEventListener("click", async (event) => {
   const requestBody = {
     planId: state.planId,
     confirmed: element("install-confirm").checked,
+    ...(isN8nSidecar(state.plan.target)
+      ? { backgroundConsent: element("local-background-consent").checked } : {}),
+    ...(state.plan.migrationRequired
+      ? { migrationConsent: element("local-migration-consent").checked } : {}),
+    ...(state.plan.replacementRequired
+      ? { replacementConsent: element("local-replacement-consent").checked } : {}),
     ...(stack
       ? {
           ngrokAuthtoken: stackSecretInputs[0].value,
@@ -4712,23 +4844,27 @@ element("install-button").addEventListener("click", async (event) => {
     renderInstallResult(result);
     state.planId = null;
     showStep(4);
+    const chatgptTarget = ["n8n-openai-oauth", "codex-chatgpt", "codex-chat"].includes(result.target);
     setMessage(
-      result.target === "n8n-local-model"
-        ? element("local-model-state").textContent
-        :
-      result.target === "local-n8n-stack"
-        ? "New local n8n stack verified. The public ngrok URL is protected by mandatory Basic Auth."
-        : result.target === "n8n-openai-oauth"
-        ? "Private n8n bridge verified with no host publication. Configure its private URL in n8n."
-        : result.target === "n8n-supergrok-oauth"
-        ? "Private SuperGrok n8n sidecar verified with no host publication. Copy the one-time bearer and run the official CLI sign-in separately."
-        : result.target === "n8n-ai-assistant"
-          ? "Code Sandbox companions verified with no host publication. Copy the one-time n8n settings before leaving this page."
-        : result.target === "xai-grok-build"
-            ? "Grok Build integration verified. Complete provider sign-in only through Grok Build's official flow."
-        : result.target === "codex-chat"
-          ? "Codex Chat Adapter for trusted local backends or development servers verified. Copy its one-time bearer and complete ChatGPT sign-in."
-          : "Codex App Server verified. Copy its one-time capability and complete ChatGPT sign-in.",
+      result.finalizationFailure
+        ? "Save the one-time key now. Do not use it until the reported finalization issue is resolved."
+        : chatgptTarget && result.runtimeState !== "running"
+        ? "The destination owns this session, but the runtime outcome is uncertain. Save the one-time key and inspect the owned service manually."
+        : chatgptTarget && result.readiness !== "verified"
+          ? "The selected ChatGPT account was installed, but its model check did not complete. Save the one-time key before leaving."
+          : result.target === "n8n-local-model"
+            ? element("local-model-state").textContent
+            : result.target === "local-n8n-stack"
+              ? "New local n8n stack verified. The public ngrok URL requires Basic Auth."
+              : result.target === "n8n-openai-oauth"
+                ? "The private n8n sidecar owns this registration. Enter its one-time Relmio client key in n8n yourself."
+                : result.target === "n8n-supergrok-oauth"
+                  ? "Private SuperGrok sidecar verified. Copy its one-time key and complete Grok sign-in separately."
+                  : result.target === "n8n-ai-assistant"
+                    ? "Code Sandbox companions verified. Copy the one-time n8n settings."
+                    : result.target === "xai-grok-build"
+                      ? "Grok Build integration verified. Complete its official sign-in separately."
+                      : "The selected ChatGPT plan registration is owned by this Codex installation. Copy its one-time local key.",
     );
   } catch (error) {
     if (stack && error.managedPartialStack === true) {
@@ -4739,7 +4875,6 @@ element("install-button").addEventListener("click", async (event) => {
       element("credential-rotation-note").hidden = true;
       element("client-warning").hidden = true;
       element("codex-production-warning").hidden = true;
-      element("codex-login").hidden = true;
       element("chat-tester").hidden = true;
       element("n8n-sidecar-removal").hidden = true;
       element("n8n-assistant-removal").hidden = true;
@@ -4771,6 +4906,19 @@ element("install-button").addEventListener("click", async (event) => {
       showError(error);
       return;
     }
+    if (!stack && error.recovery === "resolve-handoff") {
+      invalidatePlan();
+      element("install-result-list").hidden = true;
+      element("installed-siwc-models").hidden = true;
+      element("chat-tester").hidden = true;
+      element("local-siwc-owner").hidden = true;
+      element("done-title").textContent = "Installation outcome needs owner inspection";
+      element("done-detail").textContent =
+        "A token handoff may have started. Do not start another sign-in or replay installation until the owned runtime is inspected.";
+      showStep(4);
+      showError(error);
+      return;
+    }
     invalidatePlan();
     if (stack) {
       state.installedTarget = null;
@@ -4778,7 +4926,7 @@ element("install-button").addEventListener("click", async (event) => {
       element("n8n-stack-resume").hidden = true;
     }
     showStep(1);
-    setMessage("Installation stopped. Prepare and confirm a fresh plan before retrying.");
+    setMessage("The installation was not confirmed. Review the error and inspect any owned service before another plan.");
     showError(error);
   } finally {
     requestBody.ngrokAuthtoken = undefined;
@@ -5105,10 +5253,8 @@ element("rotate-credential-button").addEventListener("click", async (event) => {
   }
 
   if (setBusy(button, true, "Rotating credential…") === false) return;
-  let latestRotationResult = null;
-  setMessage(
-    "Generating a replacement credential before activating it…",
-  );
+  let stagedCredential = null;
+  setMessage("Generating a replacement local client key. The old one remains active until activation is verified.");
   try {
     if (isCodexChat(state.installedTarget)) {
       await forgetChatTester({ announce: false });
@@ -5117,8 +5263,18 @@ element("rotate-credential-button").addEventListener("click", async (event) => {
       method: "POST",
       body: { target: state.installedTarget },
     });
-    latestRotationResult = staged;
-    renderInstallResult(staged);
+    if (!/^[A-Za-z0-9_-]{32,256}$/u.test(staged.clientCredential ?? "") ||
+        staged.credentialShownOnce !== true || staged.deploymentMode !== "staged") {
+      throw new Error("The staged local client key could not be verified.");
+    }
+    stagedCredential = staged.clientCredential;
+    element("result-credential-row").hidden = false;
+    element("result-credential").textContent = stagedCredential;
+    element("result-credential-label").textContent = "One-time replacement local key";
+    element("one-time-note").hidden = false;
+    element("one-time-note-title").textContent = "Save this local key";
+    element("one-time-note-detail").textContent =
+      "It is not active until Relmio confirms activation. Do not use it in another client yet.";
     setMessage("Replacement credential received. Activating and verifying it now…");
     await new Promise((resolvePromise) => window.requestAnimationFrame(resolvePromise));
     await new Promise((resolvePromise) => window.requestAnimationFrame(resolvePromise));
@@ -5129,15 +5285,17 @@ element("rotate-credential-button").addEventListener("click", async (event) => {
         clientCredential: staged.clientCredential,
       },
     });
-    latestRotationResult = { ...staged, ...activated };
-    renderInstallResult(latestRotationResult);
-    setMessage("Client credential rotated. Copy the new one now; the previous one no longer works.");
+    if (activated.target !== staged.target || activated.deploymentMode !== "updated") {
+      throw new Error("The replacement local key was not confirmed active.");
+    }
+    element("one-time-note-detail").textContent =
+      "Activation was verified. Copy this one-time key into your trusted client; the previous key no longer works.";
+    setMessage("Local client key rotated. The ChatGPT account was not changed.");
   } catch (error) {
-    setMessage("The replacement credential was not confirmed active. Follow the error guidance before retrying.");
+    setMessage("The replacement local key was not confirmed active. Keep the previous key until the installed service is checked.");
     showError(error);
   } finally {
     setBusy(button, false);
-    if (latestRotationResult) renderInstallResult(latestRotationResult);
   }
 });
 
@@ -5174,6 +5332,37 @@ element("chat-tester-secure-form").addEventListener("submit", async (event) => {
     state.chatTester.endpointBaseUrl = endpointInput.value;
     state.chatTester.expiresAt = issuedKey.expiresAt;
     state.chatTester.keyId = issuedKey.keyId;
+    const catalog = await api("/api/local/chat-test/models", {
+      method: "POST",
+      body: {
+        endpointBaseUrl: state.chatTester.endpointBaseUrl,
+        keyId: state.chatTester.keyId,
+        encryptedCredential: state.chatTester.encryptedCredential,
+      },
+    });
+    if (!Array.isArray(catalog.models) || !catalog.models.length ||
+        catalog.account?.registrationId !== state.installedOwner?.account?.registrationId) {
+      throw new Error("The installed ChatGPT account has no available model catalog for this test.");
+    }
+    state.chatTester.models = catalog.models.map((model) => {
+      if (typeof model?.slug !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(model.slug) ||
+          typeof model.display_name !== "string" || model.display_name.length > 256) {
+        throw new Error("The account model catalog could not be verified.");
+      }
+      return { slug: model.slug, display_name: model.display_name };
+    });
+    const modelSelect = element("chat-tester-model");
+    modelSelect.replaceChildren(...state.chatTester.models.map(({ slug, display_name }) => {
+      const option = document.createElement("option");
+      option.value = slug;
+      option.textContent = display_name;
+      return option;
+    }));
+    state.catalogLabels = new Map(state.chatTester.models.map(({ slug, display_name }) => [slug, display_name]));
+    renderInstalledSiwcModels(state.chatTester.models.map(({ slug }) => slug),
+      normalizeSiwcAccount(catalog.account));
+    element("installed-siwc-model-status").textContent =
+      "Current models returned by the installed account. Choose one above to test; a listed model does not guarantee a completed response.";
     element("chat-tester-secure-form").hidden = true;
     element("chat-tester-message-form").hidden = false;
     setChatTesterStatus("Temporary test session secured. Send a message before the key expires.");
@@ -5222,6 +5411,11 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
     return;
   }
 
+  const model = element("chat-tester-model").value;
+  if (!state.chatTester.models.some((entry) => entry.slug === model)) {
+    showChatTesterError(new Error("Choose a model from the installed account's current catalog."));
+    return;
+  }
   const controller = new AbortController();
   if (
     startOperation(button, "Waiting for response…", {
@@ -5251,6 +5445,7 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
         keyId: state.chatTester.keyId,
         encryptedCredential: state.chatTester.encryptedCredential,
         input: text,
+        model,
         ...(state.chatTester.conversationId
           ? { conversationId: state.chatTester.conversationId }
           : {}),
@@ -5310,6 +5505,8 @@ element("chat-tester-message-form").addEventListener("submit", async (event) => 
     button.hidden = false;
     element("chat-tester-transcript").setAttribute("aria-busy", "false");
     stopOperation(button);
+    // Restoring Send can move the error after it was scrolled into view.
+    revealChatTesterError();
     // Send or Stop held focus and is now hidden; keep the person's place.
     if (!document.activeElement || document.activeElement === document.body) {
       input.focus();
@@ -5335,40 +5532,6 @@ element("chat-tester-reset").addEventListener("click", async (event) => {
   }
 });
 
-element("codex-login-button").addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  const resultBox = element("device-code-result");
-  const status = element("device-code-status");
-  if (setBusy(button, true, "Waiting for ChatGPT…") === false) return;
-  clearError();
-  resultBox.hidden = true;
-  try {
-    const result = await api("/api/local/codex/login", {
-      method: "POST",
-      body: { target: state.installedTarget },
-    });
-    const verificationUrl = validateVerificationUrl(result.verificationUrl);
-    const userCode = validateDeviceCode(result.userCode);
-    element("device-code").textContent = userCode;
-    element("device-code-link").href = verificationUrl;
-    element("device-code-step").hidden = false;
-    status.textContent = "Waiting for sign-in in the isolated Codex container…";
-    resultBox.hidden = false;
-    setMessage("Open the official OpenAI page and enter the displayed device code.");
-    await waitForCodexLogin();
-    status.textContent = isCodexChat(state.installedTarget)
-      ? "ChatGPT sign-in completed. Codex Chat Adapter is ready for your trusted local backend or development server."
-      : "ChatGPT sign-in completed. Codex is ready for your trusted native client.";
-    setMessage("Codex ChatGPT sign-in completed successfully.");
-  } catch (error) {
-    status.textContent = "ChatGPT sign-in did not complete.";
-    showError(error);
-  } finally {
-    // The code is single-use; only the outcome stays on screen.
-    element("device-code-step").hidden = true;
-    setBusy(button, false);
-  }
-});
 
 for (const button of document.querySelectorAll("[data-copy-target]")) {
   button.addEventListener("click", async (event) => {
@@ -5512,3 +5675,4 @@ async function initializeLocalWizard() {
 
 renderTarget();
 initializeLocalDashboard();
+initializeLocalUsage();

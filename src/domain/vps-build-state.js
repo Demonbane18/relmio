@@ -28,6 +28,20 @@ export function createVpsLockCommand(lock) {
   return `${rootGuard} && umask 077 && mkdir ${lock} && [ "$(stat -c %u:%a ${lock})" = 0:700 ] && ${noMount(lock)} && stat -c '%d:%i' ${lock}`;
 }
 
+export function inspectVpsResumeLockCommand(lock) {
+  validate(lock);
+  return `${rootGuard} || exit 73; if [ ! -e ${lock} ] && [ ! -L ${lock} ]; then printf none; else [ ! -L ${lock} ] && [ -d ${lock} ] && [ "$(stat -c %u:%a ${lock})" = 0:700 ] && ${noMount(lock)} && [ -z "$(find ${lock} -mindepth 1 -maxdepth 1 -print -quit)" ] && stat -c '%d:%i' ${lock}; fi`;
+}
+
+export function claimVpsResumeLockCommand(lock, identity) {
+  return `${lockGuard(lock, identity)} && [ -z "$(find ${lock} -mindepth 1 -maxdepth 1 -print -quit)" ] && umask 077 && mkdir ${lock}/recovery && stat -c '%d:%i' ${lock}/recovery`;
+}
+
+export function releaseVpsResumeClaimCommand(lock, identity, claimIdentity) {
+  validate(lock, claimIdentity);
+  return `${lockGuard(lock, identity)} && [ ! -L ${lock}/recovery ] && [ -d ${lock}/recovery ] && [ "$(stat -c '%d:%i:%u:%a' ${lock}/recovery)" = '${claimIdentity}:0:700' ] && rmdir ${lock}/recovery`;
+}
+
 export function releaseVpsLockCommand(lock, identity) {
   return `${lockGuard(lock, identity)} && rmdir ${lock}`;
 }

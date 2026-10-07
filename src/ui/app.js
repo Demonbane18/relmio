@@ -1,4 +1,4 @@
-import { formatAuthUpdatedAt } from "./time.js";
+import { accountUiState, createSiwcControls, createSiwcRecovery, normalizeSiwcAccount, siwcErrorFromResponse, siwcErrorText } from "./siwc-controls.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
 import { bindSshAuthentication, clearFieldError, createCredentialSshGuard, markRejectedField, sameSshIdentity } from "./ssh-form.js";
 import { initWizardTopbar } from "./topbar.js";
@@ -33,6 +33,19 @@ const state = {
   operationProgressStartedAt: 0,
   operationProgressTimer: null,
   oauthCancellationMessage: "",
+  loginIntent: { purpose: "sign-in" },
+  catalogLabels: new Map(),
+  vpsOwner: null,
+  vpsOwnerUpdate: null,
+  vpsImagesGeneration: 0,
+  vpsImagesTimer: null,
+  vpsImages: null,
+  vpsModels: null,
+  vpsUsage: null,
+  vpsUsageError: null,
+  planMigrationRequired: false,
+  planReplacementRequired: false,
+  vpsReconnectRequired: false,
 };
 
 const element = (id) => document.getElementById(id);
@@ -49,7 +62,7 @@ const errorBox = element("global-error");
 const errorMessage = element("global-error-text");
 const toastTimers = new WeakMap();
 let sshIdentityDecision = 0;
-const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: invalidateReviewedPlan, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
+const sshAuthentication = bindSshAuthentication({ token, trustId: "fingerprint-confirm", onChange: handleVpsConnectionInput, shouldApplyConnectionStatus: () => sshIdentityDecision === 0 });
 const sshSession = createCredentialSshGuard({ token, onIdentityDecision() { sshIdentityDecision++; }, onMismatch() {
   invalidateReviewedPlan();
   clearEndedVpsConnectionState();
@@ -75,6 +88,8 @@ function selectChatGptSetup({ focus = true } = {}) {
   element("global-message").hidden = true;
   if (state.step !== 1) showStep(1);
   if (focus) focusVisible(element("signin-title"));
+  // The first account load runs while this view is hidden; show a due plan welcome now.
+  siwc.showWelcome();
 }
 
 element("openai-vps-route").addEventListener("click", () => {
@@ -105,13 +120,52 @@ function setCredentialInputsEnabled(enabled) {
 
 function resetFingerprint() {
   invalidateReviewedPlan();
+  clearVpsFingerprintReview();
+  setCredentialInputsEnabled(false);
+}
+
+function clearVpsFingerprintReview() {
+  state.vpsReconnectRequired = true;
   state.fingerprint = null;
   element("fingerprint-box").hidden = true;
   element("fingerprint-confirm").checked = false;
   element("password").value = "";
   element("password").disabled = true;
-  setCredentialInputsEnabled(false);
   element("connect-button").disabled = true;
+  element("connect-button").textContent = "Connect";
+}
+
+function handleVpsConnectionInput() {
+  invalidateReviewedPlan();
+  if (!sshSession.adoptedIdentity()) return;
+  if (!state.vpsReconnectRequired) clearVpsFingerprintReview();
+  setMessage("Connection details changed. Check and confirm the server identity again before reconnecting.");
+}
+
+function handleVpsDestinationInput() {
+  resetFingerprint();
+  if (sshSession.adoptedIdentity()) setMessage(
+    "Connection details changed. Check and confirm the server identity again before reconnecting.");
+}
+
+function vpsConnectionMatchesForm(identity) {
+  return identity.host === element("host").value &&
+    identity.port === Number(element("port").value) &&
+    identity.username === element("username").value &&
+    identity.authentication === element("ssh-authentication").value;
+}
+
+function syncVpsConnectAction() {
+  const identity = sshSession.adoptedIdentity();
+  const retry = identity && !state.vpsReconnectRequired && vpsConnectionMatchesForm(identity);
+  const button = element("connect-button");
+  button.textContent = retry ? "Retry discovery" : "Connect";
+  button.disabled = !retry && !(state.fingerprint && element("fingerprint-confirm").checked);
+  if (retry) {
+    element("password").value = "";
+    element("password").disabled = true;
+    element("password").required = false;
+  }
 }
 
 function setMessage(text) {
@@ -126,14 +180,18 @@ function setMessage(text) {
 
 function showError(error, { focus = true } = {}) {
   const text = markRejectedField(error.message ?? "Something went wrong.", element, "global-error-text");
-  errorMessage.textContent = text;
+  errorMessage.textContent = error.recovery && error.recovery !== "none" ? siwcErrorText(error) : text;
+  element("global-error-recovery").hidden = error.recovery !== "manage-usage";
   errorBox.hidden = false;
   if (focus) focusVisible(errorBox);
+  globalThis.relmioGuide?.error?.(error);
 }
 
 function clearError() {
   errorBox.hidden = true;
   errorMessage.textContent = "";
+  element("global-error-recovery").hidden = true;
+  globalThis.relmioGuide?.clearError?.();
 }
 
 function validatePlanId(value) {
@@ -152,6 +210,13 @@ function invalidateReviewedPlan() {
   state.planId = null;
   state.reviewedIdentity = null;
   element("install-confirm").checked = false;
+  element("background-consent").checked = false;
+  state.planMigrationRequired = false;
+  state.planReplacementRequired = false;
+  element("vps-migration-row").hidden = true;
+  element("vps-replacement-row").hidden = true;
+  element("vps-migration-consent").checked = false;
+  element("vps-replacement-consent").checked = false;
   element("install-button").disabled = true;
 }
 
@@ -196,61 +261,12 @@ async function copyText(value) {
 }
 
 function renderHttpRequestBody(model) {
-  element("result-http-body").textContent = JSON.stringify(
-    {
-      model: model === "Not detected" ? "gpt-5.6-sol" : model,
-      messages: [
-        {
-          role: "user",
-          content: "What is a robot?",
-        },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "answer",
-          schema: {
-            type: "object",
-            properties: {
-              content: { type: "string" },
-            },
-            required: ["content"],
-            additionalProperties: false,
-          },
-          strict: true,
-        },
-      },
-    },
-    null,
-    2,
-  );
-}
-
-const IMAGE_MODELS_FOR_N8N = Object.freeze([
-  Object.freeze({
-    id: "gpt-image-2",
-    key: "2",
-  }),
-  Object.freeze({
-    id: "gpt-image-2.5-flare",
-    key: "flare",
-  }),
-  Object.freeze({
-    id: "gpt-image-2.5-sunburst",
-    key: "sunburst",
-  }),
-]);
-
-function renderImageModelsForN8n(models) {
-  const modelIds = new Set(Array.isArray(models) ? models : []);
-  let hasImageModel = false;
-  for (const { id, key } of IMAGE_MODELS_FOR_N8N) {
-    const available = modelIds.has(id);
-    element(`result-image-model-${key}`).textContent = available ? id : "";
-    element(`result-image-model-${key}-row`).hidden = !available;
-    hasImageModel ||= available;
-  }
-  element("result-image-models").hidden = !hasImageModel;
+  element("result-http-body").textContent = model
+    ? JSON.stringify({
+        model,
+        messages: [{ role: "user", content: "What is a robot?" }],
+      }, null, 2)
+    : "";
 }
 
 function copyCredentialSettings() {
@@ -268,7 +284,7 @@ function copyHttpRecipe() {
     `URL: ${element("result-http-url").textContent}`,
     "Authentication: Generic Credential Type",
     "Generic Auth Type: Bearer Auth",
-    "Credential: openai-oauth",
+    "Credential: Relmio sidecar",
     `Bearer token: ${element("result-key").textContent}`,
     `Authorization: ${element("result-http-auth").textContent}`,
     "Content-Type: application/json",
@@ -385,10 +401,7 @@ async function waitForOAuthCompletion(expectedAttemptId) {
   for (let attempt = 0; attempt < 330; attempt += 1) {
     const result = await api("/api/oauth/status");
     if (result.retryBlocked === true) {
-      const error = new Error(
-        result.error ??
-          "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.",
-      );
+      const error = siwcErrorFromResponse(result, result.upstreamStatus ?? 409);
       error.oauthRetryBlocked = true;
       throw error;
     }
@@ -401,9 +414,7 @@ async function waitForOAuthCompletion(expectedAttemptId) {
       return;
     }
     if (result.status === "error") {
-      const error = new Error(
-        result.error ?? "ChatGPT sign-in did not finish. Start again.",
-      );
+      const error = siwcErrorFromResponse(result, result.upstreamStatus ?? 400);
       error.oauthRetryBlocked = result.retryBlocked === true;
       throw error;
     }
@@ -451,7 +462,7 @@ async function recoverPendingOAuthAttempt() {
         }
         return {
           pending: true,
-          status: await api("/api/status"),
+          status: await siwc.authorized({ purpose: "sign-in" }),
         };
       },
       {
@@ -929,7 +940,8 @@ async function api(path, { method = "GET", body } = {}) {
       "This wizard link is incomplete. Close this tab. For a persistent install, run relmio open. For an NPX run, use npx --yes --ignore-scripts relmio@latest open. For a hosted foreground launcher, return to the active terminal and press Enter to create a fresh private handoff.",
     );
   }
-  await sshSession.before(path);
+  if (path.startsWith("/api/siwc/vps/")) await sshSession.adoptCurrent();
+  else await sshSession.before(path);
 
   let response;
   try {
@@ -961,104 +973,96 @@ async function api(path, { method = "GET", body } = {}) {
     );
   }
   if (!response.ok) {
-    const error = new Error(result.error ?? "The request failed.");
+    const error = siwcErrorFromResponse(result, response.status);
     error.oauthRetryBlocked = result.retryBlocked === true;
-    if (
-      path === "/api/install" &&
-      method === "POST" &&
-      result.recoveryAction === "refresh-chatgpt-sign-in"
-    ) {
-      error.recoveryAction = "refresh-chatgpt-sign-in";
-    }
     throw error;
   }
-  await sshSession.after(path, result);
+  if (path === "/api/siwc/vps/status") await sshSession.adoptCurrent();
+  else await sshSession.after(path, result);
   return result;
 }
 
-function renderAuthUpdatedAt(value) {
-  const row = element("auth-updated");
-  const time = element("auth-updated-time");
-  const formatted = formatAuthUpdatedAt(value);
-
-  if (!formatted) {
-    row.hidden = true;
-    time.textContent = "";
-    time.removeAttribute("datetime");
-    return null;
-  }
-
-  time.textContent = formatted;
-  time.setAttribute("datetime", value);
-  row.hidden = false;
-  return formatted;
+function resetVpsOwner() {
+  state.vpsOwner = null;
+  element("vps-owner-actions").hidden = true;
+  element("vps-owner-inspect-row").hidden = true;
+  element("vps-owner-inspect").hidden = true;
+  element("vps-owner-replace").hidden = true;
+  element("vps-owner-confirm").checked = false;
+  element("vps-owner-background-confirm").checked = false;
+  renderVpsOwnerUpdate(null);
+  element("vps-owner-status").textContent = "Choose the n8n container and network, then check the installed account.";
 }
 
-// Signing in is the step's action until a usable credential exists; after
-// that, Check the server is.
-function setSignInLeads(leads) {
-  const loginButton = element("login-button");
-  loginButton.classList.toggle("rm-button--primary", leads);
-  loginButton.classList.toggle("rm-push", leads);
-  element("signin-next").hidden = leads;
-}
+const siwc = createSiwcControls({
+  root: element("vps-siwc"),
+  api,
+  onChange(account) {
+    invalidateReviewedPlan();
+    state.catalogLabels.clear();
+    resetVpsOwner();
+    renderAuthStatus(account);
+  },
+  onLogin(intent) {
+    if (state.operationBusy) return;
+    state.loginIntent = intent;
+    element("login-button").click();
+  },
+  onError: showError,
+});
+element("vps-siwc").querySelector('[data-siwc="recover"]').addEventListener("click", () => {
+  if (state.operationBusy) return;
+  showStep(2);
+  setMessage("Verify the destination server, then open recovery beside its installed account controls.");
+});
 
-// The status callout is a polite live region, so it carries the result alone.
-function renderAuthStatus(status, { fresh = false } = {}) {
+function renderAuthStatus(account, { fresh = false } = {}) {
+  const mode = accountUiState(account);
+  const welcomePending = mode === "plan-active" && account.needsPlanWelcome === true;
+  const usageLimited = siwc.isUsageLimited();
+  const ready = mode === "plan-active" && !welcomePending && !usageLimited;
   const indicator = element("auth-indicator");
-  const loginButton = element("login-button");
-  const next = element("signin-next");
-  renderAuthUpdatedAt(status.authUpdatedAt);
-
-  if (status.previewMode) {
-    indicator.classList.add("ready");
-    element("auth-title").textContent = "Sanitized preview credential";
-    element("auth-detail").textContent =
-      "Preview mode uses sample data and cannot start a real ChatGPT sign-in.";
-    loginButton.disabled = true;
-    loginButton.hidden = true;
-    next.disabled = false;
-    setSignInLeads(false);
-    return;
-  }
-
-  loginButton.disabled = false;
-  if (status.authExists) {
-    indicator.classList.add("ready");
-    element("auth-title").textContent = fresh
-      ? "Fresh credential saved"
-      : "Local credential found";
-    element("auth-detail").textContent =
-      "Continue uses this credential file as-is. Its validity and model access have not been checked; refresh sign-in if it is expired or came from another client.";
-    loginButton.textContent = "Refresh ChatGPT sign-in";
-    loginButton.dataset.label = "Refresh ChatGPT sign-in";
-    next.disabled = false;
-    setSignInLeads(false);
-  } else {
-    indicator.classList.remove("ready");
-    element("auth-title").textContent = "Sign-in needed";
-    element("auth-detail").textContent =
-      "A browser sign-in will open and wait for up to five minutes.";
-    loginButton.textContent = "Sign in with ChatGPT";
-    loginButton.dataset.label = "Sign in with ChatGPT";
-    next.disabled = true;
-    setSignInLeads(true);
-  }
+  indicator.classList.toggle("ready", ready);
+  element("auth-updated").hidden = true;
+  element("auth-title").textContent = ready
+    ? fresh ? "ChatGPT plan use enabled" : "ChatGPT plan ready"
+    : usageLimited ? "ChatGPT usage limit reached"
+      : welcomePending ? "Review the plan notice"
+        : mode === "identity-only" ? "Connected for identity"
+          : mode === "plan-paused" ? "Plan use paused"
+            : mode === "transferred" ? "Owned by the installation"
+              : mode === "handoff-pending" ? "Transfer needs review"
+                : mode === "reauthorize" ? "Sign in again"
+                  : "ChatGPT sign-in needed";
+  element("auth-detail").textContent = siwc.isPreview()
+    ? "Sanitized preview data. Live ChatGPT sign-in and installation are disabled."
+    : ready
+      ? "The selected registration is ready to review. Model access and each request still depend on this account."
+      : usageLimited
+        ? "Plan requests are paused. Manage usage in ChatGPT."
+        : welcomePending
+          ? "Read the ChatGPT plan notice and choose Continue before reviewing a model installation."
+          : mode === "identity-only"
+            ? "Identity is verified. Grant separate ChatGPT plan permission before reviewing a model installation."
+            : mode === "transferred"
+              ? "Use the installed owner's controls to manage this session; start a fresh registration for another installation."
+              : mode === "handoff-pending"
+                ? "No plan request is allowed until destination ownership is resolved."
+                : "Continue with ChatGPT or select a different registration above.";
+  element("signin-next").hidden = false;
+  element("signin-next").disabled = !ready;
 }
 
 async function refreshAuthStatus({ fresh = false } = {}) {
   clearError();
-  const status = await runOperation(
+  const account = await runOperation(
     null,
-    fresh ? "Checking the fresh sign-in…" : "Checking local sign-in…",
-    () => api("/api/status"),
-    {
-      progressNote:
-        "Relmio is checking the credential stored on this computer. Timing varies with this computer. Keep this page open until the check finishes.",
-    },
+    fresh ? "Checking the new account…" : "Checking ChatGPT accounts…",
+    () => siwc.load(),
+    { progressNote: "Relmio checks your local account registrations. No personal Codex credential is imported." },
   );
-  if (!status) return false;
-  renderAuthStatus(status, { fresh });
+  if (account === undefined) return false;
+  renderAuthStatus(account, { fresh });
   return true;
 }
 
@@ -1093,7 +1097,7 @@ function renderIntegrationManagement() {
   const manageButton = element("manage-vps-integration");
   manageButton.textContent = assistant
     ? "Manage Assistant companion"
-    : "Manage OpenAI-OAuth/Codex bridge";
+    : "Manage ChatGPT plan sidecar";
   const reviewButton = element("review-button");
   reviewButton.textContent = assistant
     ? "Review Assistant plan"
@@ -1115,13 +1119,36 @@ function renderIntegrationReview(plan) {
     plan.operationLockPath !== "/docker/n8n-openai-oauth/.openai-oauth-operation.lock" ||
     plan.temporaryBuildStatePath !== "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx"
   )) throw new Error("The reviewed bridge build boundary is invalid. Review a fresh plan.");
-  const updatingSidecar =
-    !assistant && state.managingDetectedIntegration;
+  if (!assistant) {
+    const account = normalizeSiwcAccount(plan.account);
+    if ((!plan.resumeRequired && account.registrationId !== siwc.selected()?.registrationId) ||
+        !/^[a-f0-9]{64}$/u.test(plan.n8nContainerId ?? "") ||
+        !/^[a-f0-9]{64}$/u.test(plan.networkId ?? "") ||
+        (plan.migrationRequired && (plan.legacyResourcesPreserved !== true ||
+          plan.requiresMigrationConsent !== true)) ||
+        (plan.replacementRequired && (plan.oldSessionSignedOut !== true ||
+          plan.oldHistoryRetained !== true || plan.requiresReplacementConsent !== true)) ||
+        (plan.migrationRequired && plan.replacementRequired)) {
+      throw new Error("The selected ChatGPT account or owner plan changed. Review again.");
+    }
+  }
+  state.planMigrationRequired = !assistant && plan.migrationRequired === true;
+  state.planReplacementRequired = !assistant && plan.replacementRequired === true;
+  element("vps-migration-row").hidden = !state.planMigrationRequired;
+  element("vps-replacement-row").hidden = !state.planReplacementRequired;
+  element("vps-migration-consent").checked = false;
+  element("vps-replacement-consent").checked = false;
   element("review-intro").textContent = assistant
     ? "Only the Assistant companion changes. Nothing is written until you approve."
-    : updatingSidecar
-      ? "Only the existing bridge files and sidecar change. Nothing is written until you approve."
-      : "Nothing is written until you approve this plan.";
+    : "Only the reviewed Relmio sidecar changes. Nothing is written until you approve.";
+  if (plan.resumeRequired) element("review-intro").textContent =
+    `Resume owned installation ${plan.staging.installId.slice(0, 12)} from ${plan.staging.stage}. Existing files stay in place; a completed transfer rotates the one-time key.`;
+  element("review-destination-row").hidden = assistant;
+  element("review-destination").textContent = assistant ? "" :
+    `${plan.containerName} (${plan.n8nContainerId.slice(0, 12)}) / ${plan.networkName} (${plan.networkId.slice(0, 12)})`;
+  element("review-account-row").hidden = assistant;
+  element("review-account").textContent = assistant ? "" :
+    `${plan.account?.label ?? "Unverified"}${plan.account?.email ? ` (${plan.account.email})` : ""} · ${plan.account?.registrationId?.slice(-8) ?? ""}`;
   element("review-network").textContent = plan.networkName;
   element("review-endpoint-label").textContent = assistant
     ? "Assistant selection"
@@ -1143,19 +1170,24 @@ function renderIntegrationReview(plan) {
           "Verify companion health without changing the existing n8n container.",
         ]
       : [
-          updatingSidecar
-            ? "Update only /docker/n8n-openai-oauth."
-            : "Create or update only /docker/n8n-openai-oauth.",
-          "Upload the adapter runtime and the saved ChatGPT/Codex credential file.",
-          `${updatingSidecar ? "Rebuild" : "Build"} and start only the openai-oauth sidecar.`,
-          `Attach the sidecar to ${plan.networkName}.`,
+          state.planMigrationRequired
+            ? "Stop only the attested old Relmio sidecar. Keep its old auth credential offline."
+            : state.planReplacementRequired
+              ? "Replace only the signed-out, ownership-attested sidecar. Retain its old mapping offline."
+              : "Create only /docker/n8n-openai-oauth.",
+          "Transfer the selected registration to this user-controlled installation.",
+          "Build and start only the private sidecar.",
+          // The network shows twice in the facts above, so this line takes the attach line's place
+          // and the step keeps one screen. The details sit under the build details disclosure.
+          "Keep 31 days of request and token counts here.",
         ],
   );
   replaceReviewItems("review-build-list", assistant ? [] : [
     `After you confirm, use a temporary root-only Buildx folder at ${plan.temporaryBuildStatePath}. If cleanup is uncertain, that folder and its lock may remain for you to inspect.`,
-    "Build only managed runtime files. The saved credential, other companions, and registry credentials are not copied into the build or printed. Cleanup does not change n8n or model caches.",
+    "Build only managed runtime files. The selected registration is transferred separately, outside the build context. Cleanup does not change n8n or model caches.",
+    "The sidecar keeps daily request and token counts on this server for 31 days, with no prompts or answers. Relmio reads them only when you press Refresh usage.",
   ]);
-  element("review-build-details").hidden = assistant;
+  element("review-build-summary").textContent = assistant ? "Host key and build details" : "Host key, build and request count details";
   replaceReviewItems(
     "review-wont-list",
     assistant
@@ -1174,9 +1206,9 @@ function renderIntegrationReview(plan) {
   );
   element("install-confirm-copy").textContent = assistant
     ? "I approve this private Assistant companion. n8n settings and any restart stay my separate action."
-    : updatingSidecar
-      ? `I approve this sidecar-only runtime and sign-in update. It uploads the saved ChatGPT/Codex credential file over SSH to ${recipient}, only under /docker/n8n-openai-oauth. This bridge is unofficial and policy-uncertain.`
-      : `I approve uploading the saved ChatGPT/Codex credential file over SSH to ${recipient}, only under /docker/n8n-openai-oauth. This bridge is unofficial, private, and policy-uncertain.`;
+    : `I approve the service-only write under /docker/n8n-openai-oauth on ${recipient}, and the transfer of ${plan.account?.label ?? "this account"}. n8n remains unchanged.`;
+  element("background-consent-row").hidden = assistant;
+  element("background-consent").checked = false;
   const installButton = element("install-button");
   installButton.textContent = assistant
     ? "Install Assistant companion"
@@ -1361,7 +1393,7 @@ element("login-button").addEventListener("click", async (event) => {
       async () => {
         const result = await api("/api/oauth/login", {
           method: "POST",
-          body: {},
+          body: state.loginIntent,
         });
         if (result.launchMode !== "system-browser") {
           throw new Error(
@@ -1379,12 +1411,12 @@ element("login-button").addEventListener("click", async (event) => {
         if (state.oauthLoginGeneration !== loginGeneration) {
           return undefined;
         }
-        return api("/api/status");
+        return siwc.authorized(state.loginIntent);
       },
       {
         allowedSelector: OPERATION_ALLOWED_SELECTOR,
         progressNote:
-          "Finish sign-in in the ChatGPT window that Relmio opened. If none opened, check your default browser. Your saved credential changes only after sign-in succeeds. This can take several minutes; keep this page open or use Stop.",
+          "Finish sign-in in the ChatGPT window Relmio opened. The selected registration changes only after verified identity. Keep this page open or use Stop.",
       },
     );
     if (!status || state.oauthLoginGeneration !== loginGeneration) {
@@ -1398,6 +1430,7 @@ element("login-button").addEventListener("click", async (event) => {
       if (error.oauthRetryBlocked === true) {
         blockOAuthRetry();
       }
+      await siwc.load({ welcome: false }).catch(() => {});
       showError(error);
     }
   } finally {
@@ -1499,7 +1532,7 @@ element("signin-next").addEventListener("click", () => {
 element("fingerprint-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
-  invalidateReviewedPlan();
+  resetFingerprint();
   for (const id of ["host", "port"]) {
     const input = element(id);
     if (!input.checkValidity()) {
@@ -1556,8 +1589,8 @@ element("fingerprint-confirm").addEventListener("change", (event) => {
   }
 });
 
-element("host").addEventListener("input", resetFingerprint);
-element("port").addEventListener("input", resetFingerprint);
+element("host").addEventListener("input", handleVpsDestinationInput);
+element("port").addEventListener("input", handleVpsDestinationInput);
 for (const id of ["host", "port", "username"]) {
   element(id).addEventListener("input", () => clearFieldError(element(id), "global-error-text"));
 }
@@ -1566,23 +1599,43 @@ element("password").addEventListener("input", invalidateReviewedPlan);
 element("vps-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const button = element("connect-button");
+  if (state.operationBusy) return;
   clearError();
   invalidateReviewedPlan();
-  setMessage("Connecting, then inspecting Docker with read-only commands…");
+  const identity = sshSession.adoptedIdentity();
+  const retry = identity && !state.vpsReconnectRequired;
+  if ((retry && !vpsConnectionMatchesForm(identity)) ||
+      (!retry && (!state.fingerprint || !element("fingerprint-confirm").checked))) {
+    resetFingerprint();
+    showError(new Error("Check and confirm the server identity again before connecting with these details."));
+    return;
+  }
+  setMessage(retry ? "Retrying Docker discovery on the verified connection…" :
+    "Connecting, then inspecting Docker with read-only commands…");
   try {
     const discovered = await runOperation(
       button,
-      "Connecting and inspecting Docker…",
+      retry ? "Inspecting Docker…" : "Connecting and inspecting Docker…",
       async () => {
-        await api("/api/ssh/connect", {
-          method: "POST",
-          body: sshAuthentication.request(state.fingerprint),
-        });
+        if (!retry) {
+          await api("/api/ssh/connect", {
+            method: "POST",
+            body: sshAuthentication.request(state.fingerprint),
+          });
+          state.vpsReconnectRequired = false;
+          state.fingerprint = null;
+          element("fingerprint-box").hidden = true;
+          element("fingerprint-confirm").checked = false;
+          element("password").value = "";
+          element("password").disabled = true;
+          element("password").required = false;
+        }
         return discover();
       },
       {
-        progressNote:
-          "Relmio is opening the verified SSH connection and inspecting Docker with read-only commands. Timing varies with your VPS and network. Keep this page open.",
+        progressNote: retry
+          ? "Relmio is reusing the verified SSH connection for read-only Docker discovery. No new authentication or password is needed."
+          : "Relmio is opening the verified SSH connection and inspecting Docker with read-only commands. Timing varies with your VPS and network. Keep this page open.",
       },
     );
     if (!discovered) return;
@@ -1593,8 +1646,11 @@ element("vps-form").addEventListener("submit", async (event) => {
       "n8n was found. Choose its network, then install or manage a Relmio-owned companion.",
     );
   } catch (error) {
-    element("password").value = "";
+    if (error.code === "ssh_identity_review_required") resetFingerprint();
     showError(error);
+  } finally {
+    element("password").value = "";
+    syncVpsConnectAction();
   }
 });
 
@@ -1646,6 +1702,7 @@ element("container-select").addEventListener("change", async (event) => {
   const containerName = select.value;
   clearError();
   invalidateReviewedPlan();
+  resetVpsOwner();
   try {
     const networks = await runOperation(
       select,
@@ -1673,16 +1730,21 @@ element("review-button").addEventListener("click", async (event) => {
     const plan = await runOperation(
       button,
       "Preparing the exact plan…",
-      () => api(assistant ? "/api/assistant/plan" : "/api/plan", {
-        method: "POST",
-        body: {
-          containerName: element("container-select").value,
-          networkName,
-          ...(assistant
-            ? { includeSearxng: element("manage-vps-searxng").checked }
-            : {}),
-        },
-      }),
+      async () => {
+        if (!assistant) {
+          const models = await siwc.catalog();
+          if (models.length === 0) throw new Error("No models are listed for this selected ChatGPT account.");
+          state.catalogLabels = new Map(models.map(({ slug, display_name }) => [slug, display_name]));
+        }
+        return api(assistant ? "/api/assistant/plan" : "/api/plan", {
+          method: "POST",
+          body: {
+            containerName: element("container-select").value,
+            networkName,
+            ...(assistant ? { includeSearxng: element("manage-vps-searxng").checked } : {}),
+          },
+        });
+      },
     );
     if (!plan) return;
     const planId = validatePlanId(plan.planId);
@@ -1699,21 +1761,30 @@ element("review-button").addEventListener("click", async (event) => {
 
 element("network-select").addEventListener("change", () => {
   invalidateReviewedPlan();
+  resetVpsOwner();
   setMessage("Network changed. Review a fresh plan before installing.");
 });
 
-element("install-confirm").addEventListener("change", (event) => {
-  const approved = event.currentTarget.checked && state.planId &&
-    sameSshIdentity(state.reviewedIdentity, sshSession.adoptedIdentity());
-  if (!approved && event.currentTarget.checked) {
+function updateInstallApproval() {
+  const approved = element("install-confirm").checked && state.planId &&
+    sameSshIdentity(state.reviewedIdentity, sshSession.adoptedIdentity()) &&
+    (isAssistantIntegration() || (element("background-consent").checked &&
+      (!state.planMigrationRequired || element("vps-migration-consent").checked) &&
+      (!state.planReplacementRequired || element("vps-replacement-consent").checked)));
+  if (!sameSshIdentity(state.reviewedIdentity, sshSession.adoptedIdentity()) &&
+      element("install-confirm").checked) {
     invalidateReviewedPlan();
-    showError(new Error("The verified VPS identity changed. Disconnect and reconnect before reviewing a fresh plan."));
+    showError(new Error("The verified VPS identity changed. Reconnect before reviewing a fresh plan."));
     return;
   }
   element("install-button").disabled = !approved;
-});
+}
+element("install-confirm").addEventListener("change", updateInstallApproval);
+element("background-consent").addEventListener("change", updateInstallApproval);
+element("vps-migration-consent").addEventListener("change", updateInstallApproval);
+element("vps-replacement-consent").addEventListener("change", updateInstallApproval);
 
-function clearEndedVpsConnectionState() {
+function clearEndedVpsConnectionState({ preserveOwner = false } = {}) {
   state.discovery = null;
   state.networks = null;
   state.fingerprint = null;
@@ -1726,27 +1797,18 @@ function clearEndedVpsConnectionState() {
   element("container-select").replaceChildren();
   element("network-select").replaceChildren();
   element("detected-vps-integration-management").hidden = true;
+  if (!preserveOwner) resetVpsOwner();
 }
 
-function showRejectedChatGptSignInRecovery() {
-  element("auth-indicator").classList.remove("ready");
-  element("auth-title").textContent = "Fresh ChatGPT sign-in needed";
-  element("auth-detail").textContent = state.oauthRetryBlocked
-    ? "The VPS rejected this sign-in. Close the earlier sign-in helper and restart Relmio. Then refresh the sign-in, reconnect to the VPS, and review the bridge update again."
-    : "The VPS rejected this sign-in. Select Refresh ChatGPT sign-in. After it succeeds, reconnect to the VPS and review the bridge update again.";
-  const loginButton = element("login-button");
-  loginButton.textContent = "Refresh ChatGPT sign-in";
-  loginButton.dataset.label = "Refresh ChatGPT sign-in";
-  loginButton.disabled = state.oauthRetryBlocked === true;
-  element("signin-next").disabled = true;
-  setSignInLeads(true);
-}
 
 element("install-button").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   clearError();
   const assistant = isAssistantIntegration();
   if (!state.planId || !element("install-confirm").checked ||
+    (!assistant && (!element("background-consent").checked ||
+      (state.planMigrationRequired && !element("vps-migration-consent").checked) ||
+      (state.planReplacementRequired && !element("vps-replacement-consent").checked))) ||
     !sameSshIdentity(state.reviewedIdentity, sshSession.adoptedIdentity())) {
     invalidateReviewedPlan();
     showError(new Error("Review and confirm a fresh plan first."));
@@ -1766,7 +1828,9 @@ element("install-button").addEventListener("click", async (event) => {
           planId: state.planId,
           ...(assistant
             ? { includeSearxng: element("manage-vps-searxng").checked }
-            : {}),
+            : { backgroundConsent: element("background-consent").checked,
+                ...(state.planMigrationRequired ? { migrationConsent: element("vps-migration-consent").checked } : {}),
+                ...(state.planReplacementRequired ? { replacementConsent: element("vps-replacement-consent").checked } : {}) }),
         },
       }),
       {
@@ -1775,72 +1839,89 @@ element("install-button").addEventListener("click", async (event) => {
       },
     );
     if (!result) return;
+    const installedAccount = assistant ? null : normalizeSiwcAccount(result.account);
+    const verifiedCatalog = assistant || result.readiness === "verified";
     invalidateReviewedPlan();
     if (!assistant) {
       element("result-url").textContent = result.baseUrl;
-      element("result-key").textContent = result.apiKeyPlaceholder;
-      const firstTextModel = result.models.find(
-        (model) => !model.startsWith("gpt-image"),
-      ) ?? "Not detected";
-      element("result-model").textContent = firstTextModel;
-      element("result-models").textContent = result.models.join(", ");
+      element("result-key").textContent = result.clientCredential;
+      element("result-http-auth").textContent = `Bearer ${result.clientCredential}`;
+      element("result-account").textContent =
+        `Installed account: ${installedAccount.label} · ${installedAccount.registrationId.slice(-8)}.`;
+      // A finalization failure or an unverified runtime holds the key: no plan badge, and the
+      // readiness line becomes the warning.
+      const holdKey = Boolean(result.finalizationFailure) || result.runtimeState !== "running";
+      element("result-plan-badge").hidden = holdKey || !installedAccount.planEnabled;
+      element("result-usage").hidden = holdKey;
+      const failureDetails = result.finalizationFailure ?? result.runtimeFailure ?? result.catalogFailure;
+      const failure = failureDetails
+        ? siwcErrorFromResponse(failureDetails, failureDetails.status ?? 502) : null;
+      element("result-readiness").textContent = result.finalizationFailure
+        ? `Finalization did not finish. ${failure ? siwcErrorText(failure) : ""} Review the installed target again.`
+        : result.runtimeState !== "running"
+        ? `Runtime outcome: ${result.runtimeState}. ${result.hostPublication === "unknown" ? "Host publication could not be verified. " : ""}Do not send requests. ${failure ? siwcErrorText(failure) : ""}`
+        : verifiedCatalog
+          ? "The installed account's model list was checked. No inference result has been verified here."
+          : `The installed model check did not complete. Save the one-time key. ${failure ? siwcErrorText(failure) : "Check the installed owner before using n8n."}`;
+      element("result-readiness").className = holdKey || !verifiedCatalog
+        ? "rm-callout rm-callout--warning" : "rm-small";
+      element("credential-title").textContent = holdKey
+        ? "Save the Relmio client credential" : "1. Add the Relmio client credential";
+      element("result-readiness-usage").hidden = failure?.recovery !== "manage-usage";
+      // Image models answer only on the images route, so the chat recipe never offers them.
+      const chatModels = result.models.filter((slug) => !slug.includes("image"));
+      fillSelect(element("result-model-picker"),
+        chatModels.map((slug) => ({ value: slug, label: state.catalogLabels.get(slug) ?? slug })),
+        chatModels[0]);
+      const selectedModel = chatModels[0] ?? "";
+      element("result-model").textContent = selectedModel;
+      element("result-models").textContent = result.models.length ? result.models.join(", ") : "None listed";
+      // Request tools stay off while the key is held, so nothing suggests sending a request.
+      element("result-model-picker").disabled = chatModels.length === 0 || holdKey;
+      element("copy-http-recipe").disabled = chatModels.length === 0 || holdKey;
       element("result-http-url").textContent =
         `${result.baseUrl.replace(/\/$/u, "")}/chat/completions`;
-      renderHttpRequestBody(firstTextModel);
-      renderImageModelsForN8n(result.models);
+      renderHttpRequestBody(selectedModel);
     }
     const assistantResult = assistant ? renderAssistantResult(result) : null;
     element("done-title").textContent = assistant
       ? "The private Assistant companion is ready"
-      : "The private bridge is ready";
+      : result.finalizationFailure ? "Session transferred; finalization needs review"
+        : result.runtimeState !== "running"
+        ? "Session transferred; runtime needs inspection"
+        : verifiedCatalog ? "The private sidecar is installed" : "Sidecar installed; model check unverified";
     element("done-detail").textContent = assistant
       ? assistantResult.includeSearxng
         ? "Code Sandbox and private SearXNG were checked. Relmio did not restart n8n."
         : "Code Sandbox was checked without SearXNG. Relmio did not restart n8n."
-      : result.deploymentMode === "updated"
-        // The status message names what was updated; the lead keeps the check.
-        ? "The update was checked. Copy these values into n8n on the same private network."
-        : "Copy these values into n8n on the same private network.";
+      : result.finalizationFailure
+        ? "Save the one-time key now. Do not configure n8n until finalization is resolved."
+        : result.runtimeState !== "running"
+          ? "Save the one-time Relmio client key, but do not configure n8n until the owned runtime has been inspected."
+          : "Copy the one-time Relmio client key into n8n on this private network. The selected installation owns future token refresh and sign-out.";
     element("assistant-result").hidden = !assistant;
     element("sidecar-ready-content").hidden = assistant;
     showStep(5);
-    setMessage(
-      assistant
-        ? "Assistant companion verified. Your existing n8n was not restarted."
-        : result.deploymentMode === "updated"
-        ? "Adapter runtime and ChatGPT sign-in file updated on the existing wizard-managed sidecar. n8n was not restarted."
-        : "Installation verified. Your existing n8n was not restarted.",
-    );
+    setMessage(assistant
+      ? "Assistant companion verified. Your existing n8n was not restarted."
+      : result.finalizationFailure
+        ? "The server owns the session, but finalization did not finish. Save the one-time key and review the installed target."
+        : result.runtimeState !== "running"
+          ? "The destination owns the account, but its service status is uncertain. Save the one-time key and inspect the sidecar manually."
+          : verifiedCatalog
+            ? "The selected ChatGPT registration is owned by the sidecar. Set the one-time local client key in n8n yourself."
+            : "The sidecar is installed, but model access was not verified. Save its one-time key and check the installed owner.");
   } catch (error) {
     invalidateReviewedPlan();
-    if (!assistant) renderImageModelsForN8n([]);
     if (error.sshIdentityUnverified === true) {
       state.installAttempted = false;
       showStep(2);
-      setMessage("No installation request was sent from this page. Verify the intended VPS by disconnecting and reconnecting; the shared session was not closed automatically.");
+      setMessage("No installation request was sent. Verify the intended VPS again.");
       showError(error);
-      return;
-    }
-    if (error.recoveryAction === "refresh-chatgpt-sign-in") {
-      clearEndedVpsConnectionState();
-      showStep(1);
-      selectChatGptSetup({ focus: false });
-      showRejectedChatGptSignInRecovery();
-      setMessage(
-        state.oauthRetryBlocked
-          ? "The bridge update stopped. Restart Relmio before refreshing ChatGPT sign-in."
-          : "The bridge update stopped. Refresh ChatGPT sign-in before reconnecting to the VPS.",
-      );
-      showError(error);
-      if (!state.oauthRetryBlocked) {
-        element("login-button").focus({ preventScroll: true });
-      }
       return;
     }
     showStep(2);
-    setMessage(
-      "The install or update did not finish, and the VPS connection was closed. Reconnect and inspect the companion before retrying.",
-    );
+    setMessage("The installation did not finish. Reconnect and inspect the owner before reviewing another write.");
     showError(error);
   }
 });
@@ -1866,7 +1947,7 @@ element("manage-vps-integration").addEventListener("click", () => {
   setMessage(
     isAssistantIntegration()
       ? "Review a private Assistant companion plan. SearXNG remains opt-in and n8n stays untouched."
-      : "Review a private bridge update. Refresh ChatGPT sign-in first if its session needs replacement.",
+      : "Review a separately authorized registration before replacing an owned sidecar. The installed owner can be managed below.",
   );
 });
 
@@ -1876,7 +1957,588 @@ element("refresh-vps-chatgpt").addEventListener("click", () => {
   state.managingDetectedIntegration = true;
   element("manage-vps-sidecar").checked = true;
   renderIntegrationManagement();
+  state.loginIntent = { purpose: "sign-in" };
   element("login-button").click();
+});
+
+element("result-model-picker").addEventListener("change", (event) => {
+  const model = event.currentTarget.value;
+  element("result-model").textContent = model;
+  renderHttpRequestBody(model);
+});
+
+function sameVpsOwnerTarget(left, right) {
+  return Boolean(left && right && left.containerName === right.containerName &&
+    left.networkName === right.networkName && left.n8nContainerId === right.n8nContainerId &&
+    left.networkId === right.networkId && left.identity && right.identity &&
+    ["host", "port", "fingerprint", "username", "authentication", "privilege",
+      "loginUid", "effectiveUid"].every((key) => left.identity[key] === right.identity[key]));
+}
+
+function renderVpsOwner(status, { reviewedStopped = false } = {}) {
+  const account = status.account ? normalizeSiwcAccount(status.account) : null;
+  const target = {
+    containerName: element("container-select").value,
+    networkName: element("network-select").value,
+    ...status.destination,
+    identity: sshSession.adoptedIdentity(),
+  };
+  state.vpsOwner = { ...target, state: status.state,
+    registrationId: status.registrationId ?? account?.registrationId ?? status.staging?.registrationId, account, reviewedStopped };
+  const stopped = status.state === "stopped" && !account && Boolean(status.registrationId);
+  element("vps-owner-inspect-row").hidden = !stopped;
+  element("vps-owner-inspect").hidden = !stopped;
+  element("vps-owner-inspect-confirm").checked = false;
+  element("vps-owner-confirm").checked = false;
+  element("vps-owner-background-confirm").checked = false;
+  renderVpsOwnerUpdate(status, account);
+  const mutable = account?.ownership === "owned" && account.session !== "signed-out" &&
+    (status.state === "owned" || reviewedStopped);
+  element("vps-owner-actions").hidden = !mutable;
+  element("vps-owner-enable").hidden = !mutable || account.planEnabled ||
+    account.planPermission !== "granted";
+  element("vps-owner-background-row").hidden = element("vps-owner-enable").hidden;
+  element("vps-owner-disable").hidden = !mutable || !account.planEnabled;
+  element("vps-owner-logout").hidden = !mutable;
+  for (const id of ["vps-owner-enable", "vps-owner-disable", "vps-owner-logout"]) element(id).disabled = true;
+  element("vps-owner-replace").hidden = !(account?.session === "signed-out" &&
+    account.planEnabled === false && reviewedStopped);
+  element("vps-owner-status").textContent = account
+    ? `${account.label}${account.email ? ` (${account.email})` : ""} · ${account.registrationId.slice(-8)}. ${account.session === "connected"
+      ? account.planEnabled ? "Using ChatGPT plan." : "Plan use paused." : "Signed out."}`
+    : stopped ? "The sidecar is stopped. Confirm a one-off owner inspection before changing its session."
+      : status.state === "legacy" ? "Legacy bridge found. Review a fresh SIWC migration. The old credential stays offline."
+        : status.state === "updating" ? "A sidecar update did not finish."
+          : status.state === "partial" ? "Owner state is partial. Inspect the service manually before another write."
+            : "No attested installed ChatGPT account was found on this selected network.";
+}
+
+function renderVpsOwnerUpdate(status, account = null) {
+  state.vpsOwnerUpdate = null;
+  const owned = status?.state === "owned" && account?.ownership === "owned";
+  const updating = status?.state === "updating";
+  element("vps-owner-update").hidden = !owned && !updating;
+  element("vps-owner-update-plan").hidden = true;
+  element("vps-owner-update-confirm").checked = false;
+  element("vps-owner-update-apply").disabled = true;
+  element("vps-owner-update-summary").textContent = "";
+  element("vps-owner-update-status").textContent = updating
+    ? `A sidecar update was interrupted at stage ${status.staging?.stage ?? "unknown"}. Review it to finish.`
+    : status?.runtimeUpdateAvailable === true ? "A newer sidecar runtime is available."
+      : status?.runtimeUpdateAvailable === false ? "The sidecar runtime is current."
+        : "Review the sidecar update to compare it with this Relmio version.";
+  renderVpsOwnerImages(null, owned);
+  renderVpsOwnerModels(null, owned);
+}
+
+function stopVpsOwnerImagesPolling() {
+  state.vpsImagesGeneration += 1;
+  window.clearTimeout(state.vpsImagesTimer);
+  state.vpsImagesTimer = null;
+}
+
+function renderVpsOwnerImages(images, visible = true) {
+  stopVpsOwnerImagesPolling();
+  state.vpsImages = images;
+  const view = images?.state;
+  const account = images?.account;
+  const identity = sshSession.adoptedIdentity();
+  element("vps-owner-images").hidden = !visible;
+  element("vps-owner-images-off").hidden = view !== "off" && view !== "reauthorize";
+  element("vps-owner-images-pending").hidden = view !== "pending";
+  element("vps-owner-images-on").hidden = view !== "signed-in" && view !== "reauthorize";
+  for (const id of ["vps-owner-images-confirm", "vps-owner-images-signout-confirm"]) element(id).checked = false;
+  for (const id of ["vps-owner-images-start", "vps-owner-images-signout"]) element(id).disabled = true;
+  element("vps-owner-images-confirm-label").textContent = "I understand. Sign in to Codex for images on " +
+    `${identity ? `${identity.username}@${identity.host}:${identity.port}` : "this server"}.`;
+  element("vps-owner-images-code").textContent = view === "pending" ? images.pending.userCode : "";
+  const link = element("vps-owner-images-link");
+  if (view === "pending") link.href = images.pending.verificationUrl;
+  else link.removeAttribute("href");
+  element("vps-owner-images-expiry").textContent = view === "pending"
+    ? `The code expires at ${new Date(images.pending.expiresAt).toLocaleTimeString()}. Relmio checks every 5 seconds.`
+    : "";
+  const who = account
+    ? ` for ${account.email ?? `account …${account.accountIdSuffix}`}${account.planType ? ` (${account.planType})` : ""}`
+    : "";
+  element("vps-owner-images-status").textContent = view === "signed-in" ? `Images on${who}.`
+    : view === "pending" ? "Open the Codex sign-in page and enter the code below. Image generation turns on when you approve it."
+      : view === "reauthorize" ? "The Codex image sign-in expired. Sign in for images again."
+        : view === "unavailable" ? "Update the sidecar first (Review sidecar update) to add image generation."
+          : images?.outcome === "declined" ? "The Codex sign-in was declined. Image generation is off."
+            : images?.outcome === "expired" ? "The sign-in code expired before it was used. Image generation is off."
+              : view === "off" ? "Image generation is off."
+                : "Check the installed account to see image generation.";
+  if (view === "pending") scheduleVpsOwnerImagesPoll(state.vpsImagesGeneration);
+}
+
+function scheduleVpsOwnerImagesPoll(generation, delay = 5_000) {
+  window.clearTimeout(state.vpsImagesTimer);
+  state.vpsImagesTimer = generation === state.vpsImagesGeneration
+    ? window.setTimeout(() => { void pollVpsOwnerImages(generation); }, delay)
+    : null;
+}
+
+// The server detaches SSH after sign-out or a finished sign-in, like other owner changes.
+async function endVpsOwnerImagesSession() {
+  await api("/api/disconnect", { method: "POST", body: {} }).catch(() => {});
+  clearEndedVpsConnectionState({ preserveOwner: true });
+  showStep(2);
+}
+
+async function pollVpsOwnerImages(generation) {
+  if (generation !== state.vpsImagesGeneration) return;
+  if (state.operationBusy) {
+    scheduleVpsOwnerImagesPoll(generation, 500);
+    return;
+  }
+  let result;
+  try {
+    result = await api("/api/siwc/vps/images/login-status", { method: "POST", body: {} });
+  } catch (error) {
+    if (generation !== state.vpsImagesGeneration) return;
+    element("vps-owner-images-status").textContent =
+      "The image sign-in status could not be checked. Check the installed account again to continue.";
+    showError(error, { focus: false });
+    return;
+  }
+  if (generation !== state.vpsImagesGeneration) return;
+  renderVpsOwnerImages(result);
+  if (result.state === "pending") return;
+  setMessage(element("vps-owner-images-status").textContent);
+  await endVpsOwnerImagesSession();
+}
+
+async function changeVpsOwnerImages(action, button, confirmId) {
+  const owner = state.vpsOwner;
+  if (!owner || (confirmId && !element(confirmId).checked)) {
+    showError(new Error("Confirm this image sign-in change first."));
+    return;
+  }
+  clearError();
+  try {
+    const result = await runOperation(button, action === "login-start" ? "Starting image sign-in…"
+      : action === "sign-out" ? "Signing out of images…" : "Cancelling image sign-in…", () =>
+      api("/api/siwc/vps/images/action", { method: "POST", body: { action, confirmed: true } }));
+    if (!result || state.vpsOwner !== owner) return;
+    renderVpsOwnerImages(result);
+    if (action === "login-start" && result.state === "pending") focusVisible(element("vps-owner-images-link"));
+    if (action === "login-cancel") focusVisible(element("vps-owner-images-confirm"));
+    if (action === "sign-out") {
+      const message = result.revocation === "unconfirmed"
+        ? "The Codex image sign-in was removed from this server, but OpenAI did not confirm the revocation."
+        : "Signed out of images. The Codex image sign-in was removed from this server.";
+      element("vps-owner-images-status").textContent = message;
+      setMessage(message);
+    }
+  } catch (error) { showError(error); }
+  finally {
+    if (action === "sign-out") await endVpsOwnerImagesSession();
+  }
+}
+
+element("vps-owner-images-confirm").addEventListener("change", (event) => {
+  element("vps-owner-images-start").disabled = !event.currentTarget.checked;
+});
+element("vps-owner-images-signout-confirm").addEventListener("change", (event) => {
+  element("vps-owner-images-signout").disabled = !event.currentTarget.checked;
+});
+element("vps-owner-images-start").addEventListener("click", (event) => {
+  void changeVpsOwnerImages("login-start", event.currentTarget, "vps-owner-images-confirm");
+});
+element("vps-owner-images-cancel").addEventListener("click", (event) => {
+  void changeVpsOwnerImages("login-cancel", event.currentTarget);
+});
+element("vps-owner-images-signout").addEventListener("click", (event) => {
+  void changeVpsOwnerImages("sign-out", event.currentTarget, "vps-owner-images-signout-confirm");
+});
+
+const VPS_MODEL_BADGES = new Map([
+  ["verified", ["Ready", "rm-badge rm-badge--success"]],
+  ["failed", ["Not working", "rm-badge rm-badge--warning"]],
+  ["unchecked", ["Not checked yet", "rm-badge"]],
+]);
+const VPS_MODEL_LISTED_BADGES = new Map([[true, ["In n8n", "rm-badge rm-badge--accent"]], [false, ["Not in n8n", "rm-badge"]]]);
+const VPS_MODEL_STOP_REASONS = new Map([
+  ["usage_limit", "Checks paused: plan usage isn't available right now."],
+  ["reauthorize", "Checks paused: ChatGPT sign-in is needed."],
+  ["probe_rejected", "Checks paused: OpenAI refused the test request."],
+  ["checks_off", "Checks stopped because they were turned off."],
+  ["time_limit", "Some models weren't checked in time. The sidecar keeps checking in the background."],
+  ["lease_unavailable", "Checks paused: the ChatGPT session isn't available for plan use right now."],
+]);
+
+// Without a catalog only turning checks off stays offered; turning them on needs the catalog.
+function vpsOwnerModelsControl(models) {
+  return models?.state !== "available" ? null : models.checksEnabled ? "off" : models.catalogError ? null : "on";
+}
+
+function vpsOwnerModelsStatus(models) {
+  if (!models) return "Check the installed account to see models.";
+  if (models.state !== "available") return "Update the sidecar first (Review sidecar update) to show models.";
+  const catalog = models.catalogError
+    ? `OpenAI's model catalog is unavailable right now.${models.checksEnabled ? " You can still turn model checks off." : ""}`
+    : models.catalogCheckedAt === null ? "Check the installed account to refresh the model list."
+      : models.models.length
+        ? `Catalog read at ${new Date(models.catalogCheckedAt).toLocaleTimeString()} as Codex ${models.clientVersion}.`
+        : "OpenAI's catalog lists no models for this account.";
+  return [`Model checks are ${models.checksEnabled ? "on" : "off"}.`, catalog,
+    VPS_MODEL_STOP_REASONS.get(models.lastRun?.stoppedReason)].filter(Boolean).join(" ");
+}
+
+function renderVpsOwnerModels(models, visible = true) {
+  const available = models?.state === "available";
+  const control = vpsOwnerModelsControl(models);
+  const identity = sshSession.adoptedIdentity();
+  element("vps-owner-models").hidden = !visible;
+  element("vps-owner-models-view").hidden = !available;
+  element("vps-owner-models-checks-off").hidden = control !== "on";
+  element("vps-owner-models-checks-on").hidden = control !== "off";
+  for (const id of ["vps-owner-models-confirm", "vps-owner-models-off-confirm"]) element(id).checked = false;
+  for (const id of ["vps-owner-models-on", "vps-owner-models-off"]) element(id).disabled = true;
+  element("vps-owner-models-confirm-label").textContent = "I approve model checks on " +
+    `${identity ? `${identity.username}@${identity.host}:${identity.port}` : "this server"}.`;
+  element("vps-owner-models-list").replaceChildren(...(available ? models.models.map(vpsOwnerModelRow) : []));
+  element("vps-owner-models-status").textContent = vpsOwnerModelsStatus(models);
+  state.vpsModels = models;
+  void renderVpsUsage();
+}
+
+// Plan and usage on the owner panel: the checked account, the image add-on's plan type while it
+// is signed in, the model checks and the request counts that Refresh usage reads. The panel
+// module loads on first use with its stylesheet, so the first paint of this page stays light.
+// The section shows only once both have loaded, so it never appears unstyled.
+let usagePanel = null;
+
+async function renderVpsUsage({ loading = false } = {}) {
+  const owner = state.vpsOwner;
+  const section = element("vps-usage");
+  if (owner?.state !== "owned" || owner.account?.ownership !== "owned") {
+    section.hidden = true;
+    return;
+  }
+  usagePanel ??= import("./usage-panel.js");
+  const { renderUsage } = await usagePanel;
+  if (state.vpsOwner !== owner) return;
+  section.hidden = false;
+  const models = state.vpsModels?.state === "available" ? { listed: state.vpsModels.models.length,
+    verified: state.vpsModels.models.filter((model) => model.state === "verified").length } : null;
+  renderUsage({ status: element("vps-usage-status"), view: element("vps-usage-view") }, {
+    page: "vps", account: owner.account, models, loading,
+    imagePlan: state.vpsImages?.state === "signed-in" ? state.vpsImages.account?.planType ?? null : null,
+    usage: state.vpsUsage?.registrationId === owner.registrationId ? state.vpsUsage.view : null,
+    error: state.vpsUsageError?.owner === owner ? state.vpsUsageError.error : null,
+  });
+}
+
+function vpsOwnerModelBadge([text, className]) {
+  const badge = document.createElement("span");
+  badge.className = className;
+  badge.textContent = text;
+  return badge;
+}
+
+function vpsOwnerModelRow(model) {
+  const row = document.createElement("div");
+  const label = document.createElement("dt");
+  const detail = document.createElement("dd");
+  const id = document.createElement("code");
+  const copy = document.createElement("button");
+  const icon = document.createElement("span");
+  const name = document.createElement("span");
+  label.textContent = model.display_name;
+  detail.className = "rm-cluster";
+  id.textContent = model.id;
+  copy.type = "button";
+  copy.className = "rm-button rm-button--sm copy-value";
+  icon.className = "rm-icon rm-icon--copy rm-icon--sm";
+  icon.setAttribute("aria-hidden", "true");
+  // Each button names its model, so a list of Copy ID buttons stays distinguishable.
+  name.className = "rm-visually-hidden";
+  name.textContent = ` ${model.id}`;
+  copy.append(icon, "Copy ID", name);
+  copy.addEventListener("click", () => { void copyVpsOwnerModelId(model.id, copy, id); });
+  detail.append(id, vpsOwnerModelBadge(VPS_MODEL_LISTED_BADGES.get(model.listed)),
+    vpsOwnerModelBadge(VPS_MODEL_BADGES.get(model.state)), copy);
+  row.append(label, detail);
+  return row;
+}
+
+async function copyVpsOwnerModelId(modelId, button, code) {
+  const status = element("vps-owner-models-status");
+  try {
+    await copyText(modelId);
+    flashCopied(button);
+    status.textContent = `Copied ${modelId}.`;
+  } catch {
+    document.getSelection().selectAllChildren(code);
+    status.textContent = "Copy failed. The ID is selected, so you can copy it with your keyboard.";
+  }
+}
+
+async function changeVpsOwnerModels(enabled, button, confirmId) {
+  const owner = state.vpsOwner;
+  if (!owner || !element(confirmId).checked) {
+    showError(new Error("Confirm this model check change first."));
+    return;
+  }
+  clearError();
+  try {
+    const result = await runOperation(button, enabled ? "Turning on model checks…" : "Turning off model checks…",
+      () => api("/api/siwc/vps/models/checks", { method: "POST", body: { enabled, confirmed: true } }),
+      { progressNote: enabled
+        ? "The sidecar tests up to 12 models now, one at a time. This can take a few minutes."
+        : OPERATION_DEFAULT_NOTE });
+    if (!result || state.vpsOwner !== owner) return;
+    renderVpsOwnerModels(result);
+    const control = vpsOwnerModelsControl(result);
+    focusVisible(element(control === "off" ? "vps-owner-models-off-confirm"
+      : control === "on" ? "vps-owner-models-confirm" : "vps-owner-check"));
+  } catch (error) { showError(error); }
+}
+
+for (const [enabled, buttonId, confirmId] of [
+  [true, "vps-owner-models-on", "vps-owner-models-confirm"],
+  [false, "vps-owner-models-off", "vps-owner-models-off-confirm"],
+]) {
+  element(confirmId).addEventListener("change", (event) => {
+    element(buttonId).disabled = !event.currentTarget.checked;
+  });
+  element(buttonId).addEventListener("click", (event) => {
+    void changeVpsOwnerModels(enabled, event.currentTarget, confirmId);
+  });
+}
+
+function updateVpsOwnerApproval() {
+  const owner = state.vpsOwner;
+  const accepted = element("vps-owner-confirm").checked && owner?.account?.ownership === "owned" &&
+    (owner.state === "owned" || owner.reviewedStopped === true);
+  element("vps-owner-enable").disabled = !accepted || !element("vps-owner-background-confirm").checked;
+  element("vps-owner-disable").disabled = !accepted;
+  element("vps-owner-logout").disabled = !accepted;
+}
+element("vps-owner-confirm").addEventListener("change", updateVpsOwnerApproval);
+element("vps-owner-background-confirm").addEventListener("change", updateVpsOwnerApproval);
+
+element("vps-owner-check").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  clearError();
+  try {
+    const result = await runOperation(button, "Checking installed owner…", () =>
+      api("/api/siwc/vps/status", {
+        method: "POST",
+        body: { containerName: element("container-select").value,
+          networkName: element("network-select").value },
+      }));
+    if (!result) return;
+    const current = { containerName: element("container-select").value,
+      networkName: element("network-select").value, identity: sshSession.adoptedIdentity() };
+    const destination = result.destination;
+    current.n8nContainerId = destination?.n8nContainerId;
+    current.networkId = destination?.networkId;
+    const prior = state.vpsOwner;
+    if (result.state === "stopped" && prior?.reviewedStopped && prior.account &&
+        result.registrationId === prior.registrationId && sameVpsOwnerTarget(prior, current)) {
+      renderVpsOwner({ ...result, account: prior.account }, { reviewedStopped: true });
+    } else renderVpsOwner(result);
+    const owner = state.vpsOwner;
+    if (element("vps-owner-images").hidden) return;
+    const target = { containerName: owner.containerName, networkName: owner.networkName,
+      registrationId: owner.registrationId };
+    const images = await runOperation(button, "Checking image generation…", () =>
+      api("/api/siwc/vps/images/status", { method: "POST", body: target }));
+    if (images && state.vpsOwner === owner) renderVpsOwnerImages(images);
+    const models = await runOperation(button, "Checking models…", () =>
+      api("/api/siwc/vps/models/status", { method: "POST", body: target }));
+    if (models && state.vpsOwner === owner) renderVpsOwnerModels(models);
+  } catch (error) { showError(error); }
+});
+
+// Read-only. The route allows 10 reads in 15 minutes and answers 409 once the owner check expires.
+element("vps-usage-refresh").addEventListener("click", async (event) => {
+  const owner = state.vpsOwner;
+  if (!owner?.registrationId) return;
+  state.vpsUsageError = null;
+  void renderVpsUsage({ loading: true });
+  try {
+    const view = await runOperation(event.currentTarget, "Reading request counts…", () =>
+      api("/api/siwc/vps/usage/status", { method: "POST", body: { containerName: owner.containerName,
+        networkName: owner.networkName, registrationId: owner.registrationId } }));
+    if (view) state.vpsUsage = { registrationId: owner.registrationId, view };
+  } catch (error) {
+    state.vpsUsageError = { owner, error };
+  }
+  await renderVpsUsage();
+});
+
+element("vps-owner-inspect").addEventListener("click", async (event) => {
+  const owner = state.vpsOwner;
+  if (!owner?.registrationId || owner.state !== "stopped" ||
+      !element("vps-owner-inspect-confirm").checked) {
+    showError(new Error("Confirm the stopped sidecar owner inspection first."));
+    return;
+  }
+  const button = event.currentTarget;
+  clearError();
+  try {
+    const result = await runOperation(button, "Inspecting stopped owner…", () =>
+      api("/api/siwc/vps/inspect-stopped", { method: "POST", body: {
+        containerName: owner.containerName, networkName: owner.networkName,
+        registrationId: owner.registrationId, confirmed: true,
+      } }));
+    if (!result) return;
+    renderVpsOwner({ state: "stopped", registrationId: owner.registrationId,
+      account: result.account, destination: { n8nContainerId: owner.n8nContainerId, networkId: owner.networkId } }, { reviewedStopped: true });
+    setMessage("Stopped owner verified. Reconnect to the same server before a separately confirmed session change.");
+  } catch (error) { showError(error); }
+  finally {
+    await api("/api/disconnect", { method: "POST", body: {} }).catch(() => {});
+    clearEndedVpsConnectionState({ preserveOwner: true });
+    showStep(2);
+  }
+});
+
+async function manageVpsOwner(action, button) {
+  const owner = state.vpsOwner;
+  if (!owner?.account || !element("vps-owner-confirm").checked ||
+      (action === "enable-plan" && !element("vps-owner-background-confirm").checked)) {
+    showError(new Error("Confirm this installed account action and its background use."));
+    return;
+  }
+  clearError();
+  try {
+    const result = await runOperation(button, "Checking installed owner…", () =>
+      api("/api/siwc/vps/manage", { method: "POST", body: {
+        containerName: owner.containerName, networkName: owner.networkName,
+        registrationId: owner.account.registrationId,
+        expectedGeneration: owner.account.generation,
+        action, confirmed: true,
+        ...(action === "enable-plan" ? { backgroundConsent: true } : {}),
+      } }));
+    if (!result) return;
+    renderVpsOwner({ state: result.runtimeStopped ? "stopped" : "owned",
+      registrationId: result.account.registrationId, account: result.account,
+      destination: { n8nContainerId: owner.n8nContainerId, networkId: owner.networkId } },
+    { reviewedStopped: result.runtimeStopped === true });
+    const message = result.revocation === "unconfirmed"
+      ? "Local credentials were cleared but provider revocation was not confirmed. Disconnect Relmio in ChatGPT settings."
+      : action === "sign-out" ? "The installed account was signed out. Old credentials stay separate."
+        : action === "disable-plan" ? "Plan use paused. Only this owned sidecar stopped."
+          : "Plan use enabled. Only this owned sidecar started.";
+    element("vps-owner-status").textContent = message;
+    setMessage(message);
+  } catch (error) { showError(error); }
+  finally {
+    await api("/api/disconnect", { method: "POST", body: {} }).catch(() => {});
+    clearEndedVpsConnectionState({ preserveOwner: true });
+    showStep(2);
+  }
+}
+for (const [id, action] of [
+  ["vps-owner-enable", "enable-plan"], ["vps-owner-disable", "disable-plan"],
+  ["vps-owner-logout", "sign-out"],
+]) element(id).addEventListener("click", (event) => { void manageVpsOwner(action, event.currentTarget); });
+
+element("vps-owner-update-review").addEventListener("click", async (event) => {
+  const owner = state.vpsOwner;
+  if (!owner?.registrationId || !["owned", "updating"].includes(owner.state)) {
+    showError(new Error("Check the installed account before reviewing a sidecar update."));
+    return;
+  }
+  const button = event.currentTarget;
+  clearError();
+  state.vpsOwnerUpdate = null;
+  element("vps-owner-update-plan").hidden = true;
+  element("vps-owner-update-confirm").checked = false;
+  element("vps-owner-update-apply").disabled = true;
+  try {
+    const result = await runOperation(button, "Reviewing the sidecar update…", () =>
+      api("/api/siwc/vps/runtime-update/review", { method: "POST", body: {
+        containerName: owner.containerName, networkName: owner.networkName,
+        registrationId: owner.registrationId,
+      } }));
+    if (!result || state.vpsOwner !== owner) return;
+    if (result.rebuildRequired === false) {
+      element("vps-owner-update-status").textContent = "Already current. Nothing to update.";
+      return;
+    }
+    const identity = sshSession.adoptedIdentity();
+    const count = result.changedFiles.length;
+    element("vps-owner-update-summary").textContent = "Rebuild and restart only the Relmio sidecar from this Relmio version. " +
+      `${count} runtime ${count === 1 ? "file changes" : "files change"}. ` +
+      "The ChatGPT sign-in and the one-time Relmio key stay the same. " +
+      "The sidecar is unavailable for about a minute. n8n is not stopped or restarted. " +
+      "The updated sidecar keeps daily request and token counts on the server for 31 days, with no prompts or answers. " +
+      `Image ${result.imageId}, container ${result.containerId}.`;
+    element("vps-owner-update-confirm-label").textContent =
+      `I approve rebuilding and restarting only this owned sidecar on ${identity.username}@${identity.host}:${identity.port}.`;
+    state.vpsOwnerUpdate = { reviewId: result.reviewId };
+    element("vps-owner-update-plan").hidden = false;
+  } catch (error) { showError(error); }
+});
+
+element("vps-owner-update-confirm").addEventListener("change", (event) => {
+  element("vps-owner-update-apply").disabled = !event.currentTarget.checked || !state.vpsOwnerUpdate;
+});
+
+element("vps-owner-update-apply").addEventListener("click", async (event) => {
+  const owner = state.vpsOwner;
+  const update = state.vpsOwnerUpdate;
+  if (!owner || !update || !element("vps-owner-update-confirm").checked) {
+    showError(new Error("Review the sidecar update and confirm it first."));
+    return;
+  }
+  const button = event.currentTarget;
+  clearError();
+  state.vpsOwnerUpdate = null;
+  try {
+    const result = await runOperation(button, "Updating the sidecar…", () =>
+      api("/api/siwc/vps/runtime-update/apply", { method: "POST", body: {
+        reviewId: update.reviewId, confirmed: true,
+      } }));
+    if (!result) return;
+    renderVpsOwner({ state: "owned", registrationId: result.account.registrationId, account: result.account,
+      runtimeUpdateAvailable: false,
+      destination: { n8nContainerId: owner.n8nContainerId, networkId: owner.networkId } });
+    const message = "Sidecar updated. The one-time key and sign-in are unchanged.";
+    element("vps-owner-update-status").textContent = message;
+    setMessage(message);
+  } catch (error) { showError(error); }
+  finally {
+    await api("/api/disconnect", { method: "POST", body: {} }).catch(() => {});
+    clearEndedVpsConnectionState({ preserveOwner: true });
+    showStep(2);
+  }
+});
+
+element("vps-owner-replace").addEventListener("click", () => {
+  const owner = state.vpsOwner;
+  if (!owner?.reviewedStopped || owner.account?.session !== "signed-out") return;
+  if (accountUiState(siwc.selected()) !== "plan-active" || siwc.selected()?.needsPlanWelcome) {
+    selectChatGptSetup();
+    setMessage("Sign in with a fresh independent registration, then inspect the stopped old owner again before reviewing replacement.");
+    return;
+  }
+  state.integrationKind = "sidecar";
+  element("manage-vps-sidecar").checked = true;
+  renderIntegrationManagement();
+  element("review-button").click();
+});
+
+createSiwcRecovery({
+  root: element("vps-siwc-recovery"), api, vps: true,
+  getTarget: () => ({ containerName: element("container-select").value,
+    networkName: element("network-select").value }),
+  onReview(plan) {
+    state.integrationKind = "sidecar";
+    renderIntegrationReview(plan);
+    state.planId = validatePlanId(plan.planId);
+    element("install-confirm").checked = false;
+    element("install-button").disabled = true;
+    showStep(4);
+  },
+  async onResult() { await siwc.load({ welcome: false }); clearEndedVpsConnectionState(); showStep(2); },
+  onError: showError,
 });
 
 for (const button of document.querySelectorAll(

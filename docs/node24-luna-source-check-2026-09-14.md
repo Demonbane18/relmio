@@ -2,6 +2,11 @@
 
 Review date: 2026-09-14
 
+**Historical hosted-chat review:** its Luna model and hosted-chat findings do
+not describe current behavior. The website's `/api/chat` now returns `410 Gone`;
+local open-source SIWC is a separate flow. See the
+[2026-10-04 source check](openai-source-check-2026-10-04.md).
+
 This review covers the browser wizard's Node.js runtime requirement and the
 hosted web chat's default model. It records technical and policy boundaries; it
 is not a legal opinion and does not establish account entitlement.

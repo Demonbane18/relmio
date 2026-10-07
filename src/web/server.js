@@ -6,18 +6,27 @@ import {
 } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { isAbsolute } from "node:path";
 import packageManifest from "../../package.json" with { type: "json" };
 
+import { listSiwcModels } from "../gateway/openai-oauth-sidecar.mjs";
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
-import { installSidecar } from "../services/installer.js";
+import {
+  changeVpsCodexImages, changeVpsModelChecks, getVpsCodexImagesStatus, getVpsModelDiscovery, getVpsSiwcInstallationStatus,
+  inspectStoppedVpsSiwcInstallation, getVpsUsageStatus,
+  installSidecar, manageVpsSiwcInstallation, reviewVpsLegacyMigration, reviewVpsSiwcReplacement, reviewVpsSiwcTarget,
+  reviewVpsSiwcResume, reconcileVpsSiwcHandoff, reviewVpsSiwcRuntimeUpdate, updateVpsSiwcRuntime,
+} from "../services/installer.js";
+import { usageView } from "../services/model-discovery.mjs";
 import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels } from "../services/vps-supergrok.js";
 import { inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus } from "../services/vps-local-model.js";
 import { installAssistant } from "../services/assistant-installer.js";
+import { getAuthStatus, listAuthRegistrations, startOAuthLogin } from "../services/oauth.js";
 import {
-  getAuthStatus,
-  readAuthContents,
-  startOAuthLogin,
-} from "../services/oauth.js";
+  acknowledgePlanUse, getSelectedRegistration, readRegistration, resolveSiwcStorageRoot,
+  selectRegistration, setPlanEnabled, signOut,
+} from "../services/siwc-session.mjs";
+import { readUiPreferences, writeUiPreferences } from "../services/ui-preferences.js";
 import {
   connectVerified,
   scanHostFingerprint,
@@ -65,21 +74,30 @@ import {
 import {
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
-  attestLocalCodexInstallation,
   getManagedLocalEndpointStatus,
   getLocalDockerStatus,
   installLocalEndpoint,
-  resolveLocalInstallRoot,
-  restartLocalCodex,
+  reviewLocalCodexLegacyMigration,
+  reviewLocalCodexSiwcReplacement,
+  inspectStoppedLocalSiwcInstallation,
+  manageLocalSiwcInstallation,
+  reviewLocalSiwcResume,
+  reconcileLocalSiwcHandoff,
   prepareLocalClientCredentialRotation,
 } from "../services/local-installer.js";
-import { getLocalDashboardStatus } from "../services/local-dashboard.js";
+import { copySiwcAccountView, copySiwcStaging, getLocalDashboardStatus } from "../services/local-dashboard.js";
 import {
   discoverLocalN8nSidecarTargets,
+  getLocalN8nSidecarStatus,
+  getLocalN8nSidecarUsage,
+  reviewLocalN8nLegacyMigration,
+  reviewLocalN8nSiwcReplacement,
+  inspectStoppedLocalN8nSiwcInstallation,
   installLocalN8nSidecar,
+  manageLocalN8nSiwcInstallation,
+  reviewLocalN8nSiwcResume,
+  reconcileLocalN8nSiwcHandoff,
   removeLocalN8nSidecar,
-  refreshLocalN8nSidecarCredential,
-  updateLocalN8nSidecarRuntime,
 } from "../services/local-n8n-sidecar-installer.js";
 import {
   editLocalN8nAssistantSearxng,
@@ -103,7 +121,6 @@ import {
   resumeLocalN8nStack,
 } from "../services/local-n8n-stack-installer.js";
 import { validateLocalN8nStackSecrets } from "../templates/local-n8n-stack/index.js";
-import { startCodexDeviceLogin } from "../services/codex-login.js";
 import { createLocalChatTestService } from "../services/local-chat-test.js";
 import { createPrivateBrowserHandoff } from "../services/browser-handoff.js";
 import { isPrivateBrowserLaunchUrl } from "../browser.js";
@@ -157,27 +174,64 @@ async function getProjectMeta({ fetchImpl = fetch } = {}) {
 
 const defaultServices = {
   getAuthStatus,
-  readAuthContents,
+  listAuthRegistrations,
+  getSelectedRegistration,
+  readRegistration,
+  selectRegistration,
+  acknowledgePlanUse,
+  setPlanEnabled,
+  signOut,
   startOAuthLogin,
+  listSiwcModels,
   scanHostFingerprint,
   connectVerified,
   getSshCapabilities,
   discoverN8n,
   discoverNetworks,
   installSidecar,
+  getVpsSiwcInstallationStatus,
+  inspectStoppedVpsSiwcInstallation,
+  manageVpsSiwcInstallation,
+  reviewVpsLegacyMigration,
+  reviewVpsSiwcReplacement,
+  reviewVpsSiwcTarget,
+  reviewVpsSiwcResume,
+  reconcileVpsSiwcHandoff,
+  reviewVpsSiwcRuntimeUpdate,
+  updateVpsSiwcRuntime,
+  getVpsCodexImagesStatus,
+  changeVpsCodexImages,
+  getVpsModelDiscovery,
+  changeVpsModelChecks,
+  getVpsUsageStatus,
   inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels,
   inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus,
   installAssistant,
-  attestLocalCodexInstallation,
   getManagedLocalEndpointStatus,
   getLocalDockerStatus,
   getLocalDashboardStatus,
   getLocalN8nStackStatus,
   getLocalN8nSuperGrokStatus,
   discoverLocalN8nSidecarTargets,
+  getLocalN8nSidecarStatus,
+  getLocalN8nSidecarUsage,
+  inspectStoppedLocalN8nSiwcInstallation,
+  inspectStoppedLocalSiwcInstallation,
+  manageLocalN8nSiwcInstallation,
+  manageLocalSiwcInstallation,
   getLocalN8nModelStatus,
   inspectLocalN8nModelResources,
   getProjectMeta,
+  readUiPreferences,
+  writeUiPreferences,
+  reviewLocalCodexLegacyMigration,
+  reviewLocalN8nLegacyMigration,
+  reviewLocalCodexSiwcReplacement,
+  reviewLocalN8nSiwcReplacement,
+  reviewLocalSiwcResume,
+  reviewLocalN8nSiwcResume,
+  reconcileLocalSiwcHandoff,
+  reconcileLocalN8nSiwcHandoff,
   installLocalEndpoint,
   installLocalN8nSidecar,
   installLocalN8nAssistant,
@@ -198,15 +252,10 @@ const defaultServices = {
   reviewLocalN8nModelAction,
   applyLocalN8nModelAction,
   removeLocalN8nStack,
-  refreshLocalN8nSidecarCredential,
-  updateLocalN8nSidecarRuntime,
   resumeLocalN8nStack,
   acquireLocalEndpointChangeLock,
   activateLocalClientCredentialRotation,
   prepareLocalClientCredentialRotation,
-  resolveLocalInstallRoot,
-  restartLocalCodex,
-  startCodexDeviceLogin,
   createLocalChatTestService,
 };
 
@@ -277,10 +326,13 @@ function startLocalChatTestStream(response) {
       clearInterval(keepalive);
       response.end();
     },
-    fail(code = "upstream_failed") {
+    fail(error) {
       if (ended) return;
-      send("error", { code, retryable: true });
-      send("terminal", { outcome: "failed" });
+      const failure = safeFailure(error);
+      const outcome = error?.outcome === "interrupted" ? "interrupted"
+        : error?.outcome === "incomplete" ? "incomplete" : "failed";
+      send("error", { ...failure, outcome });
+      send("terminal", { outcome });
       ended = true;
       clearInterval(keepalive);
       response.end();
@@ -304,6 +356,100 @@ function tokenMatches(actual, expected) {
 function exactObjectKeys(value, expected) {
   return value && typeof value === "object" && !Array.isArray(value) &&
     Object.keys(value).sort().join("\0") === [...expected].sort().join("\0");
+}
+
+function invalidSiwcRequest() {
+  return Object.assign(new Error("Select a valid ChatGPT account and try again."), { statusCode: 400 });
+}
+
+function requireSiwcId(value) {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9_-]{8,128}$/u.test(value)) throw invalidSiwcRequest();
+  return value;
+}
+
+async function selectedSiwcAccount(state, { requirePlan = false } = {}) {
+  const registrationId = await state.services.getSelectedRegistration({ storageRoot: state.storageRoot });
+  const accounts = await state.services.listAuthRegistrations({ storageRoot: state.storageRoot });
+  const account = accounts.find((item) => item.registrationId === registrationId);
+  if (!account || account.identity !== "verified" || account.session !== "connected" ||
+      account.ownership !== "owned" ||
+      (requirePlan && (account.planEnabled !== true || account.planPermission !== "granted" ||
+        account.needsPlanWelcome === true))) {
+    throw Object.assign(new Error(requirePlan
+      ? "Select a connected account with ChatGPT plan use enabled before reviewing this plan."
+      : "Select a connected ChatGPT account before continuing."), { statusCode: 409 });
+  }
+  const status = await state.services.getAuthStatus({
+    storageRoot: state.storageRoot, registrationId, runtimeId: state.runtimeId,
+  });
+  if (status?.exists !== true || status.generation !== account.generation ||
+      status.ownerHostId !== account.ownerHostId || status.ownerRuntimeId !== account.ownerRuntimeId) {
+    throw Object.assign(new Error("This ChatGPT account is not owned by this computer. Sign in with a fresh registration."),
+      { statusCode: 409, recovery: "review-again" });
+  }
+  return account;
+}
+
+async function siwcBinding(state, account) {
+  const record = await state.services.readRegistration({
+    storageRoot: state.storageRoot, registrationId: account.registrationId,
+  });
+  if (!record || record.generation !== account.generation || typeof record.clientId !== "string") {
+    throw Object.assign(new Error("The ChatGPT account changed. Review again."), { statusCode: 409 });
+  }
+  return {
+    registrationId: account.registrationId,
+    clientId: record.clientId,
+    generation: account.generation,
+    ownerHostId: account.ownerHostId,
+    ownerRuntimeId: account.ownerRuntimeId,
+  };
+}
+
+async function requireMatchingSiwcBinding(state, binding) {
+  const account = await selectedSiwcAccount(state, { requirePlan: true });
+  const current = await siwcBinding(state, account);
+  if (Object.keys(current).some((key) => current[key] !== binding[key])) {
+    throw Object.assign(new Error("The ChatGPT account changed. Review again."), { statusCode: 409 });
+  }
+  return account;
+}
+
+async function recoveryAccount(state, registrationId, { pending = false } = {}) {
+  const accounts = await state.services.listAuthRegistrations({ storageRoot: state.storageRoot });
+  const account = accounts.find((item) => item.registrationId === requireSiwcId(registrationId));
+  if (!account || account.identity !== "verified" ||
+      (pending ? account.ownership !== "handoff-pending" : account.ownership === "handoff-pending")) {
+    throw Object.assign(new Error(pending
+      ? "Choose the account whose transfer is pending."
+      : "Reconcile a pending transfer before reviewing its installation resume."),
+    { statusCode: 409, recovery: "resolve-handoff" });
+  }
+  return copySiwcAccountView(account);
+}
+
+async function requireRecoveryBinding(state, binding, options) {
+  const account = await recoveryAccount(state, binding.registrationId, options);
+  const current = await siwcBinding(state, account);
+  if (Object.keys(current).some((key) => current[key] !== binding[key])) {
+    throw Object.assign(new Error("The recovery account changed. Review again."),
+      { statusCode: 409, recovery: "review-again" });
+  }
+  return account;
+}
+
+function invalidateSiwcWork(state) {
+  state.sidecarPlan = null;
+  state.localPlan = null;
+  state.localStoppedOwnerReview = null;
+  state.vpsOwnerTargetReview = null;
+  state.vpsStoppedOwnerReview = null;
+  state.localDashboardGeneration += 1;
+  state.siwcRecoveryReview = null;
+  state.vpsRuntimeUpdateReview = null;
+  state.vpsImagesTarget = null;
+  state.vpsModelsTarget = null;
+  state.localChatTest.resetAll?.();
 }
 
 function browserBootstrapToken(randomBytes) {
@@ -713,8 +859,117 @@ function requireFullVpsScope(connection) {
   }
 }
 
+const VPS_IDENTITY_FIELDS = Object.freeze(["host", "port", "fingerprint", "username", "authentication",
+  "privilege", "loginUid", "effectiveUid"]);
+const VPS_OWNER_TARGET_FIELDS = Object.freeze([...VPS_IDENTITY_FIELDS, "containerName", "networkName"]);
+
+function requireReviewedVpsOwnerTarget(state, containerName, networkName) {
+  const prior = state.vpsOwnerTargetReview;
+  const current = { ...state.connectionIdentity, containerName, networkName };
+  if (!prior || prior.expiresAt <= Date.now() ||
+      !VPS_OWNER_TARGET_FIELDS.every((key) => prior.reviewedTarget[key] === current[key])) {
+    throw Object.assign(new Error("Review this VPS owner and destination again."),
+      { statusCode: 409, recovery: "review-again" });
+  }
+  return prior.reviewedTarget;
+}
+
+const CODEX_IMAGES_VERIFICATION_URL = "https://auth.openai.com/codex/device";
+const VPS_IMAGES_STATES = new Set(["off", "pending", "signed-in", "reauthorize", "unavailable"]);
+const VPS_MODEL_STATES = new Set(["verified", "failed", "unchecked"]);
+const VPS_MODEL_CATALOG_ERRORS = new Set(["catalog_unavailable", "registration_unavailable"]);
+const VPS_MODEL_STOP_REASONS = new Set(["usage_limit", "reauthorize", "probe_rejected", "checks_off", "time_limit",
+  "lease_unavailable"]);
+const VPS_ADDON_TARGET_MS = 20 * 60_000;
+
+// An add-on target stored by a status check serves only this connection until it expires.
+function requireVpsAddonTarget(state, key, message, { pending = false } = {}) {
+  const target = state[key];
+  if (!target || target.expiresAt <= Date.now() || (pending && !target.pending) ||
+      !VPS_IDENTITY_FIELDS.every((field) => target.reviewedTarget[field] === state.connectionIdentity?.[field])) {
+    throw Object.assign(new Error(message), { statusCode: 409, recovery: "review-again" });
+  }
+  return target;
+}
+
+function boundedText(value, max) {
+  return typeof value === "string" && value.length > 0 && value.length <= max &&
+    !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function isoTime(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u.test(value) &&
+    Number.isFinite(Date.parse(value));
+}
+
+// Only known add-on fields reach the browser; tokens, device IDs and remote output never do.
+function copyVpsImagesStatus(result) {
+  const { state, account, pending } = result ?? {};
+  if (!VPS_IMAGES_STATES.has(state) || !/^[a-f0-9]{64}$/u.test(result.containerId ?? "") ||
+      (account !== undefined && (!/^[A-Za-z0-9_-]{6}$/u.test(account?.accountIdSuffix ?? "") ||
+        (account.email !== undefined && !boundedText(account.email, 254)) ||
+        (account.planType !== undefined && !boundedText(account.planType, 32)))) ||
+      (state === "pending" && (!/^[A-Z0-9]{2,16}(?:-[A-Z0-9]{2,16}){0,3}$/u.test(pending?.userCode ?? "") ||
+        pending.verificationUrl !== CODEX_IMAGES_VERIFICATION_URL ||
+        !isoTime(pending.expiresAt)))) {
+    throw Object.assign(new Error("The VPS returned an invalid image generation status."), { statusCode: 502 });
+  }
+  return {
+    state,
+    ...(account === undefined ? {} : { account: {
+      ...(account.email === undefined ? {} : { email: account.email }),
+      ...(account.planType === undefined ? {} : { planType: account.planType }),
+      accountIdSuffix: account.accountIdSuffix,
+    } }),
+    ...(state === "pending" ? { pending: { userCode: pending.userCode,
+      verificationUrl: CODEX_IMAGES_VERIFICATION_URL, expiresAt: pending.expiresAt } } : {}),
+    ...(["declined", "expired"].includes(result.outcome) ? { outcome: result.outcome } : {}),
+    ...(["confirmed", "unconfirmed", "not-applicable"].includes(result.revocation)
+      ? { revocation: result.revocation } : {}),
+  };
+}
+
+function validVpsModelRow(model) {
+  return typeof model?.id === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(model.id) &&
+    boundedText(model.display_name, 256) && VPS_MODEL_STATES.has(model.state) && typeof model.listed === "boolean" &&
+    (model.checkedAt === undefined || isoTime(model.checkedAt));
+}
+
+function validVpsModelRun(run) {
+  const count = (value) => Number.isInteger(value) && value >= 0 && value <= 64;
+  return run === undefined || (count(run?.checked) && count(run.verified) && count(run.failed) &&
+    (run.stoppedReason === undefined || VPS_MODEL_STOP_REASONS.has(run.stoppedReason)));
+}
+
+// Only the validated catalog view reaches the browser; tokens, upstream text and remote output never do.
+function copyVpsModelsStatus(result) {
+  const { state, catalogError, lastRun, models } = result ?? {};
+  if (!["available", "unavailable"].includes(state) || !/^[a-f0-9]{64}$/u.test(result.containerId ?? "") ||
+      (state === "available" && (typeof result.checksEnabled !== "boolean" ||
+        typeof result.clientVersion !== "string" || !/^\d{1,4}\.\d{1,4}\.\d{1,4}$/u.test(result.clientVersion) ||
+        (result.catalogCheckedAt !== null && !isoTime(result.catalogCheckedAt)) ||
+        (catalogError !== undefined && !VPS_MODEL_CATALOG_ERRORS.has(catalogError)) || !validVpsModelRun(lastRun) ||
+        !Array.isArray(models) || models.length > 64 || !models.every(validVpsModelRow)))) {
+    throw Object.assign(new Error("The VPS returned an invalid model status."), { statusCode: 502 });
+  }
+  if (state === "unavailable") return { state };
+  return {
+    state, checksEnabled: result.checksEnabled, clientVersion: result.clientVersion,
+    catalogCheckedAt: result.catalogCheckedAt,
+    ...(catalogError === undefined ? {} : { catalogError }),
+    ...(lastRun === undefined ? {} : { lastRun: { checked: lastRun.checked, verified: lastRun.verified,
+      failed: lastRun.failed, ...(lastRun.stoppedReason === undefined ? {} : { stoppedReason: lastRun.stoppedReason }) } }),
+    models: models.map((model) => ({ id: model.id, display_name: model.display_name, state: model.state,
+      listed: model.listed, ...(model.checkedAt === undefined ? {} : { checkedAt: model.checkedAt }) })),
+  };
+}
+
 function credentialBearingVpsRoute(path) {
   return path === "/api/plan" || path === "/api/install" ||
+    path === "/api/siwc/vps/status" || path === "/api/siwc/vps/manage" ||
+    path === "/api/siwc/vps/inspect-stopped" || path.startsWith("/api/siwc/vps/recovery/") ||
+    path === "/api/siwc/vps/runtime-update/review" || path === "/api/siwc/vps/runtime-update/apply" ||
+    path.startsWith("/api/siwc/vps/images/") || path.startsWith("/api/siwc/vps/models/") || path === "/api/siwc/vps/usage/status" ||
     path === "/api/assistant/plan" || path === "/api/assistant/install" ||
     path.startsWith("/api/vps/supergrok/");
 }
@@ -827,6 +1082,11 @@ function advanceVpsLifecycleGeneration(state) {
 }
 
 function invalidateVpsPlans(state) {
+  state.vpsOwnerTargetReview = null;
+  state.siwcRecoveryReview = null;
+  state.vpsRuntimeUpdateReview = null;
+  state.vpsImagesTarget = null;
+  state.vpsModelsTarget = null;
   state.sidecarPlan = null;
   state.assistantPlan = null;
   invalidateSuperGrokPlan(state);
@@ -1166,34 +1426,13 @@ function acquireVpsMutationLock(state) {
   };
 }
 
-function requireVpsPlanAuthStatus(status, message) {
-  if (
-    status?.exists !== true ||
-    typeof status.path !== "string" ||
-    status.path.length === 0 ||
-    typeof status.updatedAt !== "string" ||
-    Number.isNaN(Date.parse(status.updatedAt))
-  ) {
-    throw new Error(message);
+function requireVpsPlanAuthStatus(account, message) {
+  if (!account || account.identity !== "verified" || account.session !== "connected" ||
+      account.planPermission !== "granted" || account.planEnabled !== true ||
+      account.ownership !== "owned") {
+    throw Object.assign(new Error(message), { statusCode: 409 });
   }
-  return status;
-}
-
-function requireMatchingVpsAuthGeneration(state, plan, status) {
-  const current = requireVpsPlanAuthStatus(
-    status,
-    "The ChatGPT sign-in changed after plan review. Review a fresh sidecar plan before installing.",
-  );
-  if (
-    plan.authUpdatedAt !== current.updatedAt ||
-    plan.authPath !== current.path ||
-    plan.oauthCredentialGeneration !== state.oauthCredentialGeneration
-  ) {
-    throw new Error(
-      "The ChatGPT sign-in changed after plan review. Review a fresh sidecar plan before installing.",
-    );
-  }
-  return current;
+  return account;
 }
 
 function requireReviewedVpsPlan(plan, body, label) {
@@ -1292,6 +1531,86 @@ function safeErrorMessage(error) {
   return message;
 }
 
+const SIWC_RECOVERY = new Set([
+  "none", "retry-later", "reauthorize", "enable-plan", "manage-usage",
+  "fix-request", "fix-configuration", "review-again", "resolve-handoff",
+]);
+
+function safeFailure(error) {
+  const status = [error?.statusCode, error?.status, error?.upstream?.status]
+    .find((value) => Number.isInteger(value) && value >= 400 && value <= 599) ?? 400;
+  const phase = ["authorize", "refresh", "request", "handoff", "revoke"]
+    .includes(error?.phase) ? error.phase : "request";
+  const source = error?.upstream?.body?.error ?? error?.error;
+  const identifier = (value, pattern = /^[A-Za-z0-9_.:\[\]-]{1,128}$/u) =>
+    typeof value === "string" && pattern.test(value) ? value : undefined;
+  const code = identifier(error?.code) ?? identifier(source?.code);
+  const param = identifier(error?.param) ?? identifier(source?.param);
+  const requestId = identifier(error?.requestId ?? error?.upstream?.requestId);
+  const recovery = SIWC_RECOVERY.has(error?.recovery) ? error.recovery
+    : code === "subscription_sharing_usage_limit_exceeded" ? "manage-usage"
+      : status === 503 ? "retry-later"
+        : status === 400 ? "fix-request"
+          : status === 401 ? "reauthorize" : "none";
+  const body = phase === "request" && error?.upstream?.body?.detail !== undefined
+    ? { detail: safeErrorMessage({ safeMessage: error.upstream.body.detail }) }
+    : phase === "request" && source && typeof source === "object"
+      ? { error: {
+          message: safeErrorMessage({ safeMessage: source.message }),
+          ...(code ? { code } : {}),
+          ...(param ? { param } : {}),
+          ...(identifier(source.type) ? { type: source.type } : {}),
+        } }
+      : undefined;
+  return {
+    error: safeErrorMessage(error), status, phase, recovery,
+    ...(code ? { code } : {}), ...(param ? { param } : {}),
+    ...(requestId ? { requestId } : {}),
+    ...(body ? { upstream: { status, body, ...(requestId ? { requestId } : {}) } } : {}),
+    ...(error?.retryBlocked === true ? { retryBlocked: true } : {}),
+    ...(error?.remoteOutcomeUnknown === true ? { remoteOutcomeUnknown: true } : {}),
+  };
+}
+
+function safeInstallFailure(value, phase) {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+      !Number.isInteger(value.status) || value.status < 400 || value.status > 599 ||
+      typeof value.error !== "string" || value.error.length === 0) {
+    throw Object.assign(new Error("The installed runtime failure report is invalid."), { statusCode: 502 });
+  }
+  return safeFailure({
+    message: value.error, status: value.status, phase,
+    code: value.code, param: value.param, requestId: value.requestId,
+    recovery: value.recovery, upstream: value.upstream,
+  });
+}
+
+function copySiwcReadiness(result) {
+  const runtimeState = result?.runtimeState ?? "running";
+  const finalization = result?.finalizationFailure;
+  if (!["verified", "unverified"].includes(result?.readiness) ||
+      !["running", "unknown", "stopped"].includes(runtimeState) ||
+      (finalization && (result.deploymentMode !== "partial" ||
+        typeof finalization.error !== "string" || !finalization.error ||
+        !SIWC_RECOVERY.has(finalization.recovery))) ||
+      (result.readiness === "verified" &&
+        (result.catalogFailure || result.runtimeFailure || finalization || runtimeState !== "running")) ||
+      (result.readiness === "unverified" && !finalization &&
+        (Boolean(result.catalogFailure) === Boolean(result.runtimeFailure) ||
+          (runtimeState !== "running") !== Boolean(result.runtimeFailure) ||
+          result.models?.length !== 0))) {
+    throw Object.assign(new Error("The installed account readiness is invalid."), { statusCode: 502 });
+  }
+  return {
+    readiness: result.readiness, runtimeState,
+    ...(finalization ? { finalizationFailure: {
+      error: safeErrorMessage({ safeMessage: finalization.error }), recovery: finalization.recovery,
+    } } : {}),
+    ...(result.catalogFailure ? { catalogFailure: safeInstallFailure(result.catalogFailure, "request") } : {}),
+    ...(result.runtimeFailure ? { runtimeFailure: safeInstallFailure(result.runtimeFailure, "handoff") } : {}),
+  };
+}
+
 async function cancelOAuthLogin(state, login) {
   try {
     await login.attempt.cancel();
@@ -1331,6 +1650,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/hosting": ["../ui/hosting.html", "utf8"],
   "/app.js": ["../ui/app.js", "utf8"],
   "/local.js": ["../ui/local.js", "utf8"],
+  "/siwc-controls.js": ["../ui/siwc-controls.js", "utf8"],
   "/assistant.js": ["../ui/assistant.js", "utf8"],
   "/supergrok-vps.js": ["../ui/supergrok-vps.js", "utf8"],
   "/local-model-vps.js": ["../ui/local-model-vps.js", "utf8"],
@@ -1345,13 +1665,28 @@ const UI_FILE_SOURCES = Object.freeze({
   "/ssh-form.js": ["../ui/ssh-form.js", "utf8"],
   "/hosting-archive.js": ["../ui/hosting-archive.js", "utf8"],
   "/domain/hosting-providers.js": ["../domain/hosting-providers.js", "utf8"],
+  "/guide.js": ["../ui/guide.js", "utf8"],
+  "/guide-dock.js": ["../ui/guide-dock.js", "utf8"],
+  "/mascot.js": ["../ui/mascot.js", "utf8"],
+  "/guide/content-vps.js": ["../ui/guide/content-vps.js", "utf8"],
+  "/guide/content-local.js": ["../ui/guide/content-local.js", "utf8"],
+  "/guide/content-assistant.js": ["../ui/guide/content-assistant.js", "utf8"],
+  "/guide/content-supergrok-vps.js": ["../ui/guide/content-supergrok-vps.js", "utf8"],
+  "/guide/content-local-model-vps.js": ["../ui/guide/content-local-model-vps.js", "utf8"],
+  "/guide/content-hosting.js": ["../ui/guide/content-hosting.js", "utf8"],
+  "/guide/errors.js": ["../ui/guide/errors.js", "utf8"],
+  "/usage-panel.js": ["../ui/usage-panel.js", "utf8"],
   "/relmio-ui.css": ["../ui/relmio-ui.css", "utf8"],
   "/styles.css": ["../ui/styles.css", "utf8"],
   "/local.css": ["../ui/local.css", "utf8"],
+  "/siwc.css": ["../ui/siwc.css", "utf8"],
   "/assistant.css": ["../ui/assistant.css", "utf8"],
   "/supergrok-vps.css": ["../ui/supergrok-vps.css", "utf8"],
   "/local-model-vps.css": ["../ui/local-model-vps.css", "utf8"],
   "/hosting.css": ["../ui/hosting.css", "utf8"],
+  "/guide.css": ["../ui/guide.css", "utf8"],
+  "/guide-dock.css": ["../ui/guide-dock.css", "utf8"],
+  "/usage-panel.css": ["../ui/usage-panel.css", "utf8"],
   "/relmio-icon-96.png": ["../ui/relmio-icon-96.png"],
   "/relmio-icon-rounded.svg": ["../ui/relmio-icon-rounded.svg", "utf8"],
   "/fonts/geist-latin.woff2": ["../ui/fonts/geist-latin.woff2"],
@@ -1386,20 +1721,46 @@ function createSafeLocalPlan(plan) {
     browserClients: plan.browserClients,
     experimental: plan.experimental,
     managedPath: plan.managedPath,
+    ...(plan.account ? { account: copySiwcAccountView(plan.account) } : {}),
+    ...(plan.resumeRequired ? { resumeRequired: true, staging: copySiwcStaging(plan.staging) } : {}),
+    ...(plan.migrationRequired ? { migrationRequired: true, legacyResourcesPreserved: true,
+      requiresMigrationConsent: true } : {}),
+    ...(plan.replacementRequired ? { replacementRequired: true, oldSessionSignedOut: true,
+      oldHistoryRetained: true, requiresReplacementConsent: true } : {}),
   };
 }
 
-function createSafeLocalInstallResult(result) {
+function createSafeLocalInstallResult(result, plan) {
+  const chatgpt = ["codex-chatgpt", "codex-chat"].includes(result?.target);
+  const staged = result?.deploymentMode === "staged";
+  if (chatgpt && (typeof result.clientCredential !== "string" ||
+      !/^[A-Za-z0-9_-]{32,256}$/u.test(result.clientCredential) ||
+      result.credentialShownOnce !== true ||
+      !["staged", "installed", "migrated", "replaced", "partial"].includes(result.deploymentMode) ||
+      (result.deploymentMode === "migrated" && (result.migratedLegacy !== true || result.legacyRetained !== true)) ||
+      (result.deploymentMode === "replaced" && (result.replacedAccount !== true || result.oldHistoryRetained !== true)) ||
+      (!staged && (!result.account?.registrationId ||
+        (plan?.authBinding && result.account.registrationId !== plan.authBinding.registrationId))) ||
+      !Array.isArray(result.models) ||
+      result.models.some((model) => typeof model !== "string" ||
+        !/^[A-Za-z0-9_.:-]{1,128}$/u.test(model)) ||
+      (staged && result.models.length !== 0) ||
+      (result.deploymentMode === "partial" && !result.runtimeFailure && !result.finalizationFailure))) {
+    throw Object.assign(new Error("The local Codex installation result is invalid."), { statusCode: 502 });
+  }
+  const readiness = chatgpt && !staged ? copySiwcReadiness(result) : {};
   return {
-    target: result.target,
-    endpoint: result.endpoint,
-    protocol: result.protocol,
+    target: result.target, endpoint: result.endpoint, protocol: result.protocol,
     clientCredential: result.clientCredential,
     credentialShownOnce: result.credentialShownOnce === true,
     models: Array.isArray(result.models) ? [...result.models] : [],
     deploymentMode: result.deploymentMode,
     experimental: result.experimental === true,
     browserClients: result.browserClients === true,
+    ...(result.account ? { account: copySiwcAccountView(result.account) } : {}),
+    ...readiness,
+    ...(result.migratedLegacy === true ? { migratedLegacy: true, legacyRetained: result.legacyRetained === true } : {}),
+    ...(result.replacedAccount === true ? { replacedAccount: true, oldHistoryRetained: result.oldHistoryRetained === true } : {}),
   };
 }
 
@@ -1505,14 +1866,14 @@ const SAFE_LOCAL_N8N_STACK_STATES = new Set([
 
 const LOCAL_DASHBOARD_SERVICE_DEFINITIONS = Object.freeze({
   "codex-chatgpt": Object.freeze({
-    label: "Codex (ChatGPT login)",
+    label: "Codex (ChatGPT plan)",
     kind: "endpoint",
-    actions: new Set(["setup", "sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"]),
+    actions: new Set(["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "inspect-stopped-chatgpt", "rotate-local-capability"]),
   }),
   "codex-chat": Object.freeze({
     label: "Codex Chat adapter",
     kind: "endpoint",
-    actions: new Set(["setup", "sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"]),
+    actions: new Set(["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "inspect-stopped-chatgpt", "rotate-local-capability"]),
   }),
   "xai-grok-build": Object.freeze({
     label: "SuperGrok",
@@ -1525,9 +1886,9 @@ const LOCAL_DASHBOARD_SERVICE_DEFINITIONS = Object.freeze({
     actions: new Set(["setup", "resume", "remove"]),
   }),
   "n8n-openai-oauth": Object.freeze({
-    label: "OpenAI OAuth bridge",
+    label: "ChatGPT plan sidecar",
     kind: "n8n-oauth-bridge",
-    actions: new Set(["setup", "refresh-credential", "remove"]),
+    actions: new Set(["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "inspect-stopped-chatgpt", "remove"]),
   }),
   "local-n8n-assistant": Object.freeze({
     label: "AI Assistant tools",
@@ -1574,7 +1935,9 @@ const LOCAL_DASHBOARD_STATES = new Set([
   "absent",
   "healthy",
   "stopped",
+  "staged",
   "partial",
+  "legacy",
   "unavailable",
 ]);
 
@@ -1623,38 +1986,66 @@ function createSafeDashboardSnapshot(target, snapshot) {
     throw new TypeError("The local dashboard snapshot is invalid.");
   }
   if (["codex-chatgpt", "codex-chat", "xai-grok-build"].includes(target)) {
-    if (
-      snapshot.target !== target ||
-      snapshot.auth?.configured !== true ||
-      snapshot.auth?.disclosure !== "rotate-only" ||
-      snapshot.canRotateCredential !== true
-    ) {
+    const chatgpt = target !== "xai-grok-build";
+    if (snapshot.target !== target || snapshot.auth?.disclosure !== "rotate-only" ||
+        typeof snapshot.auth.configured !== "boolean" ||
+        snapshot.canRotateCredential !== (chatgpt && snapshot.migrationRequired ? false : true) ||
+        (!chatgpt && snapshot.auth.configured !== true)) {
       throw new TypeError("The local dashboard endpoint snapshot is invalid.");
     }
+    const account = snapshot.auth.account ? copySiwcAccountView(snapshot.auth.account) : null;
+    if (chatgpt && (typeof snapshot.migrationRequired !== "boolean" ||
+        (snapshot.migrationRequired && (account || snapshot.registrationId !== undefined)) ||
+        (!snapshot.migrationRequired && (!snapshot.registrationId ||
+          (account && account.registrationId !== snapshot.registrationId))) ||
+        snapshot.auth.configured !== (account?.ownership === "owned" &&
+          account?.session === "connected" && account?.planEnabled === true &&
+          account?.planPermission === "granted"))) throw new TypeError("The SIWC endpoint ownership is invalid.");
+    if (snapshot.migrationState !== undefined &&
+        (!chatgpt || snapshot.migrationRequired !== true ||
+          !["incomplete", "prepared", "stopped"].includes(snapshot.migrationState) ||
+          snapshot.legacyResourcesPreserved !== true)) throw new TypeError("The SIWC migration status is invalid.");
     return {
       target,
       endpoint: requireSafeDashboardUrl(snapshot.endpoint, target),
-      auth: { configured: true, disclosure: "rotate-only" },
-      canRotateCredential: true,
+      auth: { configured: snapshot.auth.configured, disclosure: "rotate-only",
+        ...(account ? { account } : {}) },
+      ...(chatgpt ? { migrationRequired: snapshot.migrationRequired,
+        ...(snapshot.registrationId ? { registrationId: requireSiwcId(snapshot.registrationId) } : {}),
+        ...(snapshot.migrationState ? { migrationState: snapshot.migrationState,
+          legacyResourcesPreserved: true } : {}) } : {}),
+      canRotateCredential: snapshot.canRotateCredential,
     };
   }
   if (target === "n8n-openai-oauth") {
-    if (
-      snapshot.target !== target ||
-      snapshot.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
-      snapshot.auth?.configured !== true ||
-      snapshot.auth?.disclosure !== "server-managed" ||
-      snapshot.canRefreshCredential !== true ||
-      snapshot.canRemove !== true
-    ) {
-      throw new TypeError("The local dashboard OAuth bridge snapshot is invalid.");
+    if (snapshot.target !== target ||
+        snapshot.endpoint !== "http://n8n-openai-oauth:10531/v1" ||
+        typeof snapshot.auth?.configured !== "boolean" ||
+        snapshot.auth.disclosure !== "server-managed" ||
+        snapshot.canRefreshCredential !== false || snapshot.canRemove !== true ||
+        typeof snapshot.migrationRequired !== "boolean") {
+      throw new TypeError("The local dashboard SIWC sidecar snapshot is invalid.");
     }
+    const account = snapshot.auth.account ? copySiwcAccountView(snapshot.auth.account) : null;
+    if ((snapshot.migrationRequired && (account || snapshot.registrationId !== undefined)) ||
+        (!snapshot.migrationRequired && (!snapshot.registrationId ||
+          (account && account.registrationId !== snapshot.registrationId))) ||
+        snapshot.auth.configured !== (account?.ownership === "owned" &&
+          account?.session === "connected" && account?.planEnabled === true &&
+          account?.planPermission === "granted")) throw new TypeError("The sidecar owner state is invalid.");
+    if (snapshot.migrationState !== undefined &&
+        (snapshot.migrationRequired !== true ||
+          !["incomplete", "prepared", "stopped"].includes(snapshot.migrationState) ||
+          snapshot.legacyResourcesPreserved !== true)) throw new TypeError("The SIWC migration status is invalid.");
     return {
-      target,
-      endpoint: snapshot.endpoint,
-      auth: { configured: true, disclosure: "server-managed" },
-      canRefreshCredential: true,
-      canRemove: true,
+      target, endpoint: snapshot.endpoint,
+      auth: { configured: snapshot.auth.configured, disclosure: "server-managed",
+        ...(account ? { account } : {}) },
+      ...(snapshot.registrationId ? { registrationId: requireSiwcId(snapshot.registrationId) } : {}),
+      migrationRequired: snapshot.migrationRequired,
+      ...(snapshot.migrationState ? { migrationState: snapshot.migrationState,
+        legacyResourcesPreserved: true } : {}),
+      canRefreshCredential: false, canRemove: true,
     };
   }
   if (target === "local-n8n-assistant") {
@@ -1771,9 +2162,14 @@ function createSafeDashboardProvider(target, provider) {
 }
 
 function expectedDashboardActions({ definition, state, snapshot }) {
-  if (state === "absent") return ["setup"];
+  if (state === "absent" || state === "staged") return ["setup"];
   if (state === "unavailable" || snapshot === null) return [];
   const actions = [];
+  if (state === "legacy") return snapshot.migrationRequired === true ? ["setup"] : [];
+  if (state === "partial" && snapshot.migrationState) return [];
+  if (state === "stopped" && snapshot.registrationId &&
+      (["codex-chatgpt", "codex-chat"].includes(snapshot.target) ||
+        definition.kind === "n8n-oauth-bridge")) actions.push("inspect-stopped-chatgpt");
   if (
     definition.kind === "n8n-stack" &&
     state === "stopped" &&
@@ -1787,18 +2183,22 @@ function expectedDashboardActions({ definition, state, snapshot }) {
     snapshot.canRotateCredential === true
   ) {
     if (["codex-chatgpt", "codex-chat"].includes(snapshot.target)) {
-      actions.push("sign-in-chatgpt", "sign-out-chatgpt");
+      actions.push("setup");
+      if (snapshot.auth.account?.ownership === "owned") {
+        actions.push("sign-out-chatgpt");
+        if (snapshot.auth.account.planEnabled) actions.push("disable-chatgpt-plan");
+      }
     } else if (snapshot.target === "xai-grok-build") {
       actions.push("sign-in-grok-build", "sign-out-grok-build");
     }
     actions.push("rotate-local-capability");
   }
-  if (
-    definition.kind === "n8n-oauth-bridge" &&
-    state === "healthy" &&
-    snapshot.canRefreshCredential === true
-  ) {
-    actions.push("refresh-credential");
+  if (definition.kind === "n8n-oauth-bridge" && state === "healthy") {
+    actions.push("setup");
+    if (snapshot.auth.account?.ownership === "owned") {
+      actions.push("sign-out-chatgpt");
+      if (snapshot.auth.account.planEnabled) actions.push("disable-chatgpt-plan");
+    }
   }
   if (definition.kind === "n8n-local-model" && snapshot.canRetry === true) {
     actions.push("retry-model");
@@ -1819,7 +2219,7 @@ function requireSafeDashboardVersion(value, label) {
   return value;
 }
 
-function createSafeLocalDashboardStatus(status, previewMode) {
+function createSafeLocalDashboardStatus(status, previewMode, previewFixture) {
   if (previewMode) {
     return {
       schemaVersion: 1,
@@ -1831,8 +2231,11 @@ function createSafeLocalDashboardStatus(status, previewMode) {
           target,
           label: definition.label,
           kind: definition.kind,
-          managed: false,
-          state: "absent",
+          managed: previewFixture === "staged" && target === "codex-chat",
+          state: previewFixture === "staged" && target === "codex-chat" ? "staged" : "absent",
+          ...(previewFixture === "staged" && target === "codex-chat" ? { staging: {
+            installId: "preview_installation_1", registrationId: "preview_registration_1", stage: "prepared",
+          } } : {}),
           snapshot: null,
           actions: ["setup"],
         }),
@@ -1885,7 +2288,9 @@ function createSafeLocalDashboardStatus(status, previewMode) {
     ) {
       throw new TypeError("The local dashboard service status is invalid.");
     }
-    const requiresNullSnapshot = ["absent", "unavailable"].includes(service.state);
+    const requiresNullSnapshot = ["absent", "unavailable", "staged"].includes(service.state);
+    if (service.state === "staged" &&
+        !["codex-chatgpt", "codex-chat", "n8n-openai-oauth"].includes(target)) throw new TypeError();
     const allowsUnattestedPartial =
       service.state === "partial" && service.snapshot === null;
     if (requiresNullSnapshot && service.snapshot !== null) {
@@ -1913,6 +2318,7 @@ function createSafeLocalDashboardStatus(status, previewMode) {
       kind: definition.kind,
       managed: service.managed,
       state: service.state,
+      ...(service.state === "staged" ? { staging: copySiwcStaging(service.staging) } : {}),
       snapshot,
       actions,
     });
@@ -2089,6 +2495,12 @@ function createSafeLocalN8nPlan(plan) {
     hostPublication: plan.hostPublication,
     managedPath: plan.managedPath,
     disposableHarnessWarning: plan.disposableHarnessWarning === true,
+    ...(plan.account ? { account: copySiwcAccountView(plan.account) } : {}),
+    ...(plan.resumeRequired ? { resumeRequired: true, staging: copySiwcStaging(plan.staging) } : {}),
+    ...(plan.migrationRequired ? { migrationRequired: true, legacyResourcesPreserved: true,
+      requiresMigrationConsent: true } : {}),
+    ...(plan.replacementRequired ? { replacementRequired: true, oldSessionSignedOut: true,
+      oldHistoryRetained: true, requiresReplacementConsent: true } : {}),
   };
 }
 
@@ -2607,54 +3019,7 @@ function createSafeLocalN8nAssistantRemovalResult(result) {
   return { target: LOCAL_N8N_ASSISTANT_TARGET, removed: true };
 }
 
-function createSafeLocalN8nSidecarRefreshResult(result) {
-  if (
-    !result ||
-    typeof result !== "object" ||
-    Array.isArray(result) ||
-    result.target !== LOCAL_N8N_SIDECAR_TARGET ||
-    result.credentialRefreshed !== true ||
-    result.hostPublication !== "none" ||
-    !Array.isArray(result.models) ||
-    result.models.some(
-      (model) =>
-        typeof model !== "string" ||
-        model.length === 0 ||
-        model.length > 128 ||
-        !/^[A-Za-z0-9_.:-]+$/u.test(model),
-    )
-  ) {
-    throw Object.assign(
-      new Error("The local n8n bridge refresh returned an invalid result."),
-      { statusCode: 502 },
-    );
-  }
-  return {
-    target: LOCAL_N8N_SIDECAR_TARGET,
-    credentialRefreshed: true,
-    models: [...result.models],
-    hostPublication: "none",
-  };
-}
 
-function createSafeLocalN8nSidecarUpdateResult(result) {
-  if (
-    result?.target !== LOCAL_N8N_SIDECAR_TARGET ||
-    result.runtimeUpdated !== true || result.n8nChanged !== false ||
-    result.hostPublication !== "none" ||
-    !Array.isArray(result.models) || result.models.length === 0 ||
-    result.models.some((model) => typeof model !== "string" || model.length > 128 || !/^[A-Za-z0-9_.:-]+$/u.test(model))
-  ) {
-    throw Object.assign(new Error("The local n8n bridge update returned an invalid result."), { statusCode: 502 });
-  }
-  return {
-    target: LOCAL_N8N_SIDECAR_TARGET,
-    runtimeUpdated: true,
-    models: [...result.models],
-    hostPublication: "none",
-    n8nChanged: false,
-  };
-}
 
 function createSafeLocalN8nAssistantSearxngReview(review, reviewId) {
   const plan = review?.plan;
@@ -2773,47 +3138,45 @@ function createSafeLocalN8nAssistantSearxngEditResult(result) {
   };
 }
 
-function createSafeLocalN8nInstallResult(result) {
+function createSafeLocalN8nInstallResult(result, plan) {
   const endpoint = result?.endpoint ?? result?.baseUrl;
   const models = result?.models;
   if (
     result?.target !== LOCAL_N8N_SIDECAR_TARGET ||
     endpoint !== LOCAL_N8N_SIDECAR_ENDPOINT ||
     result.protocol !== "openai-v1" ||
-    result.apiKeyPlaceholder !== "local-only" ||
+    typeof result.clientCredential !== "string" ||
+    !/^[A-Za-z0-9_-]{32,256}$/u.test(result.clientCredential) ||
+    result.credentialShownOnce !== true ||
     !Array.isArray(models) ||
-    models.some(
-      (model) =>
-        typeof model !== "string" ||
-        model.length === 0 ||
-        model.length > 128 ||
-        !/^[A-Za-z0-9_.:-]+$/u.test(model),
-    ) ||
-    result.deploymentMode !== "installed" ||
+    models.some((model) => typeof model !== "string" || model.length === 0 ||
+      model.length > 128 || !/^[A-Za-z0-9_.:-]+$/u.test(model)) ||
+    !["installed", "migrated", "replaced", "partial"].includes(result.deploymentMode) ||
+    (result.deploymentMode === "migrated" && (result.migratedLegacy !== true || result.legacyRetained !== true)) ||
+    (result.deploymentMode === "replaced" && (result.replacedAccount !== true || result.oldHistoryRetained !== true)) ||
+    (result.deploymentMode === "partial" && !result.runtimeFailure && !result.finalizationFailure) ||
     typeof result.networkName !== "string" ||
-    result.hostPublication !== "none" ||
-    result.useResponsesApi !== true ||
-    result.unofficial !== true
+    (result.hostPublication !== "none" &&
+      !(result.deploymentMode === "partial" && result.runtimeState === "unknown" &&
+        result.hostPublication === "unknown")) ||
+    result.account?.registrationId !== plan.authBinding.registrationId
   ) {
-    throw Object.assign(
-      new Error("The local n8n sidecar returned an invalid result."),
-      { statusCode: 502 },
-    );
+    throw Object.assign(new Error("The local n8n sidecar returned an invalid result."), { statusCode: 502 });
   }
   return {
     target: result.target,
     endpoint,
-    apiKeyPlaceholder: result.apiKeyPlaceholder,
+    clientCredential: result.clientCredential,
+    credentialShownOnce: true,
     protocol: result.protocol,
     models: [...models],
     deploymentMode: result.deploymentMode,
-    networkName: requireSafeDockerName(
-      result.networkName,
-      "sidecar network name",
-    ),
+    networkName: requireSafeDockerName(result.networkName, "sidecar network name"),
     hostPublication: result.hostPublication,
-    responsesApi: result.useResponsesApi === true,
-    unofficial: result.unofficial === true,
+    account: copySiwcAccountView(result.account),
+    ...copySiwcReadiness(result),
+    ...(result.migratedLegacy === true ? { migratedLegacy: true, legacyRetained: result.legacyRetained === true } : {}),
+    ...(result.replacedAccount === true ? { replacedAccount: true, oldHistoryRetained: result.oldHistoryRetained === true } : {}),
   };
 }
 
@@ -3102,9 +3465,15 @@ function requireLocalInstallBody(plan, body) {
   }
   requireExactRequestBody(
     body,
-    ["planId", "confirmed"],
     plan?.kind === "n8n-sidecar"
-      ? "The local n8n OAuth bridge install request is invalid."
+      ? ["planId", "confirmed", "backgroundConsent",
+          ...(plan.migrationRequired ? ["migrationConsent"] : []),
+          ...(plan.replacementRequired ? ["replacementConsent"] : [])]
+      : ["planId", "confirmed",
+          ...(plan?.migrationRequired ? ["migrationConsent"] : []),
+          ...(plan?.replacementRequired ? ["replacementConsent"] : [])],
+    plan?.kind === "n8n-sidecar"
+      ? "The local n8n SIWC install request is invalid."
       : plan?.kind === "n8n-assistant"
         ? "The local n8n Assistant install request is invalid."
         : plan?.kind === "n8n-supergrok"
@@ -3116,31 +3485,43 @@ function requireLocalInstallBody(plan, body) {
 }
 
 async function requireReadyLocalChatTester(state) {
-  if (state.localInstalledTarget === "codex-chat") return;
-  let status = null;
+  let status;
   try {
-    status = await state.services.getManagedLocalEndpointStatus({
-      target: "codex-chat",
-    });
+    status = await state.services.getManagedLocalEndpointStatus({ target: "codex-chat" });
   } catch {
-    // A tester session is never enabled from ambiguous ownership or runtime state.
+    // An ambiguous installation cannot own a browser test session.
   }
-  if (
-    status?.managed === true &&
-    status.state === "healthy" &&
-    status.snapshot?.target === "codex-chat"
-  ) {
-    return;
+  const account = status?.snapshot?.auth?.account;
+  if (status?.managed === true && status.state === "healthy" &&
+      status.snapshot?.target === "codex-chat" &&
+      status.snapshot?.migrationRequired === false &&
+      status.snapshot.auth.configured === true &&
+      account?.registrationId === status.snapshot.registrationId &&
+      account.ownership === "owned" && account.session === "connected" &&
+      account.planPermission === "granted" && account.planEnabled === true) {
+    return copySiwcAccountView(account);
   }
-  throw Object.assign(
-    new Error("Install the Codex Chat Adapter before starting its local tester."),
-    { statusCode: 409 },
-  );
+  throw Object.assign(new Error("Connect an owned ChatGPT plan to the Codex Chat Adapter before testing."),
+    { statusCode: 409, recovery: "review-again" });
 }
 
 async function handleApi(request, response, path, state) {
   requireApiToken(request, state);
   requireSameOrigin(request, state);
+
+  if (path === "/api/ui/preferences" && request.method === "GET") {
+    sendJson(response, 200, await state.services.readUiPreferences({ storageRoot: state.storageRoot }));
+    return;
+  }
+  if (path === "/api/ui/preferences" && request.method === "POST") {
+    const body = await readJsonBody(request);
+    if (!exactObjectKeys(body, ["guide"]) || !["on", "off"].includes(body.guide)) {
+      throw Object.assign(new Error("Guide preference is invalid."), { statusCode: 400 });
+    }
+    await state.services.writeUiPreferences({ storageRoot: state.storageRoot, preferences: body });
+    sendJson(response, 200, { guide: body.guide });
+    return;
+  }
 
   if (request.method === "GET" && path === "/api/hosting/providers") {
     sendJson(response, 200, {
@@ -3175,26 +3556,49 @@ async function handleApi(request, response, path, state) {
     requireFullVpsScope(requireConnection(state));
   }
 
-  if (request.method === "GET" && path === "/api/status") {
-    const status = await state.services.getAuthStatus();
+  if (request.method === "GET" && path === "/api/siwc/accounts") {
+    const registrations = await state.services.listAuthRegistrations({ storageRoot: state.storageRoot });
+    const accounts = await Promise.all(registrations.filter((item) => item.identity === "verified")
+      .map(async (item) => {
+        const account = copySiwcAccountView(item);
+        if (account.ownership !== "owned" || account.session !== "connected") return account;
+        let hostReady = false;
+        try {
+          const status = await state.services.getAuthStatus({
+            storageRoot: state.storageRoot, registrationId: account.registrationId, runtimeId: state.runtimeId,
+          });
+          hostReady = status?.exists === true && status.generation === account.generation &&
+            status.ownerHostId === account.ownerHostId && status.ownerRuntimeId === account.ownerRuntimeId;
+        } catch {
+          // Invalid or foreign protected records remain visible, never usable.
+        }
+        return { ...account, hostReady };
+      }));
+    const pendingRegistrations = registrations.filter((item) => item.identity === "unverified")
+      .map((item) => ({ registrationId: requireSiwcId(item.registrationId),
+        label: typeof item.label === "string" && item.label.length <= 160 ? item.label : "ChatGPT sign-in pending" }));
+    const selected = await state.services.getSelectedRegistration({ storageRoot: state.storageRoot });
     sendJson(response, 200, {
-      authExists: status.exists,
-      ...(status.exists ? { authUpdatedAt: status.updatedAt } : {}),
+      accounts, pendingRegistrations,
+      selectedRegistrationId: accounts.some((account) => account.registrationId === selected) ? selected : null,
       ...(state.previewMode ? { previewMode: true } : {}),
+      ...(state.previewFixture ? { previewFixture: state.previewFixture } : {}),
     });
     return;
   }
 
   if (request.method === "GET" && path === "/api/oauth/status") {
     const login = state.oauthLogin;
+    const { status: failureStatus, ...failure } = login?.failure ?? {};
     sendJson(response, 200, {
       status: login?.status ?? (state.oauthStartupError ? "error" : "idle"),
       ...(login ? { attemptId: login.attemptId } : {}),
       ...(login?.status === "error"
-        ? { error: login.error }
+        ? { ...failure, ...(failureStatus ? { upstreamStatus: failureStatus } : {}) }
         : state.oauthStartupError
           ? { error: state.oauthStartupError }
           : {}),
+      ...(login?.status === "success" ? { account: copySiwcAccountView(login.account) } : {}),
       ...(state.oauthRetryBlocked || login?.retryBlocked === true
         ? { retryBlocked: true }
         : {}),
@@ -3215,7 +3619,7 @@ async function handleApi(request, response, path, state) {
     sendJson(
       response,
       200,
-      createSafeLocalDashboardStatus(status, state.previewMode),
+      createSafeLocalDashboardStatus(status, state.previewMode, state.previewFixture),
     );
     return;
   }
@@ -3241,6 +3645,40 @@ async function handleApi(request, response, path, state) {
       : await state.services.getLocalN8nModelStatus();
     requireCurrentLocalDashboardGeneration(state, generation);
     sendJson(response, 200, createSafeLocalModelStatus(result));
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/local/usage/status") {
+    const generation = state.localDashboardGeneration;
+    // Read-only. Sanitized preview shows no counts; the sidecar's record becomes the bounded view here.
+    const record = state.previewMode ? null : await state.services.getLocalN8nSidecarUsage();
+    requireCurrentLocalDashboardGeneration(state, generation);
+    sendJson(response, 200, usageView(record));
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/siwc/models") {
+    requireLiveLocalAction(state, "ChatGPT model discovery");
+    if (oauthCredentialChangeInFlight(state)) {
+      throw Object.assign(new Error("Wait for ChatGPT sign-in to finish."), { statusCode: 409 });
+    }
+    const account = await selectedSiwcAccount(state, { requirePlan: true });
+    const models = await state.services.listSiwcModels({
+      storageRoot: state.storageRoot, registrationId: account.registrationId, runtimeId: state.runtimeId,
+    });
+    // Token refresh inside listSiwcModels rotates `generation`; the re-read below
+    // still re-validates ownership, connection and plan use for this registration.
+    const latest = await selectedSiwcAccount(state, { requirePlan: true });
+    if (latest.registrationId !== account.registrationId) {
+      throw Object.assign(new Error("The selected ChatGPT account changed. Refresh it."), { statusCode: 409 });
+    }
+    if (!Array.isArray(models) ||
+        models.some((model) => typeof model?.slug !== "string" ||
+          !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(model.slug) ||
+          typeof model.display_name !== "string" || model.display_name.length > 256)) {
+      throw Object.assign(new Error("The account model catalog could not be verified."), { statusCode: 409 });
+    }
+    sendJson(response, 200, { models, account: latest });
     return;
   }
 
@@ -3303,18 +3741,6 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
-  if (
-    request.method === "GET" &&
-    path === "/api/local/codex/login/status"
-  ) {
-    const login = state.codexLogin;
-    sendJson(response, 200, {
-      status: login?.status ?? "idle",
-      ...(login?.status === "error" ? { error: login.error } : {}),
-      ...(state.previewMode ? { previewMode: true } : {}),
-    });
-    return;
-  }
 
   if (request.method !== "POST") {
     sendJson(response, 405, { error: "Method not allowed." });
@@ -3322,6 +3748,23 @@ async function handleApi(request, response, path, state) {
   }
 
   if (path === "/api/oauth/login") {
+    const loginBody = await readJsonBody(request);
+    if (!loginBody || typeof loginBody !== "object" || Array.isArray(loginBody) ||
+        Object.keys(loginBody).some((key) => !["purpose", "registrationId"].includes(key)) ||
+        !["sign-in", "enable-plan"].includes(loginBody.purpose) ||
+        (loginBody.registrationId !== undefined && typeof loginBody.registrationId !== "string")) {
+      throw invalidSiwcRequest();
+    }
+    const registrationId = loginBody.registrationId === undefined
+      ? undefined : requireSiwcId(loginBody.registrationId);
+    if (loginBody.purpose === "enable-plan") {
+      const selected = await selectedSiwcAccount(state);
+      if (registrationId !== selected.registrationId) throw invalidSiwcRequest();
+    } else if (registrationId !== undefined) {
+      const accounts = await state.services.listAuthRegistrations({ storageRoot: state.storageRoot });
+      if (!accounts.some((account) => account.registrationId === registrationId &&
+          account.ownership === "owned")) throw invalidSiwcRequest();
+    }
     if (state.previewMode) {
       throw Object.assign(
         new Error(
@@ -3400,7 +3843,10 @@ async function handleApi(request, response, path, state) {
       }
       credentialOperation = beginOAuthCredentialOperation(state);
       startAttempted = true;
-      startPromise = Promise.resolve(state.services.startOAuthLogin());
+      startPromise = Promise.resolve(state.services.startOAuthLogin({
+        storageRoot: state.storageRoot, registrationId, purpose: loginBody.purpose,
+        runtimeId: state.runtimeId,
+      }));
       state.oauthLoginStartPromise = startPromise;
       const attempt = await startPromise;
       if (
@@ -3435,33 +3881,37 @@ async function handleApi(request, response, path, state) {
       );
       void Promise.resolve(attempt.completion)
         .then(
-          () => {
-            if (
-              state.oauthLogin === login &&
-              login.status === "pending" &&
-              !state.closing
-            ) {
-              state.oauthCredentialGeneration += 1;
-              state.sidecarPlan = null;
+          async (account) => {
+            if (state.oauthLogin !== login || login.status !== "pending" || state.closing) return;
+            if (account?.identity !== "verified" || typeof account.registrationId !== "string" ||
+                (registrationId !== undefined && account.registrationId !== registrationId)) {
+              throw new Error("ChatGPT identity could not be verified.");
+            }
+            await state.services.selectRegistration({
+              storageRoot: state.storageRoot, registrationId: account.registrationId,
+            });
+            if (state.oauthLogin === login && login.status === "pending" && !state.closing) {
+              invalidateSiwcWork(state);
+              login.account = account;
               login.status = "success";
             }
           },
-          (error) => {
-            if (
-              state.oauthLogin === login &&
-              login.status === "pending" &&
-              !state.closing
-            ) {
-              login.status = "error";
-              login.error = safeErrorMessage(error);
-              if (error?.retryBlocked === true) {
-                login.retryBlocked = true;
-                state.oauthRetryBlocked = true;
-                state.oauthStartupError = login.error;
-              }
-            }
-          },
         )
+        .catch((error) => {
+          if (state.oauthLogin === login && login.status === "pending" && !state.closing) {
+            login.status = "error";
+            login.failure = { ...safeFailure(error), phase: "authorize",
+              ...(typeof error?.registrationId === "string" &&
+                /^[A-Za-z0-9_-]{8,128}$/u.test(error.registrationId)
+                ? { registrationId: error.registrationId } : {}) };
+            login.error = login.failure.error;
+            if (error?.retryBlocked === true) {
+              login.retryBlocked = true;
+              state.oauthRetryBlocked = true;
+              state.oauthStartupError = login.error;
+            }
+          }
+        })
         .finally(() => {
           releaseOAuthCredentialOperation(state, credentialOperation);
         });
@@ -3508,11 +3958,235 @@ async function handleApi(request, response, path, state) {
     requireFullVpsScope(requireConnection(state));
   }
 
+  if (["/api/siwc/select", "/api/siwc/plan", "/api/siwc/ack", "/api/siwc/logout"].includes(path)) {
+    requireLiveLocalAction(state, "ChatGPT account changes");
+    enforceRateLimit(state, path);
+    if (oauthCredentialChangeInFlight(state) || state.localInstallInFlight ||
+        state.localCredentialRotationInFlight || state.vpsMutationInFlight ||
+        state.vpsCredentialOperation !== null || state.vpsConnectionOperation !== null) {
+      throw Object.assign(new Error("Wait for the current ChatGPT or installation action to finish."), { statusCode: 409 });
+    }
+    const registrationId = requireSiwcId(body?.registrationId);
+    const registration = { storageRoot: state.storageRoot, registrationId };
+    const accounts = await state.services.listAuthRegistrations({ storageRoot: state.storageRoot });
+    const account = accounts.find((item) => item.registrationId === registrationId);
+    if (!account || account.identity !== "verified" || account.ownership !== "owned") throw invalidSiwcRequest();
+    if (path === "/api/siwc/select") {
+      requireExactRequestBody(body, ["registrationId"], "Select one ChatGPT account.");
+      if (account.session === "connected" && account.ownership === "owned") {
+        const owned = await state.services.getAuthStatus({
+          storageRoot: state.storageRoot, registrationId, runtimeId: state.runtimeId,
+        });
+        if (owned?.exists !== true || owned.generation !== account.generation) {
+          throw Object.assign(new Error("This account is not owned by this computer."), { statusCode: 409 });
+        }
+      }
+      await state.services.selectRegistration(registration);
+      invalidateSiwcWork(state);
+      sendJson(response, 200, { account: copySiwcAccountView(account), selectedRegistrationId: registrationId });
+      return;
+    }
+    if (path === "/api/siwc/plan") {
+      requireExactRequestBody(body, ["registrationId", "enabled", "expectedGeneration"], "The plan preference request is invalid.");
+      if (typeof body.enabled !== "boolean" || body.expectedGeneration !== account.generation ||
+          account.ownership !== "owned" || account.session !== "connected" ||
+          await state.services.getSelectedRegistration({ storageRoot: state.storageRoot }) !== registrationId) {
+        throw Object.assign(new Error("The selected account changed. Choose it again."), { statusCode: 409 });
+      }
+      const updated = await state.services.setPlanEnabled(registration, {
+        enabled: body.enabled, expectedGeneration: body.expectedGeneration,
+      });
+      invalidateSiwcWork(state);
+      sendJson(response, 200, { account: copySiwcAccountView(updated) });
+      return;
+    }
+    if (path === "/api/siwc/ack") {
+      requireExactRequestBody(body, ["registrationId", "expectedGeneration"], "The plan confirmation request is invalid.");
+      if (account.generation !== body.expectedGeneration || account.planEnabled !== true ||
+          account.planPermission !== "granted" || account.session !== "connected" ||
+          account.ownership !== "owned" ||
+          await state.services.getSelectedRegistration({ storageRoot: state.storageRoot }) !== registrationId) {
+        throw Object.assign(new Error("The selected plan changed. Check it again."), { statusCode: 409 });
+      }
+      const updated = await state.services.acknowledgePlanUse(registration, {
+        expectedGeneration: body.expectedGeneration,
+      });
+      invalidateSiwcWork(state);
+      sendJson(response, 200, { account: copySiwcAccountView(updated) });
+      return;
+    }
+    if (path === "/api/siwc/logout") {
+      requireExactRequestBody(body, ["registrationId", "expectedGeneration"], "The sign-out request is invalid.");
+      if (account.generation !== body.expectedGeneration ||
+          await state.services.getSelectedRegistration({ storageRoot: state.storageRoot }) !== registrationId) {
+        throw Object.assign(new Error("The selected account changed. Choose it again."), { statusCode: 409 });
+      }
+      const result = await state.services.signOut(registration, { runtimeId: state.runtimeId });
+      invalidateSiwcWork(state);
+      if (!["confirmed", "unconfirmed", "not-applicable"].includes(result?.revocation)) {
+        throw Object.assign(new Error("Provider revocation could not be verified."), { statusCode: 502 });
+      }
+      sendJson(response, 200, {
+        account: copySiwcAccountView(result.account), revocation: result.revocation,
+        ...(result.revocation === "unconfirmed"
+          ? { cleanup: "Local credentials cleared. Revocation could not be confirmed. Disconnect Relmio in ChatGPT settings." }
+          : {}),
+      });
+      return;
+    }
+  }
+
   if (path === "/api/hosting/plan") {
     try {
       sendJson(response, 200, state.services.prepareHostingDeploymentPlan(body));
     } catch {
       throw Object.assign(new Error("The hosting plan request is invalid."), { statusCode: 400 });
+    }
+    return;
+  }
+
+  if (["/api/local/siwc/recovery/review", "/api/local/siwc/recovery/reconcile",
+      "/api/siwc/vps/recovery/review", "/api/siwc/vps/recovery/reconcile"].includes(path)) {
+    requireLiveLocalAction(state, "ChatGPT installation recovery");
+    enforceRateLimit(state, path);
+    const vps = path.startsWith("/api/siwc/vps/");
+    const reviewing = path.endsWith("/review");
+    const freshN8nTarget = reviewing && !vps && body?.target === LOCAL_N8N_SIDECAR_TARGET &&
+      body.action === "resume" && (body.n8nContainerId !== undefined || body.dockerNetworkId !== undefined);
+    requireExactRequestBody(body, reviewing
+      ? vps ? ["containerName", "networkName", "registrationId", "action"]
+        : ["target", "registrationId", "action", ...(freshN8nTarget ? ["n8nContainerId", "dockerNetworkId"] : [])]
+      : ["reviewId", "confirmed"], "Review this exact installation before confirming recovery.");
+    if (freshN8nTarget && (!/^[a-f0-9]{64}$/u.test(body.n8nContainerId ?? "") ||
+        !/^[a-f0-9]{64}$/u.test(body.dockerNetworkId ?? ""))) throw invalidSiwcRequest();
+    if (state.localInstallInFlight || state.localCredentialRotationInFlight ||
+        getPendingLocalCredentialRotation(state) || oauthCredentialChangeInFlight(state) ||
+        state.vpsMutationInFlight || state.vpsCredentialOperation || state.vpsConnectionOperation) {
+      throw Object.assign(new Error("An account or installation change is in progress."), { statusCode: 409 });
+    }
+    const pending = state.siwcRecoveryReview;
+    if (!reviewing && (body.confirmed !== true || !pending || pending.vps !== vps ||
+        pending.expiresAt <= Date.now() || !tokenMatches(body.reviewId, pending.reviewId))) {
+      throw Object.assign(new Error("Review and confirm this transfer recovery again."), { statusCode: 409 });
+    }
+    const target = vps ? LOCAL_N8N_SIDECAR_TARGET : reviewing ? body.target : pending.target;
+    if (!["codex-chatgpt", "codex-chat", LOCAL_N8N_SIDECAR_TARGET].includes(target) ||
+        (reviewing && !["resume", "reconcile"].includes(body.action))) throw invalidSiwcRequest();
+    const connectionUse = vps ? acquireVpsConnectionUse(state) : null;
+    let operation;
+    let releaseMutation;
+    if (!vps) state.localInstallInFlight = true;
+    try {
+      let reviewedTarget;
+      if (vps) {
+        requireFullVpsScope(connectionUse.connection);
+        if (reviewing) {
+          requireDiscoveredNetwork(state, body.containerName, body.networkName);
+          operation = acquireVpsCredentialOperation(state, "recovery-review");
+          reviewedTarget = Object.freeze({ ...state.connectionIdentity,
+            containerName: body.containerName, networkName: body.networkName,
+            ...await state.services.reviewVpsSiwcTarget({
+              remote: connectionUse.connection, containerName: body.containerName, networkName: body.networkName,
+            }) });
+        } else {
+          reviewedTarget = pending.reviewedTarget;
+          if (!["host", "port", "fingerprint", "username", "authentication", "privilege",
+            "loginUid", "effectiveUid"].every((key) => reviewedTarget[key] === state.connectionIdentity[key])) {
+            throw Object.assign(new Error("Reconnect to the reviewed VPS identity."), { statusCode: 409 });
+          }
+          releaseMutation = acquireVpsMutationLock(state);
+        }
+      }
+      if (reviewing) {
+        state.siwcRecoveryReview = null;
+        const account = await recoveryAccount(state, body.registrationId, { pending: body.action === "reconcile" });
+        const sourceBinding = await siwcBinding(state, account);
+        if (body.action === "reconcile") {
+          const reviewId = randomUUID();
+          state.siwcRecoveryReview = { reviewId, vps, target, sourceBinding, reviewedTarget,
+            expiresAt: Date.now() + 5 * 60_000 };
+          sendJson(response, 200, { reviewId, action: "reconcile", target, account,
+            ...(vps ? { destination: { n8nContainerId: reviewedTarget.n8nContainerId,
+              networkId: reviewedTarget.networkId } } : {}) });
+        } else {
+          let freshPlan;
+          if (freshN8nTarget) {
+            const discovery = await state.services.discoverLocalN8nSidecarTargets();
+            const container = discovery?.dockerAvailable === true && discovery.containers?.find(
+              (item) => item.containerId === body.n8nContainerId);
+            const network = container && container.networks?.find(
+              (item) => item.dockerNetworkId === body.dockerNetworkId);
+            if (!container || !network) {
+              throw Object.assign(new Error("Refresh n8n discovery and select its attached network before reviewing resume."),
+                { statusCode: 409, recovery: "review-again" });
+            }
+            freshPlan = state.services.prepareLocalN8nSidecarPlan({
+              dockerHost: discovery.dockerHost, n8nContainerId: container.containerId,
+              n8nContainerName: container.containerName, dockerNetworkId: network.dockerNetworkId,
+              networkName: network.networkName, authBinding: sourceBinding,
+            });
+          }
+          const resume = vps
+            ? await state.services.reviewVpsSiwcResume({ remote: connectionUse.connection,
+                networkName: reviewedTarget.networkName, reviewedTarget, registrationId: account.registrationId })
+            : target === LOCAL_N8N_SIDECAR_TARGET
+              ? await state.services.reviewLocalN8nSiwcResume({ registration: {
+                  storageRoot: state.storageRoot, registrationId: account.registrationId },
+                  ...(freshPlan ? { plan: freshPlan } : {}) })
+              : await state.services.reviewLocalSiwcResume({ target, registration: {
+                  storageRoot: state.storageRoot, registrationId: account.registrationId } });
+          const staging = copySiwcStaging(resume);
+          if (staging.registrationId !== account.registrationId) throw invalidSiwcRequest();
+          const planId = randomUUID();
+          if (vps) {
+            if (!["installed", "migrated", "replaced"].includes(resume.deploymentMode)) {
+              throw Object.assign(new Error("The reviewed resume deployment mode is invalid."), { statusCode: 502 });
+            }
+            state.sidecarPlan = { planId, containerName: reviewedTarget.containerName,
+              networkName: reviewedTarget.networkName, reviewedTarget, authBinding: sourceBinding,
+              account, resume, sourceBinding };
+            sendJson(response, 200, { planId, installDirectory: "/docker/n8n-openai-oauth",
+              operationLockPath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock",
+              temporaryBuildStatePath: "/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx",
+              endpointHostname: SIDECAR_HOSTNAME, containerName: reviewedTarget.containerName,
+              networkName: reviewedTarget.networkName, n8nContainerId: reviewedTarget.n8nContainerId,
+              networkId: reviewedTarget.networkId, account, resumeRequired: true, staging });
+          } else {
+            if (resume.plan?.target !== target ||
+                resume.plan.authBinding?.registrationId !== account.registrationId) throw invalidSiwcRequest();
+            const plan = { ...resume.plan, account, resumeRequired: true, staging };
+            state.localPlan = { planId, plan, resume, sourceBinding };
+            sendJson(response, 200, { planId, plan: target === LOCAL_N8N_SIDECAR_TARGET
+              ? createSafeLocalN8nPlan(plan) : createSafeLocalPlan(plan) });
+          }
+        }
+      } else {
+        state.siwcRecoveryReview = null;
+        await requireRecoveryBinding(state, pending.sourceBinding, { pending: true });
+        const registration = { storageRoot: state.storageRoot, registrationId: pending.sourceBinding.registrationId };
+        const result = vps
+          ? await state.services.reconcileVpsSiwcHandoff({ remote: connectionUse.connection,
+              networkName: reviewedTarget.networkName, reviewedTarget, registration, confirmed: true })
+          : target === LOCAL_N8N_SIDECAR_TARGET
+            ? await state.services.reconcileLocalN8nSiwcHandoff({ registration, confirmed: true })
+            : await state.services.reconcileLocalSiwcHandoff({ target, registration, confirmed: true });
+        const account = copySiwcAccountView(result?.account);
+        if (!["finished", "not-accepted"].includes(result?.outcome) ||
+            account.registrationId !== registration.registrationId ||
+            account.ownership !== (result.outcome === "finished" ? "transferred" : "handoff-pending")) {
+          throw Object.assign(new Error("Transfer recovery was not confirmed."), { statusCode: 502 });
+        }
+        invalidateSiwcWork(state);
+        sendJson(response, 200, { outcome: result.outcome, account });
+      }
+    } finally {
+      operation?.release();
+      if (releaseMutation) {
+        detachVpsConnection(state, connectionUse.connection);
+        releaseMutation();
+      }
+      connectionUse?.release();
+      if (!vps) state.localInstallInFlight = false;
     }
     return;
   }
@@ -3537,16 +4211,103 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (["/api/local/siwc/manage", "/api/local/n8n/siwc/manage",
+      "/api/local/siwc/inspect-stopped", "/api/local/n8n/siwc/inspect-stopped"].includes(path)) {
+    requireLiveLocalAction(state, "Installed ChatGPT account management");
+    enforceRateLimit(state, path);
+    const sidecar = path.startsWith("/api/local/n8n/");
+    const inspecting = path.endsWith("/inspect-stopped");
+    requireExactRequestBody(body, inspecting
+      ? sidecar ? ["registrationId", "confirmed"] : ["target", "registrationId", "confirmed"]
+      : sidecar
+        ? ["registrationId", "expectedGeneration", "action", "confirmed",
+            ...(body?.action === "enable-plan" ? ["backgroundConsent"] : [])]
+        : ["target", "registrationId", "expectedGeneration", "action", "confirmed"],
+    "Choose the installed account and confirm this owner action.");
+    const registrationId = requireSiwcId(body.registrationId);
+    const target = sidecar ? "n8n-openai-oauth" : body.target;
+    if (body.confirmed !== true ||
+        (!sidecar && !["codex-chatgpt", "codex-chat"].includes(target)) ||
+        (!inspecting && !["sign-out", "disable-plan", "enable-plan"].includes(body.action)) ||
+        (sidecar && body.action === "enable-plan" && body.backgroundConsent !== true)) throw invalidSiwcRequest();
+    if (state.localInstallInFlight || state.localCredentialRotationInFlight ||
+        oauthCredentialChangeInFlight(state) || getPendingLocalCredentialRotation(state)) {
+      throw Object.assign(new Error("An installation or account change is in progress."), { statusCode: 409 });
+    }
+    state.localInstallInFlight = true;
+    try {
+      const status = sidecar
+        ? await state.services.getLocalN8nSidecarStatus()
+        : await state.services.getManagedLocalEndpointStatus({ target });
+      if (status?.managed !== true || status.snapshot?.migrationRequired !== false ||
+          status.snapshot.registrationId !== registrationId) {
+        throw Object.assign(new Error("The installed account changed. Refresh its status."), { statusCode: 409 });
+      }
+      if (inspecting) {
+        if (status.state !== "stopped" || status.snapshot.auth?.account) {
+          throw Object.assign(new Error("This owner is not stopped. Refresh its status."), { statusCode: 409 });
+        }
+        const result = sidecar
+          ? await state.services.inspectStoppedLocalN8nSiwcInstallation({ registrationId, confirmed: true })
+          : await state.services.inspectStoppedLocalSiwcInstallation({ target, registrationId, confirmed: true });
+        const account = copySiwcAccountView(result.account);
+        state.localStoppedOwnerReview = { target, account, expiresAt: Date.now() + 5 * 60_000 };
+        state.localPlan = null;
+        state.localDashboardGeneration += 1;
+        state.localChatTest.resetAll?.();
+        sendJson(response, 200, { account });
+        return;
+      }
+      const account = status.snapshot.auth?.account;
+      const live = status.state === "healthy" && account?.registrationId === registrationId &&
+        account.generation === body.expectedGeneration && account.ownership === "owned";
+      const review = state.localStoppedOwnerReview;
+      const stopped = status.state === "stopped" && !account && review?.target === target &&
+        review.account.registrationId === registrationId &&
+        review.account.generation === body.expectedGeneration && review.expiresAt > Date.now();
+      if (!live && !stopped) {
+        throw Object.assign(new Error("The installed session changed. Inspect its owner again."),
+          { statusCode: 409, recovery: "review-again" });
+      }
+      state.localStoppedOwnerReview = null;
+      const result = sidecar
+        ? await state.services.manageLocalN8nSiwcInstallation({
+            registrationId, expectedGeneration: body.expectedGeneration, action: body.action, confirmed: true,
+            ...(body.action === "enable-plan" ? { backgroundConsent: true } : {}),
+          })
+        : await state.services.manageLocalSiwcInstallation({
+            target, registrationId, expectedGeneration: body.expectedGeneration,
+            action: body.action, confirmed: true,
+          });
+      invalidateSiwcWork(state);
+      if (result.runtimeStopped !== (body.action !== "enable-plan") ||
+          !["confirmed", "unconfirmed", "not-applicable"].includes(result.revocation)) {
+        throw Object.assign(new Error("The installed owner result was not confirmed."), { statusCode: 502 });
+      }
+      const updated = copySiwcAccountView(result.account);
+      if (body.action === "sign-out" && updated.session === "signed-out" &&
+          updated.planEnabled === false) {
+        state.localStoppedOwnerReview = { target, account: updated, expiresAt: Date.now() + 5 * 60_000 };
+      }
+      sendJson(response, 200, {
+        account: updated, revocation: result.revocation, runtimeStopped: result.runtimeStopped,
+      });
+    } finally {
+      state.localInstallInFlight = false;
+    }
+    return;
+  }
+
   if (path === "/api/local/chat-test/key") {
     const localDashboardGeneration = state.localDashboardGeneration;
     requireLiveLocalAction(state, "Local chat testing");
-    await requireReadyLocalChatTester(state);
+    const account = await requireReadyLocalChatTester(state);
     requireCurrentLocalDashboardGeneration(
       state,
       localDashboardGeneration,
     );
     enforceRateLimit(state, path);
-    const issued = await state.localChatTest.issueKey();
+    const issued = await state.localChatTest.issueKey({ accountBinding: account });
     try {
       requireCurrentLocalDashboardGeneration(
         state,
@@ -3564,10 +4325,32 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (path === "/api/local/chat-test/models") {
+    const localDashboardGeneration = state.localDashboardGeneration;
+    requireLiveLocalAction(state, "Local ChatGPT model discovery");
+    const account = await requireReadyLocalChatTester(state);
+    requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
+    enforceRateLimit(state, path);
+    try {
+      const models = await state.localChatTest.models(body, { accountBinding: account });
+      const current = await requireReadyLocalChatTester(state);
+      requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
+      if (current.registrationId !== account.registrationId ||
+          current.generation !== account.generation) {
+        throw Object.assign(new Error("The installed ChatGPT account changed. Secure the tester again."),
+          { statusCode: 409, recovery: "review-again" });
+      }
+      sendJson(response, 200, { models, account: current });
+    } finally {
+      if (body && typeof body === "object") body.encryptedCredential = undefined;
+    }
+    return;
+  }
+
   if (path === "/api/local/chat-test/message") {
     const localDashboardGeneration = state.localDashboardGeneration;
     requireLiveLocalAction(state, "Local chat testing");
-    await requireReadyLocalChatTester(state);
+    const account = await requireReadyLocalChatTester(state);
     requireCurrentLocalDashboardGeneration(
       state,
       localDashboardGeneration,
@@ -3582,6 +4365,7 @@ async function handleApi(request, response, path, state) {
     response.once("close", abortOnClose);
     try {
       const rawResult = await state.localChatTest.message(body, {
+        accountBinding: account,
         ...(stream
           ? {
               onEvent: (event, data) => {
@@ -3604,7 +4388,7 @@ async function handleApi(request, response, path, state) {
       else sendJson(response, 200, result);
     } catch (error) {
       if (stream) {
-        stream.fail(error?.statusCode === 504 ? "timeout" : "upstream_failed");
+        stream.fail(error);
       } else {
         throw error;
       }
@@ -3622,7 +4406,6 @@ async function handleApi(request, response, path, state) {
   if (path === "/api/local/chat-test/reset") {
     const localDashboardGeneration = state.localDashboardGeneration;
     requireLiveLocalAction(state, "Local chat testing");
-    await requireReadyLocalChatTester(state);
     requireCurrentLocalDashboardGeneration(
       state,
       localDashboardGeneration,
@@ -3665,6 +4448,8 @@ async function handleApi(request, response, path, state) {
   if (path === "/api/local/plan") {
     const localDashboardGeneration = state.localDashboardGeneration;
     let plan;
+    let legacyBinding = null;
+    let existingBinding = null;
     let disposableHarnessWarning = false;
     state.localModelActionReview = null;
     if (body?.target === LOCAL_N8N_STACK_TARGET) {
@@ -3786,36 +4571,91 @@ async function handleApi(request, response, path, state) {
           disposableHarnessWarning: network.disposable === true,
         };
       } else {
-        const authStatus = await state.services.getAuthStatus();
-        if (
-          authStatus?.exists !== true ||
-          typeof authStatus.updatedAt !== "string" ||
-          Number.isNaN(Date.parse(authStatus.updatedAt))
-        ) {
-          throw new Error("Sign in with ChatGPT before reviewing this sidecar plan.");
-        }
+        const account = await selectedSiwcAccount(state, { requirePlan: true });
+        const authBinding = await siwcBinding(state, account);
         plan = {
           ...state.services.prepareLocalN8nSidecarPlan({
-          dockerHost: discovery.dockerHost,
-          n8nContainerId: container.containerId,
-          n8nContainerName: container.containerName,
-          dockerNetworkId: network.dockerNetworkId,
-          networkName: network.networkName,
-          authGeneration: authStatus.updatedAt,
+            dockerHost: discovery.dockerHost,
+            n8nContainerId: container.containerId,
+            n8nContainerName: container.containerName,
+            dockerNetworkId: network.dockerNetworkId,
+            networkName: network.networkName,
+            authBinding,
           }),
+          account,
           disposableHarnessWarning: network.disposable === true,
         };
+        const installed = await state.services.getLocalN8nSidecarStatus();
+        if (installed?.state === "legacy" && installed.managed === true) {
+          legacyBinding = await state.services.reviewLocalN8nLegacyMigration({ plan });
+          plan = { ...plan, migrationRequired: true,
+            legacyResourcesPreserved: true, requiresMigrationConsent: true };
+        } else if (installed?.state === "stopped" && installed.managed === true) {
+          const prior = state.localStoppedOwnerReview;
+          if (prior?.target !== LOCAL_N8N_SIDECAR_TARGET ||
+              installed.snapshot?.registrationId !== prior.account?.registrationId ||
+              prior.account.session !== "signed-out" || prior.account.planEnabled !== false ||
+              prior.account.registrationId === account.registrationId || prior.expiresAt <= Date.now()) {
+            throw Object.assign(new Error("Inspect the signed-out old sidecar owner before reviewing replacement."),
+              { statusCode: 409, recovery: "review-again" });
+          }
+          const bound = await state.services.reviewLocalN8nSiwcReplacement({ plan });
+          if (bound.registrationId !== prior.account.registrationId ||
+              bound.ownerHostId !== prior.account.ownerHostId) {
+            throw Object.assign(new Error("The old n8n sidecar owner changed."), { statusCode: 409 });
+          }
+          existingBinding = Object.freeze({ ...bound, expectedGeneration: prior.account.generation });
+          plan = { ...plan, replacementRequired: true,
+            oldSessionSignedOut: true, oldHistoryRetained: true, requiresReplacementConsent: true };
+        } else if (installed?.state !== "absent" || installed.managed !== false) {
+          throw Object.assign(new Error("This n8n sidecar is already owned or needs manual migration recovery."),
+            { statusCode: 409, recovery: "review-again" });
+        }
       }
     } else {
       requireOAuthLocalEndpointPlanBody(body);
+      const target = body.target ?? "xai-grok-build";
+      const isChatGpt = target === "codex-chatgpt" || target === "codex-chat";
+      if (isChatGpt) requireLiveLocalAction(state, "Local ChatGPT endpoint planning");
+      const account = isChatGpt ? await selectedSiwcAccount(state, { requirePlan: true }) : null;
       plan = createLocalDeploymentPlan({
-        target: body.target ?? "xai-grok-build",
+        target,
         port: body.port,
+        ...(account ? { authBinding: await siwcBinding(state, account) } : {}),
       });
+      if (account) plan = { ...plan, account };
+      if (isChatGpt) {
+        const installed = await state.services.getManagedLocalEndpointStatus({ target });
+        if (installed?.state === "legacy" && installed.managed === true) {
+          legacyBinding = await state.services.reviewLocalCodexLegacyMigration({ target });
+          plan = { ...plan, migrationRequired: true,
+            legacyResourcesPreserved: true, requiresMigrationConsent: true };
+        } else if (installed?.state === "stopped" && installed.managed === true) {
+          const prior = state.localStoppedOwnerReview;
+          if (prior?.target !== target ||
+              installed.snapshot?.registrationId !== prior.account?.registrationId ||
+              prior.account.session !== "signed-out" || prior.account.planEnabled !== false ||
+              prior.account.registrationId === account.registrationId || prior.expiresAt <= Date.now()) {
+            throw Object.assign(new Error("Inspect the signed-out Codex owner before reviewing replacement."),
+              { statusCode: 409, recovery: "review-again" });
+          }
+          const bound = await state.services.reviewLocalCodexSiwcReplacement({ target });
+          if (bound.registrationId !== prior.account.registrationId ||
+              bound.ownerHostId !== prior.account.ownerHostId) {
+            throw Object.assign(new Error("The old Codex owner changed."), { statusCode: 409 });
+          }
+          existingBinding = Object.freeze({ ...bound, expectedGeneration: prior.account.generation });
+          plan = { ...plan, replacementRequired: true,
+            oldSessionSignedOut: true, oldHistoryRetained: true, requiresReplacementConsent: true };
+        } else if (installed?.state !== "absent" || installed.managed !== false) {
+          throw Object.assign(new Error("This Codex endpoint is already owned or needs manual migration recovery."),
+            { statusCode: 409, recovery: "review-again" });
+        }
+      }
     }
     requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
     const planId = randomUUID();
-    state.localPlan = { planId, plan };
+    state.localPlan = { planId, plan, legacyBinding, existingBinding };
     sendJson(response, 200, {
       planId,
       plan:
@@ -3844,8 +4684,6 @@ async function handleApi(request, response, path, state) {
         state.localInstallInFlight ||
         state.localCredentialRotationInFlight ||
         getPendingLocalCredentialRotation(state) ||
-        state.codexLoginStartInFlight ||
-        state.codexLogin?.status === "pending" ||
         localOAuthChangeInFlight(state)
       ) {
         throw Object.assign(
@@ -3861,6 +4699,19 @@ async function handleApi(request, response, path, state) {
       }
 
       requireLocalInstallBody(pending.plan, body);
+      if (pending.plan.migrationRequired &&
+          (body.migrationConsent !== true || !pending.legacyBinding)) {
+        throw Object.assign(new Error("Confirm the separate legacy-service migration before installation."),
+          { statusCode: 400 });
+      }
+      if (pending.plan.replacementRequired &&
+          (body.replacementConsent !== true || !pending.existingBinding)) {
+        throw Object.assign(new Error("Confirm replacement of the signed-out installed account."),
+          { statusCode: 400 });
+      }
+      if (pending.plan.authBinding && body.confirmed !== true) {
+        throw Object.assign(new Error("Confirm the reviewed ChatGPT installation."), { statusCode: 400 });
+      }
 
       if (pending.plan.kind === "n8n-supergrok" && body.confirmed !== true) {
         throw new Error(
@@ -3897,20 +4748,21 @@ async function handleApi(request, response, path, state) {
       state.localInstalledTarget = null;
       let result;
       if (pending.plan.kind === "n8n-sidecar") {
-        const authStatus = await state.services.getAuthStatus();
-        if (
-          authStatus?.exists !== true ||
-          typeof authStatus.path !== "string" ||
-          authStatus.updatedAt !== pending.plan.authGeneration
-        ) {
-          throw new Error(
-            "The ChatGPT sign-in changed after plan review. Review a fresh local endpoint plan before installing.",
-          );
+        if (pending.resume) await requireRecoveryBinding(state, pending.sourceBinding);
+        else await requireMatchingSiwcBinding(state, pending.plan.authBinding);
+        if (body.backgroundConsent !== true || body.confirmed !== true) {
+          throw new Error("Approve background n8n use for the selected account and confirm the reviewed installation.");
         }
         result = await state.services.installLocalN8nSidecar({
           plan: pending.plan,
-          authPath: authStatus.path,
-          confirmed: body.confirmed,
+          registration: { storageRoot: state.storageRoot, registrationId: pending.plan.authBinding.registrationId },
+          confirmed: true,
+          ...(pending.resume ? { resume: pending.resume, plan: pending.resume.plan } : {}),
+          backgroundConsent: { acceptedAt: new Date().toISOString(), noticeVersion: "siwc-local-2026-10-04" },
+          ...(pending.legacyBinding ? { migrationConsent: true,
+            legacyBinding: pending.legacyBinding } : {}),
+          ...(pending.existingBinding ? { replacementConsent: true,
+            existingBinding: pending.existingBinding } : {}),
         });
       } else if (pending.plan.kind === "n8n-assistant") {
         result = await state.services.installLocalN8nAssistant({
@@ -3947,12 +4799,22 @@ async function handleApi(request, response, path, state) {
           throw error;
         }
       } else {
+        if (pending.resume) await requireRecoveryBinding(state, pending.sourceBinding);
+        else if (pending.plan.authBinding) await requireMatchingSiwcBinding(state, pending.plan.authBinding);
         result = await state.services.installLocalEndpoint({
           plan: pending.plan,
+          ...(pending.plan.authBinding
+            ? { registration: { storageRoot: state.storageRoot, registrationId: pending.plan.authBinding.registrationId } }
+            : {}),
           confirmed: body.confirmed,
+          ...(pending.resume ? { resume: pending.resume, plan: pending.resume.plan } : {}),
+          ...(pending.legacyBinding ? { migrationConsent: true,
+            legacyBinding: pending.legacyBinding } : {}),
+          ...(pending.existingBinding ? { replacementConsent: true,
+            existingBinding: pending.existingBinding } : {}),
         });
-      }
 
+      }
       requireCurrentLocalDashboardGeneration(
         state,
         localDashboardGeneration,
@@ -3964,14 +4826,14 @@ async function handleApi(request, response, path, state) {
         pending.plan.kind === "local-n8n-stack"
           ? createSafeLocalN8nStackInstallResult(result, pending.plan)
           : pending.plan.kind === "n8n-sidecar"
-          ? createSafeLocalN8nInstallResult(result)
+          ? createSafeLocalN8nInstallResult(result, pending.plan)
           : pending.plan.kind === "n8n-assistant"
             ? createSafeLocalN8nAssistantInstallResult(result, pending.plan)
             : pending.plan.kind === "n8n-supergrok"
               ? createSafeLocalN8nSuperGrokInstallResult(result, pending.plan)
             : pending.plan.kind === LOCAL_N8N_MODEL_TARGET
               ? createSafeLocalModelStatus(result)
-              : createSafeLocalInstallResult(result),
+              : createSafeLocalInstallResult(result, pending.plan),
       );
     } finally {
       if (acquiredInstallLock) {
@@ -4055,76 +4917,7 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
-  if (path === "/api/local/n8n/sidecar/update") {
-    requireLiveLocalAction(state, "Local n8n bridge runtime update");
-    enforceRateLimit(state, path);
-    requireExactRequestBody(body, ["confirmed"], "The local bridge update request is invalid.");
-    if (body.confirmed !== true) {
-      throw new Error("Confirm updating the existing local bridge runtime.");
-    }
-    if (
-      state.localInstallInFlight || state.localCredentialRotationInFlight ||
-      getPendingLocalCredentialRotation(state) || state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" || localOAuthChangeInFlight(state)
-    ) {
-      throw Object.assign(new Error("A local endpoint change is already in progress."), { statusCode: 409 });
-    }
-    state.localInstallInFlight = true;
-    state.localPlan = null;
-    state.localAssistantSearxngReview = null;
-    try {
-      const result = await state.services.updateLocalN8nSidecarRuntime({ confirmed: true });
-      sendJson(response, 200, createSafeLocalN8nSidecarUpdateResult(result));
-    } finally {
-      state.localInstallInFlight = false;
-    }
-    return;
-  }
 
-  if (path === "/api/local/n8n/sidecar/refresh") {
-    requireLiveLocalAction(state, "Local n8n bridge credential refresh");
-    enforceRateLimit(state, path);
-    if (body?.confirmed !== true) {
-      throw new Error(
-        "Confirm applying the new ChatGPT sign-in to the managed local n8n bridge.",
-      );
-    }
-    if (
-      state.localInstallInFlight ||
-      state.localCredentialRotationInFlight ||
-      getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" ||
-      localOAuthChangeInFlight(state)
-    ) {
-      throw Object.assign(
-        new Error("A local endpoint change is already in progress."),
-        { statusCode: 409 },
-      );
-    }
-
-    // Claim the shared in-process mutation slot before the asynchronous sign-in
-    // lookup so a credential change cannot race a sidecar re-attestation.
-    state.localInstallInFlight = true;
-    state.localPlan = null;
-    state.localAssistantSearxngReview = null;
-    try {
-      const authStatus = await state.services.getAuthStatus();
-      if (authStatus?.exists !== true || typeof authStatus.path !== "string") {
-        throw new Error(
-          "Complete ChatGPT sign-in before applying it to the managed local n8n bridge.",
-        );
-      }
-      const result = await state.services.refreshLocalN8nSidecarCredential({
-        authPath: authStatus.path,
-        confirmed: true,
-      });
-      sendJson(response, 200, createSafeLocalN8nSidecarRefreshResult(result));
-    } finally {
-      state.localInstallInFlight = false;
-    }
-    return;
-  }
 
   if (path === "/api/local/n8n/assistant/searxng/review") {
     const localDashboardGeneration = state.localDashboardGeneration;
@@ -4137,8 +4930,6 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight ||
       state.localCredentialRotationInFlight ||
       getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" ||
       localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(
@@ -4187,8 +4978,6 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight ||
       state.localCredentialRotationInFlight ||
       getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" ||
       localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(
@@ -4228,8 +5017,6 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight ||
       state.localCredentialRotationInFlight ||
       getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" ||
       localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(
@@ -4268,8 +5055,6 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight ||
       state.localCredentialRotationInFlight ||
       getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" ||
       localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(
@@ -4307,8 +5092,6 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight ||
       state.localCredentialRotationInFlight ||
       getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" ||
       localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(new Error("A local endpoint change is already in progress."), {
@@ -4340,8 +5123,6 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight ||
       state.localCredentialRotationInFlight ||
       getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" ||
       localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(new Error("A local endpoint change is already in progress."), {
@@ -4373,8 +5154,6 @@ async function handleApi(request, response, path, state) {
       state.localInstallInFlight ||
       state.localCredentialRotationInFlight ||
       getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending" ||
       localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(
@@ -4409,8 +5188,7 @@ async function handleApi(request, response, path, state) {
       state.localCredentialRotationInFlight ||
       state.localInstallInFlight ||
       getPendingLocalCredentialRotation(state) ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending"
+      localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(
         new Error("A local endpoint change is already in progress."),
@@ -4436,6 +5214,11 @@ async function handleApi(request, response, path, state) {
         rotationId,
         target: result.target,
         tokenSha256: result.tokenSha256,
+        ...(["codex-chatgpt", "codex-chat"].includes(result.target)
+          ? {
+              registrationId: requireSiwcId(result.registrationId),
+              expectedGeneration: result.expectedGeneration,
+            } : {}),
         expiresAt: Date.now() + LOCAL_ROTATION_STAGE_TTL_MS,
       };
       sendJson(response, 200, {
@@ -4454,8 +5237,7 @@ async function handleApi(request, response, path, state) {
     if (
       state.localCredentialRotationInFlight ||
       state.localInstallInFlight ||
-      state.codexLoginStartInFlight ||
-      state.codexLogin?.status === "pending"
+      localOAuthChangeInFlight(state)
     ) {
       throw Object.assign(
         new Error("A local endpoint change is already in progress."),
@@ -4475,6 +5257,9 @@ async function handleApi(request, response, path, state) {
         target: pending.target,
         clientCredential: body.clientCredential,
         tokenSha256: pending.tokenSha256,
+        ...(pending.registrationId
+          ? { registrationId: pending.registrationId, expectedGeneration: pending.expectedGeneration }
+          : {}),
       });
       sendJson(response, 200, createSafeLocalActivationResult(result));
     } finally {
@@ -4483,132 +5268,6 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
-  if (path === "/api/local/codex/login") {
-    requireLiveLocalAction(state, "Local Codex sign-in");
-    enforceRateLimit(state, path);
-    if (
-      state.codexLoginStartInFlight ||
-      state.localInstallInFlight ||
-      state.localCredentialRotationInFlight ||
-      getPendingLocalCredentialRotation(state)
-    ) {
-      throw Object.assign(
-        new Error("A local endpoint change is already in progress."),
-        { statusCode: 409 },
-      );
-    }
-
-    const target = validateLocalTarget(body?.target ?? "codex-chatgpt");
-    if (target !== "codex-chatgpt" && target !== "codex-chat") {
-      throw new Error("Choose a Codex local endpoint before signing in.");
-    }
-    state.codexLoginStartInFlight = true;
-    let finishStart;
-    const startPromise = new Promise((resolvePromise) => {
-      finishStart = resolvePromise;
-    });
-    state.codexLoginStartPromise = startPromise;
-    let releaseChangeLock;
-    let lockTransferred = false;
-    try {
-      const previous = state.codexLogin;
-      if (previous?.status === "pending") {
-        state.codexLogin = null;
-        previous.cancel();
-        try {
-          await previous.completion;
-        } catch {
-          // A fresh attempt intentionally supersedes the old device-code login.
-        }
-      }
-      if (state.closing) {
-        throw Object.assign(new Error("The local wizard is closing."), {
-          statusCode: 409,
-        });
-      }
-
-      releaseChangeLock = await state.services.acquireLocalEndpointChangeLock({
-        target,
-      });
-      if (state.closing) {
-        throw Object.assign(new Error("The local wizard is closing."), {
-          statusCode: 409,
-        });
-      }
-      const installDirectory = await state.services.resolveLocalInstallRoot({
-        target,
-      });
-      const { dockerHost, projectName } =
-        await state.services.attestLocalCodexInstallation({
-          installDirectory,
-          ...(target === "codex-chat" ? { target } : {}),
-        });
-
-      const attempt = await state.services.startCodexDeviceLogin({
-        installDirectory,
-        dockerHost,
-        projectName,
-      });
-      if (state.closing) {
-        attempt.cancel();
-        try {
-          await attempt.completion;
-        } catch {
-          // Shutdown intentionally cancels a helper that finished starting late.
-        }
-        throw Object.assign(new Error("The local wizard is closing."), {
-          statusCode: 409,
-        });
-      }
-      const login = {
-        cancel: attempt.cancel,
-        completion: null,
-        error: null,
-        status: "pending",
-      };
-      state.codexLogin = login;
-      login.completion = (async () => {
-        try {
-          await attempt.completion;
-          if (state.codexLogin !== login || state.closing) {
-            return;
-          }
-          await state.services.restartLocalCodex(
-            {
-              installDirectory,
-              ...(target === "codex-chat" ? { target } : {}),
-            },
-            { changeLockHeld: true },
-          );
-          if (state.codexLogin === login && !state.closing) {
-            login.status = "success";
-          }
-        } catch (error) {
-          if (state.codexLogin === login && !state.closing) {
-            login.status = "error";
-            login.error = safeErrorMessage(error);
-          }
-        } finally {
-          await releaseChangeLock();
-        }
-      })();
-      lockTransferred = true;
-      sendJson(response, 200, {
-        verificationUrl: attempt.verificationUrl,
-        userCode: attempt.userCode,
-      });
-    } finally {
-      if (!lockTransferred && releaseChangeLock) {
-        await releaseChangeLock();
-      }
-      state.codexLoginStartInFlight = false;
-      finishStart();
-      if (state.codexLoginStartPromise === startPromise) {
-        state.codexLoginStartPromise = null;
-      }
-    }
-    return;
-  }
 
   if (path === "/api/ssh/fingerprint") {
     enforceRateLimit(state, path);
@@ -4649,9 +5308,9 @@ async function handleApi(request, response, path, state) {
         scannedHost.port !== port ||
         !tokenMatches(body.expectedFingerprint, scannedHost.fingerprint)
       ) {
-        throw new Error(
-          "The VPS identity confirmation is missing or no longer matches. Check it again.",
-        );
+        throw Object.assign(new Error(
+          "This server identity check was already used or no longer matches. Check and confirm the server identity again before connecting."),
+        { code: "ssh_identity_review_required", recovery: "review-again" });
       }
 
       connectionOperation = acquireVpsConnectionOperation(state);
@@ -4908,6 +5567,326 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (["/api/siwc/vps/status", "/api/siwc/vps/manage", "/api/siwc/vps/inspect-stopped"].includes(path)) {
+    requireLiveLocalAction(state, "VPS ChatGPT account management");
+    enforceRateLimit(state, path);
+    const managing = path.endsWith("/manage");
+    const inspecting = path.endsWith("/inspect-stopped");
+    requireExactRequestBody(body, managing
+      ? ["containerName", "networkName", "registrationId", "expectedGeneration", "action", "confirmed",
+          ...(body?.action === "enable-plan" ? ["backgroundConsent"] : [])]
+      : inspecting
+        ? ["containerName", "networkName", "registrationId", "confirmed"]
+        : ["containerName", "networkName"],
+    "Choose the verified VPS installation and its exact account.");
+    requireDiscoveredNetwork(state, body.containerName, body.networkName);
+    if ((managing || inspecting) && (body.confirmed !== true ||
+        !requireSiwcId(body.registrationId) ||
+        (managing && !["sign-out", "disable-plan", "enable-plan"].includes(body.action)) ||
+        (managing && body.action === "enable-plan" && body.backgroundConsent !== true))) throw invalidSiwcRequest();
+    rejectActiveVpsMutation(state);
+    if (oauthCredentialChangeInFlight(state)) {
+      throw Object.assign(new Error("Finish ChatGPT sign-in before managing the VPS."), { statusCode: 409 });
+    }
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    let releaseMutation;
+    let credentialOperation;
+    try {
+      requireFullVpsScope(connection);
+      const reviewedTarget = managing || inspecting
+        ? requireReviewedVpsOwnerTarget(state, body.containerName, body.networkName)
+        : Object.freeze({ ...state.connectionIdentity,
+          containerName: body.containerName, networkName: body.networkName,
+          ...await state.services.reviewVpsSiwcTarget({
+            remote: connection, networkName: body.networkName, containerName: body.containerName,
+          }) });
+      releaseMutation = managing || inspecting ? acquireVpsMutationLock(state) : null;
+      credentialOperation = managing || inspecting ? null : acquireVpsCredentialOperation(state, "owner-status");
+      const status = await state.services.getVpsSiwcInstallationStatus({
+        remote: connection, networkName: body.networkName, reviewedTarget,
+      });
+      if (!managing && !inspecting) {
+        state.vpsOwnerTargetReview = { reviewedTarget, expiresAt: Date.now() + 5 * 60_000 };
+        sendJson(response, 200, {
+          state: status.state,
+          destination: { n8nContainerId: reviewedTarget.n8nContainerId,
+            networkId: reviewedTarget.networkId },
+          ...(status.account ? { account: copySiwcAccountView(status.account) } : {}),
+          ...(status.registrationId ? { registrationId: requireSiwcId(status.registrationId) } : {}),
+          ...(["staged", "updating"].includes(status.state) ? { staging: copySiwcStaging(status.staging) } : {}),
+          ...(status.state === "owned" && typeof status.runtimeUpdateAvailable === "boolean"
+            ? { runtimeUpdateAvailable: status.runtimeUpdateAvailable } : {}),
+        });
+        return;
+      }
+      if (inspecting) {
+        if (status.state !== "stopped" || status.registrationId !== body.registrationId) {
+          throw Object.assign(new Error("This installed account is not stopped. Check its status again."), { statusCode: 409 });
+        }
+        const result = await state.services.inspectStoppedVpsSiwcInstallation({
+          remote: connection, networkName: body.networkName, registrationId: body.registrationId,
+          reviewedTarget, confirmed: true,
+        });
+        const account = copySiwcAccountView(result.account);
+        state.vpsStoppedOwnerReview = { account, reviewedTarget, expiresAt: Date.now() + 5 * 60_000 };
+        sendJson(response, 200, { account });
+        return;
+      }
+      const stoppedReview = state.vpsStoppedOwnerReview;
+      const stopped = status.state === "stopped" && status.registrationId === body.registrationId &&
+        stoppedReview?.expiresAt > Date.now() &&
+        stoppedReview.account.registrationId === body.registrationId &&
+        stoppedReview.account.generation === body.expectedGeneration &&
+        ["host", "port", "fingerprint", "username", "authentication", "privilege",
+          "loginUid", "effectiveUid", "containerName", "networkName", "n8nContainerId", "networkId"].every(
+          (key) => stoppedReview.reviewedTarget[key] === reviewedTarget[key]);
+      const live = status.state === "owned" && status.registrationId === body.registrationId &&
+        status.account?.registrationId === body.registrationId &&
+        status.account.generation === body.expectedGeneration &&
+        status.account.ownership === "owned";
+      if (!live && !stopped) {
+        throw Object.assign(new Error("The VPS owner session changed. Check its status again."), { statusCode: 409 });
+      }
+      state.vpsStoppedOwnerReview = null;
+      const result = await state.services.manageVpsSiwcInstallation({
+        remote: connection, networkName: body.networkName,
+        registrationId: body.registrationId, expectedGeneration: body.expectedGeneration,
+        action: body.action, reviewedTarget, confirmed: true,
+        ...(body.action === "enable-plan" ? { backgroundConsent: true } : {}),
+      });
+      invalidateSiwcWork(state);
+      if (result.runtimeStopped !== (body.action !== "enable-plan") ||
+          !["confirmed", "unconfirmed", "not-applicable"].includes(result.revocation)) {
+        throw Object.assign(new Error("The VPS owner result was not confirmed."), { statusCode: 502 });
+      }
+      const updated = copySiwcAccountView(result.account);
+      if (body.action === "sign-out" && updated.session === "signed-out" && updated.planEnabled === false) {
+        state.vpsStoppedOwnerReview = { account: updated, reviewedTarget,
+          expiresAt: Date.now() + 5 * 60_000 };
+      }
+      sendJson(response, 200, {
+        account: updated, revocation: result.revocation, runtimeStopped: result.runtimeStopped,
+      });
+    } finally {
+      credentialOperation?.release();
+      if (releaseMutation) {
+        detachVpsConnection(state, connection);
+        releaseMutation();
+      }
+      connectionUse.release();
+    }
+    return;
+  }
+
+  if (path === "/api/siwc/vps/runtime-update/review" || path === "/api/siwc/vps/runtime-update/apply") {
+    requireLiveLocalAction(state, "VPS ChatGPT sidecar update");
+    enforceRateLimit(state, path);
+    const applying = path.endsWith("/apply");
+    requireExactRequestBody(body, applying ? ["reviewId", "confirmed"] : ["containerName", "networkName", "registrationId"],
+      "Review this exact installed sidecar before updating it.");
+    // Also refuses while a ChatGPT sign-in or credential change is in flight.
+    rejectActiveVpsMutation(state);
+    const pending = applying ? state.vpsRuntimeUpdateReview : null;
+    if (applying) {
+      state.vpsRuntimeUpdateReview = null;
+      if (body.confirmed !== true || !pending || pending.expiresAt <= Date.now() ||
+          !tokenMatches(body.reviewId, pending.reviewId)) {
+        throw Object.assign(new Error("Review and confirm this sidecar update again."),
+          { statusCode: 409, recovery: "review-again" });
+      }
+    }
+    const containerName = applying ? pending.reviewedTarget.containerName : body.containerName;
+    const networkName = applying ? pending.reviewedTarget.networkName : body.networkName;
+    requireDiscoveredNetwork(state, containerName, networkName);
+    const registrationId = applying ? pending.registrationId : requireSiwcId(body.registrationId);
+    const ownerTarget = requireReviewedVpsOwnerTarget(state, containerName, networkName);
+    if (applying && ![...VPS_OWNER_TARGET_FIELDS, "n8nContainerId", "networkId"].every(
+      (key) => ownerTarget[key] === pending.reviewedTarget[key])) {
+      throw Object.assign(new Error("Review this VPS owner and destination again."),
+        { statusCode: 409, recovery: "review-again" });
+    }
+    const reviewedTarget = applying ? pending.reviewedTarget : ownerTarget;
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    let operation;
+    let releaseMutation;
+    try {
+      requireFullVpsScope(connection);
+      if (!applying) {
+        operation = acquireVpsCredentialOperation(state, "runtime-update-review");
+        state.vpsRuntimeUpdateReview = null;
+        const review = await state.services.reviewVpsSiwcRuntimeUpdate({
+          remote: connection, networkName, reviewedTarget, registrationId,
+        });
+        if (review?.rebuildRequired === false) {
+          sendJson(response, 200, { rebuildRequired: false });
+          return;
+        }
+        if (review?.rebuildRequired !== true || review.registrationId !== registrationId ||
+            typeof review.continuing !== "boolean" || !/^[a-z][a-z0-9-]{0,63}$/u.test(review.stage ?? "") ||
+            !/^[a-f0-9]{64}$/u.test(review.containerId ?? "") ||
+            !/^sha256:[a-f0-9]{64}$/u.test(review.imageId ?? "") ||
+            !Array.isArray(review.changedFiles) || review.changedFiles.some((file) => typeof file !== "string" ||
+              !/^[A-Za-z0-9._-]{1,128}(?:\/[A-Za-z0-9._-]{1,128}){0,15}$/u.test(file) ||
+              file.split("/").some((part) => part === "." || part === ".."))) {
+          throw Object.assign(new Error("The sidecar update review is invalid."), { statusCode: 502 });
+        }
+        const reviewId = randomUUID();
+        state.vpsRuntimeUpdateReview = { reviewId, review, reviewedTarget, registrationId,
+          expiresAt: Date.now() + 5 * 60_000 };
+        sendJson(response, 200, { reviewId, stage: review.stage, continuing: review.continuing,
+          changedFiles: [...review.changedFiles], rebuildRequired: true,
+          imageId: review.imageId.slice(0, 19), containerId: review.containerId.slice(0, 12) });
+        return;
+      }
+      releaseMutation = acquireVpsMutationLock(state);
+      const result = await state.services.updateVpsSiwcRuntime({
+        remote: connection, networkName, reviewedTarget, registrationId, review: pending.review, confirmed: true,
+      });
+      invalidateSiwcWork(state);
+      const account = copySiwcAccountView(result?.account);
+      if (result.registrationId !== registrationId || account.registrationId !== registrationId ||
+          account.ownership !== "owned" || result.runtimeState !== "running" || result.keyChanged !== false) {
+        throw Object.assign(new Error("The sidecar update result was not confirmed."), { statusCode: 502 });
+      }
+      sendJson(response, 200, { account, runtimeState: "running", keyChanged: false });
+    } finally {
+      operation?.release();
+      if (releaseMutation) {
+        detachVpsConnection(state, connection);
+        releaseMutation();
+      }
+      connectionUse.release();
+    }
+    return;
+  }
+
+  if (["/api/siwc/vps/images/status", "/api/siwc/vps/images/action", "/api/siwc/vps/images/login-status"].includes(path)) {
+    requireLiveLocalAction(state, "VPS image generation");
+    const checking = path.endsWith("/images/status");
+    const polling = path.endsWith("/login-status");
+    const action = checking ? null : polling ? "login-poll" : body?.action;
+    // ponytail: 5 s polls over a 15-minute code would exhaust the shared 10-per-15-minute limit.
+    // Polls are bounded instead by a stored pending sign-in, single-flight use and the code expiry.
+    if (!polling) enforceRateLimit(state, path);
+    requireExactRequestBody(body, checking ? ["containerName", "networkName", "registrationId"]
+      : polling ? [] : ["action", "confirmed"], "Check this installed account's image generation again.");
+    if (!checking && !polling && (!["login-start", "login-cancel", "sign-out"].includes(action) ||
+        typeof body.confirmed !== "boolean" || (action !== "login-cancel" && body.confirmed !== true))) {
+      throw Object.assign(new Error("Confirm this image sign-in change first."), { statusCode: 400 });
+    }
+    rejectActiveVpsMutation(state);
+    const stored = checking ? null : requireVpsAddonTarget(state, "vpsImagesTarget",
+      "Check the installed account's image generation again.", { pending: polling });
+    const containerName = stored ? stored.reviewedTarget.containerName : body.containerName;
+    const networkName = stored ? stored.reviewedTarget.networkName : body.networkName;
+    requireDiscoveredNetwork(state, containerName, networkName);
+    const registrationId = stored ? stored.registrationId : requireSiwcId(body.registrationId);
+    const reviewedTarget = stored ? stored.reviewedTarget
+      : requireReviewedVpsOwnerTarget(state, containerName, networkName);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    let operation;
+    let releaseMutation;
+    let detach = action === "sign-out";
+    try {
+      requireFullVpsScope(connection);
+      if (checking || polling) {
+        operation = acquireVpsCredentialOperation(state, polling ? "images-login-poll" : "images-status");
+      } else releaseMutation = acquireVpsMutationLock(state);
+      if (checking) state.vpsImagesTarget = null;
+      const result = checking
+        ? await state.services.getVpsCodexImagesStatus({ remote: connection, networkName, reviewedTarget, registrationId })
+        : await state.services.changeVpsCodexImages({ remote: connection, networkName, reviewedTarget, registrationId,
+          action, expectedContainerId: stored.containerId, confirmed: polling ? false : body.confirmed });
+      const view = copyVpsImagesStatus(result);
+      detach ||= polling && view.state !== "pending";
+      state.vpsImagesTarget = detach ? null : { reviewedTarget, registrationId, containerId: result.containerId,
+        pending: view.state === "pending", expiresAt: Date.now() + VPS_ADDON_TARGET_MS };
+      sendJson(response, 200, view);
+    } finally {
+      operation?.release();
+      if (detach) detachVpsConnection(state, connection);
+      releaseMutation?.();
+      connectionUse.release();
+    }
+    return;
+  }
+
+  if (path === "/api/siwc/vps/models/status" || path === "/api/siwc/vps/models/checks") {
+    requireLiveLocalAction(state, "VPS model discovery");
+    enforceRateLimit(state, path);
+    const checking = path.endsWith("/status");
+    requireExactRequestBody(body, checking ? ["containerName", "networkName", "registrationId"] : ["enabled", "confirmed"],
+      "Check this installed account's models again.");
+    if (!checking && (typeof body.enabled !== "boolean" || body.confirmed !== true)) {
+      throw Object.assign(new Error("Confirm this model check change first."), { statusCode: 400 });
+    }
+    rejectActiveVpsMutation(state);
+    const stored = checking ? null
+      : requireVpsAddonTarget(state, "vpsModelsTarget", "Check the installed account's models again.");
+    const containerName = stored ? stored.reviewedTarget.containerName : body.containerName;
+    const networkName = stored ? stored.reviewedTarget.networkName : body.networkName;
+    requireDiscoveredNetwork(state, containerName, networkName);
+    const registrationId = stored ? stored.registrationId : requireSiwcId(body.registrationId);
+    const reviewedTarget = stored ? stored.reviewedTarget
+      : requireReviewedVpsOwnerTarget(state, containerName, networkName);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    let operation;
+    let releaseMutation;
+    try {
+      requireFullVpsScope(connection);
+      if (checking) {
+        operation = acquireVpsCredentialOperation(state, "models-status");
+        state.vpsModelsTarget = null;
+      } else releaseMutation = acquireVpsMutationLock(state);
+      const result = checking
+        ? await state.services.getVpsModelDiscovery({ remote: connection, networkName, reviewedTarget, registrationId })
+        : await state.services.changeVpsModelChecks({ remote: connection, networkName, reviewedTarget, registrationId,
+          enabled: body.enabled, expectedContainerId: stored.containerId, confirmed: true });
+      const view = copyVpsModelsStatus(result);
+      if (!checking && view.checksEnabled !== body.enabled) {
+        throw Object.assign(new Error("The model check change was not confirmed."), { statusCode: 502 });
+      }
+      // An older sidecar cannot change model checks, so its status leaves no target.
+      state.vpsModelsTarget = view.state === "available" ? { reviewedTarget, registrationId,
+        containerId: result.containerId, expiresAt: Date.now() + VPS_ADDON_TARGET_MS } : null;
+      sendJson(response, 200, view);
+    } finally {
+      operation?.release();
+      releaseMutation?.();
+      connectionUse.release();
+    }
+    return;
+  }
+
+  if (path === "/api/siwc/vps/usage/status") {
+    requireLiveLocalAction(state, "VPS usage status");
+    enforceRateLimit(state, path);
+    requireExactRequestBody(body, ["containerName", "networkName", "registrationId"],
+      "Check this installed account's usage again.");
+    rejectActiveVpsMutation(state);
+    requireDiscoveredNetwork(state, body.containerName, body.networkName);
+    const registrationId = requireSiwcId(body.registrationId);
+    const reviewedTarget = requireReviewedVpsOwnerTarget(state, body.containerName, body.networkName);
+    const connectionUse = acquireVpsConnectionUse(state);
+    let operation;
+    try {
+      requireFullVpsScope(connectionUse.connection);
+      operation = acquireVpsCredentialOperation(state, "usage-status");
+      // Read-only: the sidecar's stored record becomes the bounded view here; nothing on the VPS changes.
+      const record = await state.services.getVpsUsageStatus({ remote: connectionUse.connection,
+        networkName: body.networkName, reviewedTarget, registrationId });
+      sendJson(response, 200, usageView(record, { registrationId }));
+    } finally {
+      operation?.release();
+      connectionUse.release();
+    }
+    return;
+  }
+
   if (path === "/api/plan") {
     rejectActiveVpsMutation(state);
     const connectionUse = acquireVpsConnectionUse(state);
@@ -4931,10 +5910,55 @@ async function handleApi(request, response, path, state) {
       state.sidecarPlan = null;
       invalidateSuperGrokPlan(state);
       invalidateLocalModelVpsPlan(state);
-      const authStatus = requireVpsPlanAuthStatus(
-        await state.services.getAuthStatus(),
-        "Sign in with ChatGPT before reviewing this sidecar plan.",
+      const account = requireVpsPlanAuthStatus(
+        await selectedSiwcAccount(state, { requirePlan: true }),
+        "Enable ChatGPT plan use for the selected account before reviewing this sidecar plan.",
       );
+      const authBinding = await siwcBinding(state, account);
+      const reviewedTarget = Object.freeze({ ...state.connectionIdentity,
+        containerName: body.containerName, networkName: body.networkName,
+        ...await state.services.reviewVpsSiwcTarget({
+          remote: connectionUse.connection, containerName: body.containerName, networkName: body.networkName,
+        }) });
+      const installed = await state.services.getVpsSiwcInstallationStatus({
+        remote: connectionUse.connection, networkName: body.networkName, reviewedTarget,
+      });
+      let legacyBinding = null;
+      let existingBinding = null;
+      if (installed?.state === "legacy") {
+        legacyBinding = await state.services.reviewVpsLegacyMigration({
+          remote: connectionUse.connection, networkName: body.networkName, reviewedTarget,
+        });
+      } else if (installed?.state === "stopped") {
+        const previous = state.vpsStoppedOwnerReview;
+        if (installed.registrationId !== previous?.account?.registrationId ||
+            previous.account.session !== "signed-out" || previous.account.planEnabled !== false ||
+            previous.expiresAt <= Date.now() ||
+            !["host", "port", "fingerprint", "username", "authentication", "privilege",
+              "loginUid", "effectiveUid", "containerName", "networkName", "n8nContainerId", "networkId"].every(
+              (key) => previous.reviewedTarget[key] === reviewedTarget[key])) {
+          throw Object.assign(new Error("Inspect the stopped, signed-out owner before reviewing replacement."),
+            { statusCode: 409, recovery: "review-again" });
+        }
+        const bound = await state.services.reviewVpsSiwcReplacement({
+          remote: connectionUse.connection, networkName: body.networkName, reviewedTarget,
+        });
+        if (bound.registrationId !== previous.account.registrationId ||
+            bound.registrationId === account.registrationId) {
+          throw Object.assign(new Error("The installed owner or selected new account changed."), { statusCode: 409 });
+        }
+        existingBinding = Object.freeze({ ...bound, ownerHostId: previous.account.ownerHostId,
+          expectedGeneration: previous.account.generation });
+      } else if (installed?.state !== "absent") {
+        const detail = {
+          staged: "An earlier installation on this server was interrupted. Open Recover a transfer or staged installation to resume it.",
+          partial: "An earlier migration on this server started but did not finish. Open Recover a transfer or staged installation.",
+          owned: "A ChatGPT plan sidecar is already installed and running here. To update it, open Manage the installed ChatGPT session and review the sidecar update.",
+          updating: "A sidecar update on this server was interrupted. Open Manage the installed ChatGPT session to finish it.",
+        }[installed?.state] ?? "The installed sidecar must be signed out or manually recovered before another write.";
+        throw Object.assign(new Error(detail),
+          { statusCode: 409, recovery: "review-again", code: `vps_sidecar_${installed?.state ?? "unknown"}` });
+      }
       requireCurrentVpsCredentialOperation(
         state,
         credentialOperation.operation,
@@ -4946,9 +5970,11 @@ async function handleApi(request, response, path, state) {
         planId: randomUUID(),
         containerName: body.containerName,
         networkName: body.networkName,
-        authPath: authStatus.path,
-        authUpdatedAt: authStatus.updatedAt,
-        oauthCredentialGeneration: state.oauthCredentialGeneration,
+        authBinding,
+        account,
+        reviewedTarget,
+        legacyBinding,
+        existingBinding,
       };
       sendJson(response, 200, {
         planId: state.sidecarPlan.planId,
@@ -4958,6 +5984,14 @@ async function handleApi(request, response, path, state) {
         sidecarProject: "n8n-openai-oauth",
         endpointHostname: SIDECAR_HOSTNAME,
         networkName: body.networkName,
+        containerName: body.containerName,
+        n8nContainerId: reviewedTarget.n8nContainerId,
+        networkId: reviewedTarget.networkId,
+        account: copySiwcAccountView(account),
+        ...(legacyBinding ? { migrationRequired: true, legacyResourcesPreserved: true,
+          requiresMigrationConsent: true } : {}),
+        ...(existingBinding ? { replacementRequired: true, oldSessionSignedOut: true,
+          oldHistoryRetained: true, requiresReplacementConsent: true } : {}),
         existingN8nChanges: [],
         existingN8nRestarts: 0,
         publishedPorts: [],
@@ -5059,6 +6093,16 @@ async function handleApi(request, response, path, state) {
     rejectActiveVpsMutation(state);
     enforceRateLimit(state, path);
     const reviewedPlan = state.sidecarPlan;
+    requireExactRequestBody(body,
+      ["planId", "containerName", "networkName", "confirmed", "backgroundConsent",
+        ...(reviewedPlan?.legacyBinding ? ["migrationConsent"] : []),
+        ...(reviewedPlan?.existingBinding ? ["replacementConsent"] : [])],
+      "Confirm the reviewed ChatGPT account and background n8n use.");
+    if (body.confirmed !== true || body.backgroundConsent !== true ||
+        (reviewedPlan?.legacyBinding && body.migrationConsent !== true) ||
+        (reviewedPlan?.existingBinding && body.replacementConsent !== true)) {
+      throw Object.assign(new Error("Approve the reviewed destination, background use, and any separate migration or replacement."), { statusCode: 400 });
+    }
     requireReviewedVpsPlan(reviewedPlan, body, "sidecar");
     requireDiscoveredNetwork(
       state,
@@ -5071,35 +6115,60 @@ async function handleApi(request, response, path, state) {
     state.sidecarPlan = null;
     const releaseVpsMutationLock = acquireVpsMutationLock(state);
     let result;
-    let authContents;
     try {
-      const authStatus = requireMatchingVpsAuthGeneration(
-        state,
-        reviewedPlan,
-        await state.services.getAuthStatus(),
-      );
-      authContents = await state.services.readAuthContents({
-        authPath: authStatus.path,
-      });
-      requireMatchingVpsAuthGeneration(
-        state,
-        reviewedPlan,
-        await state.services.getAuthStatus(),
-      );
+      if (reviewedPlan.resume) await requireRecoveryBinding(state, reviewedPlan.sourceBinding);
+      else await requireMatchingSiwcBinding(state, reviewedPlan.authBinding);
       result = await state.services.installSidecar({
         remote: connection,
         networkName: body.networkName,
-        authContents,
-        confirmed: body.confirmed,
+        registration: { storageRoot: state.storageRoot, registrationId: reviewedPlan.authBinding.registrationId },
+        authBinding: reviewedPlan.authBinding,
+        reviewedTarget: reviewedPlan.reviewedTarget,
+        confirmed: true,
+        ...(reviewedPlan.resume ? { resume: reviewedPlan.resume } : {}),
+        backgroundConsent: { acceptedAt: new Date().toISOString(), noticeVersion: "siwc-vps-2026-10-04" },
+        ...(reviewedPlan.legacyBinding ? { migrationConsent: true,
+          legacyBinding: reviewedPlan.legacyBinding } : {}),
+        ...(reviewedPlan.existingBinding ? { replacementConsent: true,
+          existingBinding: reviewedPlan.existingBinding } : {}),
       });
     } finally {
-      authContents = null;
       detachVpsConnection(state, connection);
       releaseVpsMutationLock();
       connectionUse.release();
     }
 
-    sendJson(response, 200, result);
+    if (!result || result.baseUrl !== "http://n8n-openai-oauth:10531/v1" ||
+        typeof result.clientCredential !== "string" ||
+        !/^[A-Za-z0-9_-]{32,256}$/u.test(result.clientCredential) ||
+        result.credentialShownOnce !== true ||
+        !["installed", "migrated", "replaced", "partial"].includes(result.deploymentMode) ||
+        (result.deploymentMode === "migrated" && (result.migratedLegacy !== true || result.legacyRetained !== true ||
+          !(reviewedPlan.resume
+            ? reviewedPlan.resume.deploymentMode === result.deploymentMode
+            : reviewedPlan.legacyBinding))) ||
+        (result.deploymentMode === "replaced" && (result.replacedAccount !== true ||
+          !(reviewedPlan.resume
+            ? reviewedPlan.resume.deploymentMode === result.deploymentMode
+            : reviewedPlan.existingBinding))) ||
+        (result.deploymentMode === "partial" && !result.runtimeFailure && !result.finalizationFailure) ||
+        (result.hostPublication !== "none" &&
+          !(result.deploymentMode === "partial" && result.runtimeState === "unknown" &&
+            result.hostPublication === "unknown")) ||
+        result.account?.registrationId !== reviewedPlan.authBinding.registrationId ||
+        !Array.isArray(result.models) || result.models.some((model) =>
+          typeof model !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/u.test(model))) {
+      throw Object.assign(new Error("The sidecar returned an invalid installation result."), { statusCode: 502 });
+    }
+    sendJson(response, 200, {
+      baseUrl: result.baseUrl, clientCredential: result.clientCredential,
+      credentialShownOnce: true, models: result.models, deploymentMode: result.deploymentMode,
+      hostPublication: result.hostPublication,
+      account: copySiwcAccountView(result.account),
+      ...copySiwcReadiness(result),
+      ...(result.migratedLegacy === true ? { migratedLegacy: true, legacyRetained: result.legacyRetained === true } : {}),
+      ...(result.replacedAccount === true ? { replacedAccount: true } : {}),
+    });
     return;
   }
 
@@ -5123,9 +6192,7 @@ function persistentControlBusy(state) {
     state.vpsConnectionUses.size > 0 ||
     state.vpsMutationInFlight ||
     state.vpsCredentialOperation ||
-    oauthCredentialOperationInFlight(state) ||
-    state.codexLoginStartInFlight ||
-    state.codexLogin?.status === "pending"
+    oauthCredentialOperationInFlight(state)
   );
 }
 
@@ -5340,16 +6407,12 @@ function createRequestHandler(state) {
           retryableStackStartup &&
           error?.failureKind ===
             LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND;
-        sendJson(response, error.statusCode ?? 400, {
+        const failure = safeFailure(error);
+        sendJson(response, failure.status, {
+          ...failure,
           error: managedPartialStack
             ? "Relmio confirmed that its owned partial local n8n + ngrok stack remains. Use the explicit removal control to retry cleanup safely."
-            : safeErrorMessage(error),
-          ...(error.retryBlocked === true ? { retryBlocked: true } : {}),
-          ...(path === "/api/install" &&
-            request.method === "POST" &&
-            error.recoveryAction === "refresh-chatgpt-sign-in"
-            ? { recoveryAction: "refresh-chatgpt-sign-in" }
-            : {}),
+            : failure.error,
           ...(error.retryablePlan === true ? { retryablePlan: true } : {}),
           ...(retryableNgrokSetup ? { retryableNgrokSetup: true } : {}),
           ...(managedPartialStack ? { managedPartialStack: true } : {}),
@@ -5363,10 +6426,13 @@ function createRequestHandler(state) {
 
 export async function startWizardServer({
   sessionToken,
+  storageRoot = resolveSiwcStorageRoot(),
+  runtimeId = "local",
   services = defaultServices,
   uiFiles,
   port = 0,
   previewMode = false,
+  previewFixture = null,
   oauthShutdownWaitMs = OAUTH_SHUTDOWN_WAIT_MS,
   vpsConnectionIdleMs = VPS_CONNECTION_IDLE_MS,
   controlToken = null,
@@ -5385,6 +6451,14 @@ export async function startWizardServer({
 } = {}) {
   if (typeof sessionToken !== "string" || sessionToken.length < 32) {
     throw new TypeError("A strong wizard session token is required.");
+  }
+  if (typeof storageRoot !== "string" || !isAbsolute(storageRoot) ||
+      typeof runtimeId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/u.test(runtimeId)) {
+    throw new TypeError("The SIWC host storage and runtime must be trusted.");
+  }
+  if (previewFixture !== null && (!previewMode ||
+      !["signed-out", "connected", "reauthorize", "plan-not-granted", "usage-limit", "handoff-pending", "staged"].includes(previewFixture))) {
+    throw new TypeError("Select a valid sanitized preview fixture.");
   }
   if (!Number.isSafeInteger(vpsConnectionIdleMs) || vpsConnectionIdleMs < 1) {
     throw new TypeError("The VPS connection idle timeout must be a positive integer.");
@@ -5425,6 +6499,8 @@ export async function startWizardServer({
   const resolvedServices = { ...defaultServices, ...services };
   const state = {
     sessionToken,
+    storageRoot,
+    runtimeId,
     services: resolvedServices,
     localChatTest:
       resolvedServices.localChatTest ??
@@ -5445,6 +6521,11 @@ export async function startWizardServer({
     discovery: null,
     networksByContainer: new Map(),
     sidecarPlan: null,
+    vpsStoppedOwnerReview: null,
+    vpsOwnerTargetReview: null,
+    vpsRuntimeUpdateReview: null,
+    vpsImagesTarget: null,
+    vpsModelsTarget: null,
     assistantPlan: null,
     supergrokPlan: null,
     supergrokPlanGeneration: 0,
@@ -5461,19 +6542,18 @@ export async function startWizardServer({
     oauthLoginStartInFlight: false,
     oauthLoginStartPromise: null,
     oauthCredentialOperation: null,
-    oauthCredentialGeneration: 0,
     localDashboardGeneration: 0,
     localPlan: null,
+    localStoppedOwnerReview: null,
+    siwcRecoveryReview: null,
     localAssistantSearxngReview: null,
     localInstalledTarget: null,
     localInstallInFlight: false,
     localCredentialRotationInFlight: false,
     localCredentialRotationPending: null,
-    codexLogin: null,
-    codexLoginStartInFlight: false,
-    codexLoginStartPromise: null,
     rateLimits: new Map(),
     previewMode: previewMode === true,
+    previewFixture,
     controlToken,
     controlInstanceId,
     onControlStop,
@@ -5546,17 +6626,6 @@ export async function startWizardServer({
           // The bounded OAuth cancellation result must not prevent server shutdown.
         }
       }
-      const codexLogin = state.codexLogin;
-      state.codexLogin = null;
-      codexLogin?.cancel();
-      await waitForBoundedResult(
-        state.codexLoginStartPromise,
-        state.oauthShutdownWaitMs,
-      );
-      await waitForBoundedResult(
-        codexLogin?.completion,
-        state.oauthShutdownWaitMs,
-      );
       if (vpsMutationCompletion) {
         // A signal is not permission to abandon a remote write. Keep the HTTP
         // server, control publication, and daemon lifetime lock owned until

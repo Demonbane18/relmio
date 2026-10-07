@@ -20,18 +20,35 @@ import {
   createLocalDeploymentPlan,
   createLocalDockerignore,
   validateInstallId,
+  validateLocalPort,
   validateLocalTarget,
 } from "../domain/local-endpoints.js";
+import {
+  safeSiwcCatalogFailure, safeSiwcRuntimeFailure,
+  validateSiwcAuthBinding, validateSiwcRegistrationId,
+} from "../domain/safety.js";
 import {
   runLocalProcess,
   lockDownLocalPath,
   validateLocalDockerHost,
 } from "../infrastructure/local-process.js";
 import { getLocalProcessIdentity } from "../infrastructure/process-identity.js";
+import { runCodexSiwcCommand } from "./codex-login.js";
+import { collectSiwcRuntimeAssets } from "./siwc-runtime-assets.js";
+import {
+  finishAuthHandoff, prepareAuthHandoff, readAuthHandoff, readPendingAuthHandoff, readRegistration, listRegistrations,
+  validateSiwcHostId,
+} from "./siwc-session.mjs";
+import {
+  fingerprintLocalSiwcFiles, fingerprintLocalSiwcResources, localSiwcFinalizationFailure,
+  localSiwcStagingPath, readLocalSiwcStaging, readLocalSiwcResumeAuthBinding,
+  assertNoLocalSiwcOneOffContainers,
+} from "./local-integration-lifecycle-lock.js";
 
 const MANAGED_MARKER = ".managed-by-relmio.json";
 const ROOT_MARKER = ".managed-by-relmio-root.json";
 const MARKER_SCHEMA_VERSION = 2;
+const CODEX_SIWC_MARKER_SCHEMA_VERSION = 3;
 const ROOT_MARKER_SCHEMA_VERSION = 1;
 const COMPOSE_FILENAME = "docker-compose.yml";
 const INCOMPLETE_LOCK_STALE_MS = 30_000;
@@ -40,13 +57,13 @@ const PROJECTS = Object.freeze({
     projectPrefix: "relmio-codex-chatgpt",
     serviceName: "codex",
     containerPort: 4_500,
-    volumeNames: Object.freeze(["codex-home", "codex-workspace"]),
+    volumeNames: Object.freeze(["codex-state", "siwc-store", "codex-workspace"]),
   }),
   "codex-chat": Object.freeze({
     projectPrefix: "relmio-codex-chat",
     serviceName: "codex-chat",
     containerPort: 14_501,
-    volumeNames: Object.freeze(["codex-home", "codex-workspace"]),
+    volumeNames: Object.freeze(["codex-state", "siwc-store", "codex-workspace"]),
   }),
   "xai-grok-build": Object.freeze({
     projectPrefix: "relmio-xai-grok-build",
@@ -55,6 +72,13 @@ const PROJECTS = Object.freeze({
     volumeNames: Object.freeze(["grok-home"]),
   }),
 });
+const SIWC_ASSET_PATHS = new Set([
+  "gateway/openai-oauth-sidecar.mjs", "gateway/codex-chat.js",
+  "gateway/codex-app-server.mjs", "services/siwc-session.mjs",
+  "services/siwc-handoff.mjs", "infrastructure/local-process.js",
+  "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "services/model-discovery.mjs",
+  "infrastructure/process-identity.js",
+]);
 const DOCKER_SELECTION_VARIABLES = Object.freeze([
   "DOCKER_HOST",
   "DOCKER_CONTEXT",
@@ -169,7 +193,7 @@ async function assertRegularManagedMarker(fileSystem, path, errorMessage) {
   }
 }
 
-async function inspectManagedRoot({ fileSystem, relmioHome, installRoot, target }) {
+async function inspectManagedRoot({ fileSystem, relmioHome, installRoot, target, staging }) {
   const localRoot = join(relmioHome, "local");
   const homeMetadata = await lstatIfExists(fileSystem, relmioHome);
   if (!homeMetadata) {
@@ -227,6 +251,9 @@ async function inspectManagedRoot({ fileSystem, relmioHome, installRoot, target 
     };
   }
 
+  if (staging && !(await lstatIfExists(fileSystem, join(installRoot, MANAGED_MARKER)))) {
+    return { baseExists: true, deploymentMode: "installed", marker: null, previousPort: null };
+  }
   let markerContents;
   const markerPath = join(installRoot, MANAGED_MARKER);
   await assertRegularManagedMarker(
@@ -252,7 +279,10 @@ async function inspectManagedRoot({ fileSystem, relmioHome, installRoot, target 
     const projectName = `${PROJECTS[target].projectPrefix}-${installId}`;
     const tokenSha256 = marker?.tokenSha256;
     if (
-      marker?.schemaVersion !== MARKER_SCHEMA_VERSION ||
+      !(
+        marker?.schemaVersion === MARKER_SCHEMA_VERSION ||
+        (target !== "xai-grok-build" && marker?.schemaVersion === CODEX_SIWC_MARKER_SCHEMA_VERSION)
+      ) ||
       marker?.target !== target ||
       !Number.isInteger(marker?.port) ||
       marker?.projectName !== projectName ||
@@ -261,16 +291,41 @@ async function inspectManagedRoot({ fileSystem, relmioHome, installRoot, target 
     ) {
       throw new TypeError();
     }
+    const siwc = marker.schemaVersion === CODEX_SIWC_MARKER_SCHEMA_VERSION
+      ? validateSiwcAuthBinding(marker.authBinding)
+      : null;
+    if (siwc && (
+      marker.registrationId !== siwc.registrationId ||
+      marker.clientId !== siwc.clientId ||
+      typeof marker.ownerHostId !== "string" ||
+      marker.ownerHostId === siwc.ownerHostId
+    )) throw new TypeError();
+    if (siwc && marker.legacyInstallId !== undefined) {
+      validateInstallId(marker.legacyInstallId);
+      if (marker.legacyInstallId === installId) throw new TypeError();
+    }
+    if (siwc && marker.previousWasSiwc !== undefined &&
+        (marker.previousWasSiwc !== true || !marker.legacyInstallId)) {
+      throw new TypeError();
+    }
     return {
       baseExists: true,
       deploymentMode: "updated",
       marker: {
-        schemaVersion: MARKER_SCHEMA_VERSION,
+        schemaVersion: marker.schemaVersion,
         target,
         port: marker.port,
         dockerHost,
         installId,
         projectName,
+        ...(siwc ? {
+          authBinding: siwc,
+          registrationId: siwc.registrationId,
+          clientId: siwc.clientId,
+          ownerHostId: validateSiwcHostId(marker.ownerHostId),
+          ...(marker.legacyInstallId ? { legacyInstallId: marker.legacyInstallId } : {}),
+          ...(marker.previousWasSiwc ? { previousWasSiwc: true } : {}),
+        } : {}),
         ...(target === "xai-grok-build" && typeof tokenSha256 === "string"
           ? { tokenSha256 }
           : {}),
@@ -925,6 +980,9 @@ async function settleLocalProjectOperation({ completionLabel, operation, release
     throw operationError;
   }
   if (releaseError) {
+    if (result?.credentialShownOnce === true && result.account?.ownership === "owned") {
+      return localSiwcFinalizationFailure(result);
+    }
     throw new Error(
       `${completionLabel} completed, but Relmio could not release its operation lock. ` +
       "Restart Relmio before another action, then verify the managed endpoint.",
@@ -967,9 +1025,7 @@ function replaceClientCredentialVerifier({ target, composeFile, tokenSha256 }) {
     throw new Error("The managed local endpoint configuration is invalid.");
   }
 
-  const pattern = target !== "codex-chatgpt"
-    ? /^([ \t]*RELMIO_GATEWAY_TOKEN_SHA256:[ \t]*)[a-f0-9]{64}([ \t]*)$/gmu
-    : /^([ \t]*-[ \t]+--ws-token-sha256[ \t]*\n[ \t]*-[ \t]+)[a-f0-9]{64}([ \t]*)$/gmu;
+  const pattern = /^([ \t]*RELMIO_GATEWAY_TOKEN_SHA256:[ \t]*)[a-f0-9]{64}([ \t]*)$/gmu;
   const matches = [...composeFile.matchAll(pattern)];
   if (matches.length !== 1) {
     throw new Error("The managed local endpoint configuration is invalid.");
@@ -1104,61 +1160,6 @@ export async function getLocalDockerStatus({
   }
 }
 
-export async function restartLocalCodex(
-  { installDirectory, target = "codex-chatgpt" },
-  dependencies = {},
-) {
-  const safeTarget = validateLocalTarget(target);
-  if (safeTarget !== "codex-chatgpt" && safeTarget !== "codex-chat") {
-    throw new TypeError("The Codex login target is invalid.");
-  }
-  const runProcess = dependencies.runProcess ?? runLocalProcess;
-  const releaseLock = dependencies.changeLockHeld === true
-    ? async () => {}
-    : await acquireLocalProjectLock(
-        { installRoot: installDirectory, target: safeTarget },
-        dependencies,
-      );
-  return settleLocalProjectOperation({
-    completionLabel: "Local Codex restart",
-    releaseLock,
-    operation: async () => {
-  const attested = await attestLocalCodexInstallation(
-    { installDirectory, target: safeTarget },
-    dependencies,
-  );
-
-  await runOrThrow(runProcess, {
-    label: "Codex credential reload",
-    file: "docker",
-    args: createComposeArgs(safeTarget, attested.projectName, [
-      "restart",
-      "--timeout",
-      "10",
-      PROJECTS[safeTarget].serviceName,
-    ]),
-    cwd: installDirectory,
-    dockerHost: attested.dockerHost,
-  });
-  await runOrThrow(runProcess, {
-    label: "Codex readiness wait",
-    file: "docker",
-    args: createComposeArgs(safeTarget, attested.projectName, [
-      "up",
-      "-d",
-      "--wait",
-      "--wait-timeout",
-      "90",
-      "--no-deps",
-      PROJECTS[safeTarget].serviceName,
-    ]),
-    cwd: installDirectory,
-    dockerHost: attested.dockerHost,
-  });
-  return { restarted: true };
-    },
-  });
-}
 
 function createServiceRecreateSpec({
   target,
@@ -1507,13 +1508,71 @@ function parseComposeStatusRecords(output) {
   }
 }
 
-function localEndpointSnapshot(plan) {
+function localEndpointSnapshot(plan, marker, account = null) {
+  const siwc = marker?.schemaVersion === CODEX_SIWC_MARKER_SCHEMA_VERSION;
   return {
     target: plan.target,
     endpoint: plan.endpoint,
-    auth: { configured: true, disclosure: "rotate-only" },
+    auth: {
+      configured: siwc ? account?.ownership === "owned" &&
+        account?.session === "connected" && account?.planEnabled === true : true,
+      disclosure: "rotate-only",
+      ...(siwc && account ? { account } : {}),
+    },
+    ...(siwc ? { registrationId: marker.registrationId } : {}),
+    migrationRequired: false,
     canRotateCredential: true,
   };
+}
+
+async function readLegacyMigrationState(fileSystem, installRoot, installId) {
+  const legacyRoot = join(installRoot, "legacy");
+  const parent = await lstatIfExists(fileSystem, legacyRoot);
+  if (!parent) return null;
+  assertDirectoryMetadata(parent);
+  const archive = join(legacyRoot, validateInstallId(installId));
+  const metadata = await lstatIfExists(fileSystem, archive);
+  if (!metadata) return null;
+  assertDirectoryMetadata(metadata);
+  const journalPath = join(archive, "migration.json");
+  const journal = await lstatIfExists(fileSystem, journalPath);
+  if (!journal) return "incomplete";
+  if (!journal.isFile() || journal.isSymbolicLink() || journal.size > 4096) {
+    throw new Error("The legacy migration journal is unsafe.");
+  }
+  let record;
+  try { record = JSON.parse(await fileSystem.readFile(journalPath, "utf8")); }
+  catch { throw new Error("The legacy migration journal is invalid."); }
+  if (record?.schemaVersion !== 1 ||
+      record?.reviewedLegacy?.installId !== installId ||
+      !["prepared", "stopped", "transferred"].includes(record?.state)) {
+    throw new Error("The legacy migration journal needs manual inspection.");
+  }
+  return record.state;
+}
+
+async function assertInstalledCodexCompose({ fileSystem, installRoot, marker }) {
+  if (marker.schemaVersion !== CODEX_SIWC_MARKER_SCHEMA_VERSION) {
+    throw new Error("The native Codex login installation requires fresh SIWC sign-in and reviewed migration.");
+  }
+  const composePath = join(installRoot, COMPOSE_FILENAME);
+  await assertRegularManagedMarker(
+    fileSystem, composePath, "The installed Codex Compose file is unsafe.",
+  );
+  const contents = await fileSystem.readFile(composePath, "utf8");
+  if (contents.length > 512 * 1024) {
+    throw new Error("The installed Codex Compose file is invalid.");
+  }
+  const values = [...contents.matchAll(/^[ \t]*RELMIO_GATEWAY_TOKEN_SHA256:[ \t]*([a-f0-9]{64})[ \t]*$/gmu)];
+  if (values.length !== 1) throw new Error("The installed Codex capability verifier is invalid.");
+  const options = {
+    port: marker.port, tokenSha256: values[0][1],
+    installId: marker.installId, registrationId: marker.registrationId,
+  };
+  const expected = marker.target === "codex-chat"
+    ? createCodexChatComposeFile(options)
+    : createCodexComposeFile(options);
+  if (contents !== expected) throw new Error("The installed Codex Compose file changed.");
 }
 
 async function verifyWindowsManagedLocalEndpointPathSecurity({
@@ -1571,6 +1630,15 @@ export async function getManagedLocalEndpointStatus(
       platform,
     });
     const relmioHome = resolve(installRoot, "..", "..");
+    if (safeTarget !== "xai-grok-build") {
+      const staged = await readLocalSiwcStaging({ fileSystem, installRoot, platform, lockDownPath });
+      if (staged && staged.checkpoint.stage !== "completed") {
+        await fingerprintLocalSiwcFiles({ fileSystem, installRoot, platform, lockDownPath });
+        const { installId, registrationId, stage } = staged.checkpoint;
+        return { target: safeTarget, managed: true, state: "staged",
+          staging: { installId, registrationId, stage } };
+      }
+    }
     if (await lstatIfExists(fileSystem, installRoot)) {
       await verifyWindowsManagedLocalEndpointPathSecurity({
         fileSystem,
@@ -1593,9 +1661,80 @@ export async function getManagedLocalEndpointStatus(
       platform,
     });
     if (selectedDockerHost !== managed.marker.dockerHost) return unavailable;
+    if (safeTarget !== "xai-grok-build" &&
+        managed.marker.schemaVersion !== CODEX_SIWC_MARKER_SCHEMA_VERSION) {
+      const port = validateLocalPort(managed.marker.port);
+      const migrationState = await readLegacyMigrationState(
+        fileSystem, installRoot, managed.marker.installId,
+      );
+      if (migrationState === "transferred") {
+        throw new Error("The legacy migration metadata is inconsistent.");
+      }
+      return {
+        target: safeTarget, managed: true,
+        state: migrationState ? "partial" : "legacy",
+        snapshot: {
+          target: safeTarget,
+          endpoint: safeTarget === "codex-chatgpt"
+            ? `ws://127.0.0.1:${port}` : `http://127.0.0.1:${port}`,
+          auth: { configured: false, disclosure: "rotate-only" },
+          canRotateCredential: false, migrationRequired: true,
+          ...(migrationState ? {
+            migrationState, legacyResourcesPreserved: true,
+          } : {}),
+        },
+      };
+    }
+    if (safeTarget !== "xai-grok-build") {
+      if (managed.marker.legacyInstallId) {
+        const migrationState = await readLegacyMigrationState(
+          fileSystem, installRoot, managed.marker.legacyInstallId,
+        );
+        if (migrationState !== "transferred") {
+          const port = validateLocalPort(managed.marker.port);
+          return {
+            target: safeTarget, managed: true, state: "partial",
+            snapshot: {
+              target: safeTarget,
+              endpoint: safeTarget === "codex-chatgpt"
+                ? `ws://127.0.0.1:${port}` : `http://127.0.0.1:${port}`,
+              auth: { configured: false, disclosure: "rotate-only" },
+              canRotateCredential: false,
+              migrationRequired: !managed.marker.previousWasSiwc,
+              replacementRequired: !!managed.marker.previousWasSiwc,
+              migrationState: migrationState ?? "incomplete",
+              legacyResourcesPreserved: true,
+            },
+          };
+        }
+      }
+      await assertInstalledCodexCompose({
+        fileSystem, installRoot, marker: managed.marker,
+      });
+      if (platform === "win32") {
+        for (const relative of [
+          "Dockerfile", ".dockerignore", "config.toml", "requirements.toml",
+          "package.json", "package-lock.json", "services/siwc-session.mjs",
+          "services/siwc-handoff.mjs", "infrastructure/local-process.js",
+          "services/local-integration-lifecycle-lock.js", "services/codex-images.mjs", "services/model-discovery.mjs",
+          "infrastructure/process-identity.js",
+          safeTarget === "codex-chat" ? "gateway/codex-chat.js" : "gateway/codex-app-server.mjs",
+        ]) {
+          const path = join(installRoot, relative);
+          // Installs made before the image add-on or model discovery lack these files; verify them whenever present.
+          if (["services/codex-images.mjs", "services/model-discovery.mjs"].includes(relative) &&
+              !await lstatIfExists(fileSystem, path)) continue;
+          await assertRegularManagedMarker(fileSystem, path, "The installed Codex SIWC asset is unsafe.");
+          await lockDownPath(path, {
+            platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true,
+          });
+        }
+      }
+    }
     const plan = createLocalDeploymentPlan({
       target: safeTarget,
       port: managed.marker.port,
+      authBinding: managed.marker.authBinding,
     });
     const counts = await attestDockerOwnership({
       target: safeTarget,
@@ -1628,7 +1767,30 @@ export async function getManagedLocalEndpointStatus(
       dockerHost: managed.marker.dockerHost,
     });
     const records = parseComposeStatusRecords(result.stdout);
-    const snapshot = localEndpointSnapshot(plan);
+    let account = null;
+    if (safeTarget !== "xai-grok-build" &&
+        records.length === 1 && records[0]?.State === "running") {
+      try {
+        account = (await runCodexSiwcCommand({
+          target: safeTarget, installRoot,
+          dockerHost: managed.marker.dockerHost,
+          projectName: managed.marker.projectName,
+          command: "account-live", runProcess,
+        })).account;
+        if (account?.registrationId !== managed.marker.registrationId ||
+            account?.ownerHostId !== managed.marker.ownerHostId ||
+            account?.ownerRuntimeId !== managed.marker.installId ||
+            account?.ownership !== "owned") {
+          throw new Error("The installed Codex SIWC account could not be attested.");
+        }
+      } catch {
+        return {
+          target: safeTarget, managed: true, state: "partial",
+          snapshot: localEndpointSnapshot(plan, managed.marker),
+        };
+      }
+    }
+    const snapshot = localEndpointSnapshot(plan, managed.marker, account);
     if (records.length === 0) {
       return { target: safeTarget, managed: true, state: "partial" };
     }
@@ -1694,6 +1856,24 @@ async function verifyHttpEndpoint({ plan, clientCredential, fetchImpl }) {
   return [];
 }
 
+async function verifyCodexChatCatalog({ port, clientCredential, fetchImpl }) {
+  const response = await fetchImpl(`http://127.0.0.1:${port}/models`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${clientCredential}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw Object.assign(new Error("The selected account catalog is unavailable."), {
+    status: response.status,
+  });
+  const payload = await response.json();
+  if (!Array.isArray(payload?.models) ||
+      !payload.models.every(model => typeof model?.slug === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(model.slug))) {
+    throw new Error("The selected account model catalog is invalid.");
+  }
+  return payload.models.map(model => model.slug);
+}
+
 async function verifyGrokBuildCli({ installRoot, dockerHost, projectName, runProcess }) {
   const result = await runOrThrow(runProcess, {
     label: "Grok Build CLI version verification",
@@ -1717,7 +1897,7 @@ export function verifyCodexWebSocketCapability(
     timeoutMs = 10_000,
   } = {},
 ) {
-  const plan = createLocalDeploymentPlan({ target: "codex-chatgpt", port });
+  const safePort = validateLocalPort(port);
   if (
     typeof clientCredential !== "string" ||
     !/^[A-Za-z0-9_-]{43}$/u.test(clientCredential)
@@ -1737,12 +1917,12 @@ export function verifyCodexWebSocketCapability(
     let settled = false;
     let response = "";
     const socket = connectSocket(
-      { host: "127.0.0.1", port: plan.port },
+      { host: "127.0.0.1", port: safePort },
       () => {
         socket.write(
           [
             "GET / HTTP/1.1",
-            `Host: 127.0.0.1:${plan.port}`,
+            `Host: 127.0.0.1:${safePort}`,
             "Upgrade: websocket",
             "Connection: Upgrade",
             `Sec-WebSocket-Key: ${websocketKey}`,
@@ -1824,12 +2004,6 @@ export function verifyCodexWebSocketCapability(
   });
 }
 
-async function defaultReadCodexChatSource() {
-  return defaultFileSystem.readFile(
-    new URL("../gateway/codex-chat.js", import.meta.url),
-    "utf8",
-  );
-}
 
 async function defaultReadGrokBuildSource() {
   return defaultFileSystem.readFile(
@@ -1951,6 +2125,10 @@ async function attestManagedLocalEndpoint(
       readGrokBuildChatSource,
       readGrokBuildSessionSource,
     });
+  } else {
+    await assertInstalledCodexCompose({
+      fileSystem, installRoot: safeDirectory, marker: managed.marker,
+    });
   }
   const ownership = await attestDockerOwnership({
     target: safeTarget,
@@ -1986,6 +2164,7 @@ async function attestManagedLocalEndpoint(
         dockerHost: managed.marker.dockerHost,
         installId: managed.marker.installId,
         projectName: managed.marker.projectName,
+        ...(safeTarget === "xai-grok-build" ? {} : { authBinding: managed.marker.authBinding }),
         running: false,
       };
     }
@@ -2005,32 +2184,11 @@ async function attestManagedLocalEndpoint(
     dockerHost: managed.marker.dockerHost,
     installId: managed.marker.installId,
     projectName: managed.marker.projectName,
+    ...(safeTarget === "xai-grok-build" ? {} : { authBinding: managed.marker.authBinding }),
     running: true,
   };
 }
 
-export async function attestLocalCodexInstallation(
-  { installDirectory, target = "codex-chatgpt" },
-  dependencies = {},
-) {
-  const safeTarget = validateLocalTarget(target);
-  if (safeTarget !== "codex-chatgpt" && safeTarget !== "codex-chat") {
-    throw new TypeError("The Codex login target is invalid.");
-  }
-  const attested = await attestManagedLocalEndpoint(
-    {
-      target: safeTarget,
-      installDirectory,
-      missingMessage: "Install the local Codex endpoint before signing in.",
-      notRunningMessage: "The managed local Codex endpoint is not running.",
-    },
-    dependencies,
-  );
-  return {
-    dockerHost: attested.dockerHost,
-    projectName: attested.projectName,
-  };
-}
 
 export async function attestLocalGrokBuildInstallation(
   { installDirectory },
@@ -2083,10 +2241,24 @@ export async function prepareLocalClientCredentialRotation(
     },
     { fileSystem, runProcess, platform, lockDownPath },
   );
+  let selectedAccount = null;
+  if (safeTarget !== "xai-grok-build") {
+    selectedAccount = (await runCodexSiwcCommand({
+      target: safeTarget, installRoot: installDirectory,
+      dockerHost: attested.dockerHost, projectName: attested.projectName,
+      command: "account-live", runProcess,
+    })).account;
+    if (selectedAccount?.registrationId !== attested.authBinding.registrationId ||
+        selectedAccount?.ownerRuntimeId !== attested.installId ||
+        selectedAccount?.ownership !== "owned") {
+      throw new Error("The installed SIWC account could not be reviewed for local capability rotation.");
+    }
+  }
   const { clientCredential, tokenSha256 } = createClientCredential(randomBytes);
   const plan = createLocalDeploymentPlan({
     target: safeTarget,
     port: attested.port,
+    authBinding: attested.authBinding,
   });
   return {
     target: plan.target,
@@ -2094,6 +2266,10 @@ export async function prepareLocalClientCredentialRotation(
     protocol: plan.protocol,
     clientCredential,
     tokenSha256,
+    ...(selectedAccount ? {
+      registrationId: selectedAccount.registrationId,
+      expectedGeneration: selectedAccount.generation,
+    } : {}),
     credentialShownOnce: true,
     models: [],
     deploymentMode: "staged",
@@ -2103,7 +2279,7 @@ export async function prepareLocalClientCredentialRotation(
 }
 
 export async function activateLocalClientCredentialRotation(
-  { target, clientCredential, tokenSha256 },
+  { target, clientCredential, tokenSha256, registrationId, expectedGeneration },
   {
     fileSystem = defaultFileSystem,
     env = process.env,
@@ -2116,6 +2292,7 @@ export async function activateLocalClientCredentialRotation(
     processId = process.pid,
     isProcessAlive = defaultIsProcessAlive,
     getProcessIdentity,
+    runSiwcCommand = runCodexSiwcCommand,
   } = {},
 ) {
   assertSupportedPlatform(platform);
@@ -2173,6 +2350,7 @@ export async function activateLocalClientCredentialRotation(
   const plan = createLocalDeploymentPlan({
     target: safeTarget,
     port: attested.port,
+    authBinding: attested.authBinding,
   });
   const validateCompose = () =>
     runOrThrow(runProcess, {
@@ -2185,6 +2363,50 @@ export async function activateLocalClientCredentialRotation(
       cwd: installDirectory,
       dockerHost: attested.dockerHost,
     });
+  if (safeTarget !== "xai-grok-build") {
+    validateSiwcRegistrationId(registrationId);
+    if (typeof expectedGeneration !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(expectedGeneration) ||
+        attested.authBinding.registrationId !== registrationId) {
+      throw new Error("The selected Codex SIWC account changed before local credential rotation.");
+    }
+    const current = (await runSiwcCommand({
+      target: safeTarget, installRoot: installDirectory,
+      dockerHost: attested.dockerHost, projectName: attested.projectName,
+      command: "account-live", runProcess,
+    })).account;
+    if (current?.registrationId !== registrationId ||
+        current?.generation !== expectedGeneration ||
+        current?.ownerRuntimeId !== attested.installId ||
+        current?.ownership !== "owned") {
+      throw new Error("The installed SIWC account changed. Review the rotation again.");
+    }
+    await runOrThrow(runProcess, {
+      label: "Owned Codex endpoint drain", file: "docker",
+      args: createComposeArgs(safeTarget, attested.projectName, [
+        "stop", "--timeout", "30", PROJECTS[safeTarget].serviceName,
+      ]),
+      cwd: installDirectory, dockerHost: attested.dockerHost,
+    });
+    const stopped = await runOrThrow(runProcess, createVerificationSpecs({
+      target: safeTarget, installRoot: installDirectory,
+      dockerHost: attested.dockerHost, projectName: attested.projectName,
+    }).running);
+    if (stopped.stdout.trim() !== "") {
+      throw new Error("The owned Codex endpoint did not drain; no verifier was replaced.");
+    }
+    const frozen = (await runSiwcCommand({
+      target: safeTarget, installRoot: installDirectory,
+      dockerHost: attested.dockerHost, projectName: attested.projectName,
+      command: "account", runProcess,
+    })).account;
+    if (frozen?.registrationId !== registrationId ||
+        frozen?.generation !== expectedGeneration ||
+        frozen?.ownerRuntimeId !== attested.installId ||
+        frozen?.ownership !== "owned") {
+      throw new Error("The installed SIWC account changed while draining. The endpoint remains stopped.");
+    }
+  }
   let configurationWritten = false;
 
   try {
@@ -2304,6 +2526,322 @@ export async function activateLocalClientCredentialRotation(
   });
 }
 
+async function validateReviewedCodexAccount(registration, binding) {
+  const record = await readRegistration(registration);
+  if (
+    record?.registrationId !== binding.registrationId ||
+    record?.clientId !== binding.clientId ||
+    record?.generation !== binding.generation ||
+    record?.owner?.hostId !== binding.ownerHostId ||
+    record?.owner?.runtimeId !== binding.ownerRuntimeId ||
+    record?.handoff?.state !== "owned" ||
+    !record.planEnabled ||
+    !record.session?.refreshToken ||
+    !record.session?.scopes?.includes("chatgpt.tokens.use.direct")
+  ) throw new Error("The selected SIWC account changed. Review and confirm it again.");
+}
+
+async function reviewCodexOwnedReplacement(
+  { target, existingSiwc = false },
+  {
+    fileSystem = defaultFileSystem, env = process.env,
+    homeDirectory = homedir(), runProcess = runLocalProcess,
+    platform = process.platform, lockDownPath = lockDownLocalPath,
+  } = {},
+) {
+  const safeTarget = validateLocalTarget(target);
+  if (safeTarget === "xai-grok-build") {
+    throw new TypeError("Only a managed legacy Codex endpoint can be migrated.");
+  }
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalInstallRoot({
+    target: safeTarget, env, homeDirectory, fileSystem, platform,
+  });
+  await verifyWindowsManagedLocalEndpointPathSecurity({
+    fileSystem, installRoot, platform, lockDownPath,
+  });
+  const managed = await inspectManagedRoot({
+    fileSystem, relmioHome: resolve(installRoot, "..", ".."),
+    installRoot, target: safeTarget,
+  });
+  const marker = managed.marker;
+  const expectedSchema = existingSiwc ? CODEX_SIWC_MARKER_SCHEMA_VERSION : MARKER_SCHEMA_VERSION;
+  if (marker?.schemaVersion !== expectedSchema) {
+    throw new Error("The selected Codex installation is not the reviewed owned runtime.");
+  }
+  const selectedDockerHost = await resolveLocalDockerHost({
+    runProcess, cwd: installRoot, env, platform,
+  });
+  if (selectedDockerHost !== marker.dockerHost) {
+    throw new Error("The selected Docker context changed.");
+  }
+  const ownership = await attestDockerOwnership({
+    target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+    installId: marker.installId, projectName: marker.projectName, runProcess,
+  });
+  const logicalVolumes = existingSiwc
+    ? ["codex-state", "siwc-store", "codex-workspace"]
+    : ["codex-home", "codex-workspace"];
+  const destinations = existingSiwc
+    ? ["/home/node/.codex", "/home/node/.relmio-siwc", "/workspace"]
+    : ["/home/node/.codex", "/workspace"];
+  if (ownership.container !== 1 || ownership.network !== 1 ||
+      ownership.volume !== logicalVolumes.length) {
+    throw new Error("The exact owned Codex project is missing or has unexpected resources.");
+  }
+  const volumes = logicalVolumes.map(name => `${marker.projectName}_${name}`);
+  const listed = await runOrThrow(runProcess, {
+    label: "Legacy Codex volume identity check", file: "docker",
+    args: ["volume", "ls", "--filter",
+      `label=com.docker.compose.project=${marker.projectName}`,
+      "--format", "{{json .}}"],
+    cwd: installRoot, dockerHost: marker.dockerHost,
+  });
+  const volumeNames = listed.stdout.trim().split("\n").map(row => {
+    try { return JSON.parse(row).Name; } catch { return null; }
+  }).sort();
+  if (JSON.stringify(volumeNames) !== JSON.stringify([...volumes].sort())) {
+    throw new Error("The legacy credential and workspace volumes changed.");
+  }
+  const configResult = await runOrThrow(runProcess, {
+    label: "Legacy Codex Compose validation", file: "docker",
+    args: createComposeArgs(safeTarget, marker.projectName, ["config", "--format", "json"]),
+    cwd: installRoot, dockerHost: marker.dockerHost,
+  });
+  let config;
+  try { config = JSON.parse(configResult.stdout); } catch {
+    throw new Error("The legacy Codex Compose metadata is invalid.");
+  }
+  const service = PROJECTS[safeTarget].serviceName;
+  const current = config?.services?.[service];
+  const port = validateLocalPort(marker.port);
+  const mounted = Array.isArray(current?.volumes) ? current.volumes : [];
+  if (Object.keys(config?.services ?? {}).length !== 1 ||
+      Object.keys(config?.networks ?? {}).length !== 1 ||
+      config?.networks?.default?.name !== `${marker.projectName}_default` ||
+      (existingSiwc && (
+        current?.environment?.RELMIO_REGISTRATION_ID !== marker.registrationId ||
+        current?.environment?.RELMIO_RUNTIME_ID !== marker.installId ||
+        current?.environment?.N8N_OPENAI_OAUTH_HOME !== "/home/node/.relmio-siwc"
+      )) ||
+      logicalVolumes.some((name, index) => config?.volumes?.[name]?.name !== volumes[index]) ||
+      logicalVolumes.some((name, index) => !mounted.some(item =>
+        item.source === name && item.target === destinations[index])) ||
+      mounted.length !== logicalVolumes.length ||
+      !Array.isArray(current?.ports) || current.ports.length !== 1 ||
+      String(current.ports[0]?.published) !== String(port) ||
+      current.ports[0]?.host_ip !== "127.0.0.1" ||
+      current.ports[0]?.target !== PROJECTS[safeTarget].containerPort) {
+    throw new Error("The legacy Codex Compose deployment differs from the owned installation.");
+  }
+  const containerResult = await runOrThrow(runProcess, {
+    label: "Legacy Codex container identity check", file: "docker",
+    args: createComposeArgs(safeTarget, marker.projectName, [
+      "ps", "--all", "-q", service,
+    ]),
+    cwd: installRoot, dockerHost: marker.dockerHost,
+  });
+  const containerId = containerResult.stdout.trim();
+  if (!/^[a-f0-9]{64}$/u.test(containerId)) {
+    throw new Error("The legacy Codex container identity is invalid.");
+  }
+  const inspected = await runOrThrow(runProcess, {
+    label: "Legacy Codex container inspection", file: "docker",
+    args: ["container", "inspect", "--format", "{{json .}}", containerId],
+    cwd: installRoot, dockerHost: marker.dockerHost,
+  });
+  let container;
+  try { container = JSON.parse(inspected.stdout); } catch {
+    throw new Error("The legacy Codex container metadata is invalid.");
+  }
+  const imageId = container?.Image;
+  const networkResult = await runOrThrow(runProcess, {
+    label: "Owned Codex network identity check", file: "docker",
+    args: ["network", "inspect", "--format", "{{json .}}", `${marker.projectName}_default`],
+    cwd: installRoot, dockerHost: marker.dockerHost,
+  });
+  let network;
+  try { network = JSON.parse(networkResult.stdout); } catch {
+    throw new Error("The owned Codex network identity is invalid.");
+  }
+  const networkId = network?.Id;
+  const containerNetworkId =
+    container?.NetworkSettings?.Networks?.[`${marker.projectName}_default`]?.NetworkID;
+  const mounts = container?.Mounts;
+  if (container?.Id !== containerId ||
+      !/^sha256:[a-f0-9]{64}$/u.test(imageId) ||
+      !/^[a-f0-9]{64}$/u.test(networkId) ||
+      network?.Name !== `${marker.projectName}_default` ||
+      (container?.State?.Running && containerNetworkId !== networkId) ||
+      (container?.State?.Running === false && containerNetworkId !== undefined &&
+        containerNetworkId !== networkId) ||
+      container?.State?.Paused !== false ||
+      typeof container?.State?.Running !== "boolean" ||
+      container?.Config?.Labels?.["com.docker.compose.project"] !== marker.projectName ||
+      container?.Config?.Labels?.["com.docker.compose.service"] !== service ||
+      container?.Config?.Labels?.["io.relmio.managed"] !== "true" ||
+      container?.Config?.Labels?.["io.relmio.target"] !== safeTarget ||
+      container?.Config?.Labels?.["io.relmio.install"] !== marker.installId ||
+      !Array.isArray(mounts) || mounts.length !== logicalVolumes.length ||
+      logicalVolumes.some((name, index) => !mounts.some(item =>
+        item.Type === "volume" && item.Name === volumes[index] &&
+        item.Destination === destinations[index]))) {
+    throw new Error("The old Codex container, image, network or volumes changed.");
+  }
+  return Object.freeze({
+    target: safeTarget, installId: marker.installId,
+    projectName: marker.projectName, dockerHost: marker.dockerHost,
+    port, containerId, imageId, networkId,
+    volumeNames: Object.freeze(volumes),
+    ...(existingSiwc ? {
+      registrationId: marker.registrationId,
+      ownerHostId: marker.ownerHostId,
+    } : {}),
+    running: container.State.Running,
+  });
+}
+
+export function reviewLocalCodexLegacyMigration({ target }, deps = {}) {
+  return reviewCodexOwnedReplacement({ target }, deps);
+}
+
+export function reviewLocalCodexSiwcReplacement({ target }, deps = {}) {
+  return reviewCodexOwnedReplacement({ target, existingSiwc: true }, deps);
+}
+
+async function attestRetiredCodex({ runProcess, installRoot, binding }) {
+  validateInstallId(binding?.installId);
+  if (!/^[a-f0-9]{64}$/u.test(binding.containerId)) throw new Error("The retained Codex identity is invalid.");
+  const container = JSON.parse((await runOrThrow(runProcess, {
+    label: "Retired Codex writer check", file: "docker",
+    args: ["container", "inspect", "--format", "{{json .}}", binding.containerId],
+    cwd: installRoot, dockerHost: binding.dockerHost,
+  })).stdout);
+  if (container?.Id !== binding.containerId || container.Image !== binding.imageId ||
+      container.State?.Running !== false || container.State?.Paused !== false ||
+      container.Config?.Labels?.["io.relmio.install"] !== binding.installId ||
+      container.Config?.Labels?.["com.docker.compose.project"] !== binding.projectName ||
+      !Array.isArray(container.Mounts) ||
+      JSON.stringify(container.Mounts.map(item => item.Name).sort()) !== JSON.stringify([...binding.volumeNames].sort())) {
+    throw new Error("The retained old Codex writer or volumes changed.");
+  }
+}
+
+export async function reviewLocalSiwcResume(
+  { target, registration },
+  { fileSystem = defaultFileSystem, env = process.env, homeDirectory = homedir(),
+    runProcess = runLocalProcess, platform = process.platform, lockDownPath = lockDownLocalPath,
+    runSiwcCommand = runCodexSiwcCommand } = {},
+) {
+  const safeTarget = validateLocalTarget(target);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalInstallRoot({ target: safeTarget, env, homeDirectory, fileSystem, platform });
+  const staged = await readLocalSiwcStaging({ fileSystem, installRoot, platform, lockDownPath });
+  if (!staged || staged.checkpoint.stage === "completed") throw new Error("There is no interrupted SIWC installation to resume.");
+  const { checkpoint, checkpointSha256 } = staged;
+  let plan = createLocalDeploymentPlan(checkpoint.plan);
+  if (checkpoint.projectName !== createProjectName(safeTarget, checkpoint.installId) ||
+      plan.target !== safeTarget ||
+      await resolveLocalDockerHost({ runProcess, cwd: homeDirectory, env, platform }) !== checkpoint.dockerHost) {
+    throw new Error("The staged SIWC destination changed.");
+  }
+  await attestDockerOwnership({ target: safeTarget, installRoot: homeDirectory,
+    dockerHost: checkpoint.dockerHost, installId: checkpoint.installId,
+    projectName: checkpoint.projectName, runProcess, strictResourceIdentities: true });
+  if (checkpoint.reviewedLegacy && checkpoint.oldStopped) {
+    await attestRetiredCodex({ runProcess, installRoot, binding: checkpoint.reviewedLegacy });
+  }
+  const filesSha256 = await fingerprintLocalSiwcFiles({ fileSystem, installRoot, platform, lockDownPath });
+  const resourcesSha256 = await fingerprintLocalSiwcResources({ runProcess, installRoot, checkpoint });
+  if (checkpoint.ownerHostId) {
+    const { marker } = await inspectManagedRoot({ fileSystem, installRoot,
+      relmioHome: resolve(installRoot, "..", ".."), target: safeTarget });
+    if (marker?.installId !== checkpoint.installId || marker?.ownerHostId !== checkpoint.ownerHostId) {
+      throw new Error("The staged SIWC owner marker changed.");
+    }
+    await assertInstalledCodexCompose({ fileSystem, installRoot, marker });
+  }
+  const authBinding = await readLocalSiwcResumeAuthBinding({ checkpoint, registration, readRegistration, readPendingAuthHandoff,
+    readReceipt: pending => runSiwcCommand({ target: safeTarget, installRoot,
+      dockerHost: checkpoint.dockerHost, projectName: checkpoint.projectName,
+      registrationId: checkpoint.registrationId, command: "receipt", runProcess,
+      input: Buffer.from(JSON.stringify({ handoffId: pending.handoffId, binding: pending.binding, identity: pending.identity })) }) });
+  plan = createLocalDeploymentPlan({ ...checkpoint.plan, authBinding });
+  return { target: safeTarget, installId: checkpoint.installId,
+    registrationId: plan.authBinding.registrationId, stage: checkpoint.stage, plan, checkpointSha256,
+    ...(checkpoint.migration ? { migration: checkpoint.migration } : {}),
+    filesSha256, resourcesSha256 };
+}
+
+export async function reconcileLocalSiwcHandoff(
+  { target, registration, confirmed },
+  { fileSystem = defaultFileSystem, env = process.env, homeDirectory = homedir(),
+    runProcess = runLocalProcess, platform = process.platform, lockDownPath = lockDownLocalPath,
+    processId = process.pid, isProcessAlive = defaultIsProcessAlive, getProcessIdentity,
+    runSiwcCommand = runCodexSiwcCommand } = {},
+) {
+  const safeTarget = validateLocalTarget(target);
+  if (safeTarget === "xai-grok-build" || confirmed !== true) throw new Error("Confirm reconciliation of the selected SIWC handoff.");
+  validateSiwcRegistrationId(registration?.registrationId);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalInstallRoot({ target: safeTarget, env, homeDirectory, fileSystem, platform });
+  const releaseLock = await acquireLocalProjectLock({ installRoot, target: safeTarget },
+    { fileSystem, processId, isProcessAlive, getProcessIdentity, platform });
+  return settleLocalProjectOperation({ completionLabel: "SIWC handoff reconciliation", releaseLock,
+    operation: async () => {
+      await fingerprintLocalSiwcFiles({ fileSystem, installRoot, platform, lockDownPath });
+      const { marker } = await inspectManagedRoot({ fileSystem, installRoot,
+        relmioHome: resolve(installRoot, "..", ".."), target: safeTarget });
+      if (marker?.registrationId !== registration.registrationId) throw new Error("The selected SIWC destination changed.");
+      await assertInstalledCodexCompose({ fileSystem, installRoot, marker });
+      if (await resolveLocalDockerHost({ runProcess, cwd: installRoot, env, platform }) !== marker.dockerHost) {
+        throw new Error("The selected Docker context changed.");
+      }
+      await attestDockerOwnership({ target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+        installId: marker.installId, projectName: marker.projectName, runProcess, strictResourceIdentities: true });
+      const source = await readRegistration(registration);
+      const pending = await readPendingAuthHandoff(registration);
+      const request = pending ?? (source?.handoff?.state === "transferred" ? {
+        handoffId: source.handoff.handoffId, binding: source.handoff.receipt.binding,
+        target: source.handoff.receipt.binding.target,
+        identity: { issuer: source.identity.issuer, clientId: source.clientId, subject: source.identity.subject },
+      } : null);
+      if (!request || request.target.hostId !== marker.ownerHostId || request.target.runtimeId !== marker.installId) {
+        throw new Error("The frozen handoff does not match this destination.");
+      }
+      let receipt;
+      try {
+        ({ receipt } = await runSiwcCommand({ target: safeTarget, installRoot,
+          dockerHost: marker.dockerHost, projectName: marker.projectName, registrationId: marker.registrationId,
+          command: "receipt", input: Buffer.from(JSON.stringify({
+            handoffId: request.handoffId, binding: request.binding, identity: request.identity,
+          })), runProcess }));
+      } catch {
+        throw Object.assign(new Error("The SIWC receipt outcome is unresolved. The source remains frozen."), { remoteOutcomeUnknown: true });
+      }
+      if (receipt === null) {
+        await assertNoLocalSiwcOneOffContainers({ runProcess, installRoot,
+          dockerHost: marker.dockerHost, projectName: marker.projectName });
+        const staged = await readLocalSiwcStaging({ fileSystem, installRoot, platform, lockDownPath });
+        if (!staged || staged.checkpoint.registrationId !== registration.registrationId) {
+          throw new Error("The original SIWC checkpoint changed.");
+        }
+        staged.checkpoint.notAccepted = true;
+        const path = localSiwcStagingPath(installRoot);
+        await writeManagedFile(fileSystem, path, `${JSON.stringify(staged.checkpoint)}\n`, 0o600);
+        if (platform === "win32") await lockDownPath(path, { platform, kind: "file" });
+        return { outcome: "not-accepted",
+          account: (await listRegistrations({ storageRoot: registration.storageRoot })).find(
+            account => account.registrationId === registration.registrationId) };
+      }
+      if (receipt?.handoffId !== request.handoffId ||
+          JSON.stringify(receipt.binding) !== JSON.stringify(request.binding)) throw new Error("The SIWC receipt binding changed.");
+      const account = await finishAuthHandoff(registration, { handoffId: request.handoffId, receipt: receipt.receipt });
+      return { outcome: "finished", account };
+    } });
+}
+
 export async function installLocalEndpoint(
   request,
   {
@@ -2313,7 +2851,8 @@ export async function installLocalEndpoint(
     runProcess = runLocalProcess,
     randomBytes = createRandomBytes,
     isPortAvailable = isLoopbackPortAvailable,
-    readCodexChatSource = defaultReadCodexChatSource,
+    collectAssets = collectSiwcRuntimeAssets,
+    runSiwcCommand = runCodexSiwcCommand,
     readGrokBuildSource = defaultReadGrokBuildSource,
     readGrokBuildChatSource = defaultReadGrokBuildChatSource,
     readGrokBuildSessionSource = defaultReadGrokBuildSessionSource,
@@ -2326,17 +2865,27 @@ export async function installLocalEndpoint(
     getProcessIdentity,
   } = {},
 ) {
+  const isSiwc = request?.plan?.target !== "xai-grok-build";
+  const migrating = request?.migrationConsent !== undefined ||
+    request?.legacyBinding !== undefined || request?.resume?.migration === "legacy";
+  const replacing = request?.replacementConsent !== undefined ||
+    request?.existingBinding !== undefined || request?.resume?.migration === "replacement";
   if (
     !request ||
     typeof request !== "object" ||
     Array.isArray(request) ||
-    Object.keys(request).length !== 2 ||
+    Object.keys(request).length !== (isSiwc ? ((migrating || replacing) && !request.resume ? 5 : 3) : 2) + (request.resume === undefined ? 0 : 1) ||
     !Object.hasOwn(request, "plan") ||
-    !Object.hasOwn(request, "confirmed")
+    !Object.hasOwn(request, "confirmed") ||
+    (isSiwc && !Object.hasOwn(request, "registration")) ||
+    (!request.resume && migrating && (!isSiwc || replacing || request.migrationConsent !== true ||
+      !Object.hasOwn(request, "legacyBinding"))) ||
+    (!request.resume && replacing && (!isSiwc || request.replacementConsent !== true ||
+      !Object.hasOwn(request, "existingBinding")))
   ) {
-    throw new TypeError("The OAuth local endpoint install request is invalid.");
+    throw new TypeError("The local endpoint install request is invalid.");
   }
-  const { plan, confirmed } = request;
+  const { plan, confirmed, registration, legacyBinding, existingBinding, resume } = request;
   if (confirmed !== true) {
     throw new Error("Confirm the reviewed local endpoint plan before installing.");
   }
@@ -2346,7 +2895,15 @@ export async function installLocalEndpoint(
   const normalizedPlan = createLocalDeploymentPlan({
     target: plan?.target,
     port: plan?.port,
+    authBinding: plan?.authBinding,
   });
+  const binding = isSiwc ? validateSiwcAuthBinding(normalizedPlan.authBinding) : null;
+  if (isSiwc) {
+    if (registration?.registrationId !== binding.registrationId || !registration.storageRoot) {
+      throw new Error("The selected SIWC account does not match the reviewed endpoint.");
+    }
+    if (!resume) await validateReviewedCodexAccount(registration, binding);
+  }
   const installRoot = await resolveLocalInstallRoot({
     target: normalizedPlan.target,
     env,
@@ -2358,17 +2915,71 @@ export async function installLocalEndpoint(
     { installRoot, target: normalizedPlan.target },
     { fileSystem, processId, isProcessAlive, getProcessIdentity, platform },
   );
+  let preservedResult;
   return settleLocalProjectOperation({
     completionLabel: "Local endpoint installation",
     releaseLock,
     operation: async () => {
+  try {
   const relmioHome = resolve(installRoot, "..", "..");
+  const staged = isSiwc ? await readLocalSiwcStaging({ fileSystem, installRoot, platform, lockDownPath }) : null;
+  if (staged && staged.checkpoint.stage !== "completed" && !resume) {
+    throw new Error("Review the interrupted SIWC installation before resuming.");
+  }
+  if (resume) {
+    const reviewed = await reviewLocalSiwcResume({ target: normalizedPlan.target, registration },
+      { fileSystem, env, homeDirectory, runProcess, platform, lockDownPath });
+    if (JSON.stringify(reviewed) !== JSON.stringify(resume) ||
+        JSON.stringify(reviewed.plan) !== JSON.stringify(normalizedPlan)) {
+      throw new Error("The reviewed SIWC resume binding changed.");
+    }
+    const source = await readRegistration(registration);
+    if (source?.handoff?.state === "handoff-pending") throw new Error("Reconcile the frozen handoff before resuming.");
+    if (source?.handoff?.state !== "transferred") await validateReviewedCodexAccount(registration, binding);
+    else if (source.handoff.receipt.binding.target.runtimeId !== staged.checkpoint.installId ||
+             source.handoff.receipt.binding.target.hostId !== staged.checkpoint.ownerHostId) {
+      throw new Error("The completed handoff belongs to another destination.");
+    }
+  }
   const managed = await inspectManagedRoot({
     fileSystem,
     relmioHome,
     installRoot,
     target: normalizedPlan.target,
+    staging: staged?.checkpoint,
   });
+  let reviewedLegacy = resume ? staged.checkpoint.reviewedLegacy ?? null : null;
+  const retiring = migrating || replacing;
+  if (retiring && !(resume && staged.checkpoint.oldStopped)) {
+    const expectedSchema = replacing
+      ? CODEX_SIWC_MARKER_SCHEMA_VERSION : MARKER_SCHEMA_VERSION;
+    if (managed.marker?.schemaVersion !== expectedSchema) {
+      throw new Error("The reviewed Codex installation is no longer available.");
+    }
+    const inspect = replacing
+      ? reviewLocalCodexSiwcReplacement : reviewLocalCodexLegacyMigration;
+    reviewedLegacy = await inspect(
+      { target: normalizedPlan.target },
+      { fileSystem, env, homeDirectory, runProcess, platform, lockDownPath },
+    );
+    const expected = resume ? staged.checkpoint.reviewedLegacy : replacing ? existingBinding : legacyBinding;
+    for (const field of [
+      "target", "installId", "projectName", "dockerHost", "port",
+      "containerId", "imageId", "networkId", "running",
+      ...(replacing ? ["registrationId", "ownerHostId"] : []),
+    ]) {
+      if (expected?.[field] !== reviewedLegacy[field]) {
+        throw new Error("The reviewed old Codex installation changed. Review replacement again.");
+      }
+    }
+    if (JSON.stringify(expected?.volumeNames) !==
+        JSON.stringify(reviewedLegacy.volumeNames) ||
+        (replacing && reviewedLegacy.registrationId === binding.registrationId)) {
+      throw new Error("The reviewed old account or protected volumes changed.");
+    }
+  } else if (isSiwc && managed.marker && !resume) {
+    throw new Error("The existing Codex installation needs a separately reviewed replacement or legacy migration.");
+  }
   if (
     normalizedPlan.target === "xai-grok-build" && managed.marker &&
     typeof managed.marker.tokenSha256 !== "string"
@@ -2384,51 +2995,202 @@ export async function installLocalEndpoint(
       env,
       platform,
     }));
-  const installIdBytes = managed.marker ? null : randomBytes(32);
+  const installIdBytes = isSiwc || !managed.marker ? randomBytes(32) : null;
   if (
     installIdBytes !== null &&
     (!Buffer.isBuffer(installIdBytes) || installIdBytes.length !== 32)
   ) {
     throw new Error("Relmio could not generate a strong installation identity.");
   }
-  const installId = managed.marker?.installId ??
-    installIdBytes.subarray(0, 16).toString("hex");
+  const installId = resume ? staged.checkpoint.installId : isSiwc
+    ? installIdBytes.subarray(0, 16).toString("hex")
+    : managed.marker?.installId ?? installIdBytes.subarray(0, 16).toString("hex");
   validateInstallId(installId);
+  if (retiring && installId === reviewedLegacy.installId) {
+    throw new Error("The fresh SIWC installation identity collided with the old Codex project.");
+  }
   const projectName = createProjectName(normalizedPlan.target, installId);
   await attestDockerOwnership({
     target: normalizedPlan.target,
     installRoot: managed.marker ? installRoot : dirname(relmioHome),
-    dockerHost,
-    installId,
-    projectName,
-    runProcess,
+    dockerHost, installId, projectName, runProcess,
   });
-
-  if (
-    managed.previousPort !== normalizedPlan.port &&
-    !(await isPortAvailable(normalizedPlan.port))
-  ) {
+  if (managed.previousPort !== normalizedPlan.port &&
+      !(await isPortAvailable(normalizedPlan.port))) {
     throw new Error("The selected local endpoint port is already in use.");
   }
-
   const capabilityBytes = randomBytes(32);
   if (!Buffer.isBuffer(capabilityBytes) || capabilityBytes.length !== 32) {
     throw new Error("Relmio could not generate a strong local capability.");
   }
   const clientCredential = capabilityBytes.toString("base64url");
-  const tokenSha256 = createHash("sha256")
-    .update(clientCredential)
-    .digest("hex");
-
+  const tokenSha256 = createHash("sha256").update(clientCredential).digest("hex");
+  if (resume && (await readRegistration(registration))?.handoff?.state === "transferred") {
+    const account = (await runSiwcCommand({ target: normalizedPlan.target, installRoot, dockerHost,
+      projectName, command: "account", runProcess })).account;
+    if (account?.registrationId !== binding.registrationId || account?.ownerHostId !== staged.checkpoint.ownerHostId ||
+        account?.ownerRuntimeId !== installId || account?.ownership !== "owned") {
+      throw new Error("The resumed destination account changed.");
+    }
+    preservedResult = { target: normalizedPlan.target, endpoint: normalizedPlan.endpoint,
+      protocol: normalizedPlan.protocol, clientCredential, credentialShownOnce: true,
+      models: [], account, runtimeState: "unknown", readiness: "unverified",
+      experimental: normalizedPlan.experimental, browserClients: normalizedPlan.browserClients };
+  }
+  const checkpoint = resume ? staged.checkpoint : {
+    schemaVersion: 1, target: normalizedPlan.target, installId, projectName, dockerHost,
+    registrationId: binding?.registrationId, plan: normalizedPlan, stage: "staged",
+    ...(retiring ? { reviewedLegacy, migration: replacing ? "replacement" : "legacy",
+      ...(replacing ? { previousGeneration: existingBinding.expectedGeneration } : {}) } : {}),
+  };
+  if (resume) {
+    if (checkpoint.registrationId !== binding.registrationId) {
+      await assertNoLocalSiwcOneOffContainers({ runProcess, installRoot, dockerHost, projectName });
+    }
+    checkpoint.registrationId = binding.registrationId;
+    checkpoint.plan = normalizedPlan;
+    checkpoint.notAccepted = false;
+  }
+  const saveStage = async stage => {
+    if (!isSiwc) return;
+    checkpoint.stage = stage;
+    const path = localSiwcStagingPath(installRoot);
+    await writeManagedFile(fileSystem, path, `${JSON.stringify(checkpoint)}\n`, 0o600);
+    if (platform === "win32") await lockDownPath(path, { platform, kind: "file" });
+  };
+  if (isSiwc) await saveStage(checkpoint.stage);
+  let legacyArchive = retiring ? join(installRoot, "legacy", reviewedLegacy.installId) : null;
+  if (retiring && !(resume && checkpoint.oldStopped)) {
+    await validateReviewedCodexAccount(registration, binding);
+    const inspect = replacing
+      ? reviewLocalCodexSiwcReplacement : reviewLocalCodexLegacyMigration;
+    const freshPrevious = await inspect(
+      { target: normalizedPlan.target },
+      { fileSystem, env, homeDirectory, runProcess, platform, lockDownPath },
+    );
+    for (const field of [
+      "target", "installId", "projectName", "dockerHost", "port",
+      "containerId", "imageId", "networkId", "running",
+      ...(replacing ? ["registrationId", "ownerHostId"] : []),
+    ]) {
+      if (freshPrevious[field] !== reviewedLegacy[field]) {
+        throw new Error("The old Codex service changed before replacement. Review again.");
+      }
+    }
+    if (JSON.stringify(freshPrevious.volumeNames) !==
+        JSON.stringify(reviewedLegacy.volumeNames)) {
+      throw new Error("The old Codex volumes changed before replacement.");
+    }
+    if (replacing) {
+      const old = (await runSiwcCommand({
+        target: normalizedPlan.target, installRoot,
+        dockerHost: reviewedLegacy.dockerHost,
+        projectName: reviewedLegacy.projectName,
+        command: "account", runProcess,
+      })).account;
+      if (old?.registrationId !== reviewedLegacy.registrationId ||
+          old?.ownerHostId !== reviewedLegacy.ownerHostId ||
+          old?.generation !== (resume ? checkpoint.previousGeneration : existingBinding.expectedGeneration) ||
+          old?.session !== "signed-out" || old?.planEnabled !== false) {
+        throw new Error("Sign out of the exact old SIWC account before reviewed replacement.");
+      }
+    }
+    const legacyRoot = join(installRoot, "legacy");
+    legacyArchive = join(legacyRoot, reviewedLegacy.installId);
+    if (!resume && await lstatIfExists(fileSystem, legacyArchive)) {
+      throw new Error("A prior Codex replacement is incomplete. Inspect the retained project before retrying.");
+    }
+    await ensurePrivateDirectory(fileSystem, legacyRoot, platform, lockDownPath);
+    await ensurePrivateDirectory(fileSystem, legacyArchive, platform, lockDownPath);
+    const retain = async (filename, bytes) => {
+      const path = join(legacyArchive, filename);
+      await writeManagedFile(fileSystem, path, bytes, 0o600);
+      if (platform === "win32") await lockDownPath(path, { platform, kind: "file" });
+    };
+    for (const filename of [
+      MANAGED_MARKER, COMPOSE_FILENAME, "Dockerfile", ".dockerignore",
+      "config.toml", "requirements.toml",
+      ...(migrating && normalizedPlan.target === "codex-chat" ? ["gateway.mjs"] : []),
+      ...(replacing ? ["package.json", "package-lock.json"] : []),
+    ]) {
+      const oldPath = join(installRoot, filename);
+      const metadata = await lstatIfExists(fileSystem, oldPath);
+      if (!metadata?.isFile?.() || metadata.isSymbolicLink() ||
+          metadata.size > 1024 * 1024 ||
+          (platform !== "win32" && (metadata.mode & 0o077) !== 0)) {
+        throw new Error("An old Codex managed file is missing or unsafe. The old service has not been resumed.");
+      }
+      if (platform === "win32") {
+        await lockDownPath(oldPath, {
+          platform, kind: "file", verifyOnly: true, verifyEffectiveOwnerOnly: true,
+        });
+      }
+      await retain(filename, await fileSystem.readFile(oldPath));
+    }
+    const journal = async state => retain("migration.json", Buffer.from(
+      `${JSON.stringify({
+        schemaVersion: 1, state, reviewedLegacy,
+        replacementInstallId: installId, previousWasSiwc: replacing,
+      })}\n`,
+    ));
+    await journal("prepared");
+    if (reviewedLegacy.running) {
+      await runOrThrow(runProcess, {
+        label: "Attested old Codex service drain", file: "docker",
+        args: createComposeArgs(normalizedPlan.target, reviewedLegacy.projectName, [
+          "stop", "--timeout", "30", PROJECTS[normalizedPlan.target].serviceName,
+        ]),
+        cwd: installRoot, dockerHost: reviewedLegacy.dockerHost,
+      });
+    }
+    const stoppedPrevious = await inspect(
+      { target: normalizedPlan.target },
+      { fileSystem, env, homeDirectory, runProcess, platform, lockDownPath },
+    );
+    for (const field of [
+      "target", "installId", "projectName", "dockerHost", "port",
+      "containerId", "imageId", "networkId",
+      ...(replacing ? ["registrationId", "ownerHostId"] : []),
+    ]) {
+      if (stoppedPrevious[field] !== reviewedLegacy[field]) {
+        throw new Error("The old Codex service changed while stopping; it will not be resumed automatically.");
+      }
+    }
+    if (stoppedPrevious.running ||
+        JSON.stringify(stoppedPrevious.volumeNames) !==
+          JSON.stringify(reviewedLegacy.volumeNames)) {
+      throw new Error("The old refresh writer or protected volumes could not be proved stopped.");
+    }
+    if (replacing) {
+      const old = (await runSiwcCommand({
+        target: normalizedPlan.target, installRoot,
+        dockerHost: reviewedLegacy.dockerHost,
+        projectName: reviewedLegacy.projectName,
+        command: "account", runProcess,
+      })).account;
+      if (old?.registrationId !== reviewedLegacy.registrationId ||
+          old?.generation !== (resume ? checkpoint.previousGeneration : existingBinding.expectedGeneration) ||
+          old?.session !== "signed-out" || old?.planEnabled !== false) {
+        throw new Error("The old signed-out SIWC account changed. The retired service remains stopped.");
+      }
+    }
+    await journal("stopped");
+    checkpoint.oldStopped = true;
+    await saveStage("staged");
+  }
   await initializeManagedBase({
-    fileSystem,
-    relmioHome,
-    baseExists: managed.baseExists,
-    platform,
-    lockDownPath,
+    fileSystem, relmioHome, baseExists: managed.baseExists, platform, lockDownPath,
   });
   await ensurePrivateDirectory(fileSystem, join(relmioHome, "local"), platform, lockDownPath);
   await ensurePrivateDirectory(fileSystem, installRoot, platform, lockDownPath);
+  if (resume && (await readRegistration(registration))?.handoff?.state === "transferred") {
+    await runOrThrow(runProcess, { label: "Resumed owned endpoint stop", file: "docker",
+      args: createComposeArgs(normalizedPlan.target, projectName, ["stop", "--timeout", "30", PROJECTS[normalizedPlan.target].serviceName]),
+      cwd: installRoot, dockerHost });
+    const running = await runOrThrow(runProcess, createVerificationSpecs({
+      target: normalizedPlan.target, installRoot, dockerHost, projectName }).running);
+    if (running.stdout.trim() !== "") throw new Error("The resumed owner did not stop.");
+  }
 
   let dockerfile;
   let composeFile;
@@ -2450,58 +3212,37 @@ export async function installLocalEndpoint(
     await writeManagedFile(fileSystem, join(installRoot, "gateway.js"), gatewaySource, 0o600);
     await writeManagedFile(fileSystem, join(installRoot, "chat.js"), chatSource, 0o600);
     await writeManagedFile(fileSystem, join(installRoot, "session.js"), sessionSource, 0o600);
-  } else if (normalizedPlan.target === "codex-chat") {
-    const gatewaySource = await readCodexChatSource();
-    if (
-      typeof gatewaySource !== "string" ||
-      gatewaySource.length === 0 ||
-      gatewaySource.length > 512 * 1024
-    ) {
-      throw new Error("The packaged Codex Chat runtime is invalid.");
-    }
-    dockerfile = createCodexChatDockerfile();
-    composeFile = createCodexChatComposeFile({
-      port: normalizedPlan.port,
-      tokenSha256,
-      installId,
-    });
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, "gateway.mjs"),
-      gatewaySource,
-      0o600,
-    );
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, "config.toml"),
-      createCodexChatConfig(),
-      0o600,
-    );
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, "requirements.toml"),
-      createCodexChatRequirements(),
-      0o600,
-    );
   } else {
-    dockerfile = createCodexDockerfile();
-    composeFile = createCodexComposeFile({
-      port: normalizedPlan.port,
-      tokenSha256,
-      installId,
-    });
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, "config.toml"),
-      createCodexConfig(),
-      0o600,
-    );
-    await writeManagedFile(
-      fileSystem,
-      join(installRoot, "requirements.toml"),
-      createCodexRequirements(),
-      0o600,
-    );
+    const codexChat = normalizedPlan.target === "codex-chat";
+    const options = {
+      port: normalizedPlan.port, tokenSha256, installId,
+      registrationId: binding.registrationId,
+    };
+    dockerfile = codexChat ? createCodexChatDockerfile() : createCodexDockerfile();
+    composeFile = codexChat
+      ? createCodexChatComposeFile(options)
+      : createCodexComposeFile(options);
+    const writeSiwcAsset = async (relative, contents) => {
+      const path = join(installRoot, relative);
+      await writeManagedFile(fileSystem, path, contents, 0o600);
+      if (platform === "win32") await lockDownPath(path, { platform, kind: "file" });
+    };
+    for (const folder of ["services", "gateway", "infrastructure"]) {
+      await ensurePrivateDirectory(fileSystem, join(installRoot, folder), platform, lockDownPath);
+    }
+    const assets = await collectAssets();
+    await writeSiwcAsset("package.json", assets.packageJson);
+    await writeSiwcAsset("package-lock.json", assets.packageLock);
+    for (const asset of assets.files) {
+      if (!SIWC_ASSET_PATHS.has(asset.path) || !Buffer.isBuffer(asset.contents)) {
+        throw new Error("The packaged Codex SIWC assets are invalid.");
+      }
+      await writeSiwcAsset(asset.path, asset.contents);
+    }
+    await writeSiwcAsset("config.toml",
+      codexChat ? createCodexChatConfig() : createCodexConfig());
+    await writeSiwcAsset("requirements.toml",
+      codexChat ? createCodexChatRequirements() : createCodexRequirements());
   }
 
   await writeManagedFile(
@@ -2522,25 +3263,35 @@ export async function installLocalEndpoint(
     composeFile,
     0o600,
   );
-  await writeManagedFile(
-    fileSystem,
-    join(installRoot, MANAGED_MARKER),
-    `${JSON.stringify({
-      schemaVersion: MARKER_SCHEMA_VERSION,
-      target: normalizedPlan.target,
-      port: normalizedPlan.port,
-      dockerHost,
-      installId,
-      projectName,
-      ...(normalizedPlan.target === "xai-grok-build"
-        ? { tokenSha256 }
-        : {}),
-    })}\n`,
-    0o600,
-  );
+  if (isSiwc && platform === "win32") {
+    for (const filename of ["Dockerfile", ".dockerignore", COMPOSE_FILENAME]) {
+      await lockDownPath(join(installRoot, filename), { platform, kind: "file" });
+    }
+  }
+  if (!isSiwc) {
+    await writeManagedFile(
+      fileSystem,
+      join(installRoot, MANAGED_MARKER),
+      `${JSON.stringify({
+        schemaVersion: MARKER_SCHEMA_VERSION,
+        target: normalizedPlan.target,
+        port: normalizedPlan.port,
+        dockerHost,
+        installId,
+        projectName,
+        tokenSha256,
+      })}\n`,
+      0o600,
+    );
+  }
 
   let deploymentStarted = false;
-  let models;
+  let models = [];
+  let account;
+  let catalogFailure;
+  let destinationHostId;
+  let handoffCommitted = resume && (await readRegistration(registration))?.handoff?.state === "transferred";
+  let runtimeAttested = false;
   try {
     for (const spec of createDeploymentSpecs({
       target: normalizedPlan.target,
@@ -2548,7 +3299,88 @@ export async function installLocalEndpoint(
       dockerHost,
       projectName,
     })) {
-      if (spec.args.includes("up")) {
+      if (isSiwc && spec.args.includes("up")) {
+        const destination = await runSiwcCommand({
+          target: normalizedPlan.target, installRoot, dockerHost,
+          projectName, command: "host", runProcess,
+        });
+        validateSiwcHostId(destination?.hostId);
+        if (destination.runtimeId !== installId ||
+            destination.hostId === binding.ownerHostId) {
+          throw new Error("The Codex SIWC destination host identity is invalid.");
+        }
+        destinationHostId = destination.hostId;
+        const markerPath = join(installRoot, MANAGED_MARKER);
+        await writeManagedFile(fileSystem, markerPath, `${JSON.stringify({
+          schemaVersion: CODEX_SIWC_MARKER_SCHEMA_VERSION,
+          target: normalizedPlan.target,
+          port: normalizedPlan.port, dockerHost, installId, projectName,
+          authBinding: binding, registrationId: binding.registrationId,
+          clientId: binding.clientId, ownerHostId: destination.hostId,
+          ...(retiring ? {
+            legacyInstallId: reviewedLegacy.installId,
+            ...(replacing ? { previousWasSiwc: true } : {}),
+          } : {}),
+        })}\n`, 0o600);
+        if (platform === "win32") {
+          await lockDownPath(markerPath, { platform, kind: "file" });
+        }
+        checkpoint.ownerHostId = destination.hostId;
+        await saveStage("prepared");
+        const identities = await attestDockerOwnership({
+          target: normalizedPlan.target, installRoot, dockerHost,
+          installId, projectName, runProcess,
+          strictResourceIdentities: { network: true, volume: true },
+        });
+        if ((!handoffCommitted && identities.container !== 0) || identities.network !== 1 ||
+            identities.volume !== PROJECTS[normalizedPlan.target].volumeNames.length) {
+          throw new Error("The exact Codex SIWC destination resources are not ready.");
+        }
+        if (handoffCommitted) {
+          account = (await runSiwcCommand({ target: normalizedPlan.target, installRoot, dockerHost,
+            projectName, command: "account", runProcess })).account;
+          if (account?.ownerHostId !== destination.hostId || account?.ownerRuntimeId !== installId ||
+              account?.registrationId !== binding.registrationId || account?.ownership !== "owned") {
+            throw new Error("The resumed SIWC destination account changed.");
+          }
+        } else {
+        await validateReviewedCodexAccount(registration, binding);
+        const { handoffId } = await prepareAuthHandoff(registration, {
+          expectedGeneration: binding.generation,
+          target: destination, backgroundConsent: false,
+        });
+        await saveStage("handoff-pending");
+        const contents = await readAuthHandoff(registration, {
+          handoffId, expectedGeneration: binding.generation,
+        });
+        let accepted;
+        try {
+          accepted = await runSiwcCommand({
+            target: normalizedPlan.target, installRoot, dockerHost,
+            projectName, registrationId: binding.registrationId, command: "accept", input: contents, runProcess,
+          });
+        } catch (error) {
+          throw Object.assign(new Error("The Codex SIWC transfer outcome is unresolved. The source remains frozen; reconcile the destination before retrying."),
+            { remoteOutcomeUnknown: true });
+        }
+        if (accepted?.handoffId !== handoffId ||
+            accepted.account?.registrationId !== binding.registrationId ||
+            accepted.account?.ownerHostId !== destination.hostId ||
+            accepted.account?.ownerRuntimeId !== installId ||
+            accepted.account?.ownership !== "owned") {
+          throw new Error("The Codex SIWC receipt or destination account does not match. The source remains frozen.");
+        }
+        account = accepted.account;
+        preservedResult = { target: normalizedPlan.target, endpoint: normalizedPlan.endpoint,
+          protocol: normalizedPlan.protocol, clientCredential, credentialShownOnce: true,
+          models: [], account, runtimeState: "stopped", readiness: "unverified",
+          experimental: normalizedPlan.experimental, browserClients: normalizedPlan.browserClients };
+        await finishAuthHandoff(registration, { handoffId, receipt: accepted.receipt });
+        handoffCommitted = true;
+        }
+        await saveStage("transferred");
+        deploymentStarted = true;
+      } else if (spec.args.includes("up")) {
         deploymentStarted = true;
       }
       await runOrThrow(runProcess, spec);
@@ -2572,15 +3404,56 @@ export async function installLocalEndpoint(
       target: normalizedPlan.target,
       port: normalizedPlan.port,
     });
-    models = await verifyHttpEndpoint({
-      plan: normalizedPlan,
-      clientCredential,
-      fetchImpl,
-    });
-    if (normalizedPlan.target === "codex-chatgpt") {
-      await verifyCodexCapability({
-        port: normalizedPlan.port,
-        clientCredential,
+    runtimeAttested = true;
+    if (preservedResult) preservedResult.runtimeState = "running";
+    if (isSiwc) {
+      try {
+        await verifyHttpEndpoint({ plan: normalizedPlan, clientCredential, fetchImpl });
+        if (normalizedPlan.target === "codex-chatgpt") {
+          await verifyCodexCapability({
+            port: normalizedPlan.port, clientCredential,
+          });
+          const catalog = (await runSiwcCommand({
+            target: normalizedPlan.target, installRoot, dockerHost,
+            projectName, command: "models", runProcess,
+          })).models;
+          if (!Array.isArray(catalog) ||
+              !catalog.every(model => typeof model?.slug === "string" &&
+                /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(model.slug))) {
+            throw new Error("The selected account model catalog is invalid.");
+          }
+          models = catalog.map(model => model.slug);
+        } else {
+          models = await verifyCodexChatCatalog({
+            port: normalizedPlan.port, clientCredential, fetchImpl,
+          });
+        }
+      } catch (error) {
+        catalogFailure = safeSiwcCatalogFailure(error);
+      }
+      let current;
+      try {
+        current = (await runSiwcCommand({
+          target: normalizedPlan.target, installRoot, dockerHost,
+          projectName, command: "account-live", runProcess,
+        })).account;
+      } catch {
+        catalogFailure ??= safeSiwcCatalogFailure({
+          code: "owner_status_unavailable", recovery: "retry-later",
+        });
+      }
+      if (current) {
+        if (current.registrationId !== binding.registrationId ||
+            current.ownerHostId !== destinationHostId ||
+            current.ownerRuntimeId !== installId ||
+            current.ownership !== "owned") {
+          throw new Error("The installed Codex SIWC account changed.");
+        }
+        account = current;
+      }
+    } else {
+      models = await verifyHttpEndpoint({
+        plan: normalizedPlan, clientCredential, fetchImpl,
       });
     }
     if (normalizedPlan.target === "xai-grok-build") {
@@ -2592,6 +3465,53 @@ export async function installLocalEndpoint(
       });
     }
   } catch (error) {
+    if (isSiwc) {
+      if (!handoffCommitted) throw error;
+      let stopped = false;
+      try {
+        await runOrThrow(runProcess, {
+          label: "Unverified owned Codex endpoint stop", file: "docker",
+          args: createComposeArgs(normalizedPlan.target, projectName, [
+            "stop", "--timeout", "30", PROJECTS[normalizedPlan.target].serviceName,
+          ]),
+          cwd: installRoot, dockerHost,
+        });
+        const running = await runOrThrow(runProcess, createVerificationSpecs({
+          target: normalizedPlan.target, installRoot, dockerHost, projectName,
+        }).running);
+        stopped = running.stdout.trim() === "";
+      } catch {
+        // A disconnected Docker operation leaves the owned runtime outcome unknown.
+      }
+      const failureResult = {
+        target: normalizedPlan.target, endpoint: normalizedPlan.endpoint,
+        protocol: normalizedPlan.protocol, clientCredential, credentialShownOnce: true,
+        models: [], deploymentMode: "partial", account,
+        experimental: normalizedPlan.experimental, browserClients: normalizedPlan.browserClients,
+        readiness: "unverified", runtimeState: stopped ? "stopped" : "unknown",
+      };
+      if (runtimeAttested) return localSiwcFinalizationFailure(failureResult, "resolve-handoff");
+      return {
+        target: normalizedPlan.target, endpoint: normalizedPlan.endpoint,
+        protocol: normalizedPlan.protocol, clientCredential,
+        credentialShownOnce: true, models: [],
+        deploymentMode: "partial", account,
+        experimental: normalizedPlan.experimental,
+        browserClients: normalizedPlan.browserClients,
+        readiness: "unverified",
+        runtimeState: stopped ? "stopped" : "unknown",
+        runtimeFailure: stopped ? safeSiwcRuntimeFailure() : {
+          error: "The owned endpoint may be running with an unverified binding. Inspect and stop it before use.",
+          status: 503, recovery: "resolve-handoff",
+        },
+        finalizationFailure: {
+          error: "Ownership transferred, but runtime verification failed. Save the one-time key and resolve recovery before use.",
+          recovery: "resolve-handoff",
+        },
+        ...(migrating ? { migrationPending: true, legacyRetained: true } : {}),
+        ...(replacing ? { replacementPending: true, oldHistoryRetained: true } : {}),
+      };
+    }
     if (deploymentStarted) {
       let cleanupConfirmed = false;
       try {
@@ -2627,6 +3547,32 @@ export async function installLocalEndpoint(
     }
     throw error;
   }
+  try {
+  if (retiring) {
+    const journalPath = join(legacyArchive, "migration.json");
+    await writeManagedFile(fileSystem, journalPath, Buffer.from(
+      `${JSON.stringify({
+        schemaVersion: 1, state: "transferred",
+        reviewedLegacy, replacementInstallId: installId,
+        previousWasSiwc: replacing,
+      })}\n`,
+    ), 0o600);
+    if (platform === "win32") {
+      await lockDownPath(journalPath, { platform, kind: "file" });
+    }
+  }
+  await saveStage("completed");
+  } catch {
+    if (handoffCommitted) return localSiwcFinalizationFailure({
+      target: normalizedPlan.target, endpoint: normalizedPlan.endpoint,
+      protocol: normalizedPlan.protocol, clientCredential, credentialShownOnce: true,
+      models, account, runtimeState: "running", readiness: "unverified",
+      experimental: normalizedPlan.experimental, browserClients: normalizedPlan.browserClients,
+      ...(migrating ? { migrationPending: true, legacyRetained: true } : {}),
+      ...(replacing ? { replacementPending: true, oldHistoryRetained: true } : {}),
+    });
+    throw new Error("Local installation finalization failed.");
+  }
 
   return {
     target: normalizedPlan.target,
@@ -2635,10 +3581,270 @@ export async function installLocalEndpoint(
     clientCredential,
     credentialShownOnce: true,
     models,
-    deploymentMode: managed.deploymentMode,
+    deploymentMode: migrating ? "migrated" : replacing ? "replaced" : managed.deploymentMode,
     experimental: normalizedPlan.experimental,
     browserClients: normalizedPlan.browserClients,
+    ...(isSiwc ? {
+      account,
+      runtimeState: "running",
+      readiness: catalogFailure ? "unverified" : "verified",
+      ...(catalogFailure ? { catalogFailure } : {}),
+    } : {}),
+    ...(migrating ? { migratedLegacy: true, legacyRetained: true } : {}),
+    ...(replacing ? { replacedAccount: true, oldHistoryRetained: true } : {}),
   };
+  } catch (error) {
+    if (preservedResult) return localSiwcFinalizationFailure(preservedResult, "resolve-handoff");
+    throw error;
+  }
+    },
+  });
+}
+
+export async function inspectStoppedLocalSiwcInstallation(
+  { target, registrationId, confirmed },
+  {
+    fileSystem = defaultFileSystem, env = process.env,
+    homeDirectory = homedir(), runProcess = runLocalProcess,
+    platform = process.platform, lockDownPath = lockDownLocalPath,
+    processId = process.pid, isProcessAlive = defaultIsProcessAlive,
+    getProcessIdentity, runSiwcCommand = runCodexSiwcCommand,
+  } = {},
+) {
+  const safeTarget = validateLocalTarget(target);
+  if (safeTarget === "xai-grok-build" || confirmed !== true) {
+    throw new Error("Confirm inspection of the stopped Codex SIWC account.");
+  }
+  validateSiwcRegistrationId(registrationId);
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalInstallRoot({
+    target: safeTarget, env, homeDirectory, fileSystem, platform,
+  });
+  const releaseLock = await acquireLocalProjectLock(
+    { installRoot, target: safeTarget },
+    { fileSystem, processId, isProcessAlive, getProcessIdentity, platform },
+  );
+  return settleLocalProjectOperation({
+    completionLabel: "Stopped Codex SIWC account inspection",
+    releaseLock,
+    operation: async () => {
+      await verifyWindowsManagedLocalEndpointPathSecurity({
+        fileSystem, installRoot, platform, lockDownPath,
+      });
+      const managed = await inspectManagedRoot({
+        fileSystem, relmioHome: resolve(installRoot, "..", ".."),
+        installRoot, target: safeTarget,
+      });
+      const marker = managed.marker;
+      if (marker?.schemaVersion !== CODEX_SIWC_MARKER_SCHEMA_VERSION ||
+          marker.registrationId !== registrationId) {
+        throw new Error("The selected registration is not installed in this Codex endpoint.");
+      }
+      await assertInstalledCodexCompose({ fileSystem, installRoot, marker });
+      const selectedDockerHost = await resolveLocalDockerHost({
+        runProcess, cwd: installRoot, env, platform,
+      });
+      if (selectedDockerHost !== marker.dockerHost) {
+        throw new Error("The selected Docker context changed.");
+      }
+      const ownership = await attestDockerOwnership({
+        target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+        installId: marker.installId, projectName: marker.projectName,
+        runProcess, strictResourceIdentities: true,
+      });
+      if (ownership.container !== 1 || ownership.network !== 1 ||
+          ownership.volume !== PROJECTS[safeTarget].volumeNames.length) {
+        throw new Error("The exact owned Codex endpoint is missing.");
+      }
+      const running = await runOrThrow(runProcess, createVerificationSpecs({
+        target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+        projectName: marker.projectName,
+      }).running);
+      if (running.stdout.trim() !== "") {
+        throw new Error("The Codex endpoint is running; use read-only status instead.");
+      }
+      const account = (await runSiwcCommand({
+        target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+        projectName: marker.projectName, command: "account", runProcess,
+      })).account;
+      if (account?.registrationId !== registrationId ||
+          account?.ownerHostId !== marker.ownerHostId ||
+          account?.ownerRuntimeId !== marker.installId ||
+          account?.ownership !== "owned") {
+        throw new Error("The stopped Codex SIWC account could not be attested.");
+      }
+      return { account };
+    },
+  });
+}
+
+export async function manageLocalSiwcInstallation(
+  { target, registrationId, action, expectedGeneration, confirmed },
+  {
+    fileSystem = defaultFileSystem, env = process.env,
+    homeDirectory = homedir(), runProcess = runLocalProcess,
+    platform = process.platform, lockDownPath = lockDownLocalPath,
+    processId = process.pid, isProcessAlive = defaultIsProcessAlive,
+    getProcessIdentity, runSiwcCommand = runCodexSiwcCommand,
+  } = {},
+) {
+  const safeTarget = validateLocalTarget(target);
+  if (safeTarget === "xai-grok-build" ||
+      confirmed !== true ||
+      !["sign-out", "disable-plan", "enable-plan"].includes(action)) {
+    throw new Error("Confirm the selected installed Codex SIWC account operation.");
+  }
+  validateSiwcRegistrationId(registrationId);
+  if (typeof expectedGeneration !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(expectedGeneration)) {
+    throw new TypeError("The selected SIWC account generation is invalid.");
+  }
+  assertSupportedPlatform(platform);
+  rejectDockerEnvironmentOverrides(env);
+  const installRoot = await resolveLocalInstallRoot({
+    target: safeTarget, env, homeDirectory, fileSystem, platform,
+  });
+  const releaseLock = await acquireLocalProjectLock(
+    { installRoot, target: safeTarget },
+    { fileSystem, processId, isProcessAlive, getProcessIdentity, platform },
+  );
+  return settleLocalProjectOperation({
+    completionLabel: "Installed Codex SIWC account operation",
+    releaseLock,
+    operation: async () => {
+      await verifyWindowsManagedLocalEndpointPathSecurity({
+        fileSystem, installRoot, platform, lockDownPath,
+      });
+      const managed = await inspectManagedRoot({
+        fileSystem, relmioHome: resolve(installRoot, "..", ".."),
+        installRoot, target: safeTarget,
+      });
+      const marker = managed.marker;
+      if (marker?.schemaVersion !== CODEX_SIWC_MARKER_SCHEMA_VERSION ||
+          marker.registrationId !== registrationId) {
+        throw new Error("The selected registration is not installed in this Codex endpoint.");
+      }
+      await assertInstalledCodexCompose({ fileSystem, installRoot, marker });
+      const selectedDockerHost = await resolveLocalDockerHost({
+        runProcess, cwd: installRoot, env, platform,
+      });
+      if (selectedDockerHost !== marker.dockerHost) {
+        throw new Error("The selected Docker context changed.");
+      }
+      const ownership = await attestDockerOwnership({
+        target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+        installId: marker.installId, projectName: marker.projectName,
+        runProcess, strictResourceIdentities: true,
+      });
+      if (ownership.container !== 1 || ownership.network !== 1 ||
+          ownership.volume !== PROJECTS[safeTarget].volumeNames.length) {
+        throw new Error("The exact owned Codex endpoint is missing.");
+      }
+      const identitySpec = {
+        label: "Owned Codex endpoint identity check", file: "docker",
+        args: createComposeArgs(safeTarget, marker.projectName, [
+          "ps", "--all", "-q", PROJECTS[safeTarget].serviceName,
+        ]),
+        cwd: installRoot, dockerHost: marker.dockerHost,
+      };
+      const containerId = (await runOrThrow(runProcess, identitySpec)).stdout.trim();
+      if (!/^[a-f0-9]{64}$/u.test(containerId)) {
+        throw new Error("The owned Codex endpoint identity is invalid.");
+      }
+      const before = (await runSiwcCommand({
+        target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+        projectName: marker.projectName, command: "account", runProcess,
+      })).account;
+      if (before?.registrationId !== registrationId ||
+          before?.ownerHostId !== marker.ownerHostId ||
+          before?.ownerRuntimeId !== marker.installId ||
+          before?.generation !== expectedGeneration ||
+          before?.ownership !== "owned") {
+        throw new Error("The installed SIWC account changed; review it again.");
+      }
+      if (action === "enable-plan" &&
+          (before.planPermission !== "granted" || before.session !== "connected")) {
+        throw new Error("This installed account needs a fresh authorized SIWC sign-in before plan use can resume.");
+      }
+      await runOrThrow(runProcess, {
+        label: "Owned Codex endpoint stop", file: "docker",
+        args: createComposeArgs(safeTarget, marker.projectName, [
+          "stop", "--timeout", "30", PROJECTS[safeTarget].serviceName,
+        ]),
+        cwd: installRoot, dockerHost: marker.dockerHost,
+      });
+      const afterId = (await runOrThrow(runProcess, identitySpec)).stdout.trim();
+      const running = await runOrThrow(runProcess, createVerificationSpecs({
+        target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+        projectName: marker.projectName,
+      }).running);
+      if (afterId !== containerId || running.stdout.trim() !== "") {
+        throw new Error("The owned Codex endpoint did not stop; account mutation was not attempted.");
+      }
+      const changed = await runSiwcCommand({
+        target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+        projectName: marker.projectName, command: action,
+        input: Buffer.from(JSON.stringify({ registrationId, expectedGeneration })),
+        runProcess,
+      });
+      if (changed.account?.registrationId !== registrationId ||
+          changed.account?.ownerHostId !== marker.ownerHostId ||
+          changed.account?.ownerRuntimeId !== marker.installId ||
+          changed.account?.ownership !== "owned") {
+        throw new Error("The installed SIWC result could not be attested.");
+      }
+      if (action === "enable-plan") {
+        if (changed.account.planEnabled !== true ||
+            changed.account.planPermission !== "granted") {
+          throw new Error("The installed SIWC grant could not be confirmed. The Codex endpoint remains stopped.");
+        }
+        try {
+        await runOrThrow(runProcess, {
+          label: "Owned Codex SIWC endpoint start", file: "docker",
+          args: createComposeArgs(safeTarget, marker.projectName, [
+            "up", "-d", "--wait", "--wait-timeout", "90",
+            "--no-build", "--no-deps", PROJECTS[safeTarget].serviceName,
+          ]),
+          cwd: installRoot, dockerHost: marker.dockerHost,
+        });
+        const verification = createVerificationSpecs({
+          target: safeTarget, installRoot, dockerHost: marker.dockerHost,
+          projectName: marker.projectName,
+        });
+        const started = await runOrThrow(runProcess, verification.running);
+        if (!started.stdout.split(/\s+/u).includes(PROJECTS[safeTarget].serviceName)) {
+          throw new Error("The owned Codex endpoint did not reach the running state.");
+        }
+          const publication = await runOrThrow(runProcess, verification.publication);
+          validatePublishedEndpoint(publication.stdout, {
+            target: safeTarget, port: marker.port,
+          });
+        } catch {
+          let stoppedAfterFailure = false;
+          try {
+            await runOrThrow(runProcess, {
+              label: "Unverified enabled endpoint stop", file: "docker",
+              args: createComposeArgs(safeTarget, marker.projectName, [
+                "stop", "--timeout", "30", PROJECTS[safeTarget].serviceName,
+              ]),
+              cwd: installRoot, dockerHost: marker.dockerHost,
+            });
+            const afterId = (await runOrThrow(runProcess, identitySpec)).stdout.trim();
+            const stopped = await runOrThrow(runProcess, createVerificationSpecs({
+              target: safeTarget, installRoot, dockerHost: marker.dockerHost, projectName: marker.projectName }).running);
+            stoppedAfterFailure = afterId === containerId && stopped.stdout.trim() === "";
+          } catch { /* Preserve the unknown runtime outcome. */ }
+          throw Object.assign(new Error(stoppedAfterFailure
+            ? "The enabled endpoint failed verification and its stopped state was confirmed."
+            : "The enabled endpoint outcome is unknown. Inspect and stop the owned service before use."),
+          { runtimeStopped: stoppedAfterFailure, remoteOutcomeUnknown: !stoppedAfterFailure });
+        }
+      }
+      return {
+        account: changed.account, revocation: changed.revocation,
+        runtimeStopped: action !== "enable-plan",
+      };
     },
   });
 }

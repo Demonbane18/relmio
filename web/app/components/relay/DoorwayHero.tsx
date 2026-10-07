@@ -5,7 +5,7 @@ import { classNames } from "../ui/classNames";
 import styles from "./DoorwayHero.module.css";
 /*
  * DoorwayHero: the home page Doorway scene. It sits below the headline as a
- * wide framed window: an AI cloud on the left, the cream doorway with the
+ * wide, unboxed landscape: an AI cloud on the left, the cream doorway with the
  * teal mascot in the middle, and a local workshop on the right. One message
  * glides the full loop and returns. The scene is decoration; the headline and
  * actions above it carry the meaning.
@@ -93,7 +93,6 @@ export function DoorwayHero({ className }: { className?: string }) {
             svg.pauseAnimations();
     }, [running, reducedMotion]);
     return (<figure ref={stageRef} className={classNames(styles.stage, className)} data-scene-running={running ? "true" : "false"}>
-        <div className={styles.art}>
         <svg ref={svgRef} className={styles.sceneSvg} viewBox="180 250 840 350" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
           <defs>
             <linearGradient id="doorway-night-sky" x1="0" y1="0" x2="0" y2="1">
@@ -194,7 +193,6 @@ export function DoorwayHero({ className }: { className?: string }) {
             </g>
           ))}
         </svg>
-        </div>
 
         <button type="button" className={`rm-button rm-button--sm ${styles.pauseButton}`} aria-label={!smilSupported ? "Motion off: animation unavailable" : reducedMotion ? "Motion off: reduced motion" : userPaused ? "Play animation" : "Pause animation"} disabled={!smilSupported || reducedMotion} onClick={() => setUserPaused((paused) => !paused)}>
           {userPaused ? (<Play aria-hidden="true" size={16} strokeWidth={1.75}/>) : (<Pause aria-hidden="true" size={16} strokeWidth={1.75}/>)}

@@ -2,6 +2,9 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
+import { getAccessToken, readRegistration, resolveSiwcStorageRoot } from "../services/siwc-session.mjs";
+import { listSiwcModels } from "./openai-oauth-sidecar.mjs";
+import { appServerArgs } from "./codex-app-server.mjs";
 
 const MAX_HEADER_BYTES = 16 * 1024;
 const MAX_BODY_BYTES = 16 * 1024;
@@ -62,8 +65,56 @@ function sendJson(response, status, body) {
   response.end(contents);
 }
 
-function sendError(response, status, code) {
-  sendJson(response, status, { error: { code } });
+function safeField(value) {
+  if (typeof value !== "string") return undefined;
+  return value.slice(0, 512);
+}
+function turnFailure(source, outcome) {
+  const info = source?.codexErrorInfo;
+  const variant = typeof info === "string" ? info : isPlainObject(info) ? Object.keys(info)[0] : undefined;
+  const rawStatus = isPlainObject(info?.[variant]) ? info[variant].httpStatusCode : undefined;
+  const upstreamStatus = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : undefined;
+  const status = upstreamStatus ?? (variant === "usageLimitExceeded" ? 429
+    : variant === "unauthorized" ? 401 : variant === "badRequest" ? 400
+    : variant === "responseStreamDisconnected" ? 502 : 503);
+  const code = variant === "usageLimitExceeded" ? "usage_limit"
+    : variant === "unauthorized" ? "unauthorized"
+    : variant === "badRequest" ? "bad_request"
+    : variant === "responseStreamDisconnected" ? "stream_interrupted"
+    : outcome === "interrupted" ? "turn_interrupted" : "upstream_failed";
+  const recovery = variant === "usageLimitExceeded" ? "manage-usage"
+    : variant === "unauthorized" ? "reauthorize"
+    : variant === "badRequest" ? "fix-request"
+    : status === 400 ? "fix-request" : "retry-later";
+  const message = safeField(source?.message);
+  return { code, status, recovery, retryable: false, outcome, ...(message && { message }) };
+}
+function safeGatewayFailure(error) {
+  const code = safeField(error?.code ?? error?.error?.code) ?? "unavailable";
+  const param = safeField(error?.param ?? error?.error?.param);
+  const requestId = safeField(error?.requestId);
+  const status = Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status
+    : error?.recovery === "reauthorize" ? 401 : error?.recovery === "enable-plan" ? 403
+    : error?.recovery === "resolve-handoff" ? 409 : 503;
+  const recovery = ["retry-later", "reauthorize", "enable-plan", "manage-usage", "fix-request", "fix-configuration", "resolve-handoff"].includes(error?.recovery)
+    ? error.recovery : status === 429 ? "manage-usage" : status >= 500 ? "retry-later" : "fix-request";
+  const source = error?.upstream;
+  const body = typeof source?.body?.detail === "string" ? { detail: safeField(source.body.detail) }
+    : isPlainObject(source?.body?.error) ? { error: {
+      ...(safeField(source.body.error.message) && { message: safeField(source.body.error.message) }),
+      ...(safeField(source.body.error.code) && { code: safeField(source.body.error.code) }),
+      ...(safeField(source.body.error.param) && { param: safeField(source.body.error.param) }),
+      ...(safeField(source.body.error.type) && { type: safeField(source.body.error.type) }),
+    } } : undefined;
+  const upstream = body && Number.isInteger(source?.status) && source.status >= 400 && source.status <= 599
+    ? { status: source.status, body, ...(safeField(source.requestId) && { requestId: safeField(source.requestId) }) } : undefined;
+  return { code, status, recovery, retryable: false, outcome: error?.outcome === "interrupted" ? "interrupted" : "failed",
+    ...(safeField(error?.message) && error?.message !== "unavailable" && { message: safeField(error.message) }),
+    ...(param && { param }), ...(requestId && { requestId }), ...(upstream && { upstream }) };
+}
+function sendError(response, status, code, details) {
+  sendJson(response, status, { error: { code, ...(details?.message && { message: details.message }), ...(details?.param && { param: details.param }) },
+    ...(details && { status, recovery: details.recovery, ...(details.requestId && { requestId: details.requestId }), ...(details.upstream && { upstream: details.upstream }) }) });
 }
 
 function acceptsEventStream(request) {
@@ -115,10 +166,10 @@ function startEventStream(response, keepaliveIntervalMs) {
       clearInterval(keepalive);
       response.end();
     },
-    fail(code = "upstream_failed", retryable = true) {
+    fail(details = { code: "upstream_failed", status: 503, recovery: "retry-later", retryable: false, outcome: "failed" }) {
       if (ended) return;
-      send("error", { code, retryable });
-      send("terminal", { outcome: "failed" });
+      send("error", details);
+      send("terminal", { outcome: details.outcome ?? "failed" });
       ended = true;
       clearInterval(keepalive);
       response.end();
@@ -218,7 +269,7 @@ function readChatRequest(request) {
       const keys = Object.keys(body).sort();
       if (
         !keys.includes("input") ||
-        keys.some((key) => key !== "input" && key !== "conversationId")
+        keys.some((key) => key !== "input" && key !== "conversationId" && key !== "model")
       ) {
         reject("invalid_request");
         return;
@@ -239,9 +290,14 @@ function readChatRequest(request) {
         reject("invalid_request");
         return;
       }
+      if (body.model !== undefined && (typeof body.model !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/u.test(body.model))) {
+        reject("invalid_request");
+        return;
+      }
       resolvePromise({
         input: body.input,
         conversationId: body.conversationId,
+        model: body.model,
       });
     });
   });
@@ -260,6 +316,10 @@ function normalizeFinalMessage(value) {
 function createAppServerOperation({
   input,
   conversationId,
+  model,
+  accessToken,
+  knownSecrets,
+  childEnv,
   packageVersion,
   onEvent,
   onFailure,
@@ -273,11 +333,12 @@ function createAppServerOperation({
     try {
       child = spawnProcess(
         "codex",
-        ["app-server", "--strict-config", "--stdio"],
+        appServerArgs,
         {
           cwd: "/workspace",
           shell: false,
           stdio: ["pipe", "pipe", "pipe"],
+          env: { ...childEnv, ACCESS_TOKEN: accessToken },
           windowsHide: true,
         },
       );
@@ -312,6 +373,7 @@ function createAppServerOperation({
     const deltaOutputs = new Map();
     let phase = "initializing";
     let outcome = null;
+    let lastFailure;
     let timeout;
     let killTimeout;
     let reapTimeout;
@@ -332,7 +394,7 @@ function createAppServerOperation({
       signal?.removeEventListener?.("abort", abortOperation);
       clearTimers();
       if (outcome.error) {
-        rejectPromise(new Error("unavailable"));
+        rejectPromise(Object.assign(new Error("unavailable"), outcome.failure));
       } else {
         resolvePromise(outcome.result);
       }
@@ -361,14 +423,13 @@ function createAppServerOperation({
         reapTimeout = setTimeout(complete, terminationGraceMs);
       }, terminationGraceMs);
     };
-    const settle = (error, result) => {
+    const settle = (error, result, failure) => {
       if (settled || outcome) {
         return;
       }
-      outcome = { error, result };
-      if (error) {
-        onFailure?.(error.message === "timeout" ? "timeout" : "upstream_failed");
-      }
+      const safeFailure = failure ?? { code: error?.message === "timeout" ? "timeout" : "upstream_failed", status: 503, recovery: "retry-later", retryable: false, outcome: error?.message === "disconnected" ? "interrupted" : "failed" };
+      outcome = { error, result, failure: safeFailure };
+      if (error) onFailure?.(safeFailure);
       signal?.removeEventListener?.("abort", abortOperation);
       clearTimeout(timeout);
       timeout = undefined;
@@ -395,6 +456,7 @@ function createAppServerOperation({
           ? {
               approvalPolicy: "never",
               cwd: "/workspace",
+              model,
               developerInstructions: CONVERSATIONAL_INSTRUCTION,
               permissions: "relmio-chat-readonly",
               threadId: conversationId,
@@ -403,6 +465,7 @@ function createAppServerOperation({
               approvalPolicy: "never",
               cwd: "/workspace",
               developerInstructions: CONVERSATIONAL_INSTRUCTION,
+              model,
               permissions: "relmio-chat-readonly",
             },
       });
@@ -500,6 +563,13 @@ function createAppServerOperation({
         onEvent?.("delta", { text: params.delta });
         return;
       }
+      if (message.method === "error") {
+        if (phase === "waiting" && (params.threadId === undefined || params.threadId === threadId) &&
+            (params.turnId === undefined || params.turnId === turnId) && isPlainObject(params.error)) {
+          lastFailure = params.error;
+        }
+        return;
+      }
       if (message.method === "item/completed") {
         if (phase !== "waiting" || params.threadId !== threadId || params.turnId !== turnId || !isPlainObject(params.item)) {
           failProtocol();
@@ -525,9 +595,13 @@ function createAppServerOperation({
           params.threadId !== threadId ||
           !isPlainObject(params.turn) ||
           params.turn.id !== turnId ||
-          params.turn.status !== "completed"
+          !["completed", "failed", "interrupted"].includes(params.turn.status)
         ) {
           failProtocol();
+          return;
+        }
+        if (params.turn.status !== "completed") {
+          settle(new Error(params.turn.status), undefined, turnFailure(params.turn.error ?? lastFailure, params.turn.status));
           return;
         }
         const completedItem = Array.isArray(params.turn.items)
@@ -563,7 +637,9 @@ function createAppServerOperation({
         return;
       }
       try {
-        processMessage(JSON.parse(trimmed.toString("utf8")));
+        let wire = trimmed.toString("utf8");
+        for (const secret of knownSecrets) wire = wire.replaceAll(secret, "[redacted]");
+        processMessage(JSON.parse(wire));
       } catch {
         failProtocol();
       }
@@ -624,7 +700,7 @@ function createAppServerOperation({
           experimentalApi: true,
         },
         clientInfo: {
-          name: "relmio",
+          name: "Relmio",
           title: "Relmio",
           version: packageVersion,
         },
@@ -651,12 +727,16 @@ export function loadCodexChatGatewayConfig(environment = process.env) {
   const portText = environment?.RELMIO_GATEWAY_PORT;
   const verifier = environment?.RELMIO_GATEWAY_TOKEN_SHA256;
   const packageVersion = environment?.RELMIO_PACKAGE_VERSION;
+  const registrationId = environment?.RELMIO_REGISTRATION_ID;
+  const runtimeId = environment?.RELMIO_RUNTIME_ID;
   if (
     !isLoopbackListenHost(host) ||
     typeof portText !== "string" ||
     !/^[1-9][0-9]{0,4}$/u.test(portText) ||
     Number(portText) < 1024 ||
     Number(portText) > 65_535 ||
+    !isSafeIdentifier(registrationId) ||
+    !isSafeIdentifier(runtimeId) ||
     typeof verifier !== "string" ||
     !/^[a-f0-9]{64}$/u.test(verifier)
   ) {
@@ -666,6 +746,8 @@ export function loadCodexChatGatewayConfig(environment = process.env) {
     return {
       host,
       packageVersion: validatePackageVersion(packageVersion),
+      registration: { storageRoot: resolveSiwcStorageRoot({ env: environment }), registrationId },
+      runtimeId,
       port: Number(portText),
       tokenVerifier: Buffer.from(verifier, "hex"),
     };
@@ -683,6 +765,12 @@ export async function startCodexChatGateway({
   terminationGraceMs = TERMINATION_GRACE_MS,
   turnTimeoutMs = TURN_TIMEOUT_MS,
   keepaliveIntervalMs = KEEPALIVE_INTERVAL_MS,
+  registration,
+  runtimeId,
+  getToken = getAccessToken,
+  readAccount = readRegistration,
+  listModels = listSiwcModels,
+  childEnv = process.env,
 } = {}) {
   if (!isLoopbackListenHost(host)) {
     throw new TypeError("Codex Chat must listen on a literal loopback-safe host.");
@@ -714,10 +802,21 @@ export async function startCodexChatGateway({
   ) {
     throw new TypeError("The Codex Chat keepalive interval is invalid.");
   }
+  if (!registration?.storageRoot || !isSafeIdentifier(registration.registrationId) || !isSafeIdentifier(runtimeId)) {
+    throw new TypeError("An owned ChatGPT registration is required.");
+  }
   const verifier = validateTokenVerifier(tokenVerifier);
   const safePackageVersion = validatePackageVersion(packageVersion);
   let activeOperation = false;
+  const conversations = new Map();
+  let quiescing = false;
+  let activeController;
+  const modelControllers = new Set();
   const server = createServer({ maxHeaderSize: MAX_HEADER_BYTES }, (request, response) => {
+    if (quiescing) {
+      sendError(response, 503, "stopping");
+      return;
+    }
     if (headerOccurrences(request, "host") !== 1 || !validLoopbackHost(request.headers.host)) {
       sendError(response, 421, "host_rejected");
       return;
@@ -745,6 +844,24 @@ export async function startCodexChatGateway({
       sendJson(response, 200, { status: "ok" });
       return;
     }
+    if (request.method === "GET" && request.url === "/models") {
+      const controller = new AbortController();
+      modelControllers.add(controller);
+      response.once("close", () => controller.abort());
+      void listModels({ ...registration, runtimeId, signal: controller.signal })
+        .then((models) => {
+          if (controller.signal.aborted || response.destroyed) return;
+          if (!Array.isArray(models)) throw new Error("invalid_catalog");
+          sendJson(response, 200, { models: models.map(({ slug, display_name }) => ({ slug, display_name })) });
+        })
+        .catch((error) => {
+          if (response.destroyed) return;
+          const safe = safeGatewayFailure(error);
+          sendError(response, safe.status, safe.code, safe);
+        })
+        .finally(() => modelControllers.delete(controller));
+      return;
+    }
     if (request.method !== "POST" || request.url !== "/chat") {
       sendError(response, 404, "not_found");
       return;
@@ -759,6 +876,7 @@ export async function startCodexChatGateway({
     }
     activeOperation = true;
     const controller = new AbortController();
+    activeController = controller;
     let disconnected = false;
     let eventStream;
     const onDisconnect = () => {
@@ -770,27 +888,51 @@ export async function startCodexChatGateway({
     request.once("aborted", onDisconnect);
     response.once("close", onDisconnect);
     void readChatRequest(request)
-      .then((chat) => {
+      .then(async (chat) => {
         if (disconnected) {
           throw new Error("unavailable");
+        }
+        const [lease, account] = await Promise.all([
+          getToken(registration, { runtimeId, minValidityMs: turnTimeoutMs + 60_000, signal: controller.signal }),
+          readAccount(registration),
+        ]);
+        const catalog = await listModels({ ...registration, runtimeId, getToken: async () => lease, signal: controller.signal });
+        if (!account?.clientId || !Array.isArray(catalog)) throw new Error("unavailable");
+        const model = chat.model ?? (chat.conversationId ? conversations.get(chat.conversationId)?.model : catalog[0]?.slug);
+        if (!catalog.some((entry) => entry.slug === model)) {
+          throw Object.assign(new Error("invalid_model"), { code: "invalid_request", status: 400 });
+        }
+        const identity = `${account.identity?.issuer ?? ""}\0${account.clientId}\0${account.identity?.subject ?? ""}`;
+        if (chat.conversationId) {
+          const known = conversations.get(chat.conversationId);
+          if (known?.identity !== identity || known.model !== model) {
+            throw Object.assign(new Error("invalid_conversation"), { code: "invalid_request", status: 400 });
+          }
         }
         if (acceptsEventStream(request)) {
           eventStream = startEventStream(response, keepaliveIntervalMs);
         }
+        if (controller.signal.aborted || quiescing) throw new Error("unavailable");
         return createAppServerOperation({
           ...chat,
           packageVersion: safePackageVersion,
+          model,
+          accessToken: lease.accessToken,
+          knownSecrets: [lease.accessToken, account.session?.accessToken, account.session?.refreshToken, account.session?.idToken]
+            .filter((value) => typeof value === "string" && value.length >= 8),
+          childEnv,
           onEvent: eventStream?.send,
           onFailure: eventStream
-            ? (code) => eventStream.fail(code)
+            ? (details) => eventStream.fail(details)
             : undefined,
           signal: controller.signal,
           spawnProcess,
           terminationGraceMs,
           turnTimeoutMs,
-        });
+        }).then((result) => ({ result, identity, model }));
       })
-      .then((result) => {
+      .then(({ result, identity, model }) => {
+        conversations.set(result.conversationId, { identity, model });
         if (!disconnected && !response.writableEnded) {
           if (eventStream) eventStream.complete(result);
           else sendJson(response, 200, result);
@@ -801,7 +943,7 @@ export async function startCodexChatGateway({
           return;
         }
         if (eventStream) {
-          eventStream.fail();
+          eventStream.fail(safeGatewayFailure(error));
           return;
         }
         const status = error?.status;
@@ -810,11 +952,13 @@ export async function startCodexChatGateway({
           sendError(response, status === 499 ? 400 : status ?? 400, code === "invalid_json" ? "invalid_json" : "invalid_request");
           return;
         }
-        sendError(response, 503, "unavailable");
+        const safe = safeGatewayFailure(error);
+        sendError(response, safe.status, safe.code, safe);
       })
       .finally(() => {
         eventStream?.dispose();
         activeOperation = false;
+        activeController = undefined;
       });
   });
   server.headersTimeout = 10_000;
@@ -837,6 +981,9 @@ export async function startCodexChatGateway({
   return {
     origin: `http://127.0.0.1:${address.port}`,
     async close() {
+      quiescing = true;
+      activeController?.abort();
+      for (const controller of modelControllers) controller.abort();
       await new Promise((resolvePromise, rejectPromise) => {
         server.close((error) => (error ? rejectPromise(error) : resolvePromise()));
       });
@@ -848,7 +995,9 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  startCodexChatGateway(loadCodexChatGatewayConfig()).catch(() => {
+  startCodexChatGateway(loadCodexChatGatewayConfig()).then((gateway) => {
+    for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => { void gateway.close(); });
+  }).catch(() => {
     process.stderr.write("Relmio Codex Chat could not start.\n");
     process.exitCode = 1;
   });

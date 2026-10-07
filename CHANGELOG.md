@@ -7,6 +7,302 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.19.0] - 2026-10-07
+
+Relmio 0.19.0 adds a skippable setup guide with Relmio the mascot, Plan and
+usage counts, automatic model discovery and sidecar updates from the wizard,
+and moves ChatGPT plan sign-in to OpenAI's documented Sign in with ChatGPT
+flow.
+
+### Added
+
+- Every wizard page has an optional setup guide. Relmio, the mascot, points at
+  the box or button you need next, says what it is for in plain words and,
+  where it helps, shows an example value. The guide never types into a field.
+  Each quest you finish, such as Check your server, earns a badge. The first
+  visit asks whether to start the guide. Hide folds it into a small Guide
+  button, Skip guide turns it off, and the Setup guide button in the top bar
+  turns it on or off at any time. When a step fails, the guide explains the
+  error, lists the next steps and points at the control that fixes it. With
+  the guide off, a "Need help with this error?" button opens the same help.
+  Only the on or off choice is saved: `ui-preferences.json` in the SIWC
+  storage root (`N8N_OPENAI_OAUTH_HOME` or `~/.n8n-openai-oauth`), written
+  through the wizard's `/api/ui/preferences` route.
+- Plan and usage shows the requests sent through the ChatGPT plan sidecar in
+  the last 30 days: requests and tokens in total, active days, the peak day,
+  how requests ended and the busiest models. It also shows the account,
+  whether plan use is on, how many models OpenAI lists and how many a
+  completed request verified, and the last plan-usage error with its next
+  step. On a VPS it is under Manage the installed ChatGPT session after Check
+  installed account, and Refresh usage reads the counts over SSH, up to 10
+  times in 15 minutes. On this computer, the dashboard has a Plan and usage
+  section and the installed sidecar's view has a Plan and usage disclosure.
+  These counts are not your plan's usage. Relmio shows no plan percent, reset
+  time or credits; they stay on ChatGPT's Usage page, which Manage usage
+  opens.
+- For Plan and usage, the sidecar now counts each text request it sends to
+  OpenAI, per UTC day and model: how the request ended and, for completed
+  responses, the input, cached, output, reasoning and total tokens. It also
+  keeps the last plan-usage error until a completed response clears it. The
+  counts are stored in `activity/<registration ID>.json` next to the
+  model-check record, without prompts, outputs, request IDs, IP addresses or
+  headers. Each write keeps the 31 most recent UTC days. Nothing else deletes
+  the file, so after the last request the counts stay until the sidecar's
+  storage is removed. A VPS sidecar starts counting after Review sidecar
+  update.
+- The ChatGPT plan sidecar's `/v1/chat/completions` route now accepts function
+  tools, assistant tool calls and tool results. Function tools go to OpenAI in
+  one `additional_tools` item, and n8n still runs the tools. Limits are 32 tool
+  calls, 128 KiB of arguments per call and 2 MiB of streamed arguments. A named
+  `tool_choice`, tool namespaces and custom tools in streamed requests are
+  rejected. A two-turn LangChain tool test passed live on one ChatGPT account
+  on 2026-10-05, streaming over both Chat Completions and Responses.
+- An interrupted local or VPS ChatGPT install shows as staged and can be
+  resumed after a review that names the selected account, without deleting
+  data or starting a second refresh writer. Turning plan use on or off, or a
+  token refresh, before resuming does not block it.
+- If the destination accepted a session but the acknowledgment was lost, a
+  reviewed reconcile finishes the handoff from the destination's receipt.
+  Without a receipt the sender stays frozen and needs a fresh sign-in.
+- An installed VPS ChatGPT sidecar can now be updated from Manage the
+  installed ChatGPT session with Review sidecar update. Relmio rebuilds the
+  image from the current Relmio version and recreates only the sidecar
+  container. The ChatGPT sign-in and the one-time Relmio key stay the same,
+  n8n is not stopped or restarted, and the sidecar is briefly unavailable
+  while it restarts. Plan use must be on. An interrupted update shows as
+  `updating`; review it again to finish it. The staged-install resume refuses
+  it.
+- An installed VPS ChatGPT sidecar can now generate and edit images through
+  an opt-in add-on. Turn it on in Manage the installed ChatGPT session with
+  Sign in for images, which starts a separate Codex device sign-in at
+  `https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's Image
+  actions with the same Base URL and Relmio key, and pick `gpt-image-2` from
+  the list or enter it as the ID. Each request returns one image; masks and
+  URL responses are not supported. A low-quality generation passed live on
+  one Pro account on 2026-10-06. The add-on signs in to Codex the way Hermes
+  Agent does.
+  OpenAI does not document this route for other apps, so it can stop working
+  without notice, and images count against the plan's Codex limits. The Codex
+  refresh token is stored on the VPS. The ChatGPT plan session is never used
+  for images. Signing out of the ChatGPT session also signs out of images, as
+  a best effort. A sidecar built before this release needs Review sidecar
+  update first. The local sidecar has no image sign-in.
+- The ChatGPT sidecar now finds new text models without a Relmio release. It
+  asks OpenAI's catalog as the newest stable Codex release on npm, never below
+  the 0.160.0 pin, and checks npm about every 12 hours. That request sends no
+  credentials; `registry.npmjs.org` is a new recipient and sees the sidecar
+  host's IP address. The catalog is cached for 5 minutes. A model that OpenAI
+  rejects with a model error is hidden from n8n for a day. A VPS sidecar built
+  before this release needs Review sidecar update first.
+- On a VPS, Check installed account now shows a Models group. Each model says
+  In n8n or Not in n8n and Ready, Not working or Not checked yet, and has a
+  Copy ID button for n8n's AI Assistant.
+- VPS installs can turn on model checks. They are off by default and need
+  confirmation. The sidecar sends one short test request ('Reply with OK') to
+  up to 12 models right away, then to each new model and once a day to a model
+  that failed. Once any model has answered, n8n lists only models that
+  answered. Each test uses a little of your plan. Consent is recorded; turning
+  checks off stops further tests, and Sign out and revoke turns them off first.
+- The ChatGPT plan sidecar now fills in earlier output that a client refers
+  to by ID, as n8n's AI Assistant does in tool steps and follow-up messages.
+  From each Responses request that completes, it keeps reasoning items
+  (encrypted content and summary) and assistant text in memory, and replaces
+  each later `item_reference` with a copy. For this, Responses requests that
+  set `reasoning` now ask OpenAI for `reasoning.encrypted_content`. The memory holds at most
+  4,096 items and 32 MiB, keeps an item for up to 6 hours and is never
+  written to disk. A restart or update empties it; references it no longer
+  knows are dropped, so an open Assistant conversation loses that earlier
+  context. The sidecar adds no logs, so the live Assistant test under Changed
+  doesn't show whether this memory was used.
+- The sidecar's `/v1/chat/completions` route accepts `reasoning_effort` and
+  sends it to OpenAI as `reasoning.effort`.
+
+### Changed
+
+- The wizard's start cards now say who each route is for and what you need,
+  for example "You need a VPS that runs n8n in Docker, a root login to it and
+  a ChatGPT plan." The step list is now a compact quest track: one row of
+  steps at every width, a check on each finished step and, while the guide is
+  on, Relmio standing in the current step. With the guide on, the Ready screen
+  lists the badges earned and the next steps. The steps and the setup flow
+  are unchanged.
+- The dark theme's accent is now pastel green instead of pastel yellow, in the
+  same hue as the light theme's greens. Primary buttons, links, focus rings,
+  the current step and selected items use it in the wizard and on the
+  website. Terminal prompts and the home page's night band, which are dark in
+  both themes, use it too; the night band's moon and stars stay yellow.
+  Success messages keep their cooler green, and contrast still meets WCAG AA.
+
+- The website's Doorway illustration is unframed again, spanning the page
+  against its background instead of sitting inside a rounded, layered card.
+  The current colors, animation and Pause control are preserved.
+
+- The OpenAI Chat Model node and Chat Hub no longer list `gpt-image-2`. The
+  OpenAI node's text picker still does, because it shares one request with
+  the image picker, and the image picker lists it, so Generate an Image and
+  Edit Image can pick it from the list. The wizard's HTTP recipe no longer
+  offers image IDs as chat models.
+- Images stay `gpt-image-2` only. In a 2026-10-06 test the Codex image route
+  returned the same token count, size and C2PA provenance for `gpt-image-2`,
+  `gpt-image-2.5-flare` and a made-up ID, so Flare and Sunburst need a
+  separate OpenAI credential with your own Platform API key.
+- The AI Assistant docs now explain how to point its Self-hosted or
+  OpenAI-compatible endpoint at the sidecar with a pasted model ID, instead of
+  saying the sidecar is not offered. On 2026-10-07, after a sidecar update,
+  n8n 2.40.7's Assistant used the sidecar on one Pro account with
+  `gpt-6-astra`. The model check passed, "Reply with OK" returned "OK", and
+  "Which workflows do I have?" ran a tool step and listed the instance's
+  workflows in about 35 seconds. That is not a guarantee for other accounts,
+  models or longer conversations, or after a sidecar restart. Whether this use
+  fits OpenAI's Sign in with ChatGPT terms is open. Only do it if nobody else
+  uses that n8n.
+- One sidecar request can now list up to 128 tools, up from 32, which leaves
+  n8n's AI Assistant room for its own tools plus those from MCP servers. Tool
+  calls stay at 32 per Chat Completions message or response.
+
+- Document the local SIWC account, permission, and model-access flow, including
+  protected per-registration credentials, private n8n/VPS transfer boundaries,
+  current unsupported capabilities, recovery, and unresolved provider limits.
+
+- A refresh that returns HTTP 503 `temporarily_unavailable` now keeps the
+  session from before the refresh instead of freezing it. This assumes OpenAI
+  did not rotate the token, which OpenAI does not document.
+- If ownership moves but a later finishing step fails, the result still shows
+  the one-time key once, with a warning not to use it until the issue is
+  resolved.
+
+### Fixed
+
+- Sign-in no longer fails after you allow access. OpenAI sends the ID
+  token's audience as a one-element list, which Relmio wrongly rejected. Found
+  in a live sign-in test.
+- Non-streaming requests and Chat tool streams no longer fail on live OpenAI
+  responses. OpenAI's final `response.completed` event can have an empty
+  `output`, so the gateway now rebuilds it from the
+  `response.output_item.done` events. Chat Completions clients get only
+  final-answer text, not intermediate `commentary`. The Responses route passes
+  events and `phase` through unchanged.
+- The sidecar no longer refuses n8n's AI Assistant model check with "This
+  Responses parameter is unavailable with ChatGPT plan usage." The check
+  sends `max_output_tokens: 16`. The sidecar now drops output-token caps
+  instead of refusing them: `max_output_tokens` on Responses, and
+  `max_completion_tokens` and `max_tokens` on Chat Completions. SIWC lists
+  `max_output_tokens` as unsupported, so no cap can be honored, and the
+  16-token cap is not enforced. Other unsupported fields are still refused.
+  On one Pro account on 2026-10-07, the check failed this way before a
+  sidecar update and passed after it.
+  A VPS sidecar needs Review sidecar update to get this fix and the related
+  item memory, tool and error changes.
+- Failures in a streamed `/v1/responses` request now reach AI SDK clients,
+  such as n8n's AI Assistant, as errors. The sidecar's own stream errors use
+  OpenAI's `error` event format, and rewritten `response.failed` and
+  `response.incomplete` events keep their `sequence_number` and any
+  incomplete reason. Before, the AI SDK reported a cut-off stream as a
+  type-validation error and could end a failed response as an empty answer.
+- The model list now includes the account's current models. On the tested
+  account that added GPT-6.1-Sol, GPT-6-Sol and GPT-6-Luna. OpenAI filters the
+  catalog by an undocumented `client_version` parameter; the sidecar now
+  follows the newest Codex release (see Added). The Codex runtime pin moved
+  from 0.147.0 to 0.160.0.
+- If SSH connects but the read-only Docker or n8n check fails, the VPS wizard
+  keeps the verified connection and offers Retry discovery without asking for
+  the password again. Changing the server details still needs a fresh identity
+  check.
+- Reviewing a ChatGPT sidecar install or bridge update no longer fails with
+  "The selected account or model catalog changed" when the account's access
+  token refreshes while the model list loads. Switching to another account
+  during the review is still refused, and an invalid model list now has its
+  own message.
+- VPS installs and resumes no longer stop after the image build with "The VPS
+  sidecar execution configuration changed". Docker Compose reports the
+  sidecar's `command` and `entrypoint` as `null`, which the ownership check
+  treated as a change. A real override is still rejected. Checked against real
+  Compose output, a Docker 29.2.1 container test and a live VPS resume.
+- Resuming an interrupted VPS install now rebuilds the sidecar image unless
+  the recorded image was built from the same runtime files. Before, a resume
+  uploaded the current files but could keep running an older image, for
+  example one without the empty-`output` fix above, so answers came back
+  empty. A resume after the session moved, or of an account replacement, keeps
+  its image; run Review sidecar update once it completes.
+- Sign-in no longer fails when OpenAI's callback includes its documented
+  optional `scope`. An `iss` value, when present, must match the issuer.
+- Declining in ChatGPT now shows a declined message instead of a generic
+  verification failure. Declining plan use keeps the existing registration.
+- Function tools without `parameters` or `strict` now send both as `null`.
+- The chat route skips reasoning output items, so Chat Completions clients
+  never receive them.
+- A callback with the wrong state no longer cancels the sign-in in progress.
+- Session locks now record the holder's process namespace and boot. A lock
+  from an earlier boot is reclaimed at once, and one held from another
+  container on the same boot after a 10-minute lease. Holders stop after a
+  2-minute deadline, and waiters get 503 `siwc_lock_unavailable` after 2.5
+  minutes.
+- Session lock records are published atomically, so a crash cannot leave a
+  half-written lock, and release waits through short contention. A refresh
+  that has started is no longer cancelled when the caller disconnects, and the
+  rotated token is saved. Keep the SIWC store on a local disk used by one
+  kernel, not on a synced folder or network share. Windows cannot flush a
+  folder to disk, so on Windows the lock skips that step and relies on NTFS.
+- On Windows, owner-only file checks now run in one PowerShell process that
+  stays open for the whole Relmio run, so a check no longer starts a new
+  PowerShell. Relmio checks its own process identity once per run, skips
+  rechecks of files it locked down itself until their change time or contents
+  change, and always checks files it did not create.
+- On Windows, an existing owner-only SIWC folder is checked but not rewritten,
+  so one sign-in no longer disturbs another process's files. Session locks
+  retry briefly when antivirus or another process holds a lock file for a
+  moment.
+- The Codex App Server's live model check now runs inside the running
+  container instead of a one-off helper container.
+- Status and sign-out for a completed VPS install keep working after n8n is
+  recreated or the SSH login method changes. Completed installs bind only the
+  SSH host identity and Docker network ID; interrupted installs still bind the
+  full reviewed target.
+- The ChatGPT plan notice opens only once its view is visible. Escape closes
+  it without confirming, and Review plan notice opens it again.
+- At a usage limit, Manage usage is a readable primary button in both themes.
+  The account card hides Using ChatGPT plan and Pause plan use, and the wizard
+  keeps Check the server off.
+- ChatGPT account controls stay disabled in preview after a background check
+  ends. After Sign out, focus moves to the account status.
+- The ChatGPT account card fits one screen at laptop sizes in the wizard and
+  on This computer. It no longer repeats the selected account, and the plan
+  badge sits beside the status. Recovery lists show "owned here" and
+  "transfer pending" instead of internal state names.
+- When finalization fails after an install, or the runtime cannot be
+  verified, the Ready step says to save the one-time key and not use it yet.
+  It no longer shows Using ChatGPT plan or n8n setup wording, and the warning
+  sits in a callout. The model select, the server's model picker and its HTTP
+  recipe copy stay disabled.
+- The Ready step on This computer fits one screen at laptop sizes. Key safety
+  notes sit beside the account card, the installed account's session controls
+  are in a disclosure, and repeated key and URL guidance is gone. Opening the
+  chat tester no longer scrolls the whole page.
+- A chat tester error and its Manage usage button scroll into view before
+  focus moves to the error, and again once Send returns. Stop response is now
+  the same height as Send.
+- The VPS review shows the SSH host key once, under Host key and build
+  details, so the plan fits one screen. From 1024 to 1279 pixels, step 5 puts
+  the base URL and key under their labels at full width.
+- Checkbox and radio labels are at least 24 pixels tall.
+
+### Security
+
+- VPS installs bind the reviewed n8n container and network IDs and check them
+  again before writing and before the session transfer.
+- VPS SIWC files are published atomically under `/docker/n8n-openai-oauth`,
+  and unsafe parents or linked targets are rejected. Every SSH command has a
+  finite deadline: 45 minutes by default, 30 minutes for a build, 2 minutes for
+  handoff acceptance and 5 minutes for file publication. A timeout reports an
+  unknown outcome and is not retried.
+- Recovery never restarts an old writer automatically. Switching to a fresh
+  account after a "not accepted" result is refused if the original receipt
+  appears, and on a VPS while a one-off helper container is still present.
+- The docs now state plainly that the Codex App Server target is high trust.
+  Its relay forwards every client call except a short deny-list to an App
+  Server running as the same user as the SIWC store, so connect only trusted
+  local clients.
+
 ## [0.18.6] - 2026-10-04
 
 Relmio 0.18.6 makes the selected theme and keyboard focus easier to distinguish.
@@ -1466,6 +1762,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.19.0]: https://github.com/Demonbane18/relmio/compare/v0.18.6...v0.19.0
 [0.18.6]: https://github.com/Demonbane18/relmio/compare/v0.18.5...v0.18.6
 [0.18.5]: https://github.com/Demonbane18/relmio/compare/v0.18.4...v0.18.5
 [0.18.4]: https://github.com/Demonbane18/relmio/compare/v0.18.3...v0.18.4

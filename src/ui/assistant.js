@@ -52,6 +52,7 @@ function setMessage(value) {
 function clearError() {
   errorBox.hidden = true;
   errorMessage.textContent = "";
+  globalThis.relmioGuide?.clearError?.();
 }
 
 function showError(error) {
@@ -59,6 +60,7 @@ function showError(error) {
   errorMessage.textContent = text;
   errorBox.hidden = false;
   errorBox.focus();
+  globalThis.relmioGuide?.error?.(error);
 }
 
 function validatePlanId(value) {

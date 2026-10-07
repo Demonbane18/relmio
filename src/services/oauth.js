@@ -1,721 +1,223 @@
-import * as defaultFileSystem from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import { connect } from "node:net";
-import { homedir } from "node:os";
-import { performance } from "node:perf_hooks";
-import { dirname, resolve } from "node:path";
-import { spawn } from "node:child_process";
-import { lockDownLocalPath } from "../infrastructure/local-process.js";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createServer } from 'node:http';
+import { openOpenAiAuthorization } from '../browser.js';
+import {
+  commitAuthorization, ensureSiwcHost, getSiwcDiscovery, listRegistrations,
+  readPendingSiwcRegistration, readRegistration, readRegistrationView, readSiwcHost, readSiwcJson,
+  reserveSiwcClient, signOut, validateSiwcClientId, validateSiwcRegistrationId, verifySiwcIdToken,
+} from './siwc-session.mjs';
 
-const MAX_AUTH_FILE_BYTES = 128 * 1024;
-const MAX_LOGIN_OUTPUT_BYTES = 32 * 1024;
-const LOGIN_TIMEOUT_MS = 300_000;
-const PROCESS_TIMEOUT_MS = LOGIN_TIMEOUT_MS + 15_000;
-const CREDENTIAL_POLL_INTERVAL_MS = 100;
-const PROCESS_TERMINATION_GRACE_MS = 1_000;
-const PROCESS_TERMINATION_FORCE_WAIT_MS = 1_000;
-const TERMINATION_UNCONFIRMED_MESSAGE =
-  "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
-const CODEX_LOGIN_PACKAGE = "@openai/codex@0.154.0";
-// The pinned Codex login defaults to 1455 and can fall back to registered port 1457.
-const OAUTH_CALLBACK_PORT = 1455;
-const OAUTH_CALLBACK_HOSTS = Object.freeze(["127.0.0.1", "::1"]);
-const CALLBACK_PORT_PROBE_TIMEOUT_MS = 500;
-const CALLBACK_PORT_IN_USE_MESSAGE =
-  "Another app is already using localhost:1455, the ChatGPT sign-in callback, and could interfere with this sign-in. Close other ChatGPT or Codex apps, sign-in pages, and extensions, then retry.";
-const CALLBACK_PORT_UNKNOWN_MESSAGE =
-  "ChatGPT sign-in could not verify its local callback port. Check local security or network settings, then retry.";
-
-const wait = (milliseconds) =>
-  new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
-
-function resolveWindowsNpxCli({ env, execPath }) {
-  const npmExecPathKey = Object.keys(env ?? {}).find(
-    (key) => key.toLowerCase() === "npm_execpath",
-  );
-  const npmExecPath =
-    npmExecPathKey === undefined ? undefined : env[npmExecPathKey];
-
-  if (typeof npmExecPath === "string") {
-    if (/(?:^|[\\/])npx-cli\.js$/iu.test(npmExecPath)) {
-      return resolve(npmExecPath);
-    }
-    if (/(?:^|[\\/])npm-cli\.js$/iu.test(npmExecPath)) {
-      return resolve(dirname(npmExecPath), "npx-cli.js");
-    }
-  }
-
-  return resolve(dirname(execPath), "node_modules", "npm", "bin", "npx-cli.js");
-}
-
-function createNpxInvocation({ platform, env, execPath }) {
-  if (platform !== "win32") {
-    return { command: "npx", prefixArgs: [] };
-  }
-
-  return {
-    command: execPath,
-    // Windows cannot execute npx.cmd directly with shell:false.
-    prefixArgs: [resolveWindowsNpxCli({ env, execPath })],
-  };
-}
-
-function probeLoopbackListener(host, port, { connectSocket, timeoutMs }) {
-  return new Promise((resolvePromise) => {
-    let socket;
-    let timer;
-    let settled = false;
-    const finish = (result) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      socket?.destroy();
-      resolvePromise(result);
-    };
-    try {
-      socket = connectSocket({ host, port });
-      socket.once("connect", () => finish("occupied"));
-      socket.once("error", (error) => {
-        if (error?.code === "ECONNREFUSED") {
-          finish("free");
-        } else if (host === "::1" && error?.code === "EAFNOSUPPORT") {
-          // An unsupported IPv6 address family cannot receive localhost traffic.
-          finish("unavailable");
-        } else {
-          finish("unknown");
-        }
-      });
-      timer = setTimeout(() => finish("unknown"), timeoutMs);
-    } catch {
-      finish("unknown");
-    }
+const RESOURCE = 'https://api.openai.com/v1';
+const SCOPES = 'openid profile email offline_access resource.invoke chatgpt.tokens.use.direct';
+const CALLBACK = '/auth/callback';
+const randomValue = () => randomBytes(32).toString('base64url');
+const page = '<!doctype html><html lang="en"><meta charset="utf-8"><title>ChatGPT sign-in</title><body><p>Return to Relmio to continue.</p></body></html>';
+const failure = () => new Error('ChatGPT sign-in could not be verified. Start a fresh sign-in.');
+const cancelled = () => new Error('ChatGPT sign-in was cancelled.');
+async function tokenExchangeFailure(response) {
+  let body;
+  try { body = await readSiwcJson(response); } catch { /* Never expose token endpoint bodies. */ }
+  const source = body?.error;
+  const code = typeof source === 'string' ? source : source?.code;
+  const param = typeof source === 'object' ? source?.param : undefined;
+  const safeCode = typeof code === 'string' && /^[A-Za-z0-9_:-]{1,128}$/u.test(code) ? code : undefined;
+  const safeParam = typeof param === 'string' && /^[A-Za-z0-9_.\[\]-]{1,128}$/u.test(param) ? param : undefined;
+  const requestId = response.headers?.get('x-request-id');
+  return Object.assign(failure(), {
+    safeOAuth: true, status: response.status,
+    recovery: safeCode === 'invalid_client' ? 'fix-configuration'
+      : safeCode === 'invalid_grant' ? 'reauthorize' : response.status >= 500 ? 'retry-later' : 'review-again',
+    ...(safeCode ? { code: safeCode } : {}),
+    ...(safeParam ? { param: safeParam } : {}),
+    ...(requestId && /^[A-Za-z0-9_-]{1,128}$/u.test(requestId) ? { requestId } : {}),
   });
 }
 
-/**
- * Reports whether any loopback listener already owns the Codex callback port.
- * Codex binds 127.0.0.1 only, so a listener on [::1] (or one sharing the port)
- * can receive the browser redirect for `localhost` without a bind error.
- */
-export async function isOAuthCallbackPortInUse({
-  connectSocket = connect,
-  timeoutMs = CALLBACK_PORT_PROBE_TIMEOUT_MS,
-} = {}) {
-  const results = await Promise.all(
-    OAUTH_CALLBACK_HOSTS.map((host) =>
-      probeLoopbackListener(host, OAUTH_CALLBACK_PORT, {
-        connectSocket,
-        timeoutMs,
-      }),
-    ),
-  );
-  if (results.includes("occupied")) {
-    return true;
-  }
-  if (results.includes("unknown")) {
-    throw new Error(CALLBACK_PORT_UNKNOWN_MESSAGE);
-  }
-  return false;
+export async function listAuthRegistrations({ storageRoot } = {}, deps = {}) {
+  return listRegistrations({ storageRoot }, deps);
 }
 
-export function resolveAuthPath({
-  env = process.env,
-  homeDirectory = homedir(),
-} = {}) {
-  if (
-    typeof env.N8N_OPENAI_OAUTH_HOME === "string" &&
-    env.N8N_OPENAI_OAUTH_HOME.trim() !== ""
-  ) {
-    return resolve(env.N8N_OPENAI_OAUTH_HOME, "auth.json");
-  }
-  return resolve(homeDirectory, ".n8n-openai-oauth", "auth.json");
+export async function getAuthStatus({ storageRoot, registrationId, runtimeId = 'local' } = {}, deps = {}) {
+  const empty = { exists: false, identity: 'unverified', session: 'signed-out',
+    planPermission: 'not-granted', planEnabled: false, ownership: 'owned', needsPlanWelcome: false };
+  if (!registrationId) return empty;
+  validateSiwcRegistrationId(registrationId);
+  const account = await readRegistrationView({ storageRoot, registrationId }, deps);
+  if (!account) return { ...empty, registrationId };
+  if (account.identity !== 'verified' || account.ownership !== 'owned' || account.session !== 'connected')
+    return { ...account, exists: false };
+  const host = await readSiwcHost({ storageRoot, runtimeId }, deps);
+  return { ...account, exists: account.ownerHostId === host.hostId && account.ownerRuntimeId === runtimeId };
 }
 
-export async function getAuthStatus({
-  fileSystem = defaultFileSystem,
-  env = process.env,
-  homeDirectory = homedir(),
-} = {}) {
-  const path = resolveAuthPath({ env, homeDirectory });
-
-  try {
-    await fileSystem.access(path);
-    const metadata = await fileSystem.stat(path);
-    return {
-      exists: true,
-      path,
-      updatedAt: metadata.mtime.toISOString(),
-    };
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return { exists: false, path };
-    }
-    throw new Error("The local OAuth credential location could not be checked.");
-  }
-}
-
-export async function readAuthContents({
-  authPath,
-  fileSystem = defaultFileSystem,
-}) {
-  let contents;
-  try {
-    contents = await fileSystem.readFile(authPath);
-  } catch {
-    throw new Error("The local OAuth credential file could not be read.");
-  }
-
-  if (
-    !Buffer.isBuffer(contents) ||
-    contents.length === 0 ||
-    contents.length > MAX_AUTH_FILE_BYTES
-  ) {
-    throw new Error("The local OAuth credential file is invalid.");
-  }
-
-  try {
-    const parsed = JSON.parse(contents.toString("utf8"));
-    const tokens = parsed?.tokens;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed) ||
-      parsed.auth_mode !== "chatgpt" ||
-      !tokens ||
-      typeof tokens !== "object" ||
-      Array.isArray(tokens) ||
-      ![tokens.access_token, tokens.id_token, tokens.refresh_token].every(
-        (token) => typeof token === "string" && token.length > 0,
-      )
-    ) {
-      throw new TypeError();
-    }
-  } catch {
-    throw new Error("The local OAuth credential file is invalid.");
-  }
-
-  return contents;
-}
-
-function stripTerminalControlSequences(value) {
-  return value
-    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/gu, "")
-    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "")
-    .replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/gu, "");
-}
-
-function loginProcessError(stderr) {
-  const sanitized = stripTerminalControlSequences(stderr);
-  if (
-    /port\s+\d+[^\n]*(?:already\s+in\s+use|address\s+in\s+use)/iu.test(sanitized) ||
-    /address\s+already\s+in\s+use/iu.test(sanitized)
-  ) {
-    return new Error(
-      "ChatGPT sign-in could not open its local callback port. Close other sign-in helpers and try again.",
-    );
-  }
-  return new Error(
-    "ChatGPT sign-in did not finish. Start a fresh login. If no browser opened, check the Windows default browser and try again.",
-  );
-}
-
-export async function startOAuthLogin({
-  fileSystem = defaultFileSystem,
-  env = process.env,
-  homeDirectory = homedir(),
-  platform = process.platform,
-  execPath = process.execPath,
-  spawnProcess = spawn,
-  createPendingId = randomUUID,
-  waitForCredentialPoll = wait,
-  killProcess = process.kill,
-  terminationGraceMs = PROCESS_TERMINATION_GRACE_MS,
-  terminationForceWaitMs = PROCESS_TERMINATION_FORCE_WAIT_MS,
-  createTimer = setTimeout,
-  clearTimer = clearTimeout,
-  lockDownPath = lockDownLocalPath,
-  probeCallbackPort = isOAuthCallbackPortInUse,
-} = {}) {
-  const npxInvocation = createNpxInvocation({ platform, env, execPath });
-  const authPath = resolveAuthPath({ env, homeDirectory });
-  const authDirectory = dirname(authPath);
-  const pendingId = createPendingId();
-  if (
-    typeof pendingId !== "string" ||
-    !/^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/u.test(pendingId)
-  ) {
-    throw new Error("The local sign-in attempt identifier is invalid.");
-  }
-  const pendingCodexHome = resolve(authDirectory, `.codex-login-${pendingId}`);
-  if (dirname(pendingCodexHome) !== authDirectory) {
-    throw new Error("The local sign-in credential directory is invalid.");
-  }
-  if (await probeCallbackPort()) {
-    throw new Error(CALLBACK_PORT_IN_USE_MESSAGE);
-  }
-  const pendingAuthPath = resolve(pendingCodexHome, "auth.json");
-  const loginEnv = Object.fromEntries(
-    Object.entries(env ?? {}).filter(([name]) => name.toLowerCase() !== "codex_home"),
-  );
-  loginEnv.CODEX_HOME = pendingCodexHome;
-  const args = [
-    "--yes",
-    "--ignore-scripts",
-    `--package=${CODEX_LOGIN_PACKAGE}`,
-    "--",
-    "codex",
-    "-c",
-    'cli_auth_credentials_store="file"',
-    "login",
-  ];
-
-  await fileSystem.mkdir(authDirectory, { recursive: true, mode: 0o700 });
-  await fileSystem.chmod(authDirectory, 0o700);
-  await lockDownPath(authDirectory, { platform, kind: "directory" });
-  await fileSystem.mkdir(pendingCodexHome, { mode: 0o700 });
-  await fileSystem.chmod(pendingCodexHome, 0o700);
-  await lockDownPath(pendingCodexHome, { platform, kind: "directory" });
-
-  let child;
-  try {
-    child = spawnProcess(
-      npxInvocation.command,
-      [...npxInvocation.prefixArgs, ...args],
-      {
-        env: loginEnv,
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-        ...(platform === "win32" ? {} : { detached: true }),
-      },
-    );
-  } catch (error) {
-    try {
-      await fileSystem.rm(pendingCodexHome, { recursive: true, force: true });
-    } catch {
-      // Preserve the sanitized process-launch error.
-    }
-    throw new Error(
-      "The local sign-in command could not start. Update Relmio and retry with Node.js 24 or newer.",
-      { cause: error },
-    );
-  }
-  const loginOutput = { stdout: "", stderr: "" };
-  let loginOutputBytes = 0;
-  let cancelAttempt = () => Promise.resolve();
-
-  const captureLoginOutput = (stream, chunk) => {
-    const output = Buffer.from(chunk).toString("utf8");
-    loginOutputBytes += Buffer.byteLength(output);
-    if (loginOutputBytes > MAX_LOGIN_OUTPUT_BYTES) {
-      void requestCancellation("The sign-in command returned too much output.").catch(
-        () => {},
-      );
-      return;
-    }
-    loginOutput[stream] += output;
-  };
-
-  child.stdout?.on?.("data", (chunk) => captureLoginOutput("stdout", chunk));
-  child.stderr?.on?.("data", (chunk) => captureLoginOutput("stderr", chunk));
-
-  let resolveProcessClose;
-  let rejectProcessClose;
-  let processCloseSettled = false;
-  let processActuallyClosed = false;
-  let resolveActualClose;
-  const actualClosePromise = new Promise((resolvePromise) => {
-    resolveActualClose = resolvePromise;
-  });
-  const processClosePromise = new Promise((resolvePromise, rejectPromise) => {
-    resolveProcessClose = resolvePromise;
-    rejectProcessClose = rejectPromise;
-  });
-  const settleProcessClose = (error, code) => {
-    if (processCloseSettled) {
-      return;
-    }
-    processCloseSettled = true;
-    if (error) {
-      rejectProcessClose(error);
-    } else {
-      resolveProcessClose(code);
-    }
-  };
-
-  child.once("error", () => {
-    const error = new Error(
-      "The local sign-in command could not start. Install Node.js 24 and try again.",
-    );
-    settleProcessClose(error);
-  });
-  child.once("close", (code) => {
-    processActuallyClosed = true;
-    resolveActualClose();
-    settleProcessClose(null, code);
-  });
-
-  let keepPollingForCredential = true;
-  let cancellationRequested = false;
-  let rejectCancellation;
-  const cancellationPromise = new Promise((_, rejectPromise) => {
-    rejectCancellation = rejectPromise;
-  });
-  cancellationPromise.catch(() => {});
-
-  const promotionAuthPath = `${pendingAuthPath}.ready`;
-  let credentialPromotion;
-  let promotionPhase = "idle";
-  const promotionCancellationWaitMs =
-    terminationGraceMs + terminationForceWaitMs;
-  const createRetryBlockedError = () =>
-    Object.assign(new Error(TERMINATION_UNCONFIRMED_MESSAGE), {
-      retryBlocked: true,
-    });
-  const assertPromotionActive = () => {
-    if (cancellationRequested) {
-      throw new Error("ChatGPT sign-in did not finish. Start a fresh login.");
-    }
-  };
-  const savePendingCredential = () => {
-    if (credentialPromotion) {
-      return credentialPromotion;
-    }
-
-    credentialPromotion = (async () => {
-      promotionPhase = "staging";
-      try {
-        assertPromotionActive();
-        await lockDownPath(pendingAuthPath, { platform, kind: "file" });
-        assertPromotionActive();
-        await readAuthContents({
-          authPath: pendingAuthPath,
-          fileSystem,
-        });
-        assertPromotionActive();
-        await fileSystem.chmod(pendingAuthPath, 0o600);
-        assertPromotionActive();
-        await fileSystem.copyFile(pendingAuthPath, promotionAuthPath);
-        assertPromotionActive();
-        await fileSystem.chmod(promotionAuthPath, 0o600);
-        await lockDownPath(promotionAuthPath, { platform, kind: "file" });
-        assertPromotionActive();
-        promotionPhase = "committing";
-        await fileSystem.rename(promotionAuthPath, authPath);
-        promotionPhase = "committed";
-      } catch (error) {
-        if (cancellationRequested && promotionPhase !== "committed") {
-          promotionPhase = "cancelled";
-        }
-        throw error;
-      }
-    })();
-    credentialPromotion.catch(() => {});
-    return credentialPromotion;
-  };
-
-  const waitForBoundedResult = (promise, milliseconds) =>
-    new Promise((resolvePromise) => {
-      let settled = false;
-      const timer = createTimer(() => {
-        if (!settled) {
-          settled = true;
-          resolvePromise(false);
-        }
-      }, milliseconds);
-      promise.then(
-        () => {
-          if (!settled) {
-            settled = true;
-            clearTimer(timer);
-            resolvePromise(true);
-          }
-        },
-        () => {
-          if (!settled) {
-            settled = true;
-            clearTimer(timer);
-            resolvePromise(true);
-          }
-        },
-      );
-    });
-
-  const waitForDuration = (milliseconds) =>
-    new Promise((resolvePromise) => {
-      createTimer(() => resolvePromise(true), milliseconds);
-    });
-
-  const waitForTaskkill = (taskkill, milliseconds) =>
-    new Promise((resolvePromise) => {
-      let settled = false;
-      const finish = (confirmed) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimer(timer);
-        resolvePromise(confirmed);
-      };
-      const timer = createTimer(() => finish(false), milliseconds);
-      taskkill?.once?.("error", () => finish(false));
-      taskkill?.once?.("close", (code) => finish(code === 0));
-      if (!taskkill?.once) {
-        finish(false);
-      }
-    });
-
-  let terminationPromise;
-  const terminateProcessTree = () => {
-    if (terminationPromise) {
-      return terminationPromise;
-    }
-
-    terminationPromise = (async () => {
-      const hasChildPid = Number.isSafeInteger(child.pid) && child.pid > 0;
-
-      if (platform === "win32" && hasChildPid) {
-        const runTaskkill = async (force, timeout) => {
-          try {
-            const taskkill = spawnProcess(
-              "taskkill",
-              ["/pid", String(child.pid), "/t", ...(force ? ["/f"] : [])],
-              {
-                shell: false,
-                stdio: "ignore",
-                windowsHide: true,
-              },
-            );
-            return await waitForTaskkill(taskkill, timeout);
-          } catch {
-            return false;
-          }
-        };
-        const terminationStartedAt = performance.now();
-        if (
-          (await runTaskkill(false, terminationGraceMs)) ||
-          (await runTaskkill(true, terminationForceWaitMs))
-        ) {
-          // A successful taskkill alone does not confirm that the original child closed.
-          if (
-            processActuallyClosed ||
-            (await waitForBoundedResult(
-              actualClosePromise,
-              Math.max(
-                0,
-                terminationGraceMs +
-                  terminationForceWaitMs -
-                  (performance.now() - terminationStartedAt),
-              ),
-            ))
-          ) {
-            return;
-          }
-        }
-      } else if (hasChildPid) {
-        const processGroupIsGone = () => {
-          try {
-            killProcess(-child.pid, 0);
-            return false;
-          } catch (error) {
-            return error?.code === "ESRCH";
-          }
-        };
-        try {
-          killProcess(-child.pid, "SIGTERM");
-        } catch {
-          // The group may have already exited between launch and cancellation.
-        }
-        if (
-          processGroupIsGone() ||
-          ((await waitForDuration(terminationGraceMs)) && processGroupIsGone())
-        ) {
-          return;
-        }
-        try {
-          killProcess(-child.pid, "SIGKILL");
-        } catch {
-          // A final process-group check below determines whether it is gone.
-        }
-        if (
-          processGroupIsGone() ||
-          ((await waitForDuration(terminationForceWaitMs)) &&
-            processGroupIsGone())
-        ) {
-          return;
-        }
-      } else {
-        try {
-          child.kill?.("SIGTERM");
-        } catch {
-          // The process may have already exited before cancellation.
-        }
-        if (
-          processActuallyClosed ||
-          (await waitForBoundedResult(
-            actualClosePromise,
-            terminationGraceMs,
-          ))
-        ) {
-          return;
-        }
-        try {
-          child.kill?.("SIGKILL");
-        } catch {
-          // The direct child is only a last resort when no PID is available.
-        }
-        if (
-          processActuallyClosed ||
-          (await waitForBoundedResult(
-            actualClosePromise,
-            terminationForceWaitMs,
-          ))
-        ) {
-          return;
-        }
-      }
-
-      throw createRetryBlockedError();
-    })();
-    return terminationPromise;
-  };
-
-  cancelAttempt = async (
-    message = "ChatGPT sign-in stopped. Start a fresh login.",
-  ) => {
-    if (!cancellationRequested) {
-      cancellationRequested = true;
-      keepPollingForCredential = false;
-      rejectCancellation(new Error(message));
-    }
-    let promotionError;
-    try {
-      if (
-        credentialPromotion &&
-        !(await waitForBoundedResult(
-          credentialPromotion,
-          promotionCancellationWaitMs,
-        ))
-      ) {
-        promotionError = createRetryBlockedError();
-      }
-    } catch {
-      // Cancellation intentionally abandons a staged but unpromoted credential.
-    }
-    if (
-      promotionPhase === "committing" ||
-      promotionPhase === "committed"
-    ) {
-      promotionError = createRetryBlockedError();
-    }
-    let terminationError;
-    try {
-      await terminateProcessTree();
-    } catch (error) {
-      terminationError = error;
-    }
-    if (promotionError) {
-      throw promotionError;
-    }
-    if (terminationError) {
-      throw terminationError;
-    }
-  };
-
-  let cancellationResult;
-  const requestCancellation = (message) => {
-    if (!cancellationResult) {
-      cancellationResult = cancelAttempt(message);
-      cancellationResult.catch(() => {});
-    }
-    return cancellationResult;
-  };
-
-  const pendingCredentialPromise = (async () => {
-    while (keepPollingForCredential) {
-      try {
-        await readAuthContents({
-          authPath: pendingAuthPath,
-          fileSystem,
-        });
-      } catch {
-        await waitForCredentialPoll(CREDENTIAL_POLL_INTERVAL_MS);
-        continue;
-      }
-      return { success: true };
-    }
-    throw new Error("ChatGPT sign-in did not finish. Start a fresh login.");
-  })();
-  pendingCredentialPromise.catch(() => {});
-
-  const completion = (async () => {
-    let processTimeout;
-    let completedSuccessfully = false;
-    try {
-      const result = await Promise.race([
-        processClosePromise.then(async (code) => {
-          if (code !== 0) {
-            throw loginProcessError(loginOutput.stderr);
-          }
-          await pendingCredentialPromise;
-          await savePendingCredential();
-          return { success: true };
-        }),
-        cancellationPromise,
-        new Promise((_, rejectPromise) => {
-          processTimeout = createTimer(() => {
-            const error = new Error(
-              "The sign-in request expired. Start a fresh login.",
-            );
-            void requestCancellation(error.message).catch(() => {});
-            rejectPromise(error);
-          }, PROCESS_TIMEOUT_MS);
-        }),
-      ]);
-      completedSuccessfully = result.success === true;
-      return result;
-    } finally {
-      keepPollingForCredential = false;
-      clearTimer(processTimeout);
-      try {
-        await credentialPromotion;
-      } catch {
-        // A cancellation can abandon an attempt-local staged credential.
-      }
-      if (cancellationResult) {
-        try {
-          await cancellationResult;
-        } catch (error) {
-          if (error?.retryBlocked === true) {
-            throw error;
-          }
-        }
-      }
-      const committedBeforeFailure =
-        !completedSuccessfully && promotionPhase === "committed";
-      if (!processActuallyClosed) {
-        await terminateProcessTree();
-      }
-      try {
-        await fileSystem.rm(pendingAuthPath, { force: true });
-        await fileSystem.rm(promotionAuthPath, { force: true });
-        await fileSystem.rm(pendingCodexHome, { recursive: true, force: true });
-      } catch {
-        // A failed cleanup must not hide the actionable sign-in result.
-      }
-      if (committedBeforeFailure) {
-        throw createRetryBlockedError();
-      }
-    }
-  })();
+export async function startOAuthLogin({ storageRoot, registrationId, purpose = 'sign-in', runtimeId = 'local' } = {},
+  { fetchImpl = fetch, createServerImpl = createServer, openAuthorization = openOpenAiAuthorization,
+    now = Date.now, fileSystem, platform, lockDownPath, timeoutMs = 600000 } = {}) {
+  if (!['sign-in', 'enable-plan'].includes(purpose) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600000) throw new TypeError('Invalid SIWC sign-in request.');
+  if (purpose === 'enable-plan' && !registrationId) throw new Error('Select a verified account before enabling plan use.');
+  const deps = { fetchImpl, now, fileSystem, platform, lockDownPath };
+  const original = registrationId ? await readRegistration({ storageRoot, registrationId }, deps) : null;
+  let pendingRegistration = registrationId && !original
+    ? await readPendingSiwcRegistration({ storageRoot, registrationId }, deps) : null;
+  if (registrationId && !original && !pendingRegistration) throw new Error('Unknown SIWC registration.');
+  if (purpose === 'enable-plan' && !original) throw new Error('Select a verified account before enabling plan use.');
+  const host = original || pendingRegistration
+    ? await readSiwcHost({ storageRoot, runtimeId }, deps)
+    : await ensureSiwcHost({ storageRoot, runtimeId }, deps);
+  if ((original || pendingRegistration) && ((original ?? pendingRegistration).owner.hostId !== host.hostId ||
+      (original ?? pendingRegistration).owner.runtimeId !== runtimeId ||
+      original && original.handoff.state !== 'owned')) throw new Error('SIWC account belongs to another runtime.');
+  const metadata = await getSiwcDiscovery(deps);
+  const attemptId = randomUUID(), pendingId = registrationId ?? randomUUID();
+  const state = randomValue(), nonce = randomValue(), verifier = randomValue();
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const abort = new AbortController();
+  let server, timeout, redirectUri, deadline, resolveCompletion, rejectCompletion;
+  let pending = true, accepting = true, inFlight, closePromise, cancelReason;
+  const completion = new Promise((resolve, reject) => { resolveCompletion = resolve; rejectCompletion = reject; });
   completion.catch(() => {});
-  return Object.freeze({
-    launchMode: "system-browser",
-    completion,
-    cancel() {
-      return requestCancellation();
-    },
-  });
+  const close = () => {
+    if (closePromise) return closePromise;
+    clearTimeout(timeout);
+    closePromise = server?.listening ? new Promise(resolve => server.close(() => resolve())) : Promise.resolve();
+    server?.closeIdleConnections?.();
+    return closePromise;
+  };
+  const settle = (error, result) => {
+    if (!pending) return;
+    pending = false;
+    accepting = false;
+    clearTimeout(timeout);
+    if (error) rejectCompletion(error);
+    else resolveCompletion(result);
+  };
+  const cancel = async (reason = cancelled()) => {
+    if (!pending) return;
+    accepting = false;
+    cancelReason = reason;
+    abort.abort();
+    if (inFlight) await inFlight;
+    if (pending) settle(reason);
+    await close();
+  };
+  const handler = async (request, response) => {
+    if (request.method !== 'GET' || !request.url || request.url.length > 4096) {
+      response.writeHead(404).end();
+      return;
+    }
+    let url;
+    try { url = new URL(request.url, 'http://127.0.0.1'); }
+    catch { response.writeHead(400).end(); return; }
+    if (url.pathname !== CALLBACK || url.hash || request.headers.host !== `127.0.0.1:${server.address()?.port}` ||
+        !accepting) {
+      response.writeHead(400, { 'cache-control': 'no-store' }).end(page);
+      return;
+    }
+    const suppliedStates = url.searchParams.getAll('state');
+    const suppliedState = Buffer.from(suppliedStates.length === 1 ? suppliedStates[0] : '');
+    const expectedState = Buffer.from(state);
+    if (suppliedState.length !== expectedState.length || !timingSafeEqual(suppliedState, expectedState)) {
+      response.writeHead(400, { 'cache-control': 'no-store', 'content-type': 'text/html; charset=utf-8' }).end(page);
+      return;
+    }
+    // State is consumed synchronously, before code exchange or any other await.
+    accepting = false;
+    inFlight = (async () => {
+      try {
+        const keys = [...url.searchParams.keys()];
+        const code = url.searchParams.get('code');
+        if (keys.some(key => !['state', 'code', 'client_id', 'scope', 'iss', 'error'].includes(key)) ||
+            new Set(keys).size !== keys.length ||
+            (url.searchParams.has('iss') && url.searchParams.get('iss') !== metadata.issuer) ||
+            now() > deadline || abort.signal.aborted) throw failure();
+        if (url.searchParams.has('error')) {
+          if (url.searchParams.get('error') !== 'access_denied' || url.searchParams.has('code')) throw failure();
+          throw Object.assign(new Error(purpose === 'enable-plan'
+            ? 'ChatGPT plan use was declined.' : 'ChatGPT sign-in was declined.'), {
+            safeOAuth: true, code: 'access_denied', recovery: purpose === 'enable-plan' ? 'enable-plan' : 'none',
+          });
+        }
+        if (typeof code !== 'string' || !/^[!-~]{1,2048}$/u.test(code)) throw failure();
+        const returnedClient = url.searchParams.get('client_id');
+        const savedClient = original?.clientId ?? pendingRegistration?.clientId;
+        if (!savedClient && !returnedClient || savedClient && returnedClient && returnedClient !== savedClient) throw failure();
+        const clientId = validateSiwcClientId(savedClient ?? returnedClient);
+        if (clientId === 'dynamic_agent_client') throw failure();
+        if (!original && !pendingRegistration) pendingRegistration = await reserveSiwcClient({
+          storageRoot, registrationId: pendingId, clientId, runtimeId,
+        }, deps);
+        if (abort.signal.aborted) throw failure();
+        const tokenResponse = await fetchImpl(metadata.token_endpoint, {
+          method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ grant_type: 'authorization_code', code,
+            redirect_uri: redirectUri, client_id: clientId, code_verifier: verifier, resource: RESOURCE }),
+          signal: AbortSignal.any([abort.signal, AbortSignal.timeout(10000)]),
+        });
+        if (!tokenResponse.ok) {
+          const error = await tokenExchangeFailure(tokenResponse);
+          error.registrationId = registrationId ?? pendingRegistration.registrationId;
+          throw error;
+        }
+        const tokens = await readSiwcJson(tokenResponse);
+        if (tokens?.client_id !== undefined && tokens.client_id !== clientId) throw failure();
+        const payload = await verifySiwcIdToken(tokens?.id_token,
+          { clientId, nonce, subject: original?.identity.subject, metadata }, deps);
+        if (abort.signal.aborted) throw failure();
+        const account = await commitAuthorization({ storageRoot,
+          registrationId: original?.registrationId ?? pendingRegistration?.registrationId,
+          expectedGeneration: original?.generation ?? pendingRegistration?.generation,
+          clientId, identity: { issuer: payload.iss, subject: payload.sub,
+            ...(payload.email ? { email: payload.email } : {}) }, tokens, runtimeId, signal: abort.signal }, deps);
+        if (abort.signal.aborted) {
+          // A commit already in the OS rename is linearized before cancellation.
+          // Clear it under the registration lock before reporting cancellation.
+          try { await signOut({ storageRoot, registrationId: account.registrationId }, { runtimeId }, deps); }
+          catch {
+            throw Object.assign(new Error('ChatGPT sign-in cleanup is uncertain. Restart Relmio before retrying.'), { retryBlocked: true });
+          }
+          throw cancelled();
+        }
+        settle(null, account);
+        response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store',
+          'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' }).end(page);
+      } catch (error) {
+        settle(error?.retryBlocked || error?.safeOAuth ? error : abort.signal.aborted ? cancelReason ?? cancelled() : failure());
+        if (!response.writableEnded) response.writeHead(400, { 'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }).end(page);
+      } finally { await close(); }
+    })();
+    await inFlight;
+  };
+  server = createServerImpl((request, response) => { void handler(request, response).catch(() => {
+    if (!response.writableEnded) response.writeHead(500, { 'cache-control': 'no-store' }).end();
+  }); });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => { server.off('error', reject); resolve(); });
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string' || address.address !== '127.0.0.1') throw failure();
+    redirectUri = `http://127.0.0.1:${address.port}${CALLBACK}`;
+    deadline = now() + timeoutMs;
+    const authorization = new URL(metadata.authorization_endpoint);
+    const params = {
+      client_id: original?.clientId ?? pendingRegistration?.clientId ?? 'dynamic_agent_client',
+      response_type: 'code', redirect_uri: redirectUri,
+      scope: SCOPES, resource: RESOURCE, state, nonce, code_challenge_method: 'S256', code_challenge: challenge,
+      ext_agent_host_id: host.hostId,
+      ...(!original && !pendingRegistration ? { agent_name_hint: 'Relmio' } : {}),
+      ...(purpose === 'enable-plan' ? { prompt: 'consent' } : {}),
+    };
+    for (const [key, value] of Object.entries(params)) authorization.searchParams.set(key, value);
+    timeout = setTimeout(() => { void cancel(new Error('ChatGPT sign-in expired. Start again.')); }, timeoutMs);
+    if (!await openAuthorization(authorization.href)) throw failure();
+    return Object.freeze({ launchMode: 'system-browser', attemptId, completion, cancel });
+  } catch {
+    accepting = false;
+    abort.abort();
+    settle(new Error('The ChatGPT sign-in browser could not start.'));
+    await close();
+    throw new Error('The ChatGPT sign-in browser could not start.');
+  }
 }

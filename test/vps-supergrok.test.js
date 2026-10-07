@@ -2,7 +2,7 @@ import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, parseGrokDevicePrompt, discoverVpsGrokModels } from "../src/services/vps-supergrok.js";
-import { startWizardServer } from "../src/web/server.js";
+import { startIsolatedWizard as startWizardServer, siwcAccount } from "./helpers/siwc-wizard.js";
 
 const containerId = "a".repeat(64);
 const networkId = "b".repeat(64);
@@ -203,11 +203,7 @@ test("a pending discovery immediately invalidates a reviewed SuperGrok action", 
 
 test("each provider review invalidates plans from the other VPS providers", async (t) => {
   const f = await serverFixture(t, (services) => {
-    services.getAuthStatus = async () => ({
-      exists: true,
-      path: "/fixture/auth.json",
-      updatedAt: "2026-09-06T00:00:00.000Z",
-    });
+    services.getAuthStatus = async () => ({ ...siwcAccount, exists: true });
     services.discoverNetworks = async () => ({
       networks: [selected.networkName],
       instanceAi: { status: "enabled" },
@@ -215,7 +211,8 @@ test("each provider review invalidates plans from the other VPS providers", asyn
   });
   const sidecarPlan = await (await f.post("/api/plan", selected)).json();
   assert.equal((await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" })).status, 200);
-  assert.notEqual((await f.post("/api/install", { ...selected, planId: sidecarPlan.planId, confirmed: true })).status, 200);
+  assert.notEqual((await f.post("/api/install", { ...selected, planId: sidecarPlan.planId,
+    confirmed: true, backgroundConsent: true })).status, 200);
 
   const grokBeforeSidecar = await (await f.post("/api/vps/supergrok/plan", { ...selected, action: "install" })).json();
   assert.equal((await f.post("/api/plan", selected)).status, 200);

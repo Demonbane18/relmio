@@ -123,15 +123,6 @@ test("shared ignore policy excludes local maintainer artifacts", async () => {
   assert.match(gitignore, /^\.release\/$/mu);
 });
 
-test("sanitized preview follows endpoint contracts without live OAuth", async () => {
-  const preview = await readFile("scripts/preview.js", "utf8");
-
-  assert.match(preview, /previewMode: true/u);
-  assert.match(preview, /http:\/\/n8n-openai-oauth:10531\/v1/u);
-  assert.doesNotMatch(preview, /auth\.openai\.com/u);
-  assert.doesNotMatch(preview, /startOAuthLogin/u);
-  assert.doesNotMatch(preview, /async runOAuthLogin\(\)/u);
-});
 
 test("CI pins reviewed actions and the repository npm version", async () => {
   const workflow = await readFile(".github/workflows/ci.yml", "utf8");
@@ -253,7 +244,6 @@ test("public README is a concise entry point to hosted canonical docs", async ()
   assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\/docs\/getting-started/u);
   assert.match(readme, /https:\/\/relmio\.jpfusin\.tech\/docs\/reference/u);
   assert.doesNotMatch(readme, /```mermaid|relmio\.vercel\.app/u);
-  assert.match(gettingStarted, /ChatGPT sign-in is never converted/u);
   assert.match(reference, /--remote-auth-token-env/u);
   assert.match(reference, /conversationId/u);
 });

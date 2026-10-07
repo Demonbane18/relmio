@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { runInNewContext } from "node:vm";
 
+import { siwcAccount } from "./helpers/siwc-wizard.js";
+import { normalizeSiwcAccount } from "../src/ui/siwc-controls.js";
 function extractBetween(source, startMarker, endMarker) {
   const start = source.indexOf(startMarker);
   const end = source.indexOf(endMarker, start + startMarker.length);
@@ -69,18 +71,17 @@ function loadHandlers(script, harness, api) {
   );
   const handlers = extractBetween(
     script,
-    'element("refresh-bridge-confirm").addEventListener("change"',
-    '\nelement("install-confirm").addEventListener("change"',
+    'element("review-assistant-searxng-edit").addEventListener("click"',
+    '\nfunction updateLocalReviewApproval',
   );
   return runInNewContext(
     `${validators}\n${handlers}\n({
-      bridgeConfirm: element("refresh-bridge-confirm").handlers.get("change"),
-      bridgeRefresh: element("refresh-bridge-button").handlers.get("click"),
       assistantReview: element("review-assistant-searxng-edit").handlers.get("click"),
       assistantConfirm: element("enable-assistant-searxng-confirm").handlers.get("change"),
       assistantEnable: element("enable-assistant-searxng-button").handlers.get("click"),
     })`,
     {
+      normalizeSiwcAccount,
       api: async (path, options) => {
         harness.apiCalls.push({ path, options });
         return await api(path, options);
@@ -135,39 +136,29 @@ const safeAssistantEnablement = {
   sandboxApiKeyRotated: false,
 };
 
-test("the real managed bridge control never applies sign-in without confirmation and sends no credential material", async () => {
+test("installed SIWC management requires final confirmation and never sends credential material", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
   const harness = createHarness();
-  const controls = loadHandlers(script, harness, async (path) => {
-    assert.equal(path, "/api/local/n8n/sidecar/refresh");
-    return {
-      target: "n8n-openai-oauth",
-      credentialRefreshed: true,
-      models: ["gpt-5.6-sol"],
-      hostPublication: "none",
-    };
+  harness.state.installedOwner = { target: "n8n-openai-oauth", account: siwcAccount };
+  const source = extractBetween(script, "async function manageInstalledSiwc(", "\nfor (const [id, action]");
+  const calls = [];
+  const manage = runInNewContext(`${source}; manageInstalledSiwc`, {
+    state: harness.state, element: harness.element, normalizeSiwcAccount,
+    async api(path, options) { calls.push({ path, options }); return {
+      account: { ...siwcAccount, session: "signed-out", planEnabled: false }, runtimeStopped: true, revocation: "unconfirmed" }; },
+    setBusy() { return true; }, clearError() {}, clearChatTesterState() {},
+    renderInstalledSiwcOwner() {}, setMessage() {}, showError(error) { harness.errors.push(error); },
   });
-  const confirmation = harness.element("refresh-bridge-confirm");
-  const button = harness.element("refresh-bridge-button");
-
-  await controls.bridgeRefresh({ currentTarget: button });
-  assert.equal(harness.apiCalls.length, 0);
-  assert.match(harness.errors.at(-1).message, /sign-in and confirm/iu);
-
-  confirmation.checked = true;
-  controls.bridgeConfirm({ currentTarget: confirmation });
-  assert.equal(button.disabled, false);
-  await controls.bridgeRefresh({ currentTarget: button });
-  assert.equal(harness.apiCalls.length, 1);
-  assert.equal(harness.apiCalls[0].path, "/api/local/n8n/sidecar/refresh");
-  assert.equal(harness.apiCalls[0].options.method, "POST");
-  assert.equal(harness.apiCalls[0].options.body.confirmed, true);
-  assert.deepEqual(Object.keys(harness.apiCalls[0].options.body), ["confirmed"]);
-  assert.match(harness.element("refresh-bridge-status").textContent, /n8n was not changed/iu);
-  assert.doesNotMatch(
-    harness.element("refresh-bridge-status").textContent,
-    /token|authPath|secret/iu,
-  );
+  await manage("sign-out", harness.element("local-siwc-logout"));
+  assert.equal(calls.length, 0);
+  harness.element("local-siwc-owner-confirm").checked = true;
+  await manage("sign-out", harness.element("local-siwc-logout"));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].options.body)), {
+    registrationId: siwcAccount.registrationId, expectedGeneration: siwcAccount.generation,
+    action: "sign-out", confirmed: true,
+  });
+  assert.doesNotMatch(JSON.stringify(calls), /authPath|accessToken|refreshToken|clientCredential/u);
 });
 
 test("the real managed Assistant edit requires review plus confirmation and fails closed on secret-bearing output", async () => {

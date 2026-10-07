@@ -356,5 +356,7 @@ test("pending browser bootstrap capacity is bounded", async (t) => {
   assert.equal((await prepare(fixture, "/assistant")).status, 201);
   const response = await prepare(fixture, "/");
   assert.equal(response.status, 429);
-  assert.deepEqual(await response.json(), { error: "Too many pending browser launches." });
+  const failure = await response.json();
+  assert.equal(failure.status, 429);
+  assert.equal(fixture.handoffs.length, 2);
 });

@@ -160,7 +160,7 @@ test("model wizard preserves selected identity and blocks platform, SDK and unkn
 });
 
 for (const page of [
-  { file: "app.js", end: "\nfunction renderAuthUpdatedAt", review: "/api/plan", apply: "/api/install" },
+  { file: "app.js", end: "\nfunction resetVpsOwner", review: "/api/plan", apply: "/api/install" },
   { file: "assistant.js", end: "\nasync function loadNetworks", review: "/api/assistant/plan", apply: "/api/assistant/install" },
   { file: "supergrok-vps.js", end: "\nfunction selectedBoundary", review: "/api/vps/supergrok/plan", apply: "/api/vps/supergrok/apply", directBody: true },
 ]) {
@@ -269,6 +269,26 @@ test("late startup SSH probes cannot replace a newer connection decision", async
     assert.equal(guard.adoptedIdentity(), null);
     element("ssh-session").textContent = "";
   }
+});
+
+test("the review shows the SSH host key once, in its own field when the page has one", async t => {
+  const element = browserFixture(t);
+  const root = { ...identity, username: "root", privilege: "root", loginUid: 0, scope: "vps" };
+  const guard = createCredentialSshGuard({ token: "fixture", onMismatch() {} });
+  await guard.after("/api/ssh/connect", { identity: root });
+  assert.equal(element("ssh-review-fingerprint").textContent, root.fingerprint);
+  assert.equal(element("ssh-review-identity").textContent.includes(root.fingerprint), false);
+  assert.match(element("ssh-review-identity").textContent, /root@fixture\.example:22/u);
+  assert.equal(element("ssh-session").textContent.includes(root.fingerprint), true);
+
+  const byId = globalThis.document.getElementById;
+  globalThis.document.getElementById = id => id === "ssh-review-fingerprint" ? null : byId(id);
+  const other = createCredentialSshGuard({ token: "fixture", onMismatch() {} });
+  await other.after("/api/ssh/connect", { identity: { ...root, generation: 2 } });
+  assert.equal(element("ssh-review-identity").textContent.includes(root.fingerprint), true,
+    "a review without a host-key field keeps the fingerprint on the server line");
+  await other.after("/api/disconnect", {});
+  assert.equal(element("ssh-review-identity").textContent, "");
 });
 
 test("guard-owned identity is unavailable after replacement and ended connection", async t => {

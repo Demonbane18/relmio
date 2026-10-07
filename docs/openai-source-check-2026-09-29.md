@@ -2,6 +2,11 @@
 
 Review date: 2026-09-29
 
+**Historical review:** this report describes the candidate and prior
+credential-copy bridge inspected on 2026-09-29. Its source findings are not a
+description of the current implementation. See the
+[2026-10-04 source check](openai-source-check-2026-10-04.md).
+
 This review concerns the VPS wizard's credential-upload disclosure and the existing private n8n ChatGPT/Codex bridge. OpenAI pages below were retrieved independently today; the supplied 2026-09-29 pre-fix source report and [earlier data-flow review](security.md#2026-09-28-private-candidate-openai-source-check) supply the implementation and installed-dependency findings. Selected candidate UI identity guards were also inspected. The supplied report inspected a pre-fix donor implementation; its mutable-status defect is historical context, not a description of this candidate. This is neither legal advice nor release certification. No live sign-in, credential access, provider request, SSH connection, deployment, or post-fix browser test was performed.
 
 The current candidate's UI source validates the server-attested full-scope SSH identity from the local server's connection response and freezes it for review. Browser guards compare host, port, fingerprint, username, authentication method, privilege, login and effective UIDs, scope, and generation against the server-attested connection identity before guarded remote requests. They recheck after successful non-retiring operations; successful `/api/install` and `/api/assistant/install` requests retire the adopted identity instead. Unsuccessful HTTP responses do not invoke the after hook. A missing or changed identity clears review and approval. The source also prevents a superseded startup status response from replacing the adopted decision. These are source-level observations, not browser acceptance or proof of deployed bytes. Host-key confirmation, identity re-verification against the server's connection response, and separate final human confirmation before remote writes remain distinct safeguards; the browser performs these comparison guards.

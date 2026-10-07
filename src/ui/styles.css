@@ -12,8 +12,9 @@
   margin-inline: auto;
 }
 
-/* The safety card follows the panel in the DOM, so narrow screens show the
-   step first. From 1024px it sits in the rail column under the stepper. */
+/* The safety card and the Ready badges follow the panel in the DOM, so narrow
+   screens show the step first. From 1024px they sit in the rail column under
+   the stepper. The safety card closes on Ready, where the badges appear. */
 @media (min-width: 64rem) {
   .setup-layout {
     grid-template-rows: auto minmax(0, 1fr);
@@ -27,7 +28,8 @@
     grid-area: 1 / 2 / 3 / 3;
   }
 
-  .setup-safety {
+  .setup-safety,
+  .setup-layout > .rm-guide-finish {
     grid-area: 2 / 1;
     align-self: start;
   }
@@ -355,6 +357,11 @@ body[data-current-step="5"] [data-step-actions="5"] {
   min-width: 0;
 }
 
+/* Cards in a row share its height; their text stays together at the top. */
+.setup-route > .rm-choice {
+  align-content: start;
+}
+
 .setup-route .rm-choice__title .rm-badge {
   margin-inline-start: var(--rm-space-1);
   vertical-align: 0.0625rem;
@@ -392,6 +399,24 @@ body[data-current-step="5"] [data-step-actions="5"] {
   --rm-tone: var(--rm-success);
   --rm-tone-soft: var(--rm-success-soft);
   --rm-tone-line: var(--rm-success-line);
+}
+
+.setup-signin__column {
+  display: grid;
+  align-content: start;
+  gap: var(--rm-space-4);
+  min-width: 0;
+}
+
+/* From 1024px the explanation and status sit beside the account card, so the
+   view fits one screen. Each column keeps its own DOM order. */
+@media (min-width: 64rem) {
+  .setup-signin {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 5fr);
+    align-items: start;
+    column-gap: var(--rm-space-6);
+  }
 }
 
 /* Step 2: check the server ----------------------------------------------- */
@@ -522,6 +547,19 @@ body[data-current-step="5"] [data-step-actions="5"] {
   gap: var(--rm-space-2) var(--rm-space-3);
 }
 
+/* The installed-session and recovery disclosures share a row from 1024px, so
+   step 3 fits one screen while both are closed. */
+@media (min-width: 64rem) {
+  .setup-manage {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .setup-manage > :not(#vps-siwc-owner, #vps-siwc-recovery) {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Step 4: review --------------------------------------------------------- */
 
 .setup-review-facts {
@@ -552,6 +590,14 @@ body[data-current-step="5"] [data-step-actions="5"] {
   font-size: var(--rm-text-sm);
   line-height: 1.45;
   list-style: none;
+}
+
+.setup-list:empty {
+  display: none;
+}
+
+.setup-host-key {
+  overflow-wrap: anywhere;
 }
 
 .setup-list > li {
@@ -627,6 +673,26 @@ body[data-current-step="5"] [data-step-actions="5"] {
 
 .setup-assistant-result .setup-values dd {
   margin-bottom: var(--rm-space-2);
+}
+
+/* From 1024 to 1279px each result column is narrow. The base URL and key
+   take the full column under their labels, so they wrap less; the short
+   rows keep label and value side by side. The heading wraps beside Copy all
+   instead of pushing it to its own row. Together this keeps step 5 on one
+   screen when a held key adds its warning. */
+@media (min-width: 64rem) and (max-width: 79.99rem) {
+  .setup-results__main .setup-values :is(dt:has(+ dd.setup-value), dd.setup-value) {
+    grid-column: 1 / -1;
+  }
+
+  .setup-results__main .setup-values dd.setup-value {
+    margin-bottom: var(--rm-space-1);
+  }
+
+  .setup-results__head > .rm-h3 {
+    flex: 1 1 10rem;
+    min-width: 0;
+  }
 }
 
 /* The stacked values need less width than the settings block. */

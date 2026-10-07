@@ -5,13 +5,14 @@
 /* Hero --------------------------------------------------------------------- */
 
 .hero {
+  display: grid;
+  gap: clamp(2.25rem, 5vw, 4rem);
   padding-block: clamp(2.5rem, 6vw, 5rem) clamp(4.5rem, 9vw, 8rem);
 }
 
 .heroInner {
   display: grid;
   justify-items: center;
-  gap: clamp(2.25rem, 5vw, 4rem);
 }
 
 .intro {
@@ -58,22 +59,9 @@
   font-size: var(--rm-text-base);
 }
 
-/* The scene sits on a tilted accent plate for depth. */
+/* The landscape spans the page; only the headline and actions are constrained. */
 .scene {
-  isolation: isolate;
   width: 100%;
-  max-width: 70rem;
-}
-
-.scene::before {
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  border: 1px solid var(--rm-accent-line);
-  border-radius: clamp(var(--rm-radius-lg), 2.5vw, 2rem);
-  background: var(--rm-accent-soft);
-  content: "";
-  transform: translateY(clamp(0.5rem, 1.5vw, 1.25rem)) rotate(-1.25deg);
 }
 
 /* How it works ------------------------------------------------------------- */
@@ -151,9 +139,10 @@
   pointer-events: none;
 }
 
+/* The moon and stars are illustration, not accent, so they stay yellow. */
 .moon,
 .star {
-  fill: var(--rm-terminal-prompt);
+  fill: #ffd54a;
 }
 
 .safetyGrid {
@@ -276,7 +265,6 @@
 }
 
 @media (forced-colors: active) {
-  .scene::before,
   .stars {
     display: none;
   }

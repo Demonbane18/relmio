@@ -1,0 +1,459 @@
+/*
+ * Setup guide dock (guide-dock.js, mascot.js): the dock, the mascot chip, the
+ * pointer, the reduced-motion markers, the mascot in the quest track and the
+ * badges on Ready screens. guide.js loads this sheet with the dock, so pages
+ * with the guide off never download it. The dock, chip and pointer are fixed,
+ * so they never change page layout or the one-screen fit. Uses kit tokens
+ * only; see DESIGN.md.
+ */
+
+.rm-guide-layer {
+  display: contents;
+}
+
+.rm-guide,
+.rm-guide-chip,
+.rm-guide-pointer,
+.rm-guide-marker {
+  position: fixed;
+  top: 0;
+  left: 0;
+}
+
+/* The dock and chip move instantly so they never trail over page controls;
+   only the pointer glides. */
+.rm-guide,
+.rm-guide-chip {
+  z-index: 35;
+  border: 1px solid var(--rm-line-strong);
+  background: var(--rm-surface);
+  color: var(--rm-ink);
+}
+
+/* Dock ------------------------------------------------------------------- */
+
+.rm-guide {
+  display: grid;
+  gap: var(--rm-space-2);
+  padding: var(--rm-space-3);
+  border-radius: var(--rm-radius-lg);
+  box-shadow: var(--rm-shadow-lg);
+  font-size: var(--rm-text-md);
+  line-height: 1.45;
+}
+
+.rm-guide__head {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: var(--rm-space-1);
+}
+
+.rm-guide__head .rm-icon-button {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.rm-guide__quest {
+  padding-inline-start: var(--rm-space-1);
+}
+
+.rm-guide__eyebrow {
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-xs);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.rm-guide__find {
+  margin-top: calc(-1 * var(--rm-space-1));
+}
+
+.rm-guide__find > summary {
+  min-height: 1.5rem;
+  font-size: var(--rm-text-sm);
+}
+
+.rm-guide__progress,
+.rm-guide__dots,
+.rm-guide__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rm-space-2);
+}
+
+.rm-guide__progress {
+  margin-top: var(--rm-space-1);
+}
+
+.rm-guide__dots {
+  gap: 0.375rem;
+  padding: 0;
+  list-style: none;
+}
+
+.rm-guide__dots > li {
+  position: relative;
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid var(--rm-line-strong);
+  border-radius: 50%;
+}
+
+.rm-guide__dots > [data-state="current"] {
+  border-color: var(--rm-accent);
+  background: var(--rm-accent);
+}
+
+.rm-guide__dots > [data-state="done"] {
+  border-color: var(--rm-accent-line);
+  background: var(--rm-accent-soft);
+}
+
+.rm-guide__dots > [data-state="done"]::after {
+  position: absolute;
+  inset: -2px;
+  background: var(--rm-accent-ink);
+  content: "";
+  mask: var(--rm-icon-check) center / 0.625rem no-repeat;
+}
+
+.rm-guide__live {
+  display: grid;
+  gap: var(--rm-space-1);
+}
+
+.rm-guide__title {
+  font-size: var(--rm-text-base);
+  font-weight: 650;
+  line-height: var(--rm-leading-snug);
+}
+
+.rm-guide__steps,
+.rm-guide__next {
+  display: grid;
+  gap: var(--rm-space-1);
+  padding-inline-start: 1.25rem;
+}
+
+.rm-guide__example {
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-sm);
+}
+
+.rm-guide [aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.rm-guide.is-clear {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Mascot chip ------------------------------------------------------------- */
+
+.rm-guide-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rm-space-2);
+  min-height: 2.75rem;
+  padding: var(--rm-space-1) var(--rm-space-4) var(--rm-space-1) var(--rm-space-2);
+  border-radius: var(--rm-radius-pill);
+  box-shadow: var(--rm-shadow-md);
+  font-size: var(--rm-text-md);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rm-guide-chip:hover {
+  background: var(--rm-surface-muted);
+}
+
+.rm-guide-chip__mascot {
+  width: 1.75rem;
+}
+
+/* Ready screens: the badges earned with the guide and the page's next steps,
+   in the rail column under the quest track. The guide fills and shows this
+   block; it stays hidden while the guide is off. */
+.rm-guide-finish {
+  display: grid;
+  gap: var(--rm-space-2);
+}
+
+.rm-guide-finish__title {
+  margin-bottom: var(--rm-space-2);
+  font-size: var(--rm-text-md);
+  font-weight: 650;
+}
+
+.rm-guide-finish__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rm-space-1) var(--rm-space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.rm-guide-finish__next {
+  display: grid;
+  gap: var(--rm-space-1);
+  padding-inline-start: 1.25rem;
+}
+
+/* The mascot stands in the current step of the quest track while the guide
+   is on. The step number stays for screen readers. */
+@media (forced-colors: none) {
+  .rm-stepper__item[aria-current="step"] .rm-stepper__marker:has(> .rm-mascot) {
+    background: var(--rm-surface);
+    color: transparent;
+  }
+}
+
+.rm-stepper__marker > .rm-mascot {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: auto;
+  height: 1.25rem;
+  translate: -50% -50%;
+}
+
+/* Pointer: a ring around the target and a cursor with its action ---------- */
+
+.rm-guide-pointer {
+  z-index: 30;
+  pointer-events: none;
+}
+
+.rm-guide-pointer__ring,
+.rm-guide-pointer__cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transition: transform var(--rm-duration-slow) var(--rm-ease);
+}
+
+.rm-guide-pointer__ring {
+  border: 2px solid var(--rm-accent);
+  border-radius: var(--rm-radius-md);
+  box-shadow: 0 0 0 4px var(--rm-accent-soft);
+}
+
+.rm-guide-pointer__ring::after {
+  position: absolute;
+  inset: -0.5rem;
+  border: 2px solid var(--rm-accent);
+  border-radius: inherit;
+  content: "";
+  opacity: 0;
+}
+
+.rm-guide-pointer.is-pulsing .rm-guide-pointer__ring::after {
+  animation: rm-guide-pulse 640ms var(--rm-ease) 2;
+}
+
+@keyframes rm-guide-pulse {
+  from {
+    opacity: 0.9;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.1);
+  }
+}
+
+.rm-guide-pointer__cursor {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.125rem;
+  filter: drop-shadow(0 0 1px var(--rm-surface)) drop-shadow(0 1px 2px var(--rm-overlay));
+}
+
+.rm-guide-pointer__cursor.is-flipped {
+  flex-direction: row-reverse;
+  translate: -100% 0;
+}
+
+.rm-guide-pointer__arrow {
+  flex: none;
+  width: 1.125rem;
+  height: 1.375rem;
+  background: var(--rm-ink);
+  clip-path: polygon(0 0, 0 82%, 27% 62%, 44% 100%, 60% 93%, 43% 57%, 78% 57%);
+}
+
+.rm-guide-pointer__cursor.is-flipped .rm-guide-pointer__arrow {
+  transform: scaleX(-1);
+}
+
+.rm-guide-pointer__label,
+.rm-guide-marker__number {
+  background: var(--rm-accent);
+  color: var(--rm-on-accent);
+  font-weight: 650;
+}
+
+.rm-guide-pointer__label {
+  margin-top: 1rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--rm-radius-pill);
+  font-size: var(--rm-text-xs);
+  white-space: nowrap;
+}
+
+/* The label keeps its size while left out, so the cursor stays measurable. */
+.rm-guide-pointer__cursor.is-bare .rm-guide-pointer__label {
+  visibility: hidden;
+}
+
+/* Reduced motion: Show me numbers the targets instead of moving. */
+.rm-guide-marker {
+  z-index: 31;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rm-space-1);
+  padding: 0.125rem 0.5rem 0.125rem 0.125rem;
+  border: 1px solid var(--rm-accent-line);
+  border-radius: var(--rm-radius-pill);
+  background: var(--rm-surface);
+  box-shadow: var(--rm-shadow-sm);
+  color: var(--rm-ink);
+  font-size: var(--rm-text-xs);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.rm-guide-marker__number {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+}
+
+/* Mascot poses ------------------------------------------------------------ */
+
+.rm-mascot {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.rm-mascot__body {
+  fill: var(--rm-brand-teal);
+  stroke: var(--rm-brand-pine);
+  stroke-width: 3;
+}
+
+.rm-mascot__eye,
+.rm-mascot__cream {
+  fill: var(--rm-brand-cream);
+}
+
+.rm-mascot__line {
+  stroke: var(--rm-brand-pine);
+  stroke-width: 2.5;
+}
+
+.rm-mascot__arcs {
+  fill: none;
+  stroke: var(--rm-brand-cream);
+  stroke-linecap: round;
+  stroke-width: 4;
+}
+
+.rm-mascot__cloth {
+  fill: var(--rm-brand-cap);
+}
+
+.rm-mascot__mark {
+  fill: var(--rm-warning);
+}
+
+.rm-mascot__mark-line {
+  stroke: var(--rm-surface);
+  stroke-linecap: round;
+  stroke-width: 4;
+}
+
+.rm-mascot__happy,
+.rm-mascot__closed,
+.rm-mascot__cap,
+.rm-mascot__warning,
+.rm-mascot:is([data-pose="happy"], [data-pose="waiting"]) .rm-mascot__eyes {
+  display: none;
+}
+
+.rm-mascot[data-pose="happy"] .rm-mascot__happy,
+.rm-mascot[data-pose="waiting"] :is(.rm-mascot__closed, .rm-mascot__cap),
+.rm-mascot[data-pose="worried"] .rm-mascot__warning {
+  display: inline;
+}
+
+.rm-mascot__figure {
+  transform-box: view-box;
+  transform-origin: 48px 126px;
+}
+
+.rm-mascot[data-pose="worried"] .rm-mascot__figure {
+  transform: rotate(-6deg);
+}
+
+.rm-mascot[data-pose="happy"] .rm-mascot__figure {
+  animation: rm-mascot-hop 520ms var(--rm-ease) 1;
+}
+
+@keyframes rm-mascot-hop {
+  40% {
+    transform: translateY(-10px);
+  }
+}
+
+@media (forced-colors: active) {
+  .rm-guide__mascot,
+  .rm-guide-chip__mascot,
+  .rm-stepper__marker > .rm-mascot {
+    display: none;
+  }
+
+  .rm-guide__head {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+
+  .rm-guide-pointer__ring,
+  .rm-guide-pointer__ring::after {
+    border-color: Highlight;
+  }
+
+  .rm-guide-pointer__arrow {
+    background: CanvasText;
+  }
+
+  .rm-guide-pointer__label,
+  .rm-guide-marker__number {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .rm-guide__dots > li {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  .rm-guide__dots > :is([data-state="current"], [data-state="done"]) {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  .rm-guide__dots > [data-state="done"]::after {
+    background: HighlightText;
+  }
+}

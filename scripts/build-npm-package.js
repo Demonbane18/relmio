@@ -8,11 +8,13 @@ import {
   mkdtemp,
   readFile,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { collectSiwcRuntimeAssets } from "../src/services/siwc-runtime-assets.js";
 
 const execFileAsync = promisify(execFile);
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -77,6 +79,10 @@ export async function stageNpmPackage(stagingDirectory) {
   for (const entry of publishEntries) {
     await copyPublishEntry({ entry, stagingDirectory });
   }
+  const { packageLock } = await collectSiwcRuntimeAssets();
+  await writeFile(join(stagingDirectory, "src", "services", "siwc-runtime-lock.json"), packageLock, {
+    mode: 0o644,
+  });
 
   return packageJson;
 }

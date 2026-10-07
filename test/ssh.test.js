@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { constants, lstatSync } from "node:fs";
+import { mkdtemp, mkdir, lstat, link, open, readFile, rename, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
 import { EventEmitter } from "node:events";
 import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
@@ -93,6 +97,75 @@ class BoundaryClient extends EventEmitter {
   end() { this.ended = true; }
 }
 const connect = (client, changes = {}) => connectVerified({ ...options, ...changes }, { createClient: () => client });
+
+async function managedFixture(t) {
+  const root = await mkdtemp(join(tmpdir(), "relmio-sftp-"));
+  const handles = new Map();
+  t.after(async () => {
+    for (const file of handles.values()) await file.close();
+    const { rm } = await import("node:fs/promises");
+    await rm(root, { recursive: true, force: true });
+  });
+  const local = remotePath => join(root, remotePath.slice(1));
+  await mkdir(local("/docker/n8n-openai-oauth/services"), { recursive: true });
+  // The remote is attested Linux root storage. Model its permission bits from
+  // SFTP OPEN/FCHMOD/RENAME so the fake behaves the same on hosts without POSIX
+  // modes; file type, inode, link count and size stay real local metadata.
+  const modes = new Map();
+  const remoteMode = (remotePath, stat) =>
+    (stat.mode & constants.S_IFMT) | (modes.get(remotePath) ?? (stat.mode & 0o755));
+  // Model GNU stat in-process instead of through a host shell. SFTP v3 attrs omit
+  // link count; UID 0 represents the attested remote root, not this test user.
+  const client = new BoundaryClient({ execute: command => {
+    const name = /^\/usr\/bin\/stat -c '%u:%f:%h:%s' -- '([^']+)'$/u.exec(command)?.[1];
+    if (!name) return processChannel(command);
+    let stat;
+    try { stat = lstatSync(local(name)); } catch { return resultChannel({ code: 1, stdout: "" }); }
+    return resultChannel({ code: 0, stdout: `0:${remoteMode(name, stat).toString(16)}:${stat.nlink}:${stat.size}\n` });
+  } });
+  const calls = [];
+  const channel = {
+    end() { calls.push(["end"]); },
+    lstat(remotePath, done) {
+      lstat(local(remotePath)).then(stat => done(null, { mode: remoteMode(remotePath, stat), uid: 0, size: stat.size }), done);
+    },
+    open(remotePath, flags, attrs, done) {
+      calls.push(["open", remotePath, flags, attrs.mode]);
+      assert.equal(flags & 0x20, 0x20);
+      assert.equal(flags & 0x10, 0);
+      const handle = Buffer.from(remotePath);
+      open(local(remotePath), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, attrs.mode)
+        .then(file => { handles.set(handle, file); modes.set(remotePath, attrs.mode & 0o7777); done(null, handle); }, done);
+    },
+    fchmod(handle, mode, done) {
+      handles.get(handle).chmod(mode).then(() => { modes.set(handle.toString(), mode & 0o7777); done(); }, done);
+    },
+    write(handle, bytes, offset, length, position, done) {
+      calls.push(["write", length, position]);
+      handles.get(handle).write(bytes, offset, length, position).then(() => done(), done);
+    },
+    ext_openssh_fsync(handle, done) {
+      calls.push(["fsync"]);
+      handles.get(handle).sync().then(() => done(), done);
+    },
+    close(handle, done) {
+      calls.push(["close"]);
+      handles.get(handle).close().then(() => { handles.delete(handle); done(); }, done);
+    },
+    ext_openssh_rename(from, to, done) {
+      calls.push(["rename", from, to]);
+      rename(local(from), local(to)).then(() => {
+        modes.set(to, modes.get(from));
+        modes.delete(from);
+        done();
+      }, done);
+    },
+    writeFile() { assert.fail("Managed publication must never use truncating writeFile."); },
+    rename() { assert.fail("Managed publication requires the OpenSSH atomic rename extension."); },
+  };
+  client.sftp = callback => callback(null, Object.assign(new EventEmitter(), channel));
+  return { client, channel, calls, root, local, modeOf: remotePath => modes.get(remotePath) };
+}
 
 test("fingerprint comparison pins the SSH host before commands", async () => {
   const config = buildVerifiedConnectionConfig(options);
@@ -313,6 +386,315 @@ test("root retains SFTP secret uploads without granting sudo the same capability
   assert.throws(() => scoped.upload(path, "fixture-secret"), /public local-model/u);
   assert.equal(sudo.uploaded, undefined);
   scoped.close();
+});
+
+test("reviewed publication rejects hardlinked targets, child symlinks and linked ancestors without writes", async t => {
+  const { client, calls, root, local } = await managedFixture(t);
+  const sentinel = join(root, "outside");
+  await writeFile(sentinel, "unchanged");
+  const compose = "/docker/n8n-openai-oauth/docker-compose.yml";
+  await link(sentinel, local(compose));
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  const rejectsWithoutWrite = async target => {
+    await assert.rejects(() => remote.publishManagedFile(target, "replacement", 0o644), error =>
+      /unsafe/u.test(error.message) && error.remoteOutcomeUnknown !== true);
+    assert.equal(calls.some(([call]) => call === "open" || call === "write"), false);
+    assert.equal(await readFile(sentinel, "utf8"), "unchanged");
+  };
+  await rejectsWithoutWrite(compose);
+  const child = "/docker/n8n-openai-oauth/services/linked.mjs";
+  await symlink(sentinel, local(child));
+  await rejectsWithoutWrite(child);
+  await symlink(dirname(sentinel), local("/docker/n8n-openai-oauth/services/linked"));
+  await rejectsWithoutWrite("/docker/n8n-openai-oauth/services/linked/child.mjs");
+});
+
+test("reviewed publication rejects unsafe ownership, permissions and nonregular targets before staging", async t => {
+  const { client, channel, calls, local } = await managedFixture(t);
+  const target = "/docker/n8n-openai-oauth/services/child.mjs";
+  const original = channel.lstat;
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  for (const parent of ["/", "/docker", "/docker/n8n-openai-oauth", "/docker/n8n-openai-oauth/services"]) {
+    for (const change of [{ uid: 1000 }, { mode: constants.S_IFDIR | 0o775 }, { mode: constants.S_IFDIR | 0o757 }]) {
+      channel.lstat = (name, done) => original(name, (error, attrs) =>
+        done(error, name === parent ? { ...attrs, ...change } : attrs));
+      await assert.rejects(() => remote.publishManagedFile(target, "new"), error => error.remoteOutcomeUnknown !== true);
+    }
+  }
+  channel.lstat = original;
+  await mkdir(local(target));
+  await assert.rejects(() => remote.publishManagedFile(target, "new"), error => error.remoteOutcomeUnknown !== true);
+  assert.equal(calls.some(([call]) => call === "open"), false);
+});
+
+test("reviewed publication validates root privilege, paths, payloads and deadlines before SFTP setup", async () => {
+  const client = new BoundaryClient();
+  let setups = 0;
+  client.sftp = () => { setups++; };
+  const remote = await connect(client);
+  try {
+    for (const target of ["/docker/n8n/docker-compose.yml", "/docker/n8n-openai-oauth/../outside", "/docker/n8n-openai-oauth/file;touch", "/docker/n8n-openai-oauth/file\nx", "/docker/n8n-openai-oauth"]) {
+      await assert.rejects(async () => remote.publishManagedFile(target, "new"), TypeError);
+    }
+    for (const mode of [0o666, 0o755]) await assert.rejects(async () =>
+      remote.publishManagedFile("/docker/n8n-openai-oauth/file", "new", mode), TypeError);
+    await assert.rejects(async () => remote.publishManagedFile("/docker/n8n-openai-oauth/file", Buffer.alloc(1_000_001)), TypeError);
+    for (const timeoutMs of [0, -1, Infinity, 7_200_001, "100"]) {
+      await assert.rejects(async () => remote.publishManagedFile("/docker/n8n-openai-oauth/file", "new", 0o600, { timeoutMs }), TypeError);
+    }
+    assert.equal(setups, 0);
+  } finally { remote.close(); }
+  const sudo = new BoundaryClient({ uid: 1000 });
+  sudo.sftp = () => assert.fail("Sudo must not open a managed SFTP publication.");
+  const scoped = await connect(sudo, { privilege: "sudo-n" });
+  try { await assert.rejects(async () => scoped.publishManagedFile("/docker/n8n-openai-oauth/file", "new"), /root/u); }
+  finally { scoped.close(); }
+});
+
+test("reviewed publication stages exclusively, fsyncs and atomically replaces only the destination inode", async t => {
+  const { client, calls, local, modeOf } = await managedFixture(t);
+  const target = "/docker/n8n-openai-oauth/docker-compose.yml";
+  await writeFile(local(target), "old");
+  const before = await lstat(local(target));
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  const payload = Buffer.alloc(40_000, 0xab);
+  await remote.publishManagedFile(target, payload, 0o644);
+  const staged = calls.find(([call]) => call === "open")[1];
+  assert.equal(dirname(staged), dirname(target));
+  assert.notEqual(staged, target);
+  assert.notEqual((await lstat(local(target))).ino, before.ino);
+  assert.equal(modeOf(target), 0o644);
+  assert.deepEqual(await readFile(local(target)), payload);
+  assert.equal(calls.filter(([call]) => call === "open").length, 1);
+  assert.equal(calls.filter(([call]) => call === "rename").length, 1);
+  assert.deepEqual(calls.filter(([call]) => ["fsync", "close", "rename"].includes(call)).map(([call]) => call), ["fsync", "close", "rename"]);
+  assert.ok(calls.filter(([call]) => call === "write").every(([, length]) => length <= 16_384));
+  await assert.rejects(() => lstat(local(staged)), { code: "ENOENT" });
+});
+
+test("publication rechecks target links and retains staged bytes after a late safety failure", async t => {
+  const { client, channel, calls, root, local } = await managedFixture(t);
+  const sentinel = join(root, "outside");
+  const target = "/docker/n8n-openai-oauth/Dockerfile";
+  await writeFile(sentinel, "unchanged");
+  const close = channel.close;
+  channel.close = (handle, done) => close(handle, error => {
+    if (error) return done(error);
+    link(sentinel, local(target)).then(() => done(), done);
+  });
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  let failure;
+  await assert.rejects(() => remote.publishManagedFile(target, "staged", 0o644), error => {
+    failure = error;
+    return error.remoteOutcomeUnknown === true;
+  });
+  assert.equal(await readFile(sentinel, "utf8"), "unchanged");
+  assert.equal(await readFile(local(failure.tempPath), "utf8"), "staged");
+  assert.equal(calls.some(([call]) => call === "rename"), false);
+});
+
+test("publication rechecks staged link count before atomic rename", async t => {
+  const { client, channel, calls, root, local } = await managedFixture(t);
+  const target = "/docker/n8n-openai-oauth/Dockerfile";
+  const close = channel.close;
+  channel.close = (handle, done) => close(handle, error => {
+    if (error) return done(error);
+    const staged = calls.find(([call]) => call === "open")[1];
+    link(local(staged), join(root, "outside-link")).then(() => done(), done);
+  });
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  let failure;
+  await assert.rejects(() => remote.publishManagedFile(target, "staged"), error => {
+    failure = error;
+    return error.remoteOutcomeUnknown === true;
+  });
+  assert.equal(await readFile(local(failure.tempPath), "utf8"), "staged");
+  assert.equal(calls.some(([call]) => call === "rename"), false);
+  await assert.rejects(() => lstat(local(target)), { code: "ENOENT" });
+});
+
+test("refused exclusive OPEN reports no remote effect, but lost OPEN acknowledgment remains uncertain", { timeout: 5000 }, async t => {
+  const { client, channel, calls, local } = await managedFixture(t);
+  const target = "/docker/n8n-openai-oauth/Dockerfile";
+  const exclusiveOpen = channel.open;
+  channel.open = (_name, _flags, _attrs, done) => done(Object.assign(new Error("private-policy"), { code: 3 }));
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  await assert.rejects(() => remote.publishManagedFile(target, "staged"), error =>
+    error.remoteOutcomeUnknown !== true && error.tempPath === undefined && !error.message.includes("private-policy"));
+  assert.equal(calls.some(([call]) => call === "write"), false);
+  channel.open = (name, flags, attrs, done) => exclusiveOpen(name, flags, attrs, error => {
+    if (error) done(error);
+  });
+  let failure;
+  await assert.rejects(() => remote.publishManagedFile(target, "staged", 0o600, { timeoutMs: 100 }), error => {
+    failure = error;
+    return error.remoteOutcomeUnknown === true && error.timedOut === true;
+  });
+  assert.equal((await lstat(local(failure.tempPath))).isFile(), true);
+  assert.equal(calls.filter(([call]) => call === "open").length, 1);
+});
+
+test("unavailable OpenSSH atomic rename fails closed and leaves its staged file", async t => {
+  const { client, channel, local } = await managedFixture(t);
+  const target = "/docker/n8n-openai-oauth/Dockerfile";
+  channel.ext_openssh_rename = () => { throw new Error("Server does not support this extended request"); };
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  let failure;
+  await assert.rejects(() => remote.publishManagedFile(target, "staged"), error => {
+    failure = error;
+    return error.remoteOutcomeUnknown === true && !error.message.includes("Server does not support");
+  });
+  assert.equal(await readFile(local(failure.tempPath), "utf8"), "staged");
+  await assert.rejects(() => lstat(local(target)), { code: "ENOENT" });
+});
+
+test("lost rename acknowledgment is uncertain and never repeats publication", { timeout: 5000 }, async t => {
+  const { client, channel, calls, local } = await managedFixture(t);
+  const target = "/docker/n8n-openai-oauth/Dockerfile";
+  const publish = channel.ext_openssh_rename;
+  let renames = 0;
+  channel.ext_openssh_rename = (from, to) => { renames++; publish(from, to, () => {}); };
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  await assert.rejects(() => remote.publishManagedFile(target, "new", 0o644, { timeoutMs: 500 }),
+    error => error.remoteOutcomeUnknown === true && error.timedOut === true && /unknown/u.test(error.message) &&
+      dirname(error.tempPath) === dirname(target) && !error.message.includes("new"));
+  assert.equal(await readFile(local(target), "utf8"), "new");
+  assert.equal(renames, 1);
+  assert.equal(calls.filter(([call]) => call === "end").length, 1);
+  assert.notEqual(client.ended, true);
+});
+
+test("stalled SFTP transfer expires, retains its exclusive temp and closes only its own channel", { timeout: 5000 }, async t => {
+  const { client, channel, calls, local } = await managedFixture(t);
+  const target = "/docker/n8n-openai-oauth/Dockerfile";
+  channel.write = () => {};
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  let failure;
+  await assert.rejects(() => remote.publishManagedFile(target, "private-fixture", 0o600, { timeoutMs: 100 }), error => {
+    failure = error;
+    return error.remoteOutcomeUnknown === true && error.timedOut === true && !error.message.includes("private-fixture");
+  });
+  assert.equal((await lstat(local(failure.tempPath))).isFile(), true);
+  assert.equal(calls.filter(([call]) => call === "open").length, 1);
+  assert.equal(calls.some(([call]) => call === "rename"), false);
+  assert.equal(calls.filter(([call]) => call === "end").length, 1);
+  assert.notEqual(client.ended, true);
+});
+
+test("read-only publication preflight deadline reports no remote change", { timeout: 2000 }, async t => {
+  const { client, calls, local } = await managedFixture(t);
+  const target = "/docker/n8n-openai-oauth/Dockerfile";
+  await writeFile(local(target), "old");
+  let destroyed = 0;
+  client.execute = () => {
+    const stream = resultChannel({ code: 0, stdout: "" });
+    stream.end = () => {};
+    stream.destroy = () => { destroyed++; };
+    return stream;
+  };
+  const remote = await connect(client);
+  t.after(() => remote.close());
+  await assert.rejects(() => remote.publishManagedFile(target, "new", 0o600, { timeoutMs: 20 }),
+    error => error.remoteOutcomeUnknown !== true && error.timedOut === true && error.tempPath === undefined);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(destroyed, 1);
+  assert.equal(calls.some(([call]) => call === "open"), false);
+  assert.equal(await readFile(local(target), "utf8"), "old");
+});
+
+test("live silent command expires without retrying or closing the transport", { timeout: 2000 }, async () => {
+  let destroyed = 0;
+  let commands = 0;
+  const client = new BoundaryClient({ execute: () => {
+    commands++;
+    const stream = resultChannel({ code: 0, stdout: "" });
+    stream.end = () => {};
+    stream.destroy = () => { destroyed++; };
+    return stream;
+  } });
+  const remote = await connect(client);
+  try {
+    await assert.rejects(() => remote.exec("fixture-command", { timeoutMs: 20 }),
+      error => error.remoteOutcomeUnknown === true && error.timedOut === true);
+    assert.equal(commands, 1);
+    assert.equal(destroyed, 1);
+    assert.notEqual(client.ended, true);
+  } finally { remote.close(); }
+});
+
+test("exec bounds default deadlines and validates explicit build deadlines before dispatch", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let commands = 0;
+  let destroyed = 0;
+  const client = new BoundaryClient({ execute: () => {
+    commands++;
+    const stream = resultChannel({ code: 0, stdout: "" });
+    stream.end = () => {};
+    stream.destroy = () => { destroyed++; };
+    return stream;
+  } });
+  const remote = await connect(client);
+  try {
+    for (const timeoutMs of [0, -1, NaN, Infinity, 7_200_001, "100"]) {
+      await assert.rejects(() => remote.exec("fixture-command", { timeoutMs }), TypeError);
+    }
+    assert.equal(commands, 0);
+    const defaultFailure = assert.rejects(() => remote.exec("fixture-command"),
+      error => error.timedOut === true && error.remoteOutcomeUnknown === true);
+    t.mock.timers.tick(45 * 60_000);
+    await defaultFailure;
+    const buildFailure = assert.rejects(() => remote.exec("fixture-build", { timeoutMs: 600_000 }),
+      error => error.timedOut === true && error.remoteOutcomeUnknown === true);
+    t.mock.timers.tick(600_000);
+    await buildFailure;
+    assert.equal(commands, 2);
+    assert.equal(destroyed, 2);
+  } finally { remote.close(); }
+});
+
+test("command deadline also bounds a missing exec acknowledgment and disposes a late owned channel", { timeout: 2000 }, async () => {
+  const client = new BoundaryClient();
+  const exec = client.exec.bind(client);
+  let pending;
+  client.exec = (command, callback) => {
+    if (command === LOGIN_PROBE || command === administrativeCommand(ADMIN_PROBE, "root")) exec(command, callback);
+    else pending = callback;
+  };
+  const remote = await connect(client);
+  try {
+    await assert.rejects(() => remote.exec("fixture-command", { timeoutMs: 20 }),
+      error => error.timedOut === true && error.remoteOutcomeUnknown === true);
+    let destroyed = 0;
+    const late = resultChannel({ code: 0, stdout: "" });
+    late.destroy = () => { destroyed++; };
+    pending(null, late);
+    late.emit("error", new Error("private-late-error"));
+    assert.equal(destroyed, 1);
+    assert.notEqual(client.ended, true);
+  } finally { remote.close(); }
+});
+
+test("publication setup has a finite default deadline without claiming an unwritten temp", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const client = new BoundaryClient();
+  client.sftp = () => {};
+  const remote = await connect(client);
+  try {
+    const failure = assert.rejects(() => remote.publishManagedFile("/docker/n8n-openai-oauth/file", "new"),
+      error => error.timedOut === true && error.remoteOutcomeUnknown !== true && error.tempPath === undefined);
+    t.mock.timers.tick(5 * 60_000);
+    await failure;
+    assert.notEqual(client.ended, true);
+  } finally { remote.close(); }
 });
 
 test("fingerprint scanning never configures an authentication method", async () => {

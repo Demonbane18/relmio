@@ -1,428 +1,342 @@
-# Configure n8n nodes
+# Configure n8n for ChatGPT plan use
 
-Use this page after the wizard says **The private bridge is ready**. Each value
-has its own code block for easy copying.
+Use this guide for the current local/SIWC OpenAI-compatible sidecar. It does not
+cover an OpenAI Platform API-key connection or the separate Codex App Server
+relay.
 
-## Pick the provider recipe
+## Before setup
 
-The Responses API switch is provider-specific. Check it whenever you change the
-credential or Base URL.
+1. Open the local Relmio wizard and select **ChatGPT for n8n**.
+2. Create a fresh Relmio sign-in or select one of your saved registrations.
+   Personal Codex credentials are not imported, and matching email addresses do
+   not merge registrations.
+3. Complete the separate ChatGPT authorization for plan use. An identity-only
+   connection does not authorize model requests.
+4. Select the existing n8n container and one of its Docker networks. Review the
+   exact plan and separately approve background workflow use before install.
+5. Copy the one-time Relmio bearer from the result screen and enter it manually
+   in n8n. Relmio does not edit n8n's credential or Compose configuration.
 
-| Connection | Base URL | Value for the API-key field | Use Responses API |
-| --- | --- | --- | --- |
-| OpenAI OAuth with ChatGPT/Codex sign-in | `http://n8n-openai-oauth:10531/v1` | `local-only` placeholder | **On** in OpenAI Chat Model node version 1.3 |
-| SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
-| Local Ollama model for n8n | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for the documented Chat Completions recipe |
-
-The local-model row is a separate self-hosted workflow model, not an OAuth
-provider. Its API-key field is not authentication. See [Private local
-models](local-models.md) for its network trust boundary, model readiness, and
-resource limits.
-
-The numbered recipe below configures the OpenAI OAuth bridge. SuperGrok uses its
-own official device sign-in and never requires or reads ChatGPT credentials.
-
-## 1. Create the OpenAI credential
-
-In n8n, create or edit an **OpenAI** credential.
-
-### API Key
-
-```text
-local-only
-```
-
-This required n8n placeholder is not an OpenAI Platform API key or secret.
-
-### Base URL
+The sidecar publishes no host port. From n8n, use its private Docker hostname:
 
 ```text
 http://n8n-openai-oauth:10531/v1
 ```
 
-### Organization ID
+In the n8n OpenAI credential, enter the one-time Relmio bearer shown by the
+wizard in the API key field. It authorizes the sidecar, not OpenAI. On OpenAI
+Chat Model node version 1.3, turn **Use Responses API** on. The wizard's model
+catalog belongs to the selected account; a listed model is not proof of
+entitlement or host admission.
 
-Leave this field empty.
+## Supported request paths
 
-### Add Custom Header
+| Route | Behavior |
+| --- | --- |
+| `GET /v1/models` | Returns the selected account's text models in OpenAI's order, with IDs and display names. See [Model discovery and checks](#model-discovery-and-checks). While the VPS image add-on is on, requests without n8n's `openai-platform` header also get `gpt-image-2`. |
+| `POST /v1/responses` | Sends supported Responses requests to OpenAI. Relmio sets `store:false`, requests streaming and, when the request sets `reasoning`, asks for `reasoning.encrypted_content`; only a completed response counts as success. It drops `max_output_tokens` and fills in `item_reference` items from memory; see [AI Assistant requests](#ai-assistant-requests). Streamed events, including `phase`, pass through unchanged, except failure events, which carry a safe error. |
+| `POST /v1/chat/completions` | Compatibility route translated into a Responses request. It accepts `model`, `messages`, `tools`, `tool_choice` (`auto`, `none`, or `required`), `parallel_tool_calls`, `stream`, `stream_options.include_usage`, and `reasoning_effort`, which is sent as `reasoning.effort`. It drops `max_completion_tokens` and `max_tokens`. Messages are text `user`, `assistant`, or `developer` messages, assistant tool calls, and `tool` results. Only final-answer text is returned. |
+| `POST /v1/images/generations` and `POST /v1/images/edits` | VPS image add-on only. See [Generate and edit images](#generate-and-edit-images-vps-add-on). Without it, these return `404 images_off`. |
 
-```text
-Off
-```
+For a basic OpenAI Chat Model workflow, select a catalog model and begin with
+a simple text prompt. A Responses request uses the full input array; send
+history in the request instead of a stored response/conversation ID.
 
-Save and test the credential. If n8n cannot reach it, confirm that n8n and the
-sidecar share a Docker network and that the Base URL uses the private
-`n8n-openai-oauth` hostname rather than `127.0.0.1`.
-
-## 2. OpenAI Chat Model for an AI Agent or Basic LLM Chain
-
-Use the same **OpenAI Chat Model** sub-node for either parent node.
-
-1. Add an **AI Agent** or **Basic LLM Chain** node.
-2. Add an **OpenAI Chat Model** to its **Chat Model** or **Model** connector.
-3. Select the OpenAI credential created above.
-4. In **Model**, select one of the model IDs detected by the wizard.
-5. On OpenAI Chat Model node version 1.3, turn **Use Responses API** on.
-6. Begin with no built-in tools and a simple test prompt.
-
-If **Use Responses API** is absent, the workflow is using an earlier Chat
-Model node version. Keep its default Chat Completions behavior; the bridge also
-supports:
+A simple HTTP Request node can call the private Responses route. Keep the bearer
+in an n8n credential, not in a URL, browser bundle, workflow text, or command
+argument:
 
 ```text
-/v1/chat/completions
+Method: POST
+URL: http://n8n-openai-oauth:10531/v1/responses
+Authorization: Bearer <one-time Relmio bearer from the wizard>
+Content-Type: application/json
 ```
 
-Do not copy a model name from the README screenshot. Paste or select one from
-the current wizard result:
-
-```text
-PASTE_ONE_MODEL_ID_FROM_THE_WIZARD
-```
-
-### AI Agent test
-
-For an AI Agent connected to a Chat Trigger, a common prompt expression is:
-
-```text
-{{ $json.chatInput }}
-```
-
-Or use this fixed prompt for the first connection test:
-
-```text
-Reply with exactly: bridge works
-```
-
-Connect the OpenAI Chat Model to the AI Agent's model input, run the workflow,
-and confirm the response before attaching tools or memory.
-
-### Basic LLM Chain test
-
-Use this fixed **Prompt** first:
-
-```text
-Reply with exactly: bridge works
-```
-
-For data supplied by an earlier node, a simple expression is:
-
-```text
-{{ $json.prompt }}
-```
-
-Connect the OpenAI Chat Model to the Basic LLM Chain's model input and execute
-the chain.
-
-## 3. OpenAI node V2 capability audit
-
-This is the 2026-09-08 audit of the requested 16 OpenAI action-node operations,
-cross-checked against n8n's current [OpenAI node V2 documentation](https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-langchain.openai/).
-It is for Relmio's private, unofficial `openai-oauth@2.0.0` ChatGPT/Codex
-compatibility bridge; it is not a statement about OpenAI Platform API-key
-capabilities or plan entitlement.
-
-| n8n UI label | Bridge status and constraint | Evidence on 2026-09-08 |
-| --- | --- | --- |
-| Text > Message a Model | Supported synchronously through `/v1/responses`; streaming, tools, and inline image/file inputs are preserved. Background Mode must be off; Previous Response ID and Conversation ID must be empty. | Pinned-handler tests plus attended VPS execution returning the requested exact text. Streaming and tools are contract-tested, not covered by that live prompt. |
-| Text > Classify Text for Violations | Unsupported. `/v1/moderations` now returns 501 with a specific alternative. | Pinned-handler test plus attended VPS unsupported-operation response. |
-| Image > Analyze Image | Supported through `/v1/responses` for URL or binary image input. The node's Length of Description setting is ignored because the pinned transport removes `max_output_tokens`. | Request-contract fixture plus attended VPS URL-image description and valid JSON text output. Binary analysis was not separately smoke-tested. |
-| Image > Generate an Image | Supported by `/v1/images/generations` with GPT Image 2 base64 output. No URL output, masks, or image streaming. | Pinned-handler fixture plus visually checked VPS output. Local Docker image generation also passed on the older bridge runtime; this does not verify the new local updater. |
-| Image > Edit an Image | Supported by `/v1/images/edits` with up to five reference images and no mask. | Pinned-handler multipart fixture plus visually checked VPS edit changing bananas to blue. |
-| Audio > Generate Audio | Unsupported. `/v1/audio/speech` returns 501 with a specific alternative. | Earlier user screenshot showed 501; pinned-handler test. Fresh post-update live run not established. |
-| Audio > Transcribe a Recording | Unsupported. `/v1/audio/transcriptions` returns 501 with a specific alternative. | Pinned-handler test plus attended VPS audio-unavailable response with a valid WAV binary input. |
-| Audio > Translate a Recording | Unsupported. `/v1/audio/translations` returns 501 with a specific alternative. | Pinned-handler test plus attended VPS 501 with a valid WAV binary input. |
-| File > Upload a File | Unsupported. `POST /v1/files` returns 501. Inline file input for Message a Model is separate and supported. | Pinned-handler test plus observed VPS 501 using a public JPEG binary. |
-| File > List Files | Unsupported. `GET /v1/files` returns 501. | Pinned-handler test plus observed VPS unsupported response. |
-| File > Delete a File | Unsupported. `DELETE /v1/files/{id}` returns 501. | Pinned-handler test. Live attempt blocked by n8n File ID validation before the bridge; not a live endpoint pass. |
-| Video > Generate a Video | Unsupported. `POST /v1/videos` returns 501 with a specific alternative. | Pinned-handler test. Live form had no selectable model; no video endpoint execution established. |
-| Conversation > Create a Conversation | Unsupported. `POST /v1/conversations` returns 501. | Pinned-handler test plus observed VPS unsupported response. |
-| Conversation > Get a Conversation | Unsupported. `GET /v1/conversations/{id}` returns 501. | Pinned-handler test plus observed VPS unsupported response using a synthetic ID. |
-| Conversation > Update a Conversation | Unsupported. `POST /v1/conversations/{id}` returns 501. | Pinned-handler test plus attended VPS 501 using a synthetic ID and test metadata. |
-| Conversation > Remove a Conversation | Unsupported. `DELETE /v1/conversations/{id}` returns 501. | Pinned-handler test plus attended VPS 501 using a synthetic ID. |
-
-The 16 rows above are the action labels in the audited node UI. The separate
-OpenAI Chat Model sub-node and HTTP Request recipe can use the supported
-`/v1/chat/completions` route; they are documented in sections 2 and 4 rather
-than counted as an OpenAI action-node operation.
-
-The local and VPS generators package the same adapter source, and the focused
-test verifies both use it as their Docker entrypoint. These behavior changes
-take effect only after the owned sidecar is rebuilt through its reviewed update
-flow. The table separates repeatable fake-provider contract checks from
-authorized browser smoke tests observed in this session. Live results apply
-only to the tested account, deployment and options; they do not certify all
-node settings, provider entitlement, or the new local updater. Expected
-unsupported responses confirm error handling, not feature availability.
-
-In the **OpenAI** action node, choose **Text > Message a Model**, the same
-OpenAI credential, and a text model from the account's model list. Both
-**Simplify Output** settings work. Keep **Background Mode** off and leave
-**Previous Response ID** and **Conversation ID** empty. Send conversation
-history as messages on each call. The OAuth transport is stateless and disables
-response storage even when n8n sends its default `store: true`.
-
-If an existing bridge returns `Unsupported parameter: background` with Background
-Mode off, update the Relmio sidecar. n8n includes `background: false` in its
-request; the updated sidecar omits that field before contacting the provider.
-Updating Relmio source alone does not update a running sidecar container. For a
-local bridge, choose **Manage bridge**, read the runtime update summary, select
-its confirmation checkbox, then choose **Update bridge runtime**. For a VPS
-bridge, reconnect through `relmio vps`, confirm the SSH host fingerprint, select
-the n8n container and network, then choose **OpenAI-OAuth/Codex bridge** and
-**Manage OpenAI-OAuth/Codex bridge**. Select **Review bridge update**, review the
-plan, select its confirmation checkbox, then choose **Update the bridge**.
-
-For **Image > Generate an Image** and **Image > Edit an Image**, choose a
-discovered image model **From list**. If the current n8n picker does not show a
-discovered model, choose **By ID** and enter its exact ID: `gpt-image-2`,
-`gpt-image-2.5-flare`, or `gpt-image-2.5-sunburst`. Do not enter the generic
-`gpt-image-2.5`: it is not a request ID. Begin with a prompt and **Quality: Low**.
-Keep URL output off. GPT Image returns base64 data that n8n converts into its
-binary output. Do not use the node's DALL-E default or substitute a text model.
-The existing OAuth transport also accepts multipart image editing, up to five
-reference images, with no mask. Provider/account limits still apply.
-
-Image options `input_fidelity`, `moderation`, `output_compression`,
-`output_format`, and `partial_images` are rejected by the pinned transport.
-ChatGPT app voice access does not establish support for n8n's `/audio/speech`
-request. Signing in again or rebuilding the same bridge will not enable audio.
-OpenAI documents its API requests as separately authenticated with Platform API
-credentials. If an unsupported action is needed, configure a separate Platform
-credential in n8n according to your account and policy requirements. Do not put
-that key in this bridge, and do not treat ChatGPT voice or a successful ChatGPT
-sign-in as proof that the action is available.
-
-### Data and policy check
-
-Reviewed 2026-09-08 against OpenAI's [Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt),
-[Codex authentication documentation](https://learn.chatgpt.com/docs/auth),
-[API authentication reference](https://developers.openai.com/api/reference/overview),
-[Moderation guide](https://developers.openai.com/api/docs/guides/moderation),
-[video-generation guide](https://developers.openai.com/api/docs/guides/video-generation),
-[Terms of Use](https://openai.com/policies/terms-of-use/), and
-[Privacy Policy](https://openai.com/policies/privacy-policy/). The Sign in with
-ChatGPT article describes identity sign-in for supported external applications;
-it does not establish Relmio support, OAuth scope approval, access to these API
-actions, feature availability, or Terms compliance for this unofficial
-compatibility bridge.
-
-For supported actions, n8n sends the selected prompt, messages, tool
-definitions, inline image/file input, or image-edit reference data over the
-private Docker network to the sidecar. The third-party pinned `openai-oauth`
-package reads the saved ChatGPT/Codex OAuth session and transmits supported
-requests to its default Codex backend at `https://chatgpt.com/backend-api/codex`.
-The local route copies the complete credential JSON through a network-disabled
-credential-seed helper into a private named Docker volume. The VPS route uploads
-it with SFTP to `auth/auth.json` under the deployment's bind mount. Building the
-sidecar contacts the npm registry for the pinned package.
-
-The sidecar is stateless for Responses: it sets `store: false`, retains no
-conversation or file object, and stores the private OAuth session required to
-sign requests. Only the one-shot credential-seed helper disables Docker logging;
-the main sidecar has no explicit Docker log-driver setting. The pinned package
-can emit limited request metadata only when `CODEX_OPENAI_SERVER_LOG_REQUESTS=1`;
-Relmio does not set that variable. The package defaults request
-`openid profile email offline_access`, uses `https://auth.openai.com` as issuer,
-and defaults to the Codex backend above. This review did not observe the
-account's consent screen or actual grant, so granted scopes remain unknown.
-Provider-side retention, account entitlement, policy eligibility, and main
-sidecar/VPS log configuration also require account-owner verification. No
-separate API key, API-key proxy, or emulated moderation/video service is added
-by this bridge.
-
-The request defaults are defined in [n8n's Responses helper](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/vendors/OpenAi/v2/actions/text/helpers/responses.ts).
-The Analyze Image fixture follows n8n's current
-[action source](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/vendors/OpenAi/v2/actions/image/analyze.operation.ts);
-this source comparison is not live n8n acceptance.
-The supported routes and image restrictions come from the pinned
-[`openai-oauth` server](https://github.com/EvanZhouDev/openai-oauth/blob/v2.0.0/packages/openai-oauth/src/server.ts)
-and [image adapter](https://github.com/EvanZhouDev/openai-oauth/blob/v2.0.0/packages/core/src/images.ts).
-
-## 4. HTTP Request node
-
-The HTTP Request recipe calls the bridge directly with n8n's generic Bearer
-Auth credential. It uses the Chat Completions route because the body below uses
-the `messages` format shown in the n8n node.
-
-### Copy-paste fields
-
-Method:
-
-```text
-POST
-```
-
-URL:
-
-```text
-http://n8n-openai-oauth:10531/v1/chat/completions
-```
-
-Authentication:
-
-```text
-Generic Credential Type
-```
-
-Generic Auth Type:
-
-```text
-Bearer Auth
-```
-
-Credential name:
-
-```text
-openai-oauth
-```
-
-Bearer token:
-
-```text
-local-only
-```
-
-Enable **Send Headers** and add this header:
-
-Header name:
-
-```text
-Content-Type
-```
-
-Header value:
-
-```text
-application/json
-```
-
-Enable **Send Body**, select **JSON** for **Body Content Type**, and choose
-**Using JSON** for **Specify Body**. Paste this body:
+Example body:
 
 ```json
 {
-  "model": "gpt-5.6-sol",
-  "messages": [
-    {
-      "role": "user",
-      "content": "What is a robot?"
-    }
-  ],
-  "response_format": {
-    "type": "json_schema",
-    "json_schema": {
-      "name": "answer",
-      "schema": {
-        "type": "object",
-        "properties": {
-          "content": { "type": "string" }
-        },
-        "required": ["content"],
-        "additionalProperties": false
-      },
-      "strict": true
-    }
-  }
+  "model": "<slug from the selected account's catalog>",
+  "input": [{"role": "user", "content": "Reply with exactly: bridge works"}]
 }
 ```
 
-If the wizard reports a different model ID, replace only `gpt-5.6-sol` with
-that detected ID. The `local-only` bearer value is a harmless n8n placeholder;
-it is not an OpenAI Platform API key.
+## Model discovery and checks
 
-### Importable cURL version
+The sidecar reads the selected account's catalog from
+`https://api.openai.com/v1/models`. OpenAI filters that catalog by an
+undocumented `client_version` parameter, and OpenAI could change this. On the
+owner's account on 2026-10-06, version 0.150.0 listed 3 models, 0.160.0 and
+newer listed 7, and no version listed 4. The sidecar therefore asks as the
+newest stable Codex release:
 
-The n8n HTTP Request node can import this cURL command. Replace only the model
-if the wizard reports a different ID:
+- It reads `https://registry.npmjs.org/@openai/codex/latest` when it next
+  fetches the catalog for n8n or for turning checks on, about every 12 hours.
+  Failed attempts count too. The wizard's status check never contacts npm; it
+  uses the last version the sidecar read, or the pin. The request carries no
+  credentials or account data. npm sees the sidecar host's IP address.
+- It never asks as a version below Relmio's pin (0.160.0) and ignores
+  prerelease versions. If npm can't be reached, it keeps the last version it
+  read, or the pin.
 
-```bash
-curl --request POST \
-  --url http://n8n-openai-oauth:10531/v1/chat/completions \
-  --header 'Authorization: Bearer local-only' \
-  --header 'Content-Type: application/json' \
-  --data '{
-    "model": "gpt-5.6-sol",
-    "messages": [
-      {
-        "role": "user",
-        "content": "What is a robot?"
-      }
-    ],
-    "response_format": {
-      "type": "json_schema",
-      "json_schema": {
-        "name": "answer",
-        "schema": {
-          "type": "object",
-          "properties": {
-            "content": { "type": "string" }
-          },
-          "required": ["content"],
-          "additionalProperties": false
-        },
-        "strict": true
-      }
-    }
-  }'
-```
+Local Codex clients and the wizard's account picker before install keep the
+pinned version.
 
-The cURL `Authorization` header is equivalent to the n8n Bearer Auth
-credential. It is included so the command can be imported or run as a direct
-connectivity check.
+The list keeps models OpenAI marks for display and API use, leaves out IDs
+that contain `image`, keeps OpenAI's order and stops at 256 models. The sidecar
+caches the catalog for 5 minutes, so the sidecar may take that long to see a
+change. A new model can take longer to reach n8n: it may need the next npm
+version check, a model check, or an admin's Chat Hub setting. n8n's server
+does not cache the list; **Refresh List** in a dropdown asks the sidecar
+again. n8n shows only model IDs, not display names.
 
-### Expression-driven HTTP body
+When OpenAI rejects a request through the sidecar because of the model (HTTP
+400 or 404 with error parameter `model`, or code `model_not_found` or
+`invalid_model`), the sidecar hides that model from n8n for 24 hours. A request
+that completes marks the model as working. If the catalog can't be read, the
+sidecar serves its last list for up to an hour. After that, or when OpenAI
+rejects the sign-in, n8n gets `catalog_unavailable`. See
+[Troubleshooting](troubleshooting.md#symptom-table).
 
-After the fixed test succeeds, switch the entire JSON body field to
-**Expression** mode and paste:
+A listed or working model is not an entitlement promise. A completed test or
+request proves only that request.
 
-```javascript
-={{ {
-  model: "gpt-5.6-sol",
-  messages: [
-    {
-      role: "user",
-      content: $json.prompt
-    }
-  ],
-  response_format: {
-    type: "json_schema",
-    json_schema: {
-      name: "answer",
-      schema: {
-        type: "object",
-        properties: { content: { type: "string" } },
-        required: ["content"],
-        additionalProperties: false
-      },
-      strict: true
-    }
-  }
-} }}
-```
+### Optional model checks
 
-This reads the `prompt` property from the item produced by the previous node.
+Model checks are off by default and are turned on per VPS install from the
+wizard. See [See models and turn on model checks](vps-and-n8n.md#see-models-and-turn-on-model-checks).
+The wizard shows this notice before you confirm:
 
-## SuperGrok in n8n
+> When on, the sidecar sends one short test request ('Reply with OK') to
+> models in your catalog: now for up to 12 of them, then for each new model,
+> and again once a day for a model that failed. A test that gets no answer is
+> tried again after an hour. n8n lists a model only after it answers; until any
+> model has answered, n8n shows the full catalog except models that recently
+> failed. Each test uses a small amount of your plan.
 
-Create a separate OpenAI-compatible credential with the Base URL and one-time
-local bearer shown by the SuperGrok wizard. For a workflow OpenAI Chat Model,
-select a freshly discovered model **From list** and turn **Use Responses API**
-off. For Chat Hub, turn it off in **Settings > Chat > OpenAI > Edit provider**.
-Leaving it on sends the request to an unsupported Responses route and can return
-`404 not_found` even when the companion and model are healthy.
+How the checks run:
 
-The n8n AI Assistant custom endpoint uses the same private Base URL and bearer,
-but its model is a text field. Enter a model returned by account discovery.
-Assistant's Code Sandbox is a separate companion with its own prerequisites.
-See [SuperGrok on a VPS](./vps-supergrok.md) for the remote flow and its remaining
-live acceptance limits.
+- A test is a Responses request with the instruction `Reply with OK.`, the
+  input `OK`, `store:false`, and the lowest reasoning effort the catalog lists
+  for that model. Tests run one model at a time.
+- Turning checks on tests up to 12 models within about 3 minutes and records
+  your consent with the time and notice version.
+- After that, when n8n asks for models and some are untested, or failed more
+  than a day ago, the sidecar tests up to 8 of them in the background, 5
+  seconds apart. n8n gets its list without waiting.
+- A run stops when the plan's usage is unavailable, ChatGPT sign-in is needed,
+  the ChatGPT session isn't available for plan use, OpenAI refuses the test
+  request, or checks were turned off. Timeouts, network errors and server
+  errors record nothing, so those models are tested again later. After a run
+  that stopped early or left a model unrecorded, the next background run waits
+  60 minutes.
+- A failed test hides the model while checks are on, for 24 hours. A failure
+  in a real request hides it with checks on or off.
+- Turning checks off makes no network call and removes your consent. A
+  running check stops before its next test, even while it waits for the
+  session. Recorded results stay. **Sign out and revoke** turns checks off
+  first, as a best effort.
 
-## Related official n8n documentation
+Local sidecars have no check controls, so checks stay off there. They still
+hide models that fail with a model error and mark completed ones as working.
 
-- [OpenAI credentials](https://docs.n8n.io/integrations/builtin/credentials/openai/)
-- [OpenAI Chat Model](https://docs.n8n.io/integrations/builtin/cluster-nodes/sub-nodes/n8n-nodes-langchain.lmchatopenai/)
-- [OpenAI Chat Model source](https://github.com/n8n-io/n8n/blob/master/packages/%40n8n/nodes-langchain/nodes/llms/LMChatOpenAi/LmChatOpenAi.node.ts)
-- [AI Agent](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.agent/)
-- [Basic LLM Chain](https://docs.n8n.io/integrations/builtin/cluster-nodes/root-nodes/n8n-nodes-langchain.chainllm/)
-- [HTTP Request](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest/)
+### Which n8n pickers list which models
+
+| n8n picker | What it lists |
+| --- | --- |
+| OpenAI Chat Model node 1.2 or newer, **From list** | Text models. The node sends an `openai-platform` header, so the sidecar leaves out `gpt-image-2`. |
+| Chat Hub, OpenAI provider | The Chat Model node's list. If an admin set allowed models under **Settings > Chat**, new models stay hidden until added there. |
+| OpenAI node, **Message a Model** | Text models, plus `gpt-image-2` while images are on. This picker shares one request with the image picker. Don't choose `gpt-image-2` for text. |
+| OpenAI node, **Generate an Image** or **Edit Image** | n8n keeps only IDs that contain `gpt-image` or `dall-e`, so it lists `gpt-image-2` while images are on. |
+| AI Assistant | Nothing. It never asks for the list; paste a model ID instead. See [AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar). |
+
+The sidecar tells these requests apart by the `openai-platform` header. If n8n
+changes that header, `gpt-image-2` may show in chat lists again or leave the
+image picker. Entering the ID still works.
+
+## Function tools
+
+Function tools, such as the ones an n8n agent sends, can use either route. In
+a Responses request, flat function and custom tools are moved into one
+developer `additional_tools` input item. The Chat Completions route builds the
+same item from its `tools` list. A function tool that omits `parameters` or
+`strict` is sent with `null` for that field. The gateway never runs a tool:
+n8n executes it and sends the result back in the next request with the
+matching call ID.
+
+Limits:
+
+- At most 128 tools in one list, and at most 32 tool calls in one Chat
+  Completions message or response.
+- At most 128 KiB of arguments for one call.
+- At most 2 MiB of streamed tool-call arguments in one Chat Completions
+  response.
+- Every Chat Completions assistant tool call needs exactly one `tool` result.
+
+The Chat Completions route rejects a named `tool_choice`, tool namespaces,
+custom tools in streamed requests, and system messages. Responses requests
+can use namespaces and `additional_tools` items directly. On the Chat
+Completions route, reasoning items and `commentary` text are skipped; clients
+receive only message text with phase `final_answer` or no phase.
+
+On 2026-10-05 a two-turn LangChain function-tool test passed through the real
+gateway on one ChatGPT account, streaming over both Chat Completions and
+Responses. Other accounts, models, and non-streaming tool calls were not
+tested live. The SIWC guide names `additional_tools`, but only the general
+Responses reference documents its shape.
+
+## AI Assistant requests
+
+n8n's AI Assistant reaches the sidecar's Responses route through the AI SDK.
+Setup and a 2026-10-07 live test are in
+[AI Assistant](ai-assistant.md#optional-chatgpt-plan-sidecar). The rules below
+come from the requests n8n 2.40.7 sends and apply to every client. The sidecar
+adds no logs, so the live test doesn't show whether earlier items were filled
+in from memory.
+
+Output-token caps are dropped. n8n's model check sends `max_output_tokens: 16`.
+SIWC lists `max_output_tokens` as unsupported
+([source check](openai-source-check-2026-10-05.md#check-3-model-and-inference-capability-no-tts)),
+so no cap can be honored: the sidecar removes the field and the reply is not
+capped. The Chat Completions route drops `max_completion_tokens` and
+`max_tokens` the same way. Other unsupported fields are still refused.
+
+Earlier output is filled in from memory. In tool steps and follow-up
+messages, the AI SDK sends an `item_reference` that holds only an item ID in
+place of earlier reasoning and assistant text. A Responses request that sets
+`reasoning`, as the Assistant's do, asks OpenAI for
+`reasoning.encrypted_content`, added to any valid `include` values the client
+sent; other requests keep the client's `include` as is. When a request reaches
+`response.completed`, the sidecar
+keeps its reasoning items (encrypted content and summary) and assistant
+messages (text and a valid `phase`). A later reference to a kept ID is
+replaced with a copy of that item before the request goes to OpenAI.
+References to unknown IDs are dropped. A reference without a valid ID, or a
+request left with no input, is refused with `param: input`. The copies in one
+request can total at most 2 MiB; more returns `413 body_too_large`.
+
+The memory belongs to one sidecar process and is never written to disk. It
+holds at most 4,096 items and 32 MiB. An item expires 6 hours after it is
+kept, and when the memory is full the least recently used item goes first.
+Items from failed, incomplete or interrupted responses are not kept, and Chat
+Completions requests neither fill nor use the memory. A restart or update
+empties it. References from an open Assistant conversation are then dropped,
+and the model no longer sees that earlier reasoning and those replies; start a
+new conversation. Data handling is in
+[Security](security.md#remembered-responses-items).
+
+Stream failures use OpenAI's event format. On `/v1/responses`, an error the
+sidecar adds to a stream, such as `stream_interrupted`, is an `error` event
+with `type`, `sequence_number`, `code`, `message` and `param`. Rewritten
+`response.failed` and `response.incomplete` events keep their
+`sequence_number`. AI SDK clients then see the error, or the reason a response
+was incomplete, instead of a type-validation error or an empty answer. The
+Chat Completions route keeps its own error body.
+
+A request can list up to 128 tools; see [Function tools](#function-tools). The
+Assistant sends its own tools plus any from connected MCP servers.
+
+## Generate and edit images (VPS add-on)
+
+Image generation works only after you turn on the optional image add-on for an
+installed VPS sidecar. It uses a separate Codex sign-in, the way Hermes Agent
+does. OpenAI does not document this route for other apps, so it can stop
+working without notice. Images count against your plan's Codex limits, and
+the Codex refresh token is stored on the VPS. The ChatGPT plan session is
+never used for images. A local sidecar has no image sign-in. See
+[Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional)
+for setup and sign-out.
+
+In n8n:
+
+1. Add an **OpenAI** node, choose **Image**, then **Generate an Image** or
+   **Edit Image**.
+2. Use the same OpenAI credential as your chat nodes: Base URL
+   `http://n8n-openai-oauth:10531/v1` and the one-time Relmio key.
+3. For **Model**, pick `gpt-image-2` from the list, or choose **ID** and enter
+   it. The list shows it only while images are on. n8n's defaults
+   (`gpt-image-1-mini` for Generate, `gpt-image-1` for Edit) are refused. Both
+   need OpenAI node version 2.2 or newer for Generate and 2.3 or newer for
+   Edit.
+4. For Edit Image, add the input images as binary fields. Leave the number of
+   images at 1 and do not add the **Image Mask** option.
+
+The result arrives as base64 and n8n saves it as binary data.
+
+Limits:
+
+- Only `gpt-image-2`, one image per request, and prompts up to 32,000
+  characters.
+- No masks and no URL responses (`response_format` may only be `b64_json`).
+- Sizes `1024x1024`, `1024x1536`, `1536x1024` or `auto`. `256x256` and
+  `512x512` are refused. OpenAI may return a different size than requested.
+- Quality `low`, `medium`, `high` or `auto` (`standard` is sent as `auto`);
+  background `transparent`, `opaque` or `auto`.
+- Edits take 1 to 16 PNG, JPEG, WebP or GIF images, each up to 25 MiB, and at
+  most 48 MiB per request. A generation request body is limited to 64 KiB.
+- `user`, `output_format`, `output_compression` and `input_fidelity` are
+  accepted but not sent to Codex. Other fields are refused.
+- Relmio waits up to 5 minutes for an image and does not retry a failed one.
+  A usage limit returns `429` with the code from OpenAI and, when OpenAI sends
+  it, `resets_at`.
+
+Only `gpt-image-2` is offered. On 2026-10-06 Relmio sent three test images
+through this Codex route on the owner's VPS, as `gpt-image-2`,
+`gpt-image-2.5-flare` and a made-up model ID. All three returned the same
+result: 515 image tokens, 1254x1254 pixels and the same C2PA provenance. The
+route ignores the model ID, so asking it for Flare or Sunburst would not get
+them. To use GPT Image 2.5 Flare or Sunburst, give n8n's image node a separate
+OpenAI credential with your own OpenAI Platform API key and OpenAI's default
+Base URL. OpenAI bills that to your API account, and Relmio is not involved.
+See the
+[2026-10-06 source check](openai-source-check-2026-10-06.md#addendum-automatic-model-discovery).
+
+## Limits and recovery
+
+The gateway rejects fields and tool types it cannot preserve, `background:true`,
+`store:true`, stored response/conversation IDs, system messages, audio/video
+input, and invalid input shapes. The Responses `image_generation` tool is
+one of the rejected tool types. Audio, video, Files API upload/list/delete,
+stored conversation, moderation, Live, and Realtime routes are not forwarded.
+Image routes work only through the
+[VPS image add-on](#generate-and-edit-images-vps-add-on). Image or
+file content inside a Responses input is usable only when the selected model
+supports it; this does not enable the Files API. Tool availability depends on
+the selected model and account policy and is not guaranteed by catalog
+discovery.
+
+The gateway reports unsupported parameters instead of silently dropping them.
+Output-token caps are the exception; see
+[AI Assistant requests](#ai-assistant-requests). The gateway does not switch
+registrations, replay a partially received inference, or fall back to
+separately billed API access. A usage-limit error on the text
+routes directs you to [Manage usage](https://chatgpt.com/settings/usage).
+Other request, permission, connection, and provider failures require the
+recovery shown by the wizard.
+
+A successful identity sign-in, installed container, health response, or model
+list is not proof that a model request will be admitted or complete. ChatGPT
+account eligibility, workspace policy, provider admission, and current limits
+still apply. Audio, video, Files management, and other unsupported
+capabilities are not enabled by refreshing the sign-in, and the ChatGPT
+sign-in never turns on image generation.
+
+## Safety and data handling
+
+The bearer shown by Relmio protects the local sidecar boundary. Store it as an
+n8n credential and share it only with trusted callers on the selected Docker
+network. The provider token remains in the sidecar's protected SIWC record; n8n
+receives the Relmio bearer, not that provider token. The VPS image add-on keeps
+its Codex tokens in the same protected folder, and n8n never receives them
+either. The sidecar has no host port, and the wizard leaves n8n configuration
+to its owner.
+
+Using `store:false` is not a zero-logging or zero-retention promise. Docker,
+SSH/VPS, n8n, OpenAI, and other infrastructure may have their own logs and
+retention. See [Security and limits](security.md) and the
+[2026-10-05 OpenAI source check](openai-source-check-2026-10-05.md).
+
+The [2026-09-08 capability audit](experimental-images25-live1.md) records
+historical behavior and tests for the previous credential-copy bridge. It does
+not describe or establish capabilities of the current SIWC implementation.

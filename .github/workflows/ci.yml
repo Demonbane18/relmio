@@ -95,7 +95,7 @@ jobs:
   windows-bootstrap:
     name: Native Windows installer and browser wizard
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
 
     steps:
       - name: Check out the repository
@@ -153,19 +153,8 @@ jobs:
           --test-name-pattern="foreground browser handoff roots|native Windows creates and verifies|foreground startup"
           test/browser-handoff.test.js test/cli.test.js
 
-      - name: Test the native Windows OAuth launcher and credential promotion
-        run: >-
-          node --test
-          --test-name-pattern="pinned official Codex browser login|current Node runtime and commits only a pre-secured Windows credential|hides synchronous process-launch errors|sanitized callback port conflict"
-          test/oauth.test.js
-
-      - name: Smoke-test the pinned official Codex Windows login command
-        shell: pwsh
-        run: |
-          $help = npx.cmd --yes --ignore-scripts --package=@openai/codex@0.154.0 -- codex login --help
-          if ($LASTEXITCODE -ne 0 -or ($help -join "`n") -notmatch "Usage: codex login") {
-            throw "The pinned official Codex Windows login command did not start."
-          }
+      - name: Exercise native Windows loopback SIWC registration and browser dispatch
+        run: node --test test/oauth.test.js test/browser.test.js
 
       - name: Audit dependencies on native Windows
         run: npm audit --audit-level=high

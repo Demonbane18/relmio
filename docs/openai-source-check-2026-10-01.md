@@ -2,6 +2,11 @@
 
 Review date: 2026-10-01
 
+**Historical review:** this report describes the hosted and credential-copy
+implementation inspected on 2026-10-01, before the current local SIWC flow.
+Its implementation findings do not describe current runtime behavior. See the
+[2026-10-04 source check](openai-source-check-2026-10-04.md).
+
 This review covers the redesigned local wizard and dashboard, the hosted home and install pages, the hosted chat sign-in and request route, and their README, security, FAQ, and troubleshooting disclosures. It follows the [2026-09-29 check](openai-source-check-2026-09-29.md), but independently inspects the current application source and installed OAuth dependency code.
 
 This is a read-only source review, not legal advice, release certification, or runtime acceptance. No files were changed, credentials accessed, sign-in completed, forms submitted, provider APIs called, or installs, builds, tests, SSH operations, or deployments run. Browser rendering and deployed Vercel bytes were not checked. References identify the worktree source inspected; concurrent edits can move line numbers. The comparison below uses the previous report as its historical baseline. A Git diff against `HEAD` was not available through this review's tools, so statements about changes mean changes from that report's recorded coverage and disclosures, not a independently verified commit-by-commit attribution.
