@@ -7,6 +7,12 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.20.0] - 2026-10-08
+
+Relmio 0.20.0 adds image generation to the local ChatGPT plan sidecar and fixes
+installing that sidecar for an n8n on this computer, which always failed in
+0.19.0 and 0.19.1.
+
 ### Added
 
 - The local ChatGPT plan sidecar can now generate and edit images through the
@@ -1907,6 +1913,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.20.0]: https://github.com/Demonbane18/relmio/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/Demonbane18/relmio/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/Demonbane18/relmio/compare/v0.18.6...v0.19.0
 [0.18.6]: https://github.com/Demonbane18/relmio/compare/v0.18.5...v0.18.6

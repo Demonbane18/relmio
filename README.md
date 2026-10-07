@@ -26,9 +26,9 @@ not enable hosted chat. See the
 [2026-10-05 source check](docs/openai-source-check-2026-10-05.md) for the data
 flow, documented limits, unresolved prerequisites, and historical reviews.
 
-Relmio 0.19.1 is the current stable release. It fixes the VPS sidecar update
-route, adds a ChatGPT sign-in refresh for an installed VPS sidecar, and is
-available through npm `latest` and the hosted installers.
+Relmio 0.20.0 is the current stable release. It adds image generation to the
+local ChatGPT plan sidecar, fixes installing that sidecar for an n8n on this
+computer, and is available through npm `latest` and the hosted installers.
 
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
@@ -59,7 +59,7 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-`@latest` selects stable 0.19.1, including the setup guide. Hosted
+`@latest` selects stable 0.20.0, including the setup guide. Hosted
 installers use the same stable default.
 
 
