@@ -42,7 +42,7 @@ export const RULES = [
   [/^src\/ui\/assistant/u, ["wizard-ui", "assistant"]],
   [/^src\/ui\/(siwc|oauth-popup)/u, ["wizard-ui", "siwc-auth"]],
   [/^src\/ui\//u, ["wizard-ui"]],
-  [/^src\/services\/ui-preferences\.js$/u, ["wizard-ui"]],
+  [/^src\/services\/(ui-preferences|project-meta)\.js$/u, ["wizard-ui"]],
 
   // Entry points and shared validation reach every feature.
   [/^src\/(cli\.js|web\/server\.js)$/u, ["root"]],
