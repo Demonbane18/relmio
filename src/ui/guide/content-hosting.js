@@ -16,9 +16,9 @@ export const GUIDE = {
           id: "provider",
           target: "#hosting-provider",
           action: "choose",
-          title: "Pick your hosting provider",
-          say: "Pick the company or kind of hosting you use or plan to use. Relmio is tested on Hostinger KVM VPS and local Docker, and other providers are experimental.",
-          done: "changed",
+          title: "Check your hosting provider",
+          say: "Hostinger KVM VPS is selected because Relmio is tested on it and on local Docker. If you use another company, pick it here; other providers are experimental.",
+          done: "manual",
         },
         {
           id: "component",
