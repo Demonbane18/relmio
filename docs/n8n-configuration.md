@@ -310,8 +310,9 @@ discovery.
 The gateway reports unsupported parameters instead of silently dropping them.
 Output-token caps are the exception; see
 [AI Assistant requests](#ai-assistant-requests). `store:true` is also accepted
-and sent as `store:false`, so nothing is stored and a later request that names
-a stored response (`previous_response_id`) is still refused. The gateway does not switch
+and sent as `store:false`, so the gateway never asks OpenAI to keep a
+retrievable Responses object, and a later request that names a stored response
+(`previous_response_id`) is still refused. The gateway does not switch
 registrations, replay a partially received inference, or fall back to
 separately billed API access. A usage-limit error on the text
 routes directs you to [Manage usage](https://chatgpt.com/settings/usage).
