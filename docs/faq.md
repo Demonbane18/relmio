@@ -1,7 +1,8 @@
 # Frequently asked questions
 
-Answers about ChatGPT sign-in and plan use, local connections, SuperGrok, and
-private models. Read the [OpenAI source check](openai-source-check-2026-10-05.md)
+Answers about ChatGPT sign-in and plan use, usage limits, image generation,
+local connections, SuperGrok, and private models. Read the
+[OpenAI source check](openai-source-check-2026-10-05.md)
 for implementation evidence and unresolved provider requirements.
 
 ## Is ChatGPT sign-in a Platform API key?
@@ -74,6 +75,32 @@ and need confirmation. See [model discovery and checks](n8n-configuration.md#mod
 A model listing is not an entitlement promise. The gateway reports unsupported
 operations and provider errors; it has no alternative provider or account
 fallback.
+
+## Can n8n generate images through Relmio?
+
+Only on a VPS, and only after you turn on the image add-on. It uses a separate
+Codex sign-in that OpenAI does not document for other apps, so it can stop
+working without notice. In n8n, use the OpenAI node's **Generate an Image** or
+**Edit Image** with the same credential as your chat nodes and the model
+`gpt-image-2`.
+
+Limits:
+
+- Images use your plan's Codex limits 3 to 5 times faster than text, then
+  credits. Free plans can't use them.
+- Only `gpt-image-2`, one image per request, returned as base64. Masks and URL
+  responses are not supported. For GPT Image 2.5 Flare or Sunburst, use your
+  own OpenAI Platform API key in a separate n8n credential.
+- Sizes `1024x1024`, `1024x1536`, `1536x1024` or `auto`. OpenAI may return a
+  different size.
+- Edits take up to 16 images, each up to 25 MiB and 48 MiB in total.
+- Relmio waits up to 5 minutes for an image and does not retry a failed one.
+
+Setup and sign-out are in
+[Turn on image generation](vps-and-n8n.md#turn-on-image-generation-optional).
+Every limit is in
+[Generate and edit images](n8n-configuration.md#generate-and-edit-images-vps-add-on).
+The local sidecar has no image sign-in.
 
 ## How do I connect n8n?
 
