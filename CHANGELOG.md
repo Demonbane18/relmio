@@ -5,6 +5,8 @@ version across `package.json`, `package-lock.json`, this file, the Git tag,
 and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
+## Unreleased
+
 ## [0.20.0] - 2026-10-08
 
 Relmio 0.20.0 adds image generation to the local ChatGPT plan sidecar and fixes
