@@ -2540,7 +2540,16 @@ export async function stopLocalDashboardControlPlane(options = {}) {
   }
 
   for (let check = 0; check < stopChecks; check += 1) {
-    current = await inspectRuntime(runtime);
+    try {
+      current = await inspectRuntime(runtime);
+    } catch (error) {
+      // This poll holds no lock while the acknowledged daemon moves its files
+      // into retirement, so one pass can list an entry that is gone by the time
+      // it is read. Reread; state that stays inconsistent is still refused.
+      if (check + 1 >= stopChecks) throw error;
+      await sleep(stopPollMs);
+      continue;
+    }
     if (current.state === "absent") return Object.freeze({ state: "stopped" });
     if (current.state === "retiring" || current.state === "incomplete") {
       const retiringInstanceId = current.descriptor?.instanceId;
