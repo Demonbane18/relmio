@@ -25,6 +25,8 @@ function updateHosting() {
   el("hosting-alternative").hidden = supportedHosting();
 }
 setOptions(el("hosting-provider"), HOSTING_PROVIDERS.map(({ id, label }) => [id, label]));
+// Hostinger KVM VPS is the tested VPS route, so it starts selected.
+if (HOSTING_PROVIDERS.some(({ id }) => id === "hostinger")) el("hosting-provider").value = "hostinger";
 updateHosting();
 el("hosting-provider").addEventListener("change", () => {
   invalidate();

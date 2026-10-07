@@ -13,6 +13,9 @@ checks the registry separately after publication.
   choosing Flare or Sunburst in Relmio 0.16.0 through 0.18.6 never selected
   those models. The Codex image route ignores the model ID, so every image
   came from Codex's single image model, which Codex names `gpt-image-2`.
+- Hosting options and Self-hosted model on my server now start with Hostinger
+  KVM VPS selected, the VPS that Relmio is tested on. Pick another provider to
+  change it.
 - CI now runs only the checks a change can affect, adds macOS, Linux and an
   n8n node compatibility job, and reports one required `CI gate` check. A
   change to the website or docs no longer reruns the Windows, macOS and Linux
@@ -25,6 +28,13 @@ checks the registry separately after publication.
   AI Assistant's AI SDK calls. No ChatGPT account is used.
 
 ### Fixed
+
+- The local wizard's GitHub chip no longer shows `?` for the star count after
+  GitHub's limit of 60 unsigned requests an hour is used up. The wizard keeps
+  the count for 15 minutes, shares one request between pages that load
+  together, asks Relmio's website when GitHub refuses, and keeps the last
+  count when both fail. The chip still shows the Relmio version you are
+  running.
 
 - The ChatGPT plan sidecar's `/v1/chat/completions` route no longer refuses
   n8n's AI Agent on its second turn when the OpenAI Chat Model has Use
@@ -45,6 +55,43 @@ checks the registry separately after publication.
   the dashboard moves its control files away one by one, and a check could list
   a file just before it moved. Stop now checks again. A control file that stays
   changed is still refused.
+
+- On a VPS, the main button on **Choose your n8n** now follows what is
+  installed on the selected n8n. A check of the installed sidecar runs when
+  the step opens. It does not change the sidecar, but a running sidecar may
+  renew its ChatGPT sign-in and ask OpenAI for the account's model list.
+  Where Relmio's ChatGPT plan sidecar already runs,
+  the button reads **Review sidecar update**: it opens **Manage the installed
+  ChatGPT session**, checks the installed account again if that check is more
+  than four minutes old, and runs the update review there. It reads **Finish
+  sidecar update** after an interrupted update, **Open recovery** for an
+  interrupted install or migration, and **Review replacement** once the
+  installed sign-in is signed out. Before, choosing **Manage ChatGPT plan
+  sidecar** changed the button to **Review bridge update**, which started a
+  new install review that the server refused with `vps_sidecar_owned`. If the
+  server still refuses a new install, the wizard reads the owner and takes the
+  same route. The update keeps its own review and approval, and n8n is not
+  restarted.
+- **Manage ChatGPT plan sidecar** now opens **Manage the installed ChatGPT
+  session** and checks the installed account.
+- When OpenAI no longer accepts the VPS sidecar's sign-in, or Relmio cannot
+  confirm its last renewal, **Check installed account** says `Needs a fresh
+  sign-in.` instead of `Signed out.`, and the main button reads **Refresh
+  ChatGPT sign-in**. The panel shows the new **Refresh ChatGPT sign-in**
+  button only in that case. It starts a fresh ChatGPT sign-in on this
+  computer and hands it to the sidecar through the existing reviewed
+  replacement: sign out the old sign-in, reconnect, then review and confirm
+  the replacement, whose button reads **Replace the sidecar**. The wizard
+  accepts only the registration from that new sign-in and refuses other
+  accounts saved on this computer. It also refuses a new sign-in with a
+  different email, and offers no refresh when the installed account has no
+  email to check against. It cannot tell two workspaces with the same email
+  apart. ChatGPT treats the new sign-in as a new connection, so the old
+  connection's usage settings do not carry over. n8n needs the new Relmio key
+  afterward. No new kind of server write was added.
+- The setup guide explains `vps_sidecar_owned`, `vps_sidecar_updating`,
+  `vps_sidecar_staged` and `vps_sidecar_partial` and points at the panel that
+  resolves each one. It also has tips for the sign-in refresh.
 
 ## [0.19.0] - 2026-10-07
 

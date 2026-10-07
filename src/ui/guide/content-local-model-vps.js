@@ -26,8 +26,8 @@ export const GUIDE = {
           id: "provider",
           target: "#hosting-provider",
           action: "choose",
-          title: "Pick your hosting product",
-          say: "A VPS is a computer you rent that stays on all day in a data center. Pick the product you rent so Relmio can show login tips for it. This choice changes nothing on the server.",
+          title: "Check your hosting product",
+          say: "A VPS is a computer you rent that stays on all day in a data center. Hostinger KVM VPS is selected because Relmio is tested on it; pick another product if you rent one. This choice changes nothing on the server.",
           done: "manual",
         },
         {
