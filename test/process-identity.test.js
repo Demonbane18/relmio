@@ -143,6 +143,10 @@ test("macOS and Windows require a separate ESRCH proof before reporting dead", a
     runCommand: async () => ({ code: 0, stdout: "missing" }),
   });
   assert.deepEqual(windowsFailure, { state: "ambiguous" });
+  assert.deepEqual(await getLocalProcessIdentity(17, {
+    platform: "win32", fileSystem: null, probeProcess: () => "present", systemRoot: "C:\\Windows",
+    runCommand: async () => ({ code: 0, stdout: "ambiguous" }),
+  }), { state: "ambiguous" });
 
   const macDead = await getLocalProcessIdentity(17, {
     platform: "darwin",
