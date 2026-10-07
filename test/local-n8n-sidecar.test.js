@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -1034,12 +1034,22 @@ test("every file the image copies is readable by the node user that runs it", {
   assert.match(dockerfile, /^USER node$/mu);
   const copies = [...dockerfile.matchAll(/^COPY (.+)$/gmu)].map(([, rest]) => rest.trim().split(/\s+/u));
   assert.ok(copies.length > 0);
+  // Docker keeps host modes. --chown=node:node makes node the owner, so owner bits apply; otherwise
+  // the files stay root's and node needs the "other" bits. Directories also need search (x).
+  const check = async (path, chownNode) => {
+    const metadata = await stat(path);
+    const shift = chownNode ? 6 : 0;
+    const need = metadata.isDirectory() ? 0o5 : 0o4;
+    assert.equal(((metadata.mode >> shift) & need), need,
+      `${path} (mode ${(metadata.mode & 0o777).toString(8)}) must be readable by node`);
+    if (metadata.isDirectory()) {
+      for (const child of await readdir(path)) await check(join(path, child), chownNode);
+    }
+  };
   for (const parts of copies) {
     const chownNode = parts.includes("--chown=node:node");
     for (const source of parts.filter(part => !part.startsWith("--")).slice(0, -1)) {
-      const mode = (await stat(join(installRoot, source))).mode;
-      // Docker keeps host modes; a root-owned file without the world read bit is unreadable as node.
-      assert.ok(chownNode || (mode & 0o004) !== 0, `${source} (mode ${(mode & 0o777).toString(8)}) must be readable by node`);
+      await check(join(installRoot, source), chownNode);
     }
   }
 });
