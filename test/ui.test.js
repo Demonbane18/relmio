@@ -159,6 +159,7 @@ test("failed VPS install invalidates approval and returns to connection", async 
     ["install-button", { disabled: false, addEventListener: (_, handler) => handlers.set("install", handler) }],
     ["install-confirm", { checked: true }],
     ["background-consent", { checked: true }],
+    ["install-images-consent", { checked: false }],
     ["container-select", { value: "n8n" }],
     ["network-select", { value: "n8n_default" }],
     ["manage-vps-searxng", { checked: false }],
@@ -209,13 +210,15 @@ test("a VPS finalization failure holds the one-time key and drops the plan badge
   const start = script.indexOf('element("install-button").addEventListener');
   const end = script.indexOf('\nfor (const input of document.querySelectorAll', start);
   assert.ok(start >= 0 && end > start, "missing VPS install handler");
-  const run = async (result) => {
+  const run = async (result, imagesConsent = false) => {
     const handlers = new Map();
+    const requests = [];
     const messages = [];
     const nodes = new Map([
       ["install-button", { disabled: false, addEventListener: (_, handler) => handlers.set("install", handler) }],
       ["install-confirm", { checked: true }],
       ["background-consent", { checked: true }],
+      ["install-images-consent", { checked: imagesConsent }],
     ]);
     const element = (id) => {
       if (!nodes.has(id)) nodes.set(id, { hidden: false, disabled: false, textContent: "", className: "", value: "" });
@@ -226,14 +229,22 @@ test("a VPS finalization failure holds the one-time key and drops the plan badge
       state, element, sameSshIdentity, normalizeSiwcAccount, siwcErrorFromResponse, siwcErrorText,
       sshSession: { adoptedIdentity: () => rootIdentity },
       isAssistantIntegration: () => false, clearError() {}, invalidateReviewedPlan() {}, showError() {}, showStep() {},
+      renderVpsInstallImages() {},
       setMessage: (message) => messages.push(message), fillSelect() {}, renderHttpRequestBody() {},
       runOperation: async (_button, _label, work) => work(),
-      api: async () => ({ ...siwcInstallResult(), ...result }),
+      api: async (_path, options) => {
+        requests.push(options.body);
+        return { ...siwcInstallResult(), ...result };
+      },
     });
     await handlers.get("install")({ currentTarget: element("install-button") });
-    return { element, messages };
+    return { element, messages, requests };
   };
   const ready = await run({});
+  const optedIn = await run({ imagesFailure: { message: "Image sign-in did not start." } }, true);
+  assert.equal(ready.requests[0].imagesConsent, false);
+  assert.equal(optedIn.requests[0].imagesConsent, true);
+  assert.equal(optedIn.element("result-key").textContent, "k".repeat(43));
   const held = await run({ finalizationFailure: { error: "Final journal write failed", recovery: "review-again" } });
   assert.equal(ready.element("result-plan-badge").hidden, false);
   assert.equal(held.element("result-plan-badge").hidden, true);
@@ -252,6 +263,86 @@ test("a VPS finalization failure holds the one-time key and drops the plan badge
   assert.notEqual(held.messages.at(-1), ready.messages.at(-1));
   assert.notEqual(held.element("result-readiness").className, ready.element("result-readiness").className,
     "the readiness line is styled as a warning only when the key is held");
+});
+
+test("VPS Ready shows image code, polls to completion, and keeps one-time key visible", async () => {
+  const script = await readFile("src/ui/app.js", "utf8");
+  const start = script.indexOf("function stopVpsOwnerImagesPolling()");
+  const end = script.indexOf("const VPS_MODEL_BADGES", start);
+  const nodes = new Map();
+  const element = (id) => {
+    if (!nodes.has(id)) nodes.set(id, { hidden: false, checked: false, disabled: false,
+      textContent: "", addEventListener() {}, removeAttribute(name) { delete this[name]; } });
+    return nodes.get(id);
+  };
+  const state = { vpsImagesGeneration: 0, vpsImagesTimer: null, vpsOwner: null,
+    vpsImagesSurface: "owner", operationBusy: false };
+  const calls = [];
+  const timers = [];
+  let onPagehide;
+  let pollFails = false;
+  const context = {
+    state, element, token: "fixture", sshSession: { adoptedIdentity: () => rootIdentity },
+    window: { setTimeout(fn, delay) { timers.push({ fn, delay }); return timers.length; },
+      clearTimeout() {}, addEventListener(event, handler) { if (event === "pagehide") onPagehide = handler; } },
+    fetch: async (path, options) => { calls.push(["fetch", path, options]); return { ok: true }; },
+    api: async (path, options) => {
+      calls.push([path, options]);
+      if (pollFails && path === "/api/siwc/vps/images/login-status") throw new Error("poll unavailable");
+      if (path === "/api/siwc/vps/images/login-status") return { state: "signed-in",
+        account: { email: "images@example.test", accountIdSuffix: "abc123", planType: "plus" } };
+      if (path === "/api/siwc/vps/images/action") return { state: "off" };
+      return { disconnected: true };
+    },
+    runOperation: async (_button, _label, work) => work(),
+    clearError() {}, showError(error) { calls.push(["error", error.message]); }, setMessage() {},
+    clearEndedVpsConnectionState() { calls.push(["clear"]); },
+    showStep(step) { calls.push(["step", step]); },
+    focusVisible() {},
+  };
+  const images = vm.runInNewContext(`${script.slice(start, end)}; ({ renderVpsInstallImages, pollVpsOwnerImages, changeVpsOwnerImages });`,
+    context, { filename: "vps-ready-images.vm.js", timeout: 1_000 });
+  element("result-key").textContent = "one-time-client-key";
+  const pending = { state: "pending", pending: { userCode: "ABCD-1234",
+    verificationUrl: "https://auth.openai.com/codex/device", expiresAt: "2026-10-08T12:15:00.000Z" } };
+  images.renderVpsInstallImages({ images: pending });
+  assert.equal(element("result-images").hidden, false);
+  assert.equal(element("result-images-pending").hidden, false);
+  assert.equal(element("result-images-code").textContent, "ABCD-1234");
+  assert.equal(element("result-images-link").href, pending.pending.verificationUrl);
+  assert.equal(timers.at(-1).delay, 5_000);
+  await images.pollVpsOwnerImages(state.vpsImagesGeneration);
+  assert.equal(element("result-images-pending").hidden, true);
+  assert.match(element("result-images-status").textContent, /Codex image sign-in complete for images@example\.test \(plus\).*gpt-image-2.*not been tested/u);
+  assert.equal(element("result-key").textContent, "one-time-client-key");
+  assert.equal(calls.some(([path, step]) => path === "step" && step === 2), false);
+  assert.ok(calls.some(([path]) => path === "/api/disconnect"));
+
+  images.renderVpsInstallImages({ images: pending });
+  await images.changeVpsOwnerImages("login-cancel", element("result-images-cancel"));
+  assert.equal(calls.find(([path]) => path === "/api/siwc/vps/images/action")[1].body.confirmed, false);
+  assert.match(element("result-images-status").textContent, /Sidecar installed\. Image generation is off/u);
+  assert.equal(element("result-images-pending").hidden, true);
+  assert.equal(element("result-key").textContent, "one-time-client-key");
+  assert.equal(calls.some(([path, step]) => path === "step" && step === 2), false);
+  images.renderVpsInstallImages({ imagesFailure: { message: "Sidecar installed. Image sign-in did not start. You can try again under Manage the installed ChatGPT session." } });
+  assert.equal(element("result-images-pending").hidden, true);
+  assert.match(element("result-images-status").textContent, /Manage the installed ChatGPT session/u);
+  images.renderVpsInstallImages({ images: pending });
+  pollFails = true;
+  const beforeFailure = calls.filter(([path]) => path === "/api/disconnect").length;
+  await images.pollVpsOwnerImages(state.vpsImagesGeneration);
+  assert.equal(element("result-images-pending").hidden, true);
+  assert.equal(element("result-images-status").textContent,
+    "Sidecar installed. Image sign-in status could not be checked. Check image generation before trying again.");
+  assert.equal(calls.filter(([path]) => path === "/api/disconnect").length, beforeFailure + 1);
+  assert.equal(element("result-key").textContent, "one-time-client-key");
+
+  state.step = 5;
+  images.renderVpsInstallImages({ images: pending });
+  onPagehide();
+  assert.ok(calls.some(([name, path, options]) => name === "fetch" && path === "/api/disconnect" &&
+    options.keepalive === true && options.headers["X-Setup-Token"] === "fixture"));
 });
 
 test("SIWC request recovery is allowlisted and never returns a provider redirect or credential", () => {
@@ -471,16 +562,25 @@ test("review recipient follows the adopted guard identity and refuses missing or
   state.planId = "reviewed";
   assert.match(element("install-confirm-copy").textContent, /root@new\.example:22/u);
   assert.doesNotMatch(element("install-confirm-copy").textContent, /No authenticated VPS session/u);
+  assert.equal(element("install-images-row").hidden, false);
+  assert.match(element("install-images-confirm-label").textContent, /images on root@new\.example:22/u);
+  element("install-images-consent").checked = true;
+  assert.equal(state.planId, "reviewed");
   element("install-confirm").checked = true;
   element("background-consent").checked = true;
   element("install-confirm").handler({ currentTarget: element("install-confirm") });
   assert.equal(element("install-button").disabled, false);
+  review.renderIntegrationReview(plan);
+  assert.equal(element("install-images-consent").checked, false);
   current = { ...rootIdentity, host: "replacement.example", generation: 2 };
   await assert.rejects(() => guard.before("/api/plan"), /authenticated VPS changed/u);
   assert.equal(state.planId, null);
   assert.equal(element("install-confirm").checked, false);
   assert.throws(() => review.renderIntegrationReview(plan), /verified administrative SSH identity/u);
   await guard.after("/api/ssh/connect", { identity: current });
+  await guard.after("/api/install", { images: { state: "pending" } });
+  assert.equal(guard.adoptedIdentity()?.host, current.host);
+  await guard.adoptCurrent();
   await guard.after("/api/disconnect", {});
   assert.throws(() => review.renderIntegrationReview(plan), /verified administrative SSH identity/u);
 });

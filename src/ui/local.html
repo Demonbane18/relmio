@@ -871,6 +871,27 @@
                     </section>
                   </div>
                 </details>
+                <div id="local-install-images-row" hidden>
+                  <details id="local-install-images-disclosure" class="rm-disclosure">
+                    <summary>Image generation (optional)</summary>
+                    <div class="rm-disclosure__body">
+                      <p class="rm-small rm-muted">Uses a separate Codex sign-in, not the sidecar's Sign in with ChatGPT permission. OpenAI does not document this image route for other apps, so it may stop working. OpenAI recommends an API key for automation.</p>
+                      <p class="rm-small rm-muted">Leave this unchecked to install without image sign-in. If selected, Relmio starts Codex sign-in after installation. You still approve it on OpenAI's page.</p>
+                      <ul class="rm-small rm-muted">
+                        <li>Images use your Codex limits about 3 to 5 times faster on average than similar turns without images, then credits. Free plans cannot use them. <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noopener noreferrer">Codex usage<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                        <li>This computer stores a full Codex sign-in, including a refresh token, in the sidecar's Docker volume. Administrators, Docker users and backups can access it.</li>
+                        <li>Anyone who can run workflows in this n8n can use your account for images. Turn this on only if nobody else uses it.</li>
+                        <li>Device code sign-in must be enabled in ChatGPT security settings or allowed by your workspace admin.</li>
+                        <li>Use the same ChatGPT account as this sidecar. Relmio does not verify that the accounts match.</li>
+                        <li>Image requests send your prompt and any reference images to OpenAI.</li>
+                      </ul>
+                      <label class="rm-check check-row">
+                        <input id="local-install-images-confirm" type="checkbox" />
+                        <span>I understand. After installation, start Codex sign-in for images on this computer.</span>
+                      </label>
+                    </div>
+                  </details>
+                </div>
 
                 <aside id="review-policy" class="policy-note"></aside>
               </div>
@@ -1186,8 +1207,9 @@
                       <button id="installed-images-start" class="rm-button rm-button--sm" type="button" disabled>Sign in for images</button>
                     </div>
                     <div id="installed-images-pending" hidden>
-                      <p class="rm-small">Enter this code on the Codex sign-in page: <code id="installed-images-code"></code></p>
-                      <p class="rm-small">Only enter this code at auth.openai.com. Never share it.</p>
+                      <p id="installed-images-install-instruction" class="rm-small" hidden>Open the Codex sign-in page and enter this code. Only enter it at auth.openai.com. Never share it.</p>
+                      <p class="rm-small"><span id="installed-images-code-prompt">Enter this code on the Codex sign-in page: </span><code id="installed-images-code"></code></p>
+                      <p id="installed-images-safety" class="rm-small">Only enter this code at auth.openai.com. Never share it.</p>
                       <div class="rm-cluster">
                         <a id="installed-images-link" class="rm-link rm-link--standalone" target="_blank" rel="noopener noreferrer">Open the Codex sign-in page<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
                         <button id="installed-images-cancel" class="rm-button rm-button--sm rm-button--ghost" type="button">Cancel image sign-in</button>

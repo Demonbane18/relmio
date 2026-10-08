@@ -55,6 +55,7 @@ const state = {
   installedImages: null,
   imagesGeneration: 0,
   imagesTimer: null,
+  installImagesReady: false,
   chatTester: {
     activeController: null,
     conversationId: null,
@@ -1454,6 +1455,7 @@ function renderInstalledSiwcOwner({ target, state: serviceState, snapshot, revie
   element("local-siwc-images-signout-note").hidden = !sidecar || element("local-siwc-logout").hidden;
   element("local-siwc-images-pause-note").hidden = !sidecar || element("local-siwc-disable").hidden;
   // Image generation needs the running sidecar this install owns; its status is read when opened.
+  state.installImagesReady = false;
   renderInstalledImages(null, sidecar && serviceState === "healthy" && account?.ownership === "owned");
   element("installed-images").open = false;
 }
@@ -2228,31 +2230,51 @@ function renderInstalledImages(images, visible = true) {
   const view = images?.state;
   const account = images?.account;
   element("installed-images").hidden = !visible;
+  element("installed-images-check").hidden = false;
   element("installed-images-off").hidden = view !== "off" && view !== "reauthorize";
   element("installed-images-pending").hidden = view !== "pending";
   element("installed-images-on").hidden = view !== "signed-in" && view !== "reauthorize";
   for (const id of ["installed-images-confirm", "installed-images-signout-confirm"]) element(id).checked = false;
   for (const id of ["installed-images-start", "installed-images-signout"]) element(id).disabled = true;
   element("installed-images-code").textContent = view === "pending" ? images.pending.userCode : "";
+  element("installed-images-install-instruction").hidden = !state.installImagesReady || view !== "pending";
+  element("installed-images-code-prompt").hidden = state.installImagesReady && view === "pending";
+  element("installed-images-safety").hidden = state.installImagesReady && view === "pending";
   const link = element("installed-images-link");
   if (view === "pending") link.href = CODEX_IMAGES_VERIFICATION_URL;
   else link.removeAttribute("href");
   element("installed-images-expiry").textContent = view === "pending"
-    ? `The code expires at ${new Date(images.pending.expiresAt).toLocaleTimeString()}. Relmio checks every 5 seconds.`
+    ? `${state.installImagesReady ? "Code" : "The code"} expires at ${new Date(images.pending.expiresAt).toLocaleTimeString()}. Relmio checks every 5 seconds.`
     : "";
   const who = account
     ? ` for ${account.email ?? `account …${account.accountIdSuffix}`}${account.planType ? ` (${account.planType})` : ""}`
     : "";
-  element("installed-images-status").textContent = view === "signed-in" ? `Images on${who}.`
-    : view === "pending" ? "Open the Codex sign-in page and enter the code below. Image generation turns on when you approve it."
-      : view === "reauthorize" ? "The Codex image sign-in expired. Sign in for images again."
-        : view === "unavailable"
-          ? "Update the sidecar first to add image generation. An older Relmio version built this sidecar. Under Installed ChatGPT account, choose Sign out and revoke, then Review replacement with a fresh account. Removing the bridge and setting it up again also works."
-          : images?.outcome === "declined" ? "The Codex sign-in was declined. Image generation is off."
-            : images?.outcome === "expired" ? "The sign-in code expired before it was used. Image generation is off."
-              : view === "off" ? "Image generation is off."
-                : "Open this section to check image generation.";
+  setImagesStatus(state.installImagesReady
+    ? view === "signed-in"
+      ? `Codex image sign-in complete for ${account?.email ?? (account?.accountIdSuffix ? `account …${account.accountIdSuffix}` : "this account")}. In n8n, choose gpt-image-2. Image generation has not been tested.`
+      : view === "pending" ? "Sidecar installed. Image sign-in pending."
+        : view === "reauthorize" || ["cancelled", "declined", "expired"].includes(images?.outcome)
+          ? "Sidecar installed. Image generation is off. You can sign in for images later."
+          : "Sidecar installed. Image sign-in status is unknown. Check image generation before trying again."
+    : view === "signed-in" ? `Images on${who}.`
+      : view === "pending" ? "Open the Codex sign-in page and enter the code below. Image generation turns on when you approve it."
+        : view === "reauthorize" ? "The Codex image sign-in expired. Sign in for images again."
+          : view === "unavailable"
+            ? "Update the sidecar first to add image generation. An older Relmio version built this sidecar. Under Installed ChatGPT account, choose Sign out and revoke, then Review replacement with a fresh account. Removing the bridge and setting it up again also works."
+            : images?.outcome === "declined" ? "The Codex sign-in was declined. Image generation is off."
+              : images?.outcome === "expired" ? "The sign-in code expired before it was used. Image generation is off."
+                : view === "off" ? "Image generation is off."
+                  : "Open this section to check image generation.");
   if (view === "pending") scheduleInstalledImagesPoll(state.imagesGeneration);
+}
+
+// After an install the block stays closed, so its summary repeats the status and says where the code is.
+function setImagesStatus(text) {
+  element("installed-images-status").textContent = text;
+  const pending = state.installedImages?.state === "pending";
+  element("installed-images-title").textContent = state.installImagesReady
+    ? `Image generation: ${text}${pending ? " Open to see the code." : ""}`
+    : "Image generation";
 }
 
 function scheduleInstalledImagesPoll(generation, delay = 5_000) {
@@ -2273,8 +2295,9 @@ async function pollInstalledImages(generation) {
     result = await api("/api/local/n8n/siwc/images/login-status", { method: "POST", body: {} });
   } catch {
     if (generation !== state.imagesGeneration) return;
-    element("installed-images-status").textContent =
-      "The image sign-in status could not be checked. Press Check image generation to continue.";
+    setImagesStatus(state.installImagesReady
+      ? "Sidecar installed. Image sign-in status could not be checked. Check image generation before trying again."
+      : "The image sign-in status could not be checked. Press Check image generation to continue.");
     return;
   }
   if (generation !== state.imagesGeneration) return;
@@ -2321,18 +2344,55 @@ async function changeInstalledImages(action, button, confirmId) {
   renderInstalledImages(result);
   if (action === "login-start" && result.state === "pending") element("installed-images-link").focus();
   if (action === "login-cancel") element("installed-images-confirm").focus();
+  if (action === "login-cancel" && state.installImagesReady) {
+    setImagesStatus("Sidecar installed. Image generation is off. You can sign in for images later.");
+  }
   if (action === "sign-out") {
     const message = result.revocation === "unconfirmed"
       ? "The Codex image sign-in was removed from this computer's sidecar, but OpenAI did not confirm the revocation."
       : "Signed out of images. The Codex image sign-in was removed from this computer's sidecar.";
-    element("installed-images-status").textContent = message;
+    setImagesStatus(message);
     setMessage(message);
+  }
+}
+
+async function startInstallImages(result) {
+  const panel = element("installed-images");
+  state.installImagesReady = true;
+  renderInstalledImages(null);
+  // The block stays closed so Ready fits one screen; its summary carries the status.
+  panel.open = false;
+  const ready = result.readiness === "verified" && result.runtimeState === "running" &&
+    !result.finalizationFailure && result.deploymentMode !== "partial" &&
+    state.installedOwner?.account?.ownership === "owned";
+  const later = "Sidecar installed. Image sign-in did not start. You can try again under the sidecar's Manage ChatGPT sign-out, then Image generation.";
+  if (!ready) {
+    element("installed-images-check").hidden = true;
+    setImagesStatus(later);
+    return;
+  }
+  setImagesStatus("Starting image sign-in…");
+  const owner = state.installedOwner;
+  const generation = state.imagesGeneration;
+  try {
+    await api("/api/local/n8n/siwc/images/status", { method: "POST",
+      body: { registrationId: owner.account.registrationId } });
+    if (generation !== state.imagesGeneration || state.installedOwner !== owner) return;
+    const images = await api("/api/local/n8n/siwc/images/action", { method: "POST",
+      body: { action: "login-start", confirmed: true } });
+    if (generation !== state.imagesGeneration || state.installedOwner !== owner) return;
+    if (!["pending", "signed-in"].includes(images.state)) throw new Error("Image sign-in did not start.");
+    renderInstalledImages(images);
+  } catch {
+    if (generation !== state.imagesGeneration || state.installedOwner !== owner) return;
+    renderInstalledImages(null);
+    setImagesStatus(later);
   }
 }
 
 function initializeInstalledImages() {
   element("installed-images").addEventListener("toggle", (event) => {
-    if (event.currentTarget.open && !state.installedImages) void checkInstalledImages();
+    if (event.currentTarget.open && !state.installedImages && !state.installImagesReady) void checkInstalledImages();
   });
   element("installed-images-check").addEventListener("click", () => { void checkInstalledImages(); });
   element("installed-images-confirm").addEventListener("change", (event) => {
@@ -3151,6 +3211,8 @@ function invalidatePlan() {
   element("local-migration-consent").checked = false;
   element("local-replacement-consent").checked = false;
   element("local-background-consent").checked = false;
+  element("local-install-images-confirm").checked = false;
+  element("local-install-images-disclosure").open = false;
   element("install-button").disabled = true;
   element("install-settings-button").disabled = true;
   invalidateLocalModelReview();
@@ -3406,6 +3468,9 @@ function renderPlan(plan) {
   element("local-migration-consent").checked = false;
   element("local-replacement-consent-row").hidden = !replacing;
   element("local-replacement-consent").checked = false;
+  element("local-install-images-row").hidden = !sidecar;
+  element("local-install-images-disclosure").open = false;
+  element("local-install-images-confirm").checked = false;
   element("review-provider-context").textContent = localModel
     ? "Local model · Chat Completions"
     : n8nSuperGrok
@@ -4982,6 +5047,8 @@ element("install-button").addEventListener("click", async (event) => {
       : {}),
   };
   for (const input of stackSecretInputs) input.value = "";
+  const installImages = isN8nSidecar(state.plan.target) && element("local-install-images-confirm").checked;
+  let installed = null;
   const installProgressStarted = startInstallProgress(button);
   if (!installProgressStarted) return;
   setMessage(
@@ -5027,6 +5094,7 @@ element("install-button").addEventListener("click", async (event) => {
                       ? "Grok Build integration verified. Complete its official sign-in separately."
                       : "The selected ChatGPT plan registration is owned by this Codex installation. Copy its one-time local key.",
     );
+    installed = result;
   } catch (error) {
     if (stack && error.managedPartialStack === true) {
       invalidatePlan();
@@ -5105,6 +5173,7 @@ element("install-button").addEventListener("click", async (event) => {
     resetBasicAuthPasswordVisibility();
     element("n8n-stack-secrets").hidden = !retryStackCredentials;
   }
+  if (installed && installImages) await startInstallImages(installed);
 });
 
 element("remove-bridge-confirm").addEventListener("change", (event) => {

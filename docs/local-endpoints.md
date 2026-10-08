@@ -304,11 +304,20 @@ the same opt-in add-on as on a VPS. Read these points first:
   your workspace admin.
 - Sign in with the same ChatGPT account as this sidecar.
 
-To turn it on:
+The easiest time to turn it on is while you set up the sidecar. On the review
+step, open **Image generation (optional)**, read the notes and select **I
+understand. After installation, start Codex sign-in for images on this
+computer.** After the install, the Ready step's **Image generation** section
+says `Sidecar installed. Image sign-in pending. Open to see the code.` Open it,
+choose **Open the Codex sign-in page** and enter the code at
+`https://auth.openai.com/codex/device`. When you approve, it says `Codex image
+sign-in complete`. Leave the box unticked to install without images; a failed
+image sign-in never fails the install.
+
+To turn it on later for an installed sidecar:
 
 1. On the dashboard, select **ChatGPT plan sidecar** and choose **Manage
-   ChatGPT sign-out**. The setup flow's Ready step shows the same controls
-   right after an install.
+   ChatGPT sign-out**.
 2. Open **Image generation**. Relmio checks the running sidecar this install
    owns. If the panel says `Update the sidecar first`, an older Relmio version
    built the sidecar: choose **Sign out and revoke** under **Installed ChatGPT

@@ -183,7 +183,7 @@ function createVpsInstallBody(
     networkName: "proxy",
     ...(assistant ? { includeSearxng } : {}),
     confirmed: true,
-    ...(!assistant ? { backgroundConsent: true } : {}),
+    ...(!assistant ? { backgroundConsent: true, imagesConsent: false } : {}),
     planId: assistant ? setup.assistantPlanId : setup.sidecarPlanId,
     ...overrides,
   });
@@ -1185,6 +1185,7 @@ test("wizard flow validates discovered selections and never echoes a password", 
       confirmed: true,
       backgroundConsent: true,
       planId: reviewedPlan.planId,
+      imagesConsent: false,
     }),
   });
   assert.equal(install.status, 200);
@@ -1193,6 +1194,155 @@ test("wizard flow validates discovered selections and never echoes a password", 
     "http://n8n-openai-oauth:10531/v1",
   );
   assert.equal(remote.closed, true);
+});
+
+test("VPS install leaves images off without opt-in and disconnects SSH", async (t) => {
+  const { services, remote } = createServices();
+  let imageCalls = 0;
+  services.getVpsCodexImagesStatus = async () => { imageCalls++; throw new Error("images were read without consent"); };
+  services.changeVpsCodexImages = async () => { imageCalls++; throw new Error("images were started without consent"); };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  const response = await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup) });
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.equal(result.images, undefined);
+  assert.equal(result.imagesFailure, undefined);
+  assert.equal(imageCalls, 0);
+  assert.equal(remote.closed, true);
+});
+
+test("VPS install opt-in starts image sign-in on reviewed target and keeps SSH for polling", async (t) => {
+  const { services, remote } = createServices();
+  const calls = [];
+  services.getVpsCodexImagesStatus = async (input) => {
+    calls.push(["status", input]);
+    return { ...imagesSecrets, state: "off" };
+  };
+  services.changeVpsCodexImages = async (input) => {
+    calls.push([input.action, input]);
+    return { ...imagesSecrets, state: input.action === "login-start" ? "pending" : "signed-in",
+      ...(input.action === "login-start" ? { pending: imagesPending } : { account: imagesAccount }) };
+  };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  const installed = await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup, { imagesConsent: true }) });
+  assert.equal(installed.status, 200);
+  const result = await installed.json();
+  assert.equal(result.clientCredential, "k".repeat(43));
+  assert.deepEqual(result.images, { state: "pending", pending: {
+    userCode: "ABCD-1234", verificationUrl: "https://auth.openai.com/codex/device",
+    expiresAt: imagesPending.expiresAt } });
+  assert.equal(calls[0][1].reviewedTarget.host, exampleHost);
+  assert.equal(calls[0][1].reviewedTarget.n8nContainerId, "a".repeat(64));
+  assert.equal(calls[1][1].remote, remote);
+  assert.equal(calls[1][1].registrationId, siwcAccount.registrationId);
+  assert.equal(calls[1][1].expectedContainerId, imagesContainerId);
+  assert.equal(calls[1][1].confirmed, true);
+  assert.equal(remote.closed, false);
+  const poll = await api(wizard.origin, "/api/siwc/vps/images/login-status", {
+    method: "POST", headers: setup.originHeader, body: "{}" });
+  assert.equal(poll.status, 200);
+  assert.equal((await poll.json()).state, "signed-in");
+  assert.equal(calls[2][0], "login-poll");
+  assert.equal(remote.closed, true);
+});
+
+test("VPS image polling failure releases the kept install connection", async (t) => {
+  const { services, remote } = createServices();
+  services.getVpsCodexImagesStatus = async () => ({ ...imagesSecrets, state: "off" });
+  services.changeVpsCodexImages = async ({ action }) => {
+    if (action === "login-poll") throw new Error("refresh_token=must-not-leak");
+    return { ...imagesSecrets, state: "pending", pending: imagesPending };
+  };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  assert.equal((await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup, { imagesConsent: true }) })).status, 200);
+  assert.equal(remote.closed, false);
+  const poll = await api(wizard.origin, "/api/siwc/vps/images/login-status", {
+    method: "POST", headers: setup.originHeader, body: "{}" });
+  assert.equal(poll.ok, false);
+  assert.equal((await poll.text()).includes("must-not-leak"), false);
+  assert.equal(remote.closed, true);
+});
+
+test("VPS install retains one-time key when optional image sign-in fails", async (t) => {
+  const { services, remote } = createServices();
+  services.getVpsCodexImagesStatus = async () => { throw new Error("refresh_token=must-not-leak"); };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  const response = await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup, { imagesConsent: true }) });
+  assert.equal(response.status, 200);
+  const text = await response.text();
+  assert.equal(text.includes("must-not-leak"), false);
+  const result = JSON.parse(text);
+  assert.equal(result.clientCredential, "k".repeat(43));
+  assert.equal(typeof result.imagesFailure.message, "string");
+  assert.equal(remote.closed, true);
+});
+
+test("VPS image start failure and unverified runtime leave install successful without a pending SSH session", async (t) => {
+  for (const unverified of [false, true]) {
+    await t.test(unverified ? "runtime unverified" : "image start throws", async (subtest) => {
+      const { services, remote } = createServices();
+      const calls = [];
+      services.getVpsCodexImagesStatus = async () => {
+        calls.push("status");
+        return { ...imagesSecrets, state: "off" };
+      };
+      services.changeVpsCodexImages = async () => {
+        calls.push("start");
+        throw new Error("refresh_token=must-not-leak");
+      };
+      if (unverified) services.installSidecar = async () => siwcInstallResult({
+        deploymentMode: "partial", readiness: "unverified",
+        finalizationFailure: { error: "Finalization incomplete.", recovery: "resolve-handoff" },
+      });
+      const wizard = await startWizardServer({ sessionToken, services });
+      subtest.after(() => wizard.close());
+      const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+      const response = await api(wizard.origin, "/api/install", { method: "POST",
+        headers: setup.originHeader, body: createVpsInstallBody(setup, { imagesConsent: true }) });
+      assert.equal(response.status, 200);
+      const text = await response.text();
+      assert.equal(text.includes("must-not-leak"), false);
+      const result = JSON.parse(text);
+      assert.equal(result.clientCredential, "k".repeat(43));
+      assert.equal(result.imagesFailure.message, "Sidecar installed. Image sign-in did not start. You can try again under Manage the installed ChatGPT session.");
+      assert.deepEqual(calls, unverified ? [] : ["status", "start"]);
+      assert.equal(remote.closed, true);
+    });
+  }
+});
+
+test("VPS image install opt-in requires an explicit boolean without consuming the review", async (t) => {
+  const { services } = createServices();
+  let installs = 0;
+  services.installSidecar = async () => { installs++; return siwcInstallResult(); };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const setup = await prepareVpsNetwork(wizard.origin, { sidecarPlan: true });
+  for (const value of [undefined, null, "true", 1]) {
+    const body = JSON.parse(createVpsInstallBody(setup));
+    if (value === undefined) delete body.imagesConsent;
+    else body.imagesConsent = value;
+    const rejected = await api(wizard.origin, "/api/install", {
+      method: "POST", headers: setup.originHeader, body: JSON.stringify(body) });
+    assert.equal(rejected.status, 400);
+  }
+  assert.equal(installs, 0);
+  const accepted = await api(wizard.origin, "/api/install", { method: "POST",
+    headers: setup.originHeader, body: createVpsInstallBody(setup) });
+  assert.equal(accepted.status, 200);
+  assert.equal(installs, 1);
 });
 
 test("VPS install plans are single-use and one shared lock excludes assistant and sidecar mutations", async (t) => {
@@ -1490,6 +1640,7 @@ test("an active VPS mutation excludes OAuth start and releases ownership after f
       networkName: "proxy",
       confirmed: true,
       backgroundConsent: true,
+      imagesConsent: false,
       planId: setup.sidecarPlanId,
     }),
   });
@@ -1624,6 +1775,7 @@ test("OAuth refresh invalidates a previously reviewed VPS credential plan", asyn
       containerName: "n8n-n8n-1",
       networkName: "proxy",
       confirmed: true,
+      imagesConsent: false,
       backgroundConsent: true,
       planId: setup.sidecarPlanId,
     }),
@@ -3465,10 +3617,8 @@ test("VPS image actions need confirmation and a live target; a finished sign-in 
   assert.equal(cancelled.status, 200);
   assert.deepEqual(await cancelled.json(), { state: "off" });
   assert.equal(changes[3].action, "login-cancel");
-  assert.equal(images.remote.closed, false);
-  const later = Date.now() + 21 * 60_000;
-  t.mock.method(Date, "now", () => later);
-  assert.equal((await act({ action: "login-cancel", confirmed: true })).status, 409);
+  assert.equal(images.remote.closed, true);
+  assert.equal((await act({ action: "login-cancel", confirmed: true })).ok, false);
   assert.equal(changes.length, 4);
 });
 
