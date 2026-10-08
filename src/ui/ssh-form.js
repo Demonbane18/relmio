@@ -127,8 +127,11 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
         showReviewIdentity("", "");
         element("ssh-session").textContent = "No authenticated VPS session.";
       }
-      // These root installs intentionally retire their connection after completion.
-      else if (path === "/api/install" || path === "/api/assistant/install") { adopted = null; onIdentityDecision(); }
+      // A pending image sign-in keeps the verified SSH connection until polling finishes.
+      else if (path === "/api/assistant/install" || (path === "/api/install" && result.images?.state !== "pending")) {
+        adopted = null;
+        onIdentityDecision();
+      }
       else if (isRemote(path)) await verify();
     },
   };

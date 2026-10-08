@@ -585,6 +585,26 @@
                     <ul id="review-build-list" class="setup-list"></ul>
                   </div>
                 </details>
+                <details id="install-images-row" class="rm-disclosure rm-disclosure--plain" hidden>
+                  <summary>Image generation (optional)</summary>
+                  <div class="rm-disclosure__body">
+                    <p class="rm-small">Uses a separate Codex sign-in, not the sidecar's Sign in with ChatGPT permission. OpenAI does not document this image route for other apps, so it may stop working. OpenAI recommends an API key for automation.</p>
+                    <p class="rm-small">Leave this unchecked to install without image sign-in. If selected, Relmio starts Codex sign-in after installation. You still approve it on OpenAI's page.</p>
+                    <ul class="rm-small rm-muted">
+                      <li>Images use your Codex limits about 3 to 5 times faster on average than similar turns without images, then credits. Free plans cannot use them. <a href="https://chatgpt.com/codex/settings/usage" target="_blank" rel="noopener noreferrer">Codex usage<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                      <li>This server stores a full Codex sign-in, including a refresh token. Root users, Docker users and backups can access it.</li>
+                      <li>Anyone who can run workflows in this n8n can use your account for images. Turn this on only if nobody else uses it.</li>
+                      <li>Device code sign-in must be enabled in ChatGPT security settings or allowed by your workspace admin.</li>
+                      <li>Use the same ChatGPT account as this sidecar. Relmio does not verify that the accounts match.</li>
+                      <li>Image requests send your prompt and any reference images to OpenAI.</li>
+                    </ul>
+                    <label class="rm-check setup-approval">
+                      <input id="install-images-consent" type="checkbox" />
+                      <span id="install-images-confirm-label">I understand. After installation, start Codex sign-in for images on this server.</span>
+                    </label>
+                    <p class="rm-small">Relmio keeps the SSH connection open while you complete image sign-in.</p>
+                  </div>
+                </details>
               </div>
             </section>
 
@@ -684,6 +704,21 @@
 
                     <p class="rm-small rm-muted">This key is not an OpenAI OAuth token.</p>
                     <p id="result-usage" class="rm-small rm-muted"><strong>Plan and usage:</strong> Relmio counts the text requests n8n sends through it, but not model checks or images. See them later under Manage the installed ChatGPT session.</p>
+                    <section id="result-images" aria-labelledby="result-images-title" hidden>
+                      <p class="rm-small"><strong id="result-images-title">Image generation:</strong> <span id="result-images-status" role="status" aria-live="polite"></span></p>
+                      <details id="result-images-pending" class="rm-disclosure rm-disclosure--plain" hidden>
+                        <summary>Enter the Codex sign-in code</summary>
+                        <div class="rm-disclosure__body">
+                          <p class="rm-small">Open the Codex sign-in page and enter this code. Only enter it at auth.openai.com. Never share it.</p>
+                          <div class="rm-cluster">
+                            <code id="result-images-code"></code>
+                            <a id="result-images-link" class="rm-link rm-link--standalone" target="_blank" rel="noopener noreferrer">Open the Codex sign-in page<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+                            <button id="result-images-cancel" class="rm-button rm-button--sm rm-button--ghost" type="button">Cancel image sign-in</button>
+                          </div>
+                          <p class="rm-small rm-muted"><span id="result-images-expiry"></span> <span id="result-images-ssh">SSH is still connected for image sign-in. Keep this Relmio tab open until you finish or cancel.</span></p>
+                        </div>
+                      </details>
+                    </section>
                   </div>
 
                   <div class="setup-results__side">

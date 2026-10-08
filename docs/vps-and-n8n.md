@@ -302,8 +302,20 @@ Read these points before you turn it on:
   files under `/docker/n8n-openai-oauth/siwc/codex-images`. Anyone with root
   or Docker access on the server, or a copy of that folder, can read them.
 
-To turn it on, connect to the server and select its n8n container and
-network, then:
+The easiest time to turn it on is while you install the sidecar. On the
+**Review** step, open **Image generation (optional)**, read the notes and
+select **I understand. After installation, start Codex sign-in for images on
+…**. After the install, the Ready step shows `Image generation: Sidecar
+installed. Image sign-in pending.` below your one-time Relmio key. Open **Enter
+the Codex sign-in code**, choose **Open the Codex sign-in page** and enter the
+code at `https://auth.openai.com/codex/device`. Relmio keeps the SSH
+connection open until you finish or cancel, so keep the tab open. When you
+approve, the Ready step says `Codex image sign-in complete`. Leave the box
+unticked to install without images; the install is the same either way, and
+a failed image sign-in never fails the install.
+
+To turn it on later for an installed sidecar, connect to the server and
+select its n8n container and network, then:
 
 1. Open **Manage the installed ChatGPT session** and choose **Check installed
    account**. The image controls appear when this install owns the running

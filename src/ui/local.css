@@ -983,6 +983,9 @@ body[data-current-step="1"] .setup-panel :is(.rm-panel__header, .rm-panel__foote
   font-size: var(--rm-text-sm);
 }
 
+#installed-images a {
+  overflow-wrap: anywhere;
+}
 
 /* Step 3: install -------------------------------------------------------- */
 

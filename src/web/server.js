@@ -5817,7 +5817,7 @@ async function handleApi(request, response, path, state) {
     const { connection } = connectionUse;
     let operation;
     let releaseMutation;
-    let detach = action === "sign-out";
+    let detach = action === "sign-out" || action === "login-cancel" || polling;
     try {
       requireFullVpsScope(connection);
       if (checking || polling) {
@@ -5829,7 +5829,7 @@ async function handleApi(request, response, path, state) {
         : await state.services.changeVpsCodexImages({ remote: connection, networkName, reviewedTarget, registrationId,
           action, expectedContainerId: stored.containerId, confirmed: polling ? false : body.confirmed });
       const view = copyCodexImagesStatus(result);
-      detach ||= polling && view.state !== "pending";
+      if (polling && view.state === "pending") detach = false;
       state.vpsImagesTarget = detach ? null : { reviewedTarget, registrationId, containerId: result.containerId,
         pending: view.state === "pending", expiresAt: Date.now() + VPS_ADDON_TARGET_MS };
       sendJson(response, 200, view);
@@ -6122,11 +6122,11 @@ async function handleApi(request, response, path, state) {
     enforceRateLimit(state, path);
     const reviewedPlan = state.sidecarPlan;
     requireExactRequestBody(body,
-      ["planId", "containerName", "networkName", "confirmed", "backgroundConsent",
+      ["planId", "containerName", "networkName", "confirmed", "backgroundConsent", "imagesConsent",
         ...(reviewedPlan?.legacyBinding ? ["migrationConsent"] : []),
         ...(reviewedPlan?.existingBinding ? ["replacementConsent"] : [])],
       "Confirm the reviewed ChatGPT account and background n8n use.");
-    if (body.confirmed !== true || body.backgroundConsent !== true ||
+    if (body.confirmed !== true || body.backgroundConsent !== true || typeof body.imagesConsent !== "boolean" ||
         (reviewedPlan?.legacyBinding && body.migrationConsent !== true) ||
         (reviewedPlan?.existingBinding && body.replacementConsent !== true)) {
       throw Object.assign(new Error("Approve the reviewed destination, background use, and any separate migration or replacement."), { statusCode: 400 });
@@ -6142,11 +6142,11 @@ async function handleApi(request, response, path, state) {
     requireFullVpsScope(connection);
     state.sidecarPlan = null;
     const releaseVpsMutationLock = acquireVpsMutationLock(state);
-    let result;
+    let keepConnectionForImages = false;
     try {
       if (reviewedPlan.resume) await requireRecoveryBinding(state, reviewedPlan.sourceBinding);
       else await requireMatchingSiwcBinding(state, reviewedPlan.authBinding);
-      result = await state.services.installSidecar({
+      const result = await state.services.installSidecar({
         remote: connection,
         networkName: body.networkName,
         registration: { storageRoot: state.storageRoot, registrationId: reviewedPlan.authBinding.registrationId },
@@ -6160,43 +6160,69 @@ async function handleApi(request, response, path, state) {
         ...(reviewedPlan.existingBinding ? { replacementConsent: true,
           existingBinding: reviewedPlan.existingBinding } : {}),
       });
+      if (!result || result.baseUrl !== "http://n8n-openai-oauth:10531/v1" ||
+          typeof result.clientCredential !== "string" ||
+          !/^[A-Za-z0-9_-]{32,256}$/u.test(result.clientCredential) ||
+          result.credentialShownOnce !== true ||
+          !["installed", "migrated", "replaced", "partial"].includes(result.deploymentMode) ||
+          (result.deploymentMode === "migrated" && (result.migratedLegacy !== true || result.legacyRetained !== true ||
+            !(reviewedPlan.resume
+              ? reviewedPlan.resume.deploymentMode === result.deploymentMode
+              : reviewedPlan.legacyBinding))) ||
+          (result.deploymentMode === "replaced" && (result.replacedAccount !== true ||
+            !(reviewedPlan.resume
+              ? reviewedPlan.resume.deploymentMode === result.deploymentMode
+              : reviewedPlan.existingBinding))) ||
+          (result.deploymentMode === "partial" && !result.runtimeFailure && !result.finalizationFailure) ||
+          (result.hostPublication !== "none" &&
+            !(result.deploymentMode === "partial" && result.runtimeState === "unknown" &&
+              result.hostPublication === "unknown")) ||
+          result.account?.registrationId !== reviewedPlan.authBinding.registrationId ||
+          !Array.isArray(result.models) || result.models.some((model) =>
+            typeof model !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/u.test(model))) {
+        throw Object.assign(new Error("The sidecar returned an invalid installation result."), { statusCode: 502 });
+      }
+      const installView = {
+        baseUrl: result.baseUrl, clientCredential: result.clientCredential,
+        credentialShownOnce: true, models: result.models, deploymentMode: result.deploymentMode,
+        hostPublication: result.hostPublication,
+        account: copySiwcAccountView(result.account),
+        ...copySiwcReadiness(result),
+        ...(result.migratedLegacy === true ? { migratedLegacy: true, legacyRetained: result.legacyRetained === true } : {}),
+        ...(result.replacedAccount === true ? { replacedAccount: true } : {}),
+      };
+      if (body.imagesConsent) {
+        if (result.readiness === "verified" && result.runtimeState === "running" &&
+            !result.finalizationFailure && result.deploymentMode !== "partial") {
+          try {
+            const reviewedTarget = reviewedPlan.reviewedTarget;
+            const registrationId = reviewedPlan.authBinding.registrationId;
+            const options = { remote: connection, networkName: body.networkName, reviewedTarget, registrationId };
+            const current = await state.services.getVpsCodexImagesStatus(options);
+            const status = copyCodexImagesStatus(current);
+            const images = status.state === "off"
+              ? await state.services.changeVpsCodexImages({ ...options, action: "login-start",
+                expectedContainerId: current.containerId, confirmed: true })
+              : current;
+            installView.images = copyCodexImagesStatus(images);
+            if (installView.images.state === "pending") {
+              state.vpsImagesTarget = { reviewedTarget, registrationId, containerId: images.containerId,
+                pending: true, expiresAt: Date.now() + VPS_ADDON_TARGET_MS };
+              keepConnectionForImages = true;
+            }
+          } catch {
+            installView.imagesFailure = { message: "Sidecar installed. Image sign-in did not start. You can try again under Manage the installed ChatGPT session." };
+          }
+        } else {
+          installView.imagesFailure = { message: "Sidecar installed. Image sign-in did not start. You can try again under Manage the installed ChatGPT session." };
+        }
+      }
+      sendJson(response, 200, installView);
     } finally {
-      detachVpsConnection(state, connection);
+      if (!keepConnectionForImages) detachVpsConnection(state, connection);
       releaseVpsMutationLock();
       connectionUse.release();
     }
-
-    if (!result || result.baseUrl !== "http://n8n-openai-oauth:10531/v1" ||
-        typeof result.clientCredential !== "string" ||
-        !/^[A-Za-z0-9_-]{32,256}$/u.test(result.clientCredential) ||
-        result.credentialShownOnce !== true ||
-        !["installed", "migrated", "replaced", "partial"].includes(result.deploymentMode) ||
-        (result.deploymentMode === "migrated" && (result.migratedLegacy !== true || result.legacyRetained !== true ||
-          !(reviewedPlan.resume
-            ? reviewedPlan.resume.deploymentMode === result.deploymentMode
-            : reviewedPlan.legacyBinding))) ||
-        (result.deploymentMode === "replaced" && (result.replacedAccount !== true ||
-          !(reviewedPlan.resume
-            ? reviewedPlan.resume.deploymentMode === result.deploymentMode
-            : reviewedPlan.existingBinding))) ||
-        (result.deploymentMode === "partial" && !result.runtimeFailure && !result.finalizationFailure) ||
-        (result.hostPublication !== "none" &&
-          !(result.deploymentMode === "partial" && result.runtimeState === "unknown" &&
-            result.hostPublication === "unknown")) ||
-        result.account?.registrationId !== reviewedPlan.authBinding.registrationId ||
-        !Array.isArray(result.models) || result.models.some((model) =>
-          typeof model !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/u.test(model))) {
-      throw Object.assign(new Error("The sidecar returned an invalid installation result."), { statusCode: 502 });
-    }
-    sendJson(response, 200, {
-      baseUrl: result.baseUrl, clientCredential: result.clientCredential,
-      credentialShownOnce: true, models: result.models, deploymentMode: result.deploymentMode,
-      hostPublication: result.hostPublication,
-      account: copySiwcAccountView(result.account),
-      ...copySiwcReadiness(result),
-      ...(result.migratedLegacy === true ? { migratedLegacy: true, legacyRetained: result.legacyRetained === true } : {}),
-      ...(result.replacedAccount === true ? { replacedAccount: true } : {}),
-    });
     return;
   }
 

@@ -958,3 +958,270 @@ Reviewed on 2026-10-07; applied on 2026-10-08 on `feat/local-images`.
 - Required wording: the local panel uses the disclosure, confirmation, pending and sign-out text above, including the shared-n8n line (`src/ui/local.html:1173-1202`). The notes beside **Sign out and revoke**, **Pause plan use** and removal are at `src/ui/local.html:1152-1153,1387`, and the connection details line at `:443`. The copy table was applied to README, npm README, SPEC, the FAQ, the local endpoint guide and spec, Configure n8n, troubleshooting, and the local storage line in `docs/security.md:498`. The CHANGELOG history was left unchanged and a new Unreleased entry added.
 
 This review is not legal advice, OpenAI approval, proof of Terms compliance or permission to use a Codex credential bridge. It is not evidence that `gpt-image-2`, any image request or TTS works through Relmio. Identity sign-in, the approved permissions and model capability remain separate checks.
+
+## Addendum: image sign-in during sidecar install
+
+Review date: 2026-10-08.
+
+Reviewed the working tree in `/private/tmp/relmio-images-install`, including the image authentication module, gateway, VPS and local orchestration, and disclosures in `README.md`, `docs/security.md`, `docs/faq.md`, `src/ui/index.html` and `src/ui/local.html`. This follows the [2026-10-06 Codex image review](openai-source-check-2026-10-06.md#addendum-codex-login-image-add-on) and the local-sidecar addendum above.
+
+Implementation was changing during this review. The local install checkbox and startup handler, and the VPS install backend, were present in the later snapshot. The VPS review and Ready controls were still pending in the UI snapshot read. File references describe those snapshots and may move. Planned behavior is identified below rather than reported as tested behavior.
+
+No sign-in, provider API call, form submission, credential access, SSH or Docker operation, browser session, build or test was performed. No files were edited.
+
+Labels: **Confirmed** means an official OpenAI source fetched today states it. **Observed** means the inspected Relmio source shows it. **Open** means the evidence does not settle the question. Recommendations and unexercised consequences are marked **Open [assessment]** or **Open [design]**. Prior third-party implementation evidence remains **Provisional** and was not refetched or used as OpenAI authorization.
+
+### What changed
+
+- **Open [design]:** Offer **Image generation (optional)** during sidecar install review, unchecked by default and separate from install approval, ChatGPT identity sign-in and permission for background n8n use. After a verified install, an opted-in user receives the Codex device code on Ready. An unticked install must not start image sign-in. Image-sign-in failure must not turn a successful install into a failed install.
+- **Observed:** Local review has a separate checkbox without a `checked` attribute. The existing disclosures precede it. JavaScript clears it when invalidating or rendering a plan and captures its value only for the n8n sidecar. `startInstallImages` requires verified readiness, a running runtime, no finalization failure, a non-partial deployment and an owned account. It then calls the existing image status and login-start routes, catches image errors separately, and reuses the pending-code renderer and polling (`src/ui/local.html:884-910`; `src/ui/local.js:3184-3186,3442-3444,5022,5148,2334-2362,2225-2283`).
+- **Observed:** VPS `/api/install` now requires a separate Boolean `imagesConsent`. Only true enters the image branch, after install-result validation. That branch checks a running, non-partial runtime without finalization failure, checks image status and starts login when status is `off`. It adds a sanitized image result or fixed image-failure message to the install response. SSH remains attached only when that returned image state is pending; otherwise the install handler detaches (`src/web/server.js:6120-6224`).
+- **Open:** In the inspected VPS branch, the image gate checks runtime and finalization but does not explicitly check `readiness === "verified"`, unlike the local handler. The parent must resolve whether this meets the task's verified-install criterion before acceptance. The VPS UI wiring and complete terminal-state cleanup were not yet available for this review.
+- **Observed:** The gateway still appends `gpt-image-2` only when the image store reports `signed-in`, and only when the model-list request lacks `openai-platform`. This is a Relmio-created entry, not an OpenAI image-capability probe (`src/gateway/openai-oauth-sidecar.mjs:972-986`). **Open [assessment]:** That explains why a fresh unsigned-in add-on can provide no image choice. This review did not reproduce n8n's picker or establish that every empty picker has that cause.
+
+### Sources with retrieval dates
+
+Every source below was retrieved on **2026-10-08**. The Sign in with ChatGPT Help Center article was fetched first. Developer and learn pages showed no publication or update date. Relative dates are recorded as displayed, without converting them to an inferred timestamp.
+
+| Official source | Displayed publication or update date | Retrieval date |
+| --- | --- | --- |
+| [Sign in with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) | Updated: 6 days ago; fetched first | 2026-10-08 |
+| [Codex authentication](https://developers.openai.com/codex/auth), served as [Authentication](https://learn.chatgpt.com/docs/auth), including headless device-code login, caching and credential storage | None | 2026-10-08 |
+| [Using Codex with your ChatGPT plan](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan) | Updated: 5 hours ago | 2026-10-08 |
+| [Codex image generation](https://learn.chatgpt.com/docs/image-generation) | None | 2026-10-08 |
+| [Codex pricing](https://learn.chatgpt.com/docs/pricing), image usage and feature availability | None | 2026-10-08 |
+| [Codex App Server](https://learn.chatgpt.com/docs/app-server), Auth endpoints | None | 2026-10-08 |
+| [SIWC preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) | None | 2026-10-08 |
+| [SIWC models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) | None | 2026-10-08 |
+| [SIWC UI/UX guidelines](https://developers.openai.com/siwc/ui-ux-guidelines) | None | 2026-10-08 |
+| [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/) | September 29, 2026 | 2026-10-08 |
+| [Service Terms, English-GB](https://openai.com/en-GB/policies/service-terms/), especially §§1, 3, 6 and 15 | Updated: 29 September 2026 | 2026-10-08 |
+| [Terms of Use](https://openai.com/policies/row-terms-of-use/) | Published and effective January 1, 2026 | 2026-10-08 |
+| [Europe Terms of Use](https://openai.com/policies/eu-terms-of-use/) | Updated: January 16, 2026 | 2026-10-08 |
+| [OpenAI Services Agreement](https://openai.com/policies/services-agreement/) | Updated: December 1, 2025; effective January 1, 2026 | 2026-10-08 |
+| [Privacy policy](https://openai.com/policies/privacy-policy/) | Updated: July 30, 2026; returned canonical URL is `/policies/services-communications-privacy-policy/` | 2026-10-08 |
+| [Europe privacy policy](https://openai.com/policies/eu-privacy-policy/) | Updated: August 24, 2026 | 2026-10-08 |
+
+**Confirmed:** The Codex Help article says ChatGPT Terms of Use and Privacy Policy, or the corresponding services agreement for the named business offerings, apply to data shared between Codex and ChatGPT. The Services Agreement expressly covers APIs, ChatGPT Enterprise, ChatGPT Business and other specified business/developer services; it is not a blanket consumer agreement. Its API integration permission does not itself establish permission for this Codex credential bridge.
+
+### What Relmio reads/stores/transmits/logs
+
+#### Reads
+
+- **Observed:** The added input is the independent image choice. VPS receives `imagesConsent` in the install request. Local code reads the checkbox and later sends `confirmed:true` to the existing image action route. These are Relmio approvals, not new OAuth scopes (`src/web/server.js:6124-6129,6194`; `src/ui/local.js:5022,5148,2351-2355`).
+- **Observed:** The image module continues to read its own `session.json`, `pending.json` and lock state. It decodes email, full ChatGPT account ID, plan type, expiry, residency and FedRAMP claims from token responses or stored access tokens. JWT payload decoding here does not verify signatures (`src/services/codex-images.mjs:75-87,89-131,158-208,301-318,367-373`). This change adds no ChatGPT conversation, memory, billing or file read.
+- **Observed:** The gateway reads image-generation prompts and options, or image-edit multipart bodies, after bearer and image-lease checks. Limits remain 64 KiB for generation JSON, 48 MiB for an edit body, up to 16 input images and 25 MiB per input image (`src/gateway/openai-oauth-sidecar.mjs:30-34,828-840,904-908,919-938,1001-1005`).
+
+#### Stores
+
+- **Observed:** `session.json` holds the Codex client ID, full account ID, optional email and plan type, access token, refresh token, expiry, timestamps and refresh state. It does not persist the ID token. `pending.json` holds the device auth ID, user code, provider polling interval, a locally imposed 15-minute expiry and next-poll time. The folder is `0700`; files are written `0600` using a temporary file and rename, with ownership and link checks (`src/services/codex-images.mjs:24,89-149,158-170,301-318,405-412`).
+- **Observed:** Local storage is the sidecar's named `siwc-store` Docker volume mounted at `/home/node/.relmio-siwc`; image records sit under `codex-images` (`src/domain/local-n8n-sidecar.js:135-140,219-220`). VPS storage is a **bind mount**, not that named volume: `/docker/n8n-openai-oauth/siwc/codex-images` (`src/domain/safety.js:64`; `src/domain/templates.js:38-43`). Moving consent does not change either location.
+- **Observed:** Relmio keeps target, container, registration and pending-state records in server memory. The VPS install response now carries the same sanitized image-status fields already used by management. No new persistent image-consent record is written in these handlers (`src/web/server.js:890-914,4288-4325,6206-6209`). The local checkbox and selected choice remain page/request state (`src/ui/local.js:3184-3186,3442-3444,5022,5148`).
+- **Observed:** Prompts, reference images and generated images are processed in gateway memory for the request; this image path has no file-writing call (`src/gateway/openai-oauth-sidecar.mjs:919-970`). **Open:** n8n execution-history retention, host swap, backups and administrators' copies were not inspected.
+
+#### Transmits and receiving parties
+
+| Recipient | Data and change | Evidence |
+| --- | --- | --- |
+| **Observed:** OpenAI authentication, `auth.openai.com`, from the sidecar | Existing device-code request with Codex CLI client ID `app_EMoamEEZ73f0CkXaXp7hrann`; polling with device auth ID and user code; authorization-code exchange with verifier and redirect URI; access-token refresh; refresh-token revocation. Opting in now initiates this after installation instead of a later management action. | `src/services/codex-images.mjs:12-23,260-268,320-345,385-443,459-476` |
+| **Observed:** OpenAI, `chatgpt.com/backend-api/codex/images/generations` or `/images/edits` | Existing Codex access-token bearer, account ID, optional residency/FedRAMP headers, `originator: relmio`, `User-Agent: Relmio (n8n sidecar)`, random image-turn ID, prompt, `gpt-image-2`, supported options and base64 reference images for edits. Install sign-in itself does not generate a test image. | `src/gateway/openai-oauth-sidecar.mjs:26-28,828-840,908,941-949`; install path `src/web/server.js:6194-6218`; local path `src/ui/local.js:2334-2362` |
+| **Observed:** Local Relmio server and browser | Consent choice, account/status fields, email, plan type, last six account-ID characters, user code, fixed verification URL, expiry, outcome and revocation result. No provider token, device auth ID, authorization code or verifier is included in the copied status. | `src/domain/codex-images.js:11-30`; `src/web/server.js:890-914,4288-4325,6206-6219`; `src/services/codex-images.mjs:199-208` |
+| **Observed:** Reviewed VPS and its sidecar, over SSH | Fixed image CLI commands and their bounded status output. The existing authenticated SSH connection now survives successful install while image approval is pending. Code exchange and token storage still happen inside the sidecar; Codex tokens do not travel back through status output. | `src/services/installer.js:1499-1543`; `src/web/server.js:6194-6223` |
+| **Observed:** Local Docker daemon and owned sidecar | Existing `docker compose exec -T ... codex-images.mjs` commands and status output. No SSH is added to local installation. | `src/services/local-n8n-sidecar-installer.js:2780-2853` |
+| **Observed:** n8n and other callers holding the Relmio key | Existing model listing and generated-image response `{created, data:[{b64_json}]}`, with supported reported options or sanitized errors. There is no per-n8n-user identity check in the image route. | `src/gateway/openai-oauth-sidecar.mjs:938-986,1001-1005` |
+| **Observed:** User's browser to OpenAI's device page | Link opens `https://auth.openai.com/codex/device`; user completes OpenAI sign-in and enters the code there. Links use `noopener noreferrer`. Relmio does not collect the password through these controls. | `src/services/codex-images.mjs:13`; `src/ui/index.html:479-486`; `src/ui/local.html:1188-1195` in the initial UI snapshot |
+
+- **Observed:** Image code sends no data to a Relmio-operated service or Hermes Agent. Hermes is mentioned as implementation provenance, not a recipient (`src/services/codex-images.mjs:16-21,260-268`; `src/gateway/openai-oauth-sidecar.mjs:26,941-949`).
+- **Observed:** Existing disclosure says host administrators and Docker users can read the stored sign-in; backups can contain it (`docs/security.md:492-506`). **Open [assessment]:** A VPS hosting operator with host/storage access can also access it. Actual host, backup and audit arrangements are deployment-specific and were not inspected.
+- **Confirmed:** OpenAI's privacy policies describe content, account, log, usage, device and IP/location processing. They name downstream categories including vendors/service providers, affiliates, applicable business-account administrators, legal/safety recipients and transaction successors. These are policy-described potential recipients, not proof that every category receives every Relmio request. OpenAI sees the sidecar host's connection for sidecar requests and the user's browser connection for browser sign-in.
+- **Observed:** Existing SIWC text and model-discovery recipients remain separate: `api.openai.com` and the npm registry used for Codex-version discovery. The image move adds neither a new discovery destination nor an image-prompt transmission to npm (`src/services/model-discovery.mjs:26-28`; `src/gateway/openai-oauth-sidecar.mjs:992-1008`).
+
+#### Logs and scopes
+
+- **Observed:** The image CLI prints a JSON result to stdout. Pending results include the user-facing device code, so it would be inaccurate to say that no code ever leaves the sidecar process. Provider tokens and internal device IDs are omitted. The caller accepts at most 4 KiB and discards the CLI's message and stderr; the web copier validates the browser-visible fields (`src/services/codex-images.mjs:199-208,519-533`; `src/domain/codex-images.js:1-30`; `src/web/server.js:890-914`).
+- **Observed:** Inspected image handlers add no persistent application log. Gateway startup failure still writes fixed text to stderr; image errors use fixed or sanitized responses (`src/gateway/openai-oauth-sidecar.mjs:938-970,1155`). **Open:** SSH, Docker, hosting, browser tooling and n8n may have independent logging. Keeping SSH attached does not prove those systems record nothing.
+- **Observed:** The device-code request, code exchange and refresh send no `scope`; `sessionFrom` does not read a granted-scope field (`src/services/codex-images.mjs:301-345,393`). **Open:** Granted Codex scopes and the credential's usable authority outside Relmio remain unknown. Relmio's images-only routing is not an OAuth-enforced images-only grant.
+- **Observed:** SIWC scopes remain `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`, resource `https://api.openai.com/v1`. Plan-permission authorization still uses `prompt=consent`. The new image checkbox changes neither (`src/services/oauth.js:10-11,204-210`).
+
+### Three separate checks
+
+#### 1. Identity sign-in
+
+**Confirmed:** The [Help Center article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) describes participating-app identity sign-in sharing name, email and profile picture. Other permissions require separate authorization; identity sign-in can finish without subscription sharing. Identity alone does not share files, tokens, conversations or memory.
+
+**Observed:** This add-on uses the Codex CLI client ID and Codex device flow, receives renewable credentials, and stores account information beyond the article's identity-only release (`src/services/codex-images.mjs:12-23,301-345,385-443`). Relmio's existing SIWC plan flow also requests plan and offline scopes separately from this add-on (`src/services/oauth.js:10-11`).
+
+**Open [assessment]:** Placing images inside **ChatGPT plan sidecar** onboarding makes that distinction easier to miss. The review must explicitly identify a separate Codex sign-in and must not present the checkbox as enabling an image permission within SIWC. Successful Codex sign-in does not establish that Relmio is a participating SIWC partner or that the two flows use the same account.
+
+#### 2. Separately approved permissions
+
+**Confirmed:** The article requires separate review of additional permissions. [SIWC Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/) require express consent for background use, user-controlled requests for the authenticated user, use only for the connected application, an adequate notice before processing, and no misleading interaction or implied endorsement. They expressly say SIWC does not grant access to other OpenAI services.
+
+**Open [assessment]:** A separate, explicit, unchecked checkbox at review can preserve **Relmio's user-consent boundary** without adding another identical checkbox on Ready, provided:
+
+- Its notice appears before the choice and names Codex, storage destination, usage consequences and shared-n8n risk.
+- Installation works with the checkbox unchecked, and neither install approval nor SIWC/background-use approval selects it.
+- The choice applies only to the reviewed account and destination, resets on a changed review, and starts only the disclosed post-install device flow.
+- OpenAI's device-page approval still occurs separately. The checkbox does not claim to grant an images-only OAuth permission.
+- Ready distinguishes installed sidecar, pending sign-in and signed-in add-on, with cancel and truthful failure/status handling.
+
+No fetched source certifies that this checkbox is legally sufficient or authorizes Relmio's underlying Codex bridge. User consent cannot supply OpenAI's permission.
+
+**Confirmed:** [Codex authentication](https://learn.chatgpt.com/docs/auth) documents device login for Codex on headless machines, requires enabling it in personal security settings or workspace permissions, and recommends API keys for automation. [App Server](https://learn.chatgpt.com/docs/app-server) allows existing local/open-source app-server-auth integrations to continue, recommends SIWC, and says app-server authentication has never been permitted for commercial or hosted services.
+
+**Observed:** Relmio directly implements the device endpoints and image request rather than using that documented app-server authentication interface (`src/services/codex-images.mjs:16-21,385-443`; `src/gateway/openai-oauth-sidecar.mjs:941-949`). **Open:** The app-server statement does not settle permission to reuse the Codex CLI client ID and direct image route, or the classification of this self-hosted VPS arrangement.
+
+**Confirmed:** Consumer Terms prohibit sharing account credentials or making an account available to anyone else, programmatic extraction, and bypassing restrictions. Services Agreement §§3.1-3.3 prohibit sharing individual credentials between users, restrict extraction to what the Services permit, and prohibit bypassing limits. **Open:** Their application to this direct route and workflows triggered by other users or public webhooks remains unresolved.
+
+**Confirmed:** SIWC Terms §1 restrict persistent storage of defined SIWC access/refresh tokens to local user-controlled storage, not a remote or managed environment. **Open:** That pre-existing VPS SIWC issue remains unresolved. Do not automatically apply the clause to the separate Codex tokens or claim that the checkbox cures either issue.
+
+#### 3. Model/image capability
+
+**Confirmed:** [Codex image documentation](https://learn.chatgpt.com/docs/image-generation) names `gpt-image-2` for built-in Codex images. [Pricing](https://learn.chatgpt.com/docs/pricing) says image turns use included limits about 3 to 5 times faster on average than comparable non-image turns, depending on quality and size, then draw credits after included limits. Images are unavailable on Free; the feature table lists Plus, Pro, Business, Enterprise and API keys. General Codex availability on Free and Go is not proof of image availability.
+
+**Confirmed:** [SIWC preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) list image generation as unsupported. [Models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) explicitly says not to point SIWC plan inference at ChatGPT `backend-api` endpoints.
+
+**Observed:** The image path uses a separate Codex lease; it does not use the SIWC bearer. The Responses `image_generation` tool remains refused. The `gpt-image-2` list entry is conditional on stored sign-in status, not an actual image request (`src/gateway/openai-oauth-sidecar.mjs:23,919-949,972-1008`).
+
+**Open:** Built-in Codex capability documentation and a completed device login do not establish that this direct route works for the current account, plan, region or workspace. The move adds no image test, TTS route or audio capability evidence.
+
+### Findings on the change
+
+1. **Observed and Open [assessment]: Consent separation is preserved locally at source level.** The local checkbox is independent and resets with review. The VPS backend also treats the choice as a separate Boolean. This supports the planned interaction, not Terms compliance. Final VPS UI and behavior still require parent verification.
+2. **Observed and Open [assessment]: Existing disclosure is mostly reusable, but its action wording needs timing.** Both old panels distinguish Codex from SIWC and disclose unsupported third-party routing and credential storage. The new local label says “Also turn on image generation” even though installation only starts sign-in (`src/ui/local.html:899-909`). Say “start Codex sign-in after installation” instead. Avoid implying capability is already on when the checkbox is selected.
+3. **Observed and Open [assessment]: Preserve the shared-n8n warning on both destinations.** Local copy says anyone running workflows can use the account; the inspected VPS image block omits it (`src/ui/local.html:1177` in the initial snapshot; `src/ui/index.html:465-471`). The same bearer-only gateway serves both. Copy the warning into VPS install review too. This warning does not technically enforce single-user use.
+4. **Observed and Open [assessment]: Explain SSH retention without claiming an exact cleanup guarantee yet.** The new VPS install branch retains the authenticated connection for pending sign-in. Existing polling detaches when a successful status response stops being pending (`src/web/server.js:5820-5841,6207-6223`). However, the inspected route sets immediate detach for sign-out and terminal polling, not login-cancel or every polling exception. The existing owner UI also stops polling on an error without disconnecting in that catch (`src/ui/app.js:2230-2250`). Idle expiry exists (`src/web/server.js:1138-1167`). The parent must check the new Ready cancel/error/leave paths before saying SSH stays attached *only* while pending in every case.
+5. **Observed and Open [assessment]: Ready must distinguish installation from image status.** Existing “Images on” reports stored sign-in, not a capability test (`src/ui/local.js:2247`; `src/gateway/openai-oauth-sidecar.mjs:985-986`). Prefer “Codex image sign-in complete” and “Image generation has not been tested.” On unknown polling outcomes, say status could not be checked, not that images are definitely off.
+6. **Observed and Open [assessment]: Documentation needs the new entry point, not new provider claims.** `README.md:332-337` gives only post-install management steps; `docs/faq.md:80-84` introduces the installed add-on; `docs/security.md:484-535` describes the existing separate sign-in. Add the review checkbox and Ready flow, keep later management/retry/sign-out instructions, and document retained VPS SSH. Keep the existing storage, revocation and uncertainty disclosures.
+7. **Confirmed and Open [assessment]: Tighten cost wording.** Existing “3 to 5 times faster than text” is broader than OpenAI's comparison with similar turns without image generation. Use “about 3 to 5 times faster on average than similar turns without images.” Link **Codex usage** to `https://chatgpt.com/codex/settings/usage`; do not imply the SIWC app limit controls this separate route.
+8. **Confirmed and Open:** Privacy obligations are unchanged, but moving approval earlier moves the notice boundary. Prompts/reference images are Content under OpenAI's policies. Service Terms §6 requires consent and rights for reproducing a person's likeness. The Codex Help article describes ChatGPT training controls and business defaults; it does not establish this undocumented route's exact retention or Compliance API coverage. Do not promise zero retention, API data handling or no training for this route.
+
+### Required wording
+
+**Open [assessment]:** Exact proposed strings below describe the intended behavior and preserve the source boundaries. They are recommendations, not quotations or OpenAI approval. Keep risk, storage and usage text next to the checkbox inside the optional group. Do not move them exclusively to Ready or a distant document.
+
+Review heading:
+
+> Image generation (optional)
+
+Review introduction:
+
+> Uses a separate Codex sign-in, not the sidecar's Sign in with ChatGPT permission. OpenAI does not document this image route for other apps, so it may stop working. OpenAI recommends an API key for automation.
+
+Timing and optionality:
+
+> Leave this unchecked to install without image sign-in. If selected, Relmio starts Codex sign-in after installation. You still approve it on OpenAI's page.
+
+Usage:
+
+> Images use your Codex limits about 3 to 5 times faster on average than similar turns without images, then credits. Free plans cannot use them.
+
+Link label and destination:
+
+> Codex usage
+
+`https://chatgpt.com/codex/settings/usage`
+
+VPS storage:
+
+> This server stores a full Codex sign-in, including a refresh token. Root users, Docker users and backups can access it.
+
+Local storage:
+
+> This computer stores a full Codex sign-in, including a refresh token, in the sidecar's Docker volume. Administrators, Docker users and backups can access it.
+
+Shared-n8n warning, both destinations:
+
+> Anyone who can run workflows in this n8n can use your account for images. Turn this on only if nobody else uses it.
+
+Device prerequisite:
+
+> Device code sign-in must be enabled in ChatGPT security settings or allowed by your workspace admin.
+
+Account choice:
+
+> Use the same ChatGPT account as this sidecar. Relmio does not verify that the accounts match.
+
+Data disclosure, with links to Relmio security documentation and OpenAI's applicable privacy policy:
+
+> Image requests send your prompt and any reference images to OpenAI. Review the data handling and privacy notices before continuing.
+
+VPS checkbox:
+
+> I understand. After installation, start Codex sign-in for images on this server.
+
+Local checkbox:
+
+> I understand. After installation, start Codex sign-in for images on this computer.
+
+VPS review connection notice:
+
+> Relmio keeps the SSH connection open while you complete image sign-in.
+
+Ready pending heading:
+
+> Sidecar installed. Image sign-in pending.
+
+Ready pending instructions:
+
+> Open the Codex sign-in page and enter this code. Only enter it at auth.openai.com. Never share it.
+
+Ready link:
+
+> Open the Codex sign-in page
+
+`https://auth.openai.com/codex/device`
+
+Ready expiry and polling, substituting the displayed expiry time:
+
+> Code expires at {time}. Relmio checks every 5 seconds.
+
+VPS pending notice:
+
+> SSH is still connected for image sign-in. Keep this Relmio tab open until you finish or cancel.
+
+Cancel action:
+
+> Cancel image sign-in
+
+Ready after confirmed sign-in:
+
+> Codex image sign-in complete. In n8n, choose gpt-image-2. Image generation has not been tested.
+
+Ready after a known image-start failure on an otherwise verified install:
+
+> Sidecar installed. Image sign-in did not start. You can try again from the sidecar's Image generation controls.
+
+Ready after a polling error:
+
+> Sidecar installed. Image sign-in status could not be checked. Check image generation before trying again.
+
+Ready after confirmed cancellation or expiry with no existing image session:
+
+> Sidecar installed. Image generation is off. You can sign in for images later.
+
+**Open [assessment]:** Show the signed-in account label alongside completion. Do not use “Sidecar installed” for a partial or unverified installation, do not report “SSH disconnected” before detachment is confirmed, and do not reuse “Image generation is off” for an unknown outcome or a retained existing image session. A separate cancellation is not revocation of an already completed sign-in.
+
+### Unknowns
+
+- **Open:** Whether OpenAI permits Relmio to use the Codex CLI client ID, direct device endpoints and direct image route on a local computer or VPS. The fetched Help, authentication, app-server and capability pages do not resolve this combination.
+- **Open:** Whether the planned checkbox and notice meet all applicable legal consent requirements. They can separate Relmio actions but cannot replace OpenAI authorization, workspace approval or applicable Terms.
+- **Open:** Final VPS review/Ready implementation, verified-readiness gating, target changes, unticked behavior, and SSH cleanup after completion, cancellation, expiry, errors or leaving Ready. Only source inspection occurred; implementation was still in progress.
+- **Open:** Device-flow granted scopes, full token authority, token lifetimes, and whether image revocation affects other Codex sessions. Moving the checkbox changes none of these unknowns.
+- **Observed and Open:** The UI requests the same account, but the image session stores and uses its own account ID without comparing it to the SIWC registration (`src/services/codex-images.mjs:301-318`; `src/services/installer.js:1514-1543`; `src/services/local-n8n-sidecar-installer.js:2782-2853`). Account matching is not established by install success.
+- **Open:** Actual image access, limits and credit treatment for each account, plan, region, residency or FedRAMP setting. A local `/v1/models` entry does not settle these.
+- **Open:** Exact OpenAI retention, training and Compliance API behavior for Relmio's direct image route, plus deployment-specific n8n history, host logging, hosting-provider access and backups.
+- **Open:** How account-sharing, programmatic-extraction, connected-application and hosted-service restrictions apply to this n8n bridge, especially shared instances and externally triggered workflows.
+
+This review is not legal advice, OpenAI approval, proof of Terms compliance or permission to use a Codex credential bridge. It does not prove image or TTS capability. Identity sign-in, separately approved permissions and model/image capability remain separate checks.
+
+### Changes after this review
+
+Applied on 2026-10-08 on `feat/images-in-install`, before merge:
+
+- The VPS image branch now also requires `readiness === "verified"`, like the local flow (`src/web/server.js` `/api/install`).
+- SSH is detached on every exit from a pending install-time sign-in: a poll that leaves `pending`, `login-cancel`, a poll error on the Ready step, and leaving the page (`pagehide` sends `/api/disconnect`). The idle expiry still applies. **Cancel image sign-in** in the existing VPS image panel now also detaches, so the panel returns to **Check your server**.
+- The review group and Ready strings use the wording in "Required wording" above, including the shared-n8n warning on the VPS review, the timing wording ("After installation, start Codex sign-in…"), the usage comparison with similar turns without images and the **Codex usage** link. Ready reports "Codex image sign-in complete … Image generation has not been tested." rather than "Images on".
+- The existing post-install image panels keep their wording; finding 7's usage wording is applied only to the new review group so far.
+- Layout, to keep each step on one screen (`DESIGN.md`): the review group is a closed **Image generation (optional)** disclosure in the plan body, and its notice and warnings sit above the checkbox inside it, so the box cannot be ticked without opening the notice. On the VPS Ready step, a status line stays visible and the code, link and **Cancel image sign-in** sit in an **Enter the Codex sign-in code** disclosure. On the local Ready step, the existing **Image generation** block stays closed and its summary repeats the status ("… Open to see the code."). The required wording is unchanged.
+- Docs updated: `README.md`, `npm/README.md`, `docs/vps-and-n8n.md`, `docs/local-endpoints.md`, `docs/troubleshooting.md` (new row for an empty n8n image **Model** list) and `CHANGELOG.md`.

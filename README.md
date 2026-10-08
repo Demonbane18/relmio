@@ -330,11 +330,14 @@ The exception is an output-token cap (`max_output_tokens`, or
 accept one, so the sidecar drops it and the cap is not enforced.
 
 You can turn on image generation and editing as an opt-in add-on, for a VPS
-sidecar or for the local sidecar. On a VPS, open **Manage the installed ChatGPT
-session**, choose **Check installed account**, then **Sign in for images**. On
-this computer, select **ChatGPT plan sidecar** on the dashboard, choose
-**Manage ChatGPT sign-out**, open **Image generation**, then choose **Sign in
-for images**. Either way, enter the code at
+sidecar or for the local sidecar. The easiest time is during setup: on the
+review step, select the box under **Image generation (optional)**, and the
+Ready step shows a Codex sign-in code after the install. For a sidecar that is
+already installed, on a VPS open **Manage the installed ChatGPT session**,
+choose **Check installed account**, then **Sign in for images**. On this
+computer, select **ChatGPT plan sidecar** on the dashboard, choose **Manage
+ChatGPT sign-out**, open **Image generation**, then choose **Sign in for
+images**. Either way, enter the code at
 `https://auth.openai.com/codex/device`. In n8n, use the OpenAI node's
 **Image** actions with the same Base URL and Relmio key, and pick
 `gpt-image-2` from the list or enter it as the ID. The add-on uses a separate

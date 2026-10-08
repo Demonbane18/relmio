@@ -7,6 +7,20 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- You can turn on image generation while you install the ChatGPT plan sidecar,
+  on a VPS or on this computer. The review step has an optional, unticked
+  **Image generation (optional)** box with the same warnings as the image
+  panel. When you tick it, Relmio starts the Codex sign-in right after a
+  verified install, and the Ready step shows the code next to the one-time
+  Relmio key. On a VPS, Relmio keeps the SSH connection open only until you
+  finish or cancel. An unticked box changes nothing, and a failed image
+  sign-in never fails the install. Before, images could only be turned on
+  afterwards, so n8n's image **Model** list stayed empty after a fresh
+  install. **Cancel image sign-in** in the VPS image panel now also
+  disconnects from the server.
+
 ## [0.20.0] - 2026-10-08
 
 Relmio 0.20.0 adds image generation to the local ChatGPT plan sidecar and fixes
