@@ -26,8 +26,8 @@ not enable hosted chat. See the
 [2026-10-05 source check](docs/openai-source-check-2026-10-05.md) for the data
 flow, documented limits, unresolved prerequisites, and historical reviews.
 
-Relmio 0.20.0 is the current stable release. It adds image generation to the
-local ChatGPT plan sidecar, fixes installing that sidecar for an n8n on this
+Relmio 0.21.0 is the current stable release. It lets you turn on image
+generation while you install the ChatGPT plan sidecar, on a VPS or on this
 computer, and is available through npm `latest` and the hosted installers.
 
 
@@ -59,7 +59,7 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-`@latest` selects stable 0.20.0, including the setup guide. Hosted
+`@latest` selects stable 0.21.0, including the setup guide. Hosted
 installers use the same stable default.
 
 
