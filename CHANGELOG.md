@@ -7,19 +7,30 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.21.0] - 2026-10-08
+
+Relmio 0.21.0 lets you turn on image generation while you install the ChatGPT
+plan sidecar, on a VPS or on this computer, so n8n's image model list is ready
+right after setup.
+
 ### Changed
 
 - You can turn on image generation while you install the ChatGPT plan sidecar,
-  on a VPS or on this computer. The review step has an optional, unticked
-  **Image generation (optional)** box with the same warnings as the image
-  panel. When you tick it, Relmio starts the Codex sign-in right after a
-  verified install, and the Ready step shows the code next to the one-time
-  Relmio key. On a VPS, Relmio keeps the SSH connection open only until you
-  finish or cancel. An unticked box changes nothing, and a failed image
-  sign-in never fails the install. Before, images could only be turned on
-  afterwards, so n8n's image **Model** list stayed empty after a fresh
-  install. **Cancel image sign-in** in the VPS image panel now also
-  disconnects from the server.
+  on a VPS or on this computer. The review step has an optional, closed
+  **Image generation (optional)** section with the same warnings as the image
+  panel and an unticked box. When you tick it, Relmio starts the Codex sign-in
+  right after a verified install, and the Ready step shows the image status
+  below the one-time Relmio key, with the code one click away. On a VPS,
+  Relmio keeps the SSH connection open only until you finish or cancel. An
+  unticked box changes nothing, and a failed image sign-in never fails the
+  install. Before, images could only be turned on afterwards, so n8n's image
+  **Model** list stayed empty after a fresh install. **Cancel image sign-in**
+  in the VPS image panel now also disconnects from the server.
+
+### Fixed
+
+- At 320 pixels wide, opening **Image generation** on the local dashboard no
+  longer makes the page scroll sideways.
 
 ## [0.20.0] - 2026-10-08
 
@@ -1927,6 +1938,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.21.0]: https://github.com/Demonbane18/relmio/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/Demonbane18/relmio/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/Demonbane18/relmio/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/Demonbane18/relmio/compare/v0.18.6...v0.19.0
