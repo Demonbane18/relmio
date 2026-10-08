@@ -1215,8 +1215,6 @@ Ready after confirmed cancellation or expiry with no existing image session:
 
 This review is not legal advice, OpenAI approval, proof of Terms compliance or permission to use a Codex credential bridge. It does not prove image or TTS capability. Identity sign-in, separately approved permissions and model/image capability remain separate checks.
 
-[You have received this identical output 3 times. Re-reading 'agent://SourceCheckImagesInInstall/report_markdown' will not change it — use a narrower selector (path:A-B), or proceed with the edit.]
-
 ### Changes after this review
 
 Applied on 2026-10-08 on `feat/images-in-install`, before merge:
