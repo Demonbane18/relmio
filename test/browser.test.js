@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -12,6 +14,7 @@ import {
   isPrivateBrowserLaunchUrl,
   openBrowser,
   openOpenAiAuthorization,
+  windowsUrlLaunchArgs,
 } from "../src/browser.js";
 
 const handoffDirectory = "relmio-browser-Ab3dE9";
@@ -225,8 +228,20 @@ test("OpenAI authorization uses the system browser only for the exact SIWC trans
       spawnProcess(...args) { calls.push(args); return launcherChild(); },
     }), true);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0][0], platform === "darwin" ? "open" : platform === "win32" ? "C:\\Windows\\explorer.exe" : "xdg-open");
-    assert.deepEqual(calls[0][1], [url.href]);
+    if (platform === "win32") {
+      assert.equal(calls[0][0], "C:\\Windows\\System32\\cmd.exe");
+      assert.deepEqual(calls[0][1], windowsUrlLaunchArgs([url.href]));
+      assert.equal(calls[0][2].windowsVerbatimArguments, true);
+      assert.equal(calls[0][2].windowsHide, true);
+      const command = calls[0][1][3];
+      assert.match(command, /%3A/u);
+      assert.equal(command.includes("%%"), false);
+      assert.equal(command.slice('start "" "'.length, -1), url.href);
+      assert.equal(command.includes("&"), true);
+    } else {
+      assert.equal(calls[0][0], platform === "darwin" ? "open" : "xdg-open");
+      assert.deepEqual(calls[0][1], [url.href]);
+    }
     assert.equal(calls[0][2].shell, false);
   }
   const rejected = ["https://example.com/api/accounts/authorize", "https://auth.openai.com/oauth/authorize"];
@@ -249,4 +264,75 @@ test("OpenAI authorization uses the system browser only for the exact SIWC trans
     }), false);
   }
   assert.equal(unsafeLaunches, 0);
+});
+
+function openAiAuthorizationUrl() {
+  const url = new URL("https://auth.openai.com/api/accounts/authorize");
+  const fields = {
+    client_id: "dynamic_agent_client",
+    agent_name_hint: "Relmio",
+    ext_agent_host_id: "urn:uuid:912eb843-21f6-4e5d-962c-a11390686d62",
+    response_type: "code",
+    redirect_uri: "http://127.0.0.1:45321/auth/callback",
+    scope: "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+    resource: "https://api.openai.com/v1",
+    state: "a".repeat(43),
+    nonce: "b".repeat(43),
+    code_challenge_method: "S256",
+    code_challenge: "c".repeat(43),
+  };
+  for (const [name, value] of Object.entries(fields)) url.searchParams.set(name, value);
+  return url.href;
+}
+
+test("Windows authorization launch failure is not treated as a started sign-in", async () => {
+  assert.equal(await openOpenAiAuthorization(openAiAuthorizationUrl(), {
+    platform: "win32",
+    systemRoot: "C:\\Windows",
+    spawnProcess: () => launcherChild(1),
+  }), false);
+});
+
+test("windowsUrlLaunchArgs leaves percent-encoding untouched", () => {
+  const url = "http://127.0.0.1:9/oauth/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A9%2Fauth%2Fcallback";
+  assert.equal(windowsUrlLaunchArgs([url])[3], `start "" "${url}"`);
+  assert.equal(windowsUrlLaunchArgs([url])[3].includes("%3A"), true);
+  assert.equal(windowsUrlLaunchArgs([url])[3].includes("%%"), false);
+  assert.throws(() => windowsUrlLaunchArgs(["http://127.0.0.1:9/?q=%"]), TypeError);
+  assert.throws(() => windowsUrlLaunchArgs(['http://127.0.0.1:9/?q=%PATH%']), TypeError);
+});
+
+test("native Windows start keeps an ampersand query URL in one argument", {
+  skip: process.platform !== "win32",
+}, async (t) => {
+  const url = "http://127.0.0.1:9/oauth/authorize?response_type=code&client_id=abc&redirect_uri=http%3A%2F%2F127.0.0.1%3A9%2Fauth%2Fcallback&scope=openid%20profile%20email&state=a-b_c&code_challenge=x%2By&code_challenge_method=S256";
+  const directory = await mkdtemp(join(tmpdir(), "relmio-win-browser-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const record = join(directory, "args.json");
+  const script = join(directory, "browser.mjs");
+  await writeFile(script, `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(1)));
+`);
+  const args = windowsUrlLaunchArgs([process.execPath, script, url]);
+  const child = spawn(join(process.env.SystemRoot, "System32", "cmd.exe"), args, {
+    windowsVerbatimArguments: true,
+    windowsHide: true,
+    shell: false,
+  });
+  const code = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolve);
+  });
+  assert.equal(code, 0);
+  const deadline = Date.now() + 5_000;
+  let recorded;
+  while (Date.now() < deadline) {
+    try {
+      recorded = JSON.parse(await readFile(record, "utf8"));
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  assert.deepEqual(recorded, [url]);
 });

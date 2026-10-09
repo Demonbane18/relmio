@@ -7,6 +7,15 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- On Windows, **Continue with ChatGPT** opens the sign-in page in the default
+  browser again, on this computer and for a VPS. Relmio handed the sign-in
+  link to Explorer, which does not open web links that contain `?` and `&`,
+  so the page stayed on **Waiting for ChatGPT** until the attempt expired
+  ([#115](https://github.com/Demonbane18/relmio/issues/115)). If the browser
+  cannot be started, Relmio now says so right away instead of waiting.
+
 ## [0.21.0] - 2026-10-08
 
 Relmio 0.21.0 lets you turn on image generation while you install the ChatGPT

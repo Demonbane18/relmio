@@ -216,8 +216,8 @@ export async function startOAuthLogin({ storageRoot, registrationId, purpose = '
   } catch {
     accepting = false;
     abort.abort();
-    settle(new Error('The ChatGPT sign-in browser could not start.'));
+    settle(new Error('The ChatGPT sign-in browser could not start. Check the default browser, then try again.'));
     await close();
-    throw new Error('The ChatGPT sign-in browser could not start.');
+    throw new Error('The ChatGPT sign-in browser could not start. Check the default browser, then try again.');
   }
 }

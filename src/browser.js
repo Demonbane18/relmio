@@ -17,14 +17,39 @@ function windowsFilePath(url) {
   return pathname.replaceAll("/", "\\");
 }
 
-function windowsExplorer(systemRoot) {
+function windowsSystemRoot(systemRoot) {
   if (
     typeof systemRoot !== "string" || !win32.isAbsolute(systemRoot) ||
     /[\u0000-\u001F\u007F"<>|*?]/u.test(systemRoot)
   ) {
     throw new TypeError("Relmio Windows system root is invalid.");
   }
-  return win32.join(win32.normalize(systemRoot), "explorer.exe");
+  return win32.normalize(systemRoot);
+}
+
+function windowsExplorer(systemRoot) {
+  return win32.join(windowsSystemRoot(systemRoot), "explorer.exe");
+}
+
+function quoteWindowsCmdArg(value) {
+  // cmd /c does not collapse %%. Reject a % that is not a hex escape; %3A and
+  // the other encodings in a valid authorization URL stay literal.
+  if (
+    typeof value !== "string" || value.length === 0 || value.length > 4096 ||
+    /[\u0000-\u001F\u007F"]/u.test(value) ||
+    /%(?![0-9A-Fa-f]{2})/u.test(value)
+  ) {
+    throw new TypeError("Relmio Windows browser target is invalid.");
+  }
+  return `"${value}"`;
+}
+
+// explorer.exe opens the handoff file. It does not open an https URL with ? and &.
+export function windowsUrlLaunchArgs(targets) {
+  if (!Array.isArray(targets) || targets.length < 1 || targets.length > 4) {
+    throw new TypeError("Relmio Windows browser target is invalid.");
+  }
+  return ["/d", "/s", "/c", `start "" ${targets.map(quoteWindowsCmdArg).join(" ")}`];
 }
 
 export function isPrivateBrowserLaunchUrl(value) {
@@ -122,7 +147,11 @@ async function launchCommand(launchUrl, {
       ? browserCommand(launchUrl, platform, { systemRoot })
       : isOpenAiAuthorizationUrl(launchUrl)
         ? platform === "darwin" ? { file: "open", args: [launchUrl] }
-          : platform === "win32" ? { file: windowsExplorer(systemRoot), args: [launchUrl] }
+          : platform === "win32" ? {
+              file: win32.join(windowsSystemRoot(systemRoot), "System32", "cmd.exe"),
+              args: windowsUrlLaunchArgs([launchUrl]),
+              windowsVerbatimArguments: true,
+            }
             : { file: "xdg-open", args: [launchUrl] }
         : null;
   } catch {
@@ -130,12 +159,17 @@ async function launchCommand(launchUrl, {
   }
   if (!command) return false;
   let child;
+  const spawnOptions = {
+    detached: true,
+    stdio: "ignore",
+    shell: false,
+  };
+  if (command.windowsVerbatimArguments) {
+    spawnOptions.windowsVerbatimArguments = true;
+    spawnOptions.windowsHide = true;
+  }
   try {
-    child = spawnProcess(command.file, command.args, {
-      detached: true,
-      stdio: "ignore",
-      shell: false,
-    });
+    child = spawnProcess(command.file, command.args, spawnOptions);
   } catch {
     return false;
   }
@@ -158,17 +192,21 @@ async function launchCommand(launchUrl, {
       child.removeListener("exit", onExit);
       resolveLaunch(result);
     };
+    const explorerDispatch = platform === "win32" && /(?:^|\\)explorer\.exe$/iu.test(command.file);
     const onSpawn = () => {
       spawned = true;
-      // Explorer dispatches to the shell; its exit code does not report browser loading.
-      if (platform === "win32") settle(true);
+      // Explorer dispatches the handoff file; its exit code does not report loading.
+      if (explorerDispatch) settle(true);
     };
     const onError = () => settle(false);
     const onExit = (code, signal) => settle(signal === null && code === 0);
     child.once("spawn", onSpawn);
     child.once("error", onError);
     child.once("exit", onExit);
-    timer = setTimeout(() => settle(spawned), launchTimeoutMs);
+    timer = setTimeout(
+      () => settle(platform === "win32" && !explorerDispatch ? false : spawned),
+      launchTimeoutMs,
+    );
   });
 }
 
