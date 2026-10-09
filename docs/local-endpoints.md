@@ -14,7 +14,7 @@ SuperGrok sessions.
 | **Grok for n8n** | Private `http://n8n-supergrok:14502/v1` on one existing Docker network | Separate fresh Grok OAuth session and one-time local bearer | Only the selected local or VPS n8n deployment |
 | **n8n AI Assistant tools** | Private Code Sandbox plus optional SearXNG JSON search on one existing Docker network | A generated sandbox key shown once; model-provider credentials stay in n8n | Only the selected self-hosted n8n deployment |
 | **Local model for n8n** | Private `http://n8n-local-model:11434/v1` on one existing Docker network | No provider sign-in; Ollama API key is ignored | Only the selected self-hosted n8n deployment |
-| **Set up new n8n** | A new owned n8n stack with loopback access and a Basic-Auth-protected public ngrok route | n8n credentials stay in its owned data volume; ngrok uses an operator-supplied token | A new disposable local n8n installation and its webhooks |
+| **Set up new n8n** | A new owned n8n stack, private by default, with an optional Basic-Auth-protected ngrok URL | n8n credentials stay in its owned data volume; ngrok needs a token only when enabled | A new disposable local n8n installation and its webhooks |
 
 The local SIWC flow keeps identity, ChatGPT plan permission, and model access
 separate. The gateway uses the public OpenAI Responses API under the selected
@@ -102,9 +102,11 @@ See the [direct OAuth route](supergrok-oauth-route-decision.md) and
   OAuth bridges, Assistant or SuperGrok. Do not upload keys, enable root/password
   SSH or weaken existing policy. See [Hosting compatibility](hosting-compatibility.md)
   for provider/image guidance and Render's separate manual private-service path.
-- For AI Assistant tools, enough capacity for the privileged Docker-in-Docker
-  runner. For a new local n8n stack, an ngrok authtoken and reserved hostname,
-  strong Basic Auth credentials, and two free loopback ports.
+- For AI Assistant tools, enough capacity for the privileged Docker-in-Docker runner.
+- For a new local n8n stack, one unused loopback port is required. ngrok is
+  optional; if enabled, it needs a token, reserved hostname, Basic Auth
+  credentials, and a second unused loopback port. See [New local n8n with
+  optional ngrok](local-n8n-stack.md) for the full requirements.
 - A user-authorized ChatGPT registration with the separately granted
   `chatgpt.tokens.use.direct` permission for model use; an identity-only
   registration remains connected but cannot make plan requests. The public
@@ -210,16 +212,14 @@ another checkout or user's resources on the same Docker Engine.
 
 The OpenAI-compatible n8n sidecar uses the selected SIWC registration and
 requires an existing n8n container and shared Docker network. The wizard
-re-attests the selected container, network, and Docker host before writing. Its
-sidecar joins only that network; there is no host-port or reverse-proxy
-mapping, and Relmio does not edit n8n's Compose file, credentials, container,
-image, or lifecycle.
+re-attests the selected container, network, and Docker host before writing.
+Sidecar installation leaves n8n's Compose file, image and lifecycle unchanged.
+For n8n created by Relmio, the approved install can add its local connection
+credential. Other n8n installations require manual entry.
 
 Before install, enable ChatGPT plan use and confirm the first-use notice.
 Separately approve the n8n background-workflow use and the reviewed install
-plan. The installer generates an installation-local bearer, displays it once,
-and stores only its hash in Compose. Enter that bearer manually as n8n's API
-key:
+plan. The installer generates a local bearer and stores only its hash in sidecar Compose. For Relmio-created n8n, it tries to save the bearer and base URL as **Relmio ChatGPT plan** in n8n's credential store. OpenAI tokens remain in the sidecar. Otherwise, check for the named credential and enter these settings manually:
 
 ```text
 Base URL: http://n8n-openai-oauth:10531/v1

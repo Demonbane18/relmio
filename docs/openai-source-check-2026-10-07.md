@@ -1308,3 +1308,117 @@ Applied on 2026-10-09 on `fix/windows-chatgpt-signin-launch` before merge:
 - **Observed, changed after review:** `cmd.exe` expands `%NAME%` in its command text, so a variable named `3A` or `2F` could have rewritten `%3A%2F` in `redirect_uri`. The URL is no longer in the command text. It travels in the launcher's `RELMIO_BROWSER_TARGET_0` environment variable and is read with delayed expansion: `/d /v:on /s /c start "" "!RELMIO_BROWSER_TARGET_0!"`. That expansion runs after `cmd` has parsed the line, so `%`, `&` and `!` in the URL are not interpreted. URLs containing `"` or control characters are still rejected. The percent-sign rule above no longer applies. The native Windows test now defines `3A` and `2F` and checks that the URL arrives unchanged.
 - **Observed, recipients:** Unchanged. `cmd.exe` and the default browser receive the URL, now through the inherited environment instead of the command line. Relmio still does not display or log it. Same-user process inspection can read either.
 - **Open:** A real Windows 11 sign-in still has to confirm that `start` opens the default browser and the callback completes.
+
+## Addendum: one-click local n8n stack with add-on credentials
+
+Check date: **2026-10-09**. Read-only source review of branch `feat/local-stack-seamless`. References describe the inspected working-tree snapshot. No files edited, Docker run, sign-in completed or provider API called. No shell device was available to obtain the uncommitted `git diff`; implementation and disclosures were read directly.
+
+### What changed
+
+**Observed:** New stacks default to loopback-only n8n. ngrok requires an unchecked opt-in. The template pins n8n 2.42.5 and gives long-running services `restart: unless-stopped`; the certificate initializer remains a one-shot service. Ready offers separately reviewed add-ons with the owned n8n and network preselected. Importable credentials cover ChatGPT, local model and SuperGrok, not Assistant tools (`src/ui/local.html:683-690,1117-1137`; `src/ui/local.js:3058-3072,4700-4727`; `src/templates/local-n8n-stack/index.js:6-12,129-300`; `src/services/local-n8n-stack-credentials.js:10-14`).
+
+### Sources with retrieval dates
+
+All sources retrieved **2026-10-09**. The identity article was fetched first in this review. Only official OpenAI sources support provider-policy findings.
+
+| Official source | Displayed publication or update date |
+| --- | --- |
+| [Sign in with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) | Updated: 7 days ago |
+| [Using your ChatGPT plan in other apps and sites](https://help.openai.com/en/articles/20001542-using-your-chatgpt-plan-in-other-apps-and-sites) | Updated: yesterday |
+| [SIWC registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) | None |
+| [SIWC accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions) | None |
+| [SIWC self-hosted VMs](https://developers.openai.com/siwc/token-sharing-open-source/self-hosted-vms) | None |
+| [SIWC UI/UX guidelines](https://developers.openai.com/siwc/ui-ux-guidelines) | None |
+| [SIWC models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) | None |
+| [SIWC preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) | None |
+| [Codex authentication](https://developers.openai.com/codex/auth), returned as [Authentication](https://learn.chatgpt.com/docs/auth) | None |
+| [Using Codex with your ChatGPT plan](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan) | Updated: 12 hours ago |
+| [Codex image generation](https://learn.chatgpt.com/docs/image-generation) | None |
+| [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/) | September 29, 2026 |
+| [Service Terms](https://openai.com/policies/service-terms/), especially §§6 and 15 | Updated: September 29, 2026 |
+| [Terms of Use](https://openai.com/policies/row-terms-of-use/) | Published and effective: January 1, 2026 |
+| [Europe Terms of Use](https://openai.com/policies/eu-terms-of-use/) | Updated: January 16, 2026 |
+| [OpenAI Services Agreement](https://openai.com/policies/services-agreement/) | Updated: December 1, 2025; effective: January 1, 2026 |
+| [Privacy policy](https://openai.com/policies/privacy-policy/), returned canonical `/policies/services-communications-privacy-policy/` | Updated: July 30, 2026 |
+| [Europe privacy policy](https://openai.com/policies/eu-privacy-policy/) | Updated: August 24, 2026 |
+
+### What Relmio reads/stores/transmits/logs
+
+#### Reads and scopes
+
+- **Observed:** Credential import reads the newly generated add-on key, owned stack marker, prior credential-ID record and Docker container metadata. It verifies the local Docker host, running container identity and ownership labels. The server supplies `result.clientCredential` for ChatGPT, `result.clientKey` for SuperGrok, or the ignored `local-only` placeholder for the local model. It does not supply an OpenAI token (`src/services/local-n8n-stack-credentials.js:29-83`; `src/web/server.js:4891-4916`).
+- **Observed:** Import itself requests no OAuth permission. The unchanged SIWC flow requests `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`, resource `https://api.openai.com/v1`, with `prompt=consent` for plan authorization (`src/services/oauth.js:10-11,204-210`). Background-workflow approval remains a separate server check (`src/web/server.js:4810-4826`).
+
+#### Stores and access
+
+- **Observed:** Relmio submits an `openAiApi` credential named **Relmio ChatGPT plan**, containing the local bearer and `http://n8n-openai-oauth:10531/v1`. Submission is JSON over stdin to `docker exec -i <verified-container-id> n8n import:credentials --input=/dev/stdin`. No plaintext import file or secret command-line argument is created by this helper (`src/services/local-n8n-stack-credentials.js:81-88`).
+- **Observed:** n8n's persistent data mount is the owned Compose `n8n-data` volume at `/home/node/.n8n`. Relmio generates `N8N_ENCRYPTION_KEY`, stores it in the stack's owner-protected `.env`, and passes it into n8n. Default stack directory is `~/.relmio/local/n8n-stack`, subject to validated `RELMIO_HOME` configuration (`src/templates/local-n8n-stack/index.js:88-101,140-155`; `src/services/local-n8n-stack-installer.js:205-233,1270-1290`). **Provisional [n8n runtime]:** Credential-database encryption and the usual SQLite layout are expected n8n behavior, not independently verified by this OpenAI-only review. The mount and encryption-key configuration are code facts.
+- **Observed:** `.runtime/credentials.json` stores only feature-keyed credential IDs, names and import timestamps, with owner-only protection. It contains no bearer. Its deterministic ID supports later imports for the same stack/feature (`src/services/local-n8n-stack-credentials.js:18-26,62-96`).
+- **Observed:** The sidecar still holds the SIWC registration in its separate `siwc-store` volume at `/home/node/.relmio-siwc`; its Compose environment contains the local bearer's SHA-256 verifier, not the raw bearer or provider token (`src/domain/local-n8n-sidecar.js:110-145`). “Compose stores only the hash” remains true. “The bearer is not stored” or “Relmio never edits n8n credentials” would be false.
+- **Observed and Open [assessment]:** The Relmio process, local Docker daemon, n8n import/runtime and one-time result page receive the raw bearer. Host administrators and Docker users can access runtime storage and the encryption key. A backup containing both n8n data and `.env` must be protected as a credential backup. Users permitted to use the credential in n8n can exercise its authority even when n8n hides the raw value. Exact n8n owner/project assignment and read/export permissions remain **Open**: this import supplies no `--userId` or `--projectId`, and no live n8n roles were inspected (`src/services/local-n8n-stack-credentials.js:81-87`; `src/ui/local.js:4005-4040`).
+
+#### Transmits, recipients and logs
+
+- **Observed:** The added transmission is local Relmio to Docker to the owned n8n container. Import adds no direct OpenAI request or new external credential recipient. Result status contains only state/name, while the existing one-time install result still carries the local key to the browser (`src/web/server.js:4880-4920`; `src/ui/local.js:4005-4040`).
+- **Observed:** Subsequent n8n requests send the local bearer and workflow input to the sidecar. The sidecar substitutes its SIWC access token for requests to OpenAI's public Responses endpoint; n8n does not receive that token. Model discovery also contacts `api.openai.com` and checks Codex release metadata at `registry.npmjs.org` without credentials. Optional images use the separate Codex credential and `chatgpt.com/backend-api/codex/images` route, not the SIWC token (`src/gateway/openai-oauth-sidecar.mjs:919-949,991-1058`; `src/services/model-discovery.mjs:26-28,529-530,657-659`). Local-model and SuperGrok credentials point to their separate local services; this review grants no OpenAI authority to those services.
+- **Observed:** Private mode creates no ngrok service or ngrok secret. Opted-in mode passes the agent token, hostname and Basic Auth policy to ngrok and tunnels the n8n route. Public editor/webhook traffic then crosses ngrok; the credential import itself still uses local Docker. The sidecar port is not published. Image pulls use the template's Docker Hub/GHCR references, independently of OpenAI sign-in (`src/templates/local-n8n-stack/index.js:6-12,34-40,98-103,153-155,174-212`). **Open:** ngrok, registry and n8n retention/internal processing were not audited; their configuration is not OpenAI policy evidence.
+- **Observed:** Import stdout/stderr are bounded, captured in process memory and not returned by the helper. Its result and non-secret metadata omit the bearer. Existing sidecar usage records retain daily model/request/token counts and allowlisted usage-error codes, not prompts or answers (`src/infrastructure/local-process.js:844-876,983-1028`; `src/services/local-n8n-stack-credentials.js:84-99`; `src/services/model-discovery.mjs:58-69,193-213,841-878`). **Open:** n8n execution history, Docker/OS auditing and backups may retain additional data. No blanket “nothing is logged” claim is supported.
+- **Confirmed:** OpenAI's privacy notices describe content, account, log, device/IP and usage processing and potential disclosure to service providers, affiliates, relevant account administrators and legal/safety recipients. Business-offering content follows the applicable agreement. A local credential import does not change those upstream rules or establish zero retention or no training.
+
+### Three separate checks
+
+#### 1. Identity sign-in
+
+**Confirmed:** Identity sign-in can finish without subscription sharing. It does not independently expose conversations, memory or files.
+
+**Observed:** Ready add-on selection and n8n credential import do not perform identity verification or grant OpenAI access. Relmio's existing SIWC registration and separate plan permission still exceed the identity-only Help description. Calling the n8n credential `openAiApi` does not make its value an OpenAI Platform key.
+
+#### 2. Separately approved permissions
+
+**Confirmed:** SIWC Terms §§1-4 distinguish Authentication Tokens from other application credentials and require user control, express background consent, requests for the authenticated user, and connected-application-only use. They prohibit general-purpose API access for unrelated tools and using one person's subscription for another person's requests.
+
+**Observed and Open [assessment]:** Saving the local Relmio bearer in the same user's local n8n does not itself copy an OpenAI Authentication Token into n8n or create a new OAuth grant. Compared with manual entry, it automates provisioning of the same authority. It does add an explicit Relmio write and another retained secret copy, so prior manual-entry and no-credential-edit promises must change. The inspected review already asks permission for this write (`src/ui/local.js:3667-3689`).
+
+**Observed and Open [assessment]:** No per-workflow or per-n8n-user identity check exists at the bearer gate (`src/gateway/openai-oauth-sidecar.mjs:999-1008`). Private networking, Docker ownership and Basic Auth do not establish that every request belongs to the authenticated OpenAI user. Public webhooks serving other users and shared credentials remain incompatible with treating personal plan permission as general service access. Whether this particular n8n integration satisfies the connected-application restriction remains **Open**; automated import neither resolves nor newly authorizes it.
+
+**Confirmed and Open:** SIWC Terms require persistent Authentication Token storage to be local and user-controlled, while the VM guide describes secure remote transfer. That pre-existing documentation/Terms tension is not resolved here. This change targets local Docker and does not authorize remote managed storage. Codex image-bridge permission remains independently unresolved.
+
+#### 3. Model/image capability
+
+**Confirmed:** SIWC documents account-specific models and public Responses inference; image generation is unsupported on that flow. Codex documents built-in `gpt-image-2`, not blanket authorization for Relmio's direct image bridge.
+
+**Observed:** Credential import status, n8n 2.42.5, Docker restart policy and add-on buttons establish no model entitlement or completed workflow. Assistant tools receive no automatic model credential through this importer. Images still need separate Codex sign-in. No TTS route is added (`src/services/local-n8n-stack-credentials.js:10-14`; `src/web/server.js:4891-4916`; `src/gateway/openai-oauth-sidecar.mjs:1004-1008`).
+
+### Findings
+
+1. **Observed:** Private by default is implemented for new setup. Old schema-version-1 stacks retain their ngrok classification; this is not a migration that makes existing public stacks private (`src/domain/local-n8n-stack.js:143-168`). Long-running services can restart with Docker, including an opted-in tunnel. Closing Relmio does not revoke background permission or stop these services.
+2. **Observed:** README, local-endpoint/security/FAQ text still requires manual entry or promises no n8n credential writes. The install checkbox also still says “I will enter its one-time Relmio client key in n8n myself” (`README.md:278-281`; `docs/local-endpoints.md:211-222`; `docs/security.md:289-322`; `docs/faq.md:109-116`; `src/ui/local.html:998-1001`). These contradict the new owned-stack path.
+3. **Observed and Open [assessment]:** “Use the key elsewhere” invites a broader use than the connected-n8n boundary. Replace it with a recovery-oriented label and an explicit same-installation restriction (`src/ui/local.html:1117-1123`).
+4. **Observed:** The helper reports success from CLI exit status, not a read-back or workflow test. An import can succeed before writing the metadata file fails, so a failed result does not prove no credential was written (`src/services/local-n8n-stack-credentials.js:84-99`).
+5. **Observed:** Removal checks network attachments and refuses while add-on containers remain attached. This is a deletion boundary, not credential revocation (`src/services/local-n8n-stack-installer.js:418-463,2286-2287`).
+
+### Required wording
+
+Use these short notices before approving the ChatGPT add-on:
+
+> For n8n created by Relmio, installation tries to save the local Relmio key and private base URL in n8n's credential store. OpenAI tokens stay in the sidecar. Other n8n installations require manual entry.
+
+> Anyone allowed to use this credential can send requests through your sidecar. Use it only for your own approved workflows in this n8n. Do not share it or use it to serve other users.
+
+For stack setup:
+
+> New n8n is private to this computer by default. Turn on ngrok only when you need a public URL. Basic Auth protects that URL but does not make it private.
+
+For recovery:
+
+> Relmio could not confirm credential setup. Check n8n for the named credential before adding it manually.
+
+Exact disclosure replacements accompany this addendum. Existing separate image warnings, plan-use notice and background approval must remain.
+
+### Unknowns
+
+**Open:** Real n8n import compatibility, encryption at rest, credential project ownership, who can use/export it, live workflow success, and credential behavior after rotation/removal were not exercised. Also unresolved: deployment-specific logging/backups, actual public-route protection, current model/image eligibility, the connected-application interpretation, and permission for the separate Codex image bridge. Neither source review nor login establishes Terms compliance, OpenAI endorsement or TTS capability.
+
+### Changes after this review
+
+Applied on 2026-10-09 on `feat/local-stack-seamless` before merge: the disclosure replacements listed with this review (README, `docs/local-n8n-stack.md`, `docs/local-endpoints.md`, `docs/security.md`, `docs/faq.md` and the dashboard's review, Ready and recovery text), including the shared-use warning before the ChatGPT add-on is approved and the recovery wording that asks the user to check n8n for the named credential before adding it manually.

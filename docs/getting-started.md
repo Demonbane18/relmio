@@ -57,11 +57,13 @@ Relmio initializes a distinct destination host ID, freezes the source session,
 and makes the destination the sole refresh owner after it verifies a receipt.
 An unknown transfer outcome stays frozen for inspection.
 
-Local endpoints use `127.0.0.1`; the n8n sidecar joins one selected private
-Docker network and publishes no host port. Installing for n8n also requires
-explicit consent for background workflows. Relmio returns a local bearer once
-for manual entry in n8n; it never puts the provider token in the browser or
-silently edits n8n credentials.
+Local endpoints use `127.0.0.1`; n8n sidecars join a selected private Docker
+network and publish no host port. Installing for n8n needs separate background
+workflow approval. For n8n created by Relmio, approved ChatGPT, local-model
+and SuperGrok add-ons try to import their connection credential. Other n8n
+installations require manual entry. OpenAI tokens stay in the ChatGPT sidecar.
+See [New local n8n with optional ngrok](local-n8n-stack.md) for setting up a
+private stack and its separately reviewed add-ons.
 
 On Git Bash, use the hosted launcher. It downloads a checksum-verified temporary
 Node.js runtime and uses Git for Windows' bundled `winpty` bridge so the wizard
@@ -159,7 +161,7 @@ so install Relmio persistently before relying on these lifecycle commands.
   available actions, and credential boundaries.
 - [Local endpoints](./local-endpoints.md) for the gateway, Codex, the Chat
   Adapter, the n8n bridge, and local Assistant tools.
-- [New local n8n + ngrok](./local-n8n-stack.md) if you do not already run n8n.
+- [New local n8n with optional ngrok](./local-n8n-stack.md) if you do not already run n8n.
 - [AI Assistant companion](./ai-assistant.md) for Assistant setup and its
   limits.
 - [VPS and n8n](./vps-and-n8n.md) for the remote sidecar route.

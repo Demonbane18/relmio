@@ -921,13 +921,16 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
     target: "local-n8n-stack",
     label: "Disposable self-hosted n8n + ngrok",
     dockerHost,
+    publicAccess: "ngrok",
     ngrokHostname: "workflow.example.ngrok.app",
     n8nPort: 5679,
     ngrokInspectorPort: 4041,
     timezone: "Asia/Manila",
     assistantMode: "sandbox-with-searxng",
-    localUrl: "http://127.0.0.1:5679",
+    localUrl: "http://localhost:5679",
     ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    n8nContainerName: null,
+    networkName: null,
     hostPublication: "loopback-only",
     deploymentMode: "new-disposable-stack",
     managedPath: "~/.relmio/local/n8n-stack",
@@ -945,8 +948,11 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
       installInput = input;
       return {
         target: "local-n8n-stack",
+        publicAccess: "ngrok",
         localUrl: stackPlan.localUrl,
         ngrokPublicUrl: stackPlan.ngrokPublicUrl,
+        n8nContainerName: `relmio-local-n8n-${"a".repeat(32)}-n8n-1`,
+        networkName: `relmio-local-n8n-${"a".repeat(32)}_edge`,
         projectName: `relmio-local-n8n-${"a".repeat(32)}`,
         containerServices: ["n8n", "ngrok", "sandbox-api", "searxng"],
         networks: ["edge", "assistant-shared", "assistant-internal"],
@@ -973,6 +979,7 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
 
   const planned = await createPlan(wizard, {
     target: "local-n8n-stack",
+    publicAccess: "ngrok",
     ngrokHostname: stackPlan.ngrokHostname,
     n8nPort: "5679",
     ngrokInspectorPort: "4041",
@@ -993,7 +1000,7 @@ test("new local n8n + ngrok plans stay non-mutating and never expose Docker cont
     apiKey: "retired-api-key-field",
   });
   assert.equal(retiredKey.status, 400);
-  assert.match((await retiredKey.json()).error, /n8n \+ ngrok install request/iu);
+  assert.match((await retiredKey.json()).error, /n8n stack install request/iu);
   assert.equal(installInput, undefined);
 
   const invalidPassword = "too-short";
@@ -1051,13 +1058,16 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
     target: "local-n8n-stack",
     label: "Disposable self-hosted n8n + ngrok",
     dockerHost,
+    publicAccess: "ngrok",
     ngrokHostname: "workflow.example.ngrok.app",
     n8nPort: 5679,
     ngrokInspectorPort: 4041,
     timezone: "Asia/Manila",
     assistantMode: "disabled",
-    localUrl: "http://127.0.0.1:5679",
+    localUrl: "http://localhost:5679",
     ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    n8nContainerName: null,
+    networkName: null,
     hostPublication: "loopback-only",
     deploymentMode: "new-disposable-stack",
     managedPath: "~/.relmio/local/n8n-stack",
@@ -1098,6 +1108,7 @@ test("rejected ngrok startup restores only the reviewed non-secret plan for one 
   });
   const planned = await createPlan(wizard, {
     target: "local-n8n-stack",
+    publicAccess: "ngrok",
     ngrokHostname: stackPlan.ngrokHostname,
     n8nPort: String(stackPlan.n8nPort),
     ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
@@ -1140,13 +1151,16 @@ test("safely cleaned non-ngrok startup failures preserve the reviewed plan witho
     target: "local-n8n-stack",
     label: "Disposable self-hosted n8n + ngrok",
     dockerHost,
+    publicAccess: "ngrok",
     ngrokHostname: "workflow.example.ngrok.app",
     n8nPort: 5679,
     ngrokInspectorPort: 4041,
     timezone: "Asia/Manila",
     assistantMode: "sandbox-with-searxng",
-    localUrl: "http://127.0.0.1:5679",
+    localUrl: "http://localhost:5679",
     ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    n8nContainerName: null,
+    networkName: null,
     hostPublication: "loopback-only",
     deploymentMode: "new-disposable-stack",
     managedPath: "~/.relmio/local/n8n-stack",
@@ -1178,6 +1192,7 @@ test("safely cleaned non-ngrok startup failures preserve the reviewed plan witho
   });
   const planned = await createPlan(wizard, {
     target: "local-n8n-stack",
+    publicAccess: "ngrok",
     ngrokHostname: stackPlan.ngrokHostname,
     n8nPort: String(stackPlan.n8nPort),
     ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
@@ -1217,6 +1232,16 @@ test("stopped stack resume requires an explicit user action and returns no Docke
         resumed: true,
         deploymentMode: "resumed-owned-disposable-stack",
         projectName: `relmio-local-n8n-${"f".repeat(32)}`,
+        publicAccess: "ngrok",
+        localUrl: "http://localhost:5679",
+        ngrokPublicUrl: "https://workflow.example.ngrok.app",
+        n8nContainerName: `relmio-local-n8n-${"f".repeat(32)}-n8n-1`,
+        networkName: `relmio-local-n8n-${"f".repeat(32)}_edge`,
+        assistantMode: "disabled",
+        containerServices: ["n8n", "ngrok"],
+        networks: ["edge"],
+        assistantSettings: null,
+        hostPublication: "n8n http://127.0.0.1:5679; ngrok inspector http://127.0.0.1:4041",
       };
     },
   });
@@ -1228,6 +1253,17 @@ test("stopped stack resume requires an explicit user action and returns no Docke
   assert.deepEqual(resumeInput, { confirmed: true });
   assert.deepEqual(await resumed.json(), {
     target: "local-n8n-stack",
+    publicAccess: "ngrok",
+    localUrl: "http://localhost:5679",
+    ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    n8nContainerName: `relmio-local-n8n-${"f".repeat(32)}-n8n-1`,
+    networkName: `relmio-local-n8n-${"f".repeat(32)}_edge`,
+    projectName: `relmio-local-n8n-${"f".repeat(32)}`,
+    containerServices: ["n8n", "ngrok"],
+    networks: ["edge"],
+    assistantMode: "disabled",
+    assistantSettings: null,
+    hostPublication: "n8n http://127.0.0.1:5679; ngrok inspector http://127.0.0.1:4041",
     resumed: true,
     deploymentMode: "resumed-owned-disposable-stack",
   });
@@ -1394,15 +1430,20 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
           },
           {
             target: "local-n8n-stack",
-            label: "n8n + ngrok",
+            label: "Local n8n stack",
             kind: "n8n-stack",
             managed: true,
             state: "stopped",
             snapshot: {
               target: "local-n8n-stack",
+              publicAccess: "ngrok",
+              localUrl: "http://localhost:80",
+              ngrokPublicUrl: "https://example.ngrok.app",
+              n8nContainerName: `relmio-local-n8n-${"a".repeat(32)}-n8n-1`,
+              networkName: `relmio-local-n8n-${"a".repeat(32)}_edge`,
               assistantMode: "sandbox-with-searxng",
               endpoints: {
-                n8nLocal: "http://127.0.0.1:80",
+                n8nLocal: "http://localhost:80",
                 ngrokPublic: "https://example.ngrok.app",
                 ngrokInspector: "http://127.0.0.1:81",
                 secret: canary,
@@ -1482,15 +1523,20 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
       },
       {
         target: "local-n8n-stack",
-        label: "n8n + ngrok",
+        label: "Local n8n stack",
         kind: "n8n-stack",
         managed: true,
         state: "stopped",
         snapshot: {
           target: "local-n8n-stack",
+          publicAccess: "ngrok",
+          localUrl: "http://localhost:80",
+          ngrokPublicUrl: "https://example.ngrok.app",
+          n8nContainerName: `relmio-local-n8n-${"a".repeat(32)}-n8n-1`,
+          networkName: `relmio-local-n8n-${"a".repeat(32)}_edge`,
           assistantMode: "sandbox-with-searxng",
           endpoints: {
-            n8nLocal: "http://127.0.0.1:80",
+            n8nLocal: "http://localhost:80",
             ngrokPublic: "https://example.ngrok.app",
             ngrokInspector: "http://127.0.0.1:81",
           },
@@ -1585,7 +1631,7 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
         "http://127.0.0.1:14502",
         ["sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"],
       ),
-      absent("local-n8n-stack", "n8n + ngrok", "n8n-stack"),
+      absent("local-n8n-stack", "Local n8n stack", "n8n-stack"),
       absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
       absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
       absent("n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"),
@@ -1745,7 +1791,7 @@ test("local dashboard keeps unattested partial services review-only", async (t) 
           absent("xai-grok-build", "SuperGrok", "endpoint"),
           {
             target: "local-n8n-stack",
-            label: "n8n + ngrok",
+            label: "Local n8n stack",
             kind: "n8n-stack",
             managed: true,
             state: "partial",
@@ -1777,7 +1823,7 @@ test("local dashboard rejects an incomplete or reordered fixed service set", asy
     ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
     ["codex-chat", "Codex Chat adapter", "endpoint"],
     ["xai-grok-build", "SuperGrok", "endpoint"],
-    ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
+    ["local-n8n-stack", "Local n8n stack", "n8n-stack"],
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
@@ -1818,7 +1864,7 @@ test("local dashboard derives actions and rejects unsafe Docker versions", async
     ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
     ["codex-chat", "Codex Chat adapter", "endpoint"],
     ["xai-grok-build", "SuperGrok", "endpoint"],
-    ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
+    ["local-n8n-stack", "Local n8n stack", "n8n-stack"],
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
@@ -1874,13 +1920,16 @@ test("local n8n startup errors expose recovery only for the exact attested parti
     target: "local-n8n-stack",
     label: "Disposable self-hosted n8n + ngrok",
     dockerHost,
+    publicAccess: "ngrok",
     ngrokHostname: "workflow.example.ngrok.app",
     n8nPort: 5679,
     ngrokInspectorPort: 4041,
     timezone: "Asia/Manila",
     assistantMode: "disabled",
-    localUrl: "http://127.0.0.1:5679",
+    localUrl: "http://localhost:5679",
     ngrokPublicUrl: "https://workflow.example.ngrok.app",
+    n8nContainerName: null,
+    networkName: null,
     hostPublication: "loopback-only",
     deploymentMode: "new-disposable-stack",
     managedPath: "~/.relmio/local/n8n-stack",
@@ -1933,6 +1982,7 @@ test("local n8n startup errors expose recovery only for the exact attested parti
       });
       const planned = await createPlan(wizard, {
         target: "local-n8n-stack",
+        publicAccess: "ngrok",
         ngrokHostname: stackPlan.ngrokHostname,
         n8nPort: String(stackPlan.n8nPort),
         ngrokInspectorPort: String(stackPlan.ngrokInspectorPort),
@@ -2187,6 +2237,7 @@ test("local n8n sidecar discovery and planning bind exact private Docker resourc
         containerId: "a".repeat(64),
         containerName: "relmio-test-n8n",
         image: "docker.n8n.io/n8nio/n8n:2.36.8",
+        managedStack: false,
         networks: [
           {
             dockerNetworkId: "b".repeat(64),
@@ -3521,7 +3572,7 @@ test("dashboard discard rejects an inventory read that finishes after the discar
       ["codex-chatgpt", "Codex (ChatGPT login)", "endpoint"],
       ["codex-chat", "Codex Chat adapter", "endpoint"],
       ["xai-grok-build", "SuperGrok", "endpoint"],
-      ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
+      ["local-n8n-stack", "Local n8n stack", "n8n-stack"],
       ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
       ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
       ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],

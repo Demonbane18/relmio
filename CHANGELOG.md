@@ -7,6 +7,15 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Added
+
+- Ready now offers **Add ChatGPT plan**, **Add local model**, **Add SuperGrok**, and **Add Assistant tools** with the managed n8n and network preselected. The Assistant tools button is hidden when the stack includes Code Sandbox. Approved ChatGPT, local-model and SuperGrok installs try to import their connection credential into n8n created by Relmio.
+
+### Changed
+
+- New local n8n stacks are private by default, with optional ngrok exposure. They use n8n 2.42.5; long-running services restart with Docker unless stopped, and stack removal is refused while add-ons remain attached. The managed network label reflects whether ngrok is enabled.
+- A newly installed local model now starts again when Docker restarts, like the ChatGPT plan, SuperGrok and Assistant add-ons. Existing local model installs keep working and keep their current setting.
+
 ### Fixed
 
 - On Windows, **Continue with ChatGPT** opens the sign-in page in the default
@@ -15,6 +24,8 @@ checks the registry separately after publication.
   so the page stayed on **Waiting for ChatGPT** until the attempt expired
   ([#115](https://github.com/Demonbane18/relmio/issues/115)). If the browser
   cannot be started, Relmio now says so right away instead of waiting.
+- Code Sandbox and Code Sandbox + SearXNG stack installs no longer fail during certificate initialization or because Docker-in-Docker runner ports are declared but not published on the host.
+- The dashboard can read a managed stack whose local URL uses `localhost`.
 
 ## [0.21.0] - 2026-10-08
 

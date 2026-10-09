@@ -76,7 +76,7 @@ export const RULES = [
   [/^src\/(domain\/assistant|domain\/assistant-templates|services\/assistant-installer)\.js$/u, ["assistant", "vps"]],
 
   // Local Docker stack and dashboard.
-  [/^src\/(domain\/local-n8n-stack|services\/local-n8n-stack-installer)\.js$/u, ["local-docker"]],
+  [/^src\/(domain\/local-n8n-stack|services\/local-n8n-stack-installer|services\/local-n8n-stack-credentials)\.js$/u, ["local-docker"]],
   [/^src\/templates\/local-n8n-stack\//u, ["local-docker"]],
   [/^src\/services\/(local-dashboard|local-dashboard-control|local-integration-lifecycle-lock)\.js$/u, ["local-docker"]],
 

@@ -4,7 +4,7 @@ import {
 } from "../../domain/local-n8n-stack.js";
 
 export const LOCAL_N8N_STACK_IMAGES = Object.freeze({
-  n8n: "docker.io/n8nio/n8n:2.36.8@sha256:cfe2704ff858395503d42548206c2c99ea351a205e941063a9d9b77b0f404478",
+  n8n: "docker.io/n8nio/n8n:2.42.5@sha256:f6dc0d15bc9620baf5ba1df834ef81ae4e969f778c09300e567217be88f04a96",
   ngrok: "docker.io/ngrok/ngrok:3.39.11-alpine-6a536c4@sha256:187e588f6c4efe3b29cd3eea9fcd768a1afa7342319e3cee9aeb5af6a9cf64fd",
   sandboxApi: "ghcr.io/n8n-io/n8n-sandbox-service-api:1.1.1@sha256:21672029fee08495e2398cff7fc370ff60ce0e7c461610732bf2f5265cb75704",
   sandboxRunner: "ghcr.io/n8n-io/n8n-sandbox-service-runner-dind:1.1.1@sha256:9de7a8aad7f0d2293716daff40206be60577a59a2c2dae641dd9a425c18bf6fd",
@@ -12,7 +12,7 @@ export const LOCAL_N8N_STACK_IMAGES = Object.freeze({
   searxng: "ghcr.io/searxng/searxng:2026.8.28-a30b2d474@sha256:addd2cf36efb4b9815a2820a522aef7cce4da0d1c0e4527f6675f5663332fc9b",
 });
 
-// The installer verifies these exact services as healthy after Compose reports running.
+// Services with healthchecks; readiness verifies only those present in the selected mode.
 export const LOCAL_N8N_STACK_HEALTHY_SERVICES = Object.freeze([
   "n8n",
   "ngrok",
@@ -31,7 +31,13 @@ function composeDotenvLiteral(value) {
   return `"${escaped}"`;
 }
 
-export function validateLocalN8nStackSecrets({ ngrokAuthtoken, basicAuthUsername, basicAuthPassword }) {
+export function validateLocalN8nStackSecrets({ ngrokAuthtoken, basicAuthUsername, basicAuthPassword } = {}, publicAccess = "ngrok") {
+  if (publicAccess === "none") {
+    if (ngrokAuthtoken != null || basicAuthUsername != null || basicAuthPassword != null) {
+      throw new TypeError("Private n8n cannot accept ngrok credentials.");
+    }
+    return {};
+  }
   if (
     typeof ngrokAuthtoken !== "string" ||
     ngrokAuthtoken.length < 8 ||
@@ -80,7 +86,7 @@ export function createNgrokTrafficPolicy({ username, password }) {
 
 export function createLocalN8nStackEnv({ installation, secrets, runtimeSecrets }) {
   const marker = validateLocalN8nStackMarker(installation?.marker ?? installation);
-  const safeSecrets = validateLocalN8nStackSecrets(secrets);
+  const safeSecrets = validateLocalN8nStackSecrets(secrets, marker.publicAccess);
   if (
     !runtimeSecrets ||
     typeof runtimeSecrets.n8nEncryptionKey !== "string" ||
@@ -89,11 +95,11 @@ export function createLocalN8nStackEnv({ installation, secrets, runtimeSecrets }
     throw new TypeError("Generated local n8n secrets are invalid.");
   }
   const lines = [
-    `NGROK_AUTHTOKEN=${composeDotenvLiteral(safeSecrets.ngrokAuthtoken)}`,
+    ...(marker.publicAccess === "ngrok" ? [`NGROK_AUTHTOKEN=${composeDotenvLiteral(safeSecrets.ngrokAuthtoken)}`] : []),
     `N8N_ENCRYPTION_KEY=${composeDotenvLiteral(runtimeSecrets.n8nEncryptionKey)}`,
-    `NGROK_DOMAIN=${composeDotenvLiteral(marker.ngrokHostname)}`,
+    ...(marker.publicAccess === "ngrok" ? [`NGROK_DOMAIN=${composeDotenvLiteral(marker.ngrokHostname)}`] : []),
     `N8N_LOCAL_PORT=${composeDotenvLiteral(marker.n8nPort)}`,
-    `NGROK_INSPECTOR_PORT=${composeDotenvLiteral(marker.ngrokInspectorPort)}`,
+    ...(marker.publicAccess === "ngrok" ? [`NGROK_INSPECTOR_PORT=${composeDotenvLiteral(marker.ngrokInspectorPort)}`] : []),
     `GENERIC_TIMEZONE=${composeDotenvLiteral(marker.timezone)}`,
   ];
   if (marker.assistantMode !== "disabled") {
@@ -123,15 +129,14 @@ export function createLocalN8nStackComposeFile({ installation }) {
   return `services:
   n8n:
     image: ${LOCAL_N8N_STACK_IMAGES.n8n}
-    restart: "no"
+    restart: unless-stopped
     environment:
-      N8N_HOST: \${NGROK_DOMAIN}
+      N8N_HOST: ${marker.publicAccess === "ngrok" ? '${NGROK_DOMAIN}' : "localhost"}
       N8N_PORT: "5678"
-      N8N_PROTOCOL: https
-      N8N_WEBHOOK_URL: https://\${NGROK_DOMAIN}/
-      N8N_EDITOR_BASE_URL: https://\${NGROK_DOMAIN}/
-      N8N_PROXY_HOPS: "1"
-      N8N_SECURE_COOKIE: "true"
+      N8N_PROTOCOL: ${marker.publicAccess === "ngrok" ? "https" : "http"}
+      N8N_WEBHOOK_URL: ${marker.publicAccess === "ngrok" ? 'https://${NGROK_DOMAIN}/' : `http://localhost:${marker.n8nPort}/`}
+      N8N_EDITOR_BASE_URL: ${marker.publicAccess === "ngrok" ? 'https://${NGROK_DOMAIN}/' : `http://localhost:${marker.n8nPort}/`}
+${marker.publicAccess === "ngrok" ? '      N8N_PROXY_HOPS: "1"\n' : ""}      N8N_SECURE_COOKIE: "${marker.publicAccess === "ngrok"}"
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
       N8N_ENCRYPTION_KEY: \${N8N_ENCRYPTION_KEY}
       N8N_DIAGNOSTICS_ENABLED: "false"
@@ -166,9 +171,9 @@ ${assistant ? "      - assistant-shared\n" : ""}    healthcheck:
     labels:
 ${labelLines}
 
-  ngrok:
+${marker.publicAccess === "ngrok" ? `  ngrok:
     image: ${LOCAL_N8N_STACK_IMAGES.ngrok}
-    restart: "no"
+    restart: unless-stopped
     command: ["http", "http://n8n:5678", "--url=https://\${NGROK_DOMAIN}", "--traffic-policy-file=/run/secrets/ngrok-traffic-policy.yml"]
     environment:
       NGROK_AUTHTOKEN: \${NGROK_AUTHTOKEN}
@@ -201,11 +206,15 @@ ${labelLines}
     labels:
 ${labelLines}
 
-${assistant ? `  relmio-sandbox-certs:
+` : ""}${assistant ? `  relmio-sandbox-certs:
     image: ${LOCAL_N8N_STACK_IMAGES.sandboxApi}
     restart: "no"
     user: "0:0"
-    command: ["sh", "-c", "bootstrap-mtls.sh --out-dir /tls --api-san relmio-sandbox-api --control-san-prefix relmio-sandbox-runner && chown -R sandbox-api:sandbox-api /tls/api"]
+    # The image's entrypoint starts sandbox-api; this one-shot job runs the bootstrap script instead.
+    entrypoint: ["sh", "-c"]
+    command: ["bootstrap-mtls.sh --out-dir /tls --api-san relmio-sandbox-api --control-san-prefix relmio-sandbox-runner && chown -R sandbox-api:sandbox-api /tls/api"]
+    environment:
+      NUM_RUNNERS: "1"
     volumes: ["sandbox-tls:/tls"]
     networks: [assistant-internal]
     labels:
@@ -213,7 +222,7 @@ ${labelLines}
 
   relmio-sandbox-api:
     image: ${LOCAL_N8N_STACK_IMAGES.sandboxApi}
-    restart: "no"
+    restart: unless-stopped
     depends_on:
       relmio-sandbox-certs: { condition: service_completed_successfully }
     environment:
@@ -240,7 +249,7 @@ ${labelLines}
 
   relmio-sandbox-runner-1:
     image: ${LOCAL_N8N_STACK_IMAGES.sandboxRunner}
-    restart: "no"
+    restart: unless-stopped
     privileged: true
     depends_on:
       relmio-sandbox-api: { condition: service_healthy }
@@ -267,7 +276,7 @@ ${labelLines}
 
 ${searxng ? `  relmio-searxng:
     image: ${LOCAL_N8N_STACK_IMAGES.searxng}
-    restart: "no"
+    restart: unless-stopped
     environment:
       SEARXNG_SECRET: \${SEARXNG_SECRET}
     volumes: ["./.runtime/searxng-settings.yml:/etc/searxng/settings.yml:ro,Z"]
@@ -293,10 +302,10 @@ ${labelLines}
   assistant-internal:
     labels:
 ${labelLines}
-` : ""}secrets:
+` : ""}${marker.publicAccess === "ngrok" ? `secrets:
   ngrok-traffic-policy:
     file: ./.runtime/traffic-policy.yml
-`;
+` : ""}`;
 }
 
 export function createNgrokConfig() {

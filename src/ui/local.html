@@ -376,8 +376,8 @@
                         <input class="rm-choice__input" type="radio" name="target" value="local-n8n-stack" />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--box rm-icon--lg"></span></span>
                         <span class="rm-choice__title">Set up new n8n</span>
-                        <span class="rm-choice__text">For people with no n8n yet. It gets a public link that asks for a password. Existing n8n is not changed.</span>
-                        <span class="rm-choice__meta">You need Docker and an ngrok account with a reserved hostname.</span>
+                        <span class="rm-choice__text">For people with no n8n yet. Private to this computer by default. Existing n8n is not changed.</span>
+                        <span class="rm-choice__meta">You need Docker. A public ngrok link is optional.</span>
                       </label>
 
                       <label class="rm-choice target-card">
@@ -440,13 +440,13 @@
                     <details class="rm-disclosure rm-disclosure--plain setup-help connection-details">
                       <summary>Connection details and limits</summary>
                       <div class="rm-disclosure__body">
-                        <p><strong>n8n with ChatGPT sign-in</strong> uses a local SIWC preview registration, separate from personal Codex credentials and Platform API billing. Verified identity alone cannot use the plan. You approve plan permission in ChatGPT and background n8n use separately. Relmio transfers one selected registration to an owned sidecar on the reviewed Docker network; n8n itself stays unchanged. The one-time Relmio client key is entered in n8n by you. Models come from that account's catalog, but a list does not prove a request will finish. Image generation needs a separate, optional Codex sign-in that OpenAI doesn't document for other apps. This integration does not support audio, video, Files upload, or stored conversations. Old bridges need an explicit reviewed migration with a fresh sign-in.</p>
+                        <p><strong>n8n with ChatGPT sign-in</strong> uses a local SIWC preview registration, separate from personal Codex credentials and Platform API billing. Verified identity alone cannot use the plan. You approve plan permission in ChatGPT and background n8n use separately. Relmio transfers one selected registration to an owned sidecar on the reviewed Docker network. For Relmio-created n8n, installation tries to save the local Relmio key and private base URL in n8n's credential store. OpenAI tokens stay in the sidecar. Other n8n installations require manual entry. Use this credential only for your own approved workflows in this n8n. Models come from that account's catalog, but a list does not prove a request will finish. Image generation needs a separate, optional Codex sign-in that OpenAI doesn't document for other apps. This integration does not support audio, video, Files upload, or stored conversations. Old bridges need an explicit reviewed migration with a fresh sign-in.</p>
                         <p><strong>Grok for n8n</strong> uses official SuperGrok sign-in only. It adds a private Chat Completions companion. No provider token or API key is entered here.</p>
                         <p><strong>Codex App Server</strong> is an experimental JSON-RPC WebSocket for a trusted native app. It is not OpenAI <code>/v1</code>. Browsers cannot connect directly.</p>
                         <p><strong>Codex Chat Adapter</strong> is an experimental <code>POST /chat</code> endpoint for a trusted local backend. It is not <code>/v1</code>. Do not put it in browser code.</p>
                         <p><strong>n8n AI Assistant tools</strong> add a private Code Sandbox and optional SearXNG search. The sandbox runner is privileged and host-root equivalent. For production, use Daytona. Relmio does not edit or restart n8n.</p>
                         <p><strong>Local model for n8n</strong> publishes no host port. Other containers on its network can use the model API without a password. Relmio checks free memory and disk before download. CPU answers can be slow. There is no cloud fallback.</p>
-                        <p><strong>Set up new n8n</strong> creates a separate stack. The public link requires Basic Auth. Existing n8n is not changed.</p>
+                        <p><strong>Set up new n8n</strong> creates a separate private stack. An optional public ngrok link requires Basic Auth. Existing n8n is not changed.</p>
                         <p><strong>Grok on this computer</strong> is experimental. Official SuperGrok sign-in stays in its runtime. Clients use a separate Relmio key, not a Platform API key.</p>
                       </div>
                     </details>
@@ -540,7 +540,7 @@
                         <p class="rm-muted rm-small">Check only. Relmio will not change this n8n container or its network.</p>
                       </div>
 
-                      <label class="config-block rm-field" for="n8n-container">
+                      <label id="n8n-container-field" class="config-block rm-field" for="n8n-container">
                         <span class="rm-field__label">n8n container</span>
                         <select
                           id="n8n-container"
@@ -552,7 +552,7 @@
                         <small id="n8n-container-help" class="rm-field__hint">Technical name: Docker container. Only running n8n containers are listed.</small>
                       </label>
 
-                      <label class="config-block rm-field" for="n8n-network">
+                      <label id="n8n-network-field" class="config-block rm-field" for="n8n-network">
                         <span class="rm-field__label">Private Docker network</span>
                         <select
                           id="n8n-network"
@@ -563,6 +563,7 @@
                         ></select>
                         <small id="n8n-network-help" class="rm-field__hint">Technical name: Docker network. The companion joins it. n8n is not changed.</small>
                       </label>
+                      <button id="n8n-change-choice" class="rm-button rm-button--sm config-block" type="button" hidden>Change n8n or network</button>
 
                       <div class="config-block sidecar-status-row">
                         <p id="n8n-discovery-status" class="rm-small rm-muted" role="status" aria-live="polite">Choose this option to check running n8n.</p>
@@ -684,7 +685,11 @@
                         <h3 id="n8n-stack-fields-title" class="rm-h3">New n8n on this computer</h3>
                         <p class="rm-muted rm-small">Review checks Docker only. It creates nothing and does not open ngrok.</p>
                       </div>
-                      <details class="config-block rm-disclosure ngrok-checklist">
+                      <label class="config-block rm-check" for="n8n-stack-public-access">
+                        <input id="n8n-stack-public-access" type="checkbox" aria-controls="ngrok-checklist ngrok-hostname-field ngrok-inspector-field" />
+                        <span>Public URL with ngrok (optional)<small class="rm-check__hint">New n8n is private to this computer by default. Turn on ngrok only when you need a public URL. Basic Auth protects that URL but does not make it private.</small></span>
+                      </label>
+                      <details id="ngrok-checklist" class="config-block rm-disclosure ngrok-checklist" hidden>
                         <summary>Check ngrok before install</summary>
                         <div class="rm-disclosure__body">
                           <ol>
@@ -696,7 +701,7 @@
                         </div>
                       </details>
                       <div class="config-block rm-form-grid stack-fields">
-                        <label class="rm-field stack-field-wide" for="ngrok-hostname">
+                        <label id="ngrok-hostname-field" class="rm-field stack-field-wide" for="ngrok-hostname" hidden>
                           <span class="rm-field__label">Reserved ngrok hostname</span>
                           <input id="ngrok-hostname" class="rm-input" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="workflow.example.ngrok.app" aria-describedby="ngrok-hostname-help" required />
                           <small id="ngrok-hostname-help" class="rm-field__hint">Hostname only. Do not include a scheme, path, or port.</small>
@@ -706,7 +711,7 @@
                           <input id="n8n-stack-port" class="rm-input" type="number" min="1024" max="65535" value="5679" aria-describedby="n8n-stack-port-help" required />
                           <small id="n8n-stack-port-help" class="rm-field__hint">Bound only to <code>127.0.0.1</code>; avoids n8n’s usual 5678.</small>
                         </label>
-                        <label class="rm-field" for="ngrok-inspector-port">
+                        <label id="ngrok-inspector-field" class="rm-field" for="ngrok-inspector-port" hidden>
                           <span class="rm-field__label">Loopback inspector port</span>
                           <input id="ngrok-inspector-port" class="rm-input" type="number" min="1024" max="65535" value="4041" aria-describedby="ngrok-inspector-port-help" required />
                           <small id="ngrok-inspector-port-help" class="rm-field__hint">ngrok inspector, loopback only.</small>
@@ -722,7 +727,7 @@
                             <option value="sandbox">Code Sandbox</option>
                             <option value="sandbox-with-searxng">Code Sandbox + SearXNG</option>
                           </select>
-                          <small id="n8n-stack-assistant-mode-help" class="rm-field__hint">Code Sandbox uses a privileged, host-root-equivalent runner. Add the private ChatGPT bridge later as a separate choice.</small>
+                          <small id="n8n-stack-assistant-mode-help" class="rm-field__hint">Code Sandbox uses a privileged, host-root-equivalent runner.</small>
                         </label>
                       </div>
                     </section>
@@ -950,7 +955,7 @@
                 <span class="rm-icon rm-icon--alert rm-callout__icon" aria-hidden="true"></span>
                 <div class="rm-callout__content">
                   <strong class="rm-callout__title">Private ChatGPT plan sidecar</strong>
-                  <p class="rm-callout__body">The selected registration transfers to an owned local sidecar. Approve n8n background use separately, then enter the one-time Relmio client key in n8n yourself. Relmio does not edit or restart n8n or publish port <code>10531</code>. An uncertain installation requires owner inspection before use.</p>
+                  <p class="rm-callout__body">The selected registration transfers to an owned local sidecar. Approve n8n background use separately. Relmio adds its credential to a Relmio-created n8n; for other n8n containers, enter the one-time key yourself. No host port <code>10531</code> is published. An uncertain installation requires owner inspection before use.</p>
                 </div>
               </aside>
 
@@ -991,7 +996,7 @@
               </button>
               <label id="local-background-consent-row" class="rm-check check-row" hidden>
                 <input id="local-background-consent" type="checkbox" />
-                <span>I authorize this selected ChatGPT account's plan for my n8n background workflows on this reviewed local installation. I will enter its one-time Relmio client key in n8n myself.</span>
+                <span>I authorize this selected ChatGPT account's plan for my own background workflows on this reviewed n8n. Other people's activity must not use my plan. For n8n created by Relmio, the reviewed install may save its local key and base URL in n8n's credential store. OpenAI tokens stay in the sidecar.</span>
               </label>
               <button id="install-button" class="rm-button rm-button--primary rm-push" type="button">
                 Install on this computer
@@ -1014,6 +1019,10 @@
 
             <div class="rm-panel__body">
               <div class="panel-columns ready-columns">
+                <div id="n8n-stack-open" class="rm-cluster stack-open" hidden>
+                  <a id="n8n-stack-open-link" class="rm-link rm-link--standalone" target="_blank" rel="noopener noreferrer">Open n8n<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
+                  <p class="rm-small rm-muted">Create your n8n owner account on first open.</p>
+                </div>
 
                 <dl id="install-result-list" class="rm-dl result-list">
                   <div id="result-endpoint-row">
@@ -1106,6 +1115,23 @@
                     </dd>
                   </div>
                 </dl>
+                <p id="n8n-credential-status" class="rm-small" role="status" hidden></p>
+                <details id="n8n-key-elsewhere" class="rm-disclosure" hidden>
+                  <summary>Manual credential setup</summary>
+                  <div class="rm-disclosure__body">
+                    <p id="n8n-elsewhere-note" class="rm-small">Use this key only for this n8n. Do not share it or connect unrelated tools. Relmio shows it only now.</p>
+                    <div class="result-value"><code id="n8n-elsewhere-key"></code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="n8n-elsewhere-key" data-copy-label="client credential" aria-label="Copy client credential" title="Copy client credential"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></div>
+                  </div>
+                </details>
+                <section id="n8n-stack-addons" class="rm-card rm-card--muted rm-card--compact" aria-labelledby="n8n-stack-addons-title" hidden>
+                  <h3 id="n8n-stack-addons-title" class="rm-h3">Add to this n8n</h3>
+                  <div class="rm-cluster stack-addon-actions">
+                    <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-openai-oauth">Add ChatGPT plan</button>
+                    <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-local-model">Add local model</button>
+                    <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-supergrok-oauth">Add SuperGrok</button>
+                    <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-ai-assistant">Add Assistant tools</button>
+                  </div>
+                </section>
                 <section id="installed-siwc-models" class="rm-card rm-card--muted rm-card--compact" aria-label="ChatGPT model settings" hidden>
                   <p id="installed-siwc-plan-badge" class="rm-status" data-tone="success">Using ChatGPT plan · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Manage usage<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></p>
                   <p id="installed-siwc-account" class="rm-small"></p>
@@ -1225,17 +1251,22 @@
                     </div>
                   </div>
                 </details>
-                <section id="n8n-stack-removal" class="rm-card rm-card--flat rm-card--compact n8n-sidecar-removal" aria-labelledby="n8n-stack-removal-title" hidden>
-                  <h3 id="n8n-stack-removal-title" class="rm-h3">Remove new local n8n + ngrok</h3>
-                  <p class="rm-small rm-muted">Removes only this Relmio-owned stack, its containers, networks, volumes, and managed files. Existing n8n is not changed.</p>
-                  <p class="rm-small removal-danger"><strong>This permanently deletes the owned n8n data, including workflows and credentials. Export what you need first.</strong></p>
-                  <label class="rm-check check-row"><input id="remove-n8n-stack-confirm" type="checkbox" /><span>I understand this permanent data loss and authorize Relmio to remove only this owned n8n + ngrok stack. Existing n8n stays untouched.</span></label>
-                  <div class="sidecar-removal-actions"><button id="remove-n8n-stack-button" class="rm-button rm-button--danger" type="button" disabled>Remove owned stack</button><p id="remove-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack remains installed until this separate confirmation is checked.</p></div>
-                </section>
+                <details id="n8n-stack-removal-disclosure" class="rm-disclosure ready-optional">
+                  <summary>Remove this n8n</summary>
+                  <div class="rm-disclosure__body">
+                    <section id="n8n-stack-removal" class="rm-card rm-card--flat rm-card--compact n8n-sidecar-removal" aria-labelledby="n8n-stack-removal-title" hidden>
+                      <h3 id="n8n-stack-removal-title" class="rm-h3">Remove owned n8n stack</h3>
+                      <p class="rm-small rm-muted">Removes only this Relmio-owned stack, its containers, networks, volumes, and managed files. Existing n8n is not changed.</p>
+                      <p class="rm-small removal-danger"><strong>This permanently deletes the owned n8n data, including workflows and credentials. Export what you need first.</strong></p>
+                      <label class="rm-check check-row"><input id="remove-n8n-stack-confirm" type="checkbox" /><span>I understand this permanent data loss and authorize Relmio to remove only this owned n8n stack. Existing n8n stays untouched.</span></label>
+                      <div class="sidecar-removal-actions"><button id="remove-n8n-stack-button" class="rm-button rm-button--danger" type="button" disabled>Remove owned stack</button><p id="remove-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack remains installed until this separate confirmation is checked.</p></div>
+                    </section>
+                  </div>
+                </details>
 
                 <section id="n8n-stack-resume" class="rm-card rm-card--flat rm-card--compact n8n-sidecar-removal" aria-labelledby="n8n-stack-resume-title" hidden>
-                  <h3 id="n8n-stack-resume-title" class="rm-h3">Resume stopped local n8n + ngrok</h3>
-                  <p class="rm-small rm-muted">Resume starts only the existing stopped n8n, ngrok, and selected Assistant containers. It does not create, rebuild, or remove anything. Your n8n data stays in place.</p>
+                  <h3 id="n8n-stack-resume-title" class="rm-h3">Resume stopped local n8n</h3>
+                  <p class="rm-small rm-muted">Resume starts only the existing stopped stack containers. It does not create, rebuild, or remove anything. Your n8n data stays in place.</p>
                   <div class="sidecar-removal-actions"><button id="resume-n8n-stack-button" class="rm-button" type="button">Resume owned stack</button><p id="resume-n8n-stack-status" class="rm-small" role="status" aria-live="polite">The owned stack is stopped and can be resumed safely.</p></div>
                 </section>
 
@@ -1378,7 +1409,7 @@
                     <dl class="rm-dl result-list">
                       <div><dt>Private base URL</dt><dd class="result-value"><code id="local-model-url">http://n8n-local-model:11434/v1</code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="local-model-url" data-copy-label="private base URL" aria-label="Copy private base URL" title="Copy private base URL"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd></div>
                       <div><dt>Installed model</dt><dd class="result-value"><code id="local-model-installed-id"></code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="local-model-installed-id" data-copy-label="installed model ID" aria-label="Copy installed model ID" title="Copy installed model ID"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd></div>
-                      <div><dt>Ignored API-key placeholder</dt><dd class="result-value"><code id="local-model-placeholder">local-only</code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="local-model-placeholder" data-copy-label="API-key placeholder" aria-label="Copy API-key placeholder" title="Copy API-key placeholder"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd></div>
+                      <div id="local-model-placeholder-row"><dt>Ignored API-key placeholder</dt><dd class="result-value"><code id="local-model-placeholder">local-only</code><button class="rm-icon-button rm-icon-button--outline rm-icon-button--sm copy-value" type="button" data-copy-target="local-model-placeholder" data-copy-label="API-key placeholder" aria-label="Copy API-key placeholder" title="Copy API-key placeholder"><span class="rm-icon rm-icon--copy rm-icon--sm" aria-hidden="true"></span></button></dd></div>
                     </dl>
                     <p class="rm-small">Turn Use Responses API <strong>Off</strong>. The placeholder is not a login: every container on this network can reach Ollama's management API. A passed check does not prove Assistant or tool-calling works.</p>
                   </div>

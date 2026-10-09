@@ -72,7 +72,7 @@ function extractLocalInstallHandler(script) {
   };
 }
 
-function createInstallHarness(script, { target = "local-n8n-stack" } = {}) {
+function createInstallHarness(script, { target = "local-n8n-stack", publicAccess = "ngrok" } = {}) {
   const elements = new Map();
   const getElement = (id) => {
     if (!elements.has(id)) elements.set(id, createFakeElement());
@@ -81,22 +81,22 @@ function createInstallHarness(script, { target = "local-n8n-stack" } = {}) {
   const installButton = createFakeElement({ textContent: "Install locally" });
   const apiKey = createFakeElement({ disabled: target !== "openai-api" });
   const ngrokAuthtoken = createFakeElement({
-    disabled: target !== "local-n8n-stack",
+    disabled: target !== "local-n8n-stack" || publicAccess !== "ngrok",
     value: "test-authtoken",
   });
   const basicAuthUsername = createFakeElement({
-    disabled: target !== "local-n8n-stack",
+    disabled: target !== "local-n8n-stack" || publicAccess !== "ngrok",
     value: "relmio",
   });
   const basicAuthPassword = createFakeElement({
-    disabled: target !== "local-n8n-stack",
+    disabled: target !== "local-n8n-stack" || publicAccess !== "ngrok",
     value: "password-for-test",
   });
   const generatePassword = createFakeElement({
-    disabled: target !== "local-n8n-stack",
+    disabled: target !== "local-n8n-stack" || publicAccess !== "ngrok",
   });
   const togglePassword = createFakeElement({
-    disabled: target !== "local-n8n-stack",
+    disabled: target !== "local-n8n-stack" || publicAccess !== "ngrok",
   });
   const backButton = createFakeElement({ textContent: "Back" });
   const intentionallyDisabledControl = createFakeElement({ disabled: true });
@@ -136,7 +136,7 @@ function createInstallHarness(script, { target = "local-n8n-stack" } = {}) {
     elements.set(id, item);
   }
 
-  const reviewedPlan = { target };
+  const reviewedPlan = { target, ...(target === "local-n8n-stack" ? { publicAccess } : {}) };
   const state = {
     installedTarget: null,
     operationBusy: false,
@@ -331,10 +331,6 @@ test("restart detection maps strict safe states to normal flow, resume, partial 
     /element\("remove-n8n-stack-button"\)\.disabled = true/u,
   );
   assert.match(recovery, /showStep\(4\)/u);
-  assert.match(
-    `${refresh}\n${recovery}`,
-    /owned partial local n8n \+ ngrok stack/u,
-  );
   assert.match(`${refresh}\n${recovery}`, /partial/iu);
   assert.doesNotMatch(
     `${refresh}\n${recovery}`,
@@ -455,6 +451,30 @@ test("a retry-safe non-ngrok failure preserves the reviewed plan without ngrok g
   assert.equal(harness.apiCalls[0].options.body.ngrokAuthtoken, undefined);
   assert.equal(harness.apiCalls[0].options.body.basicAuthUsername, undefined);
   assert.equal(harness.apiCalls[0].options.body.basicAuthPassword, undefined);
+});
+
+test("retrying a private stack never reveals or enables ngrok secrets", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const harness = createInstallHarness(script, { publicAccess: "none" });
+  const attempt = harness.installHandler({ currentTarget: harness.installButton });
+  harness.request.reject(Object.assign(new Error("The private stack did not start."), {
+    code: "LOCAL_N8N_STACK_RETRYABLE_STARTUP",
+    retryablePlan: true,
+  }));
+  await attempt;
+  assert.equal(harness.state.plan, harness.reviewedPlan);
+  assert.deepEqual(harness.shownSteps, [3]);
+  assert.equal(harness.element("n8n-stack-secrets").hidden, true);
+  for (const field of [harness.ngrokAuthtoken, harness.basicAuthUsername, harness.basicAuthPassword]) {
+    assert.equal(field.disabled, true);
+    assert.equal(field.value, "");
+  }
+  assert.equal(harness.element("generate-ngrok-basic-auth-password").disabled, true);
+  assert.equal(harness.element("toggle-ngrok-basic-auth-password").disabled, true);
+  assert.doesNotMatch(harness.messages.at(-1), /ngrok|token|Basic Auth|credentials/iu);
+  for (const name of ["ngrokAuthtoken", "basicAuthUsername", "basicAuthPassword"]) {
+    assert.equal(Object.hasOwn(harness.apiCalls[0].options.body, name), false);
+  }
 });
 
 test("the reviewed retry path requires an exact boolean attestation", async () => {

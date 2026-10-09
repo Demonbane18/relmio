@@ -74,35 +74,42 @@ export function validateTimezone(value) {
 
 export function createLocalN8nStackPlan({
   dockerHost,
+  publicAccess,
   ngrokHostname,
   n8nPort,
   ngrokInspectorPort,
   timezone,
   assistantMode,
 }) {
+  if (!["none", "ngrok"].includes(publicAccess)) {
+    throw new TypeError("Select private access or ngrok public access.");
+  }
   const localPort = validatePort(n8nPort);
-  const inspectorPort = validatePort(ngrokInspectorPort);
-  if (
-    localPort === inspectorPort ||
-    localPort === RESERVED_PORT ||
-    inspectorPort === RESERVED_PORT
-  ) {
+  if (localPort === RESERVED_PORT) throw new TypeError("Local n8n cannot use port 10531.");
+  if (publicAccess === "none" && (ngrokHostname != null || ngrokInspectorPort != null)) {
+    throw new TypeError("Private n8n cannot accept ngrok settings.");
+  }
+  const inspectorPort = publicAccess === "ngrok" ? validatePort(ngrokInspectorPort) : null;
+  if (inspectorPort === localPort || inspectorPort === RESERVED_PORT) {
     throw new TypeError("Local n8n and ngrok inspector ports must be distinct and cannot use 10531.");
   }
-  const hostname = validateNgrokHostname(ngrokHostname);
+  const hostname = publicAccess === "ngrok" ? validateNgrokHostname(ngrokHostname) : null;
   const mode = validateAssistantMode(assistantMode);
   return Object.freeze({
     kind: "local-n8n-stack",
     target: LOCAL_N8N_STACK_TARGET,
-    label: "Disposable self-hosted n8n + ngrok",
+    label: publicAccess === "ngrok" ? "Disposable self-hosted n8n + ngrok" : "Local n8n stack",
     dockerHost: validateLocalDockerHost(dockerHost),
+    publicAccess,
     ngrokHostname: hostname,
     n8nPort: localPort,
     ngrokInspectorPort: inspectorPort,
     timezone: validateTimezone(timezone),
     assistantMode: mode,
-    localUrl: `http://127.0.0.1:${localPort}`,
-    ngrokPublicUrl: `https://${hostname}`,
+    localUrl: `http://localhost:${localPort}`,
+    ngrokPublicUrl: hostname === null ? null : `https://${hostname}`,
+    n8nContainerName: null,
+    networkName: null,
     hostPublication: "loopback-only",
     deploymentMode: "new-disposable-stack",
     managedPath: LOCAL_N8N_STACK_MANAGED_PATH,
@@ -134,22 +141,16 @@ function createInstallId(randomBytes) {
 }
 
 export function validateLocalN8nStackMarker(value) {
+  const version = value?.schemaVersion;
   const keys = [
-    "schemaVersion",
-    "kind",
-    "target",
-    "installId",
-    "projectName",
-    "dockerHost",
-    "ngrokHostname",
-    "n8nPort",
-    "ngrokInspectorPort",
-    "timezone",
-    "assistantMode",
+    "schemaVersion", "kind", "target", "installId", "projectName",
+    "dockerHost", "ngrokHostname", "n8nPort", "ngrokInspectorPort",
+    "timezone", "assistantMode", ...(version === 2 || (version === 1 && Object.hasOwn(value, "publicAccess")) ? ["publicAccess"] : []),
   ];
   if (
     !hasExactKeys(value, keys) ||
-    value.schemaVersion !== 1 ||
+    ![1, 2].includes(version) ||
+    ((version === 2 && !["none", "ngrok"].includes(value.publicAccess)) || (version === 1 && Object.hasOwn(value, "publicAccess") && value.publicAccess !== "ngrok")) ||
     value.kind !== "relmio-local-n8n-stack" ||
     value.target !== LOCAL_N8N_STACK_TARGET ||
     typeof value.installId !== "string" ||
@@ -162,6 +163,7 @@ export function validateLocalN8nStackMarker(value) {
   }
   const plan = createLocalN8nStackPlan({
     dockerHost: value.dockerHost,
+    publicAccess: version === 1 ? "ngrok" : value.publicAccess,
     ngrokHostname: value.ngrokHostname,
     n8nPort: value.n8nPort,
     ngrokInspectorPort: value.ngrokInspectorPort,
@@ -169,12 +171,13 @@ export function validateLocalN8nStackMarker(value) {
     assistantMode: value.assistantMode,
   });
   return Object.freeze({
-    schemaVersion: 1,
+    schemaVersion: version,
     kind: "relmio-local-n8n-stack",
     target: LOCAL_N8N_STACK_TARGET,
     installId: value.installId,
     projectName: value.projectName,
     dockerHost: plan.dockerHost,
+    publicAccess: plan.publicAccess,
     ngrokHostname: plan.ngrokHostname,
     n8nPort: plan.n8nPort,
     ngrokInspectorPort: plan.ngrokInspectorPort,
@@ -190,12 +193,13 @@ export function createLocalN8nStackInstallation({ plan, randomBytes }) {
   }
   const installId = createInstallId(randomBytes);
   const marker = validateLocalN8nStackMarker({
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "relmio-local-n8n-stack",
     target: LOCAL_N8N_STACK_TARGET,
     installId,
     projectName: `relmio-local-n8n-${installId}`,
     dockerHost: safePlan.dockerHost,
+    publicAccess: safePlan.publicAccess,
     ngrokHostname: safePlan.ngrokHostname,
     n8nPort: safePlan.n8nPort,
     ngrokInspectorPort: safePlan.ngrokInspectorPort,
@@ -219,7 +223,7 @@ export function getLocalN8nStackServiceNames(installation) {
   const marker = validateLocalN8nStackMarker(installation?.marker ?? installation);
   return Object.freeze([
     "n8n",
-    "ngrok",
+    ...(marker.publicAccess === "ngrok" ? ["ngrok"] : []),
     ...(marker.assistantMode === "disabled"
       ? []
       : ["relmio-sandbox-certs", "relmio-sandbox-api", "relmio-sandbox-runner-1"]),

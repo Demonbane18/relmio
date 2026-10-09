@@ -97,7 +97,10 @@ Provider tokens stay in protected per-registration records on the owning local
 or installed runtime. Browser APIs return safe account state and model metadata,
 not provider tokens or filesystem paths. A generated n8n bearer is distinct
 from the OpenAI session, appears once, and is represented in Compose by its
-verifier. n8n credentials are entered manually by the owner.
+verifier. For n8n created by Relmio, an approved add-on install tries to save
+the local connection credential using
+`docker exec -i <n8n> n8n import:credentials --input=/dev/stdin`. OpenAI tokens
+stay in the sidecar. Other n8n installations need manual entry.
 
 A local or VPS transfer initializes a distinct destination host ID, binds the
 reviewed registration/client/generation/owner/target, and freezes the source
@@ -106,8 +109,11 @@ clearing source tokens. Unknown outcomes remain frozen for inspection, never
 restore old source tokens, and never permit both installations to refresh.
 
 The local n8n sidecar re-attests its selected n8n container, Docker host and
-network before writing. It publishes no host port and does not edit, execute
-inside, rebuild, restart, stop, recreate, or change network membership on n8n.
+network before writing. It publishes no host port and does not edit, rebuild,
+restart, stop, recreate, or change n8n network membership. The sidecar itself
+never runs inside n8n. The approved credential import is the only Relmio
+command run inside an n8n container, and only for a Relmio-owned stack that
+Relmio re-attests first.
 VPS installs confirm the SSH fingerprint before authentication and require a
 separate final confirmation before remote writes. Existing legacy credential-
 copy installations require fresh SIWC sign-in and a separately reviewed

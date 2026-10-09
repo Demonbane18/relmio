@@ -3,13 +3,15 @@ import test from "node:test";
 import * as nodeFileSystem from "node:fs/promises";
 import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, win32 } from "node:path";
 
 import {
   LOCAL_N8N_STACK_TARGET,
   createLocalN8nStackInstallation,
   createLocalN8nStackPlan,
+  getLocalN8nStackServiceNames,
   normalizeLocalN8nStackPlan,
+  validateLocalN8nStackMarker,
 } from "../src/domain/local-n8n-stack.js";
 import {
   createLocalN8nStackEnv,
@@ -62,6 +64,7 @@ const OWNERSHIP_LABEL_KEYS = [
 function plan(overrides = {}) {
   return createLocalN8nStackPlan({
     dockerHost: DOCKER_HOST,
+    publicAccess: "ngrok",
     ngrokHostname: "relmio-demo.ngrok.app",
     n8nPort: 5678,
     ngrokInspectorPort: 4040,
@@ -74,7 +77,7 @@ function plan(overrides = {}) {
 test("local n8n plan accepts only public choices and rejects unsafe bindings", () => {
   const value = plan();
   assert.equal(value.target, LOCAL_N8N_STACK_TARGET);
-  assert.equal(value.localUrl, "http://127.0.0.1:5678");
+  assert.equal(value.localUrl, "http://localhost:5678");
   assert.equal(value.ngrokPublicUrl, "https://relmio-demo.ngrok.app");
   assert.equal(value.hostPublication, "loopback-only");
   assert.deepEqual(normalizeLocalN8nStackPlan(value), value);
@@ -136,9 +139,11 @@ test("generated compose keeps n8n and ngrok loopback-only and isolates assistant
   assert.match(compose, /--traffic-policy-file=\/run\/secrets\/ngrok-traffic-policy\.yml/u);
   assert.match(compose, /ngrok-traffic-policy:\n    file: \.\/\.runtime\/traffic-policy\.yml/u);
   assert.doesNotMatch(compose, /\.runtime\/traffic-policy\.yml:\/etc\/ngrok/u);
-  for (const service of ["relmio-sandbox-certs", "relmio-sandbox-api", "relmio-sandbox-runner-1", "relmio-searxng"]) {
-    assert.match(compose, new RegExp(`${service}:[\\s\\S]*?restart: "no"`));
+  for (const service of ["n8n", "ngrok", "relmio-sandbox-api", "relmio-sandbox-runner-1", "relmio-searxng"]) {
+    assert.match(compose, new RegExp(`${service}:[\\s\\S]*?restart: unless-stopped`));
   }
+  assert.match(compose, /relmio-sandbox-certs:\n[\s\S]*?restart: "no"/u);
+  assert.match(compose, /N8N_WEBHOOK_URL: https:\/\/\$\{NGROK_DOMAIN\}\//u);
 });
 test("generated SearXNG compose uses block-style secret interpolation", () => {
   const installation = createLocalN8nStackInstallation({
@@ -269,6 +274,8 @@ test("every local n8n production image is pinned by immutable digest", () => {
   for (const image of Object.values(LOCAL_N8N_STACK_IMAGES)) {
     assert.match(image, /@sha256:[a-f0-9]{64}$/u);
   }
+  assert.equal(LOCAL_N8N_STACK_IMAGES.n8n,
+    "docker.io/n8nio/n8n:2.42.5@sha256:f6dc0d15bc9620baf5ba1df834ef81ae4e969f778c09300e567217be88f04a96");
 });
 
 test("generated Compose healthchecks stay coupled to the installer readiness contract", () => {
@@ -675,6 +682,7 @@ function assertOwnershipFormatsUseExplicitLabels(calls) {
 function createStackRunner({
   malformedPublisher = false,
   assistantMode = "disabled",
+  publicAccess = "ngrok",
   assistantPublishers = [],
   assistantPublishersByService = {},
   contextHost = DOCKER_HOST,
@@ -703,6 +711,7 @@ function createStackRunner({
   startFailure = false,
   pullFailureOutput = null,
   startupFailureOutput = null,
+  attachedContainers = [],
 } = {}) {
   const calls = [];
   let up = false;
@@ -710,7 +719,7 @@ function createStackRunner({
   let downAttempts = 0;
   const services = [
     "n8n",
-    "ngrok",
+    ...(publicAccess === "ngrok" ? ["ngrok"] : []),
     ...(assistantMode === "disabled"
       ? []
       : ["relmio-sandbox-certs", "relmio-sandbox-api", "relmio-sandbox-runner-1"]),
@@ -804,6 +813,28 @@ function createStackRunner({
         }),
         stderr: "",
       };
+    }
+    if (spec.args[0] === "network" && spec.args[1] === "inspect" &&
+        spec.args.includes("{{json .}}")) {
+      const name = spec.args.at(-1);
+      const project = name.split("_")[0];
+      const installId = project.slice(-32);
+      const labels = {
+        "com.docker.compose.project": project,
+        "io.relmio.managed": "true",
+        "io.relmio.target": LOCAL_N8N_STACK_TARGET,
+        "io.relmio.install": installId,
+        "io.relmio.project": project,
+      };
+      return { code: 0, stdout: JSON.stringify({ Name: name, Labels: labels,
+        Containers: Object.fromEntries(attachedContainers.map(item => [item.id, { Name: item.name }])) }), stderr: "" };
+    }
+    if (spec.args[0] === "container" && spec.args[1] === "inspect") {
+      const item = attachedContainers.find(candidate => candidate.id === spec.args.at(-1));
+      return item
+        ? { code: 0, stdout: JSON.stringify({ Id: item.id, Name: `/${item.name}`,
+            Config: { Labels: { "io.relmio.target": item.target } } }), stderr: "" }
+        : { code: 1, stdout: "", stderr: "" };
     }
     if (spec.args[0] === "network" && spec.args[1] === "inspect") {
       return {
@@ -1250,9 +1281,14 @@ test("exact owned status exposes a sanitized dashboard snapshot without changing
   assert.deepEqual(Object.keys(result), ["managed", "state"]);
   assert.deepEqual(result.snapshot, {
     target: "local-n8n-stack",
+    publicAccess: "ngrok",
+    localUrl: "http://localhost:5678",
+    ngrokPublicUrl: "https://relmio-demo.ngrok.app",
+    n8nContainerName: `${marker.projectName}-n8n-1`,
+    networkName: `${marker.projectName}_edge`,
     assistantMode: "sandbox-with-searxng",
     endpoints: {
-      n8nLocal: "http://127.0.0.1:5678",
+      n8nLocal: "http://localhost:5678",
       ngrokPublic: "https://relmio-demo.ngrok.app",
       ngrokInspector: "http://127.0.0.1:4040",
     },
@@ -1266,7 +1302,6 @@ test("exact owned status exposes a sanitized dashboard snapshot without changing
     canRemove: true,
   });
   const serialized = JSON.stringify(result.snapshot);
-  assert.doesNotMatch(serialized, new RegExp(marker.installId, "u"));
   assert.doesNotMatch(serialized, /projectName|dockerHost|managedPath|\.relmio|secret|token|error/iu);
 });
 
@@ -1297,10 +1332,13 @@ test("resume starts only an exact owner-attested stopped stack", async (t) => {
     runProcess: runner,
   });
 
-  assert.deepEqual(result, {
+  assert.partialDeepStrictEqual(result, {
     target: "local-n8n-stack",
     resumed: true,
     deploymentMode: "resumed-owned-disposable-stack",
+    publicAccess: "ngrok",
+    localUrl: "http://localhost:5678",
+    assistantMode: "sandbox",
   });
   const start = calls.find((call) => call.args.includes("start"));
   assert.ok(start);
@@ -1615,7 +1653,7 @@ test("installer creates only the new owned project and returns a redacted result
     randomBytes: (() => { let value = 10; return (length) => Buffer.alloc(length, ++value); })(),
   });
   assert.equal(result.target, LOCAL_N8N_STACK_TARGET);
-  assert.equal(result.localUrl, "http://127.0.0.1:5678");
+  assert.equal(result.localUrl, "http://localhost:5678");
   assert.equal(result.ngrokPublicUrl, "https://relmio-demo.ngrok.app");
   assert.equal(JSON.stringify(result).includes("private"), false);
   assert.equal(calls.some((entry) => entry.args.join(" ").includes("container inspect")), false);
@@ -1673,13 +1711,19 @@ test("malformed host publication fails closed, rolls back only an attested proje
   }));
 });
 
-test("Assistant services accept only empty or Compose placeholder unpublished publishers", async (t) => {
+test("Assistant services may declare ports but must not bind any on the host", async (t) => {
   for (const publishers of [
     [],
     [{ URL: "", PublishedPort: 0, TargetPort: 8080, Protocol: "tcp" }],
     [
       { URL: "", PublishedPort: 0, TargetPort: 8080, Protocol: "tcp" },
       { URL: "", PublishedPort: 0, TargetPort: 9090, Protocol: "tcp" },
+    ],
+    // The Code Sandbox runner's Docker-in-Docker image declares 2375 and 2376 (captured live, 2026-10-09).
+    [
+      { URL: "", PublishedPort: 0, TargetPort: 2375, Protocol: "tcp" },
+      { URL: "", PublishedPort: 0, TargetPort: 2376, Protocol: "tcp" },
+      { URL: "", PublishedPort: 0, TargetPort: 8080, Protocol: "tcp" },
     ],
   ]) {
     const homeDirectory = await testHome(t);
@@ -1722,9 +1766,10 @@ test("Assistant services accept only empty or Compose placeholder unpublished pu
   }
 
   for (const publishers of [
-    [{ URL: "", PublishedPort: 0, TargetPort: 8080, Protocol: "udp" }],
-    [{ URL: "", PublishedPort: 0, TargetPort: 7070, Protocol: "tcp" }],
     [{ URL: "127.0.0.1", PublishedPort: 19090, TargetPort: 9090, Protocol: "tcp" }],
+    [{ URL: "0.0.0.0", PublishedPort: 2375, TargetPort: 2375, Protocol: "tcp" }],
+    [{ URL: "", PublishedPort: 18080, TargetPort: 8080, Protocol: "tcp" }],
+    [{ URL: "", PublishedPort: 0, TargetPort: 0, Protocol: "tcp" }],
   ]) {
     const homeDirectory = await testHome(t);
     const { calls, runner } = createStackRunner({
@@ -1747,12 +1792,13 @@ test("Assistant services accept only empty or Compose placeholder unpublished pu
 });
 
 test("stack unit operations use the injected Windows ACL adapter", async (t) => {
-  const homeDirectory = await testHome(t);
+  const homeDirectory = join(await testHome(t), "First Last");
+  await mkdir(homeDirectory, { mode: 0o700 });
   const installRoot = await resolveLocalN8nStackInstallRoot({
     homeDirectory,
     platform: "win32",
   });
-  const { runner } = createStackRunner({
+  const { calls, runner } = createStackRunner({
     assistantMode: "sandbox-with-searxng",
     contextHost: WINDOWS_DOCKER_HOST,
     contextName: "desktop-linux",
@@ -1778,6 +1824,14 @@ test("stack unit operations use the injected Windows ACL adapter", async (t) => 
     },
   });
 
+  const composeCall = calls.find(call => call.args[0] === "compose" && call.args.includes("config"));
+  assert.ok(composeCall);
+  assert.equal(composeCall.cwd, installRoot);
+  assert.equal(composeCall.dockerHost, WINDOWS_DOCKER_HOST);
+  assert.equal(composeCall.args[composeCall.args.indexOf("--env-file") + 1], ".env");
+  assert.equal(composeCall.args[composeCall.args.indexOf("--file") + 1], "docker-compose.yml");
+  assert.equal(composeCall.args.some(argument => argument.includes(homeDirectory)), false);
+  assert.equal(Object.hasOwn(composeCall, "shell"), false);
   for (const path of [
     join(homeDirectory, ".relmio"),
     join(homeDirectory, ".relmio", "local"),
@@ -3182,4 +3236,114 @@ test("an active lifecycle lock blocks destructive stack removal", async (t) => {
     confirmation: "REMOVE_LOCAL_N8N_STACK",
   }));
   await stat(join(homeDirectory, ".relmio", "local", "n8n-stack", ".managed-by-relmio.json"));
+});
+
+test("private stack omits ngrok and uses localhost webhooks", () => {
+  const privatePlan = plan({ publicAccess: "none", ngrokHostname: null, ngrokInspectorPort: null });
+  const installation = createLocalN8nStackInstallation({
+    plan: privatePlan, randomBytes: length => Buffer.alloc(length, 11),
+  });
+  assert.equal(installation.marker.schemaVersion, 2);
+  assert.equal(installation.marker.publicAccess, "none");
+  assert.equal(privatePlan.ngrokPublicUrl, null);
+  assert.throws(() => plan({ publicAccess: "none" }), /ngrok settings/u);
+  assert.throws(() => plan({ publicAccess: "none", ngrokHostname: null, ngrokInspectorPort: 4040 }), /ngrok settings/u);
+  assert.throws(() => validateLocalN8nStackSecrets({ ngrokAuthtoken: "private-token" }, "none"));
+  const compose = createLocalN8nStackComposeFile({ installation });
+  const env = createLocalN8nStackEnv({ installation, secrets: {},
+    runtimeSecrets: { n8nEncryptionKey: "a".repeat(64) } });
+  assert.doesNotMatch(compose, /^  ngrok:|^secrets:|NGROK_|N8N_PROXY_HOPS|4040|traffic-policy|ngrok\.yml/mu);
+  assert.doesNotMatch(env, /NGROK_|ngrok/u);
+  assert.match(compose, /N8N_HOST: localhost/u);
+  assert.match(compose, /N8N_PROTOCOL: http/u);
+  assert.match(compose, /N8N_EDITOR_BASE_URL: http:\/\/localhost:5678\//u);
+  assert.match(compose, /N8N_WEBHOOK_URL: http:\/\/localhost:5678\//u);
+  assert.match(compose, /N8N_SECURE_COOKIE: "false"/u);
+  assert.deepEqual(getLocalN8nStackServiceNames(installation), ["n8n"]);
+});
+
+test("schema one stack markers keep ngrok mode without rewrite", () => {
+  const installation = createLocalN8nStackInstallation({
+    plan: plan(), randomBytes: length => Buffer.alloc(length, 14),
+  });
+  const { publicAccess: unused, ...legacy } = installation.marker;
+  legacy.schemaVersion = 1;
+  const validated = validateLocalN8nStackMarker(legacy);
+  assert.equal(validated.publicAccess, "ngrok");
+  assert.ok(getLocalN8nStackServiceNames(validated).includes("ngrok"));
+});
+
+test("stack removal refuses attached add-ons and unknown containers before down", async t => {
+  const homeDirectory = await testHome(t);
+  const { runner: setup } = createStackRunner();
+  await installLocalN8nStack({
+    plan: plan(), secrets: { ngrokAuthtoken: "ngrok-private-token",
+      basicAuthUsername: "operator", basicAuthPassword: "long-private-password" },
+    publicExposureConfirmation: "EXPOSE_LOCAL_N8N_VIA_NGROK", homeDirectory, runProcess: setup,
+  });
+  const { runner, calls } = createStackRunner({
+    initialResources: true,
+    attachedContainers: [
+      { id: "a".repeat(64), name: "relmio-sidecar-1", target: "n8n-openai-oauth" },
+      { id: "b".repeat(64), name: "my-app", target: "other" },
+      { id: "c".repeat(64), name: "relmio-model-1", target: "n8n-local-model" },
+      { id: "d".repeat(64), name: "relmio-supergrok-1", target: "n8n-supergrok-oauth" },
+      { id: "e".repeat(64), name: "relmio-assistant-1", target: "n8n-ai-assistant" },
+    ],
+  });
+  await assert.rejects(() => removeLocalN8nStack({
+    homeDirectory, runProcess: runner, confirmation: "REMOVE_LOCAL_N8N_STACK",
+  }), /Remove the add-ons connected to this n8n first: Assistant tools, ChatGPT plan sidecar, SuperGrok, local model, my-app\./u);
+  assert.equal(calls.some(call => call.args.includes("down")), false);
+});
+
+test("Windows home with spaces remains one resolved Docker working directory", async () => {
+  const home = String.raw`C:\Users\First Last`;
+  const root = await resolveLocalN8nStackInstallRoot({
+    homeDirectory: home, platform: "win32", env: {},
+    fileSystem: { realpath: async path => path },
+  });
+  assert.equal(root, win32.join(home, ".relmio", "local", "n8n-stack"));
+  assert.equal(root.includes("First Last"), true);
+});
+
+test("private installation stays healthy without ngrok and writes no public credentials", async t => {
+  const homeDirectory = await testHome(t);
+  const { calls, runner } = createStackRunner({ publicAccess: "none" });
+  const result = await installLocalN8nStack({
+    plan: plan({ publicAccess: "none", ngrokHostname: null, ngrokInspectorPort: null }),
+    secrets: {}, homeDirectory, runProcess: runner,
+  });
+  assert.equal(result.publicAccess, "none");
+  assert.deepEqual(result.containerServices, ["n8n"]);
+  assert.equal(result.ngrokPublicUrl, null);
+  const root = join(homeDirectory, ".relmio", "local", "n8n-stack");
+  await assert.rejects(() => stat(join(root, "ngrok.yml")), { code: "ENOENT" });
+  await assert.rejects(() => stat(join(root, ".runtime", "traffic-policy.yml")), { code: "ENOENT" });
+  assert.doesNotMatch(await nodeFileSystem.readFile(join(root, ".env"), "utf8"), /NGROK_/u);
+  const status = await getLocalN8nStackStatus({ homeDirectory, runProcess: runner });
+  assert.deepEqual({ managed: status.managed, state: status.state }, { managed: true, state: "healthy" });
+  assert.equal(status.snapshot.components.ngrok, false);
+  assert.equal(status.snapshot.endpoints.ngrokPublic, null);
+  assert.equal(calls.some(call => call.args.includes("ngrok")), false);
+  assert.equal((await removeLocalN8nStack({
+    homeDirectory, runProcess: runner, confirmation: "REMOVE_LOCAL_N8N_STACK",
+  })).removed, true);
+});
+
+test("legacy schema-one stack remains resumable and removable without marker migration", async t => {
+  const homeDirectory = await testHome(t);
+  const { installRoot, marker } = await writeManagedStackMarker(homeDirectory);
+  const { publicAccess: unused, ...legacy } = marker;
+  legacy.schemaVersion = 1;
+  const markerPath = join(installRoot, ".managed-by-relmio.json");
+  await nodeFileSystem.writeFile(markerPath, `${JSON.stringify(legacy)}\n`, { mode: 0o600 });
+  const { runner } = createStackRunner({ initialResources: true });
+  const stopped = await getLocalN8nStackStatus({ homeDirectory, runProcess: runner });
+  assert.equal(stopped.snapshot.publicAccess, "ngrok");
+  assert.equal((await resumeLocalN8nStack({ homeDirectory, runProcess: runner, confirmed: true })).resumed, true);
+  assert.equal(JSON.parse(await nodeFileSystem.readFile(markerPath, "utf8")).schemaVersion, 1);
+  assert.equal((await removeLocalN8nStack({
+    homeDirectory, runProcess: runner, confirmation: "REMOVE_LOCAL_N8N_STACK",
+  })).removed, true);
 });

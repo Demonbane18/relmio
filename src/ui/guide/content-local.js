@@ -298,6 +298,15 @@ export const GUIDE = {
           done: "manual",
         },
         {
+          id: "public-access",
+          target: "#n8n-stack-public-access",
+          action: "check",
+          title: "Public link, optional",
+          say: "Leave this off for private n8n. Tick it only if outside services need to reach your n8n, such as webhooks.",
+          done: "manual",
+        },
+
+        {
           id: "ngrok-hostname",
           target: "#ngrok-hostname",
           action: "type",
@@ -339,7 +348,7 @@ export const GUIDE = {
           target: "#n8n-stack-assistant-mode",
           action: "choose",
           title: "Assistant tools, optional",
-          say: "Disabled creates only n8n and ngrok. Code Sandbox adds the private sandbox for n8n's AI Assistant, and the last choice also adds web search.",
+          say: "Disabled creates private n8n. Code Sandbox adds private tools for n8n's AI Assistant, and the last choice also adds web search.",
           done: "manual",
         },
         {
@@ -474,8 +483,8 @@ export const GUIDE = {
           id: "sidecar-note",
           target: "#sidecar-install-note",
           action: "read",
-          title: "You enter the key",
-          say: "The sidecar is a small helper Relmio runs next to n8n. After install, you paste its one-time key into n8n yourself.",
+          title: "One-time key",
+          say: "Relmio adds the credential to an n8n it created. For other n8n containers, enter the one-time key yourself.",
           done: "manual",
         },
         {
@@ -640,7 +649,7 @@ export const GUIDE = {
           target: "#resume-n8n-stack-button",
           action: "press",
           title: "Start your n8n again",
-          say: "Your Relmio n8n and ngrok are stopped. Press Resume owned stack to start them. Your workflows stay in place.",
+          say: "Your Relmio n8n stack is stopped. Press Resume owned stack to start it. Your workflows stay in place.",
           done: "clicked",
         },
         {
@@ -672,8 +681,24 @@ export const GUIDE = {
           target: "#local-model-url",
           action: "read",
           title: "Fill in n8n",
-          say: "In n8n, use this Base URL, the model ID and local-only as the API key. Turn Use Responses API off.",
+          say: "In n8n, pick the Relmio local model credential if shown. Otherwise use this Base URL, the model ID and local-only as the API key. Turn Use Responses API off.",
           example: "http://n8n-local-model:11434/v1",
+          done: "manual",
+        },
+        {
+          id: "stack-addons",
+          target: "#n8n-stack-addons",
+          action: "read",
+          title: "Add to this n8n",
+          say: "Open n8n to make your owner account, then choose any add-on here. Relmio selects this n8n and its network for you.",
+          done: "manual",
+        },
+        {
+          id: "key-elsewhere",
+          target: "#n8n-key-elsewhere",
+          action: "read",
+          title: "Manual credential setup",
+          say: "Open this section only if you need the local key for this n8n. Do not share it or connect unrelated tools. The local model's local-only placeholder is not a login.",
           done: "manual",
         },
         {
@@ -689,7 +714,7 @@ export const GUIDE = {
           target: "[data-copy-target=result-endpoint]",
           action: "press",
           title: "Copy the address",
-          say: "Copy this address into your app or n8n credential as the Base URL.",
+          say: "Copy this address into a local app. If you use another n8n, use it as the Base URL.",
           done: "clicked",
         },
         {

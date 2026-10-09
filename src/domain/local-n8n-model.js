@@ -109,7 +109,7 @@ export function createLocalN8nModelComposeFile({ installId, networkName, modelId
   return `services:
   local-model:
     image: ${LOCAL_MODEL_RUNTIME_IMAGE}
-    restart: "no"
+    restart: unless-stopped
     init: true
     user: "0:0"
     environment:

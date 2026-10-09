@@ -45,7 +45,7 @@ function oauthOnlySnapshot() {
     ["codex-chatgpt", "Codex (ChatGPT plan)", "endpoint"],
     ["codex-chat", "Codex Chat adapter", "endpoint"],
     ["xai-grok-build", "SuperGrok", "endpoint"],
-    ["local-n8n-stack", "n8n + ngrok", "n8n-stack"],
+    ["local-n8n-stack", "Local n8n stack", "n8n-stack"],
     ["n8n-openai-oauth", "ChatGPT plan sidecar", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
@@ -183,13 +183,13 @@ test("navigation clears one-time local values", async () => {
   };
   const clear = runInNewContext(`${source}; clearOneTimeSetupValues;`, { element, state: {}, clearChatTesterState() {} });
   clear();
-  for (const id of ["result-credential", "result-sandbox-key", "result-n8n-settings"]) assert.equal(element(id).textContent, "");
+  for (const id of ["result-credential", "n8n-elsewhere-key", "result-sandbox-key", "result-n8n-settings"]) assert.equal(element(id).textContent, "");
 });
 
 test("local OAuth endpoint planning emits only target and port", async () => {
   const script = await loadScript();
   const helpers = sourceBetween(script, "function isCodexChat(target)", "\nfunction assistantModeLabel");
-  const handler = sourceBetween(script, 'element("target-form").addEventListener("submit"', "\nfor (const input of document.querySelectorAll('input[name=\"target\"]')");
+  const handler = sourceBetween(script, 'element("target-form").addEventListener("submit"', "\nfor (const button of document.querySelectorAll(\"[data-stack-addon]\"))");
   const controls = new Map();
   const element = (id) => {
     if (!controls.has(id)) controls.set(id, { value: id === "local-port" ? "14502" : "", checked: false, disabled: false, addEventListener(name, listener) { this.listener = listener; } });
@@ -203,7 +203,7 @@ test("local OAuth endpoint planning emits only target and port", async () => {
       requests.push({ path, body: options.body });
       return { planId: "reviewed", plan: { target: options.body.target } };
     },
-    clearError() {}, element, invalidatePlan() {}, renderPlan() {}, setBusy() { return true; }, setMessage() {}, showError(error) { throw error; }, showStep() {}, state,
+    clearError() {}, element, invalidatePlan() {}, renderPlan() {}, assistantAlreadyInstalled: () => false, setBusy() { return true; }, setMessage() {}, showError(error) { throw error; }, showStep() {}, state,
   });
   for (const target of ["codex-chatgpt", "codex-chat", "xai-grok-build"]) {
     state.target = target;
@@ -219,7 +219,7 @@ test("local OAuth endpoint planning emits only target and port", async () => {
 test("private n8n SuperGrok planning sends only the selected n8n identities", async () => {
   const script = await loadScript();
   const helpers = sourceBetween(script, "function isCodexChat(target)", "\nfunction assistantModeLabel");
-  const handler = sourceBetween(script, 'element("target-form").addEventListener("submit"', "\nfor (const input of document.querySelectorAll('input[name=\"target\"]')");
+  const handler = sourceBetween(script, 'element("target-form").addEventListener("submit"', "\nfor (const button of document.querySelectorAll(\"[data-stack-addon]\"))");
   const controls = new Map();
   const element = (id) => {
     if (!controls.has(id)) controls.set(id, { value: id === "n8n-container" ? "n8n-123" : id === "n8n-network" ? "network-456" : "", checked: false, disabled: false, addEventListener(name, listener) { this.listener = listener; } });
@@ -232,7 +232,7 @@ test("private n8n SuperGrok planning sends only the selected n8n identities", as
       requests.push({ path, body: options.body });
       return { planId: "reviewed", plan: { target: options.body.target } };
     },
-    clearError() {}, element, invalidatePlan() {}, renderPlan() {}, setBusy() { return true; }, setMessage() {}, showError(error) { throw error; }, showStep() {}, state,
+    clearError() {}, element, invalidatePlan() {}, renderPlan() {}, assistantAlreadyInstalled: () => false, setBusy() { return true; }, setMessage() {}, showError(error) { throw error; }, showStep() {}, state,
   });
   await element("target-form").listener({ preventDefault() {} });
   assert.deepEqual(JSON.parse(JSON.stringify(requests)), [{

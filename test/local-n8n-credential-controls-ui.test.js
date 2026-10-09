@@ -77,7 +77,7 @@ function createCredentialHarness() {
     installProgressStartedAt: 0,
     installProgressTimer: null,
     installing: false,
-    plan: { target: "local-n8n-stack" },
+    plan: { target: "local-n8n-stack", publicAccess: "ngrok" },
     planId: "reviewed-plan",
   };
   const installControls = [
@@ -168,6 +168,8 @@ function loadCredentialControls(script, harness, { randomValues, showError } = {
     globalThis: undefined,
     invalidatePlan() {},
     isN8nAssistant: () => false,
+    isN8nLocalModel: () => false,
+    isN8nSuperGrok: () => false,
     isN8nSidecar: () => false,
     isN8nStack: (target) => target === "local-n8n-stack",
     renderInstallResult() {},
@@ -382,4 +384,20 @@ test("the real Basic Auth visibility button toggles type, label, pressed state, 
   assert.equal(harness.togglePassword.textContent, "Show password");
   assert.equal(harness.togglePassword.attributes.get("aria-pressed"), "false");
   assert.equal(harness.basicAuthPassword.focusCalls, 2);
+});
+
+test("private stack installation does not request ngrok credentials", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const harness = createCredentialHarness();
+  harness.state.plan.publicAccess = "none";
+  const controls = loadCredentialControls(script, harness);
+  await controls.install({ currentTarget: harness.installButton });
+  const request = harness.apiCalls.find(({ path }) => path === "/api/local/install");
+  assert.ok(request);
+  for (const field of ["ngrokAuthtoken", "basicAuthUsername", "basicAuthPassword"]) {
+    assert.equal(Object.hasOwn(request.options.body, field), false);
+  }
+  assert.equal(harness.ngrokAuthtoken.reportValidityCalls, 0);
+  assert.equal(harness.basicAuthUsername.reportValidityCalls, 0);
+  assert.equal(harness.basicAuthPassword.reportValidityCalls, 0);
 });

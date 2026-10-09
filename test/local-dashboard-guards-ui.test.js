@@ -17,7 +17,7 @@ const snapshot = () => ({ generatedAt: "2026-09-05T00:00:00.000Z", services: [
   { target: "codex-chatgpt", label: "Codex (ChatGPT login)", kind: "endpoint", managed: true, state: "healthy", snapshot: { target: "codex-chatgpt", endpoint: "ws://127.0.0.1:14500/", auth: { configured: true, disclosure: "rotate-only" }, canRotateCredential: true }, actions: ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"] },
   { target: "codex-chat", label: "Codex Chat adapter", kind: "endpoint", managed: false, state: "absent", snapshot: null, actions: ["setup"] },
   { target: "xai-grok-build", label: "SuperGrok", kind: "endpoint", managed: false, state: "absent", snapshot: null, actions: ["setup"] },
-  { target: "local-n8n-stack", label: "n8n + ngrok", kind: "n8n-stack", managed: false, state: "absent", snapshot: null, actions: ["setup"] },
+  { target: "local-n8n-stack", label: "Local n8n stack", kind: "n8n-stack", managed: false, state: "absent", snapshot: null, actions: ["setup"] },
   { target: "n8n-openai-oauth", label: "OpenAI OAuth bridge", kind: "n8n-oauth-bridge", managed: false, state: "absent", snapshot: null, actions: ["setup"] },
   { target: "local-n8n-assistant", label: "AI Assistant tools", kind: "n8n-assistant", managed: false, state: "absent", snapshot: null, actions: ["setup"] },
 ], providers: [
@@ -96,7 +96,7 @@ test("dashboard copy allowlist includes endpoint and n8n URLs but never credenti
   const detail = runInNewContext(`${footerHelpers(script)}\n${facts}\n${details}; renderDashboardServiceDetail;`, { document: { createElement: node }, element, state: { dashboardSnapshot: snapshot() }, assistantModeLabel: () => "Disabled", copyText: async () => {}, flashCopied() {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n, ngrok", dashboardServiceDescription: () => "Verified", dashboardStateLabel: (value) => value, dashboardStatusDot: () => node("span"), renderDashboardAction: () => null });
   const buttons = () => element("dashboard-service-facts").children.flatMap((row) => row.children.flatMap((child) => child.children?.filter((item) => item.tagName === "button") ?? []));
   detail(snapshot().services[0]); assert.deepEqual(buttons().map((button) => button.attributes.get("aria-label")), ["Copy Codex (ChatGPT login) endpoint"]);
-  detail({ target: "local-n8n-stack", label: "n8n + ngrok", kind: "n8n-stack", managed: true, state: "healthy", actions: [], snapshot: { endpoints: { n8nLocal: "http://127.0.0.1:5678/", ngrokPublic: "https://workflow.example.invalid/", ngrokInspector: "http://127.0.0.1:4040/" }, components: { n8n: true, ngrok: true }, assistantMode: "disabled" } });
+  detail({ target: "local-n8n-stack", label: "Local n8n stack", kind: "n8n-stack", managed: true, state: "healthy", actions: [], snapshot: { endpoints: { n8nLocal: "http://127.0.0.1:5678/", ngrokPublic: "https://workflow.example.invalid/", ngrokInspector: "http://127.0.0.1:4040/" }, components: { n8n: true, ngrok: true }, assistantMode: "disabled" } });
   assert.deepEqual(buttons().map((button) => button.attributes.get("aria-label")), ["Copy local n8n URL", "Copy public n8n URL", "Copy ngrok inspector URL"]);
   detail({ target: "local-n8n-assistant", label: "AI Assistant tools", kind: "n8n-assistant", managed: true, state: "healthy", actions: [], snapshot: { components: { codeSandbox: true } } });
   assert.equal(buttons().length, 0);

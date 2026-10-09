@@ -275,10 +275,7 @@ If ownership moved but a later finishing step failed, the result still shows
 the one-time key once, with a warning not to use it until the reported issue
 is resolved.
 
-The local or VPS sidecar is available only to containers on the selected
-private Docker network and publishes no host port. n8n does not receive the
-provider token. Enter the one-time Relmio bearer from the result screen
-manually in n8n:
+The local or VPS sidecar joins the selected private Docker network and publishes no host port. OpenAI tokens stay in the sidecar. For local n8n created by Relmio, installation tries to save the Relmio bearer and private base URL as **Relmio ChatGPT plan** in n8n. Select that credential in your OpenAI nodes. For other n8n installations, or if automatic setup cannot be confirmed, check n8n and enter these settings manually:
 
 ```text
 Base URL: http://n8n-openai-oauth:10531/v1
@@ -375,7 +372,10 @@ fits its Sign in with ChatGPT terms. See
 [Assistant setup](docs/ai-assistant.md#optional-chatgpt-plan-sidecar).
 
 Installing on a server also requires express consent for n8n background
-workflows. The wizard does not edit n8n's credentials or Compose configuration.
+workflows. For existing local or VPS n8n, the wizard does not edit n8n
+credentials or Compose configuration. For n8n created by Relmio, approved
+ChatGPT-plan, local-model and SuperGrok installs try to import their connection
+credential.
 Existing legacy bridge installations are not silently adopted; they require a
 separately reviewed migration and fresh SIWC sign-in. Identity sign-in or an
 installer confirmation cannot grant plan permission; that is a separate user
@@ -460,10 +460,9 @@ and manual routes, image-qualified usernames, agent setup and provider limits.
 
 ### I do not have n8n yet
 
-Choose **Set up new n8n**. Relmio creates a separate n8n stack and walks
-you through the ngrok domain, token, and Basic Auth fields. Only the new n8n
-route is public. Its model bridge, Code Sandbox, and optional SearXNG stay off
-the host network.
+Choose **Set up new n8n**. Relmio creates a separate stack that is private
+by default. ngrok is optional; when enabled, it exposes only the new n8n
+route behind Basic Auth. Code Sandbox and SearXNG stay off the host network.
 
 [Read the new n8n guide](https://relmio.jpfusin.tech/docs/local-n8n-stack)
 
@@ -581,7 +580,7 @@ permission, unsupported-capability, rate-limit, or usage error.
 
 - [Getting started](https://relmio.jpfusin.tech/docs/getting-started)
 - [Local endpoints and n8n bridge](https://relmio.jpfusin.tech/docs/local-endpoints)
-- [New local n8n + ngrok](https://relmio.jpfusin.tech/docs/local-n8n-stack)
+- [New local n8n with optional ngrok](https://relmio.jpfusin.tech/docs/local-n8n-stack)
 - [VPS and n8n](https://relmio.jpfusin.tech/docs/vps-and-n8n)
 - [SuperGrok on a VPS](https://relmio.jpfusin.tech/docs/vps-supergrok)
 - [n8n AI Assistant](https://relmio.jpfusin.tech/docs/ai-assistant)

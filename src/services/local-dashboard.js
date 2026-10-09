@@ -15,7 +15,7 @@ const SERVICE_DEFINITIONS = Object.freeze([
   }),
   Object.freeze({ target: "codex-chat", label: "Codex Chat adapter", kind: "endpoint" }),
   Object.freeze({ target: "xai-grok-build", label: "SuperGrok", kind: "endpoint" }),
-  Object.freeze({ target: "local-n8n-stack", label: "n8n + ngrok", kind: "n8n-stack" }),
+  Object.freeze({ target: "local-n8n-stack", label: "Local n8n stack", kind: "n8n-stack" }),
   Object.freeze({
     target: "n8n-openai-oauth",
     label: "ChatGPT plan sidecar",
@@ -213,29 +213,36 @@ function copyEndpointSnapshot(target, snapshot) {
 function copyStackSnapshot(snapshot) {
   if (
     snapshot?.target !== "local-n8n-stack" ||
+    !["none", "ngrok"].includes(snapshot.publicAccess) ||
     !ASSISTANT_MODES.has(snapshot.assistantMode) ||
     typeof snapshot.canResume !== "boolean" ||
-    snapshot.canRemove !== true
-  ) {
-    throw new TypeError();
-  }
+    snapshot.canRemove !== true ||
+    !/^relmio-local-n8n-[a-f0-9]{32}-n8n-1$/u.test(snapshot.n8nContainerName) ||
+    snapshot.networkName !== `${snapshot.n8nContainerName.slice(0, -6)}_edge` ||
+    !/^http:\/\/localhost:(?:[1-9][0-9]{0,4})$/u.test(snapshot.localUrl) ||
+    snapshot.endpoints?.n8nLocal !== snapshot.localUrl ||
+    snapshot.endpoints?.ngrokPublic !== snapshot.ngrokPublicUrl ||
+    snapshot.components?.ngrok !== (snapshot.publicAccess === "ngrok") ||
+    (snapshot.publicAccess === "none" && (snapshot.ngrokPublicUrl !== null || snapshot.endpoints?.ngrokInspector !== null))
+  ) throw new TypeError();
+  const publicUrl = snapshot.publicAccess === "ngrok"
+    ? validatePublicNgrokUrl(snapshot.ngrokPublicUrl) : null;
   return {
     target: "local-n8n-stack",
+    publicAccess: snapshot.publicAccess,
+    localUrl: snapshot.localUrl,
+    ngrokPublicUrl: publicUrl,
+    n8nContainerName: snapshot.n8nContainerName,
+    networkName: snapshot.networkName,
     assistantMode: snapshot.assistantMode,
     endpoints: {
-      n8nLocal: validateLoopbackEndpoint(snapshot.endpoints?.n8nLocal, {
-        target: "codex-chat",
-      }),
-      ngrokPublic: validatePublicNgrokUrl(snapshot.endpoints?.ngrokPublic),
-      ngrokInspector: validateLoopbackEndpoint(snapshot.endpoints?.ngrokInspector, {
-        target: "codex-chat",
-      }),
+      n8nLocal: snapshot.localUrl,
+      ngrokPublic: publicUrl,
+      ngrokInspector: snapshot.publicAccess === "ngrok"
+        ? validateLoopbackEndpoint(snapshot.endpoints.ngrokInspector, { target: "codex-chat" }) : null,
     },
     components: copyBooleanRecord(snapshot.components, [
-      "n8n",
-      "ngrok",
-      "codeSandbox",
-      "searxng",
+      "n8n", "ngrok", "codeSandbox", "searxng",
     ]),
     canResume: snapshot.canResume,
     canRemove: true,

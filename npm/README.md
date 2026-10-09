@@ -301,10 +301,7 @@ If ownership moved but a later finishing step failed, the result still shows
 the one-time key once, with a warning not to use it until the reported issue
 is resolved.
 
-The local or VPS sidecar is available only to containers on the selected
-private Docker network and publishes no host port. n8n does not receive the
-provider token. Enter the one-time Relmio bearer from the result screen
-manually in n8n:
+The local or VPS sidecar joins the selected private Docker network and publishes no host port. OpenAI tokens stay in the sidecar. For local n8n created by Relmio, installation tries to save the Relmio bearer and private base URL as **Relmio ChatGPT plan** in n8n. Select that credential in your OpenAI nodes. For other n8n installations, or if automatic setup cannot be confirmed, check n8n and enter these settings manually:
 
 ```text
 Base URL: http://n8n-openai-oauth:10531/v1
@@ -402,9 +399,11 @@ fits its Sign in with ChatGPT terms. See
 [Assistant setup](https://github.com/Demonbane18/relmio/blob/main/docs/ai-assistant.md#optional-chatgpt-plan-sidecar).
 
 Installing for n8n also requires express consent for background workflows.
-Relmio does not edit n8n's credentials or Compose configuration. Existing
-legacy bridge installations require a separately reviewed migration and a
-fresh SIWC sign-in. The published SIWC Terms and VM guide do not resolve
+For existing local or VPS n8n, the wizard does not edit n8n credentials or
+Compose configuration. For n8n created by Relmio, approved ChatGPT-plan,
+local-model and SuperGrok installs try to import their connection credential.
+Existing legacy bridge installations require a separately reviewed migration
+and a fresh SIWC sign-in. The published SIWC Terms and VM guide do not resolve
 persistent remote VM token storage; the VPS implementation is not presented as
 provider-approved. Read the
 [VPS guide](https://relmio.jpfusin.tech/docs/vps-and-n8n) and
@@ -430,13 +429,14 @@ marker is not upgraded automatically; migration requires a separately reviewed
 path. Sign out with `relmio grok logout --n8n`. This
 companion publishes no host port.
 
-### New local n8n + ngrok
+### New local n8n with optional ngrok
 
 Choose **Set up new n8n** in the local wizard.
 
-Create a separate n8n stack when you do not have one yet. The wizard explains
-the ngrok domain, token, and Basic Auth fields. Only the new n8n route is
-public. Private model and Assistant services keep their host ports closed.
+Relmio creates a separate stack that is private by default. ngrok is optional;
+when enabled, it exposes only the new n8n route behind Basic Auth. Code
+Sandbox and SearXNG stay off the host network. See the
+[full new n8n guide](https://relmio.jpfusin.tech/docs/local-n8n-stack).
 
 ### I want to use SuperGrok
 
