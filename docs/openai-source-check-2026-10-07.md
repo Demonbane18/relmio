@@ -1225,3 +1225,81 @@ Applied on 2026-10-08 on `feat/images-in-install`, before merge:
 - The existing post-install image panels keep their wording; finding 7's usage wording is applied only to the new review group so far.
 - Layout, to keep each step on one screen (`DESIGN.md`): the review group is a closed **Image generation (optional)** disclosure in the plan body, and its notice and warnings sit above the checkbox inside it, so the box cannot be ticked without opening the notice. On the VPS Ready step, a status line stays visible and the code, link and **Cancel image sign-in** sit in an **Enter the Codex sign-in code** disclosure. On the local Ready step, the existing **Image generation** block stays closed and its summary repeats the status ("… Open to see the code."). The required wording is unchanged.
 - Docs updated: `README.md`, `npm/README.md`, `docs/vps-and-n8n.md`, `docs/local-endpoints.md`, `docs/troubleshooting.md` (new row for an empty n8n image **Model** list) and `CHANGELOG.md`.
+
+## Addendum: Windows sign-in launch (#115)
+
+Check date: **2026-10-09**. Read-only source review of PR #116 (branch `fix/windows-chatgpt-signin-launch`). No sign-in, credentials, provider API calls, Windows execution or tests.
+
+### What changed
+
+**Observed:** Windows authorization now uses the system `cmd.exe` with `/d /s /c start "" "<url>"`, verbatim arguments and a hidden launcher window. Authorization URLs are validated and quoted; raw percent signs not followed by two hexadecimal characters are rejected. The private dashboard handoff file still uses Explorer. Authorization launch fails on a nonzero exit, signal, spawn failure or Windows launcher timeout (`src/browser.js:34-52,107-110,136-214`).
+
+### Sources with retrieval dates
+
+All sources retrieved **2026-10-09**. The Help Center identity article was fetched first. Dates below reproduce the pages' displayed dates rather than inferring publication dates.
+
+| Official source | Displayed publication or update date |
+| --- | --- |
+| [Sign in with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) | Updated: 7 days ago |
+| [SIWC registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) | None |
+| [SIWC accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions) | None |
+| [SIWC UI/UX guidelines](https://developers.openai.com/siwc/ui-ux-guidelines) | None |
+| [SIWC models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference) | None |
+| [SIWC preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) | None |
+| [Codex authentication](https://developers.openai.com/codex/auth), returned as [Authentication](https://learn.chatgpt.com/docs/auth) | None |
+| [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/) | September 29, 2026 |
+| [Service Terms](https://openai.com/policies/service-terms/), especially §15 | Updated: September 29, 2026 |
+| [Terms of Use](https://openai.com/policies/row-terms-of-use/) | Published and effective: January 1, 2026 |
+| [Europe Terms of Use](https://openai.com/policies/eu-terms-of-use/) | Updated: January 16, 2026 |
+| [OpenAI Services Agreement](https://openai.com/policies/services-agreement/) | Updated: December 1, 2025; effective: January 1, 2026 |
+| [Privacy policy](https://openai.com/policies/privacy-policy/), returned canonical `/policies/services-communications-privacy-policy/` | Updated: July 30, 2026 |
+| [Europe privacy policy](https://openai.com/policies/eu-privacy-policy/) | Updated: August 24, 2026 |
+
+### What Relmio reads/stores/transmits/logs
+
+- **Observed, reads:** Existing registration, issued client ID, host identity, OpenAI discovery/JWKS, callback code/state and token response. ID-token signature, issuer, audience, expiry, nonce and returning subject are checked. No new password, cookie, conversation, memory or file access is introduced (`src/services/oauth.js:53-76,102-174`; `src/services/siwc-session.mjs:619-655`).
+- **Observed, stores:** Per-attempt state, nonce, PKCE verifier and callback URI remain in memory. Existing persistent storage remains `N8N_OPENAI_OAUTH_HOME` or `~/.n8n-openai-oauth`, with `host.json` and `registrations/<registrationId>.json`. Records retain verified issuer/subject/email, client and owner identities, granted scopes, expiry, and access/refresh/ID tokens when returned. Files use atomic owner-only writes, including Windows ACL checks (`src/services/oauth.js:72-98`; `src/services/siwc-session.mjs:59-69,78-165,410-421,547-596`). The launch change adds no credential store.
+- **Observed, scopes:** `openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`; resource `https://api.openai.com/v1`. Plan authorization still adds `prompt=consent` (`src/services/oauth.js:10-11,204-210`).
+- **Observed, recipients:** Windows `cmd.exe` and the user's default browser receive the authorization URL. OpenAI's `auth.openai.com` receives authorization parameters and the subsequent form-encoded code exchange, including the verifier. The browser returns the code to Relmio's loopback listener. Relmio's dashboard receives only launch mode and attempt ID, followed by sanitized status (`src/browser.js:143-172`; `src/services/oauth.js:102-174,190-213`; `src/web/server.js:3831-3916`). No new Relmio-hosted recipient or model request is added by this launch change.
+- **Observed, logs:** Launcher stdio is ignored; OAuth errors use fixed or allowlisted fields rather than endpoint bodies. No authorization URL is returned as a dashboard link or printed by these paths (`src/browser.js:160-172`; `src/services/oauth.js:17-34,215-222`; `src/ui/app.js:1395-1396`; `src/web/server.js:3913-3916`). **Open:** The URL necessarily reaches the system browser and launcher arguments. Browser history, operating-system process inspection and administrator logging are outside this guarantee.
+- **Confirmed:** OpenAI's identity article and privacy policies describe account, authorization, IP, browser/device, usage and security processing. Policy-described downstream recipients include service providers, affiliates, relevant business administrators and legal/safety recipients. This is not evidence that each recipient receives each request. The applicable business agreement governs business-offering content rather than the consumer privacy policy alone.
+
+### Three separate checks
+
+#### 1. Identity sign-in
+
+**Confirmed:** The identity Help article describes name, email and profile-picture sharing. Additional permissions require separate approval. The OSS sign-in documentation expressly calls for the **system browser**, an HTTP callback on **127.0.0.1**, fresh state/nonce/PKCE, `S256`, and the exact same callback URI in authorization and exchange.
+
+**Observed:** Relmio still opens an external system browser, not an embedded webview. The listener starts first on an ephemeral `127.0.0.1` port at `/auth/callback`; callback host and state are checked, state is consumed before exchange, and the verifier and exact redirect URI go to the token endpoint (`src/services/oauth.js:72-76,102-150,190-213`). Changing the Windows dispatch executable changes none of those protocol values or checks.
+
+**Observed:** Relmio requests renewable plan-use authority as well as identity. Its full flow therefore exceeds the Help article's identity-only description. Its separate plan controls and disclosures remain necessary (`docs/faq.md:15-26`; `README.md:223-233`).
+
+#### 2. Separately approved permissions
+
+**Confirmed:** SIWC Terms require authorized token handling, express consent for background use, requests for the authenticated user, and connected-application-only use. Successful browser launch or login supplies none of these approvals by itself.
+
+**Observed:** The launcher adds no scope, grant, background consent or account-sharing permission. Existing granted-scope and local plan-enable checks remain (`src/services/siwc-session.mjs:547-611`). Codex authentication documentation does not turn this SIWC launch fix into permission for a Codex credential bridge.
+
+#### 3. Model/image capability
+
+**Confirmed:** SIWC inference uses the selected account's catalog and public Responses endpoint, with `store:false` and `stream:true`. Preview limitations exclude image generation and several other features.
+
+**Observed:** This diff changes browser dispatch and launch failure text, not inference. Launcher exit zero is neither completed OAuth nor model admission. No model, image or TTS capability was exercised or established.
+
+### Findings
+
+1. **Observed and Open [assessment]:** No new conflict with the documented system-browser, loopback, PKCE or state requirements was identified in the launch change. This is source evidence, not proof that Windows preserves every argument or opens every default browser correctly.
+2. **Observed:** The new failure text is: “The ChatGPT sign-in browser could not start. Check the default browser, then try again.” It gives a local recovery step without disclosing the URL, implying consent or recommending weaker browser security (`src/services/oauth.js:215-222`).
+3. **Observed and Open [assessment]:** That message also covers failures inside the listener/launch setup block. Checking the default browser is advice, not a proven diagnosis. A successful `start` dispatch still cannot prove the browser loaded OpenAI's page.
+
+### Required wording
+
+Keep the new failure text above. No additional README, FAQ or security wording change is required solely for this launcher change. Describe URL handling as “Relmio does not display or log the authorization URL.” Do not claim the URL never reaches the browser or operating system.
+
+### Unknowns
+
+**Open:** Actual Windows/default-browser behavior, exact command-line preservation and callback completion were not exercised. OpenAI eligibility, workspace policy, granted permissions, connected-application interpretation and inference capability remain independent. This review is not legal advice, OpenAI approval or proof of Terms compliance.
+
+### Changes after this review
+
+Applied on 2026-10-09 on `fix/windows-chatgpt-signin-launch` before merge: none needed. The launch change keeps the system browser, the loopback callback, PKCE and state, and still never shows or logs the authorization URL. A real Windows 11 sign-in still has to confirm that `start` opens the default browser.
