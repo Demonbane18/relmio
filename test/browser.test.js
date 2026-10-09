@@ -14,7 +14,7 @@ import {
   isPrivateBrowserLaunchUrl,
   openBrowser,
   openOpenAiAuthorization,
-  windowsUrlLaunchArgs,
+  windowsUrlLaunch,
 } from "../src/browser.js";
 
 const handoffDirectory = "relmio-browser-Ab3dE9";
@@ -230,14 +230,11 @@ test("OpenAI authorization uses the system browser only for the exact SIWC trans
     assert.equal(calls.length, 1);
     if (platform === "win32") {
       assert.equal(calls[0][0], "C:\\Windows\\System32\\cmd.exe");
-      assert.deepEqual(calls[0][1], windowsUrlLaunchArgs([url.href]));
+      assert.deepEqual(calls[0][1], windowsUrlLaunch([url.href]).args);
       assert.equal(calls[0][2].windowsVerbatimArguments, true);
       assert.equal(calls[0][2].windowsHide, true);
-      const command = calls[0][1][3];
-      assert.match(command, /%3A/u);
-      assert.equal(command.includes("%%"), false);
-      assert.equal(command.slice('start "" "'.length, -1), url.href);
-      assert.equal(command.includes("&"), true);
+      assert.equal(calls[0][2].env.RELMIO_BROWSER_TARGET_0, url.href);
+      assert.equal(calls[0][1].join(" ").includes("%"), false);
     } else {
       assert.equal(calls[0][0], platform === "darwin" ? "open" : "xdg-open");
       assert.deepEqual(calls[0][1], [url.href]);
@@ -293,16 +290,16 @@ test("Windows authorization launch failure is not treated as a started sign-in",
   }), false);
 });
 
-test("windowsUrlLaunchArgs leaves percent-encoding untouched", () => {
-  const url = "http://127.0.0.1:9/oauth/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A9%2Fauth%2Fcallback";
-  assert.equal(windowsUrlLaunchArgs([url])[3], `start "" "${url}"`);
-  assert.equal(windowsUrlLaunchArgs([url])[3].includes("%3A"), true);
-  assert.equal(windowsUrlLaunchArgs([url])[3].includes("%%"), false);
-  assert.throws(() => windowsUrlLaunchArgs(["http://127.0.0.1:9/?q=%"]), TypeError);
-  assert.throws(() => windowsUrlLaunchArgs(['http://127.0.0.1:9/?q=%PATH%']), TypeError);
+test("windowsUrlLaunch keeps the URL out of cmd's command text", () => {
+  const url = "http://127.0.0.1:9/oauth/authorize?redirect_uri=http%3A%2F%2F127.0.0.1%3A9%2Fauth%2Fcallback&x=!PATH!";
+  const launch = windowsUrlLaunch([url]);
+  assert.deepEqual(launch.args, ["/d", "/v:on", "/s", "/c", 'start "" "!RELMIO_BROWSER_TARGET_0!"']);
+  assert.deepEqual(launch.env, { RELMIO_BROWSER_TARGET_0: url });
+  assert.throws(() => windowsUrlLaunch(['http://127.0.0.1:9/?q="&calc']), TypeError);
+  assert.throws(() => windowsUrlLaunch(["http://127.0.0.1:9/?q=\n"]), TypeError);
 });
 
-test("native Windows start keeps an ampersand query URL in one argument", {
+test("native Windows start passes an ampersand and percent-encoded URL unchanged", {
   skip: process.platform !== "win32",
 }, async (t) => {
   const url = "http://127.0.0.1:9/oauth/authorize?response_type=code&client_id=abc&redirect_uri=http%3A%2F%2F127.0.0.1%3A9%2Fauth%2Fcallback&scope=openid%20profile%20email&state=a-b_c&code_challenge=x%2By&code_challenge_method=S256";
@@ -311,10 +308,12 @@ test("native Windows start keeps an ampersand query URL in one argument", {
   const record = join(directory, "args.json");
   const script = join(directory, "browser.mjs");
   await writeFile(script, `import { writeFileSync } from "node:fs";
-writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(1)));
+writeFileSync(${JSON.stringify(record)}, JSON.stringify(process.argv.slice(2)));
 `);
-  const args = windowsUrlLaunchArgs([process.execPath, script, url]);
-  const child = spawn(join(process.env.SystemRoot, "System32", "cmd.exe"), args, {
+  const launch = windowsUrlLaunch([process.execPath, script, url]);
+  // Variables named like the URL's escapes: cmd's %...% expansion would replace %3A% with BROKEN.
+  const child = spawn(join(process.env.SystemRoot, "System32", "cmd.exe"), launch.args, {
+    env: { ...process.env, "3A": "BROKEN", "2F": "BROKEN", ...launch.env },
     windowsVerbatimArguments: true,
     windowsHide: true,
     shell: false,

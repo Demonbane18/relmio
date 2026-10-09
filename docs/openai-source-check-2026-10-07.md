@@ -1302,4 +1302,9 @@ Keep the new failure text above. No additional README, FAQ or security wording c
 
 ### Changes after this review
 
-Applied on 2026-10-09 on `fix/windows-chatgpt-signin-launch` before merge: none needed. The launch change keeps the system browser, the loopback callback, PKCE and state, and still never shows or logs the authorization URL. A real Windows 11 sign-in still has to confirm that `start` opens the default browser.
+Applied on 2026-10-09 on `fix/windows-chatgpt-signin-launch` before merge:
+
+- **Observed:** CI run 37904056265 on `windows-latest` launched a stand-in browser through `cmd.exe` `start`. The full authorization URL arrived as one argument with every `&` and `%3A` escape intact. That test then recorded the script path too and was corrected.
+- **Observed, changed after review:** `cmd.exe` expands `%NAME%` in its command text, so a variable named `3A` or `2F` could have rewritten `%3A%2F` in `redirect_uri`. The URL is no longer in the command text. It travels in the launcher's `RELMIO_BROWSER_TARGET_0` environment variable and is read with delayed expansion: `/d /v:on /s /c start "" "!RELMIO_BROWSER_TARGET_0!"`. That expansion runs after `cmd` has parsed the line, so `%`, `&` and `!` in the URL are not interpreted. URLs containing `"` or control characters are still rejected. The percent-sign rule above no longer applies. The native Windows test now defines `3A` and `2F` and checks that the URL arrives unchanged.
+- **Observed, recipients:** Unchanged. `cmd.exe` and the default browser receive the URL, now through the inherited environment instead of the command line. Relmio still does not display or log it. Same-user process inspection can read either.
+- **Open:** A real Windows 11 sign-in still has to confirm that `start` opens the default browser and the callback completes.

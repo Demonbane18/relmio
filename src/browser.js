@@ -31,25 +31,26 @@ function windowsExplorer(systemRoot) {
   return win32.join(windowsSystemRoot(systemRoot), "explorer.exe");
 }
 
-function quoteWindowsCmdArg(value) {
-  // cmd /c does not collapse %%. Reject a % that is not a hex escape; %3A and
-  // the other encodings in a valid authorization URL stay literal.
-  if (
-    typeof value !== "string" || value.length === 0 || value.length > 4096 ||
-    /[\u0000-\u001F\u007F"]/u.test(value) ||
-    /%(?![0-9A-Fa-f]{2})/u.test(value)
-  ) {
-    throw new TypeError("Relmio Windows browser target is invalid.");
-  }
-  return `"${value}"`;
-}
-
 // explorer.exe opens the handoff file. It does not open an https URL with ? and &.
-export function windowsUrlLaunchArgs(targets) {
+// cmd.exe expands %NAME% in its command text, so %3A%2F in a URL would pick up a variable named 3A.
+// The targets travel in variables read by delayed expansion (!NAME!), which runs after cmd has
+// parsed the line; their %, & and ! are never interpreted.
+export function windowsUrlLaunch(targets) {
   if (!Array.isArray(targets) || targets.length < 1 || targets.length > 4) {
     throw new TypeError("Relmio Windows browser target is invalid.");
   }
-  return ["/d", "/s", "/c", `start "" ${targets.map(quoteWindowsCmdArg).join(" ")}`];
+  const env = {};
+  const quoted = targets.map((target, index) => {
+    if (
+      typeof target !== "string" || target.length === 0 || target.length > 4096 ||
+      /[\u0000-\u001F\u007F"]/u.test(target)
+    ) {
+      throw new TypeError("Relmio Windows browser target is invalid.");
+    }
+    env[`RELMIO_BROWSER_TARGET_${index}`] = target;
+    return `"!RELMIO_BROWSER_TARGET_${index}!"`;
+  });
+  return { args: ["/d", "/v:on", "/s", "/c", `start "" ${quoted.join(" ")}`], env };
 }
 
 export function isPrivateBrowserLaunchUrl(value) {
@@ -149,8 +150,7 @@ async function launchCommand(launchUrl, {
         ? platform === "darwin" ? { file: "open", args: [launchUrl] }
           : platform === "win32" ? {
               file: win32.join(windowsSystemRoot(systemRoot), "System32", "cmd.exe"),
-              args: windowsUrlLaunchArgs([launchUrl]),
-              windowsVerbatimArguments: true,
+              ...windowsUrlLaunch([launchUrl]),
             }
             : { file: "xdg-open", args: [launchUrl] }
         : null;
@@ -164,7 +164,8 @@ async function launchCommand(launchUrl, {
     stdio: "ignore",
     shell: false,
   };
-  if (command.windowsVerbatimArguments) {
+  if (command.env) {
+    spawnOptions.env = { ...process.env, ...command.env };
     spawnOptions.windowsVerbatimArguments = true;
     spawnOptions.windowsHide = true;
   }
