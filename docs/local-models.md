@@ -185,6 +185,8 @@ a fresh n8n workflow succeeds or that a model gives useful answers.
 
 The selected model cache is stored in a Relmio-owned Docker volume. A failed or interrupted pull may leave partial blobs that continue to use disk after restart/retry; Relmio preserves the cache, but that does not guarantee that every interrupted transfer will resume from its previous byte. The catalog pins the full reviewed registry-manifest SHA-256 digest and quantization for each model. Acquisition verifies both before inference and model-ready status, including on first install; if an upstream mutable tag points to different content, it fails closed rather than accepting or automatically substituting that content. Status does not label the model ready until the acquisition completes and inference succeeds. From the local dashboard, choose **Review model retry**; on the dedicated VPS model page, choose **Review retry**. Both are reviewed actions for the same selected model, retain its cache, and do not silently switch model or quantization.
 
+New installs start the model runtime again when Docker restarts, unless you stop it yourself. Installs made before this change keep their earlier setting and stay down after a Docker restart until you choose **Review model retry** in the dashboard. The download helper is a one-time job and never restarts.
+
 A full removal deletes the owned runtime, helper, managed files, and model cache. Relmio requires a separate review and explicit confirmation that cached model data will be deleted. Do not treat ordinary dashboard refresh, package upgrade, or failed download as permission to clear model weights. Removal does not stop or modify n8n or unrelated Docker resources.
 
 ## Maintainer acceptance evidence

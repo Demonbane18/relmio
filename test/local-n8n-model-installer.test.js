@@ -83,7 +83,7 @@ function runner({ networkOptions = {}, networkFlags = {}, aliasCollision = false
         State: { Running: runtime === "running", Status: runtime === "running" ? "running" : "exited", Health: { Status: pendingHealthChecks-- > 0 ? "starting" : "healthy" } },
         HostConfig: {
           PortBindings: published ? { "11434/tcp": [{ HostPort: "11434" }] } : {},
-          Privileged: false, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"], ReadonlyRootfs: true, RestartPolicy: { Name: "no" }, PidsLimit: 256,
+          Privileged: false, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"], ReadonlyRootfs: true, RestartPolicy: { Name: "unless-stopped" }, PidsLimit: 256,
           Memory: plan().memoryBytes, MemorySwap: plan().memoryBytes, NanoCpus: Math.round(plan().cpus * 1e9), ...runtimeBudgetDrift,
         },
         Mounts: [{ Type: "volume", Name: VOLUME, Destination: "/root/.ollama", RW: true }],
@@ -706,6 +706,14 @@ test("runtime and acquisition resource-policy drift cannot authorize retries or 
     assert.equal(runProcess.calls.slice(before).some(item => ["stop", "rm"].includes(item.args[1])), false);
     assert.equal(runProcess.state().volume, true);
   }
+});
+
+test("a runtime installed before restart-with-Docker still attests", async t => {
+  const directory = await home(t), runProcess = runner();
+  await installLocalN8nModel({ plan: plan(), confirmed: true }, safe({ homeDirectory: directory, runProcess }));
+  runProcess.complete("model-ready");
+  runProcess.setRuntimeBudgetDrift({ RestartPolicy: { Name: "no" } });
+  assert.equal((await getLocalN8nModelStatus(safe({ homeDirectory: directory, runProcess }))).status, "model-ready");
 });
 
 test("post-context Docker log inspection failures become unavailable status rather than escaping the status read", async t => {

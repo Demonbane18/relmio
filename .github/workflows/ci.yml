@@ -247,6 +247,11 @@ jobs:
       - name: Exercise native Windows loopback SIWC registration and browser dispatch
         run: node --test test/oauth.test.js test/browser.test.js
 
+      # Windows runners cannot start Linux containers, so this checks the generated stack files
+      # with the Windows Docker CLI only. The Linux job runs the stack for real.
+      - name: Check the local n8n stack Compose files with the Windows Docker CLI
+        run: node scripts/local-stack-ci.mjs compose-config
+
       - name: Audit dependencies on native Windows
         run: npm audit --audit-level=high
 
@@ -340,6 +345,12 @@ jobs:
 
       - name: Start the wizard and fetch it over loopback with its session
         run: node scripts/wizard-start-smoke.mjs
+
+      - name: Check the local n8n stack Compose files
+        run: node scripts/local-stack-ci.mjs compose-config
+
+      - name: Install, check and remove a private local n8n stack with Code Sandbox
+        run: node scripts/local-stack-ci.mjs live
 
   n8n-nodes:
     name: n8n node compatibility

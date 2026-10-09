@@ -107,13 +107,7 @@ Every limit is in
 
 ## How do I connect n8n?
 
-Select the ChatGPT plan sidecar, choose the account, grant plan use, and review
-the installation. n8n must already be running on a selected Docker network.
-The wizard displays a private base URL and one-time Relmio bearer. Enter both
-manually in n8n. Keep **Use Responses API** on for OpenAI Chat Model node 1.3.
-The sidecar publishes no host port and does not edit n8n credentials or Compose
-files. Installing for n8n requires separate explicit consent for background
-workflows.
+For local n8n created by Relmio, installation tries to add **Relmio ChatGPT plan** to n8n's credential store. Select it in your OpenAI nodes. For other n8n installations, enter the private base URL and one-time Relmio bearer manually. If automatic setup cannot be confirmed, check for the named credential first. OpenAI tokens stay in the sidecar. Keep **Use Responses API** on for OpenAI Chat Model node 1.3. The sidecar publishes no host port and does not edit n8n Compose files. Background plan use still needs separate approval.
 
 The new local/VPS runtime owns the SIWC registration after a receipt confirms
 transfer. Legacy credential-copy installations are not silently adopted: the

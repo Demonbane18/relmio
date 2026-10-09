@@ -119,11 +119,13 @@ import {
   LOCAL_N8N_STACK_NGROK_SETUP_REJECTED_FAILURE_KIND,
   LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE,
   getLocalN8nStackStatus,
+  getManagedLocalN8nStackTarget,
   installLocalN8nStack,
   removeLocalN8nStack,
   resumeLocalN8nStack,
 } from "../services/local-n8n-stack-installer.js";
 import { validateLocalN8nStackSecrets } from "../templates/local-n8n-stack/index.js";
+import { importLocalStackN8nCredential } from "../services/local-n8n-stack-credentials.js";
 import { createLocalChatTestService } from "../services/local-chat-test.js";
 import { createPrivateBrowserHandoff } from "../services/browser-handoff.js";
 import { isPrivateBrowserLaunchUrl } from "../browser.js";
@@ -190,6 +192,8 @@ const defaultServices = {
   getLocalDockerStatus,
   getLocalDashboardStatus,
   getLocalN8nStackStatus,
+  getManagedLocalN8nStackTarget,
+  importLocalStackN8nCredential,
   getLocalN8nSuperGrokStatus,
   discoverLocalN8nSidecarTargets,
   getLocalN8nSidecarStatus,
@@ -1865,7 +1869,7 @@ const LOCAL_DASHBOARD_SERVICE_DEFINITIONS = Object.freeze({
     actions: new Set(["setup", "sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"]),
   }),
   "local-n8n-stack": Object.freeze({
-    label: "n8n + ngrok",
+    label: "Local n8n stack",
     kind: "n8n-stack",
     actions: new Set(["setup", "resume", "remove"]),
   }),
@@ -2093,26 +2097,35 @@ function createSafeDashboardSnapshot(target, snapshot) {
     const assistantModes = new Set(["disabled", "sandbox", "sandbox-with-searxng"]);
     if (
       snapshot.target !== target ||
+      !["none", "ngrok"].includes(snapshot.publicAccess) ||
       !assistantModes.has(snapshot.assistantMode) ||
+      snapshot.components?.ngrok !== (snapshot.publicAccess === "ngrok") ||
       typeof snapshot.components?.n8n !== "boolean" ||
-      typeof snapshot.components?.ngrok !== "boolean" ||
       typeof snapshot.components?.codeSandbox !== "boolean" ||
       typeof snapshot.components?.searxng !== "boolean" ||
+      !/^relmio-local-n8n-[a-f0-9]{32}-n8n-1$/u.test(snapshot.n8nContainerName) ||
+      snapshot.networkName !== `${snapshot.n8nContainerName.slice(0, -6)}_edge` ||
+      !/^http:\/\/localhost:[1-9][0-9]{0,4}$/u.test(snapshot.localUrl) ||
+      snapshot.endpoints?.n8nLocal !== snapshot.localUrl ||
+      snapshot.endpoints?.ngrokPublic !== snapshot.ngrokPublicUrl ||
+      (snapshot.publicAccess === "none" && (snapshot.ngrokPublicUrl !== null || snapshot.endpoints?.ngrokInspector !== null)) ||
       typeof snapshot.canResume !== "boolean" ||
       snapshot.canRemove !== true
-    ) {
-      throw new TypeError("The local dashboard n8n snapshot is invalid.");
-    }
+    ) throw new TypeError("The local dashboard n8n snapshot is invalid.");
     return {
       target,
+      publicAccess: snapshot.publicAccess,
+      localUrl: snapshot.localUrl,
+      ngrokPublicUrl: snapshot.publicAccess === "ngrok"
+        ? requireSafeDashboardUrl(snapshot.ngrokPublicUrl, "ngrok-public") : null,
+      n8nContainerName: snapshot.n8nContainerName,
+      networkName: snapshot.networkName,
       assistantMode: snapshot.assistantMode,
       endpoints: {
-        n8nLocal: requireSafeDashboardUrl(snapshot.endpoints?.n8nLocal, "n8n-local"),
-        ngrokPublic: requireSafeDashboardUrl(snapshot.endpoints?.ngrokPublic, "ngrok-public"),
-        ngrokInspector: requireSafeDashboardUrl(
-          snapshot.endpoints?.ngrokInspector,
-          "ngrok-inspector",
-        ),
+        n8nLocal: snapshot.localUrl,
+        ngrokPublic: snapshot.ngrokPublicUrl,
+        ngrokInspector: snapshot.publicAccess === "ngrok"
+          ? requireSafeDashboardUrl(snapshot.endpoints.ngrokInspector, "ngrok-inspector") : null,
       },
       components: {
         n8n: snapshot.components.n8n,
@@ -2395,7 +2408,7 @@ function requireSafeDisplayValue(value, label, maximumLength = 512) {
   return value;
 }
 
-function createSafeLocalN8nDiscovery(discovery, previewMode) {
+function createSafeLocalN8nDiscovery(discovery, previewMode, managedTarget = null) {
   if (previewMode) {
     return {
       dockerAvailable: false,
@@ -2439,6 +2452,12 @@ function createSafeLocalN8nDiscovery(discovery, previewMode) {
           { statusCode: 502 },
         );
       }
+      const marker = managedTarget?.marker;
+      const recommendedNetwork = marker && `${marker.projectName}_edge`;
+      const managedStack = marker?.dockerHost === discovery.dockerHost &&
+        managedTarget.containerId === container.containerId &&
+        container.containerName === `${marker.projectName}-n8n-1` &&
+        container.networks.some(network => network.networkName === recommendedNetwork);
       return {
         containerId: requireSafeDockerIdentifier(
           container.containerId,
@@ -2449,6 +2468,8 @@ function createSafeLocalN8nDiscovery(discovery, previewMode) {
           "n8n container name",
         ),
         image: requireSafeDisplayValue(container.image, "n8n image"),
+        managedStack: managedStack === true,
+        ...(managedStack ? { recommendedNetwork } : {}),
         networks: container.networks.map((network) => ({
           dockerNetworkId: requireSafeDockerIdentifier(
             network?.dockerNetworkId,
@@ -2695,34 +2716,32 @@ function createSafeLocalN8nStackPlan(plan) {
   if (
     plan?.target !== LOCAL_N8N_STACK_TARGET ||
     plan.kind !== "local-n8n-stack" ||
-    plan.localUrl !== `http://127.0.0.1:${plan.n8nPort}` ||
-    plan.ngrokPublicUrl !== `https://${plan.ngrokHostname}` ||
+    !["none", "ngrok"].includes(plan.publicAccess) ||
+    plan.localUrl !== `http://localhost:${plan.n8nPort}` ||
+    plan.ngrokPublicUrl !== (plan.publicAccess === "ngrok" ? `https://${plan.ngrokHostname}` : null) ||
+    plan.n8nContainerName !== null || plan.networkName !== null ||
     plan.hostPublication !== "loopback-only" ||
     plan.deploymentMode !== "new-disposable-stack" ||
     plan.managedPath !== "~/.relmio/local/n8n-stack" ||
     !Number.isInteger(plan.n8nPort) ||
-    !Number.isInteger(plan.ngrokInspectorPort) ||
-    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z0-9.-]+$/u.test(plan.ngrokHostname ?? "") ||
+    (plan.publicAccess === "ngrok"
+      ? !Number.isInteger(plan.ngrokInspectorPort) ||
+        !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z0-9.-]+$/u.test(plan.ngrokHostname ?? "")
+      : plan.ngrokInspectorPort !== null || plan.ngrokHostname !== null) ||
     !["disabled", "sandbox", "sandbox-with-searxng"].includes(plan.assistantMode) ||
     typeof plan.timezone !== "string"
   ) {
-    throw Object.assign(new Error("The local n8n stack plan is invalid."), {
-      statusCode: 502,
-    });
+    throw Object.assign(new Error("The local n8n stack plan is invalid."), { statusCode: 502 });
   }
   return {
-    kind: plan.kind,
-    target: plan.target,
-    label: plan.label,
-    ngrokHostname: plan.ngrokHostname,
-    n8nPort: plan.n8nPort,
-    ngrokInspectorPort: plan.ngrokInspectorPort,
-    timezone: plan.timezone,
-    assistantMode: plan.assistantMode,
-    localUrl: plan.localUrl,
+    kind: plan.kind, target: plan.target, label: plan.label,
+    publicAccess: plan.publicAccess,
+    ngrokHostname: plan.ngrokHostname, n8nPort: plan.n8nPort,
+    ngrokInspectorPort: plan.ngrokInspectorPort, timezone: plan.timezone,
+    assistantMode: plan.assistantMode, localUrl: plan.localUrl,
     ngrokPublicUrl: plan.ngrokPublicUrl,
-    hostPublication: plan.hostPublication,
-    deploymentMode: plan.deploymentMode,
+    n8nContainerName: null, networkName: null,
+    hostPublication: plan.hostPublication, deploymentMode: plan.deploymentMode,
     managedPath: plan.managedPath,
   };
 }
@@ -2730,12 +2749,17 @@ function createSafeLocalN8nStackPlan(plan) {
 function createSafeLocalN8nStackInstallResult(result, plan) {
   if (
     result?.target !== LOCAL_N8N_STACK_TARGET ||
+    result.publicAccess !== plan.publicAccess ||
     result.localUrl !== plan.localUrl ||
     result.ngrokPublicUrl !== plan.ngrokPublicUrl ||
     result.assistantMode !== plan.assistantMode ||
-    result.hostPublication !== `n8n http://127.0.0.1:${plan.n8nPort}; ngrok inspector http://127.0.0.1:${plan.ngrokInspectorPort}` ||
+    result.hostPublication !== (plan.publicAccess === "ngrok"
+      ? `n8n http://127.0.0.1:${plan.n8nPort}; ngrok inspector http://127.0.0.1:${plan.ngrokInspectorPort}`
+      : `n8n http://127.0.0.1:${plan.n8nPort}`) ||
     result.deploymentMode !== "new-disposable-stack" ||
     !/^relmio-local-n8n-[a-f0-9]{32}$/u.test(result.projectName ?? "") ||
+    result.n8nContainerName !== `${result.projectName}-n8n-1` ||
+    result.networkName !== `${result.projectName}_edge` ||
     !Array.isArray(result.containerServices) ||
     result.containerServices.some((name) => requireSafeDockerName(name, "n8n service name") !== name) ||
     !Array.isArray(result.networks) ||
@@ -2764,8 +2788,11 @@ function createSafeLocalN8nStackInstallResult(result, plan) {
   }
   return {
     target: result.target,
+    publicAccess: result.publicAccess,
     localUrl: result.localUrl,
     ngrokPublicUrl: result.ngrokPublicUrl,
+    n8nContainerName: requireSafeDockerName(result.n8nContainerName, "n8n container name"),
+    networkName: requireSafeDockerName(result.networkName, "n8n network name"),
     projectName: result.projectName,
     containerServices: [...result.containerServices],
     networks: [...result.networks],
@@ -2910,7 +2937,14 @@ function createSafeLocalN8nStackResumeResult(result) {
     });
   }
   return {
-    target: LOCAL_N8N_STACK_TARGET,
+    ...createSafeLocalN8nStackInstallResult(
+      { ...result, deploymentMode: "new-disposable-stack" },
+      { publicAccess: result.publicAccess, localUrl: result.localUrl,
+        ngrokPublicUrl: result.ngrokPublicUrl, assistantMode: result.assistantMode,
+        n8nPort: Number(new URL(result.localUrl).port),
+        ngrokInspectorPort: result.publicAccess === "ngrok"
+          ? Number(result.hostPublication.split(":").at(-1)) : null },
+    ),
     resumed: true,
     deploymentMode: result.deploymentMode,
   };
@@ -3435,16 +3469,12 @@ function requireExactLocalPlanBody(body, names, message) {
 
 function requireLocalInstallBody(plan, body) {
   if (plan?.kind === "local-n8n-stack") {
+    const secretFields = ["ngrokAuthtoken", "basicAuthUsername", "basicAuthPassword"];
     requireExactRequestBody(
       body,
-      [
-        "planId",
-        "confirmed",
-        "ngrokAuthtoken",
-        "basicAuthUsername",
-        "basicAuthPassword",
-      ],
-      "The local n8n + ngrok install request is invalid.",
+      ["planId", "confirmed", ...(plan.publicAccess === "ngrok"
+        ? secretFields : secretFields.filter(key => Object.hasOwn(body, key) && body[key] === null))],
+      "The local n8n stack install request is invalid.",
     );
     return;
   }
@@ -3708,11 +3738,16 @@ async function handleApi(request, response, path, state) {
       ? null
       : await state.services.discoverLocalN8nSidecarTargets();
     requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
+    let managedTarget = null;
+    if (discovery?.dockerAvailable === true) {
+      try { managedTarget = await state.services.getManagedLocalN8nStackTarget(); }
+      catch { /* Keep unrelated n8n discovery available. */ }
+    }
     state.localPlan = null;
     sendJson(
       response,
       200,
-      createSafeLocalN8nDiscovery(discovery, state.previewMode),
+      createSafeLocalN8nDiscovery(discovery, state.previewMode, managedTarget),
     );
     return;
   }
@@ -4484,14 +4519,12 @@ async function handleApi(request, response, path, state) {
       requireExactLocalPlanBody(
         body,
         [
-          "target",
-          "ngrokHostname",
-          "n8nPort",
-          "ngrokInspectorPort",
-          "timezone",
-          "assistantMode",
+          "target", "publicAccess", "n8nPort", "timezone", "assistantMode",
+          ...(body.publicAccess === "ngrok"
+            ? ["ngrokHostname", "ngrokInspectorPort"]
+            : ["ngrokHostname", "ngrokInspectorPort"].filter(key => Object.hasOwn(body, key) && body[key] === null)),
         ],
-        "The local n8n + ngrok plan request is invalid.",
+        "The local n8n stack plan request is invalid.",
       );
       requireLiveLocalAction(state, "Local n8n + ngrok planning");
       if (localOAuthChangeInFlight(state)) {
@@ -4505,6 +4538,7 @@ async function handleApi(request, response, path, state) {
       }
       plan = state.services.prepareLocalN8nStackPlan({
         dockerHost: docker.dockerHost,
+        publicAccess: body.publicAccess,
         ngrokHostname: body.ngrokHostname,
         n8nPort: body.n8nPort,
         ngrokInspectorPort: body.ngrokInspectorPort,
@@ -4557,6 +4591,12 @@ async function handleApi(request, response, path, state) {
       );
       if (!network) {
         throw new Error("Select a Docker network attached to that n8n container.");
+      }
+      if (assistantTarget) {
+        const managed = await state.services.getManagedLocalN8nStackTarget();
+        if (managed?.containerId === container.containerId && managed.marker?.assistantMode !== "disabled") {
+          throw Object.assign(new Error("This n8n already has Assistant tools from its setup."), { statusCode: 409 });
+        }
       }
       if (assistantTarget) {
         const includeSearxng = validateAssistantSearxngSelection(
@@ -4754,7 +4794,7 @@ async function handleApi(request, response, path, state) {
       if (pending.plan.kind === "local-n8n-stack") {
         if (body.confirmed !== true) {
           throw Object.assign(
-            new Error("Confirm the reviewed local n8n + ngrok plan before installing."),
+            new Error("Confirm the reviewed local n8n stack plan before installing."),
             { retryablePlan: true },
           );
         }
@@ -4763,7 +4803,7 @@ async function handleApi(request, response, path, state) {
             ngrokAuthtoken: body.ngrokAuthtoken,
             basicAuthUsername: body.basicAuthUsername,
             basicAuthPassword: body.basicAuthPassword,
-          });
+          }, pending.plan.publicAccess);
         } catch (error) {
           throw Object.assign(error, { retryablePlan: true });
         }
@@ -4793,6 +4833,10 @@ async function handleApi(request, response, path, state) {
             existingBinding: pending.existingBinding } : {}),
         });
       } else if (pending.plan.kind === "n8n-assistant") {
+        const managed = await state.services.getManagedLocalN8nStackTarget();
+        if (managed?.containerId === pending.plan.n8nContainerId && managed.marker?.assistantMode !== "disabled") {
+          throw Object.assign(new Error("This n8n already has Assistant tools from its setup."), { statusCode: 409 });
+        }
         result = await state.services.installLocalN8nAssistant({
           plan: pending.plan,
           confirmed: body.confirmed,
@@ -4809,7 +4853,8 @@ async function handleApi(request, response, path, state) {
           result = await state.services.installLocalN8nStack({
             plan: pending.plan,
             secrets: localN8nStackSecrets,
-            publicExposureConfirmation: LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
+            ...(pending.plan.publicAccess === "ngrok"
+              ? { publicExposureConfirmation: LOCAL_N8N_STACK_PUBLIC_CONFIRMATION } : {}),
           });
         } catch (error) {
           if (error?.code === LOCAL_N8N_STACK_RETRYABLE_STARTUP_ERROR_CODE) {
@@ -4848,21 +4893,42 @@ async function handleApi(request, response, path, state) {
         localDashboardGeneration,
       );
       state.localInstalledTarget = pending.plan.target;
-      sendJson(
-        response,
-        200,
-        pending.plan.kind === "local-n8n-stack"
-          ? createSafeLocalN8nStackInstallResult(result, pending.plan)
-          : pending.plan.kind === "n8n-sidecar"
+      let safeResult = pending.plan.kind === "local-n8n-stack"
+        ? createSafeLocalN8nStackInstallResult(result, pending.plan)
+        : pending.plan.kind === "n8n-sidecar"
           ? createSafeLocalN8nInstallResult(result, pending.plan)
           : pending.plan.kind === "n8n-assistant"
             ? createSafeLocalN8nAssistantInstallResult(result, pending.plan)
             : pending.plan.kind === "n8n-supergrok"
               ? createSafeLocalN8nSuperGrokInstallResult(result, pending.plan)
-            : pending.plan.kind === LOCAL_N8N_MODEL_TARGET
-              ? createSafeLocalModelStatus(result)
-              : createSafeLocalInstallResult(result, pending.plan),
-      );
+              : pending.plan.kind === LOCAL_N8N_MODEL_TARGET
+                ? createSafeLocalModelStatus(result)
+                : createSafeLocalInstallResult(result, pending.plan);
+      const feature = pending.plan.kind === "n8n-sidecar" ? "chatgpt"
+        : pending.plan.kind === LOCAL_N8N_MODEL_TARGET ? "local-model"
+          : pending.plan.kind === "n8n-supergrok" ? "supergrok" : null;
+      if (feature && result.deploymentMode !== "partial") {
+        let managed = null;
+        try { managed = await state.services.getManagedLocalN8nStackTarget(); }
+        catch { /* An unavailable stack must not fail the add-on install. */ }
+        if (managed?.containerId === pending.plan.n8nContainerId &&
+            managed.marker.dockerHost === pending.plan.dockerHost) {
+          const name = { chatgpt: "Relmio ChatGPT plan", "local-model": "Relmio local model",
+            supergrok: "Relmio SuperGrok" }[feature];
+          let n8nCredential = { state: "failed", name };
+          try {
+            n8nCredential = await state.services.importLocalStackN8nCredential({
+              marker: managed.marker, dockerHost: managed.marker.dockerHost,
+              credential: { feature, apiKey: feature === "chatgpt" ? result.clientCredential
+                : feature === "supergrok" ? result.clientKey : "local-only" },
+            });
+          } catch { /* The one-time key remains available for manual entry. */ }
+          if (!["created", "updated", "failed"].includes(n8nCredential?.state) ||
+              n8nCredential.name !== name) n8nCredential = { state: "failed", name };
+          safeResult = { ...safeResult, n8nCredential };
+        }
+      }
+      sendJson(response, 200, safeResult);
     } finally {
       if (acquiredInstallLock) {
         state.localInstallInFlight = false;

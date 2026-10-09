@@ -59,7 +59,7 @@ async function harness(apiResult, { install = false } = {}) {
     isN8nAssistant: () => false, isN8nStack: () => false, isCodexChat: () => false,
     isGrokBuild: (target) => target === "xai-grok-build",
     clearLocalModelPoll() {}, invalidateLocalModelReview() {}, renderInstalledSiwcModels() {}, renderFooterForTarget() {},
-    appendPolicyNotice() {}, replaceListItems() {}, resetBasicAuthPasswordVisibility() {},
+    appendPolicyNotice() {}, replaceListItems() {}, resetBasicAuthPasswordVisibility() {}, selectedManagedStack: () => null,
     startInstallProgress() { return true; }, stopInstallProgress() { events.push("install-stopped"); },
     showStep(step) { events.push(`step:${step}`); },
   };
@@ -69,6 +69,7 @@ async function harness(apiResult, { install = false } = {}) {
     ...(install ? [
       slice(source, "function invalidatePlan()", "\nfunction showDetectedManagedLocalN8nStackRecovery"),
       slice(source, "function renderPlan(plan)", "\nfunction prepareInstallPanel"),
+      slice(source, "function renderN8nCredentialStatus(result)", "\nfunction renderInstallResult"),
       slice(source, "function renderInstallResult(result)", "\nfunction setChatTesterStatus"),
       slice(source, 'element("install-button").addEventListener("click"', '\nelement("remove-bridge-confirm").addEventListener'),
     ] : []),

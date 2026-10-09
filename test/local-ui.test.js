@@ -147,7 +147,7 @@ test("the complete script renders a healthy OAuth inventory instead of falling b
       ["codex-chatgpt", "Codex (ChatGPT plan)", "endpoint", "ws://127.0.0.1:14500/", ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"]],
       ["codex-chat", "Codex Chat adapter", "endpoint", "http://127.0.0.1:14501/", ["setup", "sign-out-chatgpt", "disable-chatgpt-plan", "rotate-local-capability"]],
       ["xai-grok-build", "SuperGrok", "endpoint", "http://127.0.0.1:14502/", ["sign-in-grok-build", "sign-out-grok-build", "rotate-local-capability"]],
-      ["local-n8n-stack", "n8n + ngrok", "n8n-stack"], ["n8n-openai-oauth", "ChatGPT plan sidecar", "n8n-oauth-bridge"], ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"], ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+      ["local-n8n-stack", "Local n8n stack", "n8n-stack"], ["n8n-openai-oauth", "ChatGPT plan sidecar", "n8n-oauth-bridge"], ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"], ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
       ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
     ].map(([target, label, kind, endpoint, actions]) => endpoint ? ({ target, label, kind, managed: true, state: "healthy",
       snapshot: { target, endpoint, ...(target.startsWith("codex") ? { registrationId: siwcAccount.registrationId, migrationRequired: false } : {}),

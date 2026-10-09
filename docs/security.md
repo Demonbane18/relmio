@@ -288,12 +288,21 @@ conversational contract for a trusted local backend.
 
 - The local OpenAI-compatible n8n sidecar requires the selected registration's
   plan grant and a generated installation bearer. Compose stores only the
-  bearer hash. The one-time bearer is entered manually in n8n; provider tokens
-  remain in the protected sidecar registration.
+  bearer hash. For Relmio-created n8n, the approved install tries to import
+  the local bearer and private base URL into n8n's credential store. Other
+  n8n installations require manual entry. Provider tokens remain in the sidecar.
+  The import travels over local Docker stdin, not a secret command argument or
+  plaintext import file. n8n data persists at `/home/node/.n8n` in the owned
+  `n8n-data` volume; the stack's protected `.env` holds its encryption key.
+  Host administrators, Docker users and backups containing both can access
+  these credentials. n8n users permitted to use the credential can send
+  requests without seeing its raw value. Exact access depends on n8n roles.
+  `.runtime/credentials.json` contains only IDs, names and import timestamps.
 - The local n8n sidecar joins only the reviewed network and publishes no host
   port or reverse-proxy route. Relmio re-attests the selected n8n container,
-  network, and Docker host before installation. It does not edit n8n
-  configuration, credentials, Compose files, image, or lifecycle.
+  network, and Docker host before installation. The owned-stack credential
+  import is the explicit exception to leaving n8n unchanged. Sidecar
+  installation does not edit n8n's Compose file or image, or restart it.
 - Existing legacy bridge installations are not silently adopted or replaced.
   They require a fresh SIWC sign-in and separately reviewed migration.
 - The separate `n8n-ai-assistant` option always installs Code Sandbox and adds
@@ -310,16 +319,22 @@ conversational contract for a trusted local backend.
   verification.
 - The separate **Set up new n8n** option creates only a new randomly
   identified Relmio-owned Compose project. It never adopts or changes an
-  existing n8n. Its explicit public exception is limited to the new n8n route,
-  protected by an ngrok Traffic Policy Basic Auth challenge; local n8n and the
-  inspector bind to `127.0.0.1`, and optional Assistant services publish no
-  host port or ngrok route. Removal requires exact marker and project-wide
-  resource-label attestation before deleting the owned disposable data volume.
+  existing n8n. New stacks are private by default. Opting into ngrok exposes
+  only the new n8n route behind Traffic Policy Basic Auth. n8n and the optional
+  inspector bind to `127.0.0.1`; Assistant services publish no host port or
+  ngrok route. Long-running stack services restart with Docker unless stopped.
+  Removal verifies ownership and refuses while add-ons remain attached.
+  Basic Auth does not authorize other people to use your ChatGPT plan.
 - SIWC registration records stay in protected runtime storage. Compose includes
   registration/runtime IDs, storage location, and a local bearer verifier, not
-  provider tokens. The n8n bearer is entered manually and shown once.
+  provider tokens. The local bearer is shown once and may also be imported into
+  the credential store of n8n created by Relmio. One-time display does not mean
+  the bearer has no persistent copy.
 - The sidecar publishes no host port and joins only the reviewed n8n network.
-  Relmio does not edit n8n credentials or Compose settings.
+  Sidecar installation does not edit n8n Compose settings. Only a matching
+  Relmio-created local n8n can receive the reviewed credential import. This
+  does not grant plan permission or allow sharing the account. Use the
+  credential only for the authenticated user's approved workflows in that n8n.
 - Tool definitions, arguments, and results from n8n pass through the sidecar
   to OpenAI; the sidecar never executes a tool. A request can list up to 128
   tools. The Chat Completions route limits a request to 32 tool calls,
