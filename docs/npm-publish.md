@@ -31,7 +31,7 @@ authoritative publication check.
 
 ## Stable and experimental release channels
 
-Relmio 0.21.0 is the current stable release and the npm `latest` version.
+Relmio 0.22.0 is the current stable release and the npm `latest` version.
 Hosted installers also use `latest`.
 
 For a future prerelease such as `0.x.y-experimental.N`, use that exact version
