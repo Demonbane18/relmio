@@ -9,7 +9,7 @@
 //     n8n's health, adds an add-on credential to n8n, then removes the stack.
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,7 +17,6 @@ import { createAssistantSecrets } from "../src/domain/assistant-templates.js";
 import {
   createLocalN8nStackInstallation,
   createLocalN8nStackPlan,
-  LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
   LOCAL_N8N_STACK_REMOVE_CONFIRMATION,
 } from "../src/domain/local-n8n-stack.js";
 import {
@@ -114,6 +113,15 @@ async function waitForHealthz(url, timeoutMs) {
   throw new Error(`${url} did not become healthy.`);
 }
 
+async function readMarker(homeDirectory) {
+  try {
+    return JSON.parse(await readFile(join(homeDirectory, ".relmio", "local", "n8n-stack", ".managed-by-relmio.json"), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 async function live() {
   if (process.platform !== "linux") throw new Error("The live stack check runs on Linux CI only.");
   const homeDirectory = await mkdtemp(join(tmpdir(), "relmio-stack-home-"));
@@ -121,16 +129,14 @@ async function live() {
     dockerHost: DOCKER_HOST, publicAccess: "none", ngrokHostname: null, n8nPort: 5679,
     ngrokInspectorPort: null, timezone: "UTC", assistantMode: "sandbox",
   });
-  let installed = false;
+  let liveError = null;
   try {
     const result = await installLocalN8nStack({ plan, secrets: undefined, homeDirectory });
-    installed = true;
-    console.log(`installed ${result.projectName ?? ""}: ${result.localUrl}`);
+    console.log(`installed: ${result.localUrl}`);
     await waitForHealthz("http://127.0.0.1:5679/healthz", 60_000);
     const status = await getLocalN8nStackStatus({ homeDirectory });
     if (status.state !== "healthy") throw new Error(`stack status is ${status.state}`);
-    const { readFile } = await import("node:fs/promises");
-    const marker = JSON.parse(await readFile(join(homeDirectory, ".relmio", "local", "n8n-stack", ".managed-by-relmio.json"), "utf8"));
+    const marker = await readMarker(homeDirectory);
     const credential = await importLocalStackN8nCredential({
       marker, credential: { feature: "local-model", apiKey: "local-only" }, dockerHost: DOCKER_HOST, homeDirectory,
     });
@@ -143,19 +149,30 @@ async function live() {
     const exported = docker(["exec", `${marker.projectName}-n8n-1`, "n8n", "export:credentials", `--id=${id}`]);
     if (!exported.includes(id) || !exported.includes("Relmio local model")) throw new Error("n8n does not list the imported credential.");
     console.log(`credential in n8n: ${id} Relmio local model`);
-  } finally {
-    if (installed) {
+  } catch (error) {
+    liveError = error;
+  }
+  // A marker left on disk means Docker resources may exist, even after a failed install.
+  let cleanupError = null;
+  try {
+    const marker = await readMarker(homeDirectory);
+    if (marker) {
       await removeLocalN8nStack({ confirmation: LOCAL_N8N_STACK_REMOVE_CONFIRMATION, homeDirectory });
-      const left = docker(["ps", "--all", "--quiet", "--filter", "label=io.relmio.target=local-n8n-stack"]).trim();
-      if (left) throw new Error("Stack containers remained after removal.");
+      const left = docker(["ps", "--all", "--quiet", "--filter", "label=io.relmio.target=local-n8n-stack",
+        "--filter", `label=com.docker.compose.project=${marker.projectName}`]).trim();
+      if (left) throw new Error(`Stack ${marker.projectName} containers remained after removal.`);
       console.log("stack removed");
     }
     await rm(homeDirectory, { recursive: true, force: true });
+  } catch (error) {
+    cleanupError = error;
+    console.error(`Kept ${homeDirectory} for inspection.`);
   }
+  const errors = [liveError, cleanupError].filter(Boolean);
+  if (errors.length) throw new AggregateError(errors, errors.map((error) => error.message).join(" | "));
 }
 
 const mode = process.argv[2];
 if (mode === "compose-config") await composeConfig();
 else if (mode === "live") await live();
 else throw new Error("Usage: node scripts/local-stack-ci.mjs compose-config|live");
-void LOCAL_N8N_STACK_PUBLIC_CONFIRMATION;
