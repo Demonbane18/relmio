@@ -1,6 +1,7 @@
 import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import test from "node:test";
 import vm from "node:vm";
 
@@ -104,6 +105,17 @@ async function api(origin, path, options = {}) {
       "X-Setup-Token": sessionToken,
       ...(options.headers ?? {}),
     },
+  });
+}
+
+function rawRequestStatus(url, options) {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(url, options, response => {
+      response.resume();
+      resolve(response.statusCode);
+    });
+    request.once("error", reject);
+    request.end();
   });
 }
 
@@ -376,6 +388,65 @@ test("wizard reports official system-browser OAuth launch and completion", async
   const status = await statusResponse.json();
   assert.equal(status.status, "success");
   assert.match(status.attemptId, /^[0-9a-f-]+$/u);
+});
+
+test("same-browser OAuth launch is a one-use exact OpenAI redirect with no URL in API JSON", async (t) => {
+  const { services } = createServices();
+  const completion = deferred();
+  const authorization = new URL("https://auth.openai.com/api/accounts/authorize");
+  for (const [key, value] of Object.entries({ client_id: "dynamic_agent_client", agent_name_hint: "Relmio",
+    ext_agent_host_id: "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", response_type: "code",
+    redirect_uri: "http://127.0.0.1:1455/auth/callback", resource: "https://api.openai.com/v1",
+    scope: "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
+    state: "a".repeat(43), nonce: "b".repeat(43), code_challenge_method: "S256", code_challenge: "c".repeat(43),
+  })) authorization.searchParams.set(key, value);
+  let launches = 0;
+  services.startOAuthLogin = async request => {
+    assert.equal(request.launchMode, "same-browser");
+    let available = true;
+    return { launchMode: "same-browser", completion: completion.promise,
+      cancel() { available = false; },
+      consumeBrowserAuthorization() { launches++; const value = available ? authorization.href : null; available = false; return value; },
+    };
+  };
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const loginResponse = await api(wizard.origin, "/api/oauth/login", { method: "POST",
+    headers: { Origin: wizard.origin }, body: JSON.stringify({ purpose: "sign-in", launchMode: "same-browser" }) });
+  assert.equal(loginResponse.status, 200);
+  const login = await loginResponse.json();
+  assert.deepEqual(Object.keys(login).sort(), ["attemptId", "launchMode"]);
+  const path = `/__relmio/oauth/launch/${login.attemptId}`;
+  for (const options of [
+    { method: "POST" }, { headers: { Origin: "https://evil.example" } },
+    { headers: { "Sec-Fetch-Site": "cross-site" } }, { headers: { Host: "localhost:1455" } },
+  // Node fetch ignores an overridden Host. Send real raw headers so this tests
+  // the production Host guard instead of accepting a falsely forged fixture.
+  ]) assert.equal(await rawRequestStatus(wizard.origin + path, options), 404,
+    `rejected launch headers: ${JSON.stringify(options)}`);
+  assert.equal((await fetch(wizard.origin + path + "?session=ignored", { redirect: "manual" })).status, 404);
+  assert.equal((await fetch(wizard.origin + path + "extra", { redirect: "manual" })).status, 404);
+  assert.equal(launches, 0);
+  const launched = await fetch(wizard.origin + path, { redirect: "manual", headers: { "Sec-Fetch-Site": "same-origin" } });
+  assert.equal(launched.status, 302);
+  assert.equal(launched.headers.get("location"), authorization.href);
+  assert.equal(launched.headers.get("cache-control"), "no-store");
+  assert.equal(launched.headers.get("referrer-policy"), "no-referrer");
+  assert.equal((await fetch(wizard.origin + path, { redirect: "manual" })).status, 404);
+  assert.equal(launches, 2);
+});
+
+test("same-browser handoff never redirects to an arbitrary helper URL", async (t) => {
+  const { services } = createServices();
+  services.startOAuthLogin = async () => ({ launchMode: "same-browser", completion: new Promise(() => {}),
+    cancel() {}, consumeBrowserAuthorization() { return "https://evil.example/?secret=fixture"; } });
+  const wizard = await startWizardServer({ sessionToken, services });
+  t.after(() => wizard.close());
+  const login = await (await api(wizard.origin, "/api/oauth/login", { method: "POST", headers: { Origin: wizard.origin },
+    body: JSON.stringify({ purpose: "sign-in", launchMode: "same-browser" }) })).json();
+  const response = await fetch(`${wizard.origin}/__relmio/oauth/launch/${login.attemptId}`, { redirect: "manual" });
+  assert.equal(response.status, 404);
+  assert.equal(response.headers.get("location"), null);
 });
 
 test("wizard rejects and cancels an invalid OAuth helper contract", async (t) => {

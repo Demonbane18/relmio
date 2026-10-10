@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import * as fs from 'node:fs/promises';
 import { chmod, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
+import { directoryLinkType } from './helpers/symlink-fixture.js';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import test from 'node:test';
@@ -19,7 +20,8 @@ import { lockDownLocalPath } from '../src/infrastructure/local-process.js';
 import {
   acceptAuthHandoff, acknowledgePlanUse, commitAuthorization, ensureSiwcHost, finishAuthHandoff,
   getAccessToken, getSelectedRegistration, listRegistrations, listSiwcThreadBindings, prepareAuthHandoff,
-  readAuthHandoff, readAuthHandoffReceipt, readPendingAuthHandoff, readRegistration, readSiwcHost, readSiwcJson, recordSiwcThreadBinding,
+  readAuthHandoff, readAuthHandoffReceipt, readPendingAuthHandoff, readPendingSiwcRegistration, readRegistration, readSiwcHost, readSiwcJson, recordSiwcThreadBinding,
+  reserveSiwcClient,
   resolveSiwcStorageRoot, selectRegistration, setPlanEnabled, signOut, validateSiwcBackgroundConsent,
   SIWC_LOCK_OPERATION_TIMEOUT_MS, SIWC_LOCK_LEASE_MS, SIWC_LOCK_WAIT_TIMEOUT_MS,
 } from '../src/services/siwc-session.mjs';
@@ -44,6 +46,10 @@ async function registration(storageRoot, suffix = 'first', now = 1700000000000) 
   return commitAuthorization({ storageRoot, clientId: `oaiapp_${suffix}`, runtimeId: 'local',
     identity: { issuer: discovery.issuer, subject: `subject-${suffix}`, email: 'same@example.test' },
     tokens: tokens(suffix) }, { now: () => now });
+}
+async function pendingRegistration(storageRoot) {
+  await ensureSiwcHost({ storageRoot, runtimeId: 'local' });
+  return reserveSiwcClient({ storageRoot, clientId: 'oaiapp_first', runtimeId: 'local' });
 }
 async function exportedHandoff(t) {
   const storageRoot = await root(t), destinationRoot = await root(t);
@@ -120,6 +126,223 @@ test('account selection and first plan acknowledgment retain separate verified r
   const acknowledged = await acknowledgePlanUse({ storageRoot, registrationId: b.registrationId }, { expectedGeneration: enabled.generation });
   assert.equal(acknowledged.needsPlanWelcome, false);
   assert.equal(JSON.stringify(await listRegistrations({ storageRoot })).includes('private-'), false);
+});
+
+test('initial verified authorization defaults plan on only with an actual direct grant', async t => {
+  for (const pending of [false, true]) await t.test(pending ? 'reserved pending registration' : 'new registration', async t => {
+    const storageRoot = await root(t);
+    const reserved = pending ? await pendingRegistration(storageRoot) : null;
+    const view = await commitAuthorization({ storageRoot, clientId: 'oaiapp_first', runtimeId: 'local',
+      ...(reserved ? { registrationId: reserved.registrationId, expectedGeneration: reserved.generation } : {}),
+      identity: { issuer: discovery.issuer, subject: 'subject-first' }, tokens: tokens('first') });
+    assert.equal(view.identity, 'verified');
+    assert.equal(view.planPermission, 'granted');
+    assert.equal(view.planEnabled, true);
+    assert.equal(view.needsPlanWelcome, true);
+    const saved = await readRegistration({ storageRoot, registrationId: view.registrationId });
+    assert.equal(saved.planEnabled, true);
+    assert.equal(saved.planAcknowledged, false);
+    assert.equal(saved.backgroundConsent, false);
+  });
+});
+
+test('initial verified authorization keeps plan off without an actual direct grant', async t => {
+  const cases = [
+    ['denied direct permission', tokens('first', 'openid profile email offline_access resource.invoke')],
+    ['empty granted scopes', tokens('first', '')],
+    ['similar scope name', tokens('first', 'openid chatgpt.tokens.use.direct.extra')],
+    ['identity and requested scopes only', { id_token: 'fixture-id-with-chatgpt.tokens.use.direct',
+      scope: 'openid profile email', requested_scopes: 'chatgpt.tokens.use.direct' }],
+  ];
+  for (const pending of [false, true]) for (const [name, response] of cases) {
+    await t.test(`${pending ? 'pending' : 'new'}: ${name}`, async t => {
+      const storageRoot = await root(t);
+      const reserved = pending ? await pendingRegistration(storageRoot) : null;
+      const view = await commitAuthorization({ storageRoot, clientId: 'oaiapp_first', runtimeId: 'local',
+        ...(reserved ? { registrationId: reserved.registrationId, expectedGeneration: reserved.generation } : {}),
+        identity: { issuer: discovery.issuer, subject: 'subject-first', scope: 'chatgpt.tokens.use.direct' },
+        tokens: response });
+      assert.equal(view.identity, 'verified');
+      assert.equal(view.planPermission, 'not-granted');
+      assert.equal(view.planEnabled, false);
+      assert.equal(view.needsPlanWelcome, false);
+      const saved = await readRegistration({ storageRoot, registrationId: view.registrationId });
+      assert.equal(saved.planEnabled, false);
+      assert.equal(saved.planAcknowledged, false);
+      assert.equal(saved.backgroundConsent, false);
+    });
+  }
+});
+
+test('initial direct grants require valid access tokens and returned scopes before persistence', async t => {
+  const cases = [
+    ['no access token', { id_token: 'fixture-id', scope: 'openid chatgpt.tokens.use.direct' }],
+    ['empty access token', { ...tokens('first'), access_token: '' }],
+    ['missing returned scopes', { ...tokens('first'), scope: undefined }],
+  ];
+  for (const pending of [false, true]) for (const [name, response] of cases) {
+    await t.test(`${pending ? 'pending' : 'new'}: ${name}`, async t => {
+      const storageRoot = await root(t);
+      const reserved = pending ? await pendingRegistration(storageRoot) : null;
+      const registrationId = reserved?.registrationId ?? randomUUID();
+      await assert.rejects(commitAuthorization({ storageRoot, registrationId,
+        ...(reserved ? { expectedGeneration: reserved.generation } : {}),
+        clientId: 'oaiapp_first', runtimeId: 'local',
+        identity: { issuer: discovery.issuer, subject: 'subject-first' }, tokens: response }));
+      assert.equal(await readRegistration({ storageRoot, registrationId }), null);
+      assert.deepEqual(await readPendingSiwcRegistration({ storageRoot, registrationId }), reserved);
+    });
+  }
+});
+
+test('established false plan settings stay off on verified reauthorization with a direct grant', async t => {
+  for (const legacy of [false, true]) await t.test(legacy ? 'ambiguous legacy false' : 'explicit opt-out', async t => {
+    const storageRoot = await root(t);
+    const first = await registration(storageRoot);
+    const source = { storageRoot, registrationId: first.registrationId };
+    if (legacy) {
+      const saved = await readRegistration(source);
+      await fs.writeFile(join(storageRoot, 'registrations', `${first.registrationId}.json`),
+        JSON.stringify({ ...saved, planEnabled: false }));
+    } else {
+      await setPlanEnabled(source, { enabled: false, expectedGeneration: first.generation });
+    }
+    const before = await readRegistration(source);
+    const view = await commitAuthorization({ ...source, expectedGeneration: before.generation,
+      clientId: 'oaiapp_first', runtimeId: 'local',
+      identity: before.identity, tokens: tokens('renewed') });
+    assert.equal(view.planPermission, 'granted');
+    assert.equal(view.planEnabled, false);
+    assert.equal(view.needsPlanWelcome, false);
+    const saved = await readRegistration(source);
+    assert.equal(saved.planAcknowledged, before.planAcknowledged);
+    assert.equal(saved.backgroundConsent, false);
+  });
+});
+
+test('verified reauthorization preserves enabled plans and acknowledgment only while the grant remains', async t => {
+  const storageRoot = await root(t);
+  const first = await registration(storageRoot);
+  const source = { storageRoot, registrationId: first.registrationId };
+  let view = await setPlanEnabled(source, { enabled: true, expectedGeneration: first.generation });
+  view = await acknowledgePlanUse(source, { expectedGeneration: view.generation });
+  const authorize = response => commitAuthorization({ ...source, expectedGeneration: view.generation,
+    clientId: 'oaiapp_first', runtimeId: 'local',
+    identity: { issuer: discovery.issuer, subject: 'subject-first' }, tokens: response });
+  view = await authorize(tokens('renewed'));
+  assert.equal(view.planEnabled, true);
+  assert.equal(view.needsPlanWelcome, false);
+  view = await authorize(tokens('denied', 'openid profile email'));
+  assert.equal(view.planEnabled, false);
+  assert.equal(view.planPermission, 'not-granted');
+  view = await authorize(tokens('granted-again'));
+  assert.equal(view.planPermission, 'granted');
+  assert.equal(view.planEnabled, false);
+  const saved = await readRegistration(source);
+  assert.equal(saved.planAcknowledged, true);
+  assert.equal(saved.backgroundConsent, false);
+});
+
+test('plan opt-out and one-time acknowledgment survive sign-out and reconnect until explicit enablement', async t => {
+  const storageRoot = await root(t);
+  const first = await registration(storageRoot);
+  const source = { storageRoot, registrationId: first.registrationId };
+  let view = await setPlanEnabled(source, { enabled: true, expectedGeneration: first.generation });
+  view = await acknowledgePlanUse(source, { expectedGeneration: view.generation });
+  view = await setPlanEnabled(source, { enabled: false, expectedGeneration: view.generation });
+  const signedOut = await signOut(source, { runtimeId: 'local' }, {
+    fetchImpl: async url => url.endsWith('/openid-configuration') ? Response.json(discovery) : new Response(null, { status: 200 }),
+  });
+  assert.equal(signedOut.account.planEnabled, false);
+  assert.equal(signedOut.account.needsPlanWelcome, false);
+  view = await commitAuthorization({ ...source, expectedGeneration: signedOut.account.generation,
+    clientId: 'oaiapp_first', runtimeId: 'local',
+    identity: { issuer: discovery.issuer, subject: 'subject-first' }, tokens: tokens('reconnected') });
+  assert.equal(view.planPermission, 'granted');
+  assert.equal(view.planEnabled, false);
+  assert.equal(view.needsPlanWelcome, false);
+  assert.equal((await readRegistration(source)).planAcknowledged, true);
+  view = await setPlanEnabled(source, { enabled: true, expectedGeneration: view.generation });
+  assert.equal(view.planEnabled, true);
+  assert.equal(view.needsPlanWelcome, false);
+  assert.equal((await readRegistration(source)).backgroundConsent, false);
+});
+
+test('a plan opt-out blocks both cached access and expired-token refresh without changing saved state', async t => {
+  const storageRoot = await root(t);
+  const first = await registration(storageRoot);
+  const source = { storageRoot, registrationId: first.registrationId };
+  await setPlanEnabled(source, { enabled: false, expectedGeneration: first.generation });
+  const before = await readRegistration(source);
+  let providerCalls = 0;
+  for (const now of [1700000000000, 1700003600000]) {
+    await assert.rejects(getAccessToken(source, { runtimeId: 'local' }, { now: () => now,
+      fetchImpl: async () => { providerCalls++; throw new Error('An opted-out plan must not reach the provider.'); },
+    }), error => error.recovery === 'enable-plan');
+    assert.deepEqual(await readRegistration(source), before);
+  }
+  assert.equal(providerCalls, 0);
+});
+
+test('refresh verification retry preserves an opt-out made while the candidate was pending', async t => {
+  const storageRoot = await root(t);
+  const now = Date.now();
+  const first = await registration(storageRoot, 'first', now - 3600000);
+  const source = { storageRoot, registrationId: first.registrationId };
+  let view = await setPlanEnabled(source, { enabled: true, expectedGeneration: first.generation });
+  await acknowledgePlanUse(source, { expectedGeneration: view.generation });
+  const { privateKey, publicKey } = await generateKeyPair('RS256');
+  const jwk = { ...await exportJWK(publicKey), kid: 'opt-out-refresh', alg: 'RS256', use: 'sig' };
+  const signed = await new SignJWT({})
+    .setProtectedHeader({ alg: 'RS256', kid: 'opt-out-refresh' })
+    .setIssuer(discovery.issuer).setAudience('oaiapp_first')
+    .setSubject('subject-first').setIssuedAt().setExpirationTime('5m').sign(privateKey);
+  let refreshPosts = 0;
+  await assert.rejects(getAccessToken(source, { runtimeId: 'local' }, {
+    now: () => now, fetchImpl: async url => {
+      if (url.endsWith('/openid-configuration')) return Response.json(discovery);
+      if (url === discovery.jwks_uri) return Response.json({}, { status: 503 });
+      refreshPosts++;
+      return Response.json({ ...tokens('rotated'), id_token: signed });
+    },
+  }), error => error.recovery === 'retry-later');
+  const candidate = await readRegistration(source);
+  assert.equal(candidate.session.resumePlanEnabled, true);
+  await setPlanEnabled(source, { enabled: false, expectedGeneration: candidate.generation });
+  await assert.rejects(getAccessToken(source, { runtimeId: 'local' }, {
+    now: () => now, fetchImpl: async url => {
+      if (url.endsWith('/openid-configuration')) return Response.json(discovery);
+      if (url === discovery.jwks_uri) return Response.json({ keys: [jwk] });
+      refreshPosts++;
+      throw new Error('Verification retry must not rotate another refresh token.');
+    },
+  }), error => error.recovery === 'enable-plan');
+  assert.equal(refreshPosts, 1);
+  const saved = await readRegistration(source);
+  assert.equal(saved.planEnabled, false);
+  assert.equal(saved.planAcknowledged, true);
+  assert.equal(saved.backgroundConsent, false);
+  assert.equal(saved.session.refreshToken, 'private-refresh-rotated');
+  assert.equal(saved.session.verificationPending, undefined);
+});
+
+test('successful refresh preserves an enabled plan and its one-time acknowledgment without background consent', async t => {
+  const storageRoot = await root(t);
+  const first = await registration(storageRoot);
+  const source = { storageRoot, registrationId: first.registrationId };
+  const enabled = await setPlanEnabled(source, { enabled: true, expectedGeneration: first.generation });
+  await acknowledgePlanUse(source, { expectedGeneration: enabled.generation });
+  const lease = await getAccessToken(source, { runtimeId: 'local' }, {
+    now: () => 1700003600000,
+    fetchImpl: async url => url.endsWith('/openid-configuration') ? Response.json(discovery)
+      : Response.json({ ...tokens('rotated'), id_token: undefined }),
+  });
+  assert.equal(lease.accessToken, 'private-access-rotated');
+  const saved = await readRegistration(source);
+  assert.equal(saved.planEnabled, true);
+  assert.equal(saved.planAcknowledged, true);
+  assert.equal(saved.backgroundConsent, false);
+  assert.equal((await listRegistrations({ storageRoot }))[0].needsPlanWelcome, false);
 });
 
 test('one issued client cannot be duplicated under a new ID or linked by email', async t => {
@@ -1191,10 +1414,13 @@ test('HTTP 200 revocation confirms remote sign-out while a repeated local sign-o
 test('handoff freezes sender before export, attests destination, then clears only sender tokens', async t => {
   const storageRoot = await root(t), destinationRoot = await root(t);
   const first = await registration(storageRoot);
+  const disabled = await setPlanEnabled({ storageRoot, registrationId: first.registrationId }, {
+    enabled: false, expectedGeneration: first.generation,
+  });
   await assert.rejects(prepareAuthHandoff({ storageRoot, registrationId: first.registrationId }, {
-    expectedGeneration: first.generation, target: await ensureSiwcHost({ storageRoot: destinationRoot, runtimeId: 'remote' }), backgroundConsent: false,
+    expectedGeneration: disabled.generation, target: await ensureSiwcHost({ storageRoot: destinationRoot, runtimeId: 'remote' }), backgroundConsent: false,
   }));
-  const enabled = await setPlanEnabled({ storageRoot, registrationId: first.registrationId }, { enabled: true, expectedGeneration: first.generation });
+  const enabled = await setPlanEnabled({ storageRoot, registrationId: first.registrationId }, { enabled: true, expectedGeneration: disabled.generation });
   const target = await ensureSiwcHost({ storageRoot: destinationRoot, runtimeId: 'remote' });
   const frozen = await prepareAuthHandoff({ storageRoot, registrationId: first.registrationId }, {
     expectedGeneration: enabled.generation, target, backgroundConsent: false,
@@ -1467,7 +1693,7 @@ test('receipt CLI is read-only, returns the exact original receipt and bounds UT
   assert.deepEqual(saved.acceptedHandoff, accepted);
   assert.deepEqual(guard.writes, []);
   const linkedRoot = await root(t);
-  await fs.symlink(join(f.destination.storageRoot, 'registrations'), join(linkedRoot, 'registrations'));
+  await fs.symlink(join(f.destination.storageRoot, 'registrations'), join(linkedRoot, 'registrations'), directoryLinkType);
   await assert.rejects(invoke([request], linkedRoot));
   assert.deepEqual(guard.writes, []);
 });
@@ -1499,7 +1725,7 @@ test('pending handoff metadata is token-free and does not create sender storage'
 test('symlinked registration storage fails closed', async t => {
   const storageRoot = await root(t);
   const outside = await root(t);
-  await symlink(outside, join(storageRoot, 'registrations'));
+  await symlink(outside, join(storageRoot, 'registrations'), directoryLinkType);
   await assert.rejects(listRegistrations({ storageRoot }));
 });
 
@@ -1789,7 +2015,7 @@ test('Windows ACL adapter protects each new credential file before writing secre
 test('Windows path protection rejects a symlink before touching its target ACL', async t => {
   const parent = await root(t), outside = await root(t);
   const storageRoot = join(parent, 'linked-root');
-  await symlink(outside, storageRoot);
+  await symlink(outside, storageRoot, directoryLinkType);
   let aclCalls = 0;
   await assert.rejects(ensureSiwcHost({ storageRoot, runtimeId: 'local' }, {
     platform: 'win32', lockDownPath: async () => { aclCalls++; },
@@ -1827,6 +2053,9 @@ test('thread ownership persists only for the verified active registration and mo
   const storageRoot = await root(t);
   const first = await registration(storageRoot);
   const second = await registration(storageRoot, 'second');
+  await setPlanEnabled({ storageRoot, registrationId: second.registrationId }, {
+    enabled: false, expectedGeneration: second.generation,
+  });
   const enabled = await setPlanEnabled({ storageRoot, registrationId: first.registrationId }, {
     enabled: true, expectedGeneration: first.generation,
   });

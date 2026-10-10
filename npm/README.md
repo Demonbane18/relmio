@@ -19,6 +19,13 @@ Identity, separately granted plan permission, and model/request access are
 distinct. A ChatGPT sign-in is not an OpenAI Platform API key, and Relmio does
 not import a personal Codex login. SuperGrok uses its own session.
 
+After a new registration's first verified plan grant, eligible text plan use
+is enabled. Choose **Got it** on **You're using your ChatGPT plan** before
+model access. Existing paused accounts stay paused on reconnect; **Pause plan
+use**, **Resume plan use** and **Manage usage** remain available. Sign-in uses
+the same browser when a new tab is allowed, otherwise the system browser.
+n8n background workflows require separate approval.
+
 The website's `/api/chat` remains off and returns `410 Gone`; local setup does
 not enable hosted chat. See the
 [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md)

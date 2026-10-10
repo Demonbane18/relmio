@@ -50,10 +50,12 @@ export async function getAuthStatus({ storageRoot, registrationId, runtimeId = '
   return { ...account, exists: account.ownerHostId === host.hostId && account.ownerRuntimeId === runtimeId };
 }
 
-export async function startOAuthLogin({ storageRoot, registrationId, purpose = 'sign-in', runtimeId = 'local' } = {},
+export async function startOAuthLogin({ storageRoot, registrationId, purpose = 'sign-in', runtimeId = 'local',
+  launchMode = 'system-browser' } = {},
   { fetchImpl = fetch, createServerImpl = createServer, openAuthorization = openOpenAiAuthorization,
     now = Date.now, fileSystem, platform, lockDownPath, timeoutMs = 600000 } = {}) {
-  if (!['sign-in', 'enable-plan'].includes(purpose) || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600000) throw new TypeError('Invalid SIWC sign-in request.');
+  if (!['sign-in', 'enable-plan'].includes(purpose) || !['system-browser', 'same-browser'].includes(launchMode) ||
+      !Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600000) throw new TypeError('Invalid SIWC sign-in request.');
   if (purpose === 'enable-plan' && !registrationId) throw new Error('Select a verified account before enabling plan use.');
   const deps = { fetchImpl, now, fileSystem, platform, lockDownPath };
   const original = registrationId ? await readRegistration({ storageRoot, registrationId }, deps) : null;
@@ -211,8 +213,15 @@ export async function startOAuthLogin({ storageRoot, registrationId, purpose = '
     };
     for (const [key, value] of Object.entries(params)) authorization.searchParams.set(key, value);
     timeout = setTimeout(() => { void cancel(new Error('ChatGPT sign-in expired. Start again.')); }, timeoutMs);
-    if (!await openAuthorization(authorization.href)) throw failure();
-    return Object.freeze({ launchMode: 'system-browser', attemptId, completion, cancel });
+    let browserAuthorization = launchMode === 'same-browser' ? authorization.href : null;
+    if (launchMode === 'system-browser' && !await openAuthorization(authorization.href)) throw failure();
+    return Object.freeze({ launchMode, attemptId, completion, cancel,
+      ...(launchMode === 'same-browser' ? { consumeBrowserAuthorization() {
+        const value = pending && accepting && now() <= deadline ? browserAuthorization : null;
+        browserAuthorization = null;
+        return value;
+      } } : {}),
+    });
   } catch {
     accepting = false;
     abort.abort();

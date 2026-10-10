@@ -7,12 +7,25 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Changed
+
+- A new ChatGPT registration enables eligible text plan use after its first
+  verified plan grant and shows a one-time **Got it** notice. Existing paused
+  accounts stay paused; n8n background activity still needs separate approval.
+
 ### Fixed
 
 - The PowerShell installer works again on Windows computers without Node.js.
   It now puts its temporary Node.js runtime on `PATH` while Relmio starts.
   Before this fix, the wizard stopped with `'"node"' is not recognized`.
   The Command Prompt installer already did this.
+- ChatGPT sign-in opens in the browser running Relmio when a new tab is allowed,
+  with a system-browser fallback and safe cancellation of an unused attempt.
+  The first-plan notice keeps keyboard focus inside while open.
+- Resuming an exact owned local n8n stack works without Compose's newer
+  `start --wait` flags and verifies health before reporting success.
+- Windows QA fixtures handle denied file symlinks explicitly and keep the CMD
+  lock test deterministic. Generated docs retain the first line after the title.
 
 ## [0.22.0] - 2026-10-09
 

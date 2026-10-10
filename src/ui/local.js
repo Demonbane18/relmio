@@ -1,4 +1,4 @@
-import { accountUiState, createSiwcControls, createSiwcRecovery, normalizeSiwcAccount, siwcErrorFromResponse, siwcErrorText } from "./siwc-controls.js";
+import { accountUiState, createSiwcControls, createSiwcRecovery, normalizeSiwcAccount, prepareSiwcBrowser, siwcErrorFromResponse, siwcErrorText } from "./siwc-controls.js";
 import { bindWizardNavigation, readWizardSession } from "./session.js";
 import { clearFieldError, setFieldError } from "./ssh-form.js";
 import {
@@ -4878,6 +4878,7 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   if (state.n8nOAuthRetryBlocked) return;
   if (setBusy(button, true, "Waiting for ChatGPT…") === false) return;
+  const signInBrowser = prepareSiwcBrowser(globalThis.window);
   const generation = state.n8nOAuthGeneration + 1;
   state.n8nOAuthGeneration = generation;
   state.n8nOAuthAttemptId = null;
@@ -4892,26 +4893,32 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
     let attemptId;
     let resumed = false;
     if (existing.status === "pending") {
+      signInBrowser.closeUnused();
       attemptId = validateOAuthAttemptId(existing.attemptId);
       resumed = true;
       setMessage(
         "A ChatGPT sign-in is still in progress. Finish it in the existing sign-in window, or use Stop and try again.",
       );
     } else {
-      setMessage("Relmio opens a fresh ChatGPT sign-in in your system browser. No saved Codex credential is imported.");
+      setMessage("Relmio opens a fresh ChatGPT sign-in. No saved Codex credential is imported.");
       const result = await api("/api/oauth/login", {
         method: "POST",
-        body: state.n8nOAuthIntent,
+        body: { ...state.n8nOAuthIntent, launchMode: signInBrowser.launchMode },
       });
       if (state.n8nOAuthGeneration !== generation) return;
-      if (result.launchMode !== "system-browser") {
+      if (!["system-browser", "same-browser"].includes(result.launchMode)) {
         throw new Error(
           "The wizard returned an unexpected sign-in launch mode. Update Relmio and try again.",
         );
       }
       attemptId = validateOAuthAttemptId(result.attemptId);
+      try { signInBrowser.launch(result); }
+      catch (error) {
+        await api("/api/oauth/cancel", { method: "POST", body: { attemptId } });
+        throw error;
+      }
       setMessage(
-        "Finish sign-in in the official ChatGPT sign-in window opened by Relmio. If no window opened, check your default browser, then use Stop and try again.",
+        "Finish sign-in in the new ChatGPT tab. If pop-ups are blocked, Relmio uses your default browser. Use Stop to cancel.",
       );
     }
     if (state.n8nOAuthGeneration !== generation) return;
@@ -4936,6 +4943,7 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
       showError(error);
     }
   } finally {
+    signInBrowser.closeUnused();
     if (state.n8nOAuthGeneration === generation) {
       state.n8nOAuthAttemptId = null;
       setN8nOAuthStopVisible(false);

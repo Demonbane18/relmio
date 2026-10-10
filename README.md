@@ -227,7 +227,12 @@ and separately authorize plan permission in ChatGPT. Identity-only sign-in
 remains connected but cannot use models. Registrations with the same email stay
 separate. Relmio never imports an old Codex credential.
 
-Before the first plan request, confirm **Using ChatGPT plan** in the wizard.
+After a new registration's first verified plan grant, Relmio enables eligible
+text plan use and shows **You're using your ChatGPT plan**. Choose **Got it**
+before model access. Existing paused accounts stay paused on reconnect; use
+**Pause plan use** or **Resume plan use** to change that setting. Sign-in opens
+in the same browser when a new tab is allowed, with the system browser as a
+fallback. n8n background workflows still need their separate approval.
 Open **Manage usage** for usage limits and credits. A listed model or connected
 account does not prove admission or entitlement. Relmio uses the selected
 registration and does not switch accounts or fall back to Platform API billing.

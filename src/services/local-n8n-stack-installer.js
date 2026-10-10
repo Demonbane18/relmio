@@ -2,6 +2,7 @@ import { randomBytes as cryptoRandomBytes, randomUUID } from "node:crypto";
 import * as defaultFileSystem from "node:fs/promises";
 import { homedir, platform as hostPlatform } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, win32 } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import {
   LOCAL_N8N_STACK_PUBLIC_CONFIRMATION,
@@ -787,6 +788,53 @@ async function verifyRunningStack({ runProcess, cwd, marker }) {
     }
   }
   await verifyAssistantEgressNetworks({ runProcess, cwd, marker });
+}
+
+async function waitForResumedStackReadiness({ runProcess, cwd, marker, readinessNow, wait }) {
+  const deadline = readinessNow() + LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS * 1000;
+  const timeoutError = () => new Error(
+    "The resumed local n8n stack did not become ready in time. Existing containers, volumes, and managed files were preserved.",
+  );
+  const boundedRunProcess = async (spec) => {
+    const remainingMs = Math.floor(deadline - readinessNow());
+    if (remainingMs <= 0) throw timeoutError();
+    let result;
+    try {
+      result = await runProcess({
+        ...spec,
+        timeoutMs: Math.min(spec.timeoutMs ?? remainingMs, remainingMs),
+      });
+    } catch {
+      if (readinessNow() >= deadline) throw timeoutError();
+      throw new Error("Local n8n stack resume readiness inspection failed.");
+    }
+    if (readinessNow() >= deadline) throw timeoutError();
+    return result;
+  };
+  await attestOwnedResources({
+    runProcess: boundedRunProcess, cwd, marker, resourcePolicy: "exact",
+  });
+  for (;;) {
+    const rows = await readOwnedStackServiceStates({ runProcess: boundedRunProcess, cwd, marker });
+    if (
+      hasExactRunningState(rows, marker) &&
+      rows.every((row) => !LOCAL_N8N_STACK_HEALTHY_SERVICES.includes(row.Service) || row.Health === "healthy")
+    ) {
+      try {
+        await verifyRunningStack({ runProcess: boundedRunProcess, cwd, marker });
+      } catch (error) {
+        if (readinessNow() >= deadline) throw timeoutError();
+        throw error;
+      }
+      await attestOwnedResources({
+        runProcess: boundedRunProcess, cwd, marker, resourcePolicy: "exact",
+      });
+      return;
+    }
+    const remainingMs = Math.floor(deadline - readinessNow());
+    if (remainingMs <= 0) throw timeoutError();
+    await wait(Math.min(1000, remainingMs));
+  }
 }
 
 function assistantEgressNetworkNames(marker) {
@@ -2175,6 +2223,8 @@ export async function resumeLocalN8nStack({
   platform = hostPlatform(),
   processIdentity = getLocalProcessIdentity,
   now = Date.now,
+  readinessNow = () => performance.now(),
+  wait = delay,
   lockDownPath = lockDownLocalPath,
 } = {}) {
   if (confirmed !== true) {
@@ -2220,17 +2270,20 @@ export async function resumeLocalN8nStack({
         // Compose start acts on the exact existing container names. It never
         // creates, recreates, or rebuilds a service, and it leaves volumes and
         // the generated configuration untouched.
+        // Older Compose v2 supports start but not start --wait. Poll the
+        // existing services separately under a monotonic readiness deadline.
         args: composeArgs(marker, ["start", ...runningStackServiceNames(marker)]),
         cwd: installRoot,
         dockerHost,
+        timeoutMs: LOCAL_N8N_STACK_COMPOSE_UP_TIMEOUT_MS,
       }, "Local n8n stack resume");
-      await attestOwnedResources({
+      await waitForResumedStackReadiness({
         runProcess,
         cwd: installRoot,
         marker,
-        resourcePolicy: "exact",
+        readinessNow,
+        wait,
       });
-      await verifyRunningStack({ runProcess, cwd: installRoot, marker });
       return Object.freeze({
         ...toSanitizedResult(marker),
         resumed: true,

@@ -39,7 +39,13 @@ it still opens and presents missing prerequisites in the browser. Choose
 The ChatGPT flow stores each verified registration separately. If the
 provider grants identity but not `chatgpt.tokens.use.direct`, the account
 remains connected without plan use. Enable that permission in a separate
-ChatGPT consent step. Confirm the first-use plan notice before model access;
+ChatGPT consent step. After a new registration's first verified plan grant,
+Relmio enables eligible text plan use. Choose **Got it** on **You're using your
+ChatGPT plan** before model access. Existing paused registrations stay paused
+on reconnect, and **Pause plan use** remains available. Sign-in opens in the
+same browser when a new tab is allowed; a blocked tab uses the system browser.
+Closing the reserved tab before it launches cancels that attempt. These controls
+do not approve background n8n workflows or enable the separate image add-on;
 **Manage usage** opens ChatGPT's usage settings. Existing personal Codex
 credentials are never imported.
 

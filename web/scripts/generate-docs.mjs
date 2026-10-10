@@ -144,7 +144,7 @@ if (process.argv.includes("--check")) {
   } catch {
     // The comparison below reports the same clear generated-output drift.
   }
-  if (checkedIn !== output) {
+  if (normalizeLineEndings(checkedIn) !== output) {
     process.stderr.write(
       "Generated documentation is out of date. Run npm run docs:generate.\n",
     );

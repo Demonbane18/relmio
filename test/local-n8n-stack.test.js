@@ -709,6 +709,7 @@ function createStackRunner({
     stderr: "",
   },
   startFailure = false,
+  startWaitSupported = true,
   pullFailureOutput = null,
   startupFailureOutput = null,
   attachedContainers = [],
@@ -717,6 +718,7 @@ function createStackRunner({
   let up = false;
   let resourcesExist = initialResources;
   let downAttempts = 0;
+  let containerGeneration = 0;
   const services = [
     "n8n",
     ...(publicAccess === "ngrok" ? ["ngrok"] : []),
@@ -728,6 +730,15 @@ function createStackRunner({
   const runningServices = services.filter(
     (service) => service !== "relmio-sandbox-certs" && !(ngrokExitedDuringStartup && service === "ngrok"),
   );
+  const resourceSnapshot = () => resourcesExist ? services.map((service, index) => ({
+    Service: service,
+    ID: (containerGeneration * services.length + index + 1).toString(16).padStart(64, "0"),
+    Mounts: service === "n8n"
+      ? [{ Type: "volume", Source: "owned-n8n-data", Destination: "/home/node/.n8n" }]
+      : service.startsWith("relmio-sandbox-")
+        ? [{ Type: "volume", Source: "owned-sandbox-tls", Destination: "/certs" }]
+        : [],
+  })) : [];
   const serviceState = (service) => {
     if (Object.hasOwn(initialServiceStates, service)) return initialServiceStates[service];
     if (!up) return "exited";
@@ -749,6 +760,7 @@ function createStackRunner({
     if (joined.includes("up -d --wait")) {
       up = true;
       resourcesExist = true;
+      containerGeneration += 1;
       return partialUpFailure || ngrokExitedDuringStartup
         ? startupFailureOutput ?? {
             code: 1,
@@ -758,6 +770,9 @@ function createStackRunner({
         : { code: 0, stdout: "", stderr: "" };
     }
     if (joined.includes(" start ")) {
+      if (!startWaitSupported && spec.args.includes("--wait")) {
+        return { code: 1, stdout: "", stderr: "unknown flag: --wait" };
+      }
       if (startFailure) return { code: 1, stdout: "", stderr: "start failed" };
       up = true;
       return { code: 0, stdout: "", stderr: "" };
@@ -797,6 +812,7 @@ function createStackRunner({
       return {
         code: 0,
         stdout: JSON.stringify({
+          ...resourceSnapshot().find((row) => row.Service === service),
           Service: service,
           State: state,
           Health: Object.hasOwn(serviceHealth, service)
@@ -911,7 +927,7 @@ function createStackRunner({
     }
     return { code: 0, stdout: "", stderr: "" };
   };
-  return { calls, runner };
+  return { calls, runner, resourceSnapshot };
 }
 
 test("managed local n8n status is safely negative when the install root is absent", async (t) => {
@@ -1342,6 +1358,8 @@ test("resume starts only an exact owner-attested stopped stack", async (t) => {
   });
   const start = calls.find((call) => call.args.includes("start"));
   assert.ok(start);
+  assert.deepEqual(start.args.slice(start.args.indexOf("start"), -4), ["start"]);
+  assert.equal(start.timeoutMs, LOCAL_N8N_STACK_COMPOSE_UP_TIMEOUT_MS);
   assert.deepEqual(start.args.slice(-4), [
     "n8n",
     "ngrok",
@@ -1356,6 +1374,247 @@ test("resume starts only an exact owner-attested stopped stack", async (t) => {
     call.args[0] === "network" && call.args[1] === "inspect" &&
     call.args.includes("{{json .Internal}}")
   ).length, 4);
+});
+
+test("resume supports Compose v2.27 without start wait flags", async (t) => {
+  const homeDirectory = await testHome(t);
+  await writeManagedStackMarker(homeDirectory);
+  const { calls, runner } = createStackRunner({
+    initialResources: true,
+    startWaitSupported: false,
+  });
+  const result = await resumeLocalN8nStack({
+    confirmed: true, homeDirectory, runProcess: runner,
+  });
+  assert.equal(result.resumed, true);
+  const start = calls.find((call) => call.args.includes("start"));
+  assert.deepEqual(start.args.slice(start.args.indexOf("start")), ["start", "n8n", "ngrok"]);
+  assert.equal(calls.some((call) => call.args.includes("up") || call.args.includes("down")), false);
+});
+
+test("resume waits for existing n8n health before runtime verification", async (t) => {
+  for (const startWaitSupported of [false, true]) {
+    await t.test(startWaitSupported ? "modern Compose" : "Compose v2.27", async (subtest) => {
+      const homeDirectory = await testHome(subtest);
+      const { installRoot } = await writeManagedStackMarker(homeDirectory, {
+        assistantMode: "sandbox-with-searxng",
+      });
+      const preservedPaths = [
+        ".managed-by-relmio.json", "docker-compose.yml", ".env", "ngrok.yml",
+        ".runtime/traffic-policy.yml", ".runtime/searxng-settings.yml",
+      ];
+      const filesBefore = await Promise.all(preservedPaths.map((name) => nodeFileSystem.readFile(join(installRoot, name))));
+      const serviceHealth = { n8n: "starting", "relmio-sandbox-api": "starting" };
+      const initialServiceStates = { "relmio-sandbox-runner-1": "exited" };
+      const { calls, runner, resourceSnapshot } = createStackRunner({
+        initialResources: true, assistantMode: "sandbox-with-searxng", serviceHealth, startWaitSupported,
+        initialServiceStates,
+      });
+      const resourcesBefore = resourceSnapshot();
+      const waits = [];
+      let readinessClock = 0;
+      const result = await resumeLocalN8nStack({
+        confirmed: true, homeDirectory, runProcess: runner,
+        readinessNow: () => readinessClock,
+        async wait(milliseconds) {
+          waits.push(milliseconds);
+          readinessClock += milliseconds;
+          serviceHealth.n8n = "healthy";
+          initialServiceStates["relmio-sandbox-runner-1"] = "running";
+          if (waits.length === 2) serviceHealth["relmio-sandbox-api"] = "healthy";
+        },
+      });
+      assert.equal(result.resumed, true);
+      assert.deepEqual(waits, [1000, 1000]);
+      const start = calls.find((call) => call.args.includes("start"));
+      assert.deepEqual(start.args.slice(start.args.indexOf("start")), [
+        "start", "n8n", "ngrok", "relmio-sandbox-api", "relmio-sandbox-runner-1", "relmio-searxng",
+      ]);
+      assert.equal(calls.filter((call) => call.args.includes("start")).length, 1);
+      assert.equal(calls.some((call) => call.args.some((arg) => ["up", "down", "restart", "stop", "rm", "build", "pull"].includes(arg))), false);
+      assert.deepEqual(resourceSnapshot(), resourcesBefore, "owned fixture container IDs and mounts are unchanged");
+      assert.deepEqual(await Promise.all(preservedPaths.map((name) => nodeFileSystem.readFile(join(installRoot, name)))), filesBefore);
+      const readinessCalls = calls.slice(calls.indexOf(start) + 1);
+      assert.ok(readinessCalls.every((call) => call.timeoutMs > 0 && call.timeoutMs <= 180_000));
+      assert.equal(readinessCalls.at(-1).timeoutMs, 178_000);
+    });
+  }
+});
+
+test("resume readiness deadline preserves resources and files on modern and older Compose", async (t) => {
+  for (const startWaitSupported of [false, true]) {
+    await t.test(startWaitSupported ? "modern Compose" : "Compose v2.27", async (subtest) => {
+      const homeDirectory = await testHome(subtest);
+      const { installRoot } = await writeManagedStackMarker(homeDirectory);
+      const preservedPaths = [".managed-by-relmio.json", "docker-compose.yml", ".env"];
+      const filesBefore = await Promise.all(preservedPaths.map((name) => nodeFileSystem.readFile(join(installRoot, name))));
+      const { calls, runner, resourceSnapshot } = createStackRunner({
+        initialResources: true, startWaitSupported, serviceHealth: { n8n: "starting" },
+      });
+      const resourcesBefore = resourceSnapshot();
+      let readinessClock = 0;
+      let waitCount = 0;
+      await assert.rejects(() => resumeLocalN8nStack({
+        confirmed: true, homeDirectory, runProcess: runner,
+        readinessNow: () => readinessClock,
+        async wait(milliseconds) {
+          assert.equal(milliseconds, 1000);
+          readinessClock += milliseconds;
+          waitCount += 1;
+        },
+      }), /resumed local n8n stack did not become ready in time/u);
+      assert.equal(readinessClock, LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS * 1000);
+      assert.equal(waitCount, LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS);
+      assert.equal(calls.filter((call) => call.args.includes("start")).length, 1);
+      assert.equal(calls.some((call) => call.args.some((arg) => ["up", "down", "restart", "stop", "rm", "build", "pull"].includes(arg))), false);
+      assert.equal(calls.at(-1).timeoutMs, 1000);
+      assert.deepEqual(resourceSnapshot(), resourcesBefore);
+      assert.deepEqual(await Promise.all(preservedPaths.map((name) => nodeFileSystem.readFile(join(installRoot, name)))), filesBefore);
+    });
+  }
+});
+
+test("resume readiness command latency reduces the remaining wait and command budget", async (t) => {
+  const homeDirectory = await testHome(t);
+  await writeManagedStackMarker(homeDirectory);
+  const { calls, runner } = createStackRunner({
+    initialResources: true, serviceHealth: { n8n: "starting" }, startWaitSupported: false,
+  });
+  let readinessClock = 0;
+  let started = false;
+  const waits = [];
+  await assert.rejects(() => resumeLocalN8nStack({
+    confirmed: true, homeDirectory,
+    readinessNow: () => readinessClock,
+    async wait(milliseconds) {
+      waits.push(milliseconds);
+      readinessClock += milliseconds;
+    },
+    async runProcess(spec) {
+      const result = await runner(spec);
+      if (spec.args.includes("start")) started = true;
+      if (started && spec.args[0] === "compose" && spec.args.includes("--all")) {
+        if (spec.args.at(-1) === "n8n") {
+          assert.equal(spec.timeoutMs, 180_000);
+          readinessClock += 179_500;
+        } else {
+          assert.equal(spec.timeoutMs, 500);
+          readinessClock += 300;
+        }
+      }
+      return result;
+    },
+  }), /resumed local n8n stack did not become ready in time/u);
+  assert.deepEqual(waits, [200]);
+  assert.equal(readinessClock, 180_000);
+  assert.equal(calls.at(-1).timeoutMs, 500);
+  assert.equal(calls.filter((call) => call.args.includes("start")).length, 1);
+});
+
+test("resume rejects healthy inspection output that arrives at the readiness deadline", async (t) => {
+  const homeDirectory = await testHome(t);
+  await writeManagedStackMarker(homeDirectory);
+  const { calls, runner, resourceSnapshot } = createStackRunner({ initialResources: true });
+  const resourcesBefore = resourceSnapshot();
+  let readinessClock = 0;
+  let started = false;
+  await assert.rejects(() => resumeLocalN8nStack({
+    confirmed: true, homeDirectory,
+    readinessNow: () => readinessClock,
+    async wait() { assert.fail("Late healthy output must fail before sleeping"); },
+    async runProcess(spec) {
+      const result = await runner(spec);
+      if (spec.args.includes("start")) started = true;
+      if (started && spec.args[0] === "compose" && spec.args.includes("--all")) readinessClock += spec.timeoutMs;
+      return result;
+    },
+  }), /resumed local n8n stack did not become ready in time/u);
+  assert.equal(readinessClock, 180_000);
+  assert.equal(calls.at(-1).args.at(-1), "n8n");
+  assert.deepEqual(resourceSnapshot(), resourcesBefore);
+  assert.equal(calls.some((call) => call.args.includes("up") || call.args.includes("down")), false);
+});
+
+test("resume retains final host publication verification after readiness", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { installRoot } = await writeManagedStackMarker(homeDirectory);
+  const { calls, runner, resourceSnapshot } = createStackRunner({
+    initialResources: true, malformedPublisher: true,
+  });
+  const resourcesBefore = resourceSnapshot();
+  await assert.rejects(() => resumeLocalN8nStack({
+    confirmed: true, homeDirectory, runProcess: runner,
+    async wait() { assert.fail("Ready services must reach final publication verification immediately"); },
+  }), /ngrok/u);
+  assert.deepEqual(resourceSnapshot(), resourcesBefore);
+  assert.equal(calls.some((call) => call.args.includes("up") || call.args.includes("down")), false);
+  assert.equal((await stat(join(installRoot, "docker-compose.yml"))).isFile(), true);
+});
+
+test("resume bounds final runtime verification by the same readiness deadline", async (t) => {
+  const homeDirectory = await testHome(t);
+  await writeManagedStackMarker(homeDirectory);
+  const { calls, runner } = createStackRunner({ initialResources: true });
+  let readinessClock = 0;
+  let started = false;
+  await assert.rejects(() => resumeLocalN8nStack({
+    confirmed: true, homeDirectory,
+    readinessNow: () => readinessClock,
+    async wait() { assert.fail("Ready services must reach final verification immediately"); },
+    async runProcess(spec) {
+      const result = await runner(spec);
+      if (spec.args.includes("start")) started = true;
+      if (started && spec.args.includes("--status")) readinessClock += spec.timeoutMs;
+      return result;
+    },
+  }), /resumed local n8n stack did not become ready in time/u);
+  assert.equal(readinessClock, 180_000);
+  assert.equal(calls.at(-1).args.includes("--status"), true);
+  assert.equal(calls.filter((call) => call.args.includes("start")).length, 1);
+  assert.equal(calls.some((call) => call.args.includes("up") || call.args.includes("down")), false);
+});
+
+test("resume re-attests exact ownership after delayed readiness", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { installRoot } = await writeManagedStackMarker(homeDirectory);
+  const serviceHealth = { n8n: "starting" };
+  const { calls, runner, resourceSnapshot } = createStackRunner({ initialResources: true, serviceHealth });
+  const { runner: foreignRunner } = createStackRunner({ initialResources: true, foreignProjectResource: true });
+  const resourcesBefore = resourceSnapshot();
+  let readinessClock = 0;
+  let ownershipChanged = false;
+  await assert.rejects(() => resumeLocalN8nStack({
+    confirmed: true, homeDirectory,
+    readinessNow: () => readinessClock,
+    async wait(milliseconds) {
+      readinessClock += milliseconds;
+      serviceHealth.n8n = "healthy";
+      ownershipChanged = true;
+    },
+    async runProcess(spec) {
+      const result = await runner(spec);
+      return ownershipChanged && spec.args[0] === "ps" ? foreignRunner(spec) : result;
+    },
+  }), /ownership/u);
+  assert.equal(readinessClock, 1000);
+  assert.deepEqual(resourceSnapshot(), resourcesBefore);
+  assert.equal(calls.filter((call) => call.args.includes("start")).length, 1);
+  assert.equal(calls.some((call) => call.args.includes("up") || call.args.includes("down")), false);
+  assert.equal((await stat(join(installRoot, ".managed-by-relmio.json"))).isFile(), true);
+});
+
+test("resume readiness failure preserves existing owned resources and configuration", async (t) => {
+  const homeDirectory = await testHome(t);
+  const { installRoot } = await writeManagedStackMarker(homeDirectory);
+  const { calls, runner } = createStackRunner({ initialResources: true, startFailure: true });
+  await assert.rejects(() => resumeLocalN8nStack({
+    confirmed: true, homeDirectory, runProcess: runner,
+  }), /Local n8n stack resume/u);
+  assert.equal(calls.filter((call) => call.args.includes("start")).length, 1);
+  assert.equal(calls.some((call) => call.args.includes("up") || call.args.includes("down")), false);
+  for (const name of [".managed-by-relmio.json", "docker-compose.yml", ".env"]) {
+    assert.equal((await stat(join(installRoot, name))).isFile(), true);
+  }
 });
 
 test("Windows resume fails closed on managed-path ACL drift before Compose start", async (t) => {
