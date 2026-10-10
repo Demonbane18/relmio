@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -232,8 +232,9 @@ test(
     assert.ok(powershell);
     const nodeArchitecture = process.arch === "arm64" ? "arm64" : "x64";
 
-    for (const validChecksum of [true, false]) {
-      await t.test(validChecksum ? "verified archive" : "checksum rejection", async (subtest) => {
+    for (const scenario of ["verified archive", "child failure", "checksum rejection"]) {
+      const validChecksum = scenario !== "checksum rejection";
+      await t.test(scenario, async (subtest) => {
         const root = await mkdtemp(join(tmpdir(), "relmio-windows-powershell-fallback-"));
         subtest.after(() => rm(root, { recursive: true, force: true }));
         const archive = join(root, "node.zip");
@@ -253,7 +254,8 @@ test(
         );
         const npxFixture = [
           'const fs = require("node:fs");',
-          "fs.writeFileSync(process.env.RELMIO_TEST_LOG, JSON.stringify({ args: process.argv.slice(2), execPath: process.execPath, foregroundWizard: process.env.RELMIO_FOREGROUND_WIZARD }));",
+          "fs.writeFileSync(process.env.RELMIO_TEST_LOG, JSON.stringify({ args: process.argv.slice(2), execPath: process.execPath, firstPathEntry: process.env.PATH.split(';')[0], foregroundWizard: process.env.RELMIO_FOREGROUND_WIZARD }));",
+          "process.exitCode = Number(process.env.RELMIO_CHILD_EXIT_CODE);",
           "",
         ].join("\n");
         await writeFile(
@@ -289,8 +291,10 @@ test(
             '  Copy-Item -LiteralPath $env:RELMIO_NODE_EXE -Destination (Join-Path $runtimeRoot "node.exe")',
             '  Set-Content -LiteralPath (Join-Path $npxDirectory "npx-cli.js") -Value $env:RELMIO_NPX_FIXTURE -Encoding UTF8',
             '}',
-            '& $env:RELMIO_INSTALL_SCRIPT',
-            'Set-Content -LiteralPath $env:RELMIO_RESTORATION_LOG -Value ((Test-Path Env:RELMIO_FOREGROUND_WIZARD).ToString() + ":" + $env:RELMIO_FOREGROUND_WIZARD)',
+            '$pathBefore = $env:Path',
+            'try { & $env:RELMIO_INSTALL_SCRIPT } finally {',
+            '  Set-Content -LiteralPath $env:RELMIO_RESTORATION_LOG -Value ((Test-Path Env:RELMIO_FOREGROUND_WIZARD).ToString() + ":" + $env:RELMIO_FOREGROUND_WIZARD + ":" + ($env:Path -ceq $pathBefore).ToString())',
+            '}',
             "",
           ].join("\r\n"),
           "utf8",
@@ -300,6 +304,7 @@ test(
           env: {
             ...process.env,
             RELMIO_ARCHIVE: archive,
+            RELMIO_CHILD_EXIT_CODE: scenario === "child failure" ? "7" : "0",
             RELMIO_ARCHIVE_ROOT: filename.slice(0, -4),
             RELMIO_INSTALL_SCRIPT: resolve(installScript),
             RELMIO_MANIFEST: manifest,
@@ -312,32 +317,37 @@ test(
           },
         };
 
-        if (validChecksum) {
-          const { stdout } = await execFileAsync(
-            powershell,
-            ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
-            options,
-          );
+        const run = () => execFileAsync(
+          powershell,
+          ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
+          options,
+        );
+
+        if (scenario === "verified archive") {
+          const { stdout } = await run();
           assert.match(stdout, /Verified Node\.js download/u);
           assert.match(stdout, /Starting the newest Relmio wizard/u);
           const invocation = JSON.parse(await readFile(invocationLog, "utf8"));
           assert.deepEqual(invocation.args, ["--yes", "--ignore-scripts", "relmio@latest"]);
           assert.equal(invocation.foregroundWizard, "1");
           assert.match(invocation.execPath, /relmio-[a-f0-9]+[\\/]node-v24\.99\.0-win-(?:x64|arm64)[\\/]node\.exe$/iu);
-          assert.equal((await readFile(restorationLog, "utf8")).trim(), "True:caller-portable");
+          // npm's .cmd bin shims resolve `node` from PATH; the portable runtime must come first.
+          assert.equal(invocation.firstPathEntry.toLowerCase(), dirname(invocation.execPath).toLowerCase());
+          assert.equal((await readFile(restorationLog, "utf8")).trim(), "True:caller-portable:True");
+        } else if (scenario === "child failure") {
+          await assert.rejects(run(), (error) => {
+            const output = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
+            assert.match(output, /Relmio finished with status 7/u);
+            return true;
+          });
+          JSON.parse(await readFile(invocationLog, "utf8"));
+          assert.equal((await readFile(restorationLog, "utf8")).trim(), "True:caller-portable:True");
         } else {
-          await assert.rejects(
-            execFileAsync(
-              powershell,
-              ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
-              options,
-            ),
-            (error) => {
-              const output = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
-              assert.match(output, /checksum did not match/u);
-              return true;
-            },
-          );
+          await assert.rejects(run(), (error) => {
+            const output = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
+            assert.match(output, /checksum did not match/u);
+            return true;
+          });
           await assert.rejects(() => readFile(invocationLog, "utf8"), { code: "ENOENT" });
         }
 
