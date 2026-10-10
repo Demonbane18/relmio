@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -253,7 +253,7 @@ test(
         );
         const npxFixture = [
           'const fs = require("node:fs");',
-          "fs.writeFileSync(process.env.RELMIO_TEST_LOG, JSON.stringify({ args: process.argv.slice(2), execPath: process.execPath, foregroundWizard: process.env.RELMIO_FOREGROUND_WIZARD }));",
+          "fs.writeFileSync(process.env.RELMIO_TEST_LOG, JSON.stringify({ args: process.argv.slice(2), execPath: process.execPath, firstPathEntry: process.env.PATH.split(';')[0], foregroundWizard: process.env.RELMIO_FOREGROUND_WIZARD }));",
           "",
         ].join("\n");
         await writeFile(
@@ -289,8 +289,9 @@ test(
             '  Copy-Item -LiteralPath $env:RELMIO_NODE_EXE -Destination (Join-Path $runtimeRoot "node.exe")',
             '  Set-Content -LiteralPath (Join-Path $npxDirectory "npx-cli.js") -Value $env:RELMIO_NPX_FIXTURE -Encoding UTF8',
             '}',
+            '$pathBefore = $env:Path',
             '& $env:RELMIO_INSTALL_SCRIPT',
-            'Set-Content -LiteralPath $env:RELMIO_RESTORATION_LOG -Value ((Test-Path Env:RELMIO_FOREGROUND_WIZARD).ToString() + ":" + $env:RELMIO_FOREGROUND_WIZARD)',
+            'Set-Content -LiteralPath $env:RELMIO_RESTORATION_LOG -Value ((Test-Path Env:RELMIO_FOREGROUND_WIZARD).ToString() + ":" + $env:RELMIO_FOREGROUND_WIZARD + ":" + ($env:Path -ceq $pathBefore).ToString())',
             "",
           ].join("\r\n"),
           "utf8",
@@ -324,7 +325,9 @@ test(
           assert.deepEqual(invocation.args, ["--yes", "--ignore-scripts", "relmio@latest"]);
           assert.equal(invocation.foregroundWizard, "1");
           assert.match(invocation.execPath, /relmio-[a-f0-9]+[\\/]node-v24\.99\.0-win-(?:x64|arm64)[\\/]node\.exe$/iu);
-          assert.equal((await readFile(restorationLog, "utf8")).trim(), "True:caller-portable");
+          // npm's .cmd bin shims resolve `node` from PATH; the portable runtime must come first.
+          assert.equal(invocation.firstPathEntry.toLowerCase(), dirname(invocation.execPath).toLowerCase());
+          assert.equal((await readFile(restorationLog, "utf8")).trim(), "True:caller-portable:True");
         } else {
           await assert.rejects(
             execFileAsync(

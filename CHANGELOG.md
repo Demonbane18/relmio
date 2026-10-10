@@ -7,6 +7,13 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- The PowerShell installer works again on Windows computers without Node.js.
+  It now puts its temporary Node.js runtime on `PATH` while Relmio starts.
+  Before this fix, the wizard stopped with `'"node"' is not recognized`.
+  The Command Prompt installer already did this.
+
 ## [0.22.0] - 2026-10-09
 
 Relmio 0.22.0 turns **Set up new n8n** into a private, one-click n8n that the

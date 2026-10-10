@@ -8,6 +8,8 @@
   $temporaryDirectory = $null
   $previousSecurityProtocol = $null
   $securityProtocolChanged = $false
+  $previousPath = $null
+  $pathChanged = $false
   $foregroundWizardEnvironmentExisted = Test-Path Env:RELMIO_FOREGROUND_WIZARD
   $previousForegroundWizardEnvironment = if ($foregroundWizardEnvironmentExisted) {
     [Environment]::GetEnvironmentVariable("RELMIO_FOREGROUND_WIZARD", "Process")
@@ -151,6 +153,10 @@
 
     Write-RelmioInstallerMessage "Starting the newest Relmio wizard."
     [Environment]::SetEnvironmentVariable("RELMIO_FOREGROUND_WIZARD", "1", "Process")
+    # npm's .cmd bin shims call `node` from PATH, so expose the portable runtime to the child.
+    $previousPath = $env:Path
+    $pathChanged = $true
+    $env:Path = (Split-Path -Parent $nodeBinary) + [IO.Path]::PathSeparator + $env:Path
     & $nodeBinary $npxCli --yes --ignore-scripts relmio@latest
     $relmioStatus = $LASTEXITCODE
     if ($relmioStatus -ne 0) {
@@ -159,6 +165,9 @@
   } catch {
     throw "Relmio installer: $($_.Exception.Message)"
   } finally {
+    if ($pathChanged) {
+      $env:Path = $previousPath
+    }
     try {
       if ($null -ne $temporaryDirectory -and (Test-Path -LiteralPath $temporaryDirectory)) {
         Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
