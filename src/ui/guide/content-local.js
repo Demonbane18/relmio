@@ -179,7 +179,7 @@ export const GUIDE = {
           target: ".main-connection-choices",
           action: "choose",
           title: "Pick what to set up",
-          say: "Each card is one kind of connection. ChatGPT, Grok and local model cards add a helper beside an n8n you already run. Set up new n8n creates a fresh n8n, private to this computer by default. A public ngrok link is optional.",
+          say: "Each card is one kind of connection: ChatGPT, Grok and local model cards add a helper beside an n8n you already run. Set up new n8n creates a fresh n8n, private to this computer by default. A public ngrok link is optional.",
           find: "Open Connection details and limits below for what each card does.",
           done: "changed",
         },
