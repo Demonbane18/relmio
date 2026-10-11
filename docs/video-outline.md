@@ -33,9 +33,10 @@ actual account email, callback URL, authorization code, state, or token.
 
 Start the local wizard using the
 [README](../README.md)'s current command. Show a fresh SIWC registration in the
-system browser without exposing the authorization URL or personal account
-information. Explain that Relmio uses its own dynamic client registration and
-verified identity; it does not import `~/.codex` or require a partner credential.
+new browser tab or window, or the default-browser fallback, without exposing the
+authorization URL or personal account information. Explain that Relmio uses
+its own dynamic client registration and verified identity; it does not import
+`~/.codex` or require a partner credential.
 
 Identity alone may connect without `chatgpt.tokens.use.direct`. Show the
 separate ChatGPT plan-consent action only in a sanitized demo account, then

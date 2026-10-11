@@ -225,8 +225,12 @@ export async function startOAuthLogin({ storageRoot, registrationId, purpose = '
   } catch {
     accepting = false;
     abort.abort();
-    settle(new Error('The ChatGPT sign-in browser could not start. Check the default browser, then try again.'));
+    // Only system-browser mode hands the URL to the operating system; same-browser fails before any launch.
+    const message = launchMode === 'system-browser'
+      ? 'The ChatGPT sign-in browser could not start. Check the default browser, then try again.'
+      : 'ChatGPT sign-in could not start. Return to Relmio and try again.';
+    settle(new Error(message));
     await close();
-    throw new Error('The ChatGPT sign-in browser could not start. Check the default browser, then try again.');
+    throw new Error(message);
   }
 }

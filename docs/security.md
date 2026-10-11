@@ -114,12 +114,19 @@ conversational contract for a trusted local backend.
 
 - The web server binds only to `127.0.0.1`.
 - Every API request needs a random 256-bit session token.
-- Automatic browser opening passes only an owner-only handoff-file path to the
+- Opening the dashboard passes only an owner-only handoff-file path to the
   operating system. A route-bound one-time capability expires after 30 seconds
   and is consumed exactly once by a form POST. The response immediately replaces
   that POST with a clean GET using an independent 10-second per-tab transfer,
   which is cleared before application startup. Neither value appears in process
   arguments, a URL, a redirect, a cookie, or browser Web Storage.
+- ChatGPT sign-in opens in this browser when a new tab or window is allowed, otherwise
+  in your default browser. The authenticated start and status responses
+  contain an attempt ID. For same-browser sign-in, that ID appears in a
+  one-use local launch URL, which redirects to OpenAI. The authorization URL
+  stays in server memory until the redirect sends it to the browser. These
+  launch paths do not log the URL. Browser history, extensions and
+  operating-system logging are outside this guarantee.
 - POST requests must have the exact localhost origin.
 - Browser responses disable caching, framing, cross-origin access, and
   unnecessary permissions.

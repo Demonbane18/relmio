@@ -1439,7 +1439,7 @@ element("login-button").addEventListener("click", async (event) => {
       {
         allowedSelector: OPERATION_ALLOWED_SELECTOR,
         progressNote:
-          "Finish sign-in in the ChatGPT window Relmio opened. The selected registration changes only after verified identity. Keep this page open or use Stop.",
+          "Finish sign-in on the ChatGPT sign-in page Relmio opened. The selected registration changes only after verified identity. Keep this page open or use Stop.",
       },
     );
     if (!status || state.oauthLoginGeneration !== loginGeneration) {
