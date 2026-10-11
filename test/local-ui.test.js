@@ -5,6 +5,7 @@ import test from "node:test";
 import { clearFieldError, setFieldError } from "../src/ui/ssh-form.js";
 import { siwcAccount } from "./helpers/siwc-wizard.js";
 import { accountUiState, prepareSiwcBrowser, siwcErrorFromResponse } from "../src/ui/siwc-controls.js";
+import { createDeviceCodeControls } from "../src/ui/device-code.js";
 
 
 
@@ -168,7 +169,7 @@ test("the complete script renders a healthy OAuth inventory instead of falling b
   const window = { addEventListener() {}, clearInterval() {}, clearTimeout() {}, location: { hash: "" }, matchMedia() { return { matches: true }; }, scrollTo() {}, setInterval() { return 1; }, setTimeout() { return 1; } };
   const fetch = async (path) => ({ ok: true, async json() { return path === "/api/local/dashboard" ? fixture : path === "/api/local/project-meta" ? { version: "0.13.0", stars: null } : {}; } });
   runInNewContext(`${shared}\n${script}`, { readWizardSession: () => "a".repeat(43), bindWizardNavigation() {}, initWizardTopbar() {},
-    INITIAL_CHAT_TESTER_FEEDBACK: {}, nextChatTesterFeedback: () => ({}),
+    INITIAL_CHAT_TESTER_FEEDBACK: {}, nextChatTesterFeedback: () => ({}), createDeviceCodeControls,
     Option: class { constructor(text, value) { this.textContent = text; this.value = value; } },
     URL, URLSearchParams, AbortController, Date, Intl, JSON, Math, Promise, TextDecoder, TextEncoder, Uint8Array, btoa(value) { return value; }, clearFieldError, clearTimeout() {}, crypto: { getRandomValues() {}, subtle: {} }, document, fetch, navigator: {}, setFieldError, setTimeout() { return 1; }, window }, { filename: "local-healthy-dashboard.vm.js", timeout: 1_000 });
   await new Promise((resolve) => setImmediate(resolve));
