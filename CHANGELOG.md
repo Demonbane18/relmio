@@ -2026,6 +2026,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.22.1]: https://github.com/Demonbane18/relmio/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/Demonbane18/relmio/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/Demonbane18/relmio/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/Demonbane18/relmio/compare/v0.19.1...v0.20.0
