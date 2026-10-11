@@ -10,7 +10,10 @@ const wait = (id) => ({
   done: "hidden:#progress",
 });
 
+import { HELP_METADATA } from "./context.js";
+
 export const GUIDE = {
+  metadata: HELP_METADATA,
   page: "local-model-vps",
   title: "Run a private model for n8n on your VPS",
   intro: "This guide sets up a private model on your server that n8n can use with no sign-in. You can hide it or skip it at any time.",

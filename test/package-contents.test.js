@@ -154,6 +154,7 @@ test("npm package contains only allowed files and every advertised local script"
   );
   const [packedPackage] = JSON.parse(stdout);
   const packedPaths = packedPackage.files.map(({ path }) => path).sort();
+  assert.ok(packedPaths.includes("src/ui/guide/context.js"), "missing bundled contextual help");
 
   const manifest = JSON.parse(await readFile(join(stagingDirectory, "package.json"), "utf8"));
   for (const entry of Object.values(manifest.bin)) {

@@ -7,12 +7,49 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.22.1] - 2026-10-11
+
+Relmio 0.22.1 fixes Windows sign-in and owned-stack recovery, and keeps Help
+available without turning the walkthrough back on. Existing consent and
+installation confirmations still apply.
+
+### Changed
+
+- Contextual mascot **Help** stays available after skipping the walkthrough.
+  It explains the actual prerequisite for **Check the server**, offers the
+  current feature's tips and versioned bundled FAQ, and highlights controls
+  without activating consent or installation actions.
+
+- A new ChatGPT registration enables eligible text plan use after its first
+  verified plan grant and shows a one-time **Got it** notice. Existing paused
+  accounts stay paused; n8n background activity still needs separate approval.
+
 ### Fixed
 
+- Local image sign-in codes are larger and selectable, with a user-clicked
+  **Copy code** button and manual-copy recovery when clipboard access is unavailable.
+  Unchanged status polls preserve selection; expired or replaced codes clear stale feedback.
 - The PowerShell installer works again on Windows computers without Node.js.
   It now puts its temporary Node.js runtime on `PATH` while Relmio starts.
   Before this fix, the wizard stopped with `'"node"' is not recognized`.
   The Command Prompt installer already did this.
+- ChatGPT sign-in opens in the browser running Relmio when a new tab is allowed,
+  with a system-browser fallback and safe cancellation of an unused attempt.
+  The first-plan notice keeps keyboard focus inside while open.
+- Resuming an exact owned local n8n stack works without Compose's newer
+  `start --wait` flags and verifies health before reporting success.
+- Windows QA fixtures handle denied file symlinks explicitly and keep the CMD
+  lock test deterministic. Generated docs retain the first line after the title.
+- Escape dismisses Help during a busy operation without unlocking the
+  installation controls. New-n8n Help correctly describes the private default
+  and the optional public ngrok link.
+
+This patch does not establish fresh live VPS-update, image-generation or
+SuperGrok-workflow acceptance. Those checks remain separate from the Windows
+and Help evidence. The known `braces` development-tool advisory
+[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
+remains unpatched; it is not a production-dependency audit pass for development
+tools.
 
 ## [0.22.0] - 2026-10-09
 
@@ -1992,6 +2029,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.22.1]: https://github.com/Demonbane18/relmio/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/Demonbane18/relmio/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/Demonbane18/relmio/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/Demonbane18/relmio/compare/v0.19.1...v0.20.0

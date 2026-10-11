@@ -165,7 +165,7 @@ function controlsHarness(t, { visible = true, previewMode = false, previewFixtur
   });
   const nodes = new Map();
   const control = () => ({
-    hidden: false, disabled: false, open: false, textContent: "", className: "", value: "", children: [], listeners: new Map(),
+    hidden: false, disabled: false, open: false, tabIndex: 0, textContent: "", className: "", value: "", children: [], listeners: new Map(),
     add(child) { this.children.push(child); },
     replaceChildren(...children) { this.children = children; },
     addEventListener(type, listener) { this.listeners.set(type, listener); },
@@ -197,6 +197,7 @@ function controlsHarness(t, { visible = true, previewMode = false, previewFixtur
       return { revocation: "unconfirmed" };
     }
     if (path === "/api/siwc/ack") current = [{ ...current[0], needsPlanWelcome: false, generation: "fixture_generation_ack" }];
+    if (path === "/api/siwc/plan") current = [{ ...current[0], planEnabled: options.body.enabled }];
     return {};
   };
   const controls = createSiwcControls({ root, api, onChange() {}, onLogin() {}, onError(error) { throw error; } });
@@ -241,6 +242,39 @@ test("plan welcome waits for a visible view and an unlocked page, and Escape kee
   assert.equal(harness.field("plan-badge").hidden, false);
 });
 
+test("plan welcome wraps Tab in both directions without focusing hidden or disabled controls", async (t) => {
+  const harness = controlsHarness(t, { accounts: [{ ...siwcAccount, needsPlanWelcome: true }] });
+  const dialog = harness.field("welcome");
+  const link = harness.field("welcome-link");
+  const accept = harness.field("welcome-accept");
+  const hidden = harness.field("welcome-hidden");
+  hidden.hidden = true;
+  const disabled = harness.field("welcome-disabled");
+  disabled.disabled = true;
+  const negative = harness.field("welcome-negative");
+  negative.tabIndex = -1;
+  dialog.querySelectorAll = () => [hidden, disabled, negative, link, accept];
+  await harness.controls.load();
+  let prevented = false;
+  const key = (key, shiftKey = false) => {
+    prevented = false;
+    dialog.listeners.get("keydown")({ key, shiftKey, preventDefault() { prevented = true; } });
+  };
+  key("Tab");
+  assert.equal(prevented, true);
+  assert.equal(harness.doc.activeElement, link);
+  key("Tab", true);
+  assert.equal(prevented, true);
+  assert.equal(harness.doc.activeElement, accept);
+  key("Tab", true);
+  assert.equal(prevented, false, "native navigation handles non-boundary controls");
+  key("Escape");
+  assert.equal(prevented, false, "native Escape cancellation is not intercepted");
+  dialog.close();
+  key("Tab");
+  assert.equal(prevented, false, "a closed notice does not intercept keys");
+});
+
 test("account controls are drawn again after an operation lock restores older control states", async (t) => {
   const preview = controlsHarness(t, { previewMode: true });
   await preview.controls.load();
@@ -254,6 +288,26 @@ test("account controls are drawn again after an operation lock restores older co
   empty.field("account").disabled = false;
   empty.releaseOperationLock();
   assert.equal(empty.field("account").disabled, true, "an empty account picker stays disabled");
+});
+
+test("first granted sign-in shows one notice without a second enable action and keeps a plan off control", async (t) => {
+  const harness = controlsHarness(t, { accounts: [{ ...siwcAccount, needsPlanWelcome: true }] });
+  await harness.controls.authorized({ purpose: "sign-in" });
+  assert.equal(harness.field("welcome").open, true);
+  assert.equal(harness.calls.some(({ path }) => path === "/api/siwc/plan"), false);
+  assert.equal(harness.field("pause").hidden, false);
+  assert.equal(harness.field("usage").href, "https://chatgpt.com/settings/usage");
+  await harness.field("welcome-accept").fire("click");
+  await harness.controls.authorized({ purpose: "sign-in" });
+  assert.equal(harness.field("welcome").open, false, "ordinary returning sign-in does not repeat the notice");
+  await harness.field("pause").fire("click");
+  const planWrites = harness.calls.filter(({ path }) => path === "/api/siwc/plan");
+  assert.equal(planWrites.length, 1);
+  assert.equal(planWrites[0].body.enabled, false);
+  assert.equal(harness.field("resume").hidden, false);
+  await harness.controls.authorized({ purpose: "sign-in" });
+  assert.equal(harness.controls.selected().planEnabled, false, "routine sign-in does not undo Pause");
+  assert.equal(harness.calls.filter(({ path }) => path === "/api/siwc/plan").length, 1);
 });
 
 test("a usage limit pauses plan controls and keeps Manage usage as the recovery", async (t) => {

@@ -91,7 +91,8 @@ test('fresh loopback dynamic registration verifies signed identity and keeps tok
   const account = await attempt.completion;
   assert.equal(account.identity, 'verified');
   assert.equal(account.planPermission, 'granted');
-  assert.equal(account.planEnabled, false);
+  assert.equal(account.planEnabled, true);
+  assert.equal(account.needsPlanWelcome, true);
   assert.equal(f.authorization().searchParams.get('client_id'), 'dynamic_agent_client');
   assert.equal(f.authorization().searchParams.get('agent_name_hint'), 'Relmio');
   assert.match(f.authorization().searchParams.get('redirect_uri'), /^http:\/\/127\.0\.0\.1:\d+\/auth\/callback$/u);
@@ -100,9 +101,36 @@ test('fresh loopback dynamic registration verifies signed identity and keeps tok
   const privateRecord = await readRegistration({ storageRoot: f.storageRoot, registrationId: account.registrationId });
   assert.equal(privateRecord.clientId, clientId);
   assert.equal(privateRecord.session.refreshToken, 'opaque-secret-refresh');
+  assert.equal(privateRecord.planAcknowledged, false);
+  assert.equal(privateRecord.backgroundConsent, false);
   assert.equal(JSON.stringify(await listAuthRegistrations({ storageRoot: f.storageRoot })).includes('opaque-secret'), false);
   assert.equal((await f.callbackPage()).includes('opaque-secret'), false);
   assert.equal((await f.callbackPage()).includes('one-use-code'), false);
+});
+
+test('same-browser handoff is single-use and leaves system launch to the caller', async t => {
+  const f = await fixture(t);
+  let systemLaunches = 0;
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, runtimeId: 'local',
+    launchMode: 'same-browser' }, { ...f, openAuthorization: async () => { systemLaunches++; return true; } });
+  t.after(() => attempt.cancel());
+  assert.equal(attempt.launchMode, 'same-browser');
+  assert.equal(systemLaunches, 0);
+  assert.equal(Object.hasOwn(attempt, 'authorizationUrl'), false);
+  const authorization = attempt.consumeBrowserAuthorization();
+  assert.match(authorization, /^https:\/\/auth\.openai\.com\/api\/accounts\/authorize\?/u);
+  assert.equal(attempt.consumeBrowserAuthorization(), null);
+  await f.openAuthorization(authorization); // Synthetic provider callback, not a live grant.
+  assert.equal((await attempt.completion).identity, 'verified');
+});
+
+test('cancelled same-browser handoff cannot launch or exchange a code', async t => {
+  const f = await fixture(t);
+  const attempt = await startOAuthLogin({ storageRoot: f.storageRoot, launchMode: 'same-browser' }, f);
+  await attempt.cancel();
+  assert.equal(attempt.consumeBrowserAuthorization(), null);
+  await assert.rejects(attempt.completion, /cancelled/u);
+  assert.equal(f.tokenExchanges(), 0);
 });
 
 test('documented callback scope is ignored for plan permission and exact issuer is accepted', async t => {

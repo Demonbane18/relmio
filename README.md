@@ -85,8 +85,11 @@ want the setup route for this computer.
 
 The first time the wizard opens, it asks whether to start the setup guide.
 Relmio, the mascot, then points at each box and button in turn, says what to
-enter or press, and explains errors with the next step. Skip it if you like;
-the **Setup guide** button in the top bar turns it on or off later. Once you
+enter or press, and explains errors with the next step. **Help** remains
+available after you skip the walkthrough. It explains the current prerequisite,
+offers the current feature's tips and bundled FAQ, and **Show me** highlights
+the relevant control without activating it. The **Setup guide** button in the
+top bar turns the walkthrough on or off later. Once you
 answer, Relmio saves only that choice, in `ui-preferences.json` in its
 ChatGPT sign-in folder (`~/.n8n-openai-oauth`, or `N8N_OPENAI_OAUTH_HOME` when
 set). See [Use the setup guide](docs/getting-started.md#use-the-setup-guide).
@@ -227,7 +230,12 @@ and separately authorize plan permission in ChatGPT. Identity-only sign-in
 remains connected but cannot use models. Registrations with the same email stay
 separate. Relmio never imports an old Codex credential.
 
-Before the first plan request, confirm **Using ChatGPT plan** in the wizard.
+After a new registration's first verified plan grant, Relmio enables eligible
+text plan use and shows **You're using your ChatGPT plan**. Choose **Got it**
+before model access. Existing paused accounts stay paused on reconnect; use
+**Pause plan use** or **Resume plan use** to change that setting. Sign-in opens
+in the same browser when a new tab is allowed, with the system browser as a
+fallback. n8n background workflows still need their separate approval.
 Open **Manage usage** for usage limits and credits. A listed model or connected
 account does not prove admission or entitlement. Relmio uses the selected
 registration and does not switch accounts or fall back to Platform API billing.

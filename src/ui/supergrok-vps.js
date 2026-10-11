@@ -141,12 +141,13 @@ function stopProgress() {
 }
 
 function controls() {
-  return [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")];
+  return [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")]
+    .filter((control) => !control.closest?.(".rm-guide-layer"));
 }
 
 for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"]) {
   document.addEventListener(name, (event) => {
-    if (!state.busy || (name === "keydown" && event.key === "Tab")) return;
+    if (!state.busy || event.target?.closest?.(".rm-guide-layer") || (name === "keydown" && event.key === "Tab")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);

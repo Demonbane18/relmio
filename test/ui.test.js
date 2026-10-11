@@ -10,7 +10,7 @@ import {
 import { formatAuthUpdatedAt } from "../src/ui/time.js";
 import { clearFieldError, createCredentialSshGuard, markRejectedField, sameSshIdentity } from "../src/ui/ssh-form.js";
 import { siwcAccount, siwcInstallResult } from "./helpers/siwc-wizard.js";
-import { accountUiState, normalizeSiwcAccount, siwcErrorFromResponse, siwcErrorText } from "../src/ui/siwc-controls.js";
+import { accountUiState, normalizeSiwcAccount, prepareSiwcBrowser, siwcErrorFromResponse, siwcErrorText } from "../src/ui/siwc-controls.js";
 import { startIsolatedWizard } from "./helpers/siwc-wizard.js";
 import { verifiedSshFixture } from "./helpers/ssh-session.js";
 
@@ -707,6 +707,7 @@ test("ChatGPT header blocks the server check until the plan notice is confirmed 
 
   render({ ...siwcAccount, needsPlanWelcome: true });
   assert.equal(element("signin-next").disabled, true);
+  assert.match(element("auth-detail").textContent, /choose Got it/u);
   assert.notEqual(element("auth-title").textContent, signedOutTitle, "an unconfirmed plan is not reported as signed out");
   assert.notEqual(element("auth-title").textContent, readyTitle);
 
@@ -2102,37 +2103,287 @@ test("a sign-in refresh needs the installed account's email to check the new sig
   assert.match(state.errors.at(-1) ?? "", /cannot tell which ChatGPT account.*Review replacement/u);
 });
 
-// Runs the sign-in button's handler with the refresh bookkeeping and fake sign-in services.
-async function refreshSignIn({ refresh, intent, account, fail = false }) {
+const VPS_OAUTH_ATTEMPT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const OTHER_VPS_OAUTH_ATTEMPT_ID = "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+
+// Execute the actual operation lifecycle and OAuth controls with fake browser/API boundaries.
+async function vpsSignInHarness({ refresh = null, intent = { purpose: "sign-in" },
+  account = siwcAccount, fail = false, popupMode = "open", respond } = {}) {
   const script = await readFile("src/ui/app.js", "utf8");
-  const start = script.indexOf('element("login-button").addEventListener("click"');
-  const end = script.indexOf('\nelement("stop-login-button")', start);
-  const helpersStart = script.indexOf("function finishVpsSignInRefresh(");
-  const helpersEnd = script.indexOf("\nfunction renderVpsOwnerUpdate(", helpersStart);
-  assert.ok(start >= 0 && end > start && helpersStart >= 0 && helpersEnd > helpersStart, "missing sign-in refresh bookkeeping");
-  const calls = [];
+  const extract = (startMarker, endMarker) => {
+    const start = script.indexOf(startMarker);
+    const end = script.indexOf(endMarker, start);
+    assert.ok(start >= 0 && end > start, `missing VPS sign-in source: ${startMarker}`);
+    return script.slice(start, end);
+  };
+  const sections = [
+    extract("const OPERATION_INTERACTIVE_SELECTOR", "\nasync function runActiveOperationTask("),
+    extract("function validateOAuthAttemptId(", "\nasync function recoverPendingOAuthAttempt("),
+    extract("function finishVpsSignInRefresh(", "\nfunction renderVpsOwnerUpdate("),
+    extract('element("login-button").addEventListener("click"', '\nelement("stop-login-button")'),
+  ];
   const nodes = new Map();
+  const controlTypes = { "login-button": "BUTTON", "stop-login-button": "BUTTON",
+    "back-button": "BUTTON", host: "INPUT", "network-select": "SELECT", "login-link": "A" };
   const element = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { hidden: true, disabled: false,
-      addEventListener(_event, handler) { this.handler = handler; }, removeAttribute() {} });
+    if (!nodes.has(id)) {
+      const tagName = controlTypes[id] ?? "DIV";
+      const node = { id, tagName, dataset: {}, attributes: new Map(), textContent: "",
+        hidden: ["stop-login-button", "operation-progress", "global-error"].includes(id),
+        addEventListener(_event, handler) { this.handler = handler; },
+        getAttribute(name) { return this.attributes.get(name) ?? null; },
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        removeAttribute(name) { this.attributes.delete(name); },
+        closest(selector) {
+          if (selector === "[hidden]") return this.hidden ? this : null;
+          return selector.split(",").some(part => part.trim() === `#${id}`) ? this : null;
+        },
+        contains(candidate) { return candidate === this; },
+        focus() { document.activeElement = this; },
+      };
+      if (["BUTTON", "INPUT", "SELECT"].includes(tagName)) {
+        node.disabled = ["stop-login-button", "network-select"].includes(id);
+      }
+      if (tagName === "INPUT") node.readOnly = false;
+      nodes.set(id, node);
+    }
     return nodes.get(id);
   };
-  const state = { oauthRetryBlocked: false, oauthLoginGeneration: 0, oauthAttemptId: null,
+  const controls = Object.keys(controlTypes).map(element);
+  const document = { activeElement: element("login-button"), body: { dataset: {} },
+    querySelectorAll: () => controls };
+  element("login-button").textContent = "Continue with ChatGPT";
+  element("login-button").setAttribute("aria-busy", "false");
+  element("stop-login-button").textContent = "Stop ChatGPT sign-in";
+  element("login-link").setAttribute("href", "/old-sign-in-link");
+  element("setup-steps").setAttribute("aria-busy", "false");
+  element("global-message").setAttribute("aria-live", "polite");
+  const state = { operationBusy: false, operationOwner: 0, operationProgressTimer: null,
+    step: 1, fingerprint: null, oauthRetryBlocked: false, oauthLoginGeneration: 0,
+    oauthAttemptId: null, oauthLoginWindow: null, oauthCancellationMessage: "",
     loginIntent: intent, vpsSignInRefresh: refresh };
-  vm.runInNewContext(`${script.slice(start, end)}\n${script.slice(helpersStart, helpersEnd)}`, {
-    state, element, OPERATION_ALLOWED_SELECTOR: "#login-link",
-    invalidateReviewedPlan() {}, clearError() {}, setOAuthStopControlVisible() {}, selectChatGptSetup() {},
-    renderAuthStatus() {}, blockOAuthRetry() {}, finishOAuthCancellation() {},
-    validateOAuthAttemptId: (value) => value,
-    runOperation: async (_button, _label, work) => work(),
-    api: async () => ({ launchMode: "system-browser", attemptId: "attempt-1" }),
-    async waitForOAuthCompletion() { if (fail) throw new Error("ChatGPT sign-in was stopped. Start again."); },
-    siwc: { authorized: async () => account, load: async () => account },
-    setMessage(text) { calls.push(["message", text]); },
-    showError(error) { calls.push(["error", error.message]); },
-  });
-  await element("login-button").handler({ currentTarget: element("login-button") });
-  return { state, calls };
+  const harness = { state, element, document, calls: [], notices: [], errors: [], opened: [],
+    navigated: [], closedPopups: [], rendered: [], authorizedIntents: [], accountLoads: 0,
+    planInvalidations: 0, timers: new Set() };
+  const browserWindow = {
+    open(...args) {
+      harness.opened.push(args);
+      if (popupMode === "throws") throw new Error("Popup blocked.");
+      if (popupMode === "blocked") return null;
+      const popup = { closed: false, opener: {},
+        close() { this.closed = true; harness.closedPopups.push(this); },
+        location: { replace(value) { harness.navigated.push(value); } } };
+      harness.popup = popup;
+      return popup;
+    },
+    setInterval() { const timer = {}; harness.timers.add(timer); return timer; },
+    clearInterval(timer) { harness.timers.delete(timer); },
+  };
+  vm.runInNewContext(sections.join("\n"), {
+    state, element, document, window: browserWindow, prepareSiwcBrowser, siwcErrorFromResponse,
+    errorBox: element("global-error"),
+    invalidateReviewedPlan() { harness.planInvalidations += 1; },
+    clearError() { element("global-error").hidden = true; },
+    selectChatGptSetup() {}, focusVisible(target) { target.focus(); },
+    updateStepNavigation() {}, sshAuthentication: { sync() {} }, setCredentialInputsEnabled() {},
+    renderAuthStatus(status, options) { harness.rendered.push({ status, options }); },
+    delay: async () => {},
+    async api(path, options = {}) {
+      const stop = element("stop-login-button");
+      const call = { path, method: options.method ?? "GET", body: options.body ?? null,
+        attemptId: state.oauthAttemptId, operationBusy: state.operationBusy,
+        stopVisible: !stop.hidden, stopDisabled: stop.disabled,
+        opener: harness.popup?.opener, navigated: harness.navigated.at(-1) };
+      harness.calls.push(call);
+      if (respond) return respond(call, harness);
+      if (path === "/api/oauth/login") return { launchMode: "same-browser", attemptId: VPS_OAUTH_ATTEMPT_ID };
+      if (path === "/api/oauth/status") return { status: fail ? "cancelled" : "success", attemptId: VPS_OAUTH_ATTEMPT_ID };
+      throw new Error(`unexpected ${call.method} ${path}`);
+    },
+    siwc: {
+      async authorized(value) { harness.authorizedIntents.push(value); return account; },
+      async load() { harness.accountLoads += 1; return account; },
+    },
+    setMessage(text) { harness.notices.push(["message", text]); },
+    showError(error) {
+      harness.errors.push(error);
+      harness.notices.push(["error", error.message]);
+      element("global-error").hidden = false;
+    },
+  }, { filename: "vps-sign-in-ui.vm.js", timeout: 1_000 });
+  harness.signIn = () => element("login-button").handler({ currentTarget: element("login-button") });
+  return harness;
+}
+
+function assertVpsSignInIdle(harness) {
+  const { state, element, document } = harness;
+  assert.equal(state.operationBusy, false);
+  assert.equal(state.oauthAttemptId, null);
+  assert.equal(state.oauthLoginWindow, null);
+  assert.equal(element("login-button").disabled, false);
+  assert.equal(element("login-button").textContent, "Continue with ChatGPT");
+  assert.equal(element("login-button").getAttribute("aria-busy"), "false");
+  assert.equal(element("login-button").getAttribute("aria-disabled"), null);
+  assert.equal(element("back-button").disabled, false);
+  assert.equal(element("host").readOnly, false);
+  assert.equal(element("network-select").disabled, true, "a previously disabled control stays disabled");
+  assert.equal(element("stop-login-button").hidden, true);
+  assert.equal(element("stop-login-button").disabled, true);
+  assert.equal(element("stop-login-button").getAttribute("aria-busy"), "false");
+  assert.equal(element("stop-login-button").textContent, "Stop ChatGPT sign-in");
+  assert.equal(element("login-link").hidden, true);
+  assert.equal(element("login-link").getAttribute("href"), null);
+  assert.equal(element("operation-progress").hidden, true);
+  assert.equal(element("setup-steps").getAttribute("aria-busy"), "false");
+  assert.equal(element("global-message").getAttribute("aria-live"), "polite");
+  assert.equal(document.body.dataset.operationBusy, "false");
+  assert.equal(harness.timers.size, 0);
+}
+
+test("VPS sign-in reserves an isolated tab and navigates its exact same-browser attempt", async () => {
+  const harness = await vpsSignInHarness();
+  const pending = harness.signIn();
+  assert.deepEqual(harness.opened, [["about:blank", "_blank"]], "the tab is reserved during the click");
+  assert.equal(harness.popup.opener, null, "the wizard opener is severed before the API request");
+  const start = harness.calls[0];
+  assert.equal(start.path, "/api/oauth/login");
+  assert.equal(start.method, "POST");
+  assert.deepEqual({ ...start.body }, { purpose: "sign-in", launchMode: "same-browser" });
+  assert.equal(start.opener, null);
+  assert.equal(start.navigated, undefined, "the reserved tab waits for the returned attempt");
+  await pending;
+  const launchPath = `/__relmio/oauth/launch/${VPS_OAUTH_ATTEMPT_ID}`;
+  assert.deepEqual(harness.navigated, [launchPath]);
+  const poll = harness.calls.find(call => call.path === "/api/oauth/status");
+  assert.equal(poll.navigated, launchPath, "navigation precedes polling");
+  assert.equal(poll.attemptId, VPS_OAUTH_ATTEMPT_ID);
+  assert.equal(poll.stopVisible, true);
+  assert.equal(poll.stopDisabled, false);
+  assert.equal(poll.operationBusy, true);
+  assert.equal(harness.popup.closed, false, "a launched tab is not closed as an unused reservation");
+  assert.equal(harness.errors.length, 0);
+  assert.equal(harness.rendered.length, 1);
+  assertVpsSignInIdle(harness);
+});
+
+test("VPS sign-in cancels the exact new attempt when its reserved tab closes before launch", async () => {
+  const harness = await vpsSignInHarness({ respond(call, ui) {
+    if (call.path === "/api/oauth/login") {
+      ui.popup.closed = true;
+      ui.state.oauthAttemptId = OTHER_VPS_OAUTH_ATTEMPT_ID;
+      return { launchMode: "same-browser", attemptId: VPS_OAUTH_ATTEMPT_ID };
+    }
+    if (call.path === "/api/oauth/cancel") return { status: "cancelled", attemptId: VPS_OAUTH_ATTEMPT_ID };
+    throw new Error(`unexpected ${call.path}`);
+  } });
+  await harness.signIn();
+  assert.deepEqual(harness.calls.map(call => call.path), ["/api/oauth/login", "/api/oauth/cancel"],
+    "the new attempt is cancelled before any status poll");
+  const cancel = harness.calls[1];
+  assert.equal(cancel.method, "POST");
+  assert.deepEqual({ ...cancel.body }, { attemptId: VPS_OAUTH_ATTEMPT_ID });
+  assert.equal(cancel.attemptId, OTHER_VPS_OAUTH_ATTEMPT_ID, "cancellation does not use mutable attempt state");
+  assert.equal(cancel.stopVisible, false);
+  assert.deepEqual(harness.navigated, []);
+  assert.equal(harness.closedPopups.includes(harness.popup), true);
+  assert.equal(harness.authorizedIntents.length, 0);
+  assert.equal(harness.accountLoads, 1);
+  assert.equal(harness.errors.length, 1);
+  assert.match(harness.errors[0].message, /sign-in tab is unavailable/u);
+  assertVpsSignInIdle(harness);
+});
+
+test("VPS sign-in requests one system-browser fallback when popup reservation is blocked", async (t) => {
+  for (const popupMode of ["blocked", "throws"]) {
+    await t.test(popupMode, async () => {
+      const harness = await vpsSignInHarness({ popupMode, respond(call) {
+        if (call.path === "/api/oauth/login") return { launchMode: "system-browser", attemptId: VPS_OAUTH_ATTEMPT_ID };
+        if (call.path === "/api/oauth/status") return { status: "success", attemptId: VPS_OAUTH_ATTEMPT_ID };
+        throw new Error(`unexpected ${call.path}`);
+      } });
+      await harness.signIn();
+      const starts = harness.calls.filter(call => call.path === "/api/oauth/login");
+      assert.equal(harness.opened.length, 1);
+      assert.equal(starts.length, 1);
+      assert.deepEqual({ ...starts[0].body }, { purpose: "sign-in", launchMode: "system-browser" });
+      assert.equal(harness.calls.some(call => call.path === "/api/oauth/cancel"), false);
+      assert.deepEqual(harness.navigated, []);
+      assert.equal(harness.authorizedIntents.length, 1);
+      assert.equal(harness.errors.length, 0);
+      assertVpsSignInIdle(harness);
+    });
+  }
+});
+
+test("VPS sign-in ignores rapid repeated clicks during startup and pending status", { timeout: 1_000 }, async () => {
+  const login = Promise.withResolvers();
+  const status = Promise.withResolvers();
+  const polling = Promise.withResolvers();
+  const harness = await vpsSignInHarness({ respond(call) {
+    if (call.path === "/api/oauth/login") return login.promise;
+    if (call.path === "/api/oauth/status") { polling.resolve(); return status.promise; }
+    throw new Error(`unexpected ${call.path}`);
+  } });
+  const first = harness.signIn();
+  try {
+    await harness.signIn();
+    assert.equal(harness.state.operationBusy, true);
+    assert.equal(harness.element("login-button").disabled, true);
+    assert.equal(harness.element("host").readOnly, true);
+    assert.equal(harness.element("stop-login-button").hidden, true);
+    login.resolve({ launchMode: "same-browser", attemptId: VPS_OAUTH_ATTEMPT_ID });
+    await polling.promise;
+    harness.document.activeElement = harness.element("stop-login-button");
+    await harness.signIn();
+    assert.equal(harness.element("stop-login-button").hidden, false);
+    assert.equal(harness.element("stop-login-button").disabled, false);
+    assert.equal(harness.state.oauthLoginGeneration, 1);
+    assert.equal(harness.planInvalidations, 1);
+    assert.equal(harness.opened.length, 1);
+    assert.equal(harness.calls.filter(call => call.path === "/api/oauth/login").length, 1);
+    assert.equal(harness.calls.filter(call => call.path === "/api/oauth/status").length, 1);
+  } finally {
+    login.resolve({ launchMode: "same-browser", attemptId: VPS_OAUTH_ATTEMPT_ID });
+    status.resolve({ status: "success", attemptId: VPS_OAUTH_ATTEMPT_ID });
+    await first;
+  }
+  assert.equal(harness.errors.length, 0);
+  assert.equal(harness.authorizedIntents.length, 1);
+  assert.equal(harness.document.activeElement, harness.element("login-button"));
+  assertVpsSignInIdle(harness);
+});
+
+test("VPS sign-in restores controls after startup and polling failures", async (t) => {
+  for (const phase of ["startup", "polling"]) {
+    await t.test(phase, async () => {
+      const harness = await vpsSignInHarness({ respond(call, ui) {
+        if (call.path === "/api/oauth/login" && phase !== "startup") {
+          return { launchMode: "same-browser", attemptId: VPS_OAUTH_ATTEMPT_ID };
+        }
+        if (call.path === "/api/oauth/status") {
+          assert.equal(call.stopVisible, true);
+          assert.equal(call.stopDisabled, false);
+          ui.document.activeElement = ui.element("stop-login-button");
+        }
+        throw new Error(`${phase} failed`);
+      } });
+      await harness.signIn();
+      assert.equal(harness.errors.length, 1);
+      assert.equal(harness.errors[0].message, `${phase} failed`);
+      assert.equal(harness.authorizedIntents.length, 0);
+      assert.equal(harness.accountLoads, 1);
+      assert.equal(harness.popup.closed, phase === "startup", "only an unused reserved tab is closed");
+      assert.equal(harness.document.activeElement, harness.element("login-button"));
+      assertVpsSignInIdle(harness);
+    });
+  }
+});
+
+// Runs the same sign-in handler and lifecycle with refresh bookkeeping and fake services.
+async function refreshSignIn(options) {
+  const harness = await vpsSignInHarness(options);
+  await harness.signIn();
+  return { state: harness.state, calls: harness.notices };
 }
 
 test("a sign-in refresh takes only the sign-in its own button started, for the installed account's email", async () => {

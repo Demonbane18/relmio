@@ -209,7 +209,7 @@ async function createPortableRuntime(
   await copyFile(process.execPath, join(runtimeDirectory, "node.exe"));
   await writeFile(
     join(npmDirectory, "npx-cli.js"),
-    `const { appendFileSync, writeFileSync } = require("node:fs");
+    `const { appendFileSync, existsSync, writeFileSync } = require("node:fs");
 const { spawn, spawnSync } = require("node:child_process");
 
 const log = process.env.RELMIO_TEST_LOG;
@@ -219,13 +219,24 @@ if (child.status !== 0) process.exit(child.status || 1);
 appendFileSync(log, "child-node-ok\\n");
 appendFileSync(log, "foreground=" + (process.env.RELMIO_FOREGROUND_WIZARD || "unset") + "\\n");
 const runtimeHoldMs = Number(process.env.RELMIO_TEST_RUNTIME_HOLD_MS || 0);
-if (Number.isSafeInteger(runtimeHoldMs) && runtimeHoldMs > 0) {
-  const runtimeHolder = spawn(process.execPath, ["-e", "setTimeout(() => {}, " + runtimeHoldMs + ")"], {
+const releaseFile = process.env.RELMIO_TEST_RUNTIME_RELEASE_FILE;
+if (releaseFile || (Number.isSafeInteger(runtimeHoldMs) && runtimeHoldMs > 0)) {
+  const readyFile = process.env.RELMIO_TEST_RUNTIME_READY_FILE;
+  const doneFile = process.env.RELMIO_TEST_RUNTIME_DONE_FILE;
+  const holderCode = "const fs = require('node:fs');" +
+    "fs.writeFileSync(" + JSON.stringify(readyFile) + ", 'ready');" +
+    (releaseFile
+      ? "const timer = setInterval(() => { if (fs.existsSync(" + JSON.stringify(releaseFile) + ")) { clearInterval(timer); fs.writeFileSync(" + JSON.stringify(doneFile) + ", 'done'); } }, 20);"
+      : "setTimeout(() => {}, " + runtimeHoldMs + ");");
+  const runtimeHolder = spawn(process.execPath, ["-e", holderCode], {
     detached: true,
     stdio: "ignore",
     windowsHide: true,
   });
   runtimeHolder.unref();
+  const deadline = Date.now() + 10000;
+  while (!existsSync(readyFile) && Date.now() < deadline) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+  if (!existsSync(readyFile)) process.exit(97);
 }
 `,
     "utf8",
@@ -258,12 +269,15 @@ if (Number.isSafeInteger(runtimeHoldMs) && runtimeHoldMs > 0) {
 }
 
 async function createPortableEnvironment(
-  { hostileManifest = false, runtimeHoldMs = 0, validChecksum = true } = {},
+  { hostileManifest = false, runtimeHoldMs = 0, runtimeHoldUntilRelease = false, validChecksum = true } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "relmio-install-cmd-portable-test-"));
   const system32 = join(root, "System32");
   const temporaryDirectory = join(root, "tmp");
   const networkToolLog = join(root, "network-tools.log");
+  const runtimeReleaseFile = join(root, "runtime-holder.release");
+  const runtimeReadyFile = join(root, "runtime-holder.ready");
+  const runtimeDoneFile = join(root, "runtime-holder.done");
   const fixture = await createPortableRuntime(root, {
     hostileManifest,
     validChecksum,
@@ -311,6 +325,9 @@ async function createPortableEnvironment(
     fixture,
     fixtureInstallScript,
     networkToolLog,
+    runtimeReleaseFile,
+    runtimeReadyFile,
+    runtimeDoneFile,
     root,
     temporaryDirectory,
     env: {
@@ -325,6 +342,9 @@ async function createPortableEnvironment(
       RELMIO_TEST_PORTABLE_NPX: "",
       RELMIO_TEST_RUNTIME_DIRECTORY: fixture.runtimeParent,
       RELMIO_TEST_RUNTIME_HOLD_MS: String(runtimeHoldMs),
+      RELMIO_TEST_RUNTIME_RELEASE_FILE: runtimeHoldUntilRelease ? runtimeReleaseFile : "",
+      RELMIO_TEST_RUNTIME_READY_FILE: runtimeReadyFile,
+      RELMIO_TEST_RUNTIME_DONE_FILE: runtimeDoneFile,
       RELMIO_FOREGROUND_WIZARD: "caller-value",
       TEMP: temporaryDirectory,
       TMP: temporaryDirectory,
@@ -532,10 +552,18 @@ test(
   "CMD installer reports when a temporary runtime cannot be removed",
   { skip: process.platform !== "win32" },
   async (t) => {
-    const setup = await createPortableEnvironment({ runtimeHoldMs: 2_500 });
+    const setup = await createPortableEnvironment({ runtimeHoldUntilRelease: true });
     t.after(async () => {
-      await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
-      await rm(setup.root, { recursive: true, force: true });
+      await writeFile(setup.runtimeReleaseFile, "release\n");
+      const deadline = Date.now() + 10_000;
+      for (;;) {
+        try { await access(setup.runtimeDoneFile); break; }
+        catch (error) {
+          if (error.code !== "ENOENT" || Date.now() >= deadline) throw error;
+          await new Promise(resolveWait => setTimeout(resolveWait, 20));
+        }
+      }
+      await rm(setup.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     });
 
     await assert.rejects(

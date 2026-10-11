@@ -3,6 +3,8 @@
 // docs/troubleshooting.md. One configure chapter covers every target: the engine skips tips
 // whose target is hidden, so only the fields of the chosen connection are pointed at.
 
+import { HELP_METADATA } from "./context.js";
+
 const siwcTips = [
   {
     id: "stop-sign-in",
@@ -25,7 +27,7 @@ const siwcTips = [
     target: "[data-siwc=welcome-accept]",
     action: "press",
     title: "Read the plan notice",
-    say: "Requests count toward the usage in your ChatGPT plan, and OpenAI's limits apply. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. Press Continue when you have read it.",
+    say: "Requests count toward the usage in your ChatGPT plan, and OpenAI's limits apply. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. Press Got it when you have read it.",
     done: "clicked",
   },
   {
@@ -72,6 +74,7 @@ const siwcTips = [
 ];
 
 export const GUIDE = {
+  metadata: HELP_METADATA,
   page: "local",
   title: "Set up a connection on this computer",
   intro: "This guide walks you from the dashboard to a working connection, one box and one button at a time. You can hide it or skip it at any time.",
@@ -176,7 +179,7 @@ export const GUIDE = {
           target: ".main-connection-choices",
           action: "choose",
           title: "Pick what to set up",
-          say: "Each card is one kind of connection. ChatGPT, Grok and local model cards add a helper beside an n8n you already run. Set up new n8n creates a fresh n8n with a public link.",
+          say: "Each card is one kind of connection: ChatGPT, Grok and local model cards add a helper beside an n8n you already run. Set up new n8n creates a fresh n8n, private to this computer by default. A public ngrok link is optional.",
           find: "Open Connection details and limits below for what each card does.",
           done: "changed",
         },

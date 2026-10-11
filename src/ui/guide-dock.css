@@ -1,8 +1,8 @@
 /*
  * Setup guide dock (guide-dock.js, mascot.js): the dock, the mascot chip, the
  * pointer, the reduced-motion markers, the mascot in the quest track and the
- * badges on Ready screens. guide.js loads this sheet with the dock, so pages
- * with the guide off never download it. The dock, chip and pointer are fixed,
+ * badges on Ready screens. guide.js loads this sheet asynchronously with the
+ * always-available help dock. The dock, chip and pointer are fixed,
  * so they never change page layout or the one-screen fit. Uses kit tokens
  * only; see DESIGN.md.
  */
@@ -72,6 +72,16 @@
 .rm-guide__find > summary {
   min-height: 1.5rem;
   font-size: var(--rm-text-sm);
+}
+
+.rm-guide__topics {
+  min-width: 0;
+}
+
+.rm-guide__find .rm-disclosure__body {
+  max-height: 8rem;
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 
 .rm-guide__progress,

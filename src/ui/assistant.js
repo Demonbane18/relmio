@@ -116,6 +116,7 @@ function restoreOperationAttribute(control, name, value) {
 
 function isOperationAllowedControl(control) {
   return Boolean(
+    control?.closest?.(".rm-guide-layer button, .rm-guide-layer select, .rm-guide-layer summary, [data-guide-help]") ||
     state.operationAllowedSelector &&
     control?.closest?.(state.operationAllowedSelector),
   );
@@ -435,6 +436,7 @@ function blockOperationInteraction(event) {
   if (
     !state.operationBusy ||
     (event.type === "keydown" && event.key === "Tab") ||
+    (event.type === "keydown" && event.key === "Escape" && event.target?.closest?.(".rm-guide-layer")) ||
     event.target?.closest?.("#operation-progress") ||
     isOperationAllowedControl(event.target)
   ) {

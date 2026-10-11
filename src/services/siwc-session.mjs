@@ -581,11 +581,15 @@ export async function commitAuthorization({ storageRoot, registrationId = random
         throw new Error('SIWC registration changed; start a fresh sign-in.');
       if (!old && expectedGeneration !== undefined) throw new Error('Unknown SIWC registration.');
       const session = normalizeTokens(tokens, currentCfg.now());
+      // An established false setting may be an opt-out, so only the first
+      // verified authorization can choose the enabled default.
+      const firstAuthorization = !old || old.kind === 'pending';
       return { schemaVersion: 1, registrationId,
         label: old?.kind === 'pending' ? identity.email ?? `ChatGPT ${registrationId.slice(0, 8)}`
           : old?.label ?? identity.email ?? `ChatGPT ${registrationId.slice(0, 8)}`,
         clientId, identity: { issuer: identity.issuer, subject: identity.subject, ...(identity.email ? { email: identity.email } : {}) },
-        owner: host, session, planEnabled: !!old?.planEnabled && session.scopes.includes('chatgpt.tokens.use.direct'),
+        owner: host, session, planEnabled: !!session.accessToken &&
+          session.scopes.includes('chatgpt.tokens.use.direct') && (firstAuthorization || old.planEnabled),
         planAcknowledged: !!old?.planAcknowledged, backgroundConsent: old?.backgroundConsent ?? false,
         ...(old?.acceptedHandoff ? { acceptedHandoff: old.acceptedHandoff } : {}),
         handoff: { state: 'owned' } };

@@ -19,6 +19,13 @@ Identity, separately granted plan permission, and model/request access are
 distinct. A ChatGPT sign-in is not an OpenAI Platform API key, and Relmio does
 not import a personal Codex login. SuperGrok uses its own session.
 
+After a new registration's first verified plan grant, eligible text plan use
+is enabled. Choose **Got it** on **You're using your ChatGPT plan** before
+model access. Existing paused accounts stay paused on reconnect; **Pause plan
+use**, **Resume plan use** and **Manage usage** remain available. Sign-in uses
+the same browser when a new tab is allowed, otherwise the system browser.
+n8n background workflows require separate approval.
+
 The website's `/api/chat` remains off and returns `410 Gone`; local setup does
 not enable hosted chat. See the
 [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md)
@@ -79,8 +86,11 @@ want the setup route for this computer.
 
 The first time the wizard opens, it asks whether to start the setup guide.
 Relmio, the mascot, then points at each box and button in turn, says what to
-enter or press, and explains errors with the next step. Skip it if you like;
-the **Setup guide** button in the top bar turns it on or off later. Once you
+enter or press, and explains errors with the next step. **Help** remains
+available after you skip the walkthrough. It explains the current prerequisite,
+offers the current feature's tips and bundled FAQ, and **Show me** highlights
+the relevant control without activating it. The **Setup guide** button in the
+top bar turns the walkthrough on or off later. Once you
 answer, Relmio saves only that choice, in `ui-preferences.json` in its
 ChatGPT sign-in folder (`~/.n8n-openai-oauth`, or `N8N_OPENAI_OAUTH_HOME` when
 set). See

@@ -4,6 +4,7 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { siwcInstallResult } from "./helpers/siwc-wizard.js";
 import { accountUiState, normalizeSiwcAccount } from "../src/ui/siwc-controls.js";
+import { createDeviceCodeControls } from "../src/ui/device-code.js";
 
 const VERIFICATION_URL = "https://auth.openai.com/codex/device";
 const owner = { registrationId: "fixture_registration_1", label: "Test ChatGPT account", session: "connected",
@@ -47,7 +48,7 @@ async function harness(apiResult, { install = false } = {}) {
     planId: install ? "review-1" : null, plan: install ? { target: "n8n-openai-oauth" } : null,
     catalogLabels: new Map(), chatTester: {} };
   const context = {
-    element, window, state, Date, normalizeSiwcAccount, accountUiState,
+    element, window, state, Date, normalizeSiwcAccount, accountUiState, createDeviceCodeControls,
     api: async (path, options) => { calls.push({ path, body: options?.body }); events.push(`api:${path}`); return apiResult(path, options); },
     setBusy: (_button, busy) => { events.push(busy ? "busy" : "idle"); return true; },
     clearError() {}, showError(error) { events.push(`error:${error.message}`); },
@@ -136,6 +137,7 @@ test("a pending code shows as text with the fixed sign-in link, polls every 5 se
   ui.context.renderInstalledImages(pollResult);
   assert.deepEqual(visibleBlocks(ui.element), ["pending"]);
   assert.equal(ui.element("installed-images-code").textContent, "<img src=x onerror=alert(1)>");
+  assert.equal(ui.element("installed-images-copy").disabled, false);
   assert.equal(ui.element("installed-images-link").href, VERIFICATION_URL, "only the fixed Codex page is linked");
   assert.match(ui.element("installed-images-expiry").textContent, /every 5 seconds/u);
   assert.equal(ui.due().length, 1);
@@ -148,6 +150,8 @@ test("a pending code shows as text with the fixed sign-in link, polls every 5 se
   assert.deepEqual(visibleBlocks(ui.element), ["on"]);
   assert.equal(ui.element("installed-images-status").textContent, "Images on for <b>images@example.test</b> (plus).");
   assert.equal(ui.element("installed-images-link").href, "");
+  assert.equal(ui.element("installed-images-code").textContent, "");
+  assert.equal(ui.element("installed-images-copy").disabled, true);
   assert.equal(ui.due().length, 0, "a finished sign-in is not polled again");
 
   ui.context.renderInstalledImages({ state: "pending", pending: { userCode: "ABCD-1234", verificationUrl: VERIFICATION_URL, expiresAt: "2026-10-07T12:15:00.000Z" } });

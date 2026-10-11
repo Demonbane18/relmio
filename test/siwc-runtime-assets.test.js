@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { createFileSymlinkFixture } from './helpers/symlink-fixture.js';
 import { buildNpmPackage } from '../scripts/build-npm-package.js';
 import { collectSiwcRuntimeAssets } from '../src/services/siwc-runtime-assets.js';
 import {
@@ -56,7 +57,9 @@ test('collector rejects a symlinked runtime source instead of following it', asy
   for (const file of result.files) {
     const path = join(root, file.path);
     await mkdir(dirname(path), { recursive: true });
-    if (file.path === 'services/siwc-session.mjs') await symlink(join(root, 'services/siwc-handoff.mjs'), path);
+    if (file.path === 'services/siwc-session.mjs') {
+      if (!await createFileSymlinkFixture(t, join(root, 'services/siwc-handoff.mjs'), path)) return;
+    }
     else await writeFile(path, file.contents);
   }
   await writeFile(join(tmp, 'package.json'), result.packageJson);

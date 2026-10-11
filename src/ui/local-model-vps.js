@@ -148,7 +148,7 @@ async function api(path, body) {
 }
 for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"]) {
   document.addEventListener(name, (event) => {
-    if (!state.busy || (name === "keydown" && event.key === "Tab")) return;
+    if (!state.busy || event.target?.closest?.(".rm-guide-layer") || (name === "keydown" && event.key === "Tab")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
   }, true);
@@ -156,13 +156,15 @@ for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "
 async function perform(label, task) {
   if (state.busy) return;
   state.busy = true;
+  document.body.dataset.operationBusy = "true";
   el("error").hidden = true;
   el("progress").hidden = true;
   message(label);
   // "nearest" scrolls only when the status is out of view, so the startup check does not move the page.
   el("message").scrollIntoView?.({ block: "nearest", behavior: "instant" });
   el("route-steps-content").setAttribute("aria-busy", "true");
-  const controls = [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")].map((control) => ({
+  const controls = [...document.querySelectorAll("button, input, select, textarea, summary, a[href]")]
+    .filter((control) => !control.closest?.(".rm-guide-layer")).map((control) => ({
     control, disabled: typeof control.disabled === "boolean" ? control.disabled : null,
     tabIndex: control.getAttribute("tabindex"),
   }));
@@ -173,6 +175,7 @@ async function perform(label, task) {
   try { await task(); } catch (failure) { error(failure?.message || "The operation failed."); }
   finally {
     state.busy = false;
+    document.body.dataset.operationBusy = "false";
     el("route-steps-content").setAttribute("aria-busy", "false");
     for (const { control, disabled, tabIndex } of controls) {
       if (disabled !== null) control.disabled = disabled;

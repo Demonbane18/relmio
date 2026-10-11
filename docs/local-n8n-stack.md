@@ -122,6 +122,11 @@ names before it offers any stack action. It reports one of these safe states:
 | **Partial** | The wizard offers only the separately confirmed removal recovery. This includes a missing subset or an unhealthy/mixed runtime state. |
 | **Unavailable** | Relmio could not safely classify the prior state. It offers neither automatic resume nor removal and never guesses from Docker text. |
 
+Resume uses unflagged `docker compose start`, then waits up to three minutes
+for the expected running and healthy state and rechecks exact ownership. It
+does not rely on `start --wait`, which older Compose versions do not support.
+A failed or timed-out readiness check is not reported as a successful resume.
+
 Before declaring an Assistant-enabled stack ready, Relmio also verifies that
 the exact owned `assistant-shared` and `assistant-internal` Docker networks
 report `Internal: false`. This keeps their intended network egress behavior

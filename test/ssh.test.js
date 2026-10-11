@@ -7,6 +7,7 @@ import { join, dirname } from "node:path";
 import { EventEmitter } from "node:events";
 import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
+import { createFileSymlinkFixture, directoryLinkType } from "./helpers/symlink-fixture.js";
 
 import {
   buildVerifiedConnectionConfig, connectVerified, formatSha256Fingerprint,
@@ -402,12 +403,16 @@ test("reviewed publication rejects hardlinked targets, child symlinks and linked
     assert.equal(calls.some(([call]) => call === "open" || call === "write"), false);
     assert.equal(await readFile(sentinel, "utf8"), "unchanged");
   };
-  await rejectsWithoutWrite(compose);
-  const child = "/docker/n8n-openai-oauth/services/linked.mjs";
-  await symlink(sentinel, local(child));
-  await rejectsWithoutWrite(child);
-  await symlink(dirname(sentinel), local("/docker/n8n-openai-oauth/services/linked"));
-  await rejectsWithoutWrite("/docker/n8n-openai-oauth/services/linked/child.mjs");
+  await t.test("hardlinked target", async () => { await rejectsWithoutWrite(compose); });
+  await t.test("child file symlink", async t => {
+    const child = "/docker/n8n-openai-oauth/services/linked.mjs";
+    if (!await createFileSymlinkFixture(t, sentinel, local(child))) return;
+    await rejectsWithoutWrite(child);
+  });
+  await t.test("linked ancestor", async () => {
+    await symlink(dirname(sentinel), local("/docker/n8n-openai-oauth/services/linked"), directoryLinkType);
+    await rejectsWithoutWrite("/docker/n8n-openai-oauth/services/linked/child.mjs");
+  });
 });
 
 test("reviewed publication rejects unsafe ownership, permissions and nonregular targets before staging", async t => {

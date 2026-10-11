@@ -75,6 +75,19 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
     );
     assert.equal(generated.changelogContent, "# Changelog\n\n- Fixture entry\n");
     await execFileAsync(process.execPath, [generatorPath, "--check"]);
+
+    // Git for Windows may check the generated module out with CRLF too.
+    const generatedPath = join(fixtureRoot, "web", "app", "docs", "generated-content.ts");
+    const generatedSource = await readFile(generatedPath, "utf8");
+    const windowsSource = generatedSource.replace(/\r\n?/gu, "\n").replace(/\n/gu, "\r\n");
+    await writeFile(generatedPath, windowsSource, "utf8");
+    await execFileAsync(process.execPath, [generatorPath, "--check"]);
+
+    await writeFile(generatedPath, windowsSource.replace("Fixture entry", "Changed entry"), "utf8");
+    await assert.rejects(
+      execFileAsync(process.execPath, [generatorPath, "--check"]),
+      (error) => error.code === 1 && /Generated documentation is out of date/u.test(error.stderr),
+    );
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }

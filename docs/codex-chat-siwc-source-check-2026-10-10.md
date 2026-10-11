@@ -2,6 +2,58 @@
 
 Review date: 2026-10-10.
 
+## Windows QA patch addendum, 2026-10-10
+
+This addendum describes an **unreleased** Windows QA patch based on
+`2a112767aa857bf359d51db1b6f950b21a80c81b` plus local changes, not a published
+version or a replacement for the read-only historical review below. The
+historical report's no-execution statement applies to that review alone.
+
+The patch enables eligible text plan use only after a new or pending-first
+registration's verified token exchange returns both an access token and
+`chatgpt.tokens.use.direct`. Requested scopes, callback parameters and identity
+alone do not grant use. Established paused registrations remain paused.
+Acknowledgment and background consent stay separate: the first-use **Got it**
+notice is required before model access, Escape does not acknowledge it, and
+background n8n activity needs its own reviewed approval. This default is a
+product decision, not a universal OpenAI requirement.
+
+On Windows, an existing authorized account completed one tiny interactive text
+request using the production local token-lease gate and public Responses API:
+HTTP 200, 14 SSE events, `response.completed` with completed status and exact
+expected content, 23 input and 10 output tokens. The request selected
+`gpt-6-luna` explicitly; appearance was not used to identify a model. This is
+not sidecar/n8n, background-workflow, native Codex client, image, VPS, Google or
+SuperGrok proof. No new grant was opened to test the new default.
+
+The Help Center [identity overview](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt),
+[registration guide](https://developers.openai.com/siwc/token-sharing-open-source/sign-in),
+[UI guidelines](https://developers.openai.com/siwc/ui-ux-guidelines) and
+[streaming guide](https://developers.openai.com/api/docs/guides/streaming-responses)
+were rechecked. Identity, actual granted scope and completed inference remain
+different evidence. The [SIWC Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/)
+and [privacy policy](https://openai.com/policies/privacy-policy/) still do not
+settle the connected-application or persistent remote-token-storage questions
+below, or promise zero retention from `store: false`.
+
+Data boundaries: protected registration storage holds identity, issued client,
+tokens, expiry, owner and separate plan/acknowledgment/background flags. The
+browser receives bounded account status, not provider tokens. OpenAI sign-in
+receives registration, authorization and PKCE/token-exchange data; Responses
+receives an in-memory bearer, prompt and model with `store: false` and
+`stream: true`. QA retains status, event counts, usage and pass booleans, not
+tokens, identity, raw provider bodies or response text. None of this establishes
+the untested downstream workflow or image data boundaries.
+
+Remaining live prerequisites include separately approved n8n background use,
+the trusted VPS host fingerprint and private human authentication, an approved
+Google OAuth client/grant, an eligible SuperGrok account and official device
+sign-in, and the optional image add-on's separate Codex grant and usage budget.
+CI/PR review and publication gates remain pending. Do not read the Windows text
+success or mock regressions as a claim that every Relmio feature works.
+
+## Historical read-only review
+
 Scope: read-only comparison against `/tmp/relmio-winqa/wt`. `package.json:3` identifies version `0.22.0`. The assignment identifies this worktree as `origin/main` at `0e7ab6f` plus an installer fix; commit ancestry was not independently checked. All implementation citations below refer to this worktree, not the stale checkout used by the earlier report.
 
 No files changed. No sign-in, credential-file access, provider API call, form submission, SSH connection, Docker execution, browser QA, build, or test was performed. Public documentation fetches are the only external requests made for this review. This is an engineering source comparison, not legal advice, OpenAI approval, or a certification of an installed runtime.

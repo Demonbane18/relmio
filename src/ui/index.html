@@ -205,6 +205,7 @@
                       <div class="rm-callout__content">
                         <strong id="auth-title" class="rm-callout__title">Checking account…</strong>
                         <p id="auth-detail" class="rm-callout__body">Checking selected ChatGPT registration.</p>
+                        <button id="signin-help" class="rm-button rm-button--ghost rm-button--sm" type="button" data-guide-help>Help with Check the server</button>
                         <p id="auth-updated" class="rm-callout__body" hidden><time id="auth-updated-time"></time></p>
                       </div>
                     </div>
@@ -241,9 +242,9 @@
                       </div>
                       <dialog data-siwc="welcome" class="siwc-dialog" aria-labelledby="vps-siwc-welcome-title">
                         <h3 id="vps-siwc-welcome-title" class="rm-h3">You're using your ChatGPT plan</h3>
-                        <p>Your ChatGPT plan is used for this account's model requests. OpenAI applies your account limits. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. n8n background workflows need a separate approval before installation.</p>
+                        <p>Eligible text requests in Relmio use this account's ChatGPT plan. You can pause plan use in Relmio at any time. OpenAI applies your account limits. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. n8n background workflows need a separate approval before installation.</p>
                         <p><a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">Manage usage (opens in a new tab)</a></p>
-                        <button type="button" class="rm-button rm-button--primary" data-siwc="welcome-accept">Continue</button>
+                        <button type="button" class="rm-button rm-button--primary" data-siwc="welcome-accept">Got it</button>
                       </dialog>
                     </section>
                     <details class="rm-disclosure">
@@ -844,7 +845,7 @@
                 <button id="login-button" class="rm-button" type="button" data-subview="chatgpt" hidden>Continue with ChatGPT</button>
                 <a id="login-link" class="rm-button" target="_blank" rel="noopener noreferrer" data-subview="chatgpt" hidden>Open fresh ChatGPT sign-in<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>
                 <button id="stop-login-button" class="rm-button" type="button" data-subview="chatgpt" hidden>Stop ChatGPT sign-in</button>
-                <button id="signin-next" class="rm-button rm-button--primary rm-push" type="button" data-subview="chatgpt" disabled>Check the server</button>
+                <button id="signin-next" class="rm-button rm-button--primary rm-push" type="button" data-subview="chatgpt" aria-describedby="auth-detail" disabled>Check the server</button>
               </div>
 
               <div class="setup-actions" data-step-actions="2">

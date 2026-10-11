@@ -1,7 +1,7 @@
 // Relmio setup guide. Every wizard page loads this module and names itself in
 // <body data-guide-page>. It stays small: the dock (/guide-dock.js and
 // /guide-dock.css) and the page's content (/guide/content-<page>.js) load
-// only while the guide is on, and /guide/errors.js only on the first error.
+// asynchronously. The help chip stays available even with the walkthrough off.
 // Pure helpers are exported for the dock and for tests; the bootstrap runs
 // only inside a page.
 
@@ -132,20 +132,15 @@ function boot(page) {
     for (const toggle of toggles) {
       if (toggle.getAttribute("aria-pressed") !== String(value === "on")) toggle.setAttribute("aria-pressed", String(value === "on"));
     }
-    if (value !== "off") {
-      contentLoad ??= import(`/guide/content-${page}.js`).then(
-        (module) => { host.content = Array.isArray(module.GUIDE?.chapters) ? module.GUIDE : null; },
-        () => { host.content = null; },
-      );
-      void Promise.all([contentLoad, mount()]).then(() => {
-        if (!host.content) for (const toggle of toggles) toggle.hidden = true;
-        dock?.refresh();
-      });
-    }
+    contentLoad ??= import(`/guide/content-${page}.js`).then(
+      (module) => { host.content = Array.isArray(module.GUIDE?.chapters) ? module.GUIDE : null; },
+      () => { host.content = null; },
+    );
+    void Promise.all([contentLoad, mount()]).then(() => dock?.refresh());
     dock?.refresh();
   }
 
-  // The dock's stylesheet loads with it, so pages with the guide off skip both.
+  // The stylesheet loads asynchronously with the dock, including its help chip.
   function mount() {
     dockLoad ??= Promise.all([import("/guide-dock.js"), new Promise((resolve, reject) => {
       const link = Object.assign(document.createElement("link"), { rel: "stylesheet", href: "/guide-dock.css" });
@@ -157,6 +152,7 @@ function boot(page) {
   }
 
   globalThis.relmioGuide = Object.freeze({
+    help() { void mount().then(() => dock?.openHelp()); },
     error(error) {
       const info = errorInfo(error);
       const record = host.failure = { info, surfaces: [...document.querySelectorAll("[role='alert']")].filter(isShown), entry: null };
@@ -176,6 +172,9 @@ function boot(page) {
   for (const toggle of toggles) {
     toggle.hidden = false;
     toggle.addEventListener("click", () => host.choose(host.pref === "on" ? "off" : "on"));
+  }
+  for (const trigger of document.querySelectorAll("[data-guide-help]")) {
+    trigger.addEventListener("click", () => globalThis.relmioGuide.help());
   }
   if (host.pref) apply(host.pref);
   void api().then((saved) => {

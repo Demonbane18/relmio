@@ -4,7 +4,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { clearFieldError, setFieldError } from "../src/ui/ssh-form.js";
 import { siwcAccount } from "./helpers/siwc-wizard.js";
-import { accountUiState, siwcErrorFromResponse } from "../src/ui/siwc-controls.js";
+import { accountUiState, prepareSiwcBrowser, siwcErrorFromResponse } from "../src/ui/siwc-controls.js";
+import { createDeviceCodeControls } from "../src/ui/device-code.js";
 
 
 
@@ -168,7 +169,7 @@ test("the complete script renders a healthy OAuth inventory instead of falling b
   const window = { addEventListener() {}, clearInterval() {}, clearTimeout() {}, location: { hash: "" }, matchMedia() { return { matches: true }; }, scrollTo() {}, setInterval() { return 1; }, setTimeout() { return 1; } };
   const fetch = async (path) => ({ ok: true, async json() { return path === "/api/local/dashboard" ? fixture : path === "/api/local/project-meta" ? { version: "0.13.0", stars: null } : {}; } });
   runInNewContext(`${shared}\n${script}`, { readWizardSession: () => "a".repeat(43), bindWizardNavigation() {}, initWizardTopbar() {},
-    INITIAL_CHAT_TESTER_FEEDBACK: {}, nextChatTesterFeedback: () => ({}),
+    INITIAL_CHAT_TESTER_FEEDBACK: {}, nextChatTesterFeedback: () => ({}), createDeviceCodeControls,
     Option: class { constructor(text, value) { this.textContent = text; this.value = value; } },
     URL, URLSearchParams, AbortController, Date, Intl, JSON, Math, Promise, TextDecoder, TextEncoder, Uint8Array, btoa(value) { return value; }, clearFieldError, clearTimeout() {}, crypto: { getRandomValues() {}, subtle: {} }, document, fetch, navigator: {}, setFieldError, setTimeout() { return 1; }, window }, { filename: "local-healthy-dashboard.vm.js", timeout: 1_000 });
   await new Promise((resolve) => setImmediate(resolve));
@@ -178,8 +179,8 @@ test("the complete script renders a healthy OAuth inventory instead of falling b
   assert.notEqual(element("dashboard-last-checked").textContent, "Unavailable");
 });
 
-const ATTEMPT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
-const OTHER_ATTEMPT_ID = "bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee";
+const ATTEMPT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+const OTHER_ATTEMPT_ID = "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 const RETRY_BLOCKED_MESSAGE =
   "ChatGPT sign-in could not be stopped safely. Close the sign-in helper, then restart Relmio.";
 
@@ -269,7 +270,7 @@ function loadN8nOAuthHandlers(script, respond) {
   let operationBusy = false;
   const context = {
     Date,
-    accountUiState, siwcErrorFromResponse,
+    accountUiState, prepareSiwcBrowser, siwcErrorFromResponse,
     siwc: {
       async load() {
         const result = await context.api("/api/siwc/accounts");
@@ -331,7 +332,9 @@ function loadN8nOAuthHandlers(script, respond) {
     window: {
       open(...args) {
         harness.opened.push(args);
-        return { close() {}, location: { replace() {} }, opener: {} };
+        harness.popup = { closed: false, close() { harness.blankClosed = true; },
+          location: { replace(value) { harness.navigated = value; } }, opener: {} };
+        return harness.popup;
       },
     },
   };
@@ -345,6 +348,7 @@ function loadN8nOAuthHandlers(script, respond) {
     { filename: "local-n8n-oauth-ui.vm.js", timeout: 1_000 },
   );
   Object.assign(harness, handlers);
+  harness.browserWindow = context.window;
   return harness;
 }
 
@@ -372,7 +376,7 @@ test("local sign-in accepts system-browser launch and reloads the selected SIWC 
 
   await harness.signIn({ currentTarget: harness.elements.get("n8n-oauth-sign-in") });
 
-  assert.deepEqual(harness.opened, []);
+  assert.equal(harness.opened.length, 1);
   assert.equal(
     harness.calls.some((call) => call.path === "/api/oauth/login" && call.method === "POST"),
     true,
@@ -381,7 +385,7 @@ test("local sign-in accepts system-browser launch and reloads the selected SIWC 
     JSON.parse(JSON.stringify(
       harness.calls.find((call) => call.path === "/api/oauth/login").body,
     )),
-    { purpose: "sign-in" },
+    { purpose: "sign-in", launchMode: "same-browser" },
   );
   const waited = harness.calls.find(
     (call) => call.path === "/api/oauth/status" && call.stopVisible === true,
@@ -401,6 +405,60 @@ test("local sign-in accepts system-browser launch and reloads the selected SIWC 
   // result is still announced.
   assert.equal(harness.elements.get("n8n-oauth-status").textContent, "");
   assert.match(harness.messages.at(-1), new RegExp(siwcAccount.label, "u"));
+});
+
+test("local sign-in navigates the reserved tab after a same-browser response", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const harness = loadN8nOAuthHandlers(script, call => {
+    if (call.path === "/api/oauth/login") return { launchMode: "same-browser", attemptId: ATTEMPT_ID };
+    if (call.path === "/api/oauth/status") return harness.calls.length === 1
+      ? { status: "idle" } : { status: "success", attemptId: ATTEMPT_ID };
+    if (call.path === "/api/siwc/accounts") return signedInStatus();
+    throw new Error(`unexpected ${call.path}`);
+  });
+  await harness.signIn({ currentTarget: harness.elements.get("n8n-oauth-sign-in") });
+  assert.equal(harness.navigated, `/__relmio/oauth/launch/${ATTEMPT_ID}`);
+  assert.equal(harness.popup.opener, null);
+  assert.equal(harness.blankClosed, undefined);
+  assert.equal(harness.errors.length, 0);
+});
+
+test("a closed reserved tab cancels its exact new attempt, not a replacement", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const harness = loadN8nOAuthHandlers(script, call => {
+    if (call.path === "/api/oauth/login") {
+      harness.popup.closed = true;
+      return { launchMode: "same-browser", attemptId: ATTEMPT_ID };
+    }
+    if (call.path === "/api/oauth/status") return { status: "idle" };
+    if (call.path === "/api/oauth/cancel") return { status: "cancelled", attemptId: ATTEMPT_ID };
+    if (call.path === "/api/siwc/accounts") return { accounts: [] };
+    throw new Error(`unexpected ${call.path}`);
+  });
+  await harness.signIn({ currentTarget: harness.elements.get("n8n-oauth-sign-in") });
+  const cancellations = harness.calls.filter(call => call.path === "/api/oauth/cancel");
+  assert.equal(cancellations.length, 1);
+  assert.equal(cancellations[0].body.attemptId, ATTEMPT_ID);
+  assert.equal(harness.navigated, undefined);
+  assert.equal(harness.blankClosed, true);
+  assert.equal(harness.errors.length, 1);
+});
+
+test("pop-up blocking requests the system browser once", async () => {
+  const script = await readFile("src/ui/local.js", "utf8");
+  const harness = loadN8nOAuthHandlers(script, call => {
+    if (call.path === "/api/oauth/login") return { launchMode: "system-browser", attemptId: ATTEMPT_ID };
+    if (call.path === "/api/oauth/status") return harness.calls.length === 1
+      ? { status: "idle" } : { status: "success", attemptId: ATTEMPT_ID };
+    if (call.path === "/api/siwc/accounts") return signedInStatus();
+    throw new Error(`unexpected ${call.path}`);
+  });
+  harness.browserWindow.open = () => null;
+  await harness.signIn({ currentTarget: harness.elements.get("n8n-oauth-sign-in") });
+  const starts = harness.calls.filter(call => call.path === "/api/oauth/login");
+  assert.equal(starts.length, 1);
+  assert.equal(starts[0].body.launchMode, "system-browser");
+  assert.equal(harness.errors.length, 0);
 });
 
 test("a chat tester error and its Manage usage recovery scroll into view before focus", async () => {
@@ -472,12 +530,16 @@ test("fresh account setup uses the same system-browser flow without copying cred
 test("a pending local sign-in is resumed instead of starting another login", async () => {
   const script = await readFile("src/ui/local.js", "utf8");
   let polls = 0;
-  const harness = loadN8nOAuthHandlers(script, (call) => {
+  const harness = loadN8nOAuthHandlers(script, (call, current) => {
     if (call.path === "/api/oauth/login") {
       throw new Error("pending sign-in must not be replaced");
     }
     if (call.path === "/api/oauth/status") {
       polls += 1;
+      if (polls > 1) {
+        assert.equal(current.blankClosed, true,
+          "close the unused reserved tab before polling the existing attempt");
+      }
       return polls === 1
         ? { status: "pending", attemptId: ATTEMPT_ID }
         : { status: "success", attemptId: ATTEMPT_ID };
@@ -489,6 +551,7 @@ test("a pending local sign-in is resumed instead of starting another login", asy
   await harness.signIn({ currentTarget: harness.elements.get("n8n-oauth-sign-in") });
 
   assert.equal(harness.calls.some((call) => call.path === "/api/oauth/login"), false);
+  assert.equal(harness.opened.length, 1);
   assert.equal(harness.state.n8nOAuthExists, true);
   assert.equal(harness.errors.length, 0);
 });
@@ -670,7 +733,7 @@ test("Codex targets use independently scoped SIWC browser authorization without 
     const login = harness.calls.find((call) => call.path === "/api/oauth/login");
     assert.equal(login.body.registrationId, siwcAccount.registrationId);
     assert.equal(harness.calls.some((call) => call.path.startsWith("/api/local/codex/")), false);
-    assert.equal(harness.opened.length, 0);
+    assert.equal(harness.opened.length, 1);
     assert.equal(harness.errors.length, 0);
   }
 });

@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { isAbsolute } from "node:path";
 import packageManifest from "../../package.json" with { type: "json" };
+import { isOpenAiAuthorizationUrl } from "../browser.js";
 
 import { listSiwcModels } from "../gateway/openai-oauth-sidecar.mjs";
 import { discoverN8n, discoverNetworks } from "../services/discovery.js";
@@ -1638,6 +1639,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/hosting": ["../ui/hosting.html", "utf8"],
   "/app.js": ["../ui/app.js", "utf8"],
   "/local.js": ["../ui/local.js", "utf8"],
+  "/device-code.js": ["../ui/device-code.js", "utf8"],
   "/siwc-controls.js": ["../ui/siwc-controls.js", "utf8"],
   "/assistant.js": ["../ui/assistant.js", "utf8"],
   "/supergrok-vps.js": ["../ui/supergrok-vps.js", "utf8"],
@@ -1663,6 +1665,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/guide/content-local-model-vps.js": ["../ui/guide/content-local-model-vps.js", "utf8"],
   "/guide/content-hosting.js": ["../ui/guide/content-hosting.js", "utf8"],
   "/guide/errors.js": ["../ui/guide/errors.js", "utf8"],
+  "/guide/context.js": ["../ui/guide/context.js", "utf8"],
   "/usage-panel.js": ["../ui/usage-panel.js", "utf8"],
   "/relmio-ui.css": ["../ui/relmio-ui.css", "utf8"],
   "/styles.css": ["../ui/styles.css", "utf8"],
@@ -3770,8 +3773,9 @@ async function handleApi(request, response, path, state) {
   if (path === "/api/oauth/login") {
     const loginBody = await readJsonBody(request);
     if (!loginBody || typeof loginBody !== "object" || Array.isArray(loginBody) ||
-        Object.keys(loginBody).some((key) => !["purpose", "registrationId"].includes(key)) ||
+        Object.keys(loginBody).some((key) => !["purpose", "registrationId", "launchMode"].includes(key)) ||
         !["sign-in", "enable-plan"].includes(loginBody.purpose) ||
+        (loginBody.launchMode !== undefined && !["system-browser", "same-browser"].includes(loginBody.launchMode)) ||
         (loginBody.registrationId !== undefined && typeof loginBody.registrationId !== "string")) {
       throw invalidSiwcRequest();
     }
@@ -3866,11 +3870,14 @@ async function handleApi(request, response, path, state) {
       startPromise = Promise.resolve(state.services.startOAuthLogin({
         storageRoot: state.storageRoot, registrationId, purpose: loginBody.purpose,
         runtimeId: state.runtimeId,
+        ...(loginBody.launchMode === undefined ? {} : { launchMode: loginBody.launchMode }),
       }));
       state.oauthLoginStartPromise = startPromise;
       const attempt = await startPromise;
       if (
-        attempt?.launchMode !== "system-browser" ||
+        (attempt?.launchMode !== "system-browser" &&
+          !(loginBody.launchMode === "same-browser" && attempt?.launchMode === "same-browser" &&
+            typeof attempt?.consumeBrowserAuthorization === "function")) ||
         typeof attempt?.completion?.then !== "function" ||
         typeof attempt?.cancel !== "function"
       ) {
@@ -6442,6 +6449,30 @@ function createRequestHandler(state) {
       }
       const url = new URL(request.url, state.origin);
       path = url.pathname;
+
+      if (path.startsWith("/__relmio/oauth/launch/")) {
+        const login = state.oauthLogin;
+        if (request.method !== "GET" || url.search || url.hash ||
+            request.headers.host !== new URL(state.origin).host ||
+            (request.headers.origin && request.headers.origin !== state.origin) ||
+            (request.headers["sec-fetch-site"] && request.headers["sec-fetch-site"] !== "same-origin") ||
+            !login || login.status !== "pending" || login.attempt.launchMode !== "same-browser" ||
+            path !== `/__relmio/oauth/launch/${login.attemptId}`) {
+          sendJson(response, 404, { error: "Sign-in launch is no longer available. Return to Relmio." });
+          return;
+        }
+        // The random attempt ID is a one-use launch capability. The authenticated POST
+        // creates it; neither wizard credentials nor authorization URLs enter JSON/history.
+        const authorization = login.attempt.consumeBrowserAuthorization();
+        if (!isOpenAiAuthorizationUrl(authorization)) {
+          sendJson(response, 404, { error: "Sign-in launch is no longer available. Return to Relmio." });
+          return;
+        }
+        response.writeHead(302, { Location: authorization, "Cache-Control": "no-store",
+          "Referrer-Policy": "no-referrer" });
+        response.end();
+        return;
+      }
 
       if (path.startsWith("/__relmio/browser/")) {
         await handleBrowserBootstrap(request, response, path, state);

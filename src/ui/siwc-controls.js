@@ -1,6 +1,36 @@
 const RECOVERY = new Set(["none", "retry-later", "reauthorize", "enable-plan", "manage-usage",
   "fix-request", "fix-configuration", "review-again", "resolve-handoff"]);
 
+export function prepareSiwcBrowser(browserWindow) {
+  let popup;
+  let launched = false;
+  const closeUnused = () => {
+    if (!launched) { try { popup?.close(); } catch { /* The user may already have closed it. */ } }
+  };
+  // Reserve the tab during the click, before any asynchronous provider/API work.
+  // Sever the opener before navigating; never transfer the private wizard session.
+  try {
+    popup = browserWindow?.open?.("about:blank", "_blank");
+    if (popup) popup.opener = null;
+  } catch {
+    closeUnused();
+    popup = null;
+  }
+  return {
+    launchMode: popup ? "same-browser" : "system-browser",
+    closeUnused,
+    launch(result) {
+      if (result?.launchMode === "system-browser") { closeUnused(); return; }
+      if (result?.launchMode !== "same-browser" || !popup || popup.closed ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(result.attemptId)) {
+        throw new Error("The sign-in tab is unavailable. Return to Relmio and try again.");
+      }
+      popup.location.replace(`/__relmio/oauth/launch/${result.attemptId}`);
+      launched = true;
+    },
+  };
+}
+
 export function siwcErrorFromResponse(result, status) {
   const error = new Error(typeof result?.error === "string" ? result.error : "The request did not complete.");
   error.status = Number.isInteger(result?.status) ? result.status
@@ -109,6 +139,12 @@ export function createSiwcControls({ root, api, onChange, onLogin, onError }) {
     const mode = accountUiState(account);
     const limited = usageLimited();
     const welcome = welcomePending();
+    // Help receives bounded states only, never account labels or credentials.
+    if (root.dataset) Object.assign(root.dataset, {
+      guideAccountState: mode, guideBusy: String(busy), guidePreview: String(previewMode),
+      guidePlanNotice: String(welcome), guideUsageLimited: String(limited),
+      guidePending: String(pendingRegistrations.length > 0),
+    });
     picker.replaceChildren();
     if (!accounts.length) {
       picker.add(new Option("No saved ChatGPT accounts", ""));
@@ -305,6 +341,18 @@ export function createSiwcControls({ root, api, onChange, onLogin, onError }) {
     } });
     dialog.close();
   }));
+  // Native dialog traversal can leave the final control for browser chrome.
+  // Wrap only the modal's boundaries; preserve native Escape and interior traversal.
+  dialog.addEventListener("keydown", (event) => {
+    if (!dialog.open || event.key !== "Tab") return;
+    const focusable = [...dialog.querySelectorAll("a[href], button, input, select, textarea, [tabindex]")]
+      .filter((control) => control.tabIndex >= 0 && !control.disabled && control.checkVisibility?.() !== false);
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !(event.shiftKey ? document.activeElement === first : document.activeElement === last)) return;
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  });
   // Escape closes without an acknowledgment: the plan stays unconfirmed and Review plan notice
   // reopens it. Focus returns to the control that opened it, or to the account state.
   dialog.addEventListener("close", () => {

@@ -88,6 +88,14 @@ The first time you open the wizard, it asks whether to start the setup guide.
 The guide points at each box and button in turn and explains errors with the
 next step. See [Use the setup guide](getting-started.md#use-the-setup-guide).
 
+**Help** remains available when the walkthrough is off. If **Check the server**
+is disabled, read the account status and choose **Help with Check the server**.
+The mascot points to the actual prerequisite: **Allow ChatGPT plan use** only
+for missing plan permission, **Use ChatGPT plan** for a paused plan, **Review
+plan notice** for an unread notice, or the relevant installed-account recovery
+for a transferred or unresolved registration. A pending sign-in is not a
+verified account. **Show me** highlights the control without approving it.
+
 The plan review shows short IDs for the selected n8n container and network.
 Relmio checks those exact IDs again before its first write and before the
 credential transfer. If either changed, the install stops and asks for a new
