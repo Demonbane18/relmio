@@ -18,7 +18,7 @@ rebuild unrelated containers while checking the local endpoint.
 ## ChatGPT sign-in or model access fails
 
 Start or reopen the current local wizard (`relmio open` for a persistent
-installation). Sign-in opens OpenAI authorization in a new tab in this browser
+installation). Sign-in opens OpenAI authorization in a new tab or window in this browser
 when allowed, otherwise in your default browser. It returns to a loopback
 callback. If the callback fails or expires, start a fresh attempt from the
 active wizard. Do not reuse a stale authorization page or share its callback
@@ -133,7 +133,7 @@ foreground. Keep that terminal open. If the first browser launch fails, press
 Enter there to create a fresh owner-only, single-use browser handoff. Relmio
 does not print or pass the dashboard session capability in a browser URL.
 
-Relmio opens SIWC authorization in a new tab in this browser when allowed,
+Relmio opens SIWC authorization in a new tab or window in this browser when allowed,
 otherwise in your default browser. If neither opens, check your browser's
 pop-up settings and default-browser setup. Use **Stop** in the active wizard
 before starting a fresh attempt. The wizard does not offer a manual

@@ -9,7 +9,7 @@ checks the registry separately after publication.
 
 ### Fixed
 
-- Sign-in documentation now says ChatGPT opens in a new tab in the browser
+- Sign-in documentation now says ChatGPT opens in a new tab or window in the browser
   running Relmio when allowed, and otherwise in the default browser.
 - The README, npm README, and website fallback now identify 0.22.1 as the
   current stable release.

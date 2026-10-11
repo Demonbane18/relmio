@@ -120,7 +120,7 @@ conversational contract for a trusted local backend.
   that POST with a clean GET using an independent 10-second per-tab transfer,
   which is cleared before application startup. Neither value appears in process
   arguments, a URL, a redirect, a cookie, or browser Web Storage.
-- ChatGPT sign-in opens in this browser when a new tab is allowed, otherwise
+- ChatGPT sign-in opens in this browser when a new tab or window is allowed, otherwise
   in your default browser. The authenticated start and status responses
   contain an attempt ID. For same-browser sign-in, that ID appears in a
   one-use local launch URL, which redirects to OpenAI. The authorization URL

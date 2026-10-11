@@ -137,7 +137,7 @@ project on the local computer.
    **Set up new n8n**, or **Grok on this computer**. Open **More connections
    and tools** for Codex endpoints and **n8n AI Assistant tools**.
 4. For ChatGPT, select or create a registration and complete sign-in in the
-   new tab, or in your default browser if the tab cannot open. Separately allow
+   new tab or window, or in your default browser if it cannot open. Separately allow
    plan use in ChatGPT. Confirm the first-use plan notice before model requests.
    For an n8n companion, select its running container and network, then
    separately approve background workflow use. Local-model setup selects its

@@ -33,7 +33,7 @@ actual account email, callback URL, authorization code, state, or token.
 
 Start the local wizard using the
 [README](../README.md)'s current command. Show a fresh SIWC registration in the
-new browser tab, or the default-browser fallback, without exposing the
+new browser tab or window, or the default-browser fallback, without exposing the
 authorization URL or personal account information. Explain that Relmio uses
 its own dynamic client registration and verified identity; it does not import
 `~/.codex` or require a partner credential.
