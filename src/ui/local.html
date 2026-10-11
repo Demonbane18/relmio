@@ -1234,7 +1234,12 @@
                     </div>
                     <div id="installed-images-pending" hidden>
                       <p id="installed-images-install-instruction" class="rm-small" hidden>Open the Codex sign-in page and enter this code. Only enter it at auth.openai.com. Never share it.</p>
-                      <p class="rm-small"><span id="installed-images-code-prompt">Enter this code on the Codex sign-in page: </span><code id="installed-images-code"></code></p>
+                      <p id="installed-images-code-prompt" class="rm-small">Enter this code on the Codex sign-in page:</p>
+                      <div class="rm-device-code">
+                        <code id="installed-images-code" class="rm-device-code__value" tabindex="0" aria-label="Device sign-in code" aria-describedby="installed-images-safety" translate="no"></code>
+                        <button id="installed-images-copy" class="rm-button rm-button--sm rm-device-code__copy" type="button" aria-label="Copy sign-in code" disabled>Copy code</button>
+                      </div>
+                      <p id="installed-images-copy-status" class="rm-small rm-muted rm-device-code__feedback" role="status" aria-live="polite" aria-atomic="true"></p>
                       <p id="installed-images-safety" class="rm-small">Only enter this code at auth.openai.com. Never share it.</p>
                       <div class="rm-cluster">
                         <a id="installed-images-link" class="rm-link rm-link--standalone" target="_blank" rel="noopener noreferrer">Open the Codex sign-in page<span class="rm-icon rm-icon--external rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a>

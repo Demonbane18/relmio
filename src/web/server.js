@@ -1639,6 +1639,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/hosting": ["../ui/hosting.html", "utf8"],
   "/app.js": ["../ui/app.js", "utf8"],
   "/local.js": ["../ui/local.js", "utf8"],
+  "/device-code.js": ["../ui/device-code.js", "utf8"],
   "/siwc-controls.js": ["../ui/siwc-controls.js", "utf8"],
   "/assistant.js": ["../ui/assistant.js", "utf8"],
   "/supergrok-vps.js": ["../ui/supergrok-vps.js", "utf8"],

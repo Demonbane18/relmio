@@ -26,6 +26,9 @@ installation confirmations still apply.
 
 ### Fixed
 
+- Local image sign-in codes are larger and selectable, with a user-clicked
+  **Copy code** button and manual-copy recovery when clipboard access is unavailable.
+  Unchanged status polls preserve selection; expired or replaced codes clear stale feedback.
 - The PowerShell installer works again on Windows computers without Node.js.
   It now puts its temporary Node.js runtime on `PATH` while Relmio starts.
   Before this fix, the wizard stopped with `'"node"' is not recognized`.

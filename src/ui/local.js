@@ -6,6 +6,7 @@ import {
   nextChatTesterFeedback,
 } from "./chat-tester-feedback.js";
 import { initWizardTopbar } from "./topbar.js";
+import { createDeviceCodeControls } from "./device-code.js";
 
 const token = readWizardSession();
 
@@ -2297,6 +2298,11 @@ function initializeLocalUsage() {
 // Image generation for the running installed n8n sidecar: the same opt-in Codex device sign-in
 // as on a VPS. Status is read when the section opens; a pending sign-in is checked every 5 seconds.
 const CODEX_IMAGES_VERIFICATION_URL = "https://auth.openai.com/codex/device";
+const installedImageCode = createDeviceCodeControls({
+  code: element("installed-images-code"),
+  button: element("installed-images-copy"),
+  feedback: element("installed-images-copy-status"),
+});
 
 function stopInstalledImagesPolling() {
   state.imagesGeneration += 1;
@@ -2316,7 +2322,7 @@ function renderInstalledImages(images, visible = true) {
   element("installed-images-on").hidden = view !== "signed-in" && view !== "reauthorize";
   for (const id of ["installed-images-confirm", "installed-images-signout-confirm"]) element(id).checked = false;
   for (const id of ["installed-images-start", "installed-images-signout"]) element(id).disabled = true;
-  element("installed-images-code").textContent = view === "pending" ? images.pending.userCode : "";
+  installedImageCode.render(view === "pending" ? images.pending.userCode : "");
   element("installed-images-install-instruction").hidden = !state.installImagesReady || view !== "pending";
   element("installed-images-code-prompt").hidden = state.installImagesReady && view === "pending";
   element("installed-images-safety").hidden = state.installImagesReady && view === "pending";
