@@ -15,8 +15,9 @@ npx --yes --ignore-scripts relmio@latest
 
 The foreground wizard opens on `127.0.0.1` without requiring an existing
 `.relmio` directory or local n8n stack. Choose **ChatGPT on my server**, then
-sign in using the system browser. Relmio creates a protected SIWC registration
-for the verified identity. It does not import a personal Codex login.
+sign in in the new tab, or in your default browser if the tab cannot open.
+Relmio creates a protected SIWC registration for the verified identity. It does
+not import a personal Codex login.
 
 Identity sign-in and ChatGPT plan use are separate. If the grant is missing,
 choose **Allow ChatGPT plan use** and complete the separate ChatGPT consent.

@@ -54,7 +54,7 @@ success or mock regressions as a claim that every Relmio feature works.
 
 ## Historical read-only review
 
-Scope: read-only comparison against `/tmp/relmio-winqa/wt`. `package.json:3` identifies version `0.22.0`. The assignment identifies this worktree as `origin/main` at `0e7ab6f` plus an installer fix; commit ancestry was not independently checked. All implementation citations below refer to this worktree, not the stale checkout used by the earlier report.
+Scope: read-only comparison against a Windows QA worktree (`<QA worktree>`). `package.json:3` identifies version `0.22.0`. The assignment identifies this worktree as `origin/main` at `0e7ab6f` plus an installer fix; commit ancestry was not independently checked. All implementation citations below refer to this worktree, not the stale checkout used by the earlier report.
 
 No files changed. No sign-in, credential-file access, provider API call, form submission, SSH connection, Docker execution, browser QA, build, or test was performed. Public documentation fetches are the only external requests made for this review. This is an engineering source comparison, not legal advice, OpenAI approval, or a certification of an installed runtime.
 
@@ -110,7 +110,7 @@ Applicable regional terms, account agreement, workspace policy, and any negotiat
 
 ## Corrections to the earlier stale-checkout report
 
-The earlier report inspected v0.17.5 under `/Users/demonbane/Documents/personal projects/relmio-herdr`. These implementation conclusions must be replaced:
+The earlier report inspected v0.17.5 in an older local checkout (`<v0.17.5 checkout>`). These implementation conclusions must be replaced:
 
 | Earlier finding | Correct v0.22.0 finding |
 |---|---|

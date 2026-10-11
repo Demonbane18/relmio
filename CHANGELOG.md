@@ -7,6 +7,14 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Fixed
+
+- Sign-in documentation now says ChatGPT opens in a new tab in the browser
+  running Relmio when allowed, and otherwise in the default browser.
+- The README, npm README, and website fallback now identify 0.22.1 as the
+  current stable release.
+- A published source-check record no longer includes local folder paths.
+
 ## [0.22.1] - 2026-10-11
 
 Relmio 0.22.1 fixes Windows sign-in and owned-stack recovery, and keeps Help

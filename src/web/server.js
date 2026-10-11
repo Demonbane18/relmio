@@ -6461,8 +6461,9 @@ function createRequestHandler(state) {
           sendJson(response, 404, { error: "Sign-in launch is no longer available. Return to Relmio." });
           return;
         }
-        // The random attempt ID is a one-use launch capability. The authenticated POST
-        // creates it; neither wizard credentials nor authorization URLs enter JSON/history.
+        // The authenticated POST creates this one-use launch capability. JSON contains the attempt ID,
+        // not the authorization URL. The redirect sends the authorization URL to the browser; browser
+        // history is outside this guarantee.
         const authorization = login.attempt.consumeBrowserAuthorization();
         if (!isOpenAiAuthorizationUrl(authorization)) {
           sendJson(response, 404, { error: "Sign-in launch is no longer available. Return to Relmio." });

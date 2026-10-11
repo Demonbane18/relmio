@@ -136,12 +136,13 @@ project on the local computer.
 3. Choose **ChatGPT for n8n**, **Grok for n8n**, **Local model for n8n**,
    **Set up new n8n**, or **Grok on this computer**. Open **More connections
    and tools** for Codex endpoints and **n8n AI Assistant tools**.
-4. For ChatGPT, select or create a registration, complete the system-browser
-   sign-in, and separately allow plan use in ChatGPT. Confirm the first-use
-   plan notice before model requests. For an n8n companion, select its running
-   container and network, then separately approve background workflow use.
-   Local-model setup selects its n8n container/network and allowlisted model;
-   Assistant tools include Code Sandbox and optional SearXNG, off by default.
+4. For ChatGPT, select or create a registration and complete sign-in in the
+   new tab, or in your default browser if the tab cannot open. Separately allow
+   plan use in ChatGPT. Confirm the first-use plan notice before model requests.
+   For an n8n companion, select its running container and network, then
+   separately approve background workflow use. Local-model setup selects its
+   n8n container/network and allowlisted model; Assistant tools include Code
+   Sandbox and optional SearXNG, off by default.
 5. Review the selected account, target, private-network boundary, and exact
    write plan. On VPS, verify the SSH fingerprint before authentication and
    confirm the final remote write after review.

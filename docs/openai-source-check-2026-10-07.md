@@ -1422,3 +1422,143 @@ Exact disclosure replacements accompany this addendum. Existing separate image w
 ### Changes after this review
 
 Applied on 2026-10-09 on `feat/local-stack-seamless` before merge: the disclosure replacements listed with this review (README, `docs/local-n8n-stack.md`, `docs/local-endpoints.md`, `docs/security.md`, `docs/faq.md` and the dashboard's review, Ready and recovery text), including the shared-use warning before the ChatGPT add-on is approved and the recovery wording that asks the user to check n8n for the named credential before adding it manually.
+
+## Addendum: same-browser sign-in launch (v0.22.1)
+
+Check date: **2026-10-11**. Read-only review of the supplied v0.22.1 snapshot at tag v0.22.1 (b54b7e6). No files edited, credentials accessed, sign-in completed, forms submitted, provider API calls made, browser opened or tests run. Public documentation was fetched independently.
+
+Labels: **Confirmed** means a fetched official OpenAI source states it. **Observed** means inspected Relmio source shows it. **Open** means the evidence does not settle the question, including assessments of compatibility. Supplied runtime reports are **Provisional** for provider permission and were not reproduced.
+
+**Observed:** This supplements the Windows launcher addendum above. The separate [first-authorization review](codex-chat-siwc-source-check-2026-10-10.md), [contextual-help check](contextual-help-source-check-2026-10-11.md) and [image device-code check](openai-source-check-device-code-2026-10-11.md) cover different changes. Their results do not establish this launch route's behavior or provider approval.
+
+### What changed
+
+- **Observed:** During the sign-in click, `prepareSiwcBrowser` calls `window.open("about:blank", "_blank")`, sets `popup.opener = null`, and selects `same-browser` without an OS-specific branch. If reservation fails or returns no window, it selects `system-browser`. After the authenticated start response, it validates the UUIDv4 attempt ID and calls `location.replace` with the local launch path (`src/ui/siwc-controls.js:4-30`). Both VPS and local sign-in callers use this helper (`src/ui/app.js:1390-1426`; `src/ui/local.js:4885-4926`). The browser controls whether `_blank` appears as a tab or window.
+- **Observed:** `POST /api/oauth/login` validates the requested launch mode and starts the attempt. The server creates its own UUIDv4 `login.attemptId`, distinct from the OAuth service's internal attempt ID. Authenticated start JSON returns `launchMode` and this server ID; authenticated status JSON also returns this ID (`src/web/server.js:3773-3783,3869-3899,3950-3953,3608-3625`; `src/services/oauth.js:72`). API access requires `x-setup-token`; POST also requires the exact wizard origin (`src/web/server.js:733-745,3526-3528`).
+- **Observed:** Same-browser authorization is retained in process memory and released at most once by `consumeBrowserAuthorization()`, only while pending, accepting a callback and within the attempt deadline. The normal timeout is ten minutes. This is one-use retrieval, not a promise of immediate memory erasure after cancellation (`src/services/oauth.js:53-58,71-100,198-223`).
+- **Observed:** `GET /__relmio/oauth/launch/<attemptId>` runs outside API-token authentication. It requires the exact current pending same-browser path and Host, rejects query/hash and wrong methods, and checks Origin and `Sec-Fetch-Site` when supplied. After consuming and validating the authorization URL, it returns `302 Location` with `Cache-Control: no-store` and `Referrer-Policy: no-referrer` (`src/web/server.js:6453-6474`). The validator permits only the fixed OpenAI authorize origin/path and supported parameters, including the loopback callback (`src/browser.js:72-107`).
+
+### Sources with retrieval dates
+
+All sources below were retrieved on **2026-10-11**. The Help Center identity article was fetched first. **Confirmed:** displayed dates below reproduce fetched pages; relative dates were not converted into publication dates. Developer Markdown pages show no publication/update date.
+
+| Official source | Retrieved | Displayed publication or update date |
+| --- | --- | --- |
+| [Sign in with ChatGPT](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) | 2026-10-11 | Updated: 9 days ago |
+| [SIWC registration and sign-in](https://developers.openai.com/siwc/token-sharing-open-source/sign-in.md) | 2026-10-11 | None shown |
+| [SIWC UI/UX guidelines](https://developers.openai.com/siwc/ui-ux-guidelines.md) | 2026-10-11 | None shown |
+| [SIWC preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations.md) | 2026-10-11 | None shown |
+| [Sign in with ChatGPT Terms](https://openai.com/policies/sign-in-with-chatgpt-terms/) | 2026-10-11 | September 29, 2026 |
+| [Service Terms](https://openai.com/policies/service-terms/), especially §15 | 2026-10-11 | Updated: September 29, 2026 |
+| [Privacy policy](https://openai.com/policies/privacy-policy/), returned canonical `/policies/services-communications-privacy-policy/` | 2026-10-11 | Updated: July 30, 2026 |
+| [SIWC open-source overview](https://developers.openai.com/siwc/token-sharing-open-source.md) | 2026-10-11 | None shown |
+| [SIWC models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference.md) | 2026-10-11 | None shown |
+| [Terms of Use](https://openai.com/policies/row-terms-of-use/) | 2026-10-11 | Published and effective: January 1, 2026 |
+| [SIWC accounts and sessions](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions.md) | 2026-10-11 | None shown |
+| [SIWC quickstart](https://developers.openai.com/siwc/quickstart.md) | 2026-10-11 | None shown |
+| [SIWC documentation aggregate](https://developers.openai.com/siwc/llms-full.txt), searched for browser/webview requirements | 2026-10-11 | None shown in retrieved matches |
+
+### What Relmio reads/stores/transmits/logs
+
+#### Reads and stores
+
+- **Observed, reads:** The start handler reads purpose, optional registration ID and launch mode. OAuth reads the selected registration or pending client, host identity, OpenAI discovery/JWKS, callback parameters and token response. It checks callback state, issued client, optional issuer and deadline, then verifies ID-token signature, issuer, audience, expiry, nonce and returning subject (`src/web/server.js:3773-3792`; `src/services/oauth.js:53-75,103-171`; `src/services/siwc-session.mjs:623-659`). This launch code does not read the user's ChatGPT password, session cookies, conversations or memory.
+- **Observed, transient storage:** The service retains state, nonce, PKCE verifier, exact callback URI and deadline in memory. Same-browser mode additionally retains the complete authorization URL for one-use retrieval. Server memory holds the public launch attempt ID and attempt/status record. Dashboard memory receives the ID and holds the reserved window reference (`src/services/oauth.js:71-100,198-223`; `src/web/server.js:3893-3902`; `src/ui/siwc-controls.js:4-30`; `src/ui/app.js:1421-1432`; `src/ui/local.js:4923-4934`). No file or Web Storage write is added by these launch paths.
+- **Observed, persistent storage:** Existing storage remains `N8N_OPENAI_OAUTH_HOME` or `~/.n8n-openai-oauth`. `host.json` stores the stable host ID; `registrations/<registrationId>.json` stores pending issued-client reservations and, after verified authorization, issuer/subject/optional email, issued client, owner, returned tokens, scopes, expiry and separate plan/acknowledgment/background state. Directories use owner-only protection; files use atomic `0600` writes and Windows ACL handling (`src/services/siwc-session.mjs:59-69,78-114,137-170,410-421,523-604`). A first attempt can create host storage before sign-in finishes; a pending client can be saved after callback but before successful exchange. The launch change adds no new credential store.
+
+#### Transmits and receiving parties
+
+| Recipient | Observed data and boundary | Source |
+| --- | --- | --- |
+| Local wizard server | Setup-token-authenticated start JSON with purpose, optional registration and launch mode. POST requires exact origin. | `src/web/server.js:733-745,3526-3528,3773-3783` |
+| Dashboard JavaScript | Server-generated `attemptId` in authenticated start/status JSON; start also includes launch mode. Status includes bounded account or error state. Neither response contains the authorization URL or provider tokens. | `src/web/server.js:3608-3625,3893-3899,3950-3953` |
+| Reserved browser tab/window and local launch handler | The attempt ID appears in `/__relmio/oauth/launch/<attemptId>`. It is a one-use launch capability, not the setup token, OAuth state, PKCE verifier or provider token. The route does not require the setup token; header checks do not authenticate non-browser clients that omit optional Origin and fetch-metadata headers. | `src/ui/siwc-controls.js:22-29`; `src/web/server.js:6453-6474` |
+| Browser network/navigation layer | The full authorization URL is delivered in the local route's `302 Location`, then navigated to OpenAI. `no-store` and `no-referrer` are set on this redirect. | `src/web/server.js:6466-6474` |
+| OpenAI authentication services | Authorization includes dynamic/issued client ID, initial app name when applicable, stable host ID, six scopes, resource, callback URI, state, nonce and S256 challenge. Discovery and JWKS requests also reach OpenAI. Code exchange is a server-side form POST containing issued client ID, code, verifier, exact callback URI and resource. | `src/services/oauth.js:150-171,198-211`; `src/services/siwc-session.mjs:623-648` |
+| Relmio loopback callback | Browser returns code/state and applicable client/scope/issuer/error parameters to `http://127.0.0.1:<port>/auth/callback`. The returned completion page contains no tokens. | `src/services/oauth.js:14,103-184,190-197` |
+| OS browser launcher and default browser, fallback only | Existing `open` on macOS, `xdg-open` on other supported Unix systems, or Windows `cmd.exe start` receives the authorization URL. Windows passes it through `RELMIO_BROWSER_TARGET_0` with delayed expansion. Same-browser mode does not invoke this launcher. | `src/services/oauth.js:214-215`; `src/browser.js:37-53,136-173` |
+| User-controlled local storage | Host, pending-registration and verified token records described above. No Relmio-hosted service, n8n instance or VPS receives these launch requests. Later reviewed installation/handoff is a separate operation. | `src/services/oauth.js:145-171`; `src/services/siwc-session.mjs:410-421,523-604` |
+
+- **Confirmed:** The [identity article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) describes OpenAI processing account, application/authorization, request/session, IP/location, browser/device and security information. The [privacy policy](https://openai.com/policies/privacy-policy/) describes downstream categories including service providers, affiliates, applicable business administrators and legal/safety recipients. These are policy-described potential recipients, not observed forwarding of every Relmio request to every category. The policy excludes business-offering content governed by customer agreements.
+
+#### Logs and retention limits
+
+- **Observed:** The reviewed launch path has no authorization-URL or attempt-ID logging call. OAuth maps token-endpoint failures to fixed or allowlisted fields; fallback launcher stdio is ignored. The dashboard receives no manual authorization link (`src/services/oauth.js:17-34,214-231`; `src/browser.js:160-173`; `src/web/server.js:6453-6474`; `src/ui/app.js:1402-1406,1449-1450`). This is a statement about these code paths, not all host logging.
+- **Open:** Browser history, history synchronization, extensions, developer tools, crash reports, OS process/environment inspection, swap and administrator logging may retain or expose the launch URL or authorization URL. They were not inspected. `location.replace`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer` and one-use consumption do not establish absence from browser history or other records.
+- **Observed mismatch:** The comment at `src/web/server.js:6464-6465` says authorization URLs do not enter `JSON/history`. JSON exclusion is supported; history exclusion is not. The authorization URL reaches the browser in `302 Location`, and the attempt ID reaches authenticated JSON and the local URL. Keep those distinctions explicit.
+
+### Three separate checks
+
+#### 1. Identity sign-in
+
+**Confirmed:** The [Help article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt) describes identity information and separately approved additional access. The [registration guide](https://developers.openai.com/siwc/token-sharing-open-source/sign-in.md) calls for the system browser, a listener started before authorization, HTTP `127.0.0.1` callback, fresh state/nonce/PKCE, S256, and exactly the same callback URI in authorization and code exchange. It does not say that only the OS-default browser may be used.
+
+**Observed:** Relmio navigates a separate top-level browsing context in the browser already displaying its dashboard. It does not construct an embedded authentication webview. The callback still binds first to an ephemeral `127.0.0.1` port at `/auth/callback`; callback state is consumed before exchange, and identity verification remains server-side (`src/ui/siwc-controls.js:4-30`; `src/services/oauth.js:103-171,190-223`). The local launch URL is not the OAuth callback and does not change `redirect_uri`.
+
+**Open [assessment]:** A new top-level tab/window in the user's ordinary browser preserves the documented external-system-browser boundary and the observed loopback requirements. No conflict was identified solely because that browser may differ from the OS default. The fetched sources do not explicitly certify Relmio's reservation/302 mechanism, define “system browser” as “default browser,” or separately state a no-embedded-webview clause. Do not represent this assessment as an OpenAI approval. Relmio itself does not establish that an arbitrary dashboard host is an ordinary browser rather than another application's webview.
+
+#### 2. Separately approved permissions
+
+**Observed:** Both launch modes request the same six scopes, unchanged:
+
+`openid profile email offline_access resource.invoke chatgpt.tokens.use.direct`
+
+Resource remains `https://api.openai.com/v1`; `purpose: "enable-plan"` adds `prompt=consent`. Initial sign-in already requests the plan scopes together with identity scopes. It would be inaccurate to describe the first authorization URL as identity-only (`src/services/oauth.js:10-11,198-215`; `src/browser.js:79-98`).
+
+**Confirmed:** The [registration guide](https://developers.openai.com/siwc/token-sharing-open-source/sign-in.md) separates identity scopes from plan-usage scopes and requires the token response's granted `chatgpt.tokens.use.direct` before inference. An ID token alone is insufficient. [SIWC Terms §§1-3](https://openai.com/policies/sign-in-with-chatgpt-terms/) require supported, authorized token handling, secure storage, express background-use consent, use for the authenticated user and connected application, and adequate notices. [Service Terms §15](https://openai.com/policies/service-terms/) incorporates the SIWC Terms.
+
+**Observed:** Launch mode does not grant permission. Verified token-response scopes still determine plan permission. First verified authorization may enable eligible plan use; an established paused registration remains paused. Acknowledgment and background consent remain separate fields (`src/services/siwc-session.mjs:544-619`). The first-use default is covered by the linked 2026-10-10 record, not introduced by this browser change.
+
+**Open:** Existing connected-application/general-purpose-interface and persistent remote-token-storage questions remain unresolved. Browser launch or successful login supplies no blanket Terms compliance, partner approval, permission for a Codex credential bridge, or authorization for another user's activity.
+
+#### 3. Model/image capability
+
+**Confirmed:** [Models and inference](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference.md) requires the selected account's catalog and public Responses endpoint, `store:false`, `stream:true`, and `response.completed` before treating inference as successful. [Preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations.md) excludes image-generation tools from this flow and does not make generic OpenAI API capabilities available through SIWC.
+
+**Observed:** The new launch handlers only start/navigate OAuth. They add no inference request or capability grant. The sidecar still dispatches image routes through its separate Codex-image lease before the SIWC text routes (`src/ui/siwc-controls.js:4-30`; `src/services/oauth.js:198-223`; `src/web/server.js:6453-6474`; `src/gateway/openai-oauth-sidecar.mjs:992-1007`).
+
+**Open:** This review establishes no model, image or TTS availability. None was exercised, and successful navigation or sign-in cannot establish admission or completed inference.
+
+### Findings
+
+1. **Observed and Open [assessment]:** For an ordinary user browser, same-browser launch retains the external-browser/no-Relmio-webview architecture and unchanged loopback/PKCE/OIDC checks. The implementation matches those documented protocol requirements at source level; exact launch-mechanism approval remains unstated.
+2. **Observed:** `popup.opener = null` runs before navigation, isolating the authentication context from its opener through that property. The local launch URL carries no setup token, and the redirect sets `no-referrer` (`src/ui/siwc-controls.js:10-29`; `src/web/server.js:6471-6472`). **Open:** This is not isolation from extensions, browser internals or a compromised host, and it does not prove every browser implements the flow identically.
+3. **Observed:** A blocked/unavailable reservation uses the existing OS-default-browser fallback. If an already reserved tab is closed before launch, both callers cancel the matching attempt after launch fails; they do not silently start a second fallback attempt (`src/ui/siwc-controls.js:12-26`; `src/ui/app.js:1421-1426`; `src/ui/local.js:4923-4926`).
+4. **Observed:** The unauthenticated local GET is intentionally protected by a random, exact, pending, one-use capability plus request-header checks, not by the setup token. Authorization URL validation prevents it from becoming an arbitrary redirect (`src/web/server.js:6453-6474`; `src/browser.js:72-107`). **Open:** Anyone able to obtain the unconsumed capability and issue an accepted local request could consume it; no stronger local-process or extension boundary was demonstrated.
+5. **Observed:** README and npm README already describe same-browser launch with fallback; getting-started does too (`README.md:236-238`; `npm/README.md:25-27`; `docs/getting-started.md:45-48`). Other current guides still say system-browser only, and VPS progress copy says “window” (`docs/troubleshooting.md:20-24,135-138`; `docs/manual-install.md:16-19`; `docs/local-endpoints.md:139-142`; `src/ui/app.js:1441-1442`). Historical source checks should retain their original snapshot descriptions; this addendum supersedes their launch behavior for v0.22.1.
+6. **Provisional, supplied runtime evidence:** The assignment reports a 2026-10-11 macOS headless-Chrome check of published 0.22.1: `about:blank` to local launch route to OpenAI authorize, loopback redirect URI, null opener, then **Stop ChatGPT sign-in**, with no account saved. The owner reports Windows v0.22.1 QA passed, including sign-in. These reports were not rerun or independently inspected here. **Open:** They do not establish every browser/fallback path, granted permissions, provider approval or model capability.
+
+### Required wording
+
+**Observed mismatch; proposed corrections:** Current-only browser descriptions should say:
+
+> Sign-in opens in a new tab in this browser when allowed. Otherwise, Relmio uses your default browser.
+
+**Observed mismatch; proposed security disclosure** for `docs/security.md:117-122`, whose current “Automatic browser opening” paragraph describes dashboard bootstrap rather than both mechanisms:
+
+> Opening the dashboard passes only an owner-only handoff-file path to the operating system.
+
+Keep the existing dashboard-handoff details after that sentence. Add a separate SIWC bullet:
+
+> ChatGPT sign-in opens in this browser when a new tab is allowed, otherwise in your default browser. The authenticated start and status responses contain an attempt ID. For same-browser sign-in, that ID appears in a one-use local launch URL, which redirects to OpenAI. The authorization URL stays in server memory until the redirect sends it to the browser. These launch paths do not log the URL. Browser history, extensions and operating-system logging are outside this guarantee.
+
+**Observed mismatch; proposed source-comment correction** at `src/web/server.js:6464-6465`:
+
+> The authenticated POST creates this one-use launch capability. JSON contains the attempt ID, not the authorization URL. The redirect sends the authorization URL to the browser; browser history is outside this guarantee.
+
+**Observed mismatch; proposed UI corrections:** Use “ChatGPT sign-in page” instead of promising a separate “window” in `src/ui/app.js:1442` and `src/ui/local.js:4908`. The common setup failure at `src/services/oauth.js:229,231` can occur before OS-default-browser dispatch, so use:
+
+> ChatGPT sign-in could not start. Return to Relmio and try again.
+
+**Open [assessment]:** These are accuracy corrections, not newly established OpenAI-mandated strings. No scope, consent or capability wording should be weakened. Existing README/npm README launch wording needs no correction; no system/default-browser-only claim was found in the searched `src/ui/*.html` files. “Opened by Relmio” alone is not false when Relmio opens a tab.
+
+### Unknowns
+
+- **Open:** Exact retention of attempt IDs and authorization URLs by browser history/sync, extensions, diagnostic tooling, operating systems and administrators. Neither `location.replace` nor the redirect headers proves non-retention.
+- **Open:** Behavior across browser preferences, popup blockers, embedded dashboard hosts, cancellation races and OS-default-browser fallback configurations not covered by the supplied reports.
+- **Open:** Explicit OpenAI acceptance of this exact tab-reservation/local-redirect mechanism. Fetched documentation requires the browser and loopback protocol but does not certify this implementation.
+- **Open:** Account/workspace eligibility, actual grants, model/image/TTS admission, applicable regional or customer agreements, notice adequacy and the pre-existing connected-application and remote-token-storage questions. This source comparison is not legal advice, OpenAI approval or proof of Terms compliance.
+
+### Changes after this review
+
+Applied on 2026-10-11 on `docs/v0.22.1-audit-followups`: the launch-wording corrections listed with this review in `docs/architecture.md`, `docs/local-dashboard.md`, `docs/local-endpoints.md`, `docs/manual-install.md`, `docs/troubleshooting.md`, `docs/video-outline.md`, `docs/vps-and-n8n.md` and `docs/security.md`, the new sign-in bullet in `docs/security.md`, the source comment above the launch redirect in `src/web/server.js`, "sign-in page" instead of "window" in the VPS and local progress messages, and the generic sign-in failure wording in `src/services/oauth.js`.

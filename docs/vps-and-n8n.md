@@ -251,8 +251,8 @@ through the reviewed replacement:
    account**, then **Refresh ChatGPT sign-in**. The button appears only when
    the panel says `Needs a fresh sign-in.`, and the main button on **Choose
    your n8n** then reads **Refresh ChatGPT sign-in** too. Sign in with the
-   same ChatGPT account, and choose the same workspace, in the browser window
-   Relmio opens. ChatGPT treats this as a new connection: it asks you to
+   same ChatGPT account, and choose the same workspace, on the ChatGPT sign-in
+   page Relmio opens. ChatGPT treats this as a new connection: it asks you to
    approve it again, and usage settings for the old connection, such as a
    weekly app limit, do not carry over. You can change the app name ChatGPT
    shows so you can tell the two apart.

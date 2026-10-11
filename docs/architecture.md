@@ -11,7 +11,7 @@ credentials.
 ```mermaid
 flowchart LR
   B["Local browser<br>127.0.0.1"] --> W["Local Node wizard"]
-  W -->|"system browser + loopback PKCE/OIDC"| A["OpenAI authorization"]
+  W -->|"same browser or default-browser fallback + loopback PKCE/OIDC"| A["OpenAI authorization"]
   A -->|"verified identity + granted scopes"| W
   W -->|"protected registration"| L["Local SIWC store"]
   W -->|"verified SSH identity + final confirmation"| V["Selected VPS"]

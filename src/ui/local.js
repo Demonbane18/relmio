@@ -4905,7 +4905,7 @@ element("n8n-oauth-sign-in").addEventListener("click", async (event) => {
       attemptId = validateOAuthAttemptId(existing.attemptId);
       resumed = true;
       setMessage(
-        "A ChatGPT sign-in is still in progress. Finish it in the existing sign-in window, or use Stop and try again.",
+        "A ChatGPT sign-in is still in progress. Finish it on the existing sign-in page, or use Stop and try again.",
       );
     } else {
       setMessage("Relmio opens a fresh ChatGPT sign-in. No saved Codex credential is imported.");

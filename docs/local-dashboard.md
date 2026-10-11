@@ -132,13 +132,12 @@ proof that an old endpoint has stopped.
 ## Read the inventory
 
 **Refresh status** first forgets abandoned setup drafts, staged replacements,
-and tester sessions from the dashboard tab. It preserves an active
-system-browser SIWC sign-in attempt. It then performs read-only discovery of
-the local Docker context and versions, Relmio's fixed managed paths, ownership
-markers, exact Docker objects, network and publication boundaries, Compose
-state, and generated health checks. This does not change an installed service:
-it does not install, start, restart, recreate, remove, or execute inside a
-container.
+and tester sessions from the dashboard tab. It preserves an active SIWC sign-in
+attempt. It then performs read-only discovery of the local Docker context and
+versions, Relmio's fixed managed paths, ownership markers, exact Docker objects,
+network and publication boundaries, Compose state, and generated health checks.
+This does not change an installed service: it does not install, start, restart,
+recreate, remove, or execute inside a container.
 
 Relmio's dashboard always has these eight rows, even when nothing is installed.
 
