@@ -7,7 +7,7 @@ import test from "node:test";
 import {
   box, choosePlacement, currentTip, errorInfo, errorTarget, lookupError, overlaps, selectChapter, tipDone, visitOutcome,
 } from "../src/ui/guide.js";
-import { candidates, cursorSpot, placeDock, stackMarkers, visiblePart } from "../src/ui/guide-dock.js";
+import { boundedSpots, candidates, chipSpot, cursorSpot, placeDock, stackMarkers, visiblePart } from "../src/ui/guide-dock.js";
 import { startWizardServer } from "../src/web/server.js";
 
 const sessionToken = "guide-engine-test-session-token-0123456789abcdef";
@@ -221,6 +221,76 @@ test("on phones the dock keeps the target, titles, track and warnings clear unti
       if (!opened) assert.ok(![...sets.safety, ...sets.lead, ...sets.aim].some((rect) => overlaps(chosen, rect)));
     }
   }
+});
+
+test("an opened dock that fits no full-height spot takes one cut to the window instead of folding away", () => {
+  // 1280 x 320 with a scrolled page: neither the rail nor the panel has room for the 316 px Help dock.
+  const view = { vw: 1280, vh: 320, wide: true, top: 64, rail: box(32, 72, 272, 560), railEnd: 400,
+    panel: box(336, 72, 912, 900), columnBottom: 972, footerTop: 912, headerBottom: 180, bottom: 320 };
+  const help = () => 316;
+  const list = candidates(view, help);
+  assert.deepEqual(list, []);
+  const hard = [box(32, 100, 272, 40), box(884, 250, 200, 32)];
+  const sets = { hard, safety: [], lead: [], aim: [] };
+  assert.equal(placeDock(list, sets, []), null, "an unopened dock still folds into the chip");
+  const spot = placeDock(list, sets, [], true, boundedSpots(view, help, hard));
+  assert.ok(spot, "opened from the chip, it always shows");
+  assert.ok(spot.top >= view.top && spot.bottom <= view.vh - 8, "inside the window under the top bar");
+  assert.ok(spot.height >= 160 && spot.height < 316, "cut short, so its body scrolls");
+  assert.equal(hard.some((rect) => overlaps(spot, rect)), false, "the primary action and kept controls stay clear");
+
+  // A row of kept controls across every column leaves no usable stretch: it
+  // covers the fewest of them rather than fold away.
+  const row = [box(0, 150, 1280, 60)];
+  assert.deepEqual(placeDock(list, { ...sets, hard: row }, [], true, boundedSpots(view, help, row)), box(32, 64, 272, 248));
+
+  // A narrow window with room for two docks tries each half.
+  const phone = { vw: 568, vh: 320, wide: false, top: 64, bottom: 320 };
+  const actions = [box(52, 194, 230, 80)];
+  assert.deepEqual(placeDock(candidates(phone, help), { ...sets, hard: actions }, [], true,
+    boundedSpots(phone, help, actions)), box(288, 64, 272, 248));
+
+  // A cut spot that keeps a warning clear comes before a full-height spot over it.
+  const tall = box(908, 380, 352, 316);
+  const cut = box(336, 64, 352, 248);
+  assert.deepEqual(placeDock([tall], { hard: [], safety: [box(900, 400, 300, 60)], lead: [], aim: [] }, [], true, [cut]), cut);
+
+  // Random layouts: an opened dock always shows inside the window, and clear
+  // of every hard box whenever one of its spare spots is.
+  let seed = 5;
+  const random = (max) => { seed = (seed * 48271) % 2147483647; return seed % max; };
+  for (let round = 0; round < 300; round++) {
+    const narrow = { vw: 320 + random(700), vh: 300 + random(500), wide: false, top: 64 };
+    narrow.bottom = narrow.vh;
+    const rects = Array.from({ length: random(4) }, () => box(random(narrow.vw), 64 + random(narrow.vh - 64), 40 + random(300), 30 + random(60)));
+    const spare = boundedSpots(narrow, help, rects);
+    const chosen = placeDock([], { hard: rects, safety: [], lead: [], aim: [] }, [], true, spare);
+    assert.ok(chosen && chosen.top >= narrow.top && chosen.bottom <= narrow.vh - 8 && chosen.left >= 0 && chosen.right <= narrow.vw);
+    if (spare.some((option) => !rects.some((rect) => overlaps(option, rect)))) {
+      assert.equal(rects.some((rect) => overlaps(chosen, rect)), false);
+    }
+  }
+});
+
+test("the chip stays inside the window and never covers a kept control while a spot is clear", () => {
+  // 1280 x 320 with a scrolled page: the rail column's foot is below the window.
+  const view = { vw: 1280, vh: 320, wide: true, top: 64, rail: box(32, 72, 272, 560), columnBottom: 972, bottom: 320 };
+  const none = { hard: [], safety: [], lead: [] };
+  assert.deepEqual(chipSpot(view, 93, 44, none, []), box(1171, 260, 93, 44), "the window's foot, not the rail's");
+  // Kept controls at both right-hand spots: the left edge takes it.
+  const kept = [box(1100, 50, 170, 70), box(1100, 240, 170, 70)];
+  assert.deepEqual(chipSpot(view, 93, 44, { ...none, hard: kept }, []), box(32, 260, 93, 44));
+  // Safety or a title gives way before a kept control.
+  const everywhere = [box(0, 240, 1280, 80)];
+  const keptTop = [box(1100, 50, 170, 70), box(0, 50, 400, 70)];
+  assert.deepEqual(chipSpot(view, 93, 44, { hard: keptTop, safety: everywhere, lead: [] }, []), box(1171, 260, 93, 44));
+  // Nothing clear: it covers the least.
+  const spot = chipSpot(view, 93, 44, { ...none, hard: [box(0, 0, 1280, 120), box(0, 250, 1240, 70)] }, []);
+  assert.deepEqual(spot, box(1171, 260, 93, 44));
+  // A panel footer scrolled above the top bar never puts the chip behind it.
+  const scrolled = { vw: 390, vh: 844, wide: false, top: 64, bottom: 40 };
+  const chip = chipSpot(scrolled, 93, 44, none, []);
+  assert.ok(chip.top >= scrolled.top && chip.bottom <= scrolled.vh, "inside the window under the top bar");
 });
 
 test("a target clipped by a scrolled panel body counts as off screen", () => {

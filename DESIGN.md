@@ -341,7 +341,7 @@ it on or off, and `/api/ui/preferences` keeps the choice.
 
 | Part | Classes | Rules |
 | --- | --- | --- |
-| Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide": the mascot, the quest name, numbered by the page's current step, and progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use the default or ghost style, so the page keeps its one primary action. Escape collapses it and returns focus |
+| Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__body`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide": the mascot, the quest name, numbered by the page's current step, and progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use the default or ghost style, so the page keeps its one primary action. Escape collapses it and returns focus |
 | Chip | `rm-guide-chip` | The collapsed dock, available on every view even with the walkthrough off. "Help" opens contextual help; an error uses "Need help with this error?" |
 | Pointer | `rm-guide-pointer`, `rm-guide-marker` | A ring around the target and a cursor with a short action label. It glides with `transform` only. With reduced motion, Show me numbers the targets instead, and the numbers never overlap |
 | Mascot | `rm-mascot` from `mascot.js` | Inline SVG from the logo vectors, decorative and hidden in forced colors. Poses: idle, look, happy, thinking, worried, waiting. The sleep cap uses `--rm-brand-cap`. While the guide is on, the mascot also stands in the quest track's current step |
@@ -371,24 +371,35 @@ Placement:
 
 - The dock, chip and pointer are fixed layers. They never change page layout,
   so every view keeps the one-screen rule with the guide open.
-- The dock never covers the focused element, the view's primary action, an
-  error callout or the panel footer's actions. It also keeps the rail column's
-  content clear, apart from the quest track, and every warning. On wide
-  windows it sits at the foot of the rail column, under its content, or at a
-  corner of the panel. On narrow windows it is a sheet at the bottom of the
-  window, above the panel footer or under the top bar.
+- The dock never covers its protected items: the focused element, the view's
+  primary action, an error callout, the panel footer's actions, and the
+  buttons and links in a region marked `data-guide-keep`. The dashboard marks
+  its selected connection and its empty state this way. The dock also keeps
+  the rail column's content clear, apart from the quest track, and every
+  warning. On wide windows it sits at the foot of the rail column, under its
+  content, or at a corner of the panel. On narrow windows it is a sheet at the
+  bottom of the window, above the panel footer or under the top bar.
 - Until the person opens it from the chip, presses Start the guide, Back or
   Next tip, or moves focus into it, the dock also keeps the tip's target, the
   page and step titles and the quest track clear. When nothing fits, it
   collapses to the chip and the pointer still marks the target. An opened dock
-  covers the target, titles or track before any safety content, and never the
-  items above.
+  covers the target, titles or track before any safety content.
+- An opened dock always shows. When no spot fits its full height, it is cut
+  to the window below the top bar: in the rail column or at a panel corner on
+  wide windows, and as a sheet or a half-width card on narrow ones. Its body
+  scrolls, and its head and actions stay in view. It takes a stretch of at
+  least 160 px that keeps the protected items clear. Only when a tiny window
+  has no such stretch does it cover the fewest of them, instead of collapsing.
+- The chip stays inside the window. It keeps the protected items clear before
+  safety content and titles, and moves to the left edge when the right edge
+  has no clear spot.
 - The pointer hides while its target is scrolled out of view, including out
   of a scrolling panel body. Its action label never covers a checkbox or radio
   label or a disclosure summary. A checkbox or radio is pointed at from its
   left edge, and the label is left out when neither side is clear.
-- Check placement at the five one-screen sizes plus 390 x 844 and 320 x 640,
-  in the default and error states.
+- Check placement at the five one-screen sizes plus 390 x 844, 320 x 640 and
+  short windows such as 1280 x 320 and 568 x 320, in the default and error
+  states.
 - Game feel stays quiet: a badge chip, a checked progress dot and one hop of
   the mascot. No points, confetti, emoji or exclamation marks. Decorative
   motion stops within 5 seconds.

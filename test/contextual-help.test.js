@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 import { mountGuide } from "../src/ui/guide-dock.js";
+import { box, overlaps } from "../src/ui/guide.js";
 import { contextualHelp, HELP_FAQ, HELP_METADATA, helpState, UNKNOWN_HELP, validHelpMetadata } from "../src/ui/guide/context.js";
 
 test("help follows the actual permission, notice, ownership and preview prerequisite", () => {
@@ -234,9 +235,31 @@ test("missing targets hide Show me, explain the gap and never point at another c
   const h = dockHarness(t, { missing: true });
   h.guide.openHelp();
   assert.equal(h.button("Show me").hidden, true);
-  assert.match(h.byClass("rm-guide").children.find((node) => node.getAttribute("role") === "status").textContent, /not visible/u);
+  assert.match(h.byClass("rm-guide__body").children.find((node) => node.getAttribute("role") === "status").textContent, /not visible/u);
   assert.equal(h.byClass("rm-guide-pointer").hidden, true);
   assert.equal(h.clicks(), 0);
+});
+
+test("the welcome card and Help never cover the controls of a region the page keeps clear", (t) => {
+  const h = dockHarness(t, { pref: null });
+  // The selected connection's action, low on a 390 x 844 window, where the dock's sheet would sit.
+  const kept = h.doc.createElement("section");
+  kept.setAttribute("data-guide-keep", "");
+  const action = h.doc.createElement("button");
+  action.rect = box(16, 600, 200, 40);
+  kept.append(action);
+  h.body.append(kept);
+  const dock = h.byClass("rm-guide");
+  const spot = () => {
+    const [left, top] = /translate\((-?\d+)px, (-?\d+)px\)/u.exec(dock.style.transform).slice(1).map(Number);
+    return box(left, top, Number.parseFloat(dock.style.width), 280);
+  };
+  h.refresh();
+  assert.equal(dock.hidden, false, "the welcome card has room under the top bar");
+  assert.equal(overlaps(spot(), action.rect), false, "the welcome card keeps the action clear");
+  h.guide.openHelp();
+  assert.equal(dock.hidden, false);
+  assert.equal(overlaps(spot(), action.rect), false, "Help keeps it clear too");
 });
 
 test("help retains disabled controls and a static reduced-motion path on narrow and wide views", (t) => {
