@@ -3,8 +3,8 @@
 export const HELP_METADATA = Object.freeze({
   schema: 1,
   revision: 1,
-  sourceVersion: "0.22.1",
-  sourceCommit: "b6b4c2ac4e6b055fa22a9feeac757fb9bb2ac2bd",
+  sourceVersion: "0.22.2",
+  sourceCommit: "bedaa0f6aeadf76cbb3cbd254b4a0d41908c0426",
   reviewedOn: "2026-10-11",
   sources: Object.freeze([
     "docs/getting-started.md", "docs/faq.md", "docs/security.md",

@@ -69,3 +69,12 @@ select a destination or authorize a remote write. Unknown state, unsupported
 metadata and missing targets provide a safe explanation. Browser verification
 and live inference are separate acceptance checks, not implied by source or
 unit-test evidence.
+
+## 0.22.2 metadata update
+
+On 2026-10-11 the bundled help metadata moved to Relmio 0.22.2, development
+base commit `bedaa0f6aeadf76cbb3cbd254b4a0d41908c0426`, still schema 1 and
+revision 1. No help text, FAQ entry or rule changed between 0.22.1 and 0.22.2
+(`git log v0.22.1..bedaa0f -- src/ui/guide` is empty). For help, 0.22.2 changes
+only where the dock and chip sit on screen; the help content, data handling and
+sources above are unchanged.

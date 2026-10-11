@@ -26,9 +26,9 @@ not enable hosted chat. See the
 [2026-10-05 source check](docs/openai-source-check-2026-10-05.md) for the data
 flow, documented limits, unresolved prerequisites, and historical reviews.
 
-Relmio 0.22.1 is the current stable release. It fixes Windows sign-in and
-owned-stack recovery, and keeps Help available after you skip the walkthrough.
-It is available through npm `latest` and the hosted installers.
+Relmio 0.22.2 is the current stable release. It makes Help usable on small and
+short windows and keeps the setup guide off the dashboard's buttons. It is
+available through npm `latest` and the hosted installers.
 
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
@@ -59,7 +59,7 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-`@latest` selects stable 0.22.1, including the setup guide. Hosted
+`@latest` selects stable 0.22.2, including the setup guide. Hosted
 installers use the same stable default.
 
 
