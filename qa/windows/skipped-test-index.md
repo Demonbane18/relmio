@@ -1,6 +1,6 @@
 # Exact native skipped-test index
 
-Observed default gate: 2026-10-10, main `2a112767aa857bf359d51db1b6f950b21a80c81b` plus the local QA diff, 1,823 tests, 1,719 pass, 0 fail, 104 skip. This is the full skipped-test ledger from the saved native run, not a pass list. [Reason buckets](skipped-tests.md) distinguish Linux/POSIX and Windows file-symlink limitations. When a test supplies no printed reason, it remains explicitly unspecified; no Windows success is inferred.
+Earlier recovery-fixed default gate, checkpoint3/5 on 2026-10-10: main `2a112767aa857bf359d51db1b6f950b21a80c81b` plus the then-local QA diff, 1,763 tests, 1,659 pass, 0 fail, 104 skip. This is the full skipped-test ledger from that saved native run, not a pass list. The later frozen Windows checkpoint14 at `b6b4c2ac4e6b055fa22a9feeac757fb9bb2ac2bd` reported 1,823 total, 1,719 passed, zero failed and 104 skipped; see [the Windows checkpoint](README.md#unreleased-windows-patch-checkpoint-2026-10-10) and [reason buckets](skipped-tests.md). These are distinct runs, neither a final v0.22.1 candidate gate. When a test supplies no printed reason, it remains explicitly unspecified; no Windows success is inferred.
 
 1. a symlinked installed CLI runs the version command # SKIP
 2. device sign-in saves one images session and returns no secrets # the Codex images store exists only in the Linux sidecar container; NTFS has no POSIX modes
