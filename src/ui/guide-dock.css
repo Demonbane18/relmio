@@ -34,12 +34,31 @@
 
 .rm-guide {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: var(--rm-space-2);
   padding: var(--rm-space-3);
   border-radius: var(--rm-radius-lg);
   box-shadow: var(--rm-shadow-lg);
   font-size: var(--rm-text-md);
   line-height: 1.45;
+}
+
+/* guide-dock.js caps the dock's height to a short window and adds is-cut;
+   then only the body scrolls, and a rule above the actions marks its end.
+   The padding keeps focus rings inside the scroll box. */
+.rm-guide__body {
+  display: grid;
+  align-content: start;
+  gap: var(--rm-space-2);
+  margin: calc(-1 * var(--rm-space-2));
+  padding: var(--rm-space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.rm-guide.is-cut .rm-guide__actions {
+  padding-top: var(--rm-space-2);
+  border-top: 1px solid var(--rm-line);
 }
 
 .rm-guide__head {

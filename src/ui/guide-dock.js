@@ -61,18 +61,82 @@ export function candidates(view, measure) {
 }
 
 // The dock's spot, strictest rule first; null folds it into the chip. It never
-// covers the hard boxes (the focused element, the primary action, alerts and
-// footer actions). Until the person opens it, it also keeps the tip's target,
-// the titles, the quest track and safety clear. Opened, it gives up the
-// target, titles and track first and safety last.
-export function placeDock(list, { hard, safety, lead, aim }, soft, opened = false) {
+// covers the hard boxes (the focused element, the primary action, alerts,
+// footer actions and kept controls) where a spot keeps them clear. Until the
+// person opens it, it also keeps the tip's target, the titles, the quest track
+// and safety clear. Opened, it gives up the target, titles and track first and
+// safety last, then takes a spare spot cut to the window, and on a tiny window
+// covers the fewest hard boxes rather than fold away.
+export function placeDock(list, { hard, safety, lead, aim }, soft, opened = false, spare = []) {
   const tiers = [[...hard, ...safety, ...lead, ...aim]];
   if (opened) tiers.push([...hard, ...safety], hard);
-  for (const rects of tiers) {
-    const spot = choosePlacement(list, rects, soft);
+  for (const spots of [list, spare]) {
+    for (const rects of tiers) {
+      const spot = choosePlacement(spots, rects, soft);
+      if (spot) return spot;
+    }
+  }
+  return opened ? choosePlacement(spare, [], hard) : null;
+}
+
+// Spare spots for an opened dock that fits no full-height spot: its columns
+// cut to the window under the top bar, where its body scrolls. A narrow
+// window with room for two 272 px docks also tries each half. Each stretch
+// between hard boxes holding at least `least` px comes first, then the whole
+// column.
+export function boundedSpots(view, measure, hard, least = 160) {
+  const columns = [];
+  if (view.wide && view.rail) columns.push([view.rail.left, view.rail.width]);
+  if (view.wide && view.panel) {
+    const width = Math.min(352, view.panel.width - 32);
+    columns.push([view.panel.right - 16 - width, width]);
+  }
+  if (!columns.length) {
+    const width = Math.min(view.vw - 16, 512);
+    const half = Math.min(352, (view.vw - 24) / 2);
+    columns.push([(view.vw - width) / 2, width]);
+    if (half >= 272) columns.push([8, half], [view.vw - 8 - half, half]);
+  }
+  const floor = view.vh - 8;
+  const spots = [];
+  for (const [left, width] of columns) {
+    const full = measure(width);
+    const fit = (top, bottom) => {
+      const height = Math.min(full, bottom - top);
+      return [box(left, top, width, height), box(left, bottom - height, width, height)];
+    };
+    const stops = hard.filter((rect) => rect.left < left + width && left < rect.right).sort((a, b) => a.top - b.top);
+    let top = view.top;
+    for (const stop of [...stops, box(left, floor, width, 0)]) {
+      const bottom = Math.min(stop.top, floor);
+      if (bottom - top >= Math.min(full, least)) spots.push(...fit(top, bottom));
+      top = Math.max(top, stop.bottom);
+    }
+    spots.push(...fit(view.top, floor));
+  }
+  return spots;
+}
+
+// The chip: the rail column's foot on wide windows, else the right edge above
+// the panel footer, at the window's foot or under the top bar, always inside
+// the window. The left edge is a fallback. It keeps the hard boxes clear
+// before safety, titles and track, and covers the fewest hard boxes when no
+// spot is clear.
+export function chipSpot(view, width, height, { hard, safety, lead }, soft) {
+  const gap = view.wide ? 16 : 8;
+  const at = (left, top) => box(left, top, width, height);
+  const right = view.vw - gap - width;
+  const left = view.rail?.left ?? gap;
+  const usual = [at(right, view.bottom - gap - height), at(right, view.vh - gap - height), at(right, view.top)];
+  if (view.rail) usual.unshift(at(left, view.columnBottom - height));
+  const inside = (spots) => spots.filter((rect) => rect.bottom <= view.vh);
+  const near = inside(usual);
+  const all = inside([...usual, at(left, view.vh - gap - height), at(left, view.top)]);
+  for (const rects of [[...hard, ...safety, ...lead], hard]) {
+    const spot = choosePlacement(near, rects, soft) ?? choosePlacement(all, rects, soft);
     if (spot) return spot;
   }
-  return null;
+  return choosePlacement(all, [], hard) ?? usual.at(-1);
 }
 
 // The part of a box inside every clip box, or null when none of it shows.
@@ -224,7 +288,10 @@ export function mountGuide(host) {
     const skip = textButton("rm-button rm-button--ghost rm-button--sm", "Skip guide");
     const help = textButton("rm-button rm-button--ghost rm-button--sm", "Help");
     actions.append(back, forward, show, help, start, skip);
-    dock.append(head, topics, live, example, find, next, availability, about, actions);
+    // Cut to a short window, only the body scrolls; the head and actions stay.
+    const body = make("div", "rm-guide__body");
+    body.append(topics, live, example, find, next, availability, about);
+    dock.append(head, body, actions);
     const chip = textButton("rm-guide-chip");
     const chipFace = make("span", "rm-guide-chip__mascot");
     const chipMascot = createMascot();
@@ -556,15 +623,17 @@ export function mountGuide(host) {
     if (current === "none") return;
     const view = layout();
     const goal = node && seen(node, view.top - 8);
-    // Never covered: the focused element, the primary action, alerts and the
-    // panel footer's actions and consents.
+    // Never covered: the focused element, the primary action, alerts, the
+    // panel footer's actions and consents, and the controls of a region the
+    // page keeps clear with data-guide-keep, such as the selected connection.
     const hard = [];
     const focused = doc.activeElement;
     if (focused && !owned(focused)) {
       const rect = focused.getBoundingClientRect();
       if (rect.width * rect.height < (view.vw * view.vh) / 3) hard.push(rect);
     }
-    const urgent = boxes(all(".rm-button--primary, [role='alert'], .rm-panel__footer :is(button, a[href], label)"));
+    const urgent = boxes([...all(".rm-button--primary, [role='alert'], .rm-panel__footer :is(button, a[href], label)"),
+      ...all("[data-guide-keep]").flatMap((region) => [...region.querySelectorAll("button, a[href]")])]);
     hard.push(...urgent);
     const track = first(".rm-stepper--track");
     const safety = boxes(all(SAFETY).filter((item) => !item.contains(track)));
@@ -602,12 +671,9 @@ export function mountGuide(host) {
     let spot = null;
     if (current !== "chip") {
       ui.dock.hidden = false;
-      const list = candidates(view, (width) => {
-        ui.dock.style.width = `${width}px`;
-        return ui.dock.offsetHeight;
-      });
       const opened = openedKey === shownKey || ui.dock.contains(doc.activeElement);
-      spot = placeDock(list, { hard, safety, lead, aim }, soft, opened);
+      spot = placeDock(candidates(view, natural), { hard, safety, lead, aim }, soft, opened,
+        opened ? boundedSpots(view, natural, hard) : []);
     }
     // A dock that folds into the chip hands its focus to the chip.
     const refocus = !spot && ui.dock.contains(doc.activeElement);
@@ -615,14 +681,7 @@ export function mountGuide(host) {
     ui.chip.hidden = Boolean(spot);
     if (spot) move(ui.dock, spot);
     else {
-      const width = ui.chip.offsetWidth;
-      const height = ui.chip.offsetHeight;
-      const gap = view.wide ? 16 : 8;
-      const right = view.vw - gap - width;
-      const list = [box(right, view.bottom - gap - height, width, height), box(right, view.vh - gap - height, width, height),
-        box(right, view.top, width, height)];
-      if (view.rail) list.unshift(box(view.rail.left, view.columnBottom - height, width, height));
-      move(ui.chip, choosePlacement(list, [...hard, ...safety, ...lead], soft) ?? list.at(-1));
+      move(ui.chip, chipSpot(view, ui.chip.offsetWidth, ui.chip.offsetHeight, { hard, safety, lead }, soft));
       if (refocus) ui.chip.focus();
     }
     const shield = spot ?? ui.chip.getBoundingClientRect();
@@ -646,8 +705,20 @@ export function mountGuide(host) {
     }
   }
 
+  // The dock's full height at a width.
+  function natural(width) {
+    ui.dock.style.width = `${width}px`;
+    ui.dock.style.maxHeight = "";
+    ui.dock.classList.remove("is-cut");
+    return ui.dock.offsetHeight;
+  }
+
   function move(node, rect) {
-    if (node === ui.dock) node.style.width = `${rect.width}px`;
+    // A dock cut shorter than its content scrolls its body.
+    if (node === ui.dock && rect.height < natural(rect.width)) {
+      node.style.maxHeight = `${rect.height}px`;
+      node.classList.add("is-cut");
+    }
     const value = `translate(${Math.round(rect.left)}px, ${Math.round(rect.top)}px)`;
     if (node.style.transform !== value) node.style.transform = value;
   }

@@ -14,6 +14,11 @@ checks the registry separately after publication.
 - The README, npm README, and website fallback now identify 0.22.1 as the
   current stable release.
 - A published source-check record no longer includes local folder paths.
+- **Help** now opens on short or narrow windows, such as 1280 x 320 or a
+  phone held sideways. When the window is too short for the whole card, the
+  card fits below the top bar and its text scrolls, with its buttons in view.
+- On the local dashboard, the setup guide card and the **Help** chip no longer
+  cover the selected connection's buttons, such as **Review removal**.
 
 ## [0.22.1] - 2026-10-11
 
