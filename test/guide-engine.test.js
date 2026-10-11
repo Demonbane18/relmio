@@ -250,6 +250,11 @@ test("an opened dock that fits no full-height spot takes one cut to the window i
   assert.deepEqual(placeDock(candidates(phone, help), { ...sets, hard: actions }, [], true,
     boundedSpots(phone, help, actions)), box(288, 64, 272, 248));
 
+  // A cut spot that keeps a warning clear comes before a full-height spot over it.
+  const tall = box(908, 380, 352, 316);
+  const cut = box(336, 64, 352, 248);
+  assert.deepEqual(placeDock([tall], { hard: [], safety: [box(900, 400, 300, 60)], lead: [], aim: [] }, [], true, [cut]), cut);
+
   // Random layouts: an opened dock always shows inside the window, and clear
   // of every hard box whenever one of its spare spots is.
   let seed = 5;
@@ -282,6 +287,10 @@ test("the chip stays inside the window and never covers a kept control while a s
   // Nothing clear: it covers the least.
   const spot = chipSpot(view, 93, 44, { ...none, hard: [box(0, 0, 1280, 120), box(0, 250, 1240, 70)] }, []);
   assert.deepEqual(spot, box(1171, 260, 93, 44));
+  // A panel footer scrolled above the top bar never puts the chip behind it.
+  const scrolled = { vw: 390, vh: 844, wide: false, top: 64, bottom: 40 };
+  const chip = chipSpot(scrolled, 93, 44, none, []);
+  assert.ok(chip.top >= scrolled.top && chip.bottom <= scrolled.vh, "inside the window under the top bar");
 });
 
 test("a target clipped by a scrolled panel body counts as off screen", () => {

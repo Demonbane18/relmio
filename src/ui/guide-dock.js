@@ -65,13 +65,14 @@ export function candidates(view, measure) {
 // footer actions and kept controls) where a spot keeps them clear. Until the
 // person opens it, it also keeps the tip's target, the titles, the quest track
 // and safety clear. Opened, it gives up the target, titles and track first and
-// safety last, then takes a spare spot cut to the window, and on a tiny window
-// covers the fewest hard boxes rather than fold away.
+// safety last. At each of those steps a spare spot cut to the window comes
+// before giving up more, and on a tiny window it covers the fewest hard boxes
+// rather than fold away.
 export function placeDock(list, { hard, safety, lead, aim }, soft, opened = false, spare = []) {
   const tiers = [[...hard, ...safety, ...lead, ...aim]];
   if (opened) tiers.push([...hard, ...safety], hard);
-  for (const spots of [list, spare]) {
-    for (const rects of tiers) {
+  for (const rects of tiers) {
+    for (const spots of [list, spare]) {
       const spot = choosePlacement(spots, rects, soft);
       if (spot) return spot;
     }
@@ -89,7 +90,7 @@ export function boundedSpots(view, measure, hard, least = 160) {
   if (view.wide && view.rail) columns.push([view.rail.left, view.rail.width]);
   if (view.wide && view.panel) {
     const width = Math.min(352, view.panel.width - 32);
-    columns.push([view.panel.right - 16 - width, width]);
+    columns.push([view.panel.right - 16 - width, width], [view.panel.left + 16, width]);
   }
   if (!columns.length) {
     const width = Math.min(view.vw - 16, 512);
@@ -129,7 +130,8 @@ export function chipSpot(view, width, height, { hard, safety, lead }, soft) {
   const left = view.rail?.left ?? gap;
   const usual = [at(right, view.bottom - gap - height), at(right, view.vh - gap - height), at(right, view.top)];
   if (view.rail) usual.unshift(at(left, view.columnBottom - height));
-  const inside = (spots) => spots.filter((rect) => rect.bottom <= view.vh);
+  const inside = (spots) => spots.filter((rect) =>
+    rect.top >= view.top && rect.bottom <= view.vh && rect.left >= 0 && rect.right <= view.vw);
   const near = inside(usual);
   const all = inside([...usual, at(left, view.vh - gap - height), at(left, view.top)]);
   for (const rects of [[...hard, ...safety, ...lead], hard]) {
