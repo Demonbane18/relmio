@@ -100,15 +100,37 @@ set to reduce motion, it numbers the tips instead. Each finished quest earns
 a badge, and the Ready screen lists your badges and next steps.
 
 If a step fails, the guide explains the error, lists what to do next and
-points at the control that fixes it. With the guide off, a **Need help with
-this error?** button opens the same help.
+points at the control that fixes it. A **Need help with this error?** button
+opens the same help. **Help** is available on every wizard page even after
+you skip the walkthrough. Open it for the current prerequisite, or select
+**Help topic** to read an existing feature's tip or the bundled FAQ. Open an
+optional section first to include its controls in the topic list.
+
+If **Check the server** is unavailable, choose **Help with Check the server**
+beside the account status. Identity-only sign-in points to **Allow ChatGPT plan
+use**. A paused plan points to **Use ChatGPT plan**. A granted plan with an
+unread notice points to **Review plan notice**, then **Got it**. A transferred
+or unresolved registration points to its installation's management or recovery
+controls. Preview and busy states explain their own restriction. None of these
+actions verifies model access by itself.
+
+In contextual help, **Show me** highlights the named control and moves focus
+to it if it is enabled. It never clicks a button, checks consent or installs
+anything. If that control is absent or hidden, help says so and omits **Show
+me**. Choose **Current step** or open the relevant section to recover.
 
 The down arrow at the top of the guide (**Hide guide**), or Escape while the
-guide has focus, folds it into a small **Guide** button. **Skip guide** turns
-it off. The **Setup guide** button in the top bar, or in the menu on very
+guide has focus, folds it into a small **Help** button. **Skip guide** turns
+the walkthrough off and keeps **Help** available. The **Setup guide** button in the top bar, or in the menu on very
 narrow windows, turns it on or off at any time. Every wizard page has the
 guide, including the dashboard on this computer, the Assistant wizard and
 **Hosting options**.
+
+**About this help** lists the bundled help revision, source version, review
+date and source guides. Help runs on this computer using fixed FAQ entries,
+the visible step and bounded state rules. It makes no model requests and
+saves no question history. Unknown state or unsupported metadata falls back
+to the current view's instructions, without suggesting an unverified action.
 
 Relmio saves only the on or off choice, in `ui-preferences.json` in the
 ChatGPT sign-in folder (`N8N_OPENAI_OAUTH_HOME`, or `~/.n8n-openai-oauth`), so

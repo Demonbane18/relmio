@@ -5,6 +5,7 @@
 // and exported for tests.
 import { ACTION_LABELS, box, choosePlacement, currentTip, errorTarget, overlaps, selectChapter, tipDone, visitOutcome } from "./guide.js";
 import { createMascot, setMascotPose } from "./mascot.js";
+import { contextualHelp, HELP_FAQ, helpState, UNKNOWN_HELP, validHelpMetadata } from "./guide/context.js";
 
 const FOCUSABLE = "a[href], button, input, select, textarea, summary, [tabindex]";
 // The rail column: the rail and the blocks the grid places under it, such as
@@ -128,6 +129,7 @@ export function mountGuide(host) {
   // or Next tip); "next" until it renders. Only that content, or a dock holding
   // focus, may cover the page past the strict rules.
   let openedKey = null;
+  let helpOpen = false; let helpSelection = "";
 
   const all = (selector) => { try { return [...doc.querySelectorAll(selector)]; } catch { return []; } };
   const owned = (node) => toggles.includes(node) || ui.layer.contains(node) || ui.track.contains(node) ||
@@ -171,6 +173,7 @@ export function mountGuide(host) {
     const layer = make("div", "rm-guide-layer");
     const dock = make("aside", "rm-guide");
     dock.setAttribute("aria-label", "Setup guide");
+    dock.id = "relmio-help-dock";
     dock.tabIndex = -1;
     const head = make("div", "rm-guide__head");
     const face = make("span", "rm-guide__mascot");
@@ -202,20 +205,34 @@ export function mountGuide(host) {
     findBody.append(findText);
     find.append(make("summary", "", "Where do I find this?"), findBody);
     const next = make("ul", "rm-guide__next");
+    const topics = make("label", "rm-field rm-guide__topics");
+    const topicLabel = make("span", "rm-field__label", "Help topic");
+    const topic = make("select", "rm-select");
+    topics.append(topicLabel, topic);
+    const availability = make("p", "rm-small rm-muted");
+    availability.setAttribute("role", "status");
+    const about = make("details", "rm-disclosure rm-disclosure--plain rm-guide__find");
+    const aboutBody = make("div", "rm-disclosure__body");
+    const source = make("p", "rm-small rm-muted");
+    aboutBody.append(source);
+    about.append(make("summary", "", "About this help"), aboutBody);
     const actions = make("div", "rm-guide__actions");
     const back = iconButton("arrow-left", "Back", "rm-icon-button--outline");
     const forward = textButton("rm-button rm-button--sm", "Next tip");
     const show = textButton("rm-button rm-button--sm", "Show me");
     const start = textButton("rm-button rm-button--sm", "Start the guide");
     const skip = textButton("rm-button rm-button--ghost rm-button--sm", "Skip guide");
-    actions.append(back, forward, show, start, skip);
-    dock.append(head, live, example, find, next, actions);
+    const help = textButton("rm-button rm-button--ghost rm-button--sm", "Help");
+    actions.append(back, forward, show, help, start, skip);
+    dock.append(head, topics, live, example, find, next, availability, about, actions);
     const chip = textButton("rm-guide-chip");
     const chipFace = make("span", "rm-guide-chip__mascot");
     const chipMascot = createMascot();
     chipFace.append(chipMascot);
     const chipText = make("span");
     chip.append(chipFace, chipText);
+    chip.setAttribute("aria-controls", "relmio-help-dock");
+    chip.setAttribute("aria-expanded", "false");
     const pointer = make("div", "rm-guide-pointer");
     pointer.setAttribute("aria-hidden", "true");
     const ring = make("div", "rm-guide-pointer__ring");
@@ -231,25 +248,33 @@ export function mountGuide(host) {
     track.setAttribute("viewBox", "-6 -6 108 138");
     const finish = doc.querySelector("[data-guide-finish]");
 
-    const collapse = () => { hidden = true; errorOpen = false; openedKey = null; refresh(); };
+    const collapse = () => {
+      hidden = true; errorOpen = helpOpen = false; openedKey = null;
+      stopDemo(); clearMarkers(); refresh();
+    };
     // Focus moves to the visible guide toggle, or the menu that holds it.
     const turnOff = () => {
+      helpOpen = false;
+      stopDemo(); clearMarkers();
       host.choose("off");
       (toggles.find((node) => node.checkVisibility?.()) ?? doc.querySelector(".rm-menu > summary"))?.focus();
     };
     hide.addEventListener("click", () => { collapse(); chip.focus(); });
     close.addEventListener("click", turnOff);
     skip.addEventListener("click", turnOff);
-    start.addEventListener("click", () => { openedKey = "next"; host.choose("on"); refresh(); focusDock(); });
+    start.addEventListener("click", () => {
+      helpOpen = false; openedKey = "next";
+      if (host.pref !== "on") host.choose("on");
+      refresh(); focusDock();
+    });
     back.addEventListener("click", () => { if (back.getAttribute("aria-disabled") !== "true") step(-1); });
     forward.addEventListener("click", () => { if (forward.getAttribute("aria-disabled") !== "true") step(1); });
     show.addEventListener("click", showMe);
-    chip.addEventListener("click", () => {
-      hidden = false;
-      openedKey = "next";
-      if (host.failure?.entry) errorOpen = true;
-      refresh();
-      focusDock();
+    chip.addEventListener("click", openHelp);
+    help.addEventListener("click", openHelp);
+    topic.addEventListener("change", () => {
+      helpSelection = topic.value;
+      stopDemo(); clearMarkers(); openedKey = "next"; refresh();
     });
     dock.addEventListener("focusin", (event) => { if (!dock.contains(event.relatedTarget)) returnFocus = event.relatedTarget; });
     dock.addEventListener("keydown", (event) => {
@@ -260,7 +285,26 @@ export function mountGuide(host) {
       (origin?.isConnected && visible(origin) ? origin : chip).focus();
     });
     return { layer, dock, mascot, eyebrow, progress, dots, close, title, say, steps, example, code, find, findText,
-      next, actions, back, forward, show, start, skip, chip, chipMascot, chipText, pointer, ring, cursor, label, track, finish };
+      next, topics, topic, availability, about, source, actions, back, forward, show, help, start, skip,
+      chip, chipMascot, chipText, pointer, ring, cursor, label, track, finish };
+  }
+
+  function openHelp() {
+    returnFocus = doc.activeElement;
+    hidden = false; helpOpen = true; helpSelection = ""; openedKey = "next";
+    stopDemo(); clearMarkers(); refresh(); focusDock();
+  }
+
+  function helpEntry() {
+    if (!validHelpMetadata(host.content?.metadata)) return UNKNOWN_HELP;
+    const tips = chapterNow()?.tips ?? [];
+    if (helpSelection.startsWith("tip:")) return tips.find((tip) => `tip:${tip.id}` === helpSelection) ?? UNKNOWN_HELP;
+    if (helpSelection.startsWith("faq:")) return HELP_FAQ.find((item) => `faq:${item.id}` === helpSelection) ?? UNKNOWN_HELP;
+    if (host.failure?.entry) return { ...host.failure.entry, id: "error", target: errorTarget(host.failure.entry, host.failure.info, page) };
+    const root = all(".siwc-controls").find(visible);
+    // A causal permission rule applies only while its account controls are on screen.
+    const cause = contextualHelp(helpState(root, doc.body), host.content.metadata);
+    return cause ?? tips[tipIndex] ?? UNKNOWN_HELP;
   }
 
   function focusDock() {
@@ -271,10 +315,11 @@ export function mountGuide(host) {
     const { pref, content, failure } = host;
     if (failure !== seenFailure) [seenFailure, errorOpen] = [failure, false];
     if (pref !== seenPref) [seenPref, hidden] = [pref, false];
+    if (helpOpen) return "help";
     const help = failure?.entry;
     if (help && (errorOpen || (pref !== "off" && !hidden))) return "error";
     if (help || (content && pref !== "off" && hidden)) return "chip";
-    if (!content || pref === "off") return "none";
+    if (!content || pref === "off") return "chip";
     return pref === null ? "welcome" : finished ? "finish" : "guide";
   }
 
@@ -302,6 +347,7 @@ export function mountGuide(host) {
       [active, viewTip, finished, visitShown, visitDone] = [index, null, false, new Set(), new Set()];
       stopDemo();
       clearMarkers();
+      helpSelection = "";
     }
     const chapter = chapters[active];
     if (!chapter) { tipIndex = -1; return; }
@@ -345,22 +391,22 @@ export function mountGuide(host) {
     const content = host.content;
     const chapter = chapterNow();
     const tip = current === "guide" ? chapter?.tips[tipIndex] : null;
-    const entry = host.failure?.entry;
-    const key = `${current}|${current === "guide" ? `${chapter?.id}/${tip?.id}` : current === "error" ? entry.title : ""}`;
+    const entry = current === "help" ? helpEntry() : host.failure?.entry;
+    const key = `${current}|${current === "guide" ? `${chapter?.id}/${tip?.id}` : ["error", "help"].includes(current) ? `${entry?.id}/${entry?.title}/${entry?.say}` : ""}`;
     if (openedKey === "next" && current !== "chip") openedKey = key;
     const focusInside = ui.dock.contains(doc.activeElement);
     // A Ready screen with the badges block lists them, so the dock does not repeat them.
     const listed = onPage(content);
     if (key !== shownKey && current !== "chip") {
       shownKey = key;
-      const [title, say] = current === "error" ? [entry.title, entry.say]
+      const [title, say] = ["error", "help"].includes(current) ? [entry.title, entry.say]
         : current === "finish" ? [content.finish?.title ?? "Setup complete", content.finish?.say]
           : tip ? [tip.title, tip.say] : [content.title, content.intro];
       ui.title.textContent = title ?? "";
       ui.say.textContent = say ?? "";
-      ui.steps.replaceChildren(...(current === "error" ? entry.steps ?? [] : []).map((text) => make("li", "", text)));
-      ui.code.textContent = tip?.example ?? "";
-      ui.findText.textContent = tip?.find ?? "";
+      ui.steps.replaceChildren(...(["error", "help"].includes(current) ? entry.steps ?? [] : []).map((text) => make("li", "", text)));
+      ui.code.textContent = (current === "help" ? entry : tip)?.example ?? "";
+      ui.findText.textContent = (current === "help" ? entry : tip)?.find ?? "";
       ui.find.open = false;
       ui.next.replaceChildren(...(current === "finish" && !listed ? content.finish?.next ?? [] : [])
         .map((text) => make("li", "", text)));
@@ -369,7 +415,7 @@ export function mountGuide(host) {
     // with the quest track; a page without a track counts its chapters.
     const item = content ? first(".rm-stepper__item[aria-current='step']") : null;
     const quest = item ? [...item.parentElement.children].indexOf(item) + 1 : active + 1;
-    const eyebrow = current === "error" ? "Error help" : current === "guide" && chapter
+    const eyebrow = current === "help" ? "Help for this view" : current === "error" ? "Error help" : current === "guide" && chapter
       ? `Quest ${quest} · ${chapter.label}` : "Setup guide";
     if (current !== "chip" && ui.eyebrow.textContent !== eyebrow) ui.eyebrow.textContent = eyebrow;
     const chapters = current === "error" ? [] : content?.chapters ?? [];
@@ -389,19 +435,43 @@ export function mountGuide(host) {
     ui.example.hidden = !ui.code.textContent;
     ui.find.hidden = !ui.findText.textContent;
     ui.next.hidden = !ui.next.children.length;
-    ui.progress.hidden = current === "error";
+    ui.progress.hidden = current === "error" || current === "help";
+    ui.topics.hidden = ui.about.hidden = current !== "help";
+    if (current === "help") {
+      const options = [{ value: "", title: "Current step" },
+        ...(chapter?.tips ?? []).filter((item) => shown(item.target)).map((item) => ({ value: `tip:${item.id}`, title: item.title })),
+        ...HELP_FAQ.map((item) => ({ value: `faq:${item.id}`, title: item.title }))];
+      const signature = options.map((item) => item.value).join("|");
+      if (ui.topic.dataset.options !== signature) {
+        ui.topic.replaceChildren(...options.map((item) => Object.assign(make("option", "", item.title), { value: item.value })));
+        ui.topic.dataset.options = signature;
+      }
+      ui.topic.value = helpSelection;
+      const meta = host.content?.metadata;
+      ui.source.textContent = validHelpMetadata(meta)
+        ? `Bundled help revision ${meta.revision}, source Relmio ${meta.sourceVersion}, reviewed ${meta.reviewedOn}. Sources: ${meta.sources.join(", ")}. Help runs on this computer without model requests or a question history.`
+        : "Help metadata is unavailable or unsupported. Follow the current view's instructions and documentation.";
+    }
     ui.back.hidden = ui.forward.hidden = ui.close.hidden = current !== "guide";
     attr(ui.back, "aria-disabled", String(!before));
     attr(ui.forward, "aria-disabled", String(!after));
-    ui.show.hidden = !target(current);
-    ui.start.hidden = ui.skip.hidden = current !== "welcome";
+    const goal = target(current);
+    const missing = current === "help" && entry.target && !goal;
+    ui.availability.textContent = missing ? "This control is not visible in this view. Choose Current step or open the relevant section to find it." : "";
+    ui.availability.hidden = !missing;
+    ui.show.hidden = !goal;
+    ui.help.hidden = current === "help" || current === "chip";
+    ui.start.hidden = current !== "welcome" && current !== "help";
+    ui.start.textContent = current === "help" && host.pref === "on" ? "Return to guide" : "Start the guide";
+    ui.skip.hidden = current !== "welcome";
     ui.actions.hidden = [...ui.actions.children].every((node) => node.hidden);
-    ui.chipText.textContent = entry ? "Need help with this error?" : "Guide";
-    if (entry) ui.chip.removeAttribute("aria-label");
-    else attr(ui.chip, "aria-label", "Show setup guide");
-    setMascotPose(ui.chipMascot, entry ? "worried" : "idle");
+    ui.chipText.textContent = host.failure?.entry ? "Need help with this error?" : "Help";
+    attr(ui.chip, "aria-label", host.failure?.entry ? "Need help with this error?" : "Open help for this view");
+    attr(ui.chip, "aria-expanded", String(current === "help"));
+    setMascotPose(ui.chipMascot, host.failure?.entry ? "worried" : "idle");
     const pose = performance.now() < happyUntil ? "happy" : current === "error" ? "worried"
-      : tip?.action === "wait" ? "waiting" : tip?.action === "read" ? "thinking" : tip ? "look" : "idle";
+      : tip?.action === "wait" || entry?.id === "busy" ? "waiting" : tip?.action === "read" ? "thinking"
+        : tip || (current === "help" && goal) ? "look" : "idle";
     setMascotPose(ui.mascot, pose, look);
     // Relmio stands in the quest track's current step while the guide is on.
     const step = host.pref === "on" ? item?.querySelector(".rm-stepper__marker") : null;
@@ -434,6 +504,7 @@ export function mountGuide(host) {
   }
 
   function target(current = mode()) {
+    if (current === "help") return first(helpEntry().target);
     if (current === "error") {
       return first(errorTarget(host.failure.entry, host.failure.info, page)) ?? first("[aria-invalid='true']");
     }
@@ -499,7 +570,7 @@ export function mountGuide(host) {
     const safety = boxes(all(SAFETY).filter((item) => !item.contains(track)));
     // The cursor and its action label are measured on screen before placing.
     const tip = demoTip ?? chapterNow()?.tips[tipIndex];
-    const text = demoTip ? demoTip.title : current !== "error" && ACTION_LABELS[tip?.action] || inferAction(node);
+    const text = current === "help" ? inferAction(node) : demoTip ? demoTip.title : current !== "error" && ACTION_LABELS[tip?.action] || inferAction(node);
     if (ui.label.textContent !== text) ui.label.textContent = text;
     ui.pointer.hidden = false;
     const arrow = ui.cursor.offsetWidth - ui.label.offsetWidth;
@@ -717,5 +788,5 @@ export function mountGuide(host) {
   doc.addEventListener("scroll", placeSoon, { capture: true, passive: true });
   doc.addEventListener("focusin", placeSoon);
   doc.addEventListener("focusout", placeSoon);
-  return { refresh: schedule };
+  return { refresh: schedule, openHelp };
 }

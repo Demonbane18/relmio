@@ -10,7 +10,10 @@ const wait = (id) => ({
   done: "hidden:#operation-progress",
 });
 
+import { HELP_METADATA } from "./context.js";
+
 export const GUIDE = {
+  metadata: HELP_METADATA,
   page: "supergrok-vps",
   title: "Connect n8n on your VPS to Grok",
   intro: "This guide adds a private Grok helper beside n8n on your server and signs it in with your Grok account. You can hide it or skip it at any time.",

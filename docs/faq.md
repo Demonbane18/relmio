@@ -5,6 +5,23 @@ local connections, SuperGrok, and private models. Read the
 [OpenAI source check](openai-source-check-2026-10-05.md)
 for implementation evidence and unresolved provider requirements.
 
+## Why is Check the server unavailable?
+
+Read the selected account's status and open **Help with Check the server**.
+Verified identity without plan permission needs **Allow ChatGPT plan use**.
+A paused plan needs **Use ChatGPT plan** if you want to enable it. A granted
+plan with an unread first-use notice needs **Review plan notice**, then **Got
+it**. Transferred and unresolved registrations use their installed-account
+management or recovery instead. A preview or a running operation has its own
+restriction. Help never enables a disabled action or accepts consent for you.
+
+The mascot's **Help** button stays available after you skip the walkthrough.
+Its **Help topic** list includes the current view's existing feature tips and
+a bundled FAQ. **About this help** shows its revision, source version and
+review date. Answers use local state rules and ship with Relmio; they make no
+model requests and save no question history. **Show me** points and moves focus
+without activating a control. Hidden or missing controls are explained safely.
+
 ## Is ChatGPT sign-in a Platform API key?
 
 No. Relmio's local flow uses a separately authorized ChatGPT plan grant. It

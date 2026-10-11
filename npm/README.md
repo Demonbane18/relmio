@@ -86,8 +86,11 @@ want the setup route for this computer.
 
 The first time the wizard opens, it asks whether to start the setup guide.
 Relmio, the mascot, then points at each box and button in turn, says what to
-enter or press, and explains errors with the next step. Skip it if you like;
-the **Setup guide** button in the top bar turns it on or off later. Once you
+enter or press, and explains errors with the next step. **Help** remains
+available after you skip the walkthrough. It explains the current prerequisite,
+offers the current feature's tips and bundled FAQ, and **Show me** highlights
+the relevant control without activating it. The **Setup guide** button in the
+top bar turns the walkthrough on or off later. Once you
 answer, Relmio saves only that choice, in `ui-preferences.json` in its
 ChatGPT sign-in folder (`~/.n8n-openai-oauth`, or `N8N_OPENAI_OAUTH_HOME` when
 set). See

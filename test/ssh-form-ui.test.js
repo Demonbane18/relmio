@@ -21,7 +21,7 @@ function browserFixture(t) {
     });
     return nodes.get(id);
   };
-  globalThis.document = { getElementById: element, querySelectorAll: () => [], addEventListener() {}, createElement: () => ({}) };
+  globalThis.document = { body: { dataset: {} }, getElementById: element, querySelectorAll: () => [], addEventListener() {}, createElement: () => ({}) };
   globalThis.window = { history: { state: null, replaceState() {} }, location: { pathname: "/local-model-vps", hash: "", reload() {} }, addEventListener() {} };
   globalThis.MutationObserver = class { observe() {} };
   t.after(() => { for (const [key, value] of Object.entries(previous)) { if (value === undefined) delete globalThis[key]; else globalThis[key] = value; } });
@@ -157,6 +157,7 @@ test("model wizard preserves selected identity and blocks platform, SDK and unkn
   assert.equal(element("ssh-privilege").value, "sudo-n");
   assert.equal(element("password").value, "single-use");
   assert.equal(element("hosting-guide-link").getAttribute("href"), "/hosting");
+  assert.equal(globalThis.document.body.dataset.operationBusy, "false");
 });
 
 for (const page of [

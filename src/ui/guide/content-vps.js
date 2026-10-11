@@ -3,6 +3,8 @@
 // Within a chapter the engine shows the first visible tip whose done condition is unmet, so
 // tips inside closed disclosures come first and only appear once the person opens them.
 
+import { HELP_METADATA } from "./context.js";
+
 const wait = (id) => ({
   id,
   target: "#operation-progress",
@@ -13,6 +15,7 @@ const wait = (id) => ({
 });
 
 export const GUIDE = {
+  metadata: HELP_METADATA,
   page: "vps",
   title: "Connect n8n on your VPS to your ChatGPT plan",
   intro: "This guide points at each box and button in order and tells you what to type. You can hide it or skip it at any time.",
@@ -84,7 +87,7 @@ export const GUIDE = {
           target: "[data-siwc=welcome-accept]",
           action: "press",
           title: "Read the plan notice",
-          say: "Requests count toward the usage in your ChatGPT plan, and OpenAI's limits apply. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. Press Continue when you have read it.",
+          say: "Requests count toward the usage in your ChatGPT plan, and OpenAI's limits apply. If you allowed apps to use credits in ChatGPT, credits can be used after the plan limit. Press Got it when you have read it.",
           done: "clicked",
         },
         {

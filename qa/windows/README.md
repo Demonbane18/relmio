@@ -1,5 +1,27 @@
 # Reproducible Windows QA
 
+## v0.22.1 release preparation, 2026-10-11
+
+The candidate preserves Windows fix commit
+`b6b4c2ac4e6b055fa22a9feeac757fb9bb2ac2bd`, based on current main
+`2a112767aa857bf359d51db1b6f950b21a80c81b`, plus the frozen contextual Help
+delta and coherent 0.22.1 metadata. Earlier root checks passed 1,731 tests with
+104 explicit skips; the final Help correction passed 114 focused tests. Real
+Windows Opera checks covered all six Help routes, busy Escape and the corrected
+private-new-n8n wording. Synthetic Help accounts and API fixtures are not live
+provider or Docker acceptance. These earlier receipts do not certify the final
+versioned candidate: its required aggregate, packaging, CI and CodeRabbit gates
+must still complete before release.
+
+The owner accepted the known unpatched development-only `braces` advisory and
+plans a macOS re-audit. New live VPS-update, image-generation and SuperGrok
+workflow checks are not release passes. Fresh read-only VPS discovery/review did
+not authorize or apply an update. SuperGrok needs refreshed private sign-in and
+its n8n credential binding; availability of an earlier retained one-time local
+key is unknown, not established as lost. Image sign-in and requests require
+their separate human grant and bounded usage approval. The separate integration
+task owns these checks; release approval does not authorize them.
+
 ## Unreleased Windows patch checkpoint, 2026-10-10
 
 The tested source is main `2a112767aa857bf359d51db1b6f950b21a80c81b` plus an
@@ -47,8 +69,9 @@ merged-main CI plus latest CodeRabbit review, and applicable live acceptance.
 VPS needs a trusted fingerprint and private human authentication; Google needs
 an approved OAuth client/grant; SuperGrok needs an eligible account and official
 device sign-in; its existing isolated companion attests healthy, but a failed
-installer did not return its one-time local client key. Supported sign-in does
-not recover that missing n8n credential; never extract it from files or logs.
+installer attempt did not return its one-time local client key. Later availability
+of a retained key is unknown. Supported sign-in alone does not create the n8n
+credential binding; never extract a key from files or logs.
 Images need a separate installed add-on/Codex grant and usage
 budget. No blanket Windows feature pass or release readiness is claimed.
 

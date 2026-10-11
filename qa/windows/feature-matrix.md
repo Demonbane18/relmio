@@ -1,5 +1,11 @@
 # Windows feature matrix
 
+## Historical checkpoint, 2026-10-10
+
+The table below records that checkpoint, not the final v0.22.1 release gate.
+Later Help checks and current integration limits are recorded in
+[the release-preparation note](README.md#v0221-release-preparation-2026-10-11).
+
 Candidate: v0.22.0, main `2a112767aa857bf359d51db1b6f950b21a80c81b`, local branch `qa/windows-2026-10-10`, 2026-10-10. Tested checkout includes uncommitted CRLF and stopped-stack readiness fixes and native test-fixture portability fixes; this is not a release certification. Private evidence is outside the checkout.
 
 | Area | Evidence-backed current result | Remaining coverage |

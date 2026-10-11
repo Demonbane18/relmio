@@ -1,7 +1,10 @@
 // Guide content for the hosting planner (hosting.html). Facts come from the page copy and
 // docs/hosting-compatibility.md. Making a plan reads no server and writes nothing remote.
 
+import { HELP_METADATA } from "./context.js";
+
 export const GUIDE = {
+  metadata: HELP_METADATA,
   page: "hosting",
   title: "Compare hosting options",
   intro: "This guide helps you pick where to run Relmio's companions and, when needed, download a plan you apply yourself. Nothing here touches a server.",

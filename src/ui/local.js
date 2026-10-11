@@ -321,7 +321,8 @@ function operationControlCandidates() {
 }
 
 function isOperationAllowedControl(control) {
-  return Boolean(control?.closest?.(OPERATION_ALLOWED_SELECTOR));
+  return Boolean(control?.closest?.(".rm-guide-layer button, .rm-guide-layer select, .rm-guide-layer summary, [data-guide-help]") ||
+    control?.closest?.(OPERATION_ALLOWED_SELECTOR));
 }
 
 function lockOperationControl(control) {
@@ -579,6 +580,7 @@ function blockOperationInteraction(event) {
   if (
     !state.operationBusy ||
     (event.type === "keydown" && event.key === "Tab") ||
+    (event.type === "keydown" && event.key === "Escape" && event.target?.closest?.(".rm-guide-layer")) ||
     event.target?.closest?.("#operation-progress") ||
     isOperationAllowedControl(event.target)
   ) {

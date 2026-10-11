@@ -329,7 +329,7 @@ test("every wizard page loads the guide and names its content", async () => {
 test("the wizard serves the guide engine, mascot and every page's content", async (t) => {
   const wizard = await startWizardServer({ sessionToken });
   t.after(() => wizard.close());
-  const paths = ["/guide.js", "/guide-dock.js", "/mascot.js", "/guide/errors.js",
+  const paths = ["/guide.js", "/guide-dock.js", "/mascot.js", "/guide/errors.js", "/guide/context.js",
     ...Object.keys(PAGES).map((page) => `/guide/content-${page}.js`)];
   for (const path of [...paths, "/guide.css", "/guide-dock.css"]) {
     const response = await fetch(`${wizard.origin}${path}`);

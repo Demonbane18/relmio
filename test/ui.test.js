@@ -707,6 +707,7 @@ test("ChatGPT header blocks the server check until the plan notice is confirmed 
 
   render({ ...siwcAccount, needsPlanWelcome: true });
   assert.equal(element("signin-next").disabled, true);
+  assert.match(element("auth-detail").textContent, /choose Got it/u);
   assert.notEqual(element("auth-title").textContent, signedOutTitle, "an unconfirmed plan is not reported as signed out");
   assert.notEqual(element("auth-title").textContent, readyTitle);
 

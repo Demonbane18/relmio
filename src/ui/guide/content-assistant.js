@@ -10,7 +10,10 @@ const wait = (id) => ({
   done: "hidden:#operation-progress",
 });
 
+import { HELP_METADATA } from "./context.js";
+
 export const GUIDE = {
+  metadata: HELP_METADATA,
   page: "assistant",
   title: "Add AI Assistant tools to n8n on your VPS",
   intro: "This guide adds n8n's private Code Sandbox, and web search if you want it, beside n8n on your server. You can hide it or skip it at any time.",

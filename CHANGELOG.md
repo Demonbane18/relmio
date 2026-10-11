@@ -7,7 +7,18 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.22.1] - 2026-10-11
+
+Relmio 0.22.1 fixes Windows sign-in and owned-stack recovery, and keeps Help
+available without turning the walkthrough back on. Existing consent and
+installation confirmations still apply.
+
 ### Changed
+
+- Contextual mascot **Help** stays available after skipping the walkthrough.
+  It explains the actual prerequisite for **Check the server**, offers the
+  current feature's tips and versioned bundled FAQ, and highlights controls
+  without activating consent or installation actions.
 
 - A new ChatGPT registration enables eligible text plan use after its first
   verified plan grant and shows a one-time **Got it** notice. Existing paused
@@ -26,6 +37,16 @@ checks the registry separately after publication.
   `start --wait` flags and verifies health before reporting success.
 - Windows QA fixtures handle denied file symlinks explicitly and keep the CMD
   lock test deterministic. Generated docs retain the first line after the title.
+- Escape dismisses Help during a busy operation without unlocking the
+  installation controls. New-n8n Help correctly describes the private default
+  and the optional public ngrok link.
+
+This patch does not establish fresh live VPS-update, image-generation or
+SuperGrok-workflow acceptance. Those checks remain separate from the Windows
+and Help evidence. The known `braces` development-tool advisory
+[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
+remains unpatched; it is not a production-dependency audit pass for development
+tools.
 
 ## [0.22.0] - 2026-10-09
 

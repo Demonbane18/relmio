@@ -333,20 +333,39 @@ Example step panel:
 
 Every wizard page loads the small `/guide.css` and `/guide.js` and names its
 guide content in `<body data-guide-page>`. The dock (`/guide-dock.js` with its
-`/guide-dock.css`), the mascot (`/mascot.js`) and the page's tips load only
-while the guide or its error help is in use, so the guide adds little to a
-page's first load. The first visit asks once whether to start the guide.
+`/guide-dock.css`), the mascot (`/mascot.js`) and the page's tips load
+asynchronously, keeping contextual Help available with the walkthrough off.
+The first visit asks once whether to start the walkthrough.
 `#guide-toggle` in the top bar, repeated in the menu on narrow windows, turns
 it on or off, and `/api/ui/preferences` keeps the choice.
 
 | Part | Classes | Rules |
 | --- | --- | --- |
 | Dock | `rm-guide`, `__head`, `__quest`, `__dots`, `__title`, `__say`, `__steps`, `__example`, `__find`, `__next`, `__actions` | An `aside` named "Setup guide": the mascot, the quest name, numbered by the page's current step, and progress dots, one tip with an optional example and "Where do I find this?", then Back, Next tip, Show me, Hide and Skip guide. Its buttons use the default or ghost style, so the page keeps its one primary action. Escape collapses it and returns focus |
-| Chip | `rm-guide-chip` | The collapsed dock. With the guide off it appears only on an error, as "Need help with this error?" |
+| Chip | `rm-guide-chip` | The collapsed dock, available on every view even with the walkthrough off. "Help" opens contextual help; an error uses "Need help with this error?" |
 | Pointer | `rm-guide-pointer`, `rm-guide-marker` | A ring around the target and a cursor with a short action label. It glides with `transform` only. With reduced motion, Show me numbers the targets instead, and the numbers never overlap |
 | Mascot | `rm-mascot` from `mascot.js` | Inline SVG from the logo vectors, decorative and hidden in forced colors. Poses: idle, look, happy, thinking, worried, waiting. The sleep cap uses `--rm-brand-cap`. While the guide is on, the mascot also stands in the quest track's current step |
 | Badges | `rm-badge rm-badge--success`, `rm-guide-finish`, `__title`, `__badges`, `__next` | A chapter earns its badge when every action tip seen there is done; reading tips are optional. On `/` and `/local`, the Ready screen shows `#ready-quest` in the rail column with the badges earned and the page's next steps; the guide fills it and keeps it hidden while the guide is off. The route pages show the finish, the badges and the next steps in the dock. A tip whose control reloads the page uses `done: "manual"`, so the finish can still show |
 | Toggle | `#guide-toggle`, `[data-guide-toggle]` | `aria-pressed` says whether the guide is on; the kit draws the pressed state |
+
+Contextual help uses the existing dock, mascot and pointer. Its native
+**Help topic** select lists the visible chapter's tips and bundled FAQ.
+**Current step** prioritizes the bounded account state and operation state,
+then the existing step tip. Identity, permission, ownership, first-use
+acknowledgment, usage limits, busy and preview reasons stay distinct. An
+inline **Help with Check the server** button remains keyboard reachable
+beside the account status while that action is unavailable. Help controls
+remain usable during operation locks; protected page controls stay locked.
+
+**About this help** shows schema/revision, source version, review date and
+source guides from `guide/context.js`. Each guide content module uses that
+metadata. Update the metadata and source review together when help facts or
+rules change; unsupported schema/revision and unknown state use a safe
+fallback. Show me highlights and focuses without clicking, selecting or
+confirming. Missing or hidden targets explain the gap and omit Show me.
+Escape and Hide clear highlights and return focus; Help reopens without
+changing the saved walkthrough choice. This is bundled help, with no model
+request, retrieval service or saved question history.
 
 Placement:
 

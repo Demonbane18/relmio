@@ -1664,6 +1664,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/guide/content-local-model-vps.js": ["../ui/guide/content-local-model-vps.js", "utf8"],
   "/guide/content-hosting.js": ["../ui/guide/content-hosting.js", "utf8"],
   "/guide/errors.js": ["../ui/guide/errors.js", "utf8"],
+  "/guide/context.js": ["../ui/guide/context.js", "utf8"],
   "/usage-panel.js": ["../ui/usage-panel.js", "utf8"],
   "/relmio-ui.css": ["../ui/relmio-ui.css", "utf8"],
   "/styles.css": ["../ui/styles.css", "utf8"],

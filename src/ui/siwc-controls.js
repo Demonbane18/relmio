@@ -139,6 +139,12 @@ export function createSiwcControls({ root, api, onChange, onLogin, onError }) {
     const mode = accountUiState(account);
     const limited = usageLimited();
     const welcome = welcomePending();
+    // Help receives bounded states only, never account labels or credentials.
+    if (root.dataset) Object.assign(root.dataset, {
+      guideAccountState: mode, guideBusy: String(busy), guidePreview: String(previewMode),
+      guidePlanNotice: String(welcome), guideUsageLimited: String(limited),
+      guidePending: String(pendingRegistrations.length > 0),
+    });
     picker.replaceChildren();
     if (!accounts.length) {
       picker.add(new Option("No saved ChatGPT accounts", ""));

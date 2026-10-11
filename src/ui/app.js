@@ -556,6 +556,7 @@ function restoreOperationAttribute(control, name, value) {
 
 function isOperationAllowedControl(control) {
   return Boolean(
+    control?.closest?.(".rm-guide-layer button, .rm-guide-layer select, .rm-guide-layer summary, [data-guide-help]") ||
     state.operationAllowedSelector &&
     control?.closest?.(state.operationAllowedSelector),
   );
@@ -874,6 +875,7 @@ function blockOperationInteraction(event) {
     !state.operationBusy ||
     // Tab and Shift+Tab still move focus; activation and input stay blocked.
     (event.type === "keydown" && event.key === "Tab") ||
+    (event.type === "keydown" && event.key === "Escape" && event.target?.closest?.(".rm-guide-layer")) ||
     event.target?.closest?.("#operation-progress") ||
     isOperationAllowedControl(event.target)
   ) {
@@ -1047,9 +1049,13 @@ function renderAuthStatus(account, { fresh = false } = {}) {
       : usageLimited
         ? "Plan requests are paused. Manage usage in ChatGPT."
         : welcomePending
-          ? "Read the ChatGPT plan notice and choose Continue before reviewing a model installation."
+          ? "Read the ChatGPT plan notice and choose Got it before reviewing a model installation."
           : mode === "identity-only"
-            ? "Identity is verified. Grant separate ChatGPT plan permission before reviewing a model installation."
+            ? "Identity is verified. Choose Allow ChatGPT plan use and review the separate consent before Check the server."
+            : mode === "plan-paused"
+              ? "Plan permission is granted, but plan use is paused. Choose Use ChatGPT plan if you want to continue with this account."
+              : mode === "host-unavailable"
+                ? "This registration belongs to another host or runtime. Choose Continue with ChatGPT to connect an account here."
             : mode === "transferred"
               ? "Use the installed owner's controls to manage this session; start a fresh registration for another installation."
               : mode === "handoff-pending"
@@ -1057,6 +1063,8 @@ function renderAuthStatus(account, { fresh = false } = {}) {
                 : "Continue with ChatGPT or select a different registration above.";
   element("signin-next").hidden = false;
   element("signin-next").disabled = !ready;
+  const helpButton = element("signin-help");
+  if (helpButton) helpButton.hidden = ready && !siwc.isPreview();
 }
 
 async function refreshAuthStatus({ fresh = false } = {}) {

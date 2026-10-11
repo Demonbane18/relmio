@@ -599,7 +599,7 @@ test("VPS route operations reveal their live rail status while the step is busy"
   const { perform } = runInNewContext(
     `${local.slice(operationStart, operationEnd)}\n({ perform })`,
     {
-      document: { querySelectorAll() { return []; } },
+      document: { body: { dataset: {} }, querySelectorAll() { return []; } },
       el(id) { return { error: new FakeElement("p"), message: status, progress: polling, "route-steps-content": busyStep }[id]; },
       error() {},
       message(value) { status.textContent = value; },
