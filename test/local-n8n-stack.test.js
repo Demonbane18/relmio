@@ -1441,6 +1441,51 @@ test("resume waits for existing n8n health before runtime verification", async (
   }
 });
 
+test("resume retries failed or empty service-state reads until ready or the deadline", async (t) => {
+  for (const failure of ["throw", "exit", "empty", "malformed"]) {
+    for (const persistent of [false, true]) {
+      await t.test(`${failure}: ${persistent ? "deadline" : "recovery"}`, async (subtest) => {
+        const homeDirectory = await testHome(subtest);
+        const { installRoot } = await writeManagedStackMarker(homeDirectory);
+        const paths = [".managed-by-relmio.json", "docker-compose.yml", ".env"];
+        const before = await Promise.all(paths.map((name) => nodeFileSystem.readFile(join(installRoot, name))));
+        const { calls, runner, resourceSnapshot } = createStackRunner({ initialResources: true });
+        const resourcesBefore = resourceSnapshot();
+        let started = false;
+        let reads = 0;
+        let readinessClock = 0;
+        const pending = resumeLocalN8nStack({
+          confirmed: true, homeDirectory,
+          readinessNow: () => readinessClock,
+          async wait(milliseconds) { readinessClock += milliseconds; },
+          async runProcess(spec) {
+            const result = await runner(spec);
+            if (spec.args.includes("start")) started = true;
+            if (started && spec.args[0] === "compose" && spec.args.includes("--all") &&
+                spec.args.at(-1) === "n8n" && (++reads <= 2 || persistent)) {
+              if (failure === "throw") throw new Error("temporary inspection failure");
+              return { ...result, code: failure === "exit" ? 1 : 0,
+                stdout: failure === "malformed" ? "invalid json" : "" };
+            }
+            return result;
+          },
+        });
+        if (persistent) {
+          await assert.rejects(pending, /resumed local n8n stack did not become ready in time/u);
+          assert.equal(readinessClock, LOCAL_N8N_STACK_COMPOSE_WAIT_TIMEOUT_SECONDS * 1000);
+        } else {
+          assert.equal((await pending).resumed, true);
+          assert.equal(readinessClock, 2000);
+        }
+        assert.equal(calls.filter((call) => call.args.includes("start")).length, 1);
+        assert.equal(calls.some((call) => call.args.some((arg) => ["up", "down", "restart", "stop", "rm"].includes(arg))), false);
+        assert.deepEqual(resourceSnapshot(), resourcesBefore);
+        assert.deepEqual(await Promise.all(paths.map((name) => nodeFileSystem.readFile(join(installRoot, name)))), before);
+      });
+    }
+  }
+});
+
 test("resume readiness deadline preserves resources and files on modern and older Compose", async (t) => {
   for (const startWaitSupported of [false, true]) {
     await t.test(startWaitSupported ? "modern Compose" : "Compose v2.27", async (subtest) => {

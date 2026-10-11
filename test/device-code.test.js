@@ -94,9 +94,27 @@ test("a code cleared or changed during a pending copy cannot receive stale feedb
 
 test("local markup exposes keyboard, selectable code and polite feedback", async () => {
   const html = await readFile(new URL("../src/ui/local.html", import.meta.url), "utf8");
-  assert.match(html, /<code id="installed-images-code"[^>]*tabindex="0"[^>]*translate="no"/u);
-  assert.match(html, /<button id="installed-images-copy"[^>]*type="button"[^>]*aria-label="Copy sign-in code"/u);
-  assert.match(html, /id="installed-images-copy-status"[^>]*role="status"[^>]*aria-live="polite"/u);
+  // Parse opening tags and attributes independently of their order; ignore non-markup.
+  const markup = html.replace(/<!--[\s\S]*?-->|<(script|style)\b[^>]*>[\s\S]*?<\/\1>/giu, "");
+  const tags = /<([a-z][\w-]*)((?:\s+[^\s"'>/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*)\s*\/?>/giu;
+  const attributes = /([^\s"'>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/gu;
+  const elements = [...markup.matchAll(tags)].map(([, tag, attrs]) => ({
+    tag: tag.toLowerCase(),
+    attrs: Object.fromEntries([...attrs.matchAll(attributes)].map(([, name, double, single, bare]) =>
+      [name.toLowerCase(), double ?? single ?? bare ?? ""])),
+  }));
+  for (const [id, tag, required] of [
+    ["installed-images-code", "code", { tabindex: "0", translate: "no" }],
+    ["installed-images-copy", "button", { type: "button", "aria-label": "Copy sign-in code" }],
+    ["installed-images-copy-status", null, { role: "status", "aria-live": "polite" }],
+  ]) {
+    const element = elements.find((item) => item.attrs.id === id);
+    assert.ok(element, `${id} exists`);
+    if (tag) assert.equal(element.tag, tag, `${id} element`);
+    for (const [name, value] of Object.entries(required)) {
+      assert.equal(element.attrs[name], value, `${id} ${name}`);
+    }
+  }
 });
 
 test("the wizard serves the exact device-code module imported by the local page", async (t) => {

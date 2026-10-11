@@ -1,13 +1,27 @@
 // Derive the standard acceptance workflow without credentials or cloud calls.
 // Generate into a private evidence directory outside the public checkout.
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { isAbsolute, relative, resolve, join } from 'node:path';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, relative, resolve, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repository = fileURLToPath(new URL('../../', import.meta.url));
-const destination = process.argv[2] && resolve(process.argv[2]);
+async function resolveDestination(path) {
+  const missing = [];
+  let parent = path;
+  for (;;) {
+    try {
+      return resolve(await realpath(parent), ...missing);
+    } catch (error) {
+      if (error.code !== 'ENOENT' || dirname(parent) === parent) throw error;
+      missing.unshift(basename(parent));
+      parent = dirname(parent);
+    }
+  }
+}
+
+const repository = await realpath(fileURLToPath(new URL('../../', import.meta.url)));
+const destination = process.argv[2] && await resolveDestination(resolve(process.argv[2]));
 const relation = destination && relative(repository, destination);
-if (!destination || !relation || (!relation.startsWith('..') && !isAbsolute(relation))) {
+if (!destination || !(relation === '..' || relation.startsWith(`..${sep}`) || isAbsolute(relation))) {
   throw new Error('Provide an evidence directory outside the checkout.');
 }
 const workflow = JSON.parse(await readFile(new URL('../acceptance/relmio-release-acceptance.json', import.meta.url), 'utf8'));

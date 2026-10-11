@@ -815,7 +815,13 @@ async function waitForResumedStackReadiness({ runProcess, cwd, marker, readiness
     runProcess: boundedRunProcess, cwd, marker, resourcePolicy: "exact",
   });
   for (;;) {
-    const rows = await readOwnedStackServiceStates({ runProcess: boundedRunProcess, cwd, marker });
+    let rows = [];
+    try {
+      rows = await readOwnedStackServiceStates({ runProcess: boundedRunProcess, cwd, marker });
+    } catch {
+      // Transient inspection failures are not readiness or ownership evidence.
+      // Exact resource attestation remains outside this retry boundary.
+    }
     if (
       hasExactRunningState(rows, marker) &&
       rows.every((row) => !LOCAL_N8N_STACK_HEALTHY_SERVICES.includes(row.Service) || row.Health === "healthy")

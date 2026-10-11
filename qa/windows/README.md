@@ -5,8 +5,10 @@
 The candidate preserves Windows fix commit
 `b6b4c2ac4e6b055fa22a9feeac757fb9bb2ac2bd`, based on current main
 `2a112767aa857bf359d51db1b6f950b21a80c81b`, plus the frozen contextual Help
-delta and coherent 0.22.1 metadata. Earlier root checks passed 1,731 tests with
-104 explicit skips; the final Help correction passed 114 focused tests. Real
+delta and coherent 0.22.1 metadata. The separate contextual Help preparation
+root run reported on 2026-10-11 passed 1,731 tests with 104 explicit skips;
+this is distinct from the 2026-10-10 checkpoint below (1,719 passed, 104 skipped).
+The final Help correction passed 114 focused tests. Real
 Windows Opera checks covered all six Help routes, busy Escape and the corrected
 private-new-n8n wording. Synthetic Help accounts and API fixtures are not live
 provider or Docker acceptance. These earlier receipts do not certify the final
