@@ -1562,3 +1562,47 @@ Keep the existing dashboard-handoff details after that sentence. Add a separate 
 ### Changes after this review
 
 Applied on 2026-10-11 on `docs/v0.22.1-audit-followups`: the launch-wording corrections listed with this review in `docs/architecture.md`, `docs/local-dashboard.md`, `docs/local-endpoints.md`, `docs/manual-install.md`, `docs/troubleshooting.md`, `docs/video-outline.md`, `docs/vps-and-n8n.md` and `docs/security.md`, the new sign-in bullet in `docs/security.md`, the source comment above the launch redirect in `src/web/server.js`, "sign-in page" instead of "window" in the VPS and local progress messages, and the generic sign-in failure wording in `src/services/oauth.js`.
+
+## Addendum: v0.22.2 release
+
+Check date: **2026-10-11**. Release candidate `release/v0.22.2`, based on main
+`bedaa0f`, compared with tag v0.22.1 (`b54b7e6`). The official sources and
+retrieval dates are those of the
+[same-browser sign-in addendum](#addendum-same-browser-sign-in-launch-v0221)
+above, retrieved earlier the same day. No OpenAI page was re-read for this
+note, because nothing in this release changes what those pages govern.
+
+### What changed
+
+- **Observed:** `src/services/oauth.js:225-235`. When a same-browser start
+  fails, the error now reads "ChatGPT sign-in could not start. Return to
+  Relmio and try again." System-browser launches keep "The ChatGPT sign-in
+  browser could not start. Check the default browser, then try again."
+- **Observed:** progress text in `src/ui/app.js` and `src/ui/local.js` says
+  "sign-in page" instead of "window". The source comment above the launch
+  redirect in `src/web/server.js` is corrected. No logic in that route changed.
+- **Observed:** `src/ui/guide-dock.js`, `src/ui/guide-dock.css` and
+  `src/ui/local.html` change only where the setup guide dock and chip sit on
+  screen. `src/ui/guide/context.js` changes only its version metadata.
+- **Observed:** no file under `src/gateway`, and no SIWC session, scope,
+  token-exchange, storage or model-discovery code, changed
+  (`git diff --stat v0.22.1 bedaa0f -- src`).
+
+### What Relmio reads, stores, transmits and logs
+
+**Observed:** unchanged from the same-browser addendum. That covers the same
+six scopes, the same authorization and callback path, the same recipients and
+the same storage and logging. The new error text is a fixed string. It carries
+no URL, token or account data.
+
+### Three separate checks
+
+Identity sign-in, separately approved plan permission and model or image
+capability are unchanged. This release adds no grant, consent step, model,
+image or TTS route.
+
+### Findings and unknowns
+
+**Observed:** no new conflict with the documented system-browser, loopback,
+PKCE or state requirements. The open questions listed in the same-browser
+addendum still apply unchanged.
