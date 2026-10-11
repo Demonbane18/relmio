@@ -7,18 +7,25 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.22.2] - 2026-10-11
+
+Relmio 0.22.2 makes **Help** usable on small and short windows and keeps the
+setup guide off the dashboard's buttons. It also corrects how the docs and
+progress messages describe ChatGPT sign-in.
+
 ### Fixed
 
-- Sign-in documentation now says ChatGPT opens in a new tab or window in the browser
-  running Relmio when allowed, and otherwise in the default browser.
-- The README, npm README, and website fallback now identify 0.22.1 as the
-  current stable release.
-- A published source-check record no longer includes local folder paths.
 - **Help** now opens on short or narrow windows, such as 1280 x 320 or a
   phone held sideways. When the window is too short for the whole card, the
   card fits below the top bar and its text scrolls, with its buttons in view.
 - On the local dashboard, the setup guide card and the **Help** chip no longer
   cover the selected connection's buttons, such as **Review removal**.
+- Sign-in documentation now says ChatGPT opens in a new tab or window in the
+  browser running Relmio when allowed, and otherwise in the default browser.
+  The progress messages say "sign-in page" instead of "window", and a sign-in
+  that cannot start in that tab says "ChatGPT sign-in could not start. Return
+  to Relmio and try again."
+- A published source-check record no longer includes local folder paths.
 
 ## [0.22.1] - 2026-10-11
 
@@ -2042,6 +2049,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.22.2]: https://github.com/Demonbane18/relmio/compare/v0.22.1...v0.22.2
 [0.22.1]: https://github.com/Demonbane18/relmio/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/Demonbane18/relmio/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/Demonbane18/relmio/compare/v0.20.0...v0.21.0
