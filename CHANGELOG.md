@@ -31,6 +31,13 @@ code execution.
 - The `relmio` command warns on startup when it runs on a Node.js release
   without these fixes, for example after a global npm or Homebrew install on
   an older system Node.js. It still runs; update Node.js to clear the warning.
+- The hosted website moves from Next.js 16.3.8 to 16.4.2. That fixes
+  [GHSA-2464-fhr4-w9xw](https://github.com/advisories/GHSA-2464-fhr4-w9xw)
+  and [GHSA-673q-mjm6-r5xr](https://github.com/advisories/GHSA-673q-mjm6-r5xr)
+  (critical, unauthenticated remote code execution) and
+  [GHSA-p3m5-59mp-jv5r](https://github.com/advisories/GHSA-p3m5-59mp-jv5r)
+  (high, denial of service). The npm package and installers do not include
+  Next.js.
 
 Existing VPS sidecars get the patched base after you update Relmio and choose
 **Review sidecar update**, then **Update the sidecar**. That review sees the
