@@ -26,12 +26,15 @@ not enable hosted chat. See the
 [2026-10-05 source check](docs/openai-source-check-2026-10-05.md) for the data
 flow, documented limits, unresolved prerequisites, and historical reviews, and
 the [v0.22.2 addendum](docs/openai-source-check-2026-10-07.md#addendum-v0222-release)
-for the previous release. The [October 2026 Node.js pin](docs/node24-luna-source-check-2026-09-14.md#addendum-october-2026-security-pin) covers this release.
+for the previous release. The [2026-10-22 source check](docs/openai-source-check-2026-10-22.md)
+covers this release.
 
 Relmio 0.22.3 is the current stable release. It stops installers from reusing
 a Node.js runtime older than the October 2026 security patches, and pins
-generated bridge images to those patched Node.js bases. It is available
-through npm `latest` and the hosted installers.
+generated bridge images to those patched Node.js bases. Bridges installed
+before 0.22.3 keep their old image until you update or replace them; the
+[changelog](CHANGELOG.md) lists the steps. It is available through npm
+`latest` and the hosted installers.
 
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
@@ -64,7 +67,7 @@ npx --yes --ignore-scripts relmio@latest
 ```
 `@latest` selects stable 0.22.3, including the setup guide. Hosted
 installers use the same stable default. If the installed Node.js is older
-than the patched 24.22.1, or is end-of-life Node.js 25, the hosted installer
+than the patched 24.22.1 or 26.12.1, or is end-of-life Node.js 25, the hosted installer
 says so and uses a verified temporary runtime.
 
 

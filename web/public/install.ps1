@@ -101,20 +101,24 @@
 
     if ($null -ne $nodeCommand -and $null -ne $npxCommand) {
       $installedNodeVersion = (& $nodeCommand.Source --version 2>$null)
+      $nodeExitCode = 1
+      if (Test-Path -Path variable:LASTEXITCODE) {
+        $nodeExitCode = $LASTEXITCODE
+      }
       if ($null -ne $installedNodeVersion) {
         $installedNodeVersion = ([string]$installedNodeVersion).Trim()
       }
-      if ($LASTEXITCODE -eq 0 -and $installedNodeVersion -and (Test-RelmioReusableNodeVersion -VersionText $installedNodeVersion)) {
+      if ($nodeExitCode -eq 0 -and $installedNodeVersion -and (Test-RelmioReusableNodeVersion -VersionText $installedNodeVersion)) {
         Write-RelmioInstallerMessage "Using installed Node.js $installedNodeVersion runtime."
         [Environment]::SetEnvironmentVariable("RELMIO_FOREGROUND_WIZARD", "1", "Process")
         & $npxCommand.Source --yes --ignore-scripts relmio@latest
-        $relmioStatus = $LASTEXITCODE
+        $relmioStatus = if (Test-Path -Path variable:LASTEXITCODE) { $LASTEXITCODE } else { 1 }
         if ($relmioStatus -ne 0) {
           throw "Relmio finished with status $relmioStatus."
         }
         return
       }
-      if ($LASTEXITCODE -eq 0 -and $installedNodeVersion -match '^v\d+\.\d+\.\d+$') {
+      if ($nodeExitCode -eq 0 -and $installedNodeVersion -match '^v\d+\.\d+\.\d+$') {
         Write-RelmioInstallerMessage (Get-RelmioNodeRejectMessage -VersionText $installedNodeVersion)
       }
     }

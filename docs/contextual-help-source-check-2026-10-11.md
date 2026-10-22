@@ -78,3 +78,13 @@ revision 1. No help text, FAQ entry or rule changed between 0.22.1 and 0.22.2
 (`git log v0.22.1..bedaa0f -- src/ui/guide` is empty). For help, 0.22.2 changes
 only where the dock and chip sit on screen; the help content, data handling and
 sources above are unchanged.
+
+## 0.22.3 metadata update
+
+On 2026-10-22 the bundled help metadata source version moved to Relmio 0.22.3.
+Help rules, FAQ entries, and guide steps did not change. Listed guides only
+updated the Node.js reuse threshold. `validHelpMetadata` does not require
+`sourceCommit` to match the package version, so it stays
+`bedaa0f6aeadf76cbb3cbd254b4a0d41908c0426`, the last commit that changed help
+behavior. `reviewedOn` is 2026-10-22 because those Node sentences were checked
+again.

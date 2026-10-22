@@ -50,7 +50,7 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
   ]);
   const packageJson = JSON.parse(packageContents);
 
-  assert.equal(packageJson.engines.node, ">=24.22.1");
+  assert.equal(packageJson.engines.node, "^24.22.1 || >=26.12.1");
   assert.equal(packageJson.packageManager, "npm@10.9.8");
   assert.equal(packageJson.dependencies.ssh2, "1.17.0");
   assert.equal(packageJson.name, "relmio");

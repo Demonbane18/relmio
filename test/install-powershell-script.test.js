@@ -236,14 +236,35 @@ test("PowerShell installer does not reuse Node.js 24.21.0", async (t) => {
   const wrapper = join(root, "invoke-installer.ps1");
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(fakeBin);
-  await writeExecutable(
-    join(fakeBin, "node"),
-    '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v24.21.0\\n"; exit 0; fi\nexit 1\n',
-  );
-  await writeExecutable(
-    join(fakeBin, "npx"),
-    '#!/bin/sh\nprintf "reused\\n" > "$RELMIO_TEST_LOG"\n',
-  );
+  if (process.platform === "win32") {
+    await writeFile(
+      join(fakeBin, "node.cmd"),
+      [
+        "@echo off",
+        'if "%~1"=="--version" (',
+        "  echo v24.21.0",
+        "  exit /b 0",
+        ")",
+        "exit /b 1",
+        "",
+      ].join("\r\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(fakeBin, "npx.cmd"),
+      ["@echo off", '> "%RELMIO_TEST_LOG%" echo reused', ""].join("\r\n"),
+      "utf8",
+    );
+  } else {
+    await writeExecutable(
+      join(fakeBin, "node"),
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v24.21.0\\n"; exit 0; fi\nexit 1\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "npx"),
+      '#!/bin/sh\nprintf "reused\\n" > "$RELMIO_TEST_LOG"\n',
+    );
+  }
   await writeFile(
     wrapper,
     [

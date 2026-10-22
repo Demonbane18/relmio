@@ -5,7 +5,7 @@ export const HELP_METADATA = Object.freeze({
   revision: 1,
   sourceVersion: "0.22.3",
   sourceCommit: "bedaa0f6aeadf76cbb3cbd254b4a0d41908c0426",
-  reviewedOn: "2026-10-11",
+  reviewedOn: "2026-10-22",
   sources: Object.freeze([
     "docs/getting-started.md", "docs/faq.md", "docs/security.md",
     "docs/vps-and-n8n.md", "docs/local-dashboard.md", "docs/troubleshooting.md",

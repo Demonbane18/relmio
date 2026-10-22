@@ -99,7 +99,7 @@ case "$installed_node_version" in
         npx --yes --ignore-scripts relmio@latest < "$terminal_input"
       exit $?
     fi
-    if [ "$git_bash_windows" -eq 0 ]; then
+    if [ "$git_bash_windows" -eq 0 ] && ! reusable_node_version "$installed_node_version"; then
       say "$(node_reject_message "$installed_node_version")"
     fi
     ;;

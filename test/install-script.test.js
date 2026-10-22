@@ -644,6 +644,36 @@ test(
 );
 
 test(
+  "curl installer does not call a patched runtime old when npx is missing",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "relmio-missing-npx-test-"));
+    const fakeBin = join(root, "bin");
+    const downloadLog = join(root, "download.log");
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await mkdir(fakeBin);
+    await writeExecutable(
+      join(fakeBin, "node"),
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v24.22.1\\n"; exit 0; fi\nexit 1\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "curl"),
+      '#!/bin/sh\nprintf "download\\n" > "$RELMIO_TEST_DOWNLOAD_LOG"\nexit 97\n',
+    );
+
+    await assert.rejects(
+      runCommandInPseudoTerminal(installScript, {
+        ...process.env,
+        PATH: `${fakeBin}:/bin:/usr/bin`,
+        RELMIO_TEST_DOWNLOAD_LOG: downloadLog,
+      }),
+      (error) => !/older than the patched/u.test(`${error.stdout ?? ""}\n${error.stderr ?? ""}`),
+    );
+    assert.equal(await readFile(downloadLog, "utf8"), "download\n");
+  },
+);
+
+test(
   "curl installer rejects a Node.js 24 manifest older than 24.22.1",
   { skip: !supportsPortableFixture },
   async (t) => {

@@ -33,7 +33,7 @@ and the
 [2026-10-05 OpenAI source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md)
 for setup, data handling, limits, and unresolved prerequisites. The
 [v0.22.2 addendum](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-07.md#addendum-v0222-release)
-covers the previous release. The [October 2026 Node.js pin](https://github.com/Demonbane18/relmio/blob/main/docs/node24-luna-source-check-2026-09-14.md#addendum-october-2026-security-pin) covers this release.
+covers the previous release. The [2026-10-22 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-22.md) covers this release.
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
 while it streams. Status distinguishes connection setup, waiting for the first
@@ -65,7 +65,7 @@ npx --yes --ignore-scripts relmio@latest
 ```
 This command selects stable Relmio 0.22.3, including the setup guide.
 Hosted installers use the same stable default. If the installed Node.js is
-older than the patched 24.22.1, or is end-of-life Node.js 25, the hosted
+older than the patched 24.22.1 or 26.12.1, or is end-of-life Node.js 25, the hosted
 installer says so and uses a verified temporary runtime.
 
 

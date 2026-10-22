@@ -42,7 +42,11 @@ installed or replaced and its image is rebuilt. n8n itself is not rebuilt.
 
 ### Changed
 
-- The package requires Node.js 24.22.1 or newer.
+- The package declares Node.js 24.22.1 or newer on the 24 line, or 26.12.1 or
+  newer, in `engines`. Node.js 25 is outside the range.
+- Added the [2026-10-22 OpenAI source check](docs/openai-source-check-2026-10-22.md).
+  It finds no change to sign-in, OAuth scopes, credential storage or data
+  recipients in this release.
 
 
 ## [0.22.2] - 2026-10-11

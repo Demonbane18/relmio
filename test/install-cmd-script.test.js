@@ -557,7 +557,7 @@ test(
     assert.match(stdout, /Installing a temporary Node\.js 24 runtime\. Please wait/u);
     assert.match(stdout, /Verified Node\.js download/u);
     assert.match(stdout, /Extracting the verified temporary Node\.js 24 runtime\. Please wait/u);
-    assert.match(invocation[0].replaceAll("\\", "/"), /node-v24\.21\.0-win-x64\/node_modules\/npm\/bin\/npx-cli\.js$/u);
+    assert.match(invocation[0].replaceAll("\\", "/"), /node-v24\.22\.1-win-x64\/node_modules\/npm\/bin\/npx-cli\.js$/u);
     assert.deepEqual(invocation.slice(1), [
       "--yes",
       "--ignore-scripts",
@@ -567,7 +567,7 @@ test(
     ]);
     assert.deepEqual(tools.slice(0, 2), ["curl", "certutil"]);
     assert.equal(tools.length, 3);
-    assert.match(tools[2], /^tar -xf .*node-v24\.21\.0-win-x64\.zip -C /u);
+    assert.match(tools[2], /^tar -xf .*node-v24\.22\.1-win-x64\.zip -C /u);
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
   },
 );

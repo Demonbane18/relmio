@@ -25,7 +25,7 @@
   },
   "homepage": "https://relmio.jpfusin.tech/",
   "engines": {
-    "node": ">=24.22.1"
+    "node": "^24.22.1 || >=26.12.1"
   },
   "packageManager": "npm@10.9.8",
   "bin": {
