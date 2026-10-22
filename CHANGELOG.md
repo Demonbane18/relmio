@@ -47,6 +47,8 @@ installed or replaced and its image is rebuilt. n8n itself is not rebuilt.
 - Added the [2026-10-22 OpenAI source check](docs/openai-source-check-2026-10-22.md).
   It finds no change to sign-in, OAuth scopes, credential storage or data
   recipients in this release.
+- The PowerShell installer retries removing its temporary runtime while
+  Windows still holds `node.exe`, as the Command Prompt installer already does.
 
 
 ## [0.22.2] - 2026-10-11

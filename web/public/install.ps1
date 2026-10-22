@@ -224,7 +224,16 @@
     }
     try {
       if ($null -ne $temporaryDirectory -and (Test-Path -LiteralPath $temporaryDirectory)) {
-        Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+        # node.exe can stay locked briefly after npx exits; retry like install.cmd (3 attempts, ~1 s apart).
+        for ($removeAttempt = 1; ; $removeAttempt++) {
+          try {
+            Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+            break
+          } catch {
+            if ($removeAttempt -ge 3) { throw }
+            Start-Sleep -Seconds 1
+          }
+        }
       }
     } finally {
       try {
