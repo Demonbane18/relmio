@@ -660,11 +660,22 @@ test(
       join(fakeBin, "curl"),
       '#!/bin/sh\nprintf "download\\n" > "$RELMIO_TEST_DOWNLOAD_LOG"\nexit 97\n',
     );
+    // System tools without any npx, so a host npx cannot satisfy the reuse check.
+    const systemBin = join(root, "system-bin");
+    await mkdir(systemBin);
+    for (const directory of ["/bin", "/usr/bin"]) {
+      for (const name of await readdir(directory)) {
+        if (name === "npx") continue;
+        await symlink(join(directory, name), join(systemBin, name)).catch((error) => {
+          if (error.code !== "EEXIST") throw error;
+        });
+      }
+    }
 
     await assert.rejects(
       runCommandInPseudoTerminal(installScript, {
         ...process.env,
-        PATH: `${fakeBin}:/bin:/usr/bin`,
+        PATH: `${fakeBin}:${systemBin}`,
         RELMIO_TEST_DOWNLOAD_LOG: downloadLog,
       }),
       (error) => !/older than the patched/u.test(`${error.stdout ?? ""}\n${error.stderr ?? ""}`),
