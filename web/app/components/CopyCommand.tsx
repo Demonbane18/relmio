@@ -40,7 +40,7 @@ const installMethods = [
     id: "npx",
     label: "NPX",
     command: "npx --yes --ignore-scripts relmio@latest",
-    note: "For any local terminal that already has Node.js 24 or newer.",
+    note: "For any local terminal that already has Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer.",
     prompt: "$",
   },
 ] as const;

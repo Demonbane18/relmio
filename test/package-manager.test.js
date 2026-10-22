@@ -294,7 +294,7 @@ test("portable ZIP writer is deterministic and round-trips data", () => {
 test("portable package bundles its runtime, launcher, package tree, and npx", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "relmio-portable-package-"));
   t.after(() => rm(directory, { force: true, recursive: true }));
-  const runtimeDirectory = join(directory, "node-v24.21.0-win-x64");
+  const runtimeDirectory = join(directory, "node-v24.22.1-win-x64");
   const launcherPath = join(directory, "relmio.exe");
   const productionModules = join(directory, "production-node-modules");
   const firstOutput = join(
@@ -355,7 +355,7 @@ test("portable package bundles its runtime, launcher, package tree, and npx", as
 test("portable ARM64 package accepts the versioned release archive", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "relmio-arm64-package-"));
   t.after(() => rm(directory, { force: true, recursive: true }));
-  const runtimeDirectory = join(directory, "node-v24.21.0-win-arm64");
+  const runtimeDirectory = join(directory, "node-v24.22.1-win-arm64");
   const launcherPath = join(directory, "relmio.exe");
   const productionModules = join(directory, "production-node-modules");
   const outputPath = join(directory, `relmio-${repositoryVersion}-windows-arm64.zip`);

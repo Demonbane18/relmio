@@ -10,12 +10,22 @@ import {
   cliMode,
   hasInteractiveTerminal,
   isCliEntryPath,
+  isPatchedNodeRuntime,
   runCli,
 } from "../src/cli.js";
 
 const execFileAsync = promisify(execFile);
 const privateLaunchUrl =
   "file:///private/tmp/relmio-browser-Ab3dE9/launch-0123456789abcdef01234567.html";
+
+test("CLI accepts only Node.js runtimes with the October 2026 security fixes", () => {
+  for (const version of ["24.22.1", "v24.22.1", "24.22.2", "24.23.0", "26.12.1", "26.13.0"]) {
+    assert.equal(isPatchedNodeRuntime(version), true, version);
+  }
+  for (const version of ["24.22.0", "24.21.9", "26.12.0", "22.23.4", "25.9.0", "27.0.0", "24.22", "", "24.22.1-rc.1"]) {
+    assert.equal(isPatchedNodeRuntime(version), false, version);
+  }
+});
 
 test("CLI recognizes version and explicit wizard routes", () => {
   assert.equal(cliMode(["--version"]), "version");

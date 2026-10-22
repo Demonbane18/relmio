@@ -19,7 +19,6 @@ if defined RELMIO_SELF_DELETE if /i "%RELMIO_SELF_DELETE%"=="%~f0" (
 endlocal & exit /b %RELMIO_EXIT_CODE%
 
 :main
-set "RELMIO_MINIMUM_NODE_MAJOR=24"
 set "RELMIO_SYSTEM32=%SystemRoot%\System32"
 set "RELMIO_CURL=%RELMIO_SYSTEM32%\curl.exe"
 set "RELMIO_CERTUTIL=%RELMIO_SYSTEM32%\certutil.exe"
@@ -29,8 +28,12 @@ set "RELMIO_FINDSTR=%RELMIO_SYSTEM32%\findstr.exe"
 set "RELMIO_TEMPORARY_DIRECTORY="
 
 call :findnode
-if errorlevel 1 goto :portable_runtime
-call :message "Using installed Node.js %RELMIO_INSTALLED_NODE_MAJOR% runtime; starting Relmio without a download."
+if not errorlevel 1 goto :use_installed_node
+if defined RELMIO_NODE_REJECT_REASON call :message "%RELMIO_NODE_REJECT_REASON%"
+goto :portable_runtime
+
+:use_installed_node
+call :message "Using installed Node.js %RELMIO_INSTALLED_NODE_VERSION% runtime; starting Relmio without a download."
 set "RELMIO_FOREGROUND_WIZARD=1"
 call "%RELMIO_INSTALLED_NPX%" --yes --ignore-scripts relmio@latest
 set "RELMIO_CHILD_EXIT_CODE=%errorlevel%"
@@ -65,11 +68,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-set "RELMIO_NODE_VERSION=v24.21.0"
+set "RELMIO_NODE_VERSION=v24.22.1"
 set "RELMIO_ARCHIVE_NAME=node-%RELMIO_NODE_VERSION%-win-%RELMIO_NODE_ARCHITECTURE%.zip"
 set "RELMIO_EXPECTED_CHECKSUM="
-if /i "%RELMIO_NODE_ARCHITECTURE%"=="x64" set "RELMIO_EXPECTED_CHECKSUM=158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541"
-if /i "%RELMIO_NODE_ARCHITECTURE%"=="arm64" set "RELMIO_EXPECTED_CHECKSUM=8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921"
+if /i "%RELMIO_NODE_ARCHITECTURE%"=="x64" set "RELMIO_EXPECTED_CHECKSUM=d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5"
+if /i "%RELMIO_NODE_ARCHITECTURE%"=="arm64" set "RELMIO_EXPECTED_CHECKSUM=a0c807319fede24c4a0d8f84564c82a619bd313b16b10c007c383c2609e99171"
 if not defined RELMIO_EXPECTED_CHECKSUM (
   call :failure "No reviewed Node.js checksum is available for this architecture."
   exit /b 1
@@ -145,13 +148,13 @@ exit /b %RELMIO_CHILD_EXIT_CODE%
 :findnode
 set "RELMIO_INSTALLED_NODE="
 set "RELMIO_INSTALLED_NPX="
-set "RELMIO_INSTALLED_NODE_MAJOR="
+set "RELMIO_INSTALLED_NODE_VERSION="
 if not exist "%RELMIO_WHERE%" exit /b 1
 for /f "usebackq delims=" %%P in (`"%RELMIO_WHERE%" node.exe 2^>nul`) do (
   call :nodeok "%%~fP"
   if not errorlevel 1 (
     set "RELMIO_INSTALLED_NODE=%%~fP"
-    call set "RELMIO_INSTALLED_NODE_MAJOR=%%RELMIO_SUPPORTED_NODE_MAJOR%%"
+    call set "RELMIO_INSTALLED_NODE_VERSION=%%RELMIO_SUPPORTED_NODE_VERSION%%"
     goto :find_installed_npx
   )
 )
@@ -176,11 +179,29 @@ for /f "usebackq delims=" %%V in (`"%~1" --version 2^>nul`) do if not defined RE
 if not defined RELMIO_NODE_VERSION endlocal & exit /b 1
 echo(%RELMIO_NODE_VERSION%| "%RELMIO_FINDSTR%" /r /x "v[1-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*" >nul
 if errorlevel 1 endlocal & exit /b 1
-for /f "tokens=1 delims=." %%M in ("%RELMIO_NODE_VERSION:~1%") do set "RELMIO_NODE_MAJOR=%%M"
+for /f "tokens=1,2,3 delims=." %%A in ("%RELMIO_NODE_VERSION:~1%") do (
+  set "RELMIO_NODE_MAJOR=%%A"
+  set "RELMIO_NODE_MINOR=%%B"
+  set "RELMIO_NODE_PATCH=%%C"
+)
 set /a RELMIO_NODE_MAJOR_NUMBER=RELMIO_NODE_MAJOR >nul 2>&1
 if errorlevel 1 endlocal & exit /b 1
-if %RELMIO_NODE_MAJOR_NUMBER% LSS %RELMIO_MINIMUM_NODE_MAJOR% endlocal & exit /b 1
-endlocal & set "RELMIO_SUPPORTED_NODE_MAJOR=%RELMIO_NODE_MAJOR%" & exit /b 0
+set /a RELMIO_NODE_MINOR_NUMBER=RELMIO_NODE_MINOR >nul 2>&1
+if errorlevel 1 endlocal & exit /b 1
+set /a RELMIO_NODE_PATCH_NUMBER=RELMIO_NODE_PATCH >nul 2>&1
+if errorlevel 1 endlocal & exit /b 1
+set "RELMIO_NODE_REUSABLE=0"
+if %RELMIO_NODE_MAJOR_NUMBER% EQU 24 if %RELMIO_NODE_MINOR_NUMBER% GTR 22 set "RELMIO_NODE_REUSABLE=1"
+if %RELMIO_NODE_MAJOR_NUMBER% EQU 24 if %RELMIO_NODE_MINOR_NUMBER% EQU 22 if %RELMIO_NODE_PATCH_NUMBER% GEQ 1 set "RELMIO_NODE_REUSABLE=1"
+if %RELMIO_NODE_MAJOR_NUMBER% EQU 26 if %RELMIO_NODE_MINOR_NUMBER% GTR 12 set "RELMIO_NODE_REUSABLE=1"
+if %RELMIO_NODE_MAJOR_NUMBER% EQU 26 if %RELMIO_NODE_MINOR_NUMBER% EQU 12 if %RELMIO_NODE_PATCH_NUMBER% GEQ 1 set "RELMIO_NODE_REUSABLE=1"
+if "%RELMIO_NODE_REUSABLE%"=="1" endlocal & set "RELMIO_SUPPORTED_NODE_VERSION=%RELMIO_NODE_VERSION%" & exit /b 0
+set "RELMIO_NODE_REJECT_REASON=Installed Node.js %RELMIO_NODE_VERSION% is not a patched runtime Relmio can reuse; using a verified temporary runtime."
+if %RELMIO_NODE_MAJOR_NUMBER% LSS 24 set "RELMIO_NODE_REJECT_REASON=Installed Node.js %RELMIO_NODE_VERSION% is older than the patched 24.22.1; using a verified temporary runtime."
+if %RELMIO_NODE_MAJOR_NUMBER% EQU 24 set "RELMIO_NODE_REJECT_REASON=Installed Node.js %RELMIO_NODE_VERSION% is older than the patched 24.22.1; using a verified temporary runtime."
+if %RELMIO_NODE_MAJOR_NUMBER% EQU 25 set "RELMIO_NODE_REJECT_REASON=Installed Node.js %RELMIO_NODE_VERSION% is an end-of-life release with no security patch; using a verified temporary runtime."
+if %RELMIO_NODE_MAJOR_NUMBER% EQU 26 set "RELMIO_NODE_REJECT_REASON=Installed Node.js %RELMIO_NODE_VERSION% is older than the patched 26.12.1; using a verified temporary runtime."
+endlocal & set "RELMIO_NODE_REJECT_REASON=%RELMIO_NODE_REJECT_REASON%" & exit /b 1
 
 :checksum
 setlocal DisableDelayedExpansion

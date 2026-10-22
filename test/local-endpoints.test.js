@@ -77,7 +77,7 @@ test("both Codex images pin official CLI and locked Node runtime without native 
     [createCodexDockerfile(), "codex-app-server.mjs"],
     [createCodexChatDockerfile(), "codex-chat.js"],
   ]) {
-    assert.match(dockerfile, /FROM node:24-bookworm-slim/);
+    assert.match(dockerfile, /FROM node:24\.22\.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205/);
     assert.match(dockerfile, /npm ci --omit=dev --ignore-scripts/);
     assert.ok(dockerfile.includes(`@openai/codex@${CODEX_CLI_VERSION}`));
     assert.ok(dockerfile.includes(entry));
@@ -98,6 +98,7 @@ test("Grok remains a separate direct OAuth method", () => {
   assert.equal(plan.endpoint, "http://127.0.0.1:14502");
   assert.equal(Object.hasOwn(plan, "authBinding"), false);
   assert.equal(validateLocalTarget("xai-grok-build"), "xai-grok-build");
+  assert.match(createGrokBuildDockerfile(), /FROM node:22\.23\.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d/);
   assert.match(createGrokBuildDockerfile(), new RegExp(GROK_BUILD_CLI_VERSION.replaceAll(".", "\\.")));
   assert.match(createGrokBuildComposeFile({ port: 14502, tokenSha256: "a".repeat(64), installId: "b".repeat(32) }), /127\.0\.0\.1:14502/);
   assert.equal(createLocalDockerignore("xai-grok-build").includes("siwc-session"), false);

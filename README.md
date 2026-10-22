@@ -26,11 +26,12 @@ not enable hosted chat. See the
 [2026-10-05 source check](docs/openai-source-check-2026-10-05.md) for the data
 flow, documented limits, unresolved prerequisites, and historical reviews, and
 the [v0.22.2 addendum](docs/openai-source-check-2026-10-07.md#addendum-v0222-release)
-for this release.
+for the previous release. The [October 2026 Node.js pin](docs/node24-luna-source-check-2026-09-14.md#addendum-october-2026-security-pin) covers this release.
 
-Relmio 0.22.2 is the current stable release. It makes Help usable on small and
-short windows and keeps the setup guide off the dashboard's buttons. It is
-available through npm `latest` and the hosted installers.
+Relmio 0.22.3 is the current stable release. It stops installers from reusing
+a Node.js runtime older than the October 2026 security patches, and pins
+generated bridge images to those patched Node.js bases. It is available
+through npm `latest` and the hosted installers.
 
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
@@ -55,14 +56,16 @@ to review and stop an exact owned endpoint.
 
 ## Quick install
 
-With Node.js 24 or newer on macOS, Linux, WSL, Windows PowerShell, or Command
-Prompt:
+With Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer, on macOS, Linux,
+WSL, Windows PowerShell, or Command Prompt:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-`@latest` selects stable 0.22.2, including the setup guide. Hosted
-installers use the same stable default.
+`@latest` selects stable 0.22.3, including the setup guide. Hosted
+installers use the same stable default. If the installed Node.js is older
+than the patched 24.22.1, or is end-of-life Node.js 25, the hosted installer
+says so and uses a verified temporary runtime.
 
 
 On Git Bash, use the hosted launcher. It uses Git for Windows' bundled `winpty`
@@ -104,7 +107,7 @@ launchers open the foreground wizard with the same platform security checks.
 
 ## Keep the local dashboard available
 
-For a persistent command, install Relmio with Node.js 24 or newer, then manage
+For a persistent command, install Relmio with Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer, then manage
 its owner-scoped loopback dashboard explicitly:
 
 ```bash

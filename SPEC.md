@@ -34,7 +34,7 @@ claim for VPS transfer/storage.
 
 ## Runtime and protected state
 
-- Node.js 24 or newer; ECMAScript modules and the built-in HTTP server.
+- Node.js 24.22.1 or newer; ECMAScript modules and the built-in HTTP server.
 - `jose` 6.2.12 validates OpenAI ID tokens and JWKS signatures.
 - `ws` 8.22.0 relays the local WebSocket App Server protocol.
 - `ssh2` 1.17.0 handles the verified SSH boundary.

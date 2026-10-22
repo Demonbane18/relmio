@@ -361,7 +361,24 @@ export async function runCli({
   return 0;
 }
 
+// Node.js security releases of 2026-10-21 (24.22.1, 26.12.1). Raise these with each Node security release.
+const PATCHED_NODE_MINIMUMS = Object.freeze({ 24: [22, 1], 26: [12, 1] });
+
+export function isPatchedNodeRuntime(version) {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)$/u.exec(String(version));
+  if (!match) return false;
+  const [major, minor, patch] = match.slice(1).map(Number);
+  const minimum = PATCHED_NODE_MINIMUMS[major];
+  return Boolean(minimum) && (minor > minimum[0] || (minor === minimum[0] && patch >= minimum[1]));
+}
+
 export async function runCliEntrypoint(options = {}) {
+  const nodeVersion = options.nodeVersion ?? process.versions.node;
+  if (!isPatchedNodeRuntime(nodeVersion)) {
+    console.error(
+      `Warning: Node.js ${nodeVersion} is missing security fixes. Update to Node.js 24.22.1 or newer (or 26.12.1 or newer).`,
+    );
+  }
   try {
     const exitCode = await runCli(options);
     if (exitCode !== 0) process.exitCode = exitCode;

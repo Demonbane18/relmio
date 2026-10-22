@@ -119,12 +119,12 @@ export default function InstallPage() {
               <summary>Runtime and Node.js</summary>
               <div className="rm-disclosure__body">
                 <p>
-                  Direct installers reuse Node.js 24 or newer when it is installed.
+                  Direct installers reuse Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer, when it is installed.
                   Otherwise they download and verify a temporary official runtime, run
                   the one-shot wizard in the foreground and remove that runtime
                   afterward.
                 </p>
-                <p>NPX needs Node.js 24 or newer.</p>
+                <p>NPX needs Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer.</p>
               </div>
             </details>
             <details className="rm-disclosure">
