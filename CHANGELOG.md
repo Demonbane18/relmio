@@ -39,6 +39,13 @@ in-place runtime update. Sign out and choose **Review replacement with a fresh
 account**, or remove the bridge and set it up again. Codex, Grok, and
 local-model helper images pick up the pin the next time that owned project is
 installed or replaced and its image is rebuilt. n8n itself is not rebuilt.
+A local Grok Build or private SuperGrok for n8n install made by an earlier
+release does not pass Relmio's ownership check for sign-in, sign-out, or key
+rotation after this upgrade, as after any earlier upgrade. Reinstall the loopback
+Grok Build endpoint with a confirmed install, or remove and set up the private
+SuperGrok companion again. That rebuild is also what applies the patched base.
+VPS SuperGrok keeps working; its existing image stays unpatched until it is
+replaced.
 
 ### Changed
 
