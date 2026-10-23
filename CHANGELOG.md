@@ -64,7 +64,6 @@ replaced.
 - The PowerShell installer retries removing its temporary runtime while
   Windows still holds `node.exe`, as the Command Prompt installer already does.
 
-
 ## [0.22.2] - 2026-10-11
 
 Relmio 0.22.2 makes **Help** usable on small and short windows and keeps the
