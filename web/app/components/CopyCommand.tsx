@@ -33,14 +33,14 @@ const installMethods = [
     label: "CMD",
     command:
       'for /f "delims=" %F in ("%TEMP%\\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") do @if exist "%~F" (exit /b 80) else curl -fsSL --remove-on-error https://relmio.jpfusin.tech/install.cmd -o "%~F" && set "RELMIO_SELF_DELETE=%~F" && call "%~F"',
-    note: "For Command Prompt, not PowerShell. This non-admin bootstrap verifies a temporary runtime when Node.js 24+ is unavailable and runs as a foreground one-shot wizard.",
+    note: "For Command Prompt, not PowerShell. This non-admin bootstrap verifies a temporary runtime when Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer, is unavailable, and runs as a foreground one-shot wizard.",
     prompt: ">",
   },
   {
     id: "npx",
     label: "NPX",
     command: "npx --yes --ignore-scripts relmio@latest",
-    note: "For any local terminal that already has Node.js 24 or newer.",
+    note: "For any local terminal that already has Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer.",
     prompt: "$",
   },
 ] as const;

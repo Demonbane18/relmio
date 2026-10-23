@@ -323,7 +323,7 @@ context to make a failed build proceed.
 `dev/local-model-linux/harness.mjs` is an interactive maintainer tool for a
 **separate disposable n8n fixture**, not an installer for your existing n8n.
 Use a fresh dedicated checkout on a human-approved real Linux host with Node.js
-24+, local rootful Docker Engine, Docker Compose 2.17+, the production model
+24.22.1 or newer, local rootful Docker Engine, Docker Compose 2.17+, the production model
 resource budget and outbound image/model-registry access. It refuses Darwin,
 remote Docker overrides/contexts and unsupported engines; it never starts
 Docker Desktop or uses a production n8n instance.

@@ -7,8 +7,30 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.22.3] - 2026-10-22
+
+Relmio 0.22.3 is a Node.js security hotfix for the
+[October 2026 security releases](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).
+Those releases fix high-severity issues on every supported line, including
+CVE-2026-111497, a Brotli decoder out-of-bounds write that can allow remote
+code execution.
+
 ### Security
 
+- Installers reuse an installed Node.js runtime only at 24.22.1 or newer on
+  the 24 line, or 26.12.1 or newer on the 26 line. Node.js 25 is end of life
+  and is not reused. An older installed runtime stays installed. The installer
+  says why and uses a checksum-verified temporary Node.js 24 runtime instead.
+- The Command Prompt installer pins the official Node.js 24.22.1 Windows
+  archives. The POSIX and PowerShell installers still select `latest-v24.x`
+  and refuse a manifest older than 24.22.1.
+- Generated bridge and companion images pin patched Node.js bases by tag and
+  digest: `node:24.22.1-bookworm-slim` and, for the Grok build image,
+  `node:22.23.4-bookworm-slim`. A digest pin does not match a cached older
+  `node:24-bookworm-slim` tag, so a rebuild fetches the patched image.
+- The `relmio` command warns on startup when it runs on a Node.js release
+  without these fixes, for example after a global npm or Homebrew install on
+  an older system Node.js. It still runs; update Node.js to clear the warning.
 - The hosted website moves from Next.js 16.3.8 to 16.4.2. That fixes
   [GHSA-2464-fhr4-w9xw](https://github.com/advisories/GHSA-2464-fhr4-w9xw)
   and [GHSA-673q-mjm6-r5xr](https://github.com/advisories/GHSA-673q-mjm6-r5xr)
@@ -16,6 +38,31 @@ checks the registry separately after publication.
   [GHSA-p3m5-59mp-jv5r](https://github.com/advisories/GHSA-p3m5-59mp-jv5r)
   (high, denial of service). The npm package and installers do not include
   Next.js.
+
+Existing VPS sidecars get the patched base after you update Relmio and choose
+**Review sidecar update**, then **Update the sidecar**. That review sees the
+Dockerfile change and rebuilds only the owned sidecar. Local sidecars have no
+in-place runtime update. Sign out and choose **Review replacement with a fresh
+account**, or remove the bridge and set it up again. Codex, Grok, and
+local-model helper images pick up the pin the next time that owned project is
+installed or replaced and its image is rebuilt. n8n itself is not rebuilt.
+A local Grok Build or private SuperGrok for n8n install made by an earlier
+release does not pass Relmio's ownership check for sign-in, sign-out, or key
+rotation after this upgrade, as after any earlier upgrade. Reinstall the loopback
+Grok Build endpoint with a confirmed install, or remove and set up the private
+SuperGrok companion again. That rebuild is also what applies the patched base.
+VPS SuperGrok keeps working; its existing image stays unpatched until it is
+replaced.
+
+### Changed
+
+- The package declares Node.js 24.22.1 or newer on the 24 line, or 26.12.1 or
+  newer, in `engines`. Node.js 25 is outside the range.
+- Added the [2026-10-22 OpenAI source check](docs/openai-source-check-2026-10-22.md).
+  It finds no change to sign-in, OAuth scopes, credential storage or data
+  recipients in this release.
+- The PowerShell installer retries removing its temporary runtime while
+  Windows still holds `node.exe`, as the Command Prompt installer already does.
 
 ## [0.22.2] - 2026-10-11
 
@@ -2059,6 +2106,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.22.3]: https://github.com/Demonbane18/relmio/compare/v0.22.2...v0.22.3
 [0.22.2]: https://github.com/Demonbane18/relmio/compare/v0.22.1...v0.22.2
 [0.22.1]: https://github.com/Demonbane18/relmio/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/Demonbane18/relmio/compare/v0.21.0...v0.22.0

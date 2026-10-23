@@ -1,5 +1,5 @@
 import { INSTALL_ROOT, validateSiwcRegistrationId, validateSiwcRuntimeId } from "./safety.js";
-import { validateSha256Verifier } from "./local-endpoints.js";
+import { NODE_24_BOOKWORM_SLIM_IMAGE, validateSha256Verifier } from "./local-endpoints.js";
 import { validateDockerName } from "./validation.js";
 
 export const SIDECAR_HOSTNAME = "n8n-openai-oauth";
@@ -7,7 +7,7 @@ export const SIDECAR_IMAGE = "n8n-openai-oauth:local";
 export const SIDECAR_ENTRYPOINT = ["node", "/app/gateway/openai-oauth-sidecar.mjs"];
 
 export function createDockerfile() {
-  return `FROM node:24-bookworm-slim
+  return `FROM ${NODE_24_BOOKWORM_SLIM_IMAGE}
 
 WORKDIR /app
 COPY package.json package-lock.json ./

@@ -7,6 +7,32 @@ not describe current behavior. The website's `/api/chat` now returns `410 Gone`;
 local open-source SIWC is a separate flow. See the
 [2026-10-04 source check](openai-source-check-2026-10-04.md).
 
+## Addendum: October 2026 security pin
+
+Check date: 2026-10-22.
+
+The September review below recorded Node.js 24.21.0. That release is older
+than the patched versions in the
+[October 2026 security release](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases).
+Relmio 0.22.3 reuses an installed runtime only for Node.js 24.22.1 or newer
+on the 24 line, and Node.js 26.12.1 or newer on the 26 line. Node.js 25 is
+end of life and is not reused. The POSIX and PowerShell launchers still
+download `latest-v24.x` and refuse a manifest older than 24.22.1. On
+2026-10-22 that index resolved to 24.22.1. The native CMD launcher pins
+24.22.1 because it uses reviewed embedded digests:
+
+| Archive | Official SHA-256 |
+| --- | --- |
+| `node-v24.22.1-win-x64.zip` | `d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5` |
+| `node-v24.22.1-win-arm64.zip` | `a0c807319fede24c4a0d8f84564c82a619bd313b16b10c007c383c2609e99171` |
+
+Source: [Node.js 24.22.1 checksums](https://nodejs.org/download/release/v24.22.1/SHASUMS256.txt).
+
+Generated bridge images pin `node:24.22.1-bookworm-slim` and the Grok build
+image pins `node:22.23.4-bookworm-slim`, each with the multi-arch index digest
+from the Docker Hub registry on 2026-10-22.
+
+
 This review covers the browser wizard's Node.js runtime requirement and the
 hosted web chat's default model. It records technical and policy boundaries; it
 is not a legal opinion and does not establish account entitlement.

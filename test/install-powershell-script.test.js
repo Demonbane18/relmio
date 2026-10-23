@@ -90,7 +90,7 @@ test("PowerShell installer avoids the Node eval probe that surfaces [eval]:1 on 
   assert.match(script, /& \$nodeCommand\.Source --version 2>\$null/u);
   assert.match(
     script,
-    /\^v\(\?<major>\\d\+\)\\\.\\d\+\\\.\\d\+\$/u,
+    /\^v\(\?<major>\\d\+\)\\\.\(\?<minor>\\d\+\)\\\.\(\?<patch>\\d\+\)\$/u,
   );
 });
 
@@ -116,7 +116,7 @@ test(
         [
           "@echo off",
           'if "%~1"=="--version" (',
-          "  echo v24.16.0",
+          "  echo v24.22.1",
           "  exit /b 0",
           ")",
           "echo [eval]:1 1>&2",
@@ -143,7 +143,7 @@ test(
         [
           "#!/bin/sh",
           'if [ "$1" = "--version" ]; then',
-          '  printf "v24.16.0\\n"',
+          '  printf "v24.22.1\\n"',
           "  exit 0",
           "fi",
           'printf "[eval]:1\\n" >&2',
@@ -211,7 +211,7 @@ printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_
           { env },
         );
 
-        assert.match(stdout, /Using installed Node\.js 24 runtime/u);
+        assert.match(stdout, /Using installed Node\.js v24\.22\.1 runtime/u);
         assert.match(stdout, /PREFERENCES:Continue\/Continue/u);
         assert.match(stdout, new RegExp(`FOREGROUND:${scenario.expectedRestoration}`, "u"));
         assert.deepEqual(
@@ -223,6 +223,77 @@ printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_
     await assert.rejects(readFile(downloadLog, "utf8"), { code: "ENOENT" });
   },
 );
+
+test("PowerShell installer does not reuse Node.js 24.21.0", async (t) => {
+  const powershell = await findPowerShell();
+  if (!powershell) {
+    t.skip("PowerShell is not installed");
+    return;
+  }
+  const root = await mkdtemp(join(tmpdir(), "relmio-powershell-old-node-"));
+  const fakeBin = join(root, "bin");
+  const log = join(root, "invocation.log");
+  const wrapper = join(root, "invoke-installer.ps1");
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(fakeBin);
+  if (process.platform === "win32") {
+    await writeFile(
+      join(fakeBin, "node.cmd"),
+      [
+        "@echo off",
+        'if "%~1"=="--version" (',
+        "  echo v24.21.0",
+        "  exit /b 0",
+        ")",
+        "exit /b 1",
+        "",
+      ].join("\r\n"),
+      "utf8",
+    );
+    await writeFile(
+      join(fakeBin, "npx.cmd"),
+      ["@echo off", '> "%RELMIO_TEST_LOG%" echo reused', ""].join("\r\n"),
+      "utf8",
+    );
+  } else {
+    await writeExecutable(
+      join(fakeBin, "node"),
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v24.21.0\\n"; exit 0; fi\nexit 1\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "npx"),
+      '#!/bin/sh\nprintf "reused\\n" > "$RELMIO_TEST_LOG"\n',
+    );
+  }
+  await writeFile(
+    wrapper,
+    [
+      '$ErrorActionPreference = "Continue"',
+      'function Invoke-WebRequest { throw "The test refused an unexpected download." }',
+      'Invoke-Expression (Get-Content -LiteralPath $env:RELMIO_INSTALL_SCRIPT -Raw)',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  await assert.rejects(
+    execFileAsync(
+      powershell,
+      ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
+      {
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}${delimiter}${process.env.PATH}`,
+          PROCESSOR_ARCHITECTURE: "AMD64",
+          RELMIO_INSTALL_SCRIPT: resolve(installScript),
+          RELMIO_TEST_LOG: log,
+        },
+      },
+    ),
+    (error) => /older than the patched 24\.22\.1/u.test(`${error.stdout ?? ""}\n${error.stderr ?? ""}`),
+  );
+  await assert.rejects(readFile(log, "utf8"), { code: "ENOENT" });
+});
 
 test(
   "Windows PowerShell 5 executes the verified portable runtime fallback",

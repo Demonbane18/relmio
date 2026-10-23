@@ -3,7 +3,6 @@
   $ProgressPreference = "SilentlyContinue"
   Set-StrictMode -Version 3.0
 
-  $minimumNodeMajor = 24
   $nodeDistributionUrl = "https://nodejs.org/download/release"
   $temporaryDirectory = $null
   $previousSecurityProtocol = $null
@@ -52,28 +51,75 @@
     return $command
   }
 
+  function Test-RelmioReusableNodeVersion {
+    param([Parameter(Mandatory = $true)][string]$VersionText)
+
+    if ($VersionText -notmatch '^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$') {
+      return $false
+    }
+
+    $major = 0
+    $minor = 0
+    $patch = 0
+    if (-not [int]::TryParse($Matches["major"], [ref]$major) -or
+        -not [int]::TryParse($Matches["minor"], [ref]$minor) -or
+        -not [int]::TryParse($Matches["patch"], [ref]$patch)) {
+      return $false
+    }
+
+    if ($major -eq 24) {
+      return ($minor -gt 22) -or ($minor -eq 22 -and $patch -ge 1)
+    }
+    if ($major -eq 26) {
+      return ($minor -gt 12) -or ($minor -eq 12 -and $patch -ge 1)
+    }
+    return $false
+  }
+
+  function Get-RelmioNodeRejectMessage {
+    param([Parameter(Mandatory = $true)][string]$VersionText)
+
+    $major = 0
+    if ($VersionText -match '^v(?<major>\d+)\.' -and [int]::TryParse($Matches["major"], [ref]$major)) {
+      if ($major -eq 24 -or $major -lt 24) {
+        return "Installed Node.js $VersionText is older than the patched 24.22.1; using a verified temporary runtime."
+      }
+      if ($major -eq 26) {
+        return "Installed Node.js $VersionText is older than the patched 26.12.1; using a verified temporary runtime."
+      }
+      if ($major -eq 25) {
+        return "Installed Node.js $VersionText is an end-of-life release with no security patch; using a verified temporary runtime."
+      }
+    }
+    return "Installed Node.js $VersionText is not a patched runtime Relmio can reuse; using a verified temporary runtime."
+  }
+
   try {
     $nodeCommand = Get-Command "node" -CommandType Application -ErrorAction SilentlyContinue |
       Select-Object -First 1
     $npxCommand = Find-RelmioNpxCommand
-    $installedNodeMajor = 0
 
     if ($null -ne $nodeCommand -and $null -ne $npxCommand) {
-      $installedNodeVersion = & $nodeCommand.Source --version 2>$null
-      if (
-        $LASTEXITCODE -eq 0 -and
-        ([string]$installedNodeVersion).Trim() -match '^v(?<major>\d+)\.\d+\.\d+$' -and
-        [int]::TryParse($Matches["major"], [ref]$installedNodeMajor) -and
-        $installedNodeMajor -ge $minimumNodeMajor
-      ) {
-        Write-RelmioInstallerMessage "Using installed Node.js $installedNodeMajor runtime."
+      $installedNodeVersion = (& $nodeCommand.Source --version 2>$null)
+      $nodeExitCode = 1
+      if (Test-Path -Path variable:LASTEXITCODE) {
+        $nodeExitCode = $LASTEXITCODE
+      }
+      if ($null -ne $installedNodeVersion) {
+        $installedNodeVersion = ([string]$installedNodeVersion).Trim()
+      }
+      if ($nodeExitCode -eq 0 -and $installedNodeVersion -and (Test-RelmioReusableNodeVersion -VersionText $installedNodeVersion)) {
+        Write-RelmioInstallerMessage "Using installed Node.js $installedNodeVersion runtime."
         [Environment]::SetEnvironmentVariable("RELMIO_FOREGROUND_WIZARD", "1", "Process")
         & $npxCommand.Source --yes --ignore-scripts relmio@latest
-        $relmioStatus = $LASTEXITCODE
+        $relmioStatus = if (Test-Path -Path variable:LASTEXITCODE) { $LASTEXITCODE } else { 1 }
         if ($relmioStatus -ne 0) {
           throw "Relmio finished with status $relmioStatus."
         }
         return
+      }
+      if ($nodeExitCode -eq 0 -and $installedNodeVersion -match '^v\d+\.\d+\.\d+$') {
+        Write-RelmioInstallerMessage (Get-RelmioNodeRejectMessage -VersionText $installedNodeVersion)
       }
     }
 
@@ -127,6 +173,14 @@
     }
 
     $runtime = $runtimeEntries[0]
+    $manifestMinor = 0
+    $manifestPatch = 0
+    if ($runtime.Version -notmatch '^v24\.(?<minor>\d+)\.(?<patch>\d+)$' -or
+        -not [int]::TryParse($Matches["minor"], [ref]$manifestMinor) -or
+        -not [int]::TryParse($Matches["patch"], [ref]$manifestPatch) -or
+        $manifestMinor -lt 22 -or ($manifestMinor -eq 22 -and $manifestPatch -lt 1)) {
+      throw "The Node.js manifest version is older than the patched 24.22.1."
+    }
     $archivePath = Join-Path $temporaryDirectory $runtime.Filename
     $archiveUrl = "$nodeDistributionUrl/$($runtime.Version)/$($runtime.Filename)"
     Save-RelmioHttpsFile -Uri $archiveUrl -Destination $archivePath
@@ -170,7 +224,16 @@
     }
     try {
       if ($null -ne $temporaryDirectory -and (Test-Path -LiteralPath $temporaryDirectory)) {
-        Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+        # node.exe can stay locked briefly after npx exits; retry like install.cmd (3 attempts, ~1 s apart).
+        for ($removeAttempt = 1; ; $removeAttempt++) {
+          try {
+            Remove-Item -LiteralPath $temporaryDirectory -Recurse -Force
+            break
+          } catch {
+            if ($removeAttempt -ge 3) { throw }
+            Start-Sleep -Seconds 1
+          }
+        }
       }
     } finally {
       try {

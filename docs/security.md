@@ -751,7 +751,7 @@ responsibility.
 
 ## Dependency policy
 
-The current package requires Node.js 24 or newer and pins `jose` `6.2.12`,
+The current package requires Node.js 24.22.1 or newer and pins `jose` `6.2.12`,
 `ws` `8.22.0`, and `ssh2` `1.17.0`. The SIWC runtime collector packages an
 explicit source allowlist with a generated lock for pinned runtime
 dependencies. Do not substitute moving package versions or include credentials

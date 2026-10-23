@@ -87,7 +87,7 @@ for /f "delims=" %F in ("%TEMP%\relmio-install-%RANDOM%-%RANDOM%-%RANDOM%.cmd") 
 ```
 
 These commands do not require Node.js to be installed. The native Windows
-options do not require Git Bash and reuse Node.js 24 or newer when available.
+options do not require Git Bash and reuse Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer, when available. An older installed Node.js is not reused.
 Git Bash always uses a verified temporary runtime through its bundled `winpty`
 bridge so the native Node child receives terminal handles. Every portable path
 shows staged **Please wait** messages while it downloads, verifies, and extracts
@@ -109,8 +109,8 @@ global safety control. The WinGet command stays hidden until Microsoft accepts
 its catalog pull request and the catalog updates. Until then, use Homebrew or
 one of the direct bootstrap commands on this page.
 
-If you choose the existing-Node fallback, confirm Node is version 24 or newer
-and check the published package version first:
+If you choose the existing-Node fallback, confirm Node is 24.22.1 or newer, or
+26.12.1 or newer, and check the published package version first:
 
 ```bash
 node --version
@@ -179,13 +179,13 @@ bypassed.
 
 | Symptom | Meaning | Fix |
 |---|---|---|
-| `node: command not found`, `node is not recognized`, or Node is older than 24 | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
+| `node: command not found`, `node is not recognized`, or an installed Node.js outside the accepted ranges (24.22.1 or newer on the 24 line, or 26.12.1 or newer; end-of-life Node.js 25 and Node.js 26 before 26.12.1 are not used) | The NPX fallback cannot use the local runtime. | Use the macOS/Linux curl command or the native Windows PowerShell/Command Prompt command above. Either can run with a verified temporary runtime. Do not install Node.js on the VPS for the wizard. |
 | `curl` or `sh` is not recognized on Windows | The macOS/Linux command was pasted into a native Windows terminal. | Use the PowerShell command in PowerShell or the collision-safe temporary-file command shown above in Command Prompt. Git Bash is not required. If Command Prompt does not have `curl`, update Windows or use the PowerShell route. |
 | Git Bash reports that stdin or stdout is not a TTY | Direct NPX on older Git Bash can pass mintty pipes to native Node.js. | Use `curl -fsSL https://relmio.jpfusin.tech/install.sh \| sh`; the hosted launcher uses the bundled `winpty` bridge. For direct NPX on Git Bash 2.38.1 only, prefix the process with `MSYS=enable_pcon`. Do not add a global Git setting. |
 | Windows cannot locate its built-in security tool or apply owner-only protection | The bootstrap may have started successfully, but the running wizard could not use the inbox Windows PowerShell security API to protect and verify its local files. | Setup stops before saving secrets. Ask the Windows administrator to allow the inbox security API, then retry. PowerShell, Command Prompt, `npx`, and other Windows launch methods all use this same check and do not bypass it. |
-| The bootstrap stays on a `Please wait` stage | Node.js is missing or older than 24, so the bootstrap is downloading, checking, or extracting a temporary Node.js 24 runtime. | Keep the terminal open while the deterministic stage messages advance. The runtime is verified before it runs, is removed after the wizard exits, and is not installed system-wide. |
-| A bootstrap reports a checksum mismatch | The Node.js download did not match its reviewed official SHA-256 checksum, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an existing Node.js 24+ installation and report the sanitized error. |
-| Windows PowerShell shows `[eval]:1` before the wizard starts | An older bootstrap passed a JavaScript expression through `node -p`; PowerShell native-argument handling can alter that expression. | Update to the latest `relmio@latest` and rerun the same PowerShell or Command Prompt command. The current bootstrap parses the literal `node --version` output and reuses Node.js 24 or newer. |
+| The bootstrap stays on a `Please wait` stage | Node.js or `npx` is missing, or the installed Node.js is outside the accepted ranges (24.22.1 or newer on the 24 line, or 26.12.1 or newer; Node.js 25 and Node.js 26 before 26.12.1 are not used), so the bootstrap is downloading, checking, or extracting a temporary Node.js 24 runtime. | Keep the terminal open while the deterministic stage messages advance. The runtime is verified before it runs, is removed after the wizard exits, and is not installed system-wide. |
+| A bootstrap reports a checksum mismatch | The Node.js download did not match its reviewed official SHA-256 checksum, so it was not executed. | Retry on a trusted connection. Do not bypass the check. If it repeats, use an installed Node.js 24.22.1 or newer, or 26.12.1 or newer, and report the sanitized error. |
+| Windows PowerShell shows `[eval]:1` before the wizard starts | An older bootstrap passed a JavaScript expression through `node -p`; PowerShell native-argument handling can alter that expression. | Update to the latest `relmio@latest` and rerun the same PowerShell or Command Prompt command. The current bootstrap parses the literal `node --version` output and reuses Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer. |
 | Windows reports `spawn EINVAL` when starting ChatGPT sign-in | An older wizard tried to execute `npx.cmd` directly; Windows requires the current Node runtime to launch npm's JavaScript CLI. | Update to the latest `relmio@latest` release and restart the setup command. The current wizard keeps the macOS/Linux/WSL/Git Bash `npx` path unchanged. |
 | The Windows package launcher reports `Relmio installation paths are too long` before the wizard opens | Its fixed `MAX_PATH`-sized buffers cannot represent the installed runtime or CLI path. This limitation is specific to that launcher and does not establish general Windows long-path support. | Use the PowerShell or Command Prompt bootstrap above, which runs a verified temporary runtime. Do not change the Windows long-path registry setting as a workaround. |
 | A local n8n action says it completed but Relmio could not release its operation lock | The owned Docker action finished, but the private local lifecycle lock could not be cleaned up safely. Relmio leaves the lock or its quarantine evidence instead of guessing. | Close and restart Relmio before another local n8n stack install/removal, then reopen the wizard and verify the detected owned stack. Do not manually delete lock or Docker resources. |

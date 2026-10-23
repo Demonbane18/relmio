@@ -228,7 +228,7 @@ async function createPortableNodeFixture(
 ) {
   const platform = process.platform === "darwin" ? "darwin" : "linux";
   const architecture = process.arch === "arm64" ? "arm64" : "x64";
-  const version = "v24.21.0";
+  const version = "v24.22.1";
   const basename = `node-${version}-${platform}-${architecture}`;
   const fixtureRoot = join(root, "fixture");
   const archiveRoot = join(fixtureRoot, basename);
@@ -267,7 +267,7 @@ printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_
 }
 
 async function createWindowsNodeFixture(root) {
-  const version = "v24.21.0";
+  const version = "v24.22.1";
   const basename = `node-${version}-win-x64`;
   const fixtureRoot = join(root, "windows-fixture", basename);
   const npmCli = join(fixtureRoot, "node_modules", "npm", "bin");
@@ -405,7 +405,7 @@ case "$url" in
   https://nodejs.org/download/release/latest-v24.x/SHASUMS256.txt)
     cp "$RELMIO_TEST_MANIFEST" "$output"
     ;;
-  https://nodejs.org/download/release/v24.21.0/node-v24.21.0-win-x64.zip)
+  https://nodejs.org/download/release/v24.22.1/node-v24.22.1-win-x64.zip)
     cp "$RELMIO_TEST_ARCHIVE" "$output"
     ;;
   *)
@@ -511,7 +511,7 @@ case "$url" in
   https://nodejs.org/download/release/latest-v24.x/SHASUMS256.txt)
     cp "$RELMIO_TEST_MANIFEST" "$output"
     ;;
-  https://nodejs.org/download/release/v24.21.0/node-v24.21.0-*.tar.gz)
+  https://nodejs.org/download/release/v24.22.1/node-v24.22.1-*.tar.gz)
     cp "$RELMIO_TEST_ARCHIVE" "$output"
     ;;
   *)
@@ -573,7 +573,7 @@ test(
     await mkdir(fakeBin);
     await writeExecutable(
       join(fakeBin, "node"),
-      '#!/bin/sh\nprintf "24\\n"\n',
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v24.22.1\\n"; exit 0; fi\nexit 1\n',
     );
     await writeExecutable(
       join(fakeBin, "npx"),
@@ -595,7 +595,7 @@ printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_
       RELMIO_FOREGROUND_WIZARD: "caller-value",
     });
 
-    assert.match(stdout, /Using installed Node\.js 24/u);
+    assert.match(stdout, /Using installed Node\.js v24\.22\.1/u);
     assert.deepEqual((await readFile(log, "utf8")).trim().split("\n"), [
       "--yes",
       "--ignore-scripts",
@@ -603,6 +603,138 @@ printf "foreground=%s\\n" "\${RELMIO_FOREGROUND_WIZARD-unset}" >> "$RELMIO_TEST_
       "foreground=1",
     ]);
     await assert.rejects(readFile(downloadLog, "utf8"), { code: "ENOENT" });
+  },
+);
+
+test(
+  "curl installer does not reuse Node.js 24.21.0",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "relmio-old-node-test-"));
+    const fakeBin = join(root, "bin");
+    const log = join(root, "invocation.log");
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await mkdir(fakeBin);
+    await writeExecutable(
+      join(fakeBin, "node"),
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v24.21.0\\n"; exit 0; fi\nexit 1\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "npx"),
+      '#!/bin/sh\nprintf "reused\\n" > "$RELMIO_TEST_LOG"\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "curl"),
+      '#!/bin/sh\nprintf "download\\n" > "$RELMIO_TEST_DOWNLOAD_LOG"\nexit 97\n',
+    );
+    const downloadLog = join(root, "download.log");
+
+    await assert.rejects(
+      runCommandInPseudoTerminal(installScript, {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        RELMIO_TEST_DOWNLOAD_LOG: downloadLog,
+        RELMIO_TEST_LOG: log,
+      }),
+      (error) => /Installed Node\.js v24\.21\.0 is older than the patched 24\.22\.1/u.test(`${error.stdout ?? ""}\n${error.stderr ?? ""}`),
+    );
+    await assert.rejects(readFile(log, "utf8"), { code: "ENOENT" });
+    assert.equal(await readFile(downloadLog, "utf8"), "download\n");
+  },
+);
+
+test(
+  "curl installer does not call a patched runtime old when npx is missing",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "relmio-missing-npx-test-"));
+    const fakeBin = join(root, "bin");
+    const downloadLog = join(root, "download.log");
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await mkdir(fakeBin);
+    await writeExecutable(
+      join(fakeBin, "node"),
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v24.22.1\\n"; exit 0; fi\nexit 1\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "curl"),
+      '#!/bin/sh\nprintf "download\\n" > "$RELMIO_TEST_DOWNLOAD_LOG"\nexit 97\n',
+    );
+    // System tools without any npx, so a host npx cannot satisfy the reuse check.
+    const systemBin = join(root, "system-bin");
+    await mkdir(systemBin);
+    for (const directory of ["/bin", "/usr/bin"]) {
+      for (const name of await readdir(directory)) {
+        if (name === "npx") continue;
+        await symlink(join(directory, name), join(systemBin, name)).catch((error) => {
+          if (error.code !== "EEXIST") throw error;
+        });
+      }
+    }
+
+    await assert.rejects(
+      runCommandInPseudoTerminal(installScript, {
+        ...process.env,
+        PATH: `${fakeBin}:${systemBin}`,
+        RELMIO_TEST_DOWNLOAD_LOG: downloadLog,
+      }),
+      (error) => !/older than the patched/u.test(`${error.stdout ?? ""}\n${error.stderr ?? ""}`),
+    );
+    assert.equal(await readFile(downloadLog, "utf8"), "download\n");
+  },
+);
+
+test(
+  "curl installer rejects a Node.js 24 manifest older than 24.22.1",
+  { skip: !supportsPortableFixture },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "relmio-old-manifest-test-"));
+    const fakeBin = join(root, "bin");
+    const manifest = join(root, "SHASUMS256.txt");
+    const platform = process.platform === "darwin" ? "darwin" : "linux";
+    const architecture = process.arch === "arm64" ? "arm64" : "x64";
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await mkdir(fakeBin);
+    await writeFile(
+      manifest,
+      `${"a".repeat(64)}  node-v24.21.0-${platform}-${architecture}.tar.gz\n`,
+      "utf8",
+    );
+    await writeExecutable(
+      join(fakeBin, "node"),
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v18.0.0\\n"; exit 0; fi\nexit 1\n',
+    );
+    await writeExecutable(
+      join(fakeBin, "curl"),
+      `#!/bin/sh
+output=""
+url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) output="$2"; shift 2 ;;
+    --proto | --proto-redir | --connect-timeout | --max-time | --retry | --retry-delay) shift 2 ;;
+    -*) shift ;;
+    *) url="$1"; shift ;;
+  esac
+done
+case "$url" in
+  https://nodejs.org/download/release/latest-v24.x/SHASUMS256.txt)
+    cp "$RELMIO_TEST_MANIFEST" "$output"
+    ;;
+  *) exit 95 ;;
+esac
+`,
+    );
+
+    await assert.rejects(
+      runCommandInPseudoTerminal(installScript, {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH}`,
+        RELMIO_TEST_MANIFEST: manifest,
+        TMPDIR: root,
+      }),
+      (error) => /older than the patched 24\.22\.1/u.test(`${error.stdout ?? ""}\n${error.stderr ?? ""}`),
+    );
   },
 );
 
@@ -649,7 +781,7 @@ test(
     await mkdir(fakeBin);
     await writeExecutable(
       join(fakeBin, "node"),
-      '#!/bin/sh\nprintf "24\\n"\n',
+      '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "v24.22.1\\n"; exit 0; fi\nexit 1\n',
     );
     await writeExecutable(
       join(fakeBin, "npx"),

@@ -20,9 +20,9 @@ test("CMD installer keeps a native checksum-verified portable Windows runtime pa
   assert.match(script, /set "RELMIO_CURL=%RELMIO_SYSTEM32%\\curl\.exe"/u);
   assert.match(script, /set "RELMIO_CERTUTIL=%RELMIO_SYSTEM32%\\certutil\.exe"/u);
   assert.match(script, /set "RELMIO_TAR=%RELMIO_SYSTEM32%\\tar\.exe"/u);
-  assert.match(script, /RELMIO_NODE_VERSION=v24\.21\.0/u);
-  assert.match(script, /158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541/u);
-  assert.match(script, /8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921/u);
+  assert.match(script, /RELMIO_NODE_VERSION=v24\.22\.1/u);
+  assert.match(script, /d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5/u);
+  assert.match(script, /a0c807319fede24c4a0d8f84564c82a619bd313b16b10c007c383c2609e99171/u);
   assert.doesNotMatch(script, /SHASUMS256|MANIFEST_MATCH/u);
   assert.match(script, /:checksum/u);
   assert.match(script, /Node\.js download checksum did not match; nothing was executed/u);
@@ -150,7 +150,7 @@ async function buildNativeToolWrapper(root) {
   return executable;
 }
 
-async function createInstalledNodeEnvironment({ npxExitCode = 0 } = {}) {
+async function createInstalledNodeEnvironment({ nodeVersion = "v24.22.1", npxExitCode = 0 } = {}) {
   const root = await mkdtemp(join(tmpdir(), "relmio-install-cmd-test-"));
   const fakeBin = join(root, "bin");
   const temporaryDirectory = join(root, "tmp");
@@ -183,7 +183,7 @@ async function createInstalledNodeEnvironment({ npxExitCode = 0 } = {}) {
       ...process.env,
       PATH: `${fakeBin};${process.env.PATH}`,
       RELMIO_TEST_LOG: log,
-      RELMIO_TEST_NODE_VERSION: "v24.16.0",
+      RELMIO_TEST_NODE_VERSION: nodeVersion,
       RELMIO_FOREGROUND_WIZARD: "caller-value",
       TEMP: temporaryDirectory,
       TMP: temporaryDirectory,
@@ -195,7 +195,7 @@ async function createPortableRuntime(
   root,
   { hostileManifest = false, validChecksum = true } = {},
 ) {
-  const version = "v24.21.0";
+  const version = "v24.22.1";
   const archiveName = `node-${version}-win-x64.zip`;
   const runtimeParent = join(root, "portable-runtime");
   const runtimeDirectory = join(runtimeParent, archiveName.slice(0, -4));
@@ -299,7 +299,7 @@ async function createPortableEnvironment(
   const findstrAssignment =
     'set "RELMIO_FINDSTR=%RELMIO_SYSTEM32%\\findstr.exe"';
   const expectedChecksumAssignment =
-    'set "RELMIO_EXPECTED_CHECKSUM=158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541"';
+    'set "RELMIO_EXPECTED_CHECKSUM=d2046d28c2c3dcd211ac5145c0bf30e2047ef9dfb306693c8c6e2eccd8b95fa5"';
   assert.ok(productionInstallScript.includes(system32Assignment));
   await writeFile(
     fixtureInstallScript,
@@ -402,7 +402,7 @@ test(
 
     const { stdout } = await runCmdInstaller(setup.env);
 
-    assert.match(stdout, /Using installed Node\.js 24 runtime/u);
+    assert.match(stdout, /Using installed Node\.js v24\.22\.1 runtime/u);
     assert.deepEqual((await readFile(setup.log, "utf8")).trim().split(/\r?\n/u), [
       "--yes",
       "--ignore-scripts",
@@ -410,6 +410,46 @@ test(
       "foreground=1",
     ]);
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
+  },
+);
+
+test(
+  "CMD installer does not reuse Node.js 24.21.0",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const setup = await createInstalledNodeEnvironment({ nodeVersion: "v24.21.0" });
+    t.after(() => rm(setup.root, { recursive: true, force: true }));
+    const system32 = join(setup.root, "System32");
+    await mkdir(system32);
+    const wrapper = await buildNativeToolWrapper(setup.root);
+    await Promise.all(
+      ["curl.exe", "certutil.exe", "tar.exe", "where.exe"].map(
+        (tool) => copyFile(wrapper, join(system32, tool)),
+      ),
+    );
+    const fixtureScript = join(setup.root, "install.cmd");
+    const production = await readFile(installScript, "utf8");
+    await writeFile(
+      fixtureScript,
+      production.replace(/\r?\n/gu, "\r\n").replace(
+        'set "RELMIO_SYSTEM32=%SystemRoot%\\System32"',
+        `set "RELMIO_SYSTEM32=${system32}"`,
+      ).replace(
+        'set "RELMIO_FINDSTR=%RELMIO_SYSTEM32%\\findstr.exe"',
+        `set "RELMIO_FINDSTR=${join(process.env.SystemRoot, "System32", "findstr.exe")}"`,
+      ),
+      "utf8",
+    );
+
+    await assert.rejects(
+      runCmdInstaller({
+        ...setup.env,
+        RELMIO_TEST_PORTABLE_OLD_NODE: join(setup.root, "bin", "node.exe"),
+        RELMIO_TEST_PORTABLE_NPX: "",
+      }, fixtureScript),
+      (error) => /older than the patched 24\.22\.1/u.test(`${error.stdout ?? ""}\n${error.message}`),
+    );
+    await assert.rejects(readFile(setup.log, "utf8"), { code: "ENOENT" });
   },
 );
 
@@ -517,7 +557,7 @@ test(
     assert.match(stdout, /Installing a temporary Node\.js 24 runtime\. Please wait/u);
     assert.match(stdout, /Verified Node\.js download/u);
     assert.match(stdout, /Extracting the verified temporary Node\.js 24 runtime\. Please wait/u);
-    assert.match(invocation[0].replaceAll("\\", "/"), /node-v24\.21\.0-win-x64\/node_modules\/npm\/bin\/npx-cli\.js$/u);
+    assert.match(invocation[0].replaceAll("\\", "/"), /node-v24\.22\.1-win-x64\/node_modules\/npm\/bin\/npx-cli\.js$/u);
     assert.deepEqual(invocation.slice(1), [
       "--yes",
       "--ignore-scripts",
@@ -527,7 +567,7 @@ test(
     ]);
     assert.deepEqual(tools.slice(0, 2), ["curl", "certutil"]);
     assert.equal(tools.length, 3);
-    assert.match(tools[2], /^tar -xf .*node-v24\.21\.0-win-x64\.zip -C /u);
+    assert.match(tools[2], /^tar -xf .*node-v24\.22\.1-win-x64\.zip -C /u);
     assert.deepEqual(await readdir(setup.temporaryDirectory), []);
   },
 );

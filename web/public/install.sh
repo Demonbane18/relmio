@@ -2,7 +2,6 @@
 
 set -eu
 
-minimum_node_major=24
 node_dist_url="https://nodejs.org/download/release"
 temporary_directory=""
 terminal_input="/dev/tty"
@@ -14,6 +13,47 @@ say() {
 fail() {
   printf 'Relmio installer: %s\n' "$1" >&2
   exit 1
+}
+
+reusable_node_version() {
+  case "$1" in
+    v*.*.*) ;;
+    *) return 1 ;;
+  esac
+  rest="${1#v}"
+  major="${rest%%.*}"
+  rest="${rest#*.}"
+  minor="${rest%%.*}"
+  patch="${rest#*.}"
+  case "$major$minor$patch" in
+    *[!0-9]*) return 1 ;;
+  esac
+  case "$patch" in
+    *.*) return 1 ;;
+  esac
+  [ -n "$major" ] && [ -n "$minor" ] && [ -n "$patch" ] || return 1
+  if [ "$major" -eq 24 ]; then
+    [ "$minor" -gt 22 ] && return 0
+    [ "$minor" -eq 22 ] && [ "$patch" -ge 1 ] && return 0
+    return 1
+  fi
+  if [ "$major" -eq 26 ]; then
+    [ "$minor" -gt 12 ] && return 0
+    [ "$minor" -eq 12 ] && [ "$patch" -ge 1 ] && return 0
+    return 1
+  fi
+  return 1
+}
+
+node_reject_message() {
+  rest="${1#v}"
+  major="${rest%%.*}"
+  case "$major" in
+    24) printf 'Installed Node.js %s is older than the patched 24.22.1; using a verified temporary runtime.\n' "$1" ;;
+    26) printf 'Installed Node.js %s is older than the patched 26.12.1; using a verified temporary runtime.\n' "$1" ;;
+    25) printf 'Installed Node.js %s is an end-of-life release with no security patch; using a verified temporary runtime.\n' "$1" ;;
+    *) printf 'Installed Node.js %s is not a patched runtime Relmio can reuse; using a verified temporary runtime.\n' "$1" ;;
+  esac
 }
 
 platform_name="$(uname -s)" \
@@ -44,23 +84,23 @@ cleanup() {
   fi
 }
 
-installed_node_major=""
+installed_node_version=""
 if command -v node >/dev/null 2>&1; then
-  installed_node_major="$(
-    node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || true
-  )"
+  installed_node_version="$(node --version 2>/dev/null || true)"
 fi
 
-case "$installed_node_major" in
-  '' | *[!0-9]*) ;;
-  *)
+case "$installed_node_version" in
+  v[0-9]*.[0-9]*.[0-9]*)
     if [ "$git_bash_windows" -eq 0 ] \
-      && [ "$installed_node_major" -ge "$minimum_node_major" ] \
+      && reusable_node_version "$installed_node_version" \
       && command -v npx >/dev/null 2>&1; then
-      say "Using installed Node.js ${installed_node_major} runtime."
+      say "Using installed Node.js ${installed_node_version} runtime."
       RELMIO_FOREGROUND_WIZARD=1 \
         npx --yes --ignore-scripts relmio@latest < "$terminal_input"
       exit $?
+    fi
+    if [ "$git_bash_windows" -eq 0 ] && ! reusable_node_version "$installed_node_version"; then
+      say "$(node_reject_message "$installed_node_version")"
     fi
     ;;
 esac
@@ -169,6 +209,8 @@ case "${node_version#v}" in
     fail "The Node.js manifest returned an invalid version."
     ;;
 esac
+reusable_node_version "$node_version" \
+  || fail "The Node.js manifest version is older than the patched 24.22.1."
 
 archive_path="$temporary_directory/$archive_name"
 archive_url="$node_dist_url/$node_version/$archive_name"

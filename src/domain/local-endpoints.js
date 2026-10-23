@@ -4,6 +4,8 @@ import { validateSiwcAuthBinding, validateSiwcRegistrationId } from "./safety.js
 import packageManifest from "../../package.json" with { type: "json" };
 import { CODEX_CLI_VERSION } from "../gateway/openai-oauth-sidecar.mjs";
 
+export const NODE_24_BOOKWORM_SLIM_IMAGE = "node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205";
+export const NODE_22_BOOKWORM_SLIM_IMAGE = "node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d";
 export const GROK_BUILD_CLI_VERSION = "1.0.13";
 export const GROK_BUILD_REQUIREMENTS_TOML = [
   "[ui]",
@@ -154,7 +156,7 @@ export function createGrokBuildDockerfile() {
     .split("\n")
     .map((line) => `'${line}'`)
     .join(" ");
-  return `FROM node:22-bookworm-slim
+  return `FROM ${NODE_22_BOOKWORM_SLIM_IMAGE}
 
 WORKDIR /app
 
@@ -391,7 +393,7 @@ export function createCodexChatRequirements() {
 }
 
 export function createCodexDockerfile() {
-  return `FROM node:24-bookworm-slim
+  return `FROM ${NODE_24_BOOKWORM_SLIM_IMAGE}
 
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -416,7 +418,7 @@ ENTRYPOINT ["node", "/app/gateway/codex-app-server.mjs"]
 }
 
 export function createCodexChatDockerfile() {
-  return `FROM node:24-bookworm-slim
+  return `FROM ${NODE_24_BOOKWORM_SLIM_IMAGE}
 
 WORKDIR /app
 COPY package.json package-lock.json ./

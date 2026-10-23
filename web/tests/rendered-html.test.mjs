@@ -386,7 +386,7 @@ test("renders a command-first self-hosted n8n install page", async () => {
   );
   assert.match(html, /For Command Prompt, not PowerShell/);
   assert.match(html, /non-admin bootstrap verifies a temporary runtime/);
-  assert.match(html, /already has Node\.js 24 or newer/);
+  assert.match(html, /reuse Node\.js 24\.22\.1 or newer, or Node\.js 26\.12\.1 or newer/);
   assert.match(html, /WinGet remains hidden until Microsoft accepts[^<]*catalog pull request/);
   assert.match(html, /Copy macOS \/ Linux installation command/);
   assert.match(html, /title="Copy macOS \/ Linux installation command"/);

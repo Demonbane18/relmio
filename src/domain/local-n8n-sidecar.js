@@ -1,7 +1,7 @@
 import { validateLocalDockerHost } from "../infrastructure/local-process.js";
 import { validateSiwcAuthBinding, validateSiwcRegistrationId, validateSiwcRuntimeId } from "./safety.js";
 import { validateDockerName } from "./validation.js";
-import { validateInstallId, validateSha256Verifier } from "./local-endpoints.js";
+import { NODE_24_BOOKWORM_SLIM_IMAGE, validateInstallId, validateSha256Verifier } from "./local-endpoints.js";
 
 export const LOCAL_N8N_SIDECAR_TARGET = "n8n-openai-oauth";
 export const LOCAL_N8N_SIDECAR_HOSTNAME = "n8n-openai-oauth";
@@ -82,7 +82,7 @@ export function normalizeLocalN8nSidecarPlan(value) {
 
 export function createLocalN8nSidecarDockerfile({ installId }) {
   const safeInstallId = validateInstallId(installId);
-  return `FROM node:24-bookworm-slim
+  return `FROM ${NODE_24_BOOKWORM_SLIM_IMAGE}
 
 ARG RELMIO_INSTALL_ID=${safeInstallId}
 LABEL io.relmio.managed="true" \\

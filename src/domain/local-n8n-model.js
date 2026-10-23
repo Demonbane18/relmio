@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { validateLocalDockerHost } from "../infrastructure/local-process.js";
 import { validateDockerName } from "./validation.js";
 import { validateDockerObjectId } from "./local-n8n-sidecar.js";
-import { validateInstallId } from "./local-endpoints.js";
+import { NODE_24_BOOKWORM_SLIM_IMAGE, validateInstallId } from "./local-endpoints.js";
 import { getProviderTargetBinding } from "./provider-lifecycle.js";
 import { getLocalModelDefinition, LOCAL_MODEL_CATALOG_REVISION } from "../local-model/catalog.mjs";
 
@@ -12,7 +12,7 @@ export const LOCAL_N8N_MODEL_HOSTNAME = "n8n-local-model";
 export const LOCAL_N8N_MODEL_PORT = 11434;
 export const LOCAL_N8N_MODEL_ENDPOINT = "http://n8n-local-model:11434/v1";
 export const LOCAL_MODEL_RUNTIME_IMAGE = "ollama/ollama:0.34.4@sha256:8262851b2846b87c649eddf3e76beb270c52f4d1bc94559f47efde16b0841551";
-export const LOCAL_MODEL_HELPER_IMAGE = "node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6";
+export const LOCAL_MODEL_HELPER_IMAGE = NODE_24_BOOKWORM_SLIM_IMAGE;
 const GIB = 1024 ** 3;
 
 export function hasEnabledNoNewPrivileges(securityOptions) {

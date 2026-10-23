@@ -50,7 +50,7 @@ test("project pins the reviewed SSH dependency and Node runtime", async () => {
   ]);
   const packageJson = JSON.parse(packageContents);
 
-  assert.equal(packageJson.engines.node, ">=24");
+  assert.equal(packageJson.engines.node, "^24.22.1 || >=26.12.1");
   assert.equal(packageJson.packageManager, "npm@10.9.8");
   assert.equal(packageJson.dependencies.ssh2, "1.17.0");
   assert.equal(packageJson.name, "relmio");
@@ -105,7 +105,9 @@ test("double-click launchers only install local dependencies and start the wizar
 
   for (const launcher of launchers) {
     assert.match(launcher, /versions\.node|node -p/);
-    assert.match(launcher, />= 24|GEQ 24/);
+    assert.match(launcher, /24\.22\.1/);
+    assert.match(launcher, /26\.12\.1/);
+    assert.match(launcher, /patch >= 1|patch>=1/);
     assert.match(launcher, /npm ci --ignore-scripts/);
     assert.match(launcher, /npm start/);
     assert.doesNotMatch(
@@ -140,7 +142,7 @@ test("CI pins reviewed actions and the repository npm version", async () => {
   assert.match(workflow, /test "\$\(npm --version\)" = "10\.9\.8"/u);
   const setupNodeSteps = workflow.match(/uses: actions\/setup-node@/gu) ?? [];
   assert.ok(setupNodeSteps.length > 0);
-  assert.equal((workflow.match(/node-version: "24"/gu) ?? []).length, setupNodeSteps.length);
+  assert.equal((workflow.match(/node-version: "24\.22\.1"/gu) ?? []).length, setupNodeSteps.length);
   const actionReferences = [...workflow.matchAll(/uses:\s+[^\s@]+@([^\s#]+)/gu)];
   for (const [, reference] of actionReferences) {
     assert.match(reference, /^[a-f0-9]{40}$/u);
@@ -157,7 +159,7 @@ test("trusted publishing uses short-lived GitHub OIDC credentials", async () => 
   assert.match(workflow, /contents: read/u);
   assert.match(workflow, /id-token: write/u);
   assert.match(workflow, /environment: npm/u);
-  assert.match(workflow, /node-version: "24\.21\.0"/u);
+  assert.match(workflow, /node-version: "24\.22\.1"/u);
   assert.match(workflow, /npm@11\.13\.0/u);
   assert.match(workflow, /npm run package:build -- \.release/u);
   assert.match(workflow, /npm publish/u);

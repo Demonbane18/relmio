@@ -44,7 +44,7 @@ export async function collectSiwcRuntimeAssets({ root = sourceRoot, fileSystem =
   const lock = JSON.parse(lockBytes);
   if (lock.lockfileVersion !== 3 || Object.entries(dependencies).some(([name, version]) =>
     lock.packages?.['']?.dependencies?.[name] !== version)) throw new Error('SIWC runtime dependency lock is invalid.');
-  const packages = { '': { name: 'relmio-siwc-runtime', version: '1.0.0', dependencies, engines: { node: '>=24' } } };
+  const packages = { '': { name: 'relmio-siwc-runtime', version: '1.0.0', dependencies, engines: { node: '>=24.22.1' } } };
   for (const [name, version] of Object.entries(dependencies)) {
     const entry = lock.packages?.[`node_modules/${name}`];
     if (entry?.version !== version || !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(entry.integrity ?? '') ||
@@ -54,7 +54,7 @@ export async function collectSiwcRuntimeAssets({ root = sourceRoot, fileSystem =
     packages[`node_modules/${name}`] = entry;
   }
   const packageJson = Buffer.from(`${JSON.stringify({ name: 'relmio-siwc-runtime', version: '1.0.0', private: true,
-    type: 'module', engines: { node: '>=24' }, dependencies }, null, 2)}\n`);
+    type: 'module', engines: { node: '>=24.22.1' }, dependencies }, null, 2)}\n`);
   const packageLock = Buffer.from(`${JSON.stringify({ name: 'relmio-siwc-runtime', version: '1.0.0',
     lockfileVersion: 3, requires: true, packages }, null, 2)}\n`);
   return { files, packageJson, packageLock };

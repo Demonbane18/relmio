@@ -24,7 +24,7 @@ not enable hosted inference. See the
 
 ## Install
 
-On macOS, Linux, or WSL with Node.js 24 or newer:
+On macOS, Linux, or WSL with Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer:
 
 ```bash
 npx --yes --ignore-scripts relmio@latest
@@ -160,7 +160,7 @@ internal DNS; it is not a Relmio-managed deployment. Read
 
 ## Keep the dashboard available
 
-Install a persistent command with Node.js 24 or newer, then use its explicit
+Install a persistent command with Node.js 24.22.1 or newer, or Node.js 26.12.1 or newer, then use its explicit
 lifecycle commands:
 
 ```bash
