@@ -7,6 +7,16 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+### Security
+
+- The hosted website moves from Next.js 16.3.8 to 16.4.2. That fixes
+  [GHSA-2464-fhr4-w9xw](https://github.com/advisories/GHSA-2464-fhr4-w9xw)
+  and [GHSA-673q-mjm6-r5xr](https://github.com/advisories/GHSA-673q-mjm6-r5xr)
+  (critical, unauthenticated remote code execution) and
+  [GHSA-p3m5-59mp-jv5r](https://github.com/advisories/GHSA-p3m5-59mp-jv5r)
+  (high, denial of service). The npm package and installers do not include
+  Next.js.
+
 ## [0.22.2] - 2026-10-11
 
 Relmio 0.22.2 makes **Help** usable on small and short windows and keeps the
