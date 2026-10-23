@@ -1606,3 +1606,46 @@ image or TTS route.
 **Observed:** no new conflict with the documented system-browser, loopback,
 PKCE or state requirements. The open questions listed in the same-browser
 addendum still apply unchanged.
+
+## Addendum: hosted website Next.js 16.4.2
+
+Check date: **2026-10-23**. Branch `fix/web-next-16.4.2`, based on main
+`10e668b` (v0.22.2). The change moves the hosted website's `next` and
+`eslint-config-next` from 16.3.8 to 16.4.2 for GitHub advisories
+GHSA-2464-fhr4-w9xw, GHSA-673q-mjm6-r5xr and GHSA-p3m5-59mp-jv5r. Nothing in
+the npm package, installers, sidecar or sign-in code changes.
+
+### Sources with retrieval dates
+
+- **Confirmed:** the
+  [Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt)
+  was fetched first on 2026-10-23 and showed "Updated: 8 hours ago". A fetch
+  on 2026-10-22, for the pending 0.22.3 release, showed "Updated: 4 days ago",
+  so the article changed in between. No copy of the earlier text was kept, so
+  the exact edits are unknown. The current text describes identity
+  sign-in that shares name, email and profile picture; separately approved
+  subscription sharing and delegated access; and organization-level
+  **External access** controls that global admins manage in the OpenAI Admin
+  Console.
+- No other OpenAI page applies to this change, because the hosted website
+  implements no OpenAI sign-in, API call or model route.
+
+### What Relmio reads, stores, transmits and logs
+
+**Observed:** unchanged. The website's server reads only the public GitHub
+repository API and the npm registry's `relmio/latest` record
+(`web/app/api/project-meta/route.ts:26-32`). `/api/chat` still answers
+`410 Gone` for every method. `SavedSignInCleanup` only deletes the retired
+hosted sign-in's storage from the visitor's own browser and contacts no one.
+
+### Three separate checks
+
+Identity sign-in, separately approved plan permission and model or image
+capability are unchanged. This change adds no grant, consent step, model,
+image or TTS route.
+
+### Findings and unknowns
+
+**Observed:** no conflict with the current article. The open questions listed
+in the same-browser addendum still apply unchanged. This note is not OpenAI
+approval or a Terms compliance determination.
