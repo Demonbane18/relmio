@@ -184,6 +184,65 @@ provider change is required.
 
 [Learn how to use the local dashboard](https://github.com/Demonbane18/relmio/blob/main/docs/local-dashboard.md)
 
+## Claude subscription (experimental)
+
+The CLI-only Claude adapter runs a fresh, unmodified official Claude Code
+process for each text request. It needs Node.js 24+, macOS or Linux, pinned
+Claude Code `2.1.317`, and your own reviewed subscription login. Docker n8n
+uses a separate private companion; there is no Claude browser-wizard option
+or automatic deployer. Run `relmio claude --help` and follow the
+[full setup guide](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt.md).
+
+> [!WARNING]
+> Experimental; not affiliated with or endorsed by Anthropic. Install and log
+> in to the official Claude Code CLI yourself. Relmio never opens, copies,
+> refreshes or transmits Claude credentials. Use only your own account for
+> personal, owner-only work. Do not offer access to others or run a shared or
+> hosted subscription service. Anthropic's terms and usage policies apply;
+> Anthropic may change or block this use at any time.
+>
+> Anthropic's SDK quickstart says third-party developers may not offer
+> Claude.ai login or plan rate limits for their products unless approved.
+> Relmio provides no Claude login: you log in through the official CLI.
+> Relmio has no Anthropic approval for this gateway. That permission question
+> remains unresolved; this experimental, owner-run use may stop working or
+> be disallowed. See the
+> [source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt-source-check-2026-11-04.md).
+>
+> Turn extra usage off in your Claude account. Relmio refuses Fable, but
+> extra-usage billing remains an account setting, not an adapter-enforced cap.
+
+- Plan limits are shared with other Claude surfaces. Third-party
+  [Hermes measurements](https://hermes-agent.nousresearch.com/docs/plugins/claude-subscription-directsdk#subscription-usage)
+  suggest `claude -p` may drain the five-hour window faster than interactive
+  Claude Code; this is not an Anthropic guarantee. Relmio does not override
+  caller identity. Recorded small calls used roughly 1.7 to 2.5K prompt
+  tokens including Claude Code's system prompt and other native context;
+  this is observed overhead, not a fixed per-call size.
+- Text only: no tools or AI Agent tool loop, n8n AI Assistant, Responses API
+  or images. Sampling parameters, output-token caps and stop settings are
+  ignored. One request runs at a time; no queue or remaining-allowance report.
+- Qualification needs renewed owner confirmation: one hour by default for
+  local setup, at most seven days. Newer Claude Code versions need
+  requalification. Unused, undocumented native stream records are ignored;
+  tool/command signals still fail closed. Native files resolved through
+  `HOME` use your real home, even with dedicated Claude configuration.
+  Native files, administrator access, backups and provider retention remain
+  separate risks despite dedicated config and disabled session persistence.
+- Recorded checks cover native macOS with n8n 2.46.4 and a Hostinger Docker
+  companion with n8n 2.44.6. Local Docker and other VPS providers remain
+  experimental; those results do not establish acceptance on your host.
+- In n8n, use a Basic LLM Chain with **Use Responses API off**, **Max Retries
+  0**, **Timeout at least 135000 ms**, and **Batch Size 1**. Keep workflow
+  retries off and tools/fallback routes disconnected. For full AI Agent tool
+  workflows, use n8n's Anthropic API-key integration instead; eligible Max
+  monthly API credit is a separate billing route.
+
+Read the
+[current source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt-source-check-2026-11-04.md)
+and [dated verification record](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt.md#verification-record)
+before setup.
+
 ## Pick a path
 
 ### Review hosting and integration plans

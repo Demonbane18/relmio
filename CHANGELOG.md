@@ -7,6 +7,41 @@ checks the registry separately after publication.
 
 ## Unreleased
 
+## [0.23.0] - 2026-11-04
+
+Relmio 0.23.0 adds an **experimental, owner-only** way to use Claude models
+from your own Claude Pro/Max subscription in n8n text workflows, through the
+official Claude Code CLI that you install and log in to yourself. It is not
+affiliated with or endorsed by Anthropic, and Anthropic has not approved it.
+
+### Added
+
+- An experimental `relmio claude` CLI (macOS and Linux) for local text clients
+  and n8n Basic LLM Chains: private initialization, interactive qualification
+  for local and companion setups, foreground serving and companion-bundle
+  preparation. It runs the unmodified official Claude Code `2.1.317` with its
+  own native login, an independent Relmio bearer, approved exact models
+  (Haiku, Sonnet and Opus 5.5 by default), expiring owner qualification and
+  one active request. It serves a text-only OpenAI-compatible
+  `/v1/chat/completions` endpoint for n8n's OpenAI Chat Model node. This is not
+  a shared service or Anthropic approval; plan limits and account extra-usage
+  settings still apply.
+- A separate private Docker companion recipe for existing n8n networks, with
+  checksum-verified Linux `amd64`/`arm64` binaries and no published inference
+  port. It does not edit or restart n8n. Tools, AI Agent tool loops, the n8n AI
+  Assistant, the Responses API, images and Fable are not supported.
+- A hosted **Claude subscription (experimental)** guide with disclaimers,
+  limitations, tested and untested setups, and the Anthropic API-key
+  alternative for full agent workflows.
+
+### Changed
+
+- GitHub and npm guides explain the experimental Claude boundary, required
+  n8n settings and API-key alternative for full agent workflows. The full
+  guide preserves dated native macOS/Hostinger evidence separately from
+  historical research and unverified platforms; private host details are
+  omitted. New installation/runtime checks are not implied by those records.
+
 ### Security
 
 - The hosted website moves from Next.js 16.3.8 to 16.4.2. That fixes
@@ -2059,6 +2094,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.23.0]: https://github.com/Demonbane18/relmio/compare/v0.22.2...v0.23.0
 [0.22.2]: https://github.com/Demonbane18/relmio/compare/v0.22.1...v0.22.2
 [0.22.1]: https://github.com/Demonbane18/relmio/compare/v0.22.0...v0.22.1
 [0.22.0]: https://github.com/Demonbane18/relmio/compare/v0.21.0...v0.22.0

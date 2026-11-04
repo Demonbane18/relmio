@@ -1,6 +1,6 @@
 {
   "name": "relmio",
-  "version": "0.22.2",
+  "version": "0.23.0",
   "description": "Connect provider OAuth sign-in to private local apps and self-hosted n8n.",
   "keywords": [
     "relmio",
@@ -62,6 +62,6 @@
     "ws": "8.22.0"
   },
   "devDependencies": {
-    "zod": "4.1.8"
+    "zod": "4.6.7"
   }
 }

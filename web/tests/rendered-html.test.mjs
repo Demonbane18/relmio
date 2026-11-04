@@ -207,7 +207,7 @@ test("robots and sitemap expose all published guide URLs", async () => {
   assert.equal(new URL(sitemapUrl).pathname, "/sitemap.xml");
   const xml = await sitemap.text();
   const paths = [...xml.matchAll(/<loc>([^<]+)<\/loc>/gu)].map(([, url]) => new URL(url).pathname);
-  for (const path of ["/", "/install", "/docs", "/changelog", "/docs/security", "/docs/vps-supergrok"]) {
+  for (const path of ["/", "/install", "/docs", "/changelog", "/docs/security", "/docs/vps-supergrok", "/docs/claude-subscription"]) {
     assert.ok(paths.includes(path), path);
   }
   assert.ok(!paths.includes("/chat"), "the /chat redirect is not listed");
@@ -284,6 +284,18 @@ test("server-renders canonical generated Markdown documentation routes", async (
   assert.match(troubleshootingHtml, /id="local-image-build-failed"/u);
   assert.match(troubleshootingHtml, /Local image build failed/u);
   assertSharedTopBar(indexHtml, "Docs");
+});
+
+test("marks the experimental Claude guide in the guide list and on its page", async () => {
+  const response = await requestApp("/docs/claude-subscription");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(
+    html,
+    /<span class="rm-badge rm-badge--accent">Experimental<\/span>Canonical guide · Source <code>docs\/claude-subscription\.md<\/code>/u,
+  );
+  assert.match(html, /href="\/docs\/claude-subscription"[^>]*>.*?Claude subscription<span class="rm-badge rm-badge--accent">Experimental<\/span>/su);
+  assert.match(html, /not affiliated with or endorsed by Anthropic/iu);
 });
 
 test("copy button copies current displayed code after it changes", async () => {

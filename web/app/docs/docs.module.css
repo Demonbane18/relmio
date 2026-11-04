@@ -71,10 +71,20 @@
   color: var(--rm-ink-subtle);
 }
 
+/* The kit spaces only top-level prose blocks; a quote can hold several. */
+.article blockquote > * + * {
+  margin-top: 1em;
+}
+
 .source {
   color: var(--rm-ink-subtle);
   font-size: var(--rm-text-sm);
   line-height: 1.5;
+}
+
+.source > :global(.rm-badge) {
+  margin-inline-end: var(--rm-space-2);
+  vertical-align: middle;
 }
 
 .articleHeader {
@@ -305,6 +315,10 @@
 }
 
 .guideTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
   font-weight: 650;
   line-height: 1.5rem;
 }

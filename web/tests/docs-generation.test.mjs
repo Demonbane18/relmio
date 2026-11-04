@@ -45,6 +45,7 @@ test("normalizes generated Markdown content to LF across host checkouts", async 
         "vps-and-n8n.md",
         "n8n-configuration.md",
         "vps-supergrok.md",
+        "claude-subscription.md",
         "ai-assistant.md",
         "troubleshooting.md",
         "faq.md",

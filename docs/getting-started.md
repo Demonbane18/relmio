@@ -198,5 +198,7 @@ so install Relmio persistently before relying on these lifecycle commands.
 - [Hosting compatibility](./hosting-compatibility.md) for VM, PaaS, and
   container-platform boundaries.
 - [SuperGrok on a VPS](./vps-supergrok.md) for the provider-specific VPS flow.
+- [Claude subscription (experimental)](./claude-subscription.md) for the
+  owner-only Claude Code adapter for n8n and its limits.
 - [Troubleshooting](./troubleshooting.md) when setup stops.
 - [Security](./security.md) for account, network, and credential rules.
