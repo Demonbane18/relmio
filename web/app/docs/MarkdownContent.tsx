@@ -63,11 +63,6 @@ const sharedComponents: Components = {
 
 const guideComponents: Components = {
   ...sharedComponents,
-  h1: ({ children }) => (
-    <h1 className="rm-h1" id={headingId(children)}>
-      {children}
-    </h1>
-  ),
   h2: ({ children }) => <h2 id={headingId(children)}>{children}</h2>,
   h3: ({ children }) => <h3 id={headingId(children)}>{children}</h3>,
 };
@@ -80,9 +75,18 @@ const changelogComponents: Components = {
 };
 
 /** A repository guide. Headings get the ids the outline links to. */
-export function GuideMarkdown({ content }: { content: string }) {
+export function GuideMarkdown({ content, status }: { content: string; status?: string }) {
+  const components: Components = {
+    ...guideComponents,
+    h1: ({ children }) => (
+      <h1 className="rm-h1" id={headingId(children)}>
+        {children}
+        {status ? <>{" "}<span className="rm-badge rm-badge--accent">{status}</span></> : null}
+      </h1>
+    ),
+  };
   return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[markStandaloneLinks]} components={guideComponents}>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[markStandaloneLinks]} components={components}>
       {content}
     </ReactMarkdown>
   );

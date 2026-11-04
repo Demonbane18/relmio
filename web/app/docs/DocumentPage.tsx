@@ -13,6 +13,7 @@ type DocumentationEntry = (typeof documentationPages)[number];
 const guides: GuideEntry[] = documentationPages.map((page, index) => ({
   slug: page.slug,
   title: page.title,
+  status: "status" in page ? page.status : undefined,
   summary: guideSummary(page.content),
   number: String(index + 1).padStart(2, "0"),
 }));
@@ -51,7 +52,7 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
                 <p className={styles.source}>
                   Canonical guide · Source <code>{page.sourcePath}</code>
                 </p>
-                <GuideMarkdown content={page.content} />
+                <GuideMarkdown content={page.content} status={"status" in page ? page.status : undefined} />
                 <nav className={styles.pager} aria-label="Adjacent documentation">
                   {previousGuide ? (
                     <Link className={styles.pagerLink} href={`/docs/${previousGuide.slug}`}>
@@ -102,7 +103,10 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
                       <span className={styles.guideNumber} aria-hidden="true">
                         {guide.number}
                       </span>
-                      <strong className={styles.guideTitle}>{guide.title}</strong>
+                      <strong className={styles.guideTitle}>
+                        {guide.title}
+                        {guide.status ? <span className="rm-badge rm-badge--accent">{guide.status}</span> : null}
+                      </strong>
                       <span className={styles.guideSummary}>{guide.summary}</span>
                     </Link>
                   </li>

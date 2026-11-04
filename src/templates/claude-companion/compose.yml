@@ -1,0 +1,34 @@
+# Owner-only Relmio Claude companion. Separate compose project; never edits n8n's compose.
+# Set N8N_DOCKER_NETWORK in .env to the existing Docker network your n8n container uses.
+name: relmio-claude
+services:
+  relmio-claude:
+    build: .
+    platform: ${RELMIO_PLATFORM:?set RELMIO_PLATFORM in .env}
+    image: relmio-claude:2.1.317
+    container_name: relmio-claude
+    restart: unless-stopped
+    user: "10001:10001"
+    env_file: .env
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+      - /home/claude:uid=10001,gid=10001,mode=0700
+    volumes:
+      - claude-account:/data/account
+      - ./launch.json:/run/relmio/launch.json:ro
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_signal: SIGTERM
+    stop_grace_period: 15s
+    labels:
+      com.relmio.managed: "claude-companion"
+    networks:
+      n8n:
+        aliases: [relmio-claude]
+networks:
+  n8n:
+    name: ${N8N_DOCKER_NETWORK:?set N8N_DOCKER_NETWORK in .env}
+    external: true
+volumes:
+  claude-account: {}

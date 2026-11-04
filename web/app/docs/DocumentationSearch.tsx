@@ -7,6 +7,8 @@ import styles from "./docs.module.css";
 export type GuideEntry = {
   slug: string;
   title: string;
+  /** Short label shown as a badge beside the title, such as "Experimental". */
+  status?: string;
   summary: string;
   /** Two-digit position in the guide sequence, such as "01". */
   number: string;
@@ -27,7 +29,7 @@ export function DocumentationSearch({ guides, currentSlug }: DocumentationSearch
     () =>
       normalized
         ? guides.filter((guide) =>
-            `${guide.title} ${guide.summary}`.toLowerCase().includes(normalized),
+            `${guide.title} ${guide.status ?? ""} ${guide.summary}`.toLowerCase().includes(normalized),
           )
         : guides,
     [guides, normalized],
@@ -74,6 +76,7 @@ export function DocumentationSearch({ guides, currentSlug }: DocumentationSearch
                     {guide.number}
                   </span>
                   {guide.title}
+                  {guide.status ? <span className="rm-badge rm-badge--accent">{guide.status}</span> : null}
                 </Link>
               </li>
             ))}

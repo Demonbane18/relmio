@@ -7,6 +7,7 @@ import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { attachBrowserReopenOnEnter, openBrowser } from "./browser.js";
+import { runClaudeCommand } from "./claude/command.js";
 import { createPrivateBrowserHandoffRoot } from "./services/browser-handoff.js";
 import {
   inspectLocalDashboardControlPlane,
@@ -37,6 +38,9 @@ export function isCliEntryPath(entryPath, realpath = realpathSync) {
 export function cliMode(argumentsList, { commandName = "relmio" } = {}) {
   if (argumentsList.length === 0) {
     return "wizard";
+  }
+  if (argumentsList[0] === "claude") {
+    return "claude";
   }
   if (
     (argumentsList.length === 2 || (argumentsList.length === 3 && argumentsList[2] === "--n8n")) &&
@@ -214,6 +218,7 @@ export async function runCli({
   runGrokLogin = runGrokBuildLogin,
   resolveInstallRoot = resolveLocalInstallRoot,
   resolveN8nSuperGrokInstallRoot = resolveLocalN8nSuperGrokInstallRoot,
+  runClaude = runClaudeCommand,
 } = {}) {
   const mode = cliMode(argumentsList, { commandName });
   if (mode === "version") {
@@ -225,7 +230,7 @@ export async function runCli({
     return 0;
   }
   if (mode === "help") {
-    log("Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|--version]");
+    log("Usage: relmio [local|vps|assistant|start|status|open|stop|grok login|grok logout|claude|--version]");
     log("  (no command) Open the ChatGPT-on-VPS setup wizard without persistent local state");
     log("  local      Open the persistent local services dashboard");
     log("  vps        Open the separate VPS setup wizard");
@@ -237,8 +242,13 @@ export async function runCli({
     log("  grok login  Start the official SuperGrok device sign-in");
     log("  grok logout Sign out of the managed local SuperGrok endpoint");
     log("  Add --n8n to grok login/logout for the private n8n SuperGrok companion");
+    log("  claude     Experimental owner-only Claude Code adapter; run relmio claude --help");
     await logExperimentalNotice(readPackage, log);
     return 0;
+  }
+
+  if (mode === "claude") {
+    return await runClaude({ argumentsList: argumentsList.slice(1), env, log, isInteractive });
   }
 
   if (mode === "grok-login" || mode === "grok-logout") {

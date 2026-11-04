@@ -53,6 +53,13 @@ const pages = [
     sourcePath: "docs/vps-supergrok.md",
   },
   {
+    slug: "claude-subscription",
+    title: "Claude subscription",
+    sourcePath: "docs/claude-subscription.md",
+    // Shown as a badge beside the title wherever the guide is listed.
+    status: "Experimental",
+  },
+  {
     slug: "ai-assistant",
     title: "n8n AI Assistant",
     sourcePath: "docs/ai-assistant.md",

@@ -50,11 +50,29 @@ const textExtensions = new Set([
   ".mjs",
   ".json",
   ".md",
+  ".sh",
   ".svg",
   ".txt",
   ".yaml",
   ".yml",
 ]);
+// `relmio claude companion prepare` copies these from the installed package; the docs explain the adapter.
+const claudeAdapterFiles = [
+  "src/claude/command.js",
+  "src/claude/companion.js",
+  "src/claude/launcher.js",
+  "src/claude/local.js",
+  "src/gateway/claude-chat.js",
+  "src/templates/claude-companion/Dockerfile",
+  "src/templates/claude-companion/compose.yml",
+  "src/templates/claude-companion/login.sh",
+  "src/templates/claude-companion/renew.sh",
+  "docs/claude-native-prompt.md",
+  "docs/claude-native-prompt-source-check-2026-11-03.md",
+  "docs/claude-native-prompt-source-check-2026-11-04.md",
+  "docs/claude-subscription-n8n-research-2026-11-03.md",
+  "docs/claude-subscription.md",
+];
 const forbiddenContent = [
   {
     label: "private key",
@@ -155,6 +173,9 @@ test("npm package contains only allowed files and every advertised local script"
   const [packedPackage] = JSON.parse(stdout);
   const packedPaths = packedPackage.files.map(({ path }) => path).sort();
   assert.ok(packedPaths.includes("src/ui/guide/context.js"), "missing bundled contextual help");
+  for (const path of claudeAdapterFiles) {
+    assert.ok(packedPaths.includes(path), `missing Claude adapter file: ${path}`);
+  }
 
   const manifest = JSON.parse(await readFile(join(stagingDirectory, "package.json"), "utf8"));
   for (const entry of Object.values(manifest.bin)) {
