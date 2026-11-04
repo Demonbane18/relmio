@@ -38,9 +38,11 @@ affiliated with or endorsed by Anthropic, and Anthropic has not approved it.
 
 - GitHub and npm guides explain the experimental Claude boundary, required
   n8n settings and API-key alternative for full agent workflows. The full
-  guide preserves dated native macOS/Hostinger evidence separately from
-  historical research and unverified platforms; private host details are
-  omitted. New installation/runtime checks are not implied by those records.
+  guide keeps dated owner-run evidence (native macOS with n8n, a Hostinger
+  Docker companion, and a local Colima arm64 Docker companion with n8n and an
+  ngrok webhook) separate from historical research and untested platforms;
+  private host details are omitted. Those records do not establish acceptance
+  on other hosts.
 
 ### Security
 
@@ -51,6 +53,9 @@ affiliated with or endorsed by Anthropic, and Anthropic has not approved it.
   [GHSA-p3m5-59mp-jv5r](https://github.com/advisories/GHSA-p3m5-59mp-jv5r)
   (high, denial of service). The npm package and installers do not include
   Next.js.
+- The development-only `zod` dependency moves to 4.6.7 for
+  [GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+  It is not shipped in the npm package.
 
 ## [0.22.2] - 2026-10-11
 
