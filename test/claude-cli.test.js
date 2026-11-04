@@ -306,6 +306,25 @@ test("a failed renewal write preserves the previous launch file and removes its 
   assert.deepEqual(await readdir(directory), entries);
 });
 
+test("a staging file left by an interrupted renewal does not block the next renewal", async (t) => {
+  const root = await workspace(t);
+  const directory = join(root, "setup");
+  const executable = join(root, "claude-2.1.317");
+  await writeFile(executable, "synthetic-native-candidate\n", { mode: 0o700 });
+  const local = (command) => run(["local", command, directory, "--claude", executable], {
+    initLocal: undefined, prepareLocal: undefined, ask: async () => "y",
+  }).result;
+  assert.equal(await local("init"), 0);
+  assert.equal(await local("prepare"), 0);
+  const before = await readFile(join(directory, "launch.json"));
+  await writeFile(join(directory, `.launch-${"a".repeat(32)}.json`), "{\"partial\":", { mode: 0o600 });
+  assert.equal(await local("prepare"), 0);
+  assert.notDeepEqual(await readFile(join(directory, "launch.json")), before);
+  // Anything else unexpected still makes the folder refuse.
+  await writeFile(join(directory, ".launch-unexpected.json"), "{}", { mode: 0o600 });
+  await assert.rejects(local("prepare"), /must be empty or a folder created by relmio claude local init/u);
+});
+
 test("local init and prepare reject linked, shared, or nonempty account paths before writing", async (t) => {
   const root = await workspace(t);
   t.after(() => chmod(join(root, "contaminated", "account", "empty"), 0o700).catch(() => {}));

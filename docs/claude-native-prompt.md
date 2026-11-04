@@ -228,10 +228,14 @@ On the Docker host, use the reviewed companion folder and an authorized Docker a
 ```sh
 chown 10001:10001 launch.json
 chmod 0600 launch.json
+unset RELMIO_PLATFORM
+docker compose config | grep platform
 docker compose build
 docker compose up -d
 sh login.sh
 ```
+
+A shell `RELMIO_PLATFORM` overrides `.env`; unset it and confirm `docker compose config` shows the platform chosen with `--arch`. A mismatched image fails the launcher's binary pin check (`binary_pin_mismatch`) instead of running.
 
 Build traffic reaches the Node registry, Debian mirrors and Anthropic binary host. Login runs the pinned official executable inside the companion using `/home/claude`, `USER=claude`, `LOGNAME=claude`, `CLAUDE_CONFIG_DIR=/data/account/config` and empty cwd. The script needs an interactive terminal and host `python3` for its status summary. Complete your own official login, then require `loggedIn: true`, `authMethod: "claude.ai"` and the reviewed plan before inference.
 

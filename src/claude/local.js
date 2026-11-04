@@ -14,6 +14,8 @@ import {
 
 export const MAX_APPROVAL_HOURS = MAX_QUALIFICATION_MS / 3_600_000;
 const FOLDER_ENTRIES = new Set(["account", "launch.json", "key.sha256", "n8n-api-key.txt"]);
+// A staging file left by an interrupted renewal; the next renewal writes a new one and renames it.
+const STAGING_ENTRY = /^\.launch-[0-9a-f]{32}\.json$/u;
 
 async function inspectFolder(directory) {
   const path = resolve(directory);
@@ -30,7 +32,7 @@ async function inspectFolder(directory) {
   }
   if (!privateDirectory(metadata)) throw new Error(`${path} must be a private folder you own (mode 0700).`);
   const entries = await readdir(path);
-  if (entries.some((name) => !FOLDER_ENTRIES.has(name))) {
+  if (entries.some((name) => !FOLDER_ENTRIES.has(name) && !STAGING_ENTRY.test(name))) {
     throw new Error(`${path} must be empty or a folder created by relmio claude local init.`);
   }
   return { root: await realpath(path), entries };

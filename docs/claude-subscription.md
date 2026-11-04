@@ -162,10 +162,16 @@ tunnel or a public proxy.
    ```sh
    chown 10001:10001 launch.json
    chmod 0600 launch.json
+   unset RELMIO_PLATFORM
+   docker compose config | grep platform
    docker compose build
    docker compose up -d
    sh login.sh
    ```
+
+   A `RELMIO_PLATFORM` set in your shell overrides the one in `.env`, so
+   unset it and check that `docker compose config` shows the platform you
+   chose with `--arch`. If they differ, the launcher refuses to start.
 
    `login.sh` runs Claude Code's sign-in inside the companion. Sign in with
    your own account, paste the code and check the `state` as in the native
