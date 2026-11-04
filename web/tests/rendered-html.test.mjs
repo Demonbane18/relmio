@@ -290,12 +290,13 @@ test("marks the experimental Claude guide in the guide list and on its page", as
   const response = await requestApp("/docs/claude-subscription");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(
-    html,
-    /<span class="rm-badge rm-badge--accent">Experimental<\/span>Canonical guide · Source <code>docs\/claude-subscription\.md<\/code>/u,
-  );
+  const heading = html.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/u)?.[0] ?? "";
+  assert.match(heading, /<span class="rm-badge rm-badge--accent">Experimental<\/span>/u);
+  assert.match(html, /<p[^>]*>Canonical guide · Source <code>docs\/claude-subscription\.md<\/code><\/p>/u);
   assert.match(html, /href="\/docs\/claude-subscription"[^>]*>.*?Claude subscription<span class="rm-badge rm-badge--accent">Experimental<\/span>/su);
   assert.match(html, /not affiliated with or endorsed by Anthropic/iu);
+  const indexHtml = await (await requestApp("/docs")).text();
+  assert.match(indexHtml, /href="\/docs\/claude-subscription"[^>]*>.*?Claude subscription<span class="rm-badge rm-badge--accent">Experimental<\/span>/su);
 });
 
 test("copy button copies current displayed code after it changes", async () => {

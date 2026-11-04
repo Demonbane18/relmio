@@ -50,10 +50,9 @@ export function DocumentationPage({ page }: { page?: DocumentationEntry }) {
               {hasOutline ? <DocumentOutline items={outline} variant="inline" /> : null}
               <article className={`rm-prose ${styles.article}`} id="docs-content" tabIndex={-1}>
                 <p className={styles.source}>
-                  {"status" in page ? <span className="rm-badge rm-badge--accent">{page.status}</span> : null}
                   Canonical guide · Source <code>{page.sourcePath}</code>
                 </p>
-                <GuideMarkdown content={page.content} />
+                <GuideMarkdown content={page.content} status={"status" in page ? page.status : undefined} />
                 <nav className={styles.pager} aria-label="Adjacent documentation">
                   {previousGuide ? (
                     <Link className={styles.pagerLink} href={`/docs/${previousGuide.slug}`}>

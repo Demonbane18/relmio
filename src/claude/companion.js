@@ -1,5 +1,5 @@
 // Prepares an owner-only Claude companion bundle for one Docker host: the build context plus
-// .env (key hash only), launch.json (approval just under seven days) and n8n-api-key.txt.
+// .env (network, platform and key hash), launch.json (approval just under seven days) and n8n-api-key.txt.
 // Nothing is written, not even the output folder, until the owner confirms every review item;
 // launch.json records those answers, Relmio does not check them.
 import { createHash, randomBytes } from "node:crypto";
@@ -60,7 +60,7 @@ export async function prepareClaudeCompanion({ directory, network, arch = "amd64
   const key = randomBytes(32).toString("base64url");
   await writeFile(join(out, "n8n-api-key.txt"), `${key}\n`, secret);
   await writeFile(join(out, ".env"),
-    `N8N_DOCKER_NETWORK=${network}\nRELMIO_CLAUDE_CHAT_TOKEN_SHA256=${createHash("sha256").update(key).digest("hex")}\n`, secret);
+    `N8N_DOCKER_NETWORK=${network}\nRELMIO_PLATFORM=linux/${arch}\nRELMIO_CLAUDE_CHAT_TOKEN_SHA256=${createHash("sha256").update(key).digest("hex")}\n`, secret);
 
   const time = now();
   const expiresAt = new Date(time + MAX_QUALIFICATION_MS - 3600 * 1000).toISOString();

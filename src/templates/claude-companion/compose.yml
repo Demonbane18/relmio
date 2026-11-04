@@ -4,6 +4,7 @@ name: relmio-claude
 services:
   relmio-claude:
     build: .
+    platform: ${RELMIO_PLATFORM:?set RELMIO_PLATFORM in .env}
     image: relmio-claude:2.1.317
     container_name: relmio-claude
     restart: unless-stopped

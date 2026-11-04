@@ -121,7 +121,7 @@ The first approval writes `launch.json`, `key.sha256` and `n8n-api-key.txt`, eac
 
 Local and companion `prepare` default to Haiku, Sonnet and Opus 5.5 IDs: `claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`. Repeating `--model <id>` replaces that list, preserving order; use one to eight unique approved IDs. No listing proves entitlement. Local `--hours` accepts whole hours 1 to 168, default 1. Do not extend approval beyond the period you can keep policy/login/billing controlled.
 
-`serve` runs in the foreground and reports that provider readiness was not probed; no Claude request runs until an admitted prompt. Keep that terminal open and use Ctrl-C/SIGTERM for shutdown. Before expiry, stop serving, repeat the same `local prepare` command with the reviewed models and fresh answers, then restart `serve`. Reapproval rewrites launch JSON but preserves native login and the local key, even after the raw transfer file was removed. Changing launch JSON while serving blocks later spawns.
+`serve` runs in the foreground and reports that provider readiness was not probed; no Claude request runs until an admitted prompt. Keep that terminal open and use Ctrl-C/SIGTERM for shutdown. Before expiry, stop serving, repeat the same `local prepare` command with the reviewed models and fresh answers, then restart `serve`. Reapproval atomically replaces launch JSON but preserves native login and the local key, even after the raw transfer file was removed. If writing the replacement fails, the previous launch file stays unchanged. Changing launch JSON while serving blocks later spawns.
 
 ### Serving with private environment configuration
 
@@ -198,20 +198,20 @@ Success contains `status: "completed"`, `text`, exact `resolvedModel`, sanitized
 
 Use a separate companion when n8n already runs in Docker. It joins only n8n's selected existing private network, without editing n8n Compose/image or rebuilding/restarting n8n. It is an operator-applied bundle, not an automatic deployer or permission grant. Never publish its port or mount a Docker socket/personal Claude directory.
 
-The image downloads official Linux Claude Code `2.1.317` for `amd64` or `arm64` and checks the architecture-specific official SHA256. Preparation architecture must match Docker's build platform. A checksum mismatch requires provenance review, not an edited expected hash to force a pass.
+The image downloads official Linux Claude Code `2.1.317` for `amd64` or `arm64` and checks the architecture-specific official SHA256. Preparation architecture must match the Docker host. The bundle pins the Compose build and runtime platform to that architecture. A checksum mismatch requires provenance review, not an edited expected hash to force a pass.
 
 Compose uses alias `relmio-claude` on external `${N8N_DOCKER_NETWORK}`, no published ports, UID/GID `10001:10001`, read-only root filesystem, dropped capabilities, no-new-privileges, tmpfs `/tmp` and `/home/claude`, read-only `launch.json` and a persistent account volume. Container mode binds `0.0.0.0` internally but accepts only Host `relmio-claude:14502`, rejects Origin and requires the local bearer on every route. Host matching does not authenticate peer containers. Trust every network member; HTTP bearer traffic is unencrypted. The image's TCP healthcheck proves neither HTTP auth nor provider readiness.
 
 ### Prepare a private bundle
 
-After reviewing the target's binary/policy/auth/model/billing boundary, choose a fresh private output folder and the inspected existing n8n Docker network:
+After reviewing the target's binary/policy/auth/model/billing boundary, use an interactive terminal on a macOS or Linux computer with Relmio. Choose a fresh private output folder and the inspected existing n8n Docker network:
 
 ```sh
 relmio claude companion prepare "$HOME/relmio-claude-bundle" \
   --network n8n-network --arch amd64 --model claude-haiku-5-5
 ```
 
-Replace `n8n-network` with the selected network name. Network names must be 1 to 128 letters, digits, dots, underscores or hyphens, starting with a letter/digit. `--arch` is `amd64` by default; select `arm64` for an ARM64 Docker build. This flag replaces the old checkout-only `RELMIO_TARGET_ARCH` recipe and selects the pinned launch checksum, not Docker's build platform.
+Replace `n8n-network` with the selected network name. Network names must be 1 to 128 letters, digits, dots, underscores or hyphens, starting with a letter/digit. `--arch` must match the Docker host: `amd64` (the default) for most VPS hosts, or `arm64` for Apple silicon/Colima. It selects the pinned launch checksum and writes `RELMIO_PLATFORM=linux/amd64` or `linux/arm64` in `.env`. Compose uses that platform pin for both build and runtime.
 
 Repeat `--model` for the reviewed IDs; omitting it uses the three defaults listed above. An existing output folder must be empty and private (mode `0700`); nonempty output is refused. A missing folder is created with mode `0700` only after approval. Preparation copies the packaged templates and adapter/launcher into a build context; no source checkout or `dev/` files are required.
 
@@ -219,7 +219,7 @@ Like local approval, companion preparation needs an interactive terminal (stdin 
 
 ### Bundle custody and operator deployment
 
-Review the target's binary/policy/auth/model/billing before confirming preparation. Keep the private output directory outside the package/checkout, git, shared folders and logs. Prepared `.env` holds network/hash; `launch.json` holds qualification assertions; `n8n-api-key.txt` holds the independent local bearer. Configuration and secret files use mode `0600`.
+Review the target's binary/policy/auth/model/billing before confirming preparation. Keep the private output directory outside the package/checkout, git, shared folders and logs. Prepared `.env` holds only the network, platform and key hash; `launch.json` holds qualification assertions; `n8n-api-key.txt` holds the independent local bearer. Configuration and secret files use mode `0600`.
 
 For remote deployment, verify the SSH host key before authentication and obtain final confirmation for the exact target/writes. The managed Relmio VPS recipe uses only `/docker/n8n-openai-oauth/claude`; keep sibling deployments untouched. Copy the complete private bundle, including hidden `.env`, preserving modes; inspect existing target files before any replacement. These instructions do not authorize remote writes. On local Docker, use a separately reviewed private host folder.
 

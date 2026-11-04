@@ -82,8 +82,8 @@
   line-height: 1.5;
 }
 
-.source > :global(.rm-badge) {
-  margin-inline-end: var(--rm-space-2);
+.article h1 > :global(.rm-badge) {
+  margin-inline-start: var(--rm-space-2);
   vertical-align: middle;
 }
 

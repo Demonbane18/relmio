@@ -3,7 +3,7 @@
 // init only creates the account layout so the owner can sign in first; prepare writes the approval
 // after the owner's answers. Neither runs Claude or reads its login.
 import { createHash, randomBytes } from "node:crypto";
-import { lstat, mkdir, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -96,7 +96,9 @@ export async function initLocalClaude({ directory, executable }) {
 }
 
 // `confirm` receives the review summary and resolves true only after the owner confirmed every item.
-export async function prepareLocalClaude({ directory, executable, models, hours = 1, confirm, now = Date.now }) {
+export async function prepareLocalClaude({
+  directory, executable, models, hours = 1, confirm, now = Date.now, write = writeFile,
+}) {
   if (!validModels(models)) throw new Error(MODEL_RULES);
   if (!Number.isInteger(hours) || hours < 1 || hours > MAX_APPROVAL_HOURS) {
     throw new Error(`Approval hours must be a whole number from 1 to ${MAX_APPROVAL_HOURS}.`);
@@ -141,7 +143,13 @@ export async function prepareLocalClaude({ directory, executable, models, hours 
   };
   // Replace rather than rewrite in place: a running launcher then refuses later prompts until restarted.
   const launchPath = join(root, "launch.json");
-  await rm(launchPath, { force: true });
-  await writeFile(launchPath, `${JSON.stringify(config, null, 2)}\n`, secret);
+  const stagingPath = join(root, `.launch-${randomBytes(16).toString("hex")}.json`);
+  try {
+    await write(stagingPath, `${JSON.stringify(config, null, 2)}\n`, secret);
+    await rename(stagingPath, launchPath);
+  } catch (error) {
+    if (error?.code !== "EEXIST") await rm(stagingPath, { force: true });
+    throw error;
+  }
   return { directory: root, launchPath, keyHashPath, keyPath, expiresAt };
 }

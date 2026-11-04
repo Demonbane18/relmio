@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 
 import { runClaudeCommand } from "../src/claude/command.js";
 import { readKeyHashFile, runClaudeChat } from "../src/claude/launcher.js";
+import { prepareLocalClaude } from "../src/claude/local.js";
 import { cliMode } from "../src/cli.js";
 
 // relmio claude and its renew.sh helper are macOS/Linux only (POSIX modes, termios TTY checks).
@@ -183,8 +184,10 @@ test("companion prepare writes a private bundle whose image runs the packaged la
   }
   const key = (await readFile(join(out, "n8n-api-key.txt"), "utf8")).trim();
   const environment = await readFile(join(out, ".env"), "utf8");
-  assert.equal(environment, `N8N_DOCKER_NETWORK=proxy\nRELMIO_CLAUDE_CHAT_TOKEN_SHA256=${sha256(key)}\n`);
+  assert.equal(environment, `N8N_DOCKER_NETWORK=proxy\nRELMIO_PLATFORM=linux/arm64\nRELMIO_CLAUDE_CHAT_TOKEN_SHA256=${sha256(key)}\n`);
   assert.equal(environment.includes(key), false);
+  const compose = await readFile(join(out, "compose.yml"), "utf8");
+  assert.match(compose, /^\s+platform: \$\{RELMIO_PLATFORM:\?[^}]+\}$/mu);
 
   const config = JSON.parse(await readFile(join(out, "launch.json"), "utf8"));
   const dockerfile = await readFile(join(out, "Dockerfile"), "utf8");
@@ -259,9 +262,11 @@ test("local init, owner answers and local prepare produce a launch the launcher 
   assert.equal(captured[0].runtime.executable, executable);
   assert.equal(captured[0].runtime.cwd, join(directory, "account", "empty"));
   assert.equal(captured[0].companionHost, undefined);
+  const previousLaunch = await lstat(join(directory, "launch.json"));
 
   const renewal = local(["prepare"], ["y", "y", "y", "y"]);
   assert.equal(await renewal.result, 0);
+  assert.notEqual((await lstat(join(directory, "launch.json"))).ino, previousLaunch.ino);
   assert.equal(await readKeyHashFile(join(directory, "key.sha256")), keyHash);
   assert.equal((await readFile(join(directory, "n8n-api-key.txt"), "utf8")).trim(), key);
   const renewed = JSON.parse(await readFile(join(directory, "launch.json"), "utf8"));
@@ -270,6 +275,35 @@ test("local init, owner answers and local prepare produce a launch the launcher 
   await writeFile(join(directory, "unexpected.txt"), "owner file\n");
   await assert.rejects(local(["init"]).result, Error);
   await assert.rejects(local(["prepare"], ["y", "y", "y", "y"]).result, Error);
+});
+
+test("a failed renewal write preserves the previous launch file and removes its partial staging file", async (t) => {
+  const root = await workspace(t);
+  const directory = join(root, "setup");
+  const executable = join(root, "claude-2.1.317");
+  await writeFile(executable, "synthetic-native-candidate\n", { mode: 0o700 });
+  const local = (command, prepareLocal) => run(["local", command, directory, "--claude", executable], {
+    initLocal: undefined,
+    prepareLocal,
+    ask: async () => "y",
+  }).result;
+  assert.equal(await local("init"), 0);
+  assert.equal(await local("prepare"), 0);
+  const launchPath = join(directory, "launch.json");
+  const before = await readFile(launchPath);
+  const metadata = await lstat(launchPath);
+  const entries = await readdir(directory);
+  const failure = Object.assign(new Error("synthetic disk full"), { code: "ENOSPC" });
+  await assert.rejects(local("prepare", (options) => prepareLocalClaude({
+    ...options,
+    write: async (path, content, settings) => {
+      await writeFile(path, content.slice(0, 12), settings);
+      throw failure;
+    },
+  })), failure);
+  assert.deepEqual(await readFile(launchPath), before);
+  assert.equal((await lstat(launchPath)).ino, metadata.ino);
+  assert.deepEqual(await readdir(directory), entries);
 });
 
 test("local init and prepare reject linked, shared, or nonempty account paths before writing", async (t) => {

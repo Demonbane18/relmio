@@ -131,10 +131,12 @@ joins n8n's existing Docker network as `relmio-claude`. It publishes no ports
 and does not change n8n. Never publish its port or put it behind ngrok, a
 tunnel or a public proxy.
 
-1. Prepare a bundle in an interactive terminal on any computer with Relmio.
-   Replace `proxy` with the Docker network your n8n container uses, and set
-   `--arch` to the Docker host's architecture, `amd64` (the default) or
-   `arm64`.
+1. Prepare a bundle in an interactive terminal on a macOS or Linux computer
+   with Relmio. Replace `proxy` with the Docker network your n8n container uses.
+   `--arch` must match the Docker host: `amd64` (the default) for most VPS
+   hosts, or `arm64` for Apple silicon/Colima. The bundle pins the Compose
+   build and runtime platform through `RELMIO_PLATFORM` in `.env`, so the
+   image's binary matches the approved checksum.
 
    ```sh
    relmio claude companion prepare ~/relmio-claude-bundle --network proxy --arch amd64
