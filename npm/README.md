@@ -231,9 +231,10 @@ or automatic deployer. Run `relmio claude --help` and follow the
   `HOME` use your real home, even with dedicated Claude configuration.
   Native files, administrator access, backups and provider retention remain
   separate risks despite dedicated config and disabled session persistence.
-- Recorded checks cover native macOS with n8n 2.46.4 and a Hostinger Docker
-  companion with n8n 2.44.6. Local Docker and other VPS providers remain
-  experimental; those results do not establish acceptance on your host.
+- Recorded checks cover native macOS with n8n 2.46.4, a Hostinger Docker
+  companion with n8n 2.44.6 and a local Colima (arm64) Docker companion with
+  n8n 2.46.4. Other VPS providers and Docker Desktop remain experimental; those
+  results do not establish acceptance on your host.
 - In n8n, use a Basic LLM Chain with **Use Responses API off**, **Max Retries
   0**, **Timeout at least 135000 ms**, and **Batch Size 1**. Keep workflow
   retries off and tools/fallback routes disconnected. For full AI Agent tool

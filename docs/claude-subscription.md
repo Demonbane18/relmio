@@ -273,8 +273,8 @@ upstream call.
 | --- | --- |
 | Native adapter with native n8n 2.46.4 on an Apple silicon Mac mini | Passed on 2026-11-04 with Haiku 5.5, Sonnet 5.5 and Opus 5.5 on a Max plan. |
 | Docker companion on a Hostinger VPS (Ubuntu 24.04, x86_64) with n8n 2.44.6 in Docker | Passed on 2026-11-04: login inside the companion, n8n credential and a live prompt. |
-| Docker companion on local Docker (Colima, arm64) | Experimental. A run was in progress; no pass is recorded. |
-| Local Docker Desktop with n8n and ngrok | Experimental and untested. |
+| Docker companion on local Docker (Colima 0.10.3, arm64) with n8n 2.46.4 in Docker | Passed on 2026-11-04: login inside the companion, credential, reachability (401 without the key, 200 with it) and a live Haiku prompt from n8n in about 3 seconds. The bundle came from the pre-packaging prepare script, before the platform pin was added. |
+| Local Docker n8n behind an ngrok tunnel | Passed on 2026-11-04 for an n8n webhook through ngrok. The companion stayed private: it publishes no ports and the tunnel points only at n8n. Docker Desktop is untested. |
 | Other VPS providers and native n8n on Linux | Experimental and untested. |
 | n8n's Stop button and streaming through n8n | Untested. |
 
