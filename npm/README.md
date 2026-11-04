@@ -65,7 +65,7 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-This command selects stable Relmio 0.22.2, including the setup guide.
+This command selects stable Relmio 0.23.0, including the setup guide.
 Hosted installers use the same stable default.
 
 
