@@ -4,10 +4,15 @@ import { EventEmitter } from "node:events";
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import nodeTest from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { readKeyHashFile, runClaudeChat } from "../src/claude/launcher.js";
+
+// The launcher relies on POSIX owners, modes and process groups; relmio claude refuses Windows.
+const test = (name, run) => nodeTest(name, {
+  skip: process.platform === "win32" ? "relmio claude runs on macOS and Linux only" : false,
+}, run);
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 

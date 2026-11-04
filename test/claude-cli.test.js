@@ -5,12 +5,17 @@ import { spawn, spawnSync } from "node:child_process";
 import { chmod, copyFile, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import test from "node:test";
+import nodeTest from "node:test";
 import { pathToFileURL } from "node:url";
 
 import { runClaudeCommand } from "../src/claude/command.js";
 import { readKeyHashFile, runClaudeChat } from "../src/claude/launcher.js";
 import { cliMode } from "../src/cli.js";
+
+// relmio claude and its renew.sh helper are macOS/Linux only (POSIX modes, termios TTY checks).
+const test = (name, run) => nodeTest(name, {
+  skip: process.platform === "win32" ? "relmio claude runs on macOS and Linux only" : false,
+}, run);
 
 const effects = [];
 const forbidden = (name) => async () => {
