@@ -33,7 +33,9 @@ and the
 [2026-10-05 OpenAI source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md)
 for setup, data handling, limits, and unresolved prerequisites. The
 [v0.22.2 addendum](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-07.md#addendum-v0222-release)
-covers this release.
+and the
+[2026-11-04 source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt-source-check-2026-11-04.md)
+cover this release; OpenAI flows are unchanged in 0.23.0.
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
 while it streams. Status distinguishes connection setup, waiting for the first

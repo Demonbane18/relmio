@@ -25,11 +25,13 @@ The website's `/api/chat` remains off and returns `410 Gone`; local setup does
 not enable hosted chat. See the
 [2026-10-05 source check](docs/openai-source-check-2026-10-05.md) for the data
 flow, documented limits, unresolved prerequisites, and historical reviews, and
-the [v0.22.2 addendum](docs/openai-source-check-2026-10-07.md#addendum-v0222-release)
-for this release.
+the [v0.22.2 addendum](docs/openai-source-check-2026-10-07.md#addendum-v0222-release).
+The [2026-11-04 source check](docs/claude-native-prompt-source-check-2026-11-04.md)
+covers this release; OpenAI flows are unchanged in 0.23.0.
 
-Relmio 0.22.2 is the current stable release. It makes Help usable on small and
-short windows and keeps the setup guide off the dashboard's buttons. It is
+Relmio 0.23.0 is the current stable release. It adds an experimental,
+owner-only Claude subscription adapter for n8n text workflows (see
+[Claude subscription (experimental)](#claude-subscription-experimental)). It is
 available through npm `latest` and the hosted installers.
 
 
