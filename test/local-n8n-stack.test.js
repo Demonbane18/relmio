@@ -3593,11 +3593,12 @@ test("stack removal refuses attached add-ons and unknown containers before down"
       { id: "c".repeat(64), name: "relmio-model-1", target: "n8n-local-model" },
       { id: "d".repeat(64), name: "relmio-supergrok-1", target: "n8n-supergrok-oauth" },
       { id: "e".repeat(64), name: "relmio-assistant-1", target: "n8n-ai-assistant" },
+      { id: "f".repeat(64), name: "relmio-claude", target: "n8n-claude-oauth" },
     ],
   });
   await assert.rejects(() => removeLocalN8nStack({
     homeDirectory, runProcess: runner, confirmation: "REMOVE_LOCAL_N8N_STACK",
-  }), /Remove the add-ons connected to this n8n first: Assistant tools, ChatGPT plan sidecar, SuperGrok, local model, my-app\./u);
+  }), /Remove the add-ons connected to this n8n first: Assistant tools, ChatGPT plan sidecar, Claude, SuperGrok, local model, my-app\./u);
   assert.equal(calls.some(call => call.args.includes("down")), false);
 });
 

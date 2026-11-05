@@ -2,8 +2,8 @@
 
 Relmio can add private n8n companions beside an existing VPS installation,
 update them, and turn on optional image generation. The ChatGPT sidecar uses a
-separately authorized SIWC registration; SuperGrok uses its own session and
-does not require or read ChatGPT credentials.
+separately authorized SIWC registration; SuperGrok and Claude use their own
+sessions and do not require or read ChatGPT credentials.
 
 The VPS model setup is tested on Hostinger KVM VPS. Other Linux VPS hosts,
 including Hetzner, are experimental. Use the actual SSH username for your
@@ -15,6 +15,7 @@ guidance, not credentials to try automatically.
 | --- | --- | --- | --- |
 | ChatGPT plan use | `http://n8n-openai-oauth:10531/v1` | One-time local Relmio bearer | **On** for OpenAI Chat Model node 1.3 |
 | SuperGrok OAuth | `http://n8n-supergrok:14502/v1` | One-time local Relmio bearer | **Off** for workflow model nodes and Chat Hub |
+| Claude (experimental) | `http://relmio-claude:14502/v1` | One-time local Relmio bearer | **Off**; text only |
 | Local Ollama model | `http://n8n-local-model:11434/v1` | `local-only` ignored placeholder | **Off** for the documented Chat Completions recipe |
 
 The local plan route is not an OpenAI Platform API key. ChatGPT identity,
@@ -50,14 +51,14 @@ ChatGPT sign-in. It is available from stable `@latest` and hosted installers.
 1. Choose the ChatGPT route and complete SIWC sign-in on this computer before
    choosing the server. An identity-only registration stays connected but
    cannot use models until you separately allow plan use in ChatGPT. SuperGrok
-   uses its own device sign-in; **Local model · your VPS** needs no provider
-   sign-in.
+   uses its own device sign-in; Claude signs in in your own terminal and needs
+   no ChatGPT sign-in; **Local model · your VPS** needs no provider sign-in.
 2. Enter the server address and port, then independently compare and confirm
    the SSH host fingerprint. Only after that, enter the actual SSH username
    and choose **Local SSH agent** or approved password authentication. Never
    upload a private key or enable root/password SSH just for this wizard.
 3. Connect and check the verified administrative identity. The ChatGPT
-   sidecar, SuperGrok and Assistant VPS operations require the approved
+   sidecar, SuperGrok, Claude and Assistant VPS operations require the approved
    direct-root connection; agent authentication does not change that privilege
    boundary. **Passwordless sudo -n (model only)** is limited to local-model
    management and common read-only discovery.
@@ -444,10 +445,33 @@ install points here. What the sidecar stores is in
 [Request counts](security.md#request-counts), and the panel's messages are in
 [Troubleshooting](troubleshooting.md#symptom-table).
 
+## Claude on a VPS (experimental)
+
+Since Relmio 0.24.0, choose **Claude on my server**, or **Claude** under
+**Other companions** on the detected-n8n screen, to add a private Claude Code
+companion beside an existing n8n. It uses your own Claude Pro or Max plan. The
+companion is `relmio-claude` at `http://relmio-claude:14502/v1`. Relmio writes
+only to `/docker/n8n-openai-oauth/claude`, under the operation lock
+`/docker/n8n-openai-oauth/.claude-operation.lock`. It publishes no host port
+and does not change or restart n8n. It needs the direct-root connection
+described above.
+
+You sign in yourself, in your own terminal, with
+`ssh -t root@<host> sh /docker/n8n-openai-oauth/claude/login.sh`. Relmio never
+handles the paste code or Claude credentials. The wizard can then check
+sign-in, list the approved models, renew approval (it expires within 7 days),
+sign out, replace the companion and remove it. In n8n use a Basic LLM Chain
+with an OpenAI Chat Model: Use Responses API off, Max Retries 0, Timeout at
+least 135000 ms, Batch Size 1. It is text only. See
+[Set up in the browser wizard](claude-subscription.md#set-up-in-the-browser-wizard),
+[Security](security.md#claude-companion-custody) and
+[Troubleshooting](troubleshooting.md#symptom-table).
+
 ## Next guides
 
 - [Configure n8n nodes](./n8n-configuration.md)
 - [SuperGrok on a VPS](./vps-supergrok.md)
+- [Claude subscription (experimental)](./claude-subscription.md)
 - [AI Assistant companion](./ai-assistant.md)
 - [Manual installation](./manual-install.md)
 - [Troubleshooting](./troubleshooting.md)

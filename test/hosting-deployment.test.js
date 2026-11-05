@@ -29,6 +29,7 @@ function rejectsWithoutEcho(request, secret = "credential-secret-sentinel") {
 test("planning rejects unknown identities, unapproved model tags and malformed request boundaries", () => {
   rejectsWithoutEcho({ ...base, providerId: "not-a-provider" });
   rejectsWithoutEcho({ ...base, component: "openai" });
+  rejectsWithoutEcho({ providerId: base.providerId, component: "claude", deploymentId: base.deploymentId, inputs: base.inputs });
   rejectsWithoutEcho({ ...base, deploymentId: "ABCDEF012345" });
   rejectsWithoutEcho({ ...base, deploymentId: "abc/../../123" });
   rejectsWithoutEcho({ ...base, modelId: "credential-secret-sentinel" });

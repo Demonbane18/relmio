@@ -284,7 +284,8 @@ test("denied credential routes preserve a sudo model review and leave local sign
   const reviewed = await f.post("/api/vps/local-model/plan", { ...boundary, action: "install", modelId });
   assert.equal(reviewed.status, 200);
   const { planId } = await reviewed.json();
-  for (const path of ["/api/plan", "/api/install", "/api/assistant/plan", "/api/assistant/install", "/api/vps/supergrok/plan", "/api/vps/supergrok/models"]) {
+  for (const path of ["/api/plan", "/api/install", "/api/assistant/plan", "/api/assistant/install", "/api/vps/supergrok/plan", "/api/vps/supergrok/models",
+    "/api/vps/claude/plan", "/api/vps/claude/apply", "/api/vps/claude/models"]) {
     assert.equal((await f.post(path, { clientKey: "must-not-be-read" })).status, 403);
   }
   assert.equal(f.observed.oauth, 0);

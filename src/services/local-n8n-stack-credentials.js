@@ -11,6 +11,7 @@ const FEATURES = Object.freeze({
   chatgpt: { name: "Relmio ChatGPT plan", url: "http://n8n-openai-oauth:10531/v1" },
   "local-model": { name: "Relmio local model", url: "http://n8n-local-model:11434/v1" },
   supergrok: { name: "Relmio SuperGrok", url: "http://n8n-supergrok:14502/v1" },
+  claude: { name: "Relmio Claude", url: "http://relmio-claude:14502/v1" },
 });
 const ID = /^[a-f0-9]{64}$/u;
 const ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";

@@ -121,11 +121,15 @@ test("sudo model sessions reject every credential-bearing route before body and 
   await f.connect(sudoRequest);
   const client = f.clients[0];
   const commandCount = client.commands.length;
-  for (const path of ["/api/plan", "/api/install", "/api/assistant/plan", "/api/assistant/install", "/api/vps/supergrok/status", "/api/vps/supergrok/plan", "/api/vps/supergrok/apply", "/api/vps/supergrok/login-status", "/api/vps/supergrok/models"]) {
+  for (const path of ["/api/plan", "/api/install", "/api/assistant/plan", "/api/assistant/install", "/api/vps/supergrok/status", "/api/vps/supergrok/plan", "/api/vps/supergrok/apply", "/api/vps/supergrok/login-status", "/api/vps/supergrok/models",
+    "/api/vps/claude/status", "/api/vps/claude/plan", "/api/vps/claude/apply", "/api/vps/claude/auth-status", "/api/vps/claude/models"]) {
     const response = await fetch(f.server.origin + path, { method: "POST", headers: { Origin: f.server.origin, "X-Setup-Token": token, "Content-Type": "application/json" }, body: "not-json:must-not-be-parsed" });
     assert.equal(response.status, 403, path);
     assert.match((await response.json()).error, /local-model-only/u);
   }
+  const claudeStatus = await fetch(`${f.server.origin}/api/vps/claude/status`, { headers: { Origin: f.server.origin, "X-Setup-Token": token } });
+  assert.equal(claudeStatus.status, 403);
+  assert.match((await claudeStatus.json()).error, /local-model-only/u);
   assert.equal(f.credentialCalls(), 0);
   assert.equal(client.commands.length, commandCount);
   assert.deepEqual(client.inputs, []);

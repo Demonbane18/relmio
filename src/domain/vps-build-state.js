@@ -3,6 +3,7 @@ import { INSTALL_ROOT, SHARED_ROOT_MARKER_PATH, SHARED_ROOT_MARKER_CONTENT } fro
 export const VPS_OPERATION_LOCKS = Object.freeze({
   model: `${INSTALL_ROOT}/.local-model-operation.lock`,
   supergrok: `${INSTALL_ROOT}/.supergrok-operation.lock`,
+  claude: `${INSTALL_ROOT}/.claude-operation.lock`,
   oauth: `${INSTALL_ROOT}/.openai-oauth-operation.lock`,
 });
 const quote = value => `'${value.replaceAll("'", "'\\''")}'`;

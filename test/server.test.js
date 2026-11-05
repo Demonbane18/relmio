@@ -299,8 +299,11 @@ test("wizard serves shared UI assets and accessible chat and progress markup", a
   assert.equal(kit.status, 200);
   assert.match(kit.headers.get("content-type") ?? "", /^text\/css/u);
 
-  for (const page of ["/", "/local", "/assistant", "/supergrok-vps", "/local-model-vps", "/hosting"]) {
-    const html = await (await fetch(`${wizard.origin}${page}`)).text();
+  for (const page of ["/", "/local", "/assistant", "/supergrok-vps", "/claude-vps", "/local-model-vps", "/hosting"]) {
+    const pageResponse = await fetch(`${wizard.origin}${page}`);
+    assert.equal(pageResponse.status, 200, page);
+    const html = await pageResponse.text();
+    assert.notEqual(html, "", page);
     assert.doesNotMatch(html, /__RELMIO_PACKAGE_VERSION__/u, `${page} keeps the version placeholder`);
     if (["/", "/local", "/assistant"].includes(page)) {
       const progress = html.match(/<[^>]+\bid="operation-progress"[^>]*>/u)?.[0] ?? "";

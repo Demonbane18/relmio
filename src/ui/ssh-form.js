@@ -78,7 +78,7 @@ export function createCredentialSshGuard({ token, onMismatch, onIdentityDecision
   let adopted = null;
   let initialAdoptionAvailable = true;
   const isRemote = path => ["/api/discover", "/api/networks", "/api/plan", "/api/install"].includes(path) ||
-    path.startsWith("/api/assistant/") || path.startsWith("/api/vps/supergrok/");
+    path.startsWith("/api/assistant/") || path.startsWith("/api/vps/supergrok/") || path.startsWith("/api/vps/claude/");
   function adopt(identity) {
     validateSshIdentity(identity);
     if (identity.scope !== "vps") throw new Error("This connection is local-model-only. Reconnect with a UID 0 account for this VPS flow.");
@@ -175,7 +175,7 @@ export function bindSshAuthentication({ token, trustId, onChange, allowSudo = fa
     }).catch(() => { element("ssh-agent-status").textContent = "Local SSH agent capability could not be checked. Authentication is not verified."; });
     void readSshIdentity(token, { allowModelOnly: true }).then((identity) => {
       if (!shouldApplyConnectionStatus()) return;
-      element("ssh-session").textContent = `Connected as ${identity.username}@${identity.host}:${identity.port}, ${identity.authentication}, ${identity.privilege}, UID ${identity.loginUid} → ${identity.effectiveUid}. ${identity.scope === "local-model-only" ? "Model-only session; OAuth bridge, Assistant and SuperGrok require a root reconnect." : "Verified root VPS session."}`;
+      element("ssh-session").textContent = `Connected as ${identity.username}@${identity.host}:${identity.port}, ${identity.authentication}, ${identity.privilege}, UID ${identity.loginUid} → ${identity.effectiveUid}. ${identity.scope === "local-model-only" ? "Model-only session; OAuth bridge, Assistant, SuperGrok and Claude require a root reconnect." : "Verified root VPS session."}`;
       element("ssh-disconnect").hidden = false;
     }).catch((error) => {
       if (!shouldApplyConnectionStatus()) return;

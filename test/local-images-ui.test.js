@@ -57,6 +57,7 @@ async function harness(apiResult, { install = false } = {}) {
     isN8nSidecar: (target) => target === "n8n-openai-oauth",
     isN8nDockerTarget: (target) => target === "n8n-openai-oauth",
     isN8nSuperGrok: () => false, isN8nLocalModel: () => false,
+    isN8nClaude: (target) => target === "n8n-claude-oauth",
     isN8nAssistant: () => false, isN8nStack: () => false, isCodexChat: () => false,
     isGrokBuild: (target) => target === "xai-grok-build",
     clearLocalModelPoll() {}, invalidateLocalModelReview() {}, renderInstalledSiwcModels() {}, renderFooterForTarget() {},

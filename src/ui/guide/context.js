@@ -3,12 +3,13 @@
 export const HELP_METADATA = Object.freeze({
   schema: 1,
   revision: 1,
-  sourceVersion: "0.23.0",
-  sourceCommit: "40f073f019efd50ab9de33eaa28ef8cf6e57449e",
-  reviewedOn: "2026-11-04",
+  sourceVersion: "0.24.0",
+  sourceCommit: "9c7f82d854f229b9416354cc9a3eefb87aa93c5d",
+  reviewedOn: "2026-11-05",
   sources: Object.freeze([
     "docs/getting-started.md", "docs/faq.md", "docs/security.md",
     "docs/vps-and-n8n.md", "docs/local-dashboard.md", "docs/troubleshooting.md",
+    "docs/claude-subscription.md", "docs/hosting-compatibility.md",
     "docs/contextual-help-source-check-2026-10-11.md",
   ]),
 });

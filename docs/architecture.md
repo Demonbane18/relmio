@@ -66,6 +66,7 @@ These targets have different protocols and trust boundaries:
 |---|---|---|
 | `xai-grok-build`, experimental | Relmio `POST /chat` and OpenAI-compatible Chat Completions `/v1` | Fresh official Grok CLI OAuth session plus a local bearer; trusted local clients |
 | `n8n-supergrok-oauth`, experimental | Private Chat Completions `/v1` | Separate Grok CLI session and one-time local bearer; selected n8n only |
+| `n8n-claude-oauth`, experimental | Private text-only Chat Completions `/v1` | Official Claude Code login in the companion's Docker volume plus a one-time local bearer; selected n8n only |
 | `codex-chatgpt` | Codex App Server JSON-RPC over local WebSocket relay | Selected SIWC registration plus a high-trust local bearer for a trusted native client |
 | `codex-chat` | Relmio `POST /chat` | Selected SIWC registration plus a separate bearer for a read-only local backend |
 | `n8n-openai-oauth` | Private `/v1/models`, `/v1/responses`, and limited Chat Completions compatibility; on a VPS, optional `/v1/images/generations` and `/v1/images/edits` | Selected SIWC registration plus one-time Relmio bearer; selected n8n network only. Image routes use a separate opt-in Codex sign-in stored on the VPS |

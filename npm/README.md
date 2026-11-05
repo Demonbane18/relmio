@@ -34,8 +34,10 @@ and the
 for setup, data handling, limits, and unresolved prerequisites. The
 [v0.22.2 addendum](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-07.md#addendum-v0222-release)
 and the
-[2026-11-04 source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt-source-check-2026-11-04.md)
-cover this release; OpenAI flows are unchanged in 0.23.0.
+[Claude wizard source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-wizard-source-check-2026-11-04.md)
+cover this release. OpenAI flows are unchanged; the Claude check re-read the
+Sign in with ChatGPT Terms (Effective November 4, 2026), and the persistent
+remote token storage and connected-application questions stay open.
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
 while it streams. Status distinguishes connection setup, waiting for the first
@@ -169,9 +171,9 @@ Relmio also refuses to adopt an earlier SuperGrok development install that
 lacks its fresh-session marker. Review that installation separately before
 removal or migration.
 
-**Refresh status** shows eight services: Codex App Server, Codex Chat Adapter,
+**Refresh status** shows nine services: Codex App Server, Codex Chat Adapter,
 Grok Build, the owned n8n stack, the ChatGPT plan sidecar, AI Assistant tools,
-SuperGrok for n8n, and the local model for n8n. It shows only verified
+SuperGrok for n8n, Claude for n8n, and the local model for n8n. It shows only verified
 connection URLs and state, never stored secrets. Select **Add connection** for
 the setup flow. Bare `relmio` and `relmio vps` open VPS setup; use `relmio
 local` for this computer's setup route.
@@ -188,12 +190,20 @@ provider change is required.
 
 ## Claude subscription (experimental)
 
-The CLI-only Claude adapter runs a fresh, unmodified official Claude Code
-process for each text request. It needs Node.js 24+, macOS or Linux, pinned
-Claude Code `2.1.317`, and your own reviewed subscription login. Docker n8n
-uses a separate private companion; there is no Claude browser-wizard option
-or automatic deployer. Run `relmio claude --help` and follow the
-[full setup guide](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt.md).
+The experimental Claude adapter runs a fresh, unmodified official Claude Code
+process for each text request. It needs pinned Claude Code `2.1.317` and your
+own reviewed subscription login. Since 0.24.0 the browser wizard can set up its
+private Docker companion beside an existing n8n: choose **Claude on my server**
+in the VPS wizard (`relmio vps`) or **Claude for n8n** in the local wizard
+(`relmio local`). The wizard shows one sign-in command, and you run it yourself
+in your own terminal: `ssh -t root@<host> sh /docker/n8n-openai-oauth/claude/login.sh`
+for a VPS, `relmio claude companion login` for this computer. Relmio never
+handles the paste code or your Claude credentials. Native n8n and the advanced
+Docker path use the `relmio claude` commands (Node.js 24+, macOS or Linux;
+`relmio claude --help`). Follow the
+[wizard guide](https://relmio.jpfusin.tech/docs/claude-subscription#set-up-in-the-browser-wizard)
+or the
+[technical guide](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt.md).
 
 > [!WARNING]
 > Experimental; not affiliated with or endorsed by Anthropic. Install and log
@@ -205,11 +215,13 @@ or automatic deployer. Run `relmio claude --help` and follow the
 >
 > Anthropic's SDK quickstart says third-party developers may not offer
 > Claude.ai login or plan rate limits for their products unless approved.
-> Relmio provides no Claude login: you log in through the official CLI.
-> Relmio has no Anthropic approval for this gateway. That permission question
-> remains unresolved; this experimental, owner-run use may stop working or
-> be disallowed. See the
-> [source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt-source-check-2026-11-04.md).
+> Relmio provides no Claude login: you log in through the official CLI in
+> your own terminal. The wizard does offer a Claude setup path, and that
+> relates to the restriction even though sign-in stays in the official CLI.
+> Relmio has no Anthropic approval for this gateway or wizard. That permission
+> question remains unresolved; this experimental, owner-run use may stop
+> working or be disallowed. See the
+> [source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-wizard-source-check-2026-11-04.md).
 >
 > Turn extra usage off in your Claude account. Relmio refuses Fable, but
 > extra-usage billing remains an account setting, not an adapter-enforced cap.
@@ -231,10 +243,21 @@ or automatic deployer. Run `relmio claude --help` and follow the
   `HOME` use your real home, even with dedicated Claude configuration.
   Native files, administrator access, backups and provider retention remain
   separate risks despite dedicated config and disabled session persistence.
+- The wizard's approval lasts 7 days minus 1 hour; renew it in the wizard. The
+  Claude login lives in the companion's Docker volume, which root, Docker
+  administrators and backups can read; Relmio never reads it. **Check sign-in**
+  runs Claude Code's `auth status --json`; its raw output reaches Relmio's local
+  server (over SSH for a VPS), which forwards only `loggedIn`, `authMethod` and
+  `subscriptionType` to the browser and does not store or log the rest.
 - Recorded checks cover native macOS with n8n 2.46.4, a Hostinger Docker
   companion with n8n 2.44.6 and a local Colima (arm64) Docker companion with
-  n8n 2.46.4. Other VPS providers and Docker Desktop remain experimental; those
-  results do not establish acceptance on your host.
+  n8n 2.46.4. On 2026-11-05, the owner-run local **Claude for n8n** wizard
+  passed end to end on Colima 0.10.3 arm64 / Docker 29.5.2, including refusal
+  without writes for an unowned image, install, sign-in, model check, one Haiku
+  Basic LLM Chain prompt, removal without stopping n8n, and reinstall. Hostinger
+  VPS wizard SSH, n8n and network discovery passed; VPS install, replace, renew,
+  sign-out and removal were not run live. Other VPS providers and Docker Desktop
+  remain experimental; results do not establish acceptance on your host.
 - In n8n, use a Basic LLM Chain with **Use Responses API off**, **Max Retries
   0**, **Timeout at least 135000 ms**, and **Batch Size 1**. Keep workflow
   retries off and tools/fallback routes disconnected. For full AI Agent tool
@@ -242,7 +265,7 @@ or automatic deployer. Run `relmio claude --help` and follow the
   monthly API credit is a separate billing route.
 
 Read the
-[current source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt-source-check-2026-11-04.md)
+[wizard source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-wizard-source-check-2026-11-04.md)
 and [dated verification record](https://github.com/Demonbane18/relmio/blob/main/docs/claude-native-prompt.md#verification-record)
 before setup.
 
@@ -336,7 +359,7 @@ uncertainty retains the lock for administrator inspection, never automatic
 n8n/cache deletion.
 
 Verified **Passwordless sudo -n (model only)** does not extend to OAuth bridge,
-AI Assistant or SuperGrok VPS operations; those require existing approved
+AI Assistant, SuperGrok or Claude VPS operations; those require existing approved
 direct-root access. Keep keys local and launch the dashboard from its agent
 environment. Render service SSH is unsupported by the managed installer; a
 separate paid private model service with its own disk/internal DNS is a manual
@@ -475,7 +498,7 @@ fits its Sign in with ChatGPT terms. See
 Installing for n8n also requires express consent for background workflows.
 For existing local or VPS n8n, the wizard does not edit n8n credentials or
 Compose configuration. For n8n created by Relmio, approved ChatGPT-plan,
-local-model and SuperGrok installs try to import their connection credential.
+local-model, SuperGrok and local Claude installs try to import their connection credential.
 Existing legacy bridge installations require a separately reviewed migration
 and a fresh SIWC sign-in. The published SIWC Terms and VM guide do not resolve
 persistent remote VM token storage; the VPS implementation is not presented as

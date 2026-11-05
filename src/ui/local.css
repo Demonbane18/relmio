@@ -599,6 +599,14 @@
   padding: 0.625rem 0.875rem;
 }
 
+.target-card:has(.rm-choice__input:disabled) {
+  background: var(--rm-surface-muted);
+}
+
+.target-card .rm-choice__input:disabled {
+  cursor: not-allowed;
+}
+
 .target-card .rm-choice__icon {
   width: 2.25rem;
   height: 2.25rem;
@@ -1154,6 +1162,22 @@ body[data-current-step="1"] .setup-panel :is(.rm-panel__header, .rm-panel__foote
   }
   .ready-columns:not(:has(#n8n-stack-removal:not([hidden]))) > :is(#install-result-list, #codex-login) {
     grid-column: 1 / -1;
+  }
+  .ready-columns > #n8n-claude-management {
+    grid-column: 1 / -1;
+  }
+
+  #claude-review:not([hidden]) {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--rm-space-1) var(--rm-space-4);
+    font-size: var(--rm-text-sm);
+  }
+
+  #claude-review > :is(h3, p) {
+    grid-column: 1 / -1;
+    margin: 0;
   }
   /* With a ChatGPT account card, the key safety notes sit beside it instead
      of taking their own row. */

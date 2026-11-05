@@ -362,6 +362,41 @@ body[data-current-step="5"] [data-step-actions="5"] {
   align-content: start;
 }
 
+/* Five routes fit two rows on laptops; descriptions use the card's full width. */
+@media (min-width: 64rem) {
+  #setup-choices > .rm-panel__body {
+    gap: var(--rm-space-2);
+    padding-bottom: var(--rm-space-2);
+  }
+
+  .setup-routes {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    row-gap: var(--rm-space-2);
+  }
+
+  .setup-route {
+    grid-column: span 2;
+  }
+
+  .setup-route:nth-last-child(-n + 2) {
+    grid-column: span 3;
+    grid-row: span 1;
+  }
+
+  .setup-route > .rm-choice {
+    padding-block: var(--rm-space-3);
+  }
+
+  .setup-route .rm-choice__icon {
+    grid-row: 1;
+  }
+
+  .setup-route .rm-choice__text,
+  .setup-route .rm-choice__meta {
+    grid-column: 1 / -1;
+  }
+}
+
 .setup-route .rm-choice__title .rm-badge {
   margin-inline-start: var(--rm-space-1);
   vertical-align: 0.0625rem;

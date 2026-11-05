@@ -6,6 +6,98 @@ and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
 ## Unreleased
+### Fixed
+
+- Local Claude install probes now call the companion at `127.0.0.1:14502` with
+  Host `relmio-claude:14502`. A loopback Host was rejected after Compose
+  reported the container healthy, so the one-time n8n key was never returned.
+- A failed local or VPS Claude install after it starts writing removes only
+  that attempt: the companion container, its managed files, and, on a fresh
+  install, the login volume it just created. A failed replace keeps the login
+  volume. The original error is still reported. n8n is not touched.
+- A labeled `relmio-claude_claude-account` volume left behind with no companion
+  folder or container is an absent install that keeps that login. Any other
+  leftover volume is still refused.
+- Claude management stays available on a VPS without running n8n, and a
+  failed post-install SSH identity check no longer loses the one-time key.
+- Local Claude rollback checks resource ownership before stopping anything.
+  Removal works after image cleanup, stopped companions can renew approval,
+  and strict file-creation permissions no longer block the image's app files.
+- Wizard-managed Claude bundles require renewal in the wizard. Approval
+  comparisons ignore JSON key order, VPS checks reject internal networks,
+  and failed native sign-in checks remain errors.
+
+
+
+## [0.24.0] - 2026-11-05
+
+Relmio 0.24.0 adds **Claude to the browser wizard** (experimental), so you can
+set up the private Claude companion for n8n without copying a bundle by hand.
+Claude sign-in stays in your own terminal, and Relmio never handles the paste
+code or your Claude credentials. It is not affiliated with or endorsed by
+Anthropic, and Anthropic has not approved it.
+
+### Added
+
+- **Claude on my server** (`/claude-vps`) for a VPS and **Claude for n8n** (and
+  **Add Claude** on a Relmio-created n8n) for local Docker. Each shows the
+  pinned Claude Code version and SHA256, asks four review questions that start
+  unchecked, shows the exact plan and waits for a separate final confirmation
+  before it writes anything. It then shows a one-time n8n key once. The wizard
+  prints the sign-in command for your own terminal: `ssh -t root@<host> sh
+  /docker/n8n-openai-oauth/claude/login.sh` on a VPS, and the new
+  `relmio claude companion login` locally (an interactive terminal on macOS or
+  Linux).
+- Check sign-in, Check models, Renew approval (7 days minus 1 hour), Sign out
+  and removal for both flows. On a VPS, **Replace companion and key** takes over
+  a companion made with `relmio claude companion prepare` and keeps its Claude
+  login. The local wizard refuses a manual companion and changes nothing.
+- **Hosting options** lists Claude as managed on Linux VM presets and local
+  Docker, and as unavailable on container platforms, endpoint products and SDK
+  sandboxes. The local dashboard has a ninth row, **Claude for n8n**. For an n8n
+  that Relmio created, the local wizard tries to add a **Relmio Claude**
+  credential.
+- A [wizard source check](docs/claude-wizard-source-check-2026-11-04.md) and
+  Claude coverage in the Claude, VPS, local, hosting, FAQ, troubleshooting and
+  security guides.
+
+### Changed
+
+- The Docker companion bundle now comes from one shared builder used by
+  `relmio claude companion prepare`, the VPS wizard and the local wizard. The
+  command's behavior is unchanged.
+- The Claude guides, README and npm README no longer describe Claude as
+  CLI-only. Native n8n and the advanced Docker path still use `relmio claude`.
+
+- Owner-run live QA on 2026-11-05 passed local wizard install, sign-in, model
+  check, prompt, removal and reinstall. Hostinger VPS wizard passed SSH, n8n
+  and network discovery only; VPS install, replace, renew, sign-out and removal
+  were not run live.
+
+### Fixed
+
+- Local companion probes now send `Host: relmio-claude:14502`; rejected loopback
+  Host headers had prevented a successful install from returning its one-time
+  key. Failed installs now roll back their own managed files and companion
+  resources.
+- A labeled `relmio-claude_claude-account` login volume with no companion folder
+  or container is reused by a fresh install and kept on failure; other
+  unrecognized leftover volumes remain refused.
+
+### Security
+
+- VPS Claude actions need a verified direct-root session. The passwordless
+  `sudo -n` (model only) session is refused for them, like the other
+  credential-bearing VPS routes.
+- The Claude login stays in the companion's Docker volume, which root, Docker
+  administrators and backups can read; Relmio never reads it. **Check sign-in**
+  runs Claude Code's `auth status --json`, and the raw output reaches Relmio's
+  local server (over SSH for a VPS). The server forwards only `loggedIn`,
+  `authMethod` and `subscriptionType` to the browser and does not store or log
+  the rest. Relmio keeps only the SHA256 of the one-time key.
+- Whether Anthropic permits this use stays unresolved, and the wizard's Claude
+  setup path relates to the third-party login restriction in Anthropic's Agent
+  SDK quickstart even though sign-in stays in the official CLI.
 
 ## [0.23.0] - 2026-11-04
 
@@ -2099,6 +2191,7 @@ local or VPS n8n deployments without requiring a ChatGPT sign-in.
 [0.11.0]: https://github.com/Demonbane18/relmio/compare/v0.10.0...v0.11.0
 [0.9.0]: https://github.com/Demonbane18/relmio/compare/v0.8.1...v0.9.0
 
+[0.24.0]: https://github.com/Demonbane18/relmio/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/Demonbane18/relmio/compare/v0.22.2...v0.23.0
 [0.22.2]: https://github.com/Demonbane18/relmio/compare/v0.22.1...v0.22.2
 [0.22.1]: https://github.com/Demonbane18/relmio/compare/v0.22.0...v0.22.1

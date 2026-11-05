@@ -9,6 +9,7 @@ credentials.
 | --- | --- | --- |
 | SuperGrok for a local backend | Grok Build adapter | Official subscription OAuth and a local bearer |
 | SuperGrok for existing local or VPS n8n | Private SuperGrok companion | Official subscription OAuth and a local bearer |
+| Claude plan for text workflows in existing local Docker or VPS n8n (experimental) | Private Claude companion | Official Claude Code sign-in in your own terminal and a one-time local Relmio bearer |
 | Trusted native Codex client | Codex App Server relay | SIWC registration and a high-trust local bearer |
 | Read-only local Codex chat | Codex Chat Adapter | SIWC registration and a separate local bearer |
 | ChatGPT plan use from local or self-hosted n8n | Private OpenAI-compatible sidecar | Separately granted ChatGPT plan permission and a one-time local Relmio bearer |
@@ -65,8 +66,8 @@ An unknown transfer outcome stays frozen for inspection.
 
 Local endpoints use `127.0.0.1`; n8n sidecars join a selected private Docker
 network and publish no host port. Installing for n8n needs separate background
-workflow approval. For n8n created by Relmio, approved ChatGPT, local-model
-and SuperGrok add-ons try to import their connection credential. Other n8n
+workflow approval. For n8n created by Relmio, approved ChatGPT, local-model,
+SuperGrok and local Claude add-ons try to import their connection credential. Other n8n
 installations require manual entry. OpenAI tokens stay in the ChatGPT sidecar.
 See [New local n8n with optional ngrok](local-n8n-stack.md) for setting up a
 private stack and its separately reviewed add-ons.
@@ -149,7 +150,7 @@ The host needs rootful Docker Engine, Compose v2 and Buildx targeting that same
 local daemon, a running official n8n container on an eligible existing bridge,
 sufficient measured resources and a safe preexisting root-owned `/docker`.
 The model route can use verified
-**Passwordless sudo -n (model only)**; OAuth bridge, AI Assistant and SuperGrok
+**Passwordless sudo -n (model only)**; OAuth bridge, AI Assistant, SuperGrok and Claude
 VPS routes still require existing approved direct-root access. Agent setup
 does not grant sudo or expand those routes.
 
@@ -199,6 +200,7 @@ so install Relmio persistently before relying on these lifecycle commands.
   container-platform boundaries.
 - [SuperGrok on a VPS](./vps-supergrok.md) for the provider-specific VPS flow.
 - [Claude subscription (experimental)](./claude-subscription.md) for the
-  owner-only Claude Code adapter for n8n and its limits.
+  wizard and command-line setup of the owner-only Claude Code companion for n8n,
+  and its limits.
 - [Troubleshooting](./troubleshooting.md) when setup stops.
 - [Security](./security.md) for account, network, and credential rules.

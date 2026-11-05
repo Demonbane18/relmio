@@ -43,6 +43,23 @@ export const PROVIDER_PROFILES = deepFreeze({
     documentedCapabilities: ["chat-completions", "streaming"],
     implementedCapabilities: ["chat-completions", "streaming", "client-tool-calls"],
   },
+  // Text only through the official Claude Code CLI; the adapter refuses client tools.
+  "anthropic-claude": {
+    id: "anthropic-claude",
+    providerId: "anthropic",
+    label: "Claude",
+    availability: "implemented",
+    adapter: {
+      kind: "inference",
+      protocol: "openai-chat-completions",
+    },
+    authentication: {
+      method: "provider-owned-oauth",
+      custody: "provider-agent-runtime",
+    },
+    documentedCapabilities: ["chat-completions", "streaming"],
+    implementedCapabilities: ["chat-completions", "streaming"],
+  },
   "local-model": {
     id: "local-model",
     providerId: "local",
@@ -83,6 +100,12 @@ export const PROVIDER_TARGET_BINDINGS = deepFreeze({
   "n8n-supergrok-oauth": {
     profileId: "xai-grok-build",
     label: "SuperGrok for n8n",
+    protocol: "openai-chat-completions",
+    upstreamAuth: "provider-owned-oauth",
+  },
+  "n8n-claude-oauth": {
+    profileId: "anthropic-claude",
+    label: "Claude for n8n",
     protocol: "openai-chat-completions",
     upstreamAuth: "provider-owned-oauth",
   },

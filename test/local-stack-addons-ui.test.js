@@ -38,6 +38,7 @@ const predicates = {
   isN8nLocalModel: (target) => target === "n8n-local-model",
   isN8nSidecar: (target) => target === "n8n-openai-oauth",
   isN8nSuperGrok: (target) => target === "n8n-supergrok-oauth",
+  isN8nClaude: (target) => target === "n8n-claude-oauth",
   isN8nAssistant: (target) => target === "n8n-ai-assistant",
   isN8nStack: (target) => target === "local-n8n-stack",
   isGrokBuild: () => false, isCodexChat: () => false,
@@ -222,6 +223,7 @@ test("managed discovery preselects its recommended network and blocks duplicate 
     api: async () => ({ containers: [managed] }), invalidatePlan() {},
     isN8nSidecar: predicates.isN8nSidecar, isN8nStack: predicates.isN8nStack,
     isN8nSuperGrok: predicates.isN8nSuperGrok,
+    isN8nClaude: predicates.isN8nClaude,
     isN8nDockerTarget: () => true, isN8nAssistant: predicates.isN8nAssistant, isCodexChat: () => false,
     isN8nLocalModel: predicates.isN8nLocalModel, isSafeDockerDisplayName: () => true,
     LOCAL_MODEL_IDS: new Set(["qwen3:0.6b"]),
@@ -360,4 +362,24 @@ ${source("function isSafeLocalN8nUrl(value)", "\nfunction normalizeBridgeDashboa
   const legacy = { ...fromServer, endpoints: { ...fromServer.endpoints, n8nLocal: "http://127.0.0.1:5679/" } };
   delete legacy.localUrl;
   assert.equal(normalize(legacy).localUrl, "http://localhost:5679");
+});
+
+test("the Claude card, radio and stack add-on are unavailable only when the server reports Windows", () => {
+  const { element } = nodes();
+  const radio = { disabled: false }; const addon = { disabled: false };
+  const sync = runInNewContext(`${source("function syncClaudeAvailability(", "\nfunction readClaudeModels")}; syncClaudeAvailability`, {
+    element, document: {
+      querySelector(selector) { assert.equal(selector, 'input[name="target"][value="n8n-claude-oauth"]'); return radio; },
+      querySelectorAll(selector) { assert.equal(selector, '[data-stack-addon="n8n-claude-oauth"]'); return [addon]; },
+    },
+  });
+  sync(true);
+  assert.deepEqual([radio.disabled, addon.disabled, element("claude-platform-note").hidden], [true, true, false]);
+  sync(false);
+  assert.deepEqual([radio.disabled, addon.disabled, element("claude-platform-note").hidden], [false, false, true]);
+  // An unavailable card cannot be reached through a stack add-on or dashboard link either.
+  const select = runInNewContext(`${source("function selectN8nManagementTarget(target)", "\nfunction hasExactKeys(")}; selectN8nManagementTarget`, {
+    document: { querySelector: () => ({ disabled: true, checked: false }) }, renderTarget() { assert.fail("an unavailable target must not render"); },
+  });
+  assert.throws(() => select("n8n-claude-oauth"), /unavailable/u);
 });

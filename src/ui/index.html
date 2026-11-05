@@ -170,6 +170,18 @@
                       </details>
                     </div>
                     <div class="setup-route">
+                      <a id="vps-claude-start" class="rm-choice" aria-describedby="claude-vps-route-detail">
+                        <span class="rm-choice__icon"><span class="rm-icon rm-icon--message rm-icon--lg" aria-hidden="true"></span></span>
+                        <span class="rm-choice__title">Claude on my server <span class="rm-badge">Official sign-in</span> <span class="rm-badge rm-badge--accent">Experimental</span></span>
+                        <span id="claude-vps-route-detail" class="rm-choice__text">For text workflows in n8n, using your own Claude plan.</span>
+                        <span class="rm-choice__meta">You need a VPS that runs n8n in Docker, a root login to it and a Claude Pro or Max plan.</span>
+                      </a>
+                      <details class="rm-disclosure rm-disclosure--plain">
+                        <summary aria-label="More details about Claude on my server">More details</summary>
+                        <div class="rm-disclosure__body"><p>Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</p><p>Sign in in your own terminal. Use Basic LLM Chain + OpenAI Chat Model, Use Responses API off, Max Retries 0, Timeout at least 135000 ms and Batch Size 1. Text only, one request at a time; not AI Agent tools or the n8n AI Assistant. Renew approval in the wizard within 7 days.</p></div>
+                      </details>
+                    </div>
+                    <div class="setup-route">
                       <a id="vps-local-model-start" class="rm-choice" aria-describedby="local-model-vps-route-detail">
                         <span class="rm-choice__icon"><span class="rm-icon rm-icon--box rm-icon--lg" aria-hidden="true"></span></span>
                         <span class="rm-choice__title">Self-hosted model on my server <span class="rm-badge">No sign-in</span></span>
@@ -375,6 +387,8 @@
                     <p class="rm-small rm-muted">
                       Other companions:
                       <a id="vps-supergrok-manage" class="rm-link">SuperGrok</a>
+                      <span aria-hidden="true">·</span>
+                      <a id="vps-claude-manage" class="rm-link">Claude</a>
                       <span aria-hidden="true">·</span>
                       <a id="vps-local-model-manage" class="rm-link">Local model</a>
                     </p>

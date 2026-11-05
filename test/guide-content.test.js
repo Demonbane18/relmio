@@ -9,6 +9,7 @@ const PAGES = {
   local: "local.html",
   assistant: "assistant.html",
   "supergrok-vps": "supergrok-vps.html",
+  "claude-vps": "claude-vps.html",
   "local-model-vps": "local-model-vps.html",
   hosting: "hosting.html",
 };

@@ -216,6 +216,11 @@ export const GUIDE = {
       badge: "Details ready",
       tips: [
         {
+          id: "claude-models", target: "#claude-models", action: "type", title: "Choose Claude models",
+          say: "Enter 1 to 8 exact Claude model IDs, separated by commas; Fable is refused. This experimental companion uses your own Claude plan. Sign in yourself in your terminal; Relmio never sees your Claude login.",
+          done: "manual",
+        },
+        {
           id: "searxng-review",
           target: "#review-assistant-searxng-edit",
           action: "press",
@@ -427,6 +432,11 @@ export const GUIDE = {
           done: "manual",
         },
         {
+          id: "claude-review", target: "#claude-review", action: "read", title: "Review all four Claude questions",
+          say: "Check the official binary and SHA256, effective policy, your own plan with extra usage off, and control of future changes. Each answer starts unchecked. Approval expires within 7 days; renew it here.",
+          done: "manual",
+        },
+        {
           id: "confirm",
           target: "#install-confirm",
           action: "check",
@@ -606,6 +616,21 @@ export const GUIDE = {
           title: "Allow background use again",
           say: "Turning plan use back on needs your approval for n8n background workflows again. Tick the box, then press Use ChatGPT plan.",
           done: "checked",
+        },
+        {
+          id: "claude-terminal", target: "#claude-login-command", action: "read", title: "Sign in in your terminal",
+          say: "On macOS or Linux, run relmio claude companion login in your own terminal, or npx --yes --ignore-scripts relmio@latest claude companion login if you use NPX. The official Claude Code handles sign-in inside the companion. Do not paste a login code into this browser.",
+          done: "manual",
+        },
+        {
+          id: "claude-check", target: "#claude-check-sign-in", action: "press", title: "Check Claude sign-in",
+          say: "Press Check sign-in. It must report loggedIn true with authMethod claude.ai. Only those status fields and subscription type are read; a status check does not prove model access.",
+          done: "clicked",
+        },
+        {
+          id: "claude-settings", target: "#claude-management-title", action: "read", title: "Set n8n for text-only Claude",
+          say: "Use Basic LLM Chain with OpenAI Chat Model. Turn Use Responses API off and set Max Retries 0, Timeout at least 135000 ms and Batch Size 1. Text only, one request at a time; no AI Agent tools or n8n AI Assistant.",
+          done: "manual",
         },
         {
           id: "n8n-settings",

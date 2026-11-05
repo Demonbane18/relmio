@@ -9,7 +9,7 @@ import test from "node:test";
 
 import {
   acquireLocalEndpointChangeLock, activateLocalClientCredentialRotation,
-  getManagedLocalEndpointStatus, installLocalEndpoint,
+  getLocalDockerStatus, getManagedLocalEndpointStatus, installLocalEndpoint,
   inspectStoppedLocalSiwcInstallation, manageLocalSiwcInstallation,
   prepareLocalClientCredentialRotation, resolveLocalInstallRoot,
   reviewLocalCodexLegacyMigration, reviewLocalCodexSiwcReplacement,
@@ -1320,4 +1320,19 @@ test("failed atomic release recovers only its exact inactive claim in the same p
   await release();
   assert.equal(await readFile(lockPath, "utf8"), successor);
   await next();
+});
+
+test("Docker status marks local Claude unavailable on Windows and only there", async () => {
+  const docker = async (host, { args }) => args[0] === "context" && args[1] === "inspect" ? { code: 0, stdout: JSON.stringify(host), stderr: "" }
+    : args[0] === "context" ? { code: 0, stdout: "desktop-linux\n", stderr: "" }
+    : args[0] === "version" ? { code: 0, stdout: "29.7.2\n", stderr: "" } : { code: 0, stdout: "2.39.1\n", stderr: "" };
+  const down = async () => ({ code: 1, stdout: "", stderr: "" });
+  const windows = await getLocalDockerStatus({ env: {}, platform: "win32", runProcess: spec => docker("npipe:////./pipe/dockerDesktopLinuxEngine", spec) });
+  assert.equal(windows.dockerAvailable, true);
+  assert.equal(windows.claudeUnsupportedPlatform, true);
+  assert.deepEqual(await getLocalDockerStatus({ env: {}, platform: "win32", runProcess: down }), { dockerAvailable: false, claudeUnsupportedPlatform: true });
+  const linux = await getLocalDockerStatus({ env: {}, platform: "linux", runProcess: spec => docker("unix:///var/run/docker.sock", spec) });
+  assert.equal(linux.dockerAvailable, true);
+  assert.equal(Object.hasOwn(linux, "claudeUnsupportedPlatform"), false);
+  assert.deepEqual(await getLocalDockerStatus({ env: {}, platform: "darwin", runProcess: down }), { dockerAvailable: false });
 });

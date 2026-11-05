@@ -103,6 +103,10 @@
                     <select id="hosting-component" class="rm-select" required disabled></select>
                   </div>
                   <p id="hosting-capability" class="hosting-capability">Choose what to set up to see what's available.</p>
+                  <details id="hosting-claude-details" class="rm-disclosure" hidden>
+                    <summary>Claude disclaimer and n8n settings</summary>
+                    <div class="rm-disclosure__body"><p>Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</p><p>Basic LLM Chain + OpenAI Chat Model. Use Responses API off, Max Retries 0, Timeout at least 135000 ms, Batch Size 1. Text only, one request at a time; not AI Agent tools or the n8n AI Assistant. Approval expires within 7 days; renew it in the wizard.</p></div>
+                  </details>
                   <button class="rm-button rm-button--ghost rm-button--sm hosting-notes-trigger" type="button" popovertarget="hosting-notes"><span class="rm-icon rm-icon--info rm-icon--sm" aria-hidden="true"></span>Login notes and sources</button>
                   <div id="hosting-notes" class="hosting-notes" popover role="dialog" aria-labelledby="hosting-notes-title">
                     <div class="hosting-notes__header">
@@ -126,6 +130,7 @@
                           <th scope="col">Assistant</th>
                           <th scope="col">SearXNG</th>
                           <th scope="col">SuperGrok</th>
+                          <th scope="col">Claude</th>
                           <th scope="col">Endpoint</th>
                         </tr>
                       </thead>

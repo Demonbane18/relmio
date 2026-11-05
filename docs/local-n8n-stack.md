@@ -72,7 +72,7 @@ on macOS and Windows.
    ngrok, also check its URL in a private browser window. Basic Auth must block
    access until you enter your chosen credentials.
 8. Ready offers **Add ChatGPT plan**, **Add local model**, **Add SuperGrok**,
-   and **Add Assistant tools**. The Assistant tools button is hidden if this
+   **Add Claude** (experimental), and **Add Assistant tools**. The Assistant tools button is hidden if this
    stack includes Code Sandbox. Each add-on flow preselects this n8n and its
    network, then requires its own review. From **Add connection**, the managed
    n8n and network are preselected too; the network is labelled `<name>,
@@ -156,15 +156,19 @@ Existing public stacks are not made private by this update.
 
 ## Add ChatGPT plan, a local model and more
 
-Ready offers ChatGPT plan, local model, SuperGrok and Assistant tools with this
-n8n and its network preselected. ChatGPT still requires separate plan
-permission and background-workflow approval.
+Ready offers ChatGPT plan, local model, SuperGrok, Claude and Assistant tools with this
+n8n and its network preselected. Local Claude needs macOS or Linux. ChatGPT
+still requires separate plan permission and background-workflow approval.
 
-After an approved ChatGPT, local-model or SuperGrok install, Relmio tries to
+After an approved ChatGPT, local-model, SuperGrok or Claude install, Relmio tries to
 import the connection into this owned n8n. ChatGPT uses **Relmio ChatGPT plan**
 with a local bearer and `http://n8n-openai-oauth:10531/v1`. OpenAI tokens stay
 in the sidecar. The local model uses an ignored placeholder. Assistant tools do
-not receive a model credential through this import.
+not receive a model credential through this import. Claude uses **Relmio
+Claude** with the one-time local key and `http://relmio-claude:14502/v1`; you
+still sign in in your own terminal with `relmio claude companion login`.
+If you use NPX, run
+`npx --yes --ignore-scripts relmio@latest claude companion login` instead.
 
 Only credential IDs, names and timestamps are recorded in
 `.runtime/credentials.json`. If setup cannot be confirmed, check for the named

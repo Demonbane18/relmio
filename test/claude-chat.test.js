@@ -69,6 +69,15 @@ function assertGone(child) {
   assert.throws(() => process.kill(-child.pid, 0), { code: "ESRCH" });
 }
 
+// Reaping a process group is asynchronous after the leader's close event: wait for the same assertion up to a bounded deadline.
+async function eventually(check, timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try { return check(); } catch (error) { if (Date.now() >= deadline) throw error; }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 test("JSON completion decodes byte-split UTF-8 and distinct blocks without repeating snapshots or result", async (t) => {
   const { gateway, children } = await setup(t, "utf8");
   const response = await chatRequest(gateway.origin);
@@ -576,10 +585,10 @@ for (const scenario of ["stall", "midstream", "descendant"]) {
     if (scenario === "midstream") await firstDelta;
     pending.destroy();
     await closed;
-    assertGone(children[0]);
+    await eventually(() => assertGone(children[0]));
     if (scenario === "descendant") {
       assert.ok(Number.isSafeInteger(child.descendantPid));
-      assert.throws(() => process.kill(child.descendantPid, 0), { code: "ESRCH" });
+      await eventually(() => assert.throws(() => process.kill(child.descendantPid, 0), { code: "ESRCH" }));
     }
     assert.equal(signals[0][1], "SIGINT");
     assert.ok(signals.every(([pid]) => pid === -child.pid));

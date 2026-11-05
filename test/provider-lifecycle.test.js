@@ -134,3 +134,20 @@ test("SuperGrok advertises direct client tool calls without changing OAuth custo
   assert.ok(profile.implementedCapabilities.includes("client-tool-calls"));
   assert.equal(profile.authentication.method, "provider-owned-oauth");
 });
+
+// The Claude companion is text only: the official CLI owns the login and the adapter refuses tools.
+test("Claude binds the n8n companion to a provider-owned login without client tool calls", () => {
+  const binding = getProviderTargetBinding("n8n-claude-oauth");
+  assert.equal(binding.profileId, "anthropic-claude");
+  assert.equal(binding.upstreamAuth, "provider-owned-oauth");
+  const profile = getProviderProfile(binding.profileId);
+  assert.equal(profile.providerId, "anthropic");
+  assert.deepEqual(profile.adapter, { kind: "inference", protocol: "openai-chat-completions" });
+  assert.deepEqual(profile.authentication, { method: "provider-owned-oauth", custody: "provider-agent-runtime" });
+  assert.equal(profile.implementedCapabilities.includes("client-tool-calls"), false);
+  for (const action of ["sign-in", "sign-out", "rotate-client-capability"]) {
+    assert.equal(getProviderActionPolicy("anthropic-claude", action).automatic, false);
+  }
+  assert.throws(() => getProviderActionPolicy("anthropic-claude", "select-profile"), /not allowed/);
+  assert.equal(Object.isFrozen(profile.implementedCapabilities), true);
+});
