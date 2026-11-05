@@ -98,6 +98,11 @@ three fields. Relmio's server forwards only `loggedIn`, `authMethod` and
 
 ### Claude on your VPS
 
+The VPS wizard needs a Linux host with GNU coreutils, including `stat -c`,
+[`sync FILE`](https://www.gnu.org/software/coreutils/manual/html_node/sync-invocation.html)
+and `mv -fT` for private approval-file replacement. BSD/macOS command forms
+are not supported on the VPS.
+
 1. Run `relmio vps` and choose **Claude on my server**. From the screen for a
    detected n8n you can instead choose **Claude** under **Other companions**,
    which keeps the SSH connection you already verified.
@@ -163,8 +168,8 @@ shows a plan and needs a final confirmation:
 
 ### Claude on this computer
 
-This flow needs n8n in Docker on this computer. Native n8n uses the
-command-line setup.
+This flow needs macOS or Linux with n8n in local Docker. It is unavailable on
+native Windows. Native n8n uses the command-line setup.
 
 1. Run `relmio local`, choose **Add connection**, then **Claude for n8n**. For
    an n8n stack that Relmio created, **Add Claude** in the stack's add-ons does
@@ -184,6 +189,12 @@ command-line setup.
 
    ```sh
    relmio claude companion login
+   ```
+
+   If you use NPX and do not have `relmio` on PATH, run:
+
+   ```sh
+   npx --yes --ignore-scripts relmio@latest claude companion login
    ```
 
    It needs an interactive terminal. It signs in inside the companion through
@@ -339,6 +350,8 @@ the official binary, the companion's Claude Code policy, your own plan with
 extra usage off, and keeping those unchanged. Every answer must be yes. Any
 other answer, end of input, or a piped answer writes nothing. It checks the
 login, extends approval, and restarts only `relmio-claude`.
+Wizard-managed bundles refuse `renew.sh`; use **Renew approval** in the local
+or VPS wizard so its ownership record stays consistent.
 `docker compose down` removes the companion and keeps its login volume.
 Deleting that volume deletes the stored Claude login. The
 [technical guide](claude-native-prompt.md#docker-companion-vps-or-local-docker-n8n)

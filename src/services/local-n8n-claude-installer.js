@@ -62,6 +62,9 @@ function options(deps = {}) {
     platform: process.platform, lockDownPath: lockDownLocalPath, getProcessIdentity: getLocalProcessIdentity,
     now: () => new Date(), ...deps };
 }
+// Owner decision: local Claude is macOS/Linux only. The refusal runs before any Docker call, lock or write.
+export const LOCAL_CLAUDE_UNSUPPORTED_MESSAGE = "Claude on this computer needs macOS or Linux. It is not available on Windows.";
+function requireSupportedPlatform(platform) { if (platform === "win32") throw new Error(LOCAL_CLAUDE_UNSUPPORTED_MESSAGE); }
 export async function resolveLocalN8nClaudeInstallRoot(dependencies = {}) {
   const deps = options(dependencies);
   const home = typeof deps.env.RELMIO_HOME === "string" && deps.env.RELMIO_HOME.trim() ? deps.env.RELMIO_HOME : join(deps.homeDirectory, ".relmio");
@@ -120,7 +123,7 @@ function owned(container, marker) {
     labels["com.docker.compose.project"] === ALIAS && labels["com.docker.compose.service"] === ALIAS &&
     labels["io.relmio.target"] === LOCAL_N8N_CLAUDE_TARGET && labels["io.relmio.install"] === marker.installId && labels["io.relmio.managed"] === "true";
 }
-async function resources(deps, root, host, marker) {
+async function resources(deps, root, host, marker, { requireOwnedVolume = false } = {}) {
   const result = await run(deps, root, host, ["ps", "--all", "--no-trunc", "--format", "{{json .}}"]);
   const rows = result.stdout.trim() ? result.stdout.trim().split("\n").map(json) : [];
   if (rows.length > 100) throw new Error("The local Claude container inventory is too large to attest.");
@@ -138,7 +141,10 @@ async function resources(deps, root, host, marker) {
     const volume = json(volumeResult.stdout);
     const labeled = volume.Name === VOLUME && volume.Labels?.["com.docker.compose.project"] === ALIAS && volume.Labels?.["com.docker.compose.volume"] === "claude-account";
     // A labeled volume with no marker is a login left by a removed companion. Any other volume stays refused.
-    if (!labeled) throw new Error("An unowned Claude login volume already exists. Nothing was changed.");
+    if (!labeled || (requireOwnedVolume && (volume.Labels["io.relmio.managed"] !== "true" ||
+        volume.Labels["io.relmio.target"] !== LOCAL_N8N_CLAUDE_TARGET || volume.Labels["io.relmio.install"] !== marker.installId))) {
+      throw new Error("An unowned Claude login volume already exists. Nothing was changed.");
+    }
   }
   return container;
 }
@@ -194,7 +200,7 @@ async function attestContainer(deps, root, marker, { running = true } = {}) {
 }
 function compose(args) { return ["compose", "--project-name", ALIAS, "--file", "compose.yml", ...args]; }
 async function withChange(dependencies, operation) {
-  const deps = options(dependencies); noOverrides(deps.env);
+  const deps = options(dependencies); requireSupportedPlatform(deps.platform); noOverrides(deps.env);
   const root = await resolveLocalN8nClaudeInstallRoot(deps);
   const release = await acquireLocalN8nClaudeChangeLock({ ...deps, installRoot: root });
   return settleLocalIntegrationLifecycleOperation({ completionLabel: "Local Claude change", releaseLock: release,
@@ -202,7 +208,7 @@ async function withChange(dependencies, operation) {
 }
 
 export async function inspectLocalN8nClaudeHost(selection, dependencies = {}) {
-  const deps = options(dependencies);
+  const deps = options(dependencies); requireSupportedPlatform(deps.platform);
   const safe = createLocalN8nClaudePlan({ ...selection, arch: "arm64" });
   const root = await resolveLocalN8nClaudeInstallRoot(deps);
   const marker = await readMarker(deps, root);
@@ -215,8 +221,8 @@ export async function inspectLocalN8nClaudeHost(selection, dependencies = {}) {
   return { arch };
 }
 
-async function ownedImage(deps, root, marker, { absentAllowed = false } = {}) {
-  const result = await deps.runProcess({ file: "docker", args: ["image", "inspect", "--format", "{{json .}}", IMAGE], cwd: root, dockerHost: marker.dockerHost });
+async function ownedImage(deps, root, marker, { absentAllowed = false, recorded = false } = {}) {
+  const result = await deps.runProcess({ file: "docker", args: ["image", "inspect", "--format", "{{json .}}", recorded ? marker.imageId : IMAGE], cwd: root, dockerHost: marker.dockerHost });
   if (result.code !== 0 && absentAllowed) return null;
   if (result.code !== 0) throw new Error("The local Claude companion image is missing.");
   const image = json(result.stdout);
@@ -237,7 +243,6 @@ async function initialize(deps, root) {
     const existing = await stat(fs, path);
     if (existing) directory(existing); else await fs.mkdir(path, { mode: 0o700 });
     await fs.chmod(path, 0o700);
-    if (deps.platform === "win32") await deps.lockDownPath(path, { platform: deps.platform });
   }
   if (await stat(fs, root)) throw new Error("A local Claude directory appeared during installation. Nothing was overwritten.");
   await fs.mkdir(root, { mode: 0o700 });
@@ -270,6 +275,9 @@ export async function installLocalN8nClaude({ plan, confirmed, review }, depende
         const label = '      com.relmio.managed: "claude-companion"';
         if (file.contents.split(label).length !== 2) throw new Error("The packaged Claude Compose ownership label is invalid.");
         file.contents = file.contents.replace(label, `${label}\n      io.relmio.managed: "true"\n      io.relmio.target: "${LOCAL_N8N_CLAUDE_TARGET}"\n      io.relmio.install: "${installId}"`);
+        const volume = "  claude-account: {}";
+        if (file.contents.split(volume).length !== 2) throw new Error("The packaged Claude Compose volume is invalid.");
+        file.contents = file.contents.replace(volume, `  claude-account:\n    labels:\n      io.relmio.managed: "true"\n      io.relmio.target: "${LOCAL_N8N_CLAUDE_TARGET}"\n      io.relmio.install: "${installId}"`);
       }
       if (file.path === "Dockerfile") file.contents += `\nLABEL io.relmio.managed="true" io.relmio.target="${LOCAL_N8N_CLAUDE_TARGET}" io.relmio.install="${installId}"\n`;
       marker.files[file.path] = sha(file.contents);
@@ -282,7 +290,10 @@ export async function installLocalN8nClaude({ plan, confirmed, review }, depende
     try {
       await initialize(deps, root);
       wrote = true;
-      for (const path of ["app", "app/src", "app/src/gateway", "app/src/claude"]) await deps.fileSystem.mkdir(join(root, path), { mode: 0o755 });
+      for (const path of ["app", "app/src", "app/src/gateway", "app/src/claude"]) {
+        await deps.fileSystem.mkdir(join(root, path), { mode: 0o755 });
+        await deps.fileSystem.chmod(join(root, path), 0o755);
+      }
       for (const file of bundle.files) await privateFile(deps.fileSystem, join(root, file.path), file.contents,
         { exclusive: true, mode: [".env", "launch.json"].includes(file.path) ? 0o600 : 0o644 });
       await privateFile(deps.fileSystem, join(root, MARKER), `${JSON.stringify(marker)}\n`, { exclusive: true });
@@ -396,6 +407,7 @@ async function removeFreshRoot(deps, root) {
 }
 async function rollbackInstall(deps, root, marker, { keepVolume = false }) {
   if (await stat(deps.fileSystem, join(root, "compose.yml"))) {
+    await resources(deps, root, marker.dockerHost, marker, { requireOwnedVolume: !keepVolume });
     await run(deps, root, marker.dockerHost, compose(keepVolume ? ["down"] : ["down", "--volumes"]));
     if (await resources(deps, root, marker.dockerHost, marker)) throw new Error("The Claude container remains.");
     if (!keepVolume) {
@@ -423,8 +435,10 @@ export async function changeLocalN8nClaude({ action, confirmed, review }, depend
     const marker = await readMarker(deps, root);
     if (!marker) throw new Error("The wizard-managed local Claude companion is not installed.");
     if (await dockerHost(deps, root) !== marker.dockerHost) throw new Error("The selected Docker context changed.");
-    await attestFiles(deps, root, marker);
-    const container = await attestContainer(deps, root, marker, { running: action !== "remove" });
+    const launchImageMissing = action === "remove" && !(await ownedImage(deps, root, marker, { absentAllowed: true, recorded: true }));
+    await attestFiles(deps, root, marker, { skipLaunch: launchImageMissing });
+    const container = await attestContainer(deps, root, marker, { running: action === "sign-out" });
+    if (action === "renew" && !container) throw new Error("The managed Claude companion is missing.");
     if (action === "sign-out") {
       await run(deps, root, marker.dockerHost, ["exec", "-w", "/data/account/empty", container.Id, ...AUTH_ARGS, "logout"], { timeoutMs: 60_000, maxOutputBytes: 4096 });
       return { target: LOCAL_N8N_CLAUDE_TARGET, changed: true };

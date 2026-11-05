@@ -18,6 +18,14 @@ checks the registry separately after publication.
 - A labeled `relmio-claude_claude-account` volume left behind with no companion
   folder or container is an absent install that keeps that login. Any other
   leftover volume is still refused.
+- Claude management stays available on a VPS without running n8n, and a
+  failed post-install SSH identity check no longer loses the one-time key.
+- Local Claude rollback checks resource ownership before stopping anything.
+  Removal works after image cleanup, stopped companions can renew approval,
+  and strict file-creation permissions no longer block the image's app files.
+- Wizard-managed Claude bundles require renewal in the wizard. Approval
+  comparisons ignore JSON key order, VPS checks reject internal networks,
+  and failed native sign-in checks remain errors.
 
 
 

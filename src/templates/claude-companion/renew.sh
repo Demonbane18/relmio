@@ -8,6 +8,10 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
   exit 1
 fi
 cd "$(dirname "$0")"
+if [ -e .managed-by-relmio.json ] || [ -L .managed-by-relmio.json ]; then
+  echo "This companion is managed by Relmio. Renew approval in the wizard. Nothing was written." >&2
+  exit 1
+fi
 
 renew_py() {
   python3 - "$1" <<'PY'

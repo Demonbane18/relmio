@@ -619,7 +619,7 @@ export const GUIDE = {
         },
         {
           id: "claude-terminal", target: "#claude-login-command", action: "read", title: "Sign in in your terminal",
-          say: "Run relmio claude companion login in your own terminal. The official Claude Code handles sign-in inside the companion. Do not paste a login code into this browser.",
+          say: "On macOS or Linux, run relmio claude companion login in your own terminal, or npx --yes --ignore-scripts relmio@latest claude companion login if you use NPX. The official Claude Code handles sign-in inside the companion. Do not paste a login code into this browser.",
           done: "manual",
         },
         {

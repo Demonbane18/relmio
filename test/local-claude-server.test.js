@@ -67,10 +67,40 @@ test("Claude status, filtered sign-in and separately confirmed lifecycle routes 
   const models = await f.post("/api/local/claude/models", { clientKey: "k".repeat(43) });
   assert.deepEqual(await models.json(), { models: ["claude-sonnet-5-5"] });
   for (const action of ["renew", "sign-out", "remove"]) {
+    const changesBefore = f.calls.filter(([kind]) => kind === "change").length;
     assert.equal((await f.post(`/api/local/claude/${action}`, { confirmed: false, ...(action === "renew" ? { review } : {}) })).status, 400);
-    if (action === "renew") assert.equal((await f.post(`/api/local/claude/${action}`, { confirmed: true, review: {} })).status, 400);
+    assert.equal(f.calls.filter(([kind]) => kind === "change").length, changesBefore, action);
+    if (action === "renew") {
+      assert.equal((await f.post(`/api/local/claude/${action}`, { confirmed: true, review: {} })).status, 400);
+      assert.equal(f.calls.filter(([kind]) => kind === "change").length, changesBefore, "renew without review");
+    }
     const response = await f.post(`/api/local/claude/${action}`, { confirmed: true, ...(action === "renew" ? { review } : {}) });
     assert.equal(response.status, 200);
     assert.equal((await response.text()).includes("must-not-leak"), false);
   }
+});
+
+test("Claude on Windows: Docker status flags the unavailable card and the plan is refused before any install", async t => {
+  const refusal = "Claude on this computer needs macOS or Linux. It is not available on Windows.";
+  let docker = { dockerAvailable: true, dockerVersion: "29.7.2", composeVersion: "2.39.1", dockerHost: HOST, claudeUnsupportedPlatform: true };
+  const wizard = await startIsolatedWizard({ sessionToken: token, uiFiles: { "/": "", "/local": "" }, services: {
+    getLocalDockerStatus: async () => docker,
+    getLocalN8nStackStatus: async () => ({ managed: false, state: "absent" }),
+    discoverLocalN8nSidecarTargets: async () => ({ dockerAvailable: true, dockerHost: HOST, containers: [{
+      containerId: N8N, containerName: "fixture-n8n", image: "n8nio/n8n:fixture", networks: [{ dockerNetworkId: NET, networkName: "fixture-shared" }],
+    }] }),
+    inspectLocalN8nClaudeHost: async () => { throw new Error(refusal); },
+    installLocalN8nClaude: async () => assert.fail("a refused plan must not install"),
+  } });
+  t.after(() => wizard.close());
+  const headers = { "Content-Type": "application/json", "X-Setup-Token": token, Origin: wizard.origin };
+  assert.equal((await (await fetch(`${wizard.origin}/api/local/docker/status`, { headers })).json()).claudeUnsupportedPlatform, true);
+  docker = { ...docker, claudeUnsupportedPlatform: undefined };
+  assert.equal(Object.hasOwn(await (await fetch(`${wizard.origin}/api/local/docker/status`, { headers })).json(), "claudeUnsupportedPlatform"), false);
+  const response = await fetch(`${wizard.origin}/api/local/plan`, { method: "POST", headers,
+    body: JSON.stringify({ target, n8nContainerId: N8N, dockerNetworkId: NET, models: ["claude-sonnet-5-5"] }) });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error, refusal);
+  assert.equal((await fetch(`${wizard.origin}/api/local/install`, { method: "POST", headers,
+    body: JSON.stringify({ planId: "00000000-0000-4000-8000-000000000000", confirmed: true, review }) })).ok, false);
 });

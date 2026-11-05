@@ -202,11 +202,14 @@ Assistant sandbox setup and does not establish reliable tool calling. See
 
 Yes, as an experiment, for text workflows in your own n8n. Since Relmio 0.24.0
 the browser wizard can set up a private Claude Code companion on a VPS
-(**Claude on my server**) or in local Docker (**Claude for n8n**). Native n8n
-and the advanced Docker path use the `relmio claude` commands. n8n needs a
+(**Claude on my server**) or in local Docker (**Claude for n8n**, macOS or
+Linux only). Native n8n and the advanced Docker path use the `relmio claude`
+commands. n8n needs a
 Basic LLM Chain with an OpenAI Chat Model: Use Responses API off, Max Retries 0,
 Timeout at least 135000 ms, Batch Size 1. There are no AI Agent tools, no n8n
-AI Assistant and no Fable. The wizard flows have not been tested live yet. See
+AI Assistant and no Fable. The local wizard passed an owner-run live test on
+2026-11-05. VPS discovery also passed; VPS install, replace, renew, sign-out and
+removal have not been run live. See
 [Claude subscription](claude-subscription.md#set-up-in-the-browser-wizard).
 
 ## Does Relmio see my Claude login?

@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { buildClaudeCompanionBundle, parseClaudeAuthStatus, renewClaudeLaunchConfig } from "../src/claude/companion.js";
@@ -9,6 +13,7 @@ import {
 } from "../src/domain/vps-build-state.js";
 import {
   applyVpsClaude, discoverVpsClaudeModels, getVpsClaudeAuthStatus, getVpsClaudeStatus, reviewVpsClaude, vpsClaudeLoginCommand,
+  createVpsClaudeLaunchWriteCommand,
 } from "../src/services/vps-claude.js";
 import { verifiedSshFixture } from "./helpers/ssh-session.js";
 import { startIsolatedWizard as startWizardServer } from "./helpers/siwc-wizard.js";
@@ -63,6 +68,7 @@ function createVps({ arch = "x86_64", foreignAlias = false } = {}) {
   const vps = {
     writable: false, root: false, files: new Map(), container: null, volume: null,
     calls: [], inputs: [], uploads: [], builds: [], restarts: 0,
+    internalNetwork: false, authCode: null,
     auth: { loggedIn: true, authMethod: "claude.ai", subscriptionType: "max", email: "owner@example.test", orgName: "Owner Org" },
   };
   const ok = (stdout = "") => ({ code: 0, stdout, stderr: "" });
@@ -92,7 +98,7 @@ function createVps({ arch = "x86_64", foreignAlias = false } = {}) {
         return ok(`${JSON.stringify(n8nId)}|true|${JSON.stringify({ [selected.networkName]: { NetworkID: networkId } })}`);
       }
       if (command.startsWith(`docker network inspect ${selected.networkName} `)) {
-        return ok(JSON.stringify({ Id: networkId, Name: selected.networkName, Containers: {
+        return ok(JSON.stringify({ Id: networkId, Name: selected.networkName, Internal: vps.internalNetwork, Containers: {
           [n8nId]: { Name: selected.containerName },
           ...(foreignAlias ? { [foreignId]: { Name: "other-helper" } } : {}),
           ...(vps.container ? { [vps.container.Id]: { Name: "relmio-claude" } } : {}),
@@ -110,7 +116,7 @@ function createVps({ arch = "x86_64", foreignAlias = false } = {}) {
           vps.auth = { loggedIn: false };
           return ok("Successfully logged out.\n");
         }
-        return { code: vps.auth.loggedIn ? 0 : 1, stdout: JSON.stringify(vps.auth), stderr: "" };
+        return { code: vps.authCode ?? (vps.auth.loggedIn ? 0 : 1), stdout: JSON.stringify(vps.auth), stderr: "" };
       }
       if (vps.container && command.startsWith(`docker exec -i ${vps.container.Id} node -e `)) {
         const token = /RELMIO_CLAUDE_CHAT_TOKEN_SHA256=([a-f0-9]{64})/u.exec(vps.container.Config.Env.join("\n"))[1];
@@ -422,7 +428,7 @@ test("a manual bundle whose launch file renew.sh left owned by 10001 is still a 
   assert.equal((await getVpsClaudeStatus({ remote: vps.remote, now })).state, "manual");
 });
 
-test("renew rewrites only launch.json, atomically and owned by 10001, then restarts only the companion", async () => {
+test("renew rewrites only launch.json, atomically and owned by 10001, then restarts only the companion", async t => {
   const vps = createVps();
   await install(vps);
   const files = new Map([...vps.files].map(([path, file]) => [path, { ...file }]));
@@ -437,10 +443,8 @@ test("renew rewrites only launch.json, atomically and owned by 10001, then resta
   assert.equal(vps.builds.length, counts.builds);
   const writes = vps.inputs.slice(counts.inputs);
   assert.equal(writes.length, 1);
-  assert.match(writes[0].command, /\(set -C; cat > launch\.json\.next\)/u);
-  assert.match(writes[0].command, /chown -h 10001:10001 launch\.json\.next/u);
-  assert.match(writes[0].command, /"\$\(stat -c %u:%g:%a:%h launch\.json\.next\)" = 10001:10001:600:1/u);
-  assert.match(writes[0].command, /mv -fT launch\.json\.next launch\.json; then exit 0; else rm -f launch\.json\.next; exit 1; fi$/u);
+  assert.equal(writes[0].command, createVpsClaudeLaunchWriteCommand());
+  await t.test("executes the renewal write on disposable files", { skip: process.platform === "win32" }, t => assertLaunchWrite(t, writes[0].input));
   const scope = (config) => ({ ...config, qualification: { ...config.qualification, reviewedAt: null, expiresAt: null } });
   const previous = JSON.parse(files.get("launch.json").contents);
   const renewed = JSON.parse(writes[0].input);
@@ -502,9 +506,9 @@ test("the model check sends the key on stdin only and refuses keys that are not 
   assert.ok(vps.calls.every((command) => !command.includes(result.clientKey)));
   const probe = vps.inputs.find(({ command }) => command.includes(" node -e "));
   assert.equal(probe.input, result.clientKey);
-  await assert.rejects(discoverVpsClaudeModels({ remote: vps.remote, clientKey: "sk-ant-provider-secret", now }), /companion key/u);
+  await assert.rejects(discoverVpsClaudeModels({ remote: vps.remote, clientKey: "synthetic-provider-credential", now }), /companion key/u);
   await assert.rejects(discoverVpsClaudeModels({ remote: vps.remote, clientKey: "x".repeat(43), now }), /does not belong/u);
-  assert.ok(vps.calls.every((command) => !command.includes("sk-ant-provider-secret")));
+  assert.ok(vps.calls.every((command) => !command.includes("synthetic-provider-credential")));
 });
 
 test("sign-out runs the official logout inside the companion; removal deletes only the companion, its volume and folder", async () => {
@@ -620,6 +624,115 @@ test("a renewal changes only the approval timestamps and refuses any other launc
     assert.throws(() => renewClaudeLaunchConfig(config, now), TypeError, tamper.toString());
   }
 });
+
+test("renewal compares nested approval values independently of object key order", async () => {
+  const reorder = value => Array.isArray(value) ? value.map(reorder)
+    : value !== null && typeof value === "object" ? Object.fromEntries(Object.entries(value).reverse().map(([key, item]) => [key, reorder(item)])) : value;
+  const { launchConfig } = await buildClaudeCompanionBundle({ network: "proxy", arch: "arm64", models, now });
+  const reordered = reorder(launchConfig);
+  assert.deepEqual(renewClaudeLaunchConfig(reordered, now), launchConfig);
+  reordered.qualification.runtime.models.reverse();
+  assert.throws(() => renewClaudeLaunchConfig(reordered, now), TypeError);
+  const vps = createVps();
+  await install(vps);
+  const launch = vps.files.get("launch.json");
+  launch.contents = JSON.stringify(reorder(JSON.parse(launch.contents)));
+  assert.equal((await getVpsClaudeStatus({ remote: vps.remote, now })).installation.approvalExpired, false);
+  const plan = await reviewVpsClaude({ remote: vps.remote, action: "renew", review, now });
+  assert.equal((await applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now })).state, "installed");
+});
+
+test("internal or unknown VPS networks are rejected before review and again before deployment writes", async () => {
+  for (const internal of [true, null, undefined, "false"]) {
+    const vps = createVps();
+    vps.internalNetwork = internal;
+    await assert.rejects(() => reviewVpsClaude({ remote: vps.remote, action: "install", ...selected, models, review, now }), /no outbound route/u);
+    assert.equal(vps.root, false);
+    assert.equal(vps.uploads.length, 0);
+  }
+  const vps = createVps();
+  const plan = await reviewVpsClaude({ remote: vps.remote, action: "install", ...selected, models, review, now });
+  vps.internalNetwork = true; vps.writable = true;
+  await assert.rejects(() => applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now }), /no outbound route/u);
+  assert.equal(vps.root, false);
+  assert.equal(vps.uploads.length, 0);
+});
+
+test("auth status accepts only native success and signed-out exit codes", async () => {
+  const vps = createVps();
+  await install(vps);
+  vps.auth = { loggedIn: false };
+  vps.authCode = 1;
+  assert.deepEqual(await getVpsClaudeAuthStatus({ remote: vps.remote, now }), { loggedIn: false, authMethod: null, subscriptionType: null });
+  for (const code of [-1, 2, 124, 125, 127, "0"]) {
+    vps.authCode = code;
+    await assert.rejects(() => getVpsClaudeAuthStatus({ remote: vps.remote, now }), /could not be checked/u, String(code));
+  }
+  const renewal = await reviewVpsClaude({ remote: vps.remote, action: "renew", review, now });
+  const inputs = vps.inputs.length;
+  vps.authCode = 2;
+  await assert.rejects(() => applyVpsClaude({ remote: vps.remote, plan: renewal, confirmed: true }, { now }), /could not be checked/u);
+  assert.equal(vps.inputs.length, inputs);
+  assert.equal(vps.restarts, 0);
+});
+
+test("approval write roots reject shell fragments and paths outside the guard", () => {
+  for (const roots of [
+    { guardRoot: "/docker;true" }, { installRoot: "/tmp/other" },
+    { guardRoot: "/docker", installRoot: "/docker/../outside" },
+    { guardRoot: null }, { installRoot: [] },
+  ]) assert.throws(() => createVpsClaudeLaunchWriteCommand(roots), TypeError);
+});
+
+async function assertLaunchWrite(t, input) {
+  const directory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), "relmio-claude-write-")));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const guardRoot = join(directory, "docker");
+  const installRoot = join(guardRoot, "n8n-openai-oauth");
+  const root = join(installRoot, "claude");
+  const bin = join(directory, "bin");
+  await fs.mkdir(root, { recursive: true });
+  await fs.mkdir(bin);
+  const adapter = join(bin, "coreutils.cjs");
+  // Production runs GNU coreutils on a Linux VPS. Exercise the same shell on macOS
+  // with real file modes, fsync and rename; only root-only chown ownership is virtual.
+  await fs.writeFile(adapter, `const fs = require("node:fs");
+const [command, ...args] = process.argv.slice(2);
+if (command === "chown") {
+  if (args.join(" ") !== "-h 10001:10001 launch.json.next") process.exit(2);
+  const s = fs.lstatSync(args[2]); if (!s.isFile() || s.isSymbolicLink()) process.exit(1);
+} else if (command === "stat") {
+  if (args[0] !== "-c" || args[1] !== "%u:%g:%a:%h") process.exit(2);
+  const s = fs.lstatSync(args[2]); process.stdout.write("10001:10001:" + (s.mode & 4095).toString(8) + ":" + s.nlink);
+} else if (command === "sync") {
+  const fd = fs.openSync(args[0], "r"); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+} else if (command === "mv") {
+  if (args[0] !== "-fT") process.exit(2); fs.renameSync(args[1], args[2]);
+} else process.exit(2);
+`);
+  const quote = value => `'${value.replaceAll("'", "'\\''")}'`;
+  for (const name of ["chown", "stat", "sync", "mv"]) {
+    await fs.writeFile(join(bin, name), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(adapter)} ${name} "$@"\n`, { mode: 0o755 });
+    await fs.chmod(join(bin, name), 0o755);
+  }
+  const path = join(root, "launch.json");
+  await fs.writeFile(path, "previous approval\n", { mode: 0o600 });
+  const command = createVpsClaudeLaunchWriteCommand({ guardRoot, installRoot });
+  const execute = () => spawnSync("sh", ["-c", command], { input, encoding: "utf8", env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } });
+  const result = execute();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(await fs.readFile(path, "utf8"), input);
+  assert.equal((await fs.stat(path)).mode & 0o777, 0o600);
+  await assert.rejects(() => fs.lstat(join(root, "launch.json.next")), { code: "ENOENT" });
+  const detached = join(installRoot, "saved-claude");
+  await fs.rename(root, detached);
+  await fs.writeFile(join(detached, "launch.json"), "guard sentinel\n");
+  const before = await fs.lstat(join(detached, "launch.json"));
+  await fs.symlink(detached, root);
+  assert.notEqual(execute().status, 0);
+  assert.equal(await fs.readFile(join(detached, "launch.json"), "utf8"), "guard sentinel\n");
+  assert.equal((await fs.lstat(join(detached, "launch.json"))).ino, before.ino);
+}
 
 test("an edited approval cannot be renewed; replacing the companion writes a fresh one", async () => {
   const vps = createVps();

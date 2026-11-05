@@ -122,7 +122,12 @@ async function api(path, body = {}, method = "POST") {
   const result = await response.json().catch(() => null);
   if (!result || typeof result !== "object" || Array.isArray(result)) throw new Error("The wizard returned an unreadable response. Start a fresh setup link.");
   if (!response.ok) throw new Error(result.error || "The operation could not be completed.");
-  await sshSession.after(path, result);
+  try { await sshSession.after(path, result); }
+  catch (error) {
+    if (path !== "/api/vps/claude/apply") throw error;
+    showError(error);
+    return { ...result, sshIdentityUnverified: true };
+  }
   return result;
 }
 
@@ -179,8 +184,8 @@ function renderStatus(next) {
   }
   element("selection-continue").hidden = !installed;
   for (const button of document.querySelectorAll("[data-action]")) {
-    button.hidden = button.dataset.action === "install" ? next.state !== "absent"
-      : button.dataset.action === "replace" ? !["manual", "installed"].includes(next.state) : !installed;
+    button.hidden = button.dataset.action === "install" ? next.state !== "absent" || !element("network").value
+      : button.dataset.action === "replace" ? !["manual", "installed"].includes(next.state) || !element("network").value : !installed;
   }
   showView(installed ? "settings-panel" : "selection-panel");
 }
@@ -205,7 +210,14 @@ async function discover() {
   const generation = ++state.generation;
   const result = await api("/api/discover");
   if (generation !== state.generation) return;
-  if (!Array.isArray(result.containers) || result.containers.length === 0) throw new Error("No running n8n container was found on this VPS.");
+  if (!Array.isArray(result.containers)) throw new Error("The n8n container response is unreadable.");
+  if (result.containers.length === 0) {
+    selectOptions(element("container"), []);
+    selectOptions(element("network"), []);
+    await refreshStatus();
+    setMessage("No running n8n container was found. You can still manage an installed Claude companion.");
+    return;
+  }
   selectOptions(element("container"), result.containers.map(item => [item.name, `${item.name} · ${item.image}`]));
   showView("selection-panel");
   await loadNetworks();
@@ -345,8 +357,10 @@ element("apply-button").addEventListener("click", () => {
     }
     element("login-state").textContent = "Sign-in has not been checked.";
     element("models-result").textContent = "";
-    await refreshStatus();
-    setMessage("The reviewed Claude action completed. Existing n8n is unchanged.");
+    if (!result.sshIdentityUnverified) await refreshStatus();
+    setMessage(result.sshIdentityUnverified
+      ? "The reviewed Claude action completed. Save the one-time key, then reconnect to verify VPS status."
+      : "The reviewed Claude action completed. Existing n8n is unchanged.");
   });
 });
 element("auth-button").addEventListener("click", () => void perform("Checking Claude sign-in…", async () => {

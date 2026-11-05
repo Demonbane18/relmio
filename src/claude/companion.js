@@ -7,6 +7,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { lstat, mkdir, open, readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import { CANDIDATE_VERSION, MAX_QUALIFICATION_MS, MODEL_RULES, privateDirectory, validModels } from "./launcher.js";
 
@@ -106,9 +107,9 @@ export function renewClaudeLaunchConfig(config, now = Date.now) {
   const arch = Object.keys(TARGETS).find((name) => TARGETS[name].executableSha256 === config?.executableSha256);
   if (!arch || !validModels(config.models)) throw new TypeError("launch.json is not a Claude companion approval.");
   const renewed = companionLaunchConfig(arch, config.models, now());
-  const scope = (value) => JSON.stringify({ ...value, qualification: { ...value.qualification, reviewedAt: null, expiresAt: null } });
+  const scope = (value) => ({ ...value, qualification: { ...value.qualification, reviewedAt: null, expiresAt: null } });
   if (typeof config.qualification !== "object" || config.qualification === null || Array.isArray(config.qualification) ||
-    scope(config) !== scope(renewed)) {
+    !isDeepStrictEqual(scope(config), scope(renewed))) {
     throw new TypeError("launch.json is not a Claude companion approval.");
   }
   return renewed;

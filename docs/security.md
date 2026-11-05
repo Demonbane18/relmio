@@ -473,7 +473,9 @@ Anthropic's Agent SDK quickstart says that, unless previously approved, third
 parties may not offer Claude.ai login or plan rate limits for their products.
 The wizard offers a Claude setup path, which relates to that restriction even
 though sign-in stays in the official CLI. Relmio has no Anthropic approval, and
-the question is unresolved. The browser wizard has not been tested live yet.
+the question is unresolved. The local wizard passed an owner-run live test on
+2026-11-05. VPS discovery also passed; VPS install, replace, renew, sign-out and
+removal have not been run live.
 The [wizard source check](claude-wizard-source-check-2026-11-04.md) records the
 sources. OpenAI flows are unchanged; the check re-read the Sign in with ChatGPT
 Terms (Effective November 4, 2026), and the persistent remote token storage and

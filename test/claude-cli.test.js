@@ -628,6 +628,17 @@ exit 1
     assert.equal(await readFile(join(bundle, "keep.txt"), "utf8"), "bundle-file\n");
   }
 
+  const managedMarker = join(bundle, ".managed-by-relmio.json");
+  await writeFile(managedMarker, '{"kind":"relmio-claude-companion"}\n', { mode: 0o600 });
+  const managedBefore = await fileSnap(launchPath);
+  const managed = await runRenew("tty", ["y", "y", "y", "y"]);
+  assert.notEqual(managed.code, 0);
+  assert.match(managed.output, /Renew approval in the wizard/u);
+  assert.equal(managed.docker, "");
+  await assertSnap(launchPath, managedBefore, "wizard approval remains unchanged");
+  await assert.rejects(lstat(join(bundle, "launch.json.next")), { code: "ENOENT" });
+  await rm(managedMarker);
+
   const outside = join(root, "outside-target");
   await writeFile(outside, "SECRET-BYTES\n", { mode: 0o640 });
   const outsideBefore = await fileSnap(outside);

@@ -59,8 +59,15 @@ const LISTING = `if [ ! -e ${ROOT} ] && [ ! -L ${ROOT} ]; then printf 'absent\\n
 // Deletes only the fixed bundle names, deepest folders last; an unexpected entry makes rmdir fail.
 const CLEAR_BUNDLE = `rm -f -- ${[MARKER_NAME, ...KNOWN_FILES].join(" ")} && for d in ${[...DIRECTORIES].reverse().join(" ")}; do if [ -d "$d" ]; then rmdir -- "$d" || exit 1; fi; done`;
 const REMOVE_ROOT = `${rootGuard} && cd ${ROOT} && ${CLEAR_BUNDLE} && cd / && rmdir ${ROOT}`;
-// Same private replacement as renew.sh: exclusive create, 10001-owned 0600, fsync, then one atomic rename.
-const WRITE_LAUNCH = `${rootGuard} && cd ${ROOT} && [ ! -e launch.json.next ] && [ ! -L launch.json.next ] && umask 077 && if (set -C; cat > launch.json.next) && chown -h 10001:10001 launch.json.next && [ -f launch.json.next ] && [ ! -L launch.json.next ] && [ "$(stat -c %u:%g:%a:%h launch.json.next)" = 10001:10001:600:1 ] && sync launch.json.next && mv -fT launch.json.next launch.json; then exit 0; else rm -f launch.json.next; exit 1; fi`;
+// GNU coreutils on the Linux VPS: exclusive create, 10001-owned 0600, sync, then one atomic rename.
+export function createVpsClaudeLaunchWriteCommand({ guardRoot = "/docker", installRoot = INSTALL_ROOT } = {}) {
+  const safePath = /^\/[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$/u;
+  if (typeof guardRoot !== "string" || typeof installRoot !== "string" || !safePath.test(guardRoot) ||
+    !safePath.test(installRoot) || !installRoot.startsWith(`${guardRoot}/`)) throw new TypeError("The Claude write roots are invalid.");
+  const root = `${installRoot}/claude`;
+  const guard = `[ -d ${guardRoot} ] && [ ! -L ${guardRoot} ] && [ ! -L ${installRoot} ] && [ ! -L ${root} ] && [ -d ${root} ]`;
+  return `${guard} && cd ${root} && [ ! -e launch.json.next ] && [ ! -L launch.json.next ] && umask 077 && if (set -C; cat > launch.json.next) && chown -h 10001:10001 launch.json.next && [ -f launch.json.next ] && [ ! -L launch.json.next ] && [ "$(stat -c %u:%g:%a:%h launch.json.next)" = 10001:10001:600:1 ] && sync launch.json.next && mv -fT launch.json.next launch.json; then exit 0; else rm -f launch.json.next; exit 1; fi`;
+}
 // The key arrives on stdin, never in argv, and only the configured model IDs come back.
 export const VPS_CLAUDE_MODELS_PROBE = `let k="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>k+=c);process.stdin.on("end",()=>{const r=require("node:http").get({host:"127.0.0.1",port:${CLAUDE_COMPANION.port},path:"/v1/models",headers:{Host:"${CLAUDE_COMPANION.alias}:${CLAUDE_COMPANION.port}",Authorization:"Bearer "+k},timeout:20000},s=>{let b="";s.setEncoding("utf8");s.on("data",c=>b+=c);s.on("end",()=>{let m=[];try{if(s.statusCode===200)m=JSON.parse(b).data.map(x=>x.id)}catch{}console.log(JSON.stringify({status:s.statusCode,models:m}))})});r.on("timeout",()=>r.destroy());r.on("error",()=>console.log(JSON.stringify({status:502,models:[]})))});`;
 
@@ -256,6 +263,7 @@ async function boundary(remote, containerName, networkName, companionId) {
   validateDockerObjectId(n8n.id, "n8n container");
   validateDockerObjectId(net.Id, "network");
   if (n8n.networks[network].NetworkID !== net.Id || net.Name !== network) throw fail();
+  if (net.Internal !== false) throw new Error("The selected n8n network has no outbound route. Choose a network with internet access. Nothing was changed.");
   for (const [connected, item] of Object.entries(net.Containers ?? {})) {
     validateDockerObjectId(connected, "connected container");
     if (connected === companionId) continue;
@@ -269,8 +277,8 @@ async function boundary(remote, containerName, networkName, companionId) {
 
 async function readAuthStatus(remote, container) {
   const result = await remote.exec(claudeCommand(container, "auth status --json"));
-  // 125-127 are Docker's own failures; Claude reports a missing login with its own exit code and JSON.
-  if (!Number.isInteger(result.code) || result.code >= 125) {
+  // Claude reports a missing login with exit 1 and JSON; all other failures stay errors.
+  if (![0, 1].includes(result.code)) {
     throw new Error("The Claude companion could not be checked. Check that it is running.");
   }
   return parseClaudeAuthStatus(result.stdout);
@@ -401,7 +409,7 @@ async function renew(remote, status, now) {
     }
   }
   const renewed = renewClaudeLaunchConfig(status.launchConfig, now);
-  await run(remote, WRITE_LAUNCH, `${JSON.stringify(renewed, null, 2)}\n`);
+  await run(remote, createVpsClaudeLaunchWriteCommand(), `${JSON.stringify(renewed, null, 2)}\n`);
   await run(remote, `${COMPOSE} restart ${NAME}`);
   return { state: "installed", expiresAt: renewed.qualification.expiresAt };
 }

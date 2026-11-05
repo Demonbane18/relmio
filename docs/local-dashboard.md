@@ -321,10 +321,12 @@ SuperGrok remains a separate official CLI-managed session. Its sign-in,
 catalog, and inference status do not establish ChatGPT account state or
 permission.
 
-Claude for n8n is a separate official Claude Code session in the companion's
-Docker volume. Sign in in your own terminal with
-`relmio claude companion login`; Relmio never handles the paste code or your
-Claude credentials. A healthy container or a listed model does not prove
+Claude for n8n needs macOS or Linux. It is a separate official Claude Code
+session in the companion's Docker volume. Sign in in your own terminal with
+`relmio claude companion login`, or
+`npx --yes --ignore-scripts relmio@latest claude companion login` if you use NPX.
+Relmio never handles the paste code or your Claude credentials. A healthy
+container or a listed model does not prove
 sign-in: **Check sign-in** must show `loggedIn: true` and
 `authMethod: "claude.ai"`. Approval expires within 7 days, and an expired
 approval keeps the row from reporting healthy until **Renew approval** repeats

@@ -157,8 +157,8 @@ Existing public stacks are not made private by this update.
 ## Add ChatGPT plan, a local model and more
 
 Ready offers ChatGPT plan, local model, SuperGrok, Claude and Assistant tools with this
-n8n and its network preselected. ChatGPT still requires separate plan
-permission and background-workflow approval.
+n8n and its network preselected. Local Claude needs macOS or Linux. ChatGPT
+still requires separate plan permission and background-workflow approval.
 
 After an approved ChatGPT, local-model, SuperGrok or Claude install, Relmio tries to
 import the connection into this owned n8n. ChatGPT uses **Relmio ChatGPT plan**
@@ -167,6 +167,8 @@ in the sidecar. The local model uses an ignored placeholder. Assistant tools do
 not receive a model credential through this import. Claude uses **Relmio
 Claude** with the one-time local key and `http://relmio-claude:14502/v1`; you
 still sign in in your own terminal with `relmio claude companion login`.
+If you use NPX, run
+`npx --yes --ignore-scripts relmio@latest claude companion login` instead.
 
 Only credential IDs, names and timestamps are recorded in
 `.runtime/credentials.json`. If setup cannot be confirmed, check for the named

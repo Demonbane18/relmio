@@ -2400,6 +2400,7 @@ function createSafeDockerStatus(
       ...(!previewMode && status?.unsupportedPlatform === true
         ? { unsupportedPlatform: true }
         : {}),
+      ...(!previewMode && status?.claudeUnsupportedPlatform === true ? { claudeUnsupportedPlatform: true } : {}),
     };
   }
   return {
@@ -2409,6 +2410,7 @@ function createSafeDockerStatus(
     ...(SAFE_LOCAL_N8N_STACK_STATES.has(localN8nStackState)
       ? { localN8nStackState }
       : {}),
+    ...(status.claudeUnsupportedPlatform === true ? { claudeUnsupportedPlatform: true } : {}),
   };
 }
 

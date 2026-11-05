@@ -599,6 +599,14 @@
   padding: 0.625rem 0.875rem;
 }
 
+.target-card:has(.rm-choice__input:disabled) {
+  background: var(--rm-surface-muted);
+}
+
+.target-card .rm-choice__input:disabled {
+  cursor: not-allowed;
+}
+
 .target-card .rm-choice__icon {
   width: 2.25rem;
   height: 2.25rem;

@@ -371,6 +371,7 @@
                         <span class="rm-choice__title">Claude for n8n <span class="rm-badge">Official sign-in</span> <span class="rm-badge rm-badge--accent">Experimental</span></span>
                         <span class="rm-choice__text">For your own text-only workflows, using your Claude plan.</span>
                         <span class="rm-choice__meta">You need n8n in Docker. Sign in yourself in your terminal.</span>
+                        <span id="claude-platform-note" class="rm-choice__text" hidden><strong>Not available on Windows.</strong> Claude on this computer needs macOS or Linux.</span>
                       </label>
 
                       <label class="rm-choice target-card">
@@ -745,7 +746,7 @@
                       <label class="rm-field" for="claude-models">
                         <span id="claude-models-label" class="rm-field__label">Claude model IDs</span>
                         <input id="claude-models" class="rm-input rm-input--mono" value="claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5" maxlength="1032" aria-describedby="claude-models-help" />
-                        <small id="claude-models-help" class="rm-field__hint">1 to 8 exact IDs, separated by commas. No Fable. Docker only; for native n8n, use the <a class="rm-link" href="https://relmio.com/docs/claude-subscription" target="_blank" rel="noopener noreferrer">Claude CLI guide<span class="rm-visually-hidden"> (opens in a new tab)</span></a>.</small>
+                        <small id="claude-models-help" class="rm-field__hint">1 to 8 exact IDs, separated by commas. No Fable. Docker only; for native n8n, use the <a class="rm-link" href="https://relmio.jpfusin.tech/docs/claude-subscription" target="_blank" rel="noopener noreferrer">Claude CLI guide<span class="rm-visually-hidden"> (opens in a new tab)</span></a>.</small>
                       </label>
                       <p class="rm-small">Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</p>
                     </section>
@@ -1498,6 +1499,8 @@
                   <p id="claude-auth-status" class="rm-small" role="status">Sign-in has not been checked.</p>
                   <p id="claude-approval-status" class="rm-small" role="status"></p>
                   <details class="rm-disclosure"><summary>n8n settings and approval management</summary><div class="rm-disclosure__body">
+                    <p class="rm-small">If you use NPX instead of an installed Relmio command, sign in with:</p>
+                    <div class="result-value"><code id="claude-npx-login-command">npx --yes --ignore-scripts relmio@latest claude companion login</code><button class="rm-button rm-button--sm copy-value" type="button" data-copy-target="claude-npx-login-command" data-copy-label="NPX Claude sign-in command">Copy NPX command</button></div>
                     <p class="rm-small">OpenAI credential: Base URL <code>http://relmio-claude:14502/v1</code>; API Key: the one-time Relmio key. Use Basic LLM Chain + OpenAI Chat Model. Turn Use Responses API off. Max Retries 0, Timeout at least 135000 ms, Batch Size 1. Text only, one request at a time. Not AI Agent tools or the n8n AI Assistant.</p>
                     <p id="claude-installed-models" class="rm-small"></p>
                     <label class="rm-field" for="claude-probe-key"><span class="rm-field__label">Relmio key for model check</span><input id="claude-probe-key" class="rm-input rm-input--mono" type="password" autocomplete="off" maxlength="43" aria-describedby="claude-model-check-note" /></label>

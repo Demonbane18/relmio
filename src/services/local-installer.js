@@ -1122,6 +1122,8 @@ export async function getLocalDockerStatus({
   env = process.env,
   platform = process.platform,
 } = {}) {
+  // Owner decision: local Claude is macOS/Linux only; the wizard greys out its card from this flag.
+  const claudeAvailability = platform === "win32" ? { claudeUnsupportedPlatform: true } : {};
   try {
     const dockerHost = await resolveLocalDockerHost({
       runProcess,
@@ -1152,10 +1154,12 @@ export async function getLocalDockerStatus({
       dockerVersion: validateVersion(docker.stdout, "Docker"),
       composeVersion: validateVersion(compose.stdout, "Docker Compose"),
       dockerHost,
+      ...claudeAvailability,
     };
   } catch {
     return {
       dockerAvailable: false,
+      ...claudeAvailability,
     };
   }
 }

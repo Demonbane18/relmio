@@ -2670,7 +2670,7 @@ async function enterSetupView(target = null, { checkDocker = true } = {}) {
   let refreshSelectedN8n = false;
   if (target) {
     const input = document.querySelector(`input[name="target"][value="${target}"]`);
-    if (!input) throw new Error("The requested setup option is unavailable.");
+    if (!input || input.disabled) throw new Error("The requested setup option is unavailable.");
     if (checkDocker && isN8nDockerTarget(target)) {
       state.stackAddonPrefill = null;
       state.n8nDiscoveryLoaded = false;
@@ -2916,6 +2916,13 @@ function isN8nSuperGrok(target) {
 }
 
 function isN8nClaude(target) { return target === "n8n-claude-oauth"; }
+
+// Owner decision: local Claude is macOS/Linux only. The server reports Windows; the card and its stack add-on become unavailable.
+function syncClaudeAvailability(unsupported) {
+  element("claude-platform-note").hidden = !unsupported;
+  document.querySelector('input[name="target"][value="n8n-claude-oauth"]').disabled = unsupported;
+  for (const button of document.querySelectorAll('[data-stack-addon="n8n-claude-oauth"]')) button.disabled = unsupported;
+}
 
 function readClaudeModels() {
   const models = element("claude-models").value.split(",").map(value => value.trim());
@@ -3227,7 +3234,7 @@ function selectN8nManagementTarget(target) {
   const targetInput = document.querySelector(
     `input[name="target"][value="${target}"]`,
   );
-  if (!targetInput) {
+  if (!targetInput || targetInput.disabled) {
     throw new Error("The requested n8n management option is unavailable.");
   }
   targetInput.checked = true;
@@ -6264,6 +6271,7 @@ async function refreshDockerStatus() {
   clearError();
   const result = await api("/api/local/docker/status");
   state.dockerAvailable = result.dockerAvailable === true;
+  syncClaudeAvailability(result.claudeUnsupportedPlatform === true);
   const indicator = element("docker-indicator");
   const reviewButton = element("review-button");
   if (result.previewMode === true) {

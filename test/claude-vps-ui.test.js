@@ -12,7 +12,7 @@ const installation = { network: "n8n_default", arch: "amd64", models: ["claude-s
 const status = { state: "installed", candidate, installation, loginCommand: "ssh -t root@fixture.example sh /docker/n8n-openai-oauth/claude/login.sh" };
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture() {
+function fixture({ after = async () => {}, adoptCurrent = async () => { throw new Error("Connect to the VPS first."); }, initialReply } = {}) {
   const nodes = new Map();
   const calls = [];
   const element = id => {
@@ -27,7 +27,7 @@ function fixture() {
       querySelector() { return this; }, querySelectorAll() { return models; },
       focus() {}, scrollIntoView() {}, closest() { return null; },
       getBoundingClientRect() { return { top: 100, bottom: 130 }; },
-      replaceChildren(...children) { this.children = children; }, append(...children) { this.children.push(...children); },
+      replaceChildren(...children) { this.children = children; if (["container", "network"].includes(this.id)) this.value = children[0]?.value ?? ""; }, append(...children) { this.children.push(...children); },
     });
     return nodes.get(id);
   };
@@ -35,15 +35,15 @@ function fixture() {
   const models = [element("sonnet")]; models[0].value = "claude-sonnet-5-5"; models[0].checked = true;
   const actions = ["install", "replace", "renew", "sign-out", "remove"].map(action => { const button = element(action); button.dataset.action = action; return button; });
   element("container").value = "n8n"; element("network").value = "n8n_default";
-  let reply = path => {
+  let reply = initialReply ?? (path => {
     if (path === "/api/vps/claude/status") return status;
     if (path === "/api/vps/claude/auth-status") return { loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" };
     if (path === "/api/vps/claude/models") return { models: ["claude-sonnet-5-5"] };
     return {};
-  };
+  });
   const context = {
     readWizardSession: () => "fixture-token", initWizardTopbar() {},
-    createCredentialSshGuard: () => ({ before: async () => {}, after: async () => {}, adoptCurrent: async () => { throw new Error("Connect to the VPS first."); } }),
+    createCredentialSshGuard: config => ({ before: async () => {}, after: async (...args) => after(config, ...args), adoptCurrent }),
     bindSshAuthentication: () => ({ sync() {} }), clearFieldError() {}, markRejectedField: text => text,
     document: { body: { dataset: {} }, getElementById: element,
       querySelector: selector => selector.startsWith("[data-review=") ? reviews.find(input => selector.includes(input.dataset.review)) : element("topbar"),
@@ -59,7 +59,7 @@ function fixture() {
       return { ok: true, json: async () => value };
     },
   };
-  const ui = runInNewContext(`${source.replace(/^import .*;\n/gmu, "")}\n({ state, beginAction, prepareReview, renderStatus, refreshStatus, syncConnectionControls });`, context);
+  const ui = runInNewContext(`${source.replace(/^import .*;\r?\n/gmu, "")}\n({ state, beginAction, prepareReview, renderStatus, refreshStatus, syncConnectionControls });`, context);
   return { ui, element, reviews, models, actions, calls, setReply(fn) { reply = fn; } };
 }
 
@@ -183,4 +183,45 @@ test("Claude accepts private bootstrap transfer and same-tab navigation without 
   click({ button: 0, preventDefault() {} });
   assert.deepEqual(calls, ["/claude-vps", "reload"]);
   assert.equal(browserWindow.history.state.relmioWizardSession, sessionToken);
+});
+
+test("an installed companion remains manageable when n8n discovery is empty", async () => {
+  const f = fixture({ adoptCurrent: async () => {}, initialReply: path => {
+    if (path === "/api/discover") return { containers: [] };
+    if (path === "/api/vps/claude/status") return status;
+    return {};
+  } });
+  await settle();
+  assert.deepEqual(f.calls.map(call => call.path), ["/api/discover", "/api/vps/claude/status"]);
+  assert.equal(f.element("settings-panel").hidden, false);
+  assert.equal(f.element("ssh-panel").hidden, true);
+  assert.equal(f.element("container").value, "");
+  assert.equal(f.element("network").value, "");
+  assert.deepEqual(f.actions.filter(button => !button.hidden).map(button => button.dataset.action), ["renew", "sign-out", "remove"]);
+  for (const action of ["renew", "sign-out", "remove"]) {
+    f.reviews.forEach(input => { input.checked = true; });
+    f.setReply(() => plan(action));
+    await f.ui.prepareReview(action);
+    assert.equal(f.calls.at(-1).body.action, action);
+    assert.equal(f.element("review-panel").hidden, false);
+  }
+});
+
+test("a failed post-apply identity check retains the one-time result without another remote read", async () => {
+  const f = fixture({ after: async (config, path) => {
+    if (path === "/api/vps/claude/apply") {
+      config.onMismatch();
+      throw new Error("The SSH session could not be inspected.");
+    }
+  } });
+  await settle();
+  f.ui.state.plan = plan("install"); f.element("confirm-action").checked = true;
+  f.setReply(() => ({ state: "installed", clientKey: "one-time-fixture-key" }));
+  f.element("apply-button").handlers.click();
+  await settle();
+  assert.equal(f.element("client-key").value, "one-time-fixture-key");
+  assert.equal(f.element("settings-panel").hidden, false);
+  assert.equal(f.element("error-message").hidden, false);
+  assert.deepEqual(f.calls.map(call => call.path), ["/api/vps/claude/apply"]);
+  assert.equal(f.ui.state.plan, null);
 });
