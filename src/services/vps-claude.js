@@ -58,10 +58,11 @@ const rootGuard = `${parentGuard} && [ ! -L ${ROOT} ] && [ -d ${ROOT} ]`;
 const LISTING = `if [ ! -e ${ROOT} ] && [ ! -L ${ROOT} ]; then printf 'absent\\n'; elif ${rootGuard}; then stat -c 'root %u:%g %a' ${ROOT} && find ${ROOT} -mindepth 1 -printf '%P %y %U:%G %m %n %s\\n'; else printf 'unsafe\\n'; fi`;
 // Deletes only the fixed bundle names, deepest folders last; an unexpected entry makes rmdir fail.
 const CLEAR_BUNDLE = `rm -f -- ${[MARKER_NAME, ...KNOWN_FILES].join(" ")} && for d in ${[...DIRECTORIES].reverse().join(" ")}; do if [ -d "$d" ]; then rmdir -- "$d" || exit 1; fi; done`;
+const REMOVE_ROOT = `${rootGuard} && cd ${ROOT} && ${CLEAR_BUNDLE} && cd / && rmdir ${ROOT}`;
 // Same private replacement as renew.sh: exclusive create, 10001-owned 0600, fsync, then one atomic rename.
 const WRITE_LAUNCH = `${rootGuard} && cd ${ROOT} && [ ! -e launch.json.next ] && [ ! -L launch.json.next ] && umask 077 && if (set -C; cat > launch.json.next) && chown -h 10001:10001 launch.json.next && [ -f launch.json.next ] && [ ! -L launch.json.next ] && [ "$(stat -c %u:%g:%a:%h launch.json.next)" = 10001:10001:600:1 ] && sync launch.json.next && mv -fT launch.json.next launch.json; then exit 0; else rm -f launch.json.next; exit 1; fi`;
 // The key arrives on stdin, never in argv, and only the configured model IDs come back.
-const MODELS_PROBE = `let k="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>k+=c);process.stdin.on("end",()=>{const r=require("node:http").get({host:"127.0.0.1",port:${CLAUDE_COMPANION.port},path:"/v1/models",headers:{Host:"${CLAUDE_COMPANION.alias}:${CLAUDE_COMPANION.port}",Authorization:"Bearer "+k},timeout:20000},s=>{let b="";s.setEncoding("utf8");s.on("data",c=>b+=c);s.on("end",()=>{let m=[];try{if(s.statusCode===200)m=JSON.parse(b).data.map(x=>x.id)}catch{}console.log(JSON.stringify({status:s.statusCode,models:m}))})});r.on("timeout",()=>r.destroy());r.on("error",()=>console.log(JSON.stringify({status:502,models:[]})))});`;
+export const VPS_CLAUDE_MODELS_PROBE = `let k="";process.stdin.setEncoding("utf8");process.stdin.on("data",c=>k+=c);process.stdin.on("end",()=>{const r=require("node:http").get({host:"127.0.0.1",port:${CLAUDE_COMPANION.port},path:"/v1/models",headers:{Host:"${CLAUDE_COMPANION.alias}:${CLAUDE_COMPANION.port}",Authorization:"Bearer "+k},timeout:20000},s=>{let b="";s.setEncoding("utf8");s.on("data",c=>b+=c);s.on("end",()=>{let m=[];try{if(s.statusCode===200)m=JSON.parse(b).data.map(x=>x.id)}catch{}console.log(JSON.stringify({status:s.statusCode,models:m}))})});r.on("timeout",()=>r.destroy());r.on("error",()=>console.log(JSON.stringify({status:502,models:[]})))});`;
 
 async function run(remote, command, input) {
   const result = await remote.exec(command, input === undefined ? undefined : { input });
@@ -167,7 +168,10 @@ async function inspectClaude(remote, now) {
   const container = await inspectOptional(remote, "container", NAME);
   const volume = await inspectOptional(remote, "volume", VOLUME);
   const invalid = { state: "invalid", container, volume, marker: null, launchConfig: null, complete: false };
-  if (listing === "absent") return { ...invalid, state: container || volume ? "invalid" : "absent" };
+  if (listing === "absent") {
+    if (container || (volume && !composeVolume(volume))) return invalid;
+    return { ...invalid, state: "absent", existingLogin: volume !== null };
+  }
   if (!listing || (container && !companionOf(container)) || (volume && !composeVolume(volume))) return invalid;
   const { entries } = listing;
   if (!entries.has(MARKER_NAME)) {
@@ -225,6 +229,7 @@ export async function getVpsClaudeStatus({ remote, now = Date.now }) {
   const expiresAt = launchConfig?.qualification.expiresAt ?? null;
   return {
     state: status.state,
+    ...(status.existingLogin ? { existingLogin: true } : {}),
     installation: status.state === "installed" ? {
       network: marker.network, arch: marker.arch, models: [...marker.models], expiresAt,
       approvalExpired: expiresAt === null || Date.parse(expiresAt) <= now(),
@@ -299,7 +304,7 @@ export async function reviewVpsClaude({ remote, action, containerName = null, ne
     return {
       ...plan, containerName, networkName, ...selection, network: networkName, arch, models: bundle.review.models,
       version: bundle.review.version, executableSha256: bundle.review.executableSha256, expiresAt: bundle.expiresAt,
-      keepsClaudeLogin: action === "replace",
+      keepsClaudeLogin: action === "replace" || status.existingLogin === true,
     };
   }
   const { marker } = status;
@@ -318,6 +323,28 @@ export async function reviewVpsClaude({ remote, action, containerName = null, ne
     executableSha256: pin.executableSha256, expiresAt, keepsClaudeLogin: action === "renew",
   };
 }
+async function rollbackDeploy(remote, { keepVolume }) {
+  const container = await inspectOptional(remote, "container", NAME);
+  if (container) {
+    if (!companionOf(container)) throw fail();
+    await run(remote, `docker rm -f ${validateDockerObjectId(container.Id, "Claude companion")}`);
+  }
+  if (!keepVolume) {
+    const volume = await inspectOptional(remote, "volume", VOLUME);
+    if (volume) {
+      if (!composeVolume(volume)) throw fail();
+      await run(remote, `docker volume rm ${VOLUME}`);
+    }
+  }
+  const listing = parseListing(await run(remote, LISTING));
+  if (listing === "absent") return;
+  if (!listing) throw new Error("Claude cleanup could not read the companion folder.");
+  await run(remote, REMOVE_ROOT);
+  if (await inspectOptional(remote, "container", NAME)) throw new Error("The Claude container remains.");
+  if (!keepVolume && await inspectOptional(remote, "volume", VOLUME)) throw new Error("The Claude login volume remains.");
+  if (parseListing(await run(remote, LISTING)) !== "absent") throw new Error("The Claude companion files remain.");
+}
+
 
 async function deploy(remote, plan, build, status, { now, entropy }) {
   const selection = await boundary(remote, plan.containerName, plan.networkName,
@@ -334,26 +361,35 @@ async function deploy(remote, plan, build, status, { now, entropy }) {
     arch: plan.arch, models: bundle.review.models, tokenSha256: bundle.keySha256,
     files: Object.fromEntries(bundle.files.filter((file) => file.path !== "launch.json").map((file) => [file.path, hash(file.contents)])),
   });
-  // The marker goes first, so an interrupted write stays an owned installation that can be replaced or removed.
-  await run(remote, plan.action === "install"
-    ? `${parentGuard} && umask 077 && mkdir ${ROOT}`
-    : `${rootGuard} && cd ${ROOT} && ${CLEAR_BUNDLE} && chmod 0700 ${ROOT}`);
-  await remote.upload(MARKER, `${JSON.stringify(marker)}\n`, 0o600);
-  await run(remote, `${rootGuard} && cd ${ROOT} && mkdir -m 0755 ${DIRECTORIES.join(" ")}`);
-  for (const file of bundle.files) await remote.upload(`${ROOT}/${file.path}`, file.contents, file.mode);
-  const readable = bundle.files.filter((file) => file.mode === 0o644).map((file) => file.path);
-  await run(remote, `${rootGuard} && cd ${ROOT} && chown -R 0:0 -- . && chmod 0644 -- ${readable.join(" ")} && chmod 0600 -- ${MARKER_NAME} .env launch.json && chown -h 10001:10001 -- launch.json`);
-  const written = await inspectClaude(remote, now);
-  if (written.state !== "installed" || written.marker.installId !== marker.installId || !written.complete || !written.launchConfig) throw fail();
-  await run(remote, `${COMPOSE} config --quiet`);
-  await build(`${COMPOSE} build ${NAME}`);
-  // The healthcheck runs every 60 seconds, so the first healthy report can take about a minute.
-  const up = await remote.exec(`${COMPOSE} up -d --wait --wait-timeout 180 --no-build --force-recreate ${NAME}`);
-  if (up.code !== 0) throw new Error("The Claude companion did not become healthy. Check its status, then replace or remove it.");
-  const container = await inspectOptional(remote, "container", NAME);
-  attestCompanion(container, marker);
-  if (container.State?.Health?.Status !== "healthy") throw fail();
-  return { state: "installed", clientKey: bundle.key, expiresAt: bundle.expiresAt };
+  // A later failure removes this attempt. Replace keeps the login volume.
+  let wrote = false;
+  try {
+    await run(remote, plan.action === "install"
+      ? `${parentGuard} && umask 077 && mkdir ${ROOT}`
+      : `${rootGuard} && cd ${ROOT} && ${CLEAR_BUNDLE} && chmod 0700 ${ROOT}`);
+    wrote = true;
+    await remote.upload(MARKER, `${JSON.stringify(marker)}\n`, 0o600);
+    await run(remote, `${rootGuard} && cd ${ROOT} && mkdir -m 0755 ${DIRECTORIES.join(" ")}`);
+    for (const file of bundle.files) await remote.upload(`${ROOT}/${file.path}`, file.contents, file.mode);
+    const readable = bundle.files.filter((file) => file.mode === 0o644).map((file) => file.path);
+    await run(remote, `${rootGuard} && cd ${ROOT} && chown -R 0:0 -- . && chmod 0644 -- ${readable.join(" ")} && chmod 0600 -- ${MARKER_NAME} .env launch.json && chown -h 10001:10001 -- launch.json`);
+    const written = await inspectClaude(remote, now);
+    if (written.state !== "installed" || written.marker.installId !== marker.installId || !written.complete || !written.launchConfig) throw fail();
+    await run(remote, `${COMPOSE} config --quiet`);
+    await build(`${COMPOSE} build ${NAME}`);
+    // The healthcheck runs every 60 seconds, so the first healthy report can take about a minute.
+    const up = await remote.exec(`${COMPOSE} up -d --wait --wait-timeout 180 --no-build --force-recreate ${NAME}`);
+    if (up.code !== 0) throw new Error("The Claude companion did not become healthy. Check its status, then replace or remove it.");
+    const container = await inspectOptional(remote, "container", NAME);
+    attestCompanion(container, marker);
+    if (container.State?.Health?.Status !== "healthy") throw fail();
+    return { state: "installed", clientKey: bundle.key, expiresAt: bundle.expiresAt };
+  } catch (error) {
+    if (!wrote) throw error;
+    try { await rollbackDeploy(remote, { keepVolume: plan.keepsClaudeLogin === true }); }
+    catch { throw new Error(`Claude installation failed and automatic cleanup could not be confirmed. ${error.message}`); }
+    throw error;
+  }
 }
 
 async function renew(remote, status, now) {
@@ -382,7 +418,7 @@ async function signOut(remote, status) {
 async function remove(remote, status) {
   if (status.container) await run(remote, `docker rm -f ${validateDockerObjectId(status.container.Id, "Claude companion")}`);
   if (status.volume) await run(remote, `docker volume rm ${VOLUME}`);
-  await run(remote, `${rootGuard} && cd ${ROOT} && ${CLEAR_BUNDLE} && cd / && rmdir ${ROOT}`);
+  await run(remote, REMOVE_ROOT);
   return { state: "absent" };
 }
 
@@ -398,7 +434,9 @@ export async function applyVpsClaude({ remote, plan, confirmed }, { now = Date.n
   }
   return withVpsOperationLock(remote, LOCK, async (build) => {
     const status = await inspectClaude(remote, now);
-    if (!ALLOWED_STATES[plan.action].includes(status.state) || (status.marker?.installId ?? null) !== plan.installId) throw fail();
+    // keepsClaudeLogin was fixed at review; a login volume that appeared since must not be rolled back, so drift fails closed.
+    if (!ALLOWED_STATES[plan.action].includes(status.state) || (status.marker?.installId ?? null) !== plan.installId ||
+      (deploys && plan.keepsClaudeLogin !== (plan.action === "replace" || status.existingLogin === true))) throw fail();
     if (deploys) return deploy(remote, plan, build, status, { now, entropy });
     if (plan.action === "remove") return remove(remote, status);
     if (!status.complete || status.marker.network !== plan.network) throw fail();
@@ -425,7 +463,7 @@ export async function discoverVpsClaudeModels({ remote, clientKey, now = Date.no
     throw new Error("That key does not belong to this Claude companion.");
   }
   attestCompanion(status.container, status.marker);
-  const result = parse(await run(remote, `docker exec -i ${validateDockerObjectId(status.container.Id, "Claude companion")} node -e ${quote(MODELS_PROBE)}`, clientKey));
+  const result = parse(await run(remote, `docker exec -i ${validateDockerObjectId(status.container.Id, "Claude companion")} node -e ${quote(VPS_CLAUDE_MODELS_PROBE)}`, clientKey));
   if (result?.status === 401) throw new Error("The Claude companion did not accept this key.");
   if (result?.status !== 200 || !validModels(result.models)) throw new Error("The Claude companion did not answer. Check its status.");
   return { models: result.models };

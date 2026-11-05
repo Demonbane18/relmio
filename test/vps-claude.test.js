@@ -163,12 +163,18 @@ function createVps({ arch = "x86_64", foreignAlias = false } = {}) {
       }
       if (command === `${COMPOSE} config --quiet`) return ok();
       if (command.startsWith(`${COMPOSE} up -d --wait `)) {
+        // A resource this install did not create appeared before Compose started it.
+        if (vps.swapOnUp) {
+          Object.assign(vps, vps.swapOnUp);
+          return { code: 1, stdout: "", stderr: "conflict" };
+        }
         const env = vps.files.get(".env").contents;
         vps.container = companionContainer({
           tokenSha256: /RELMIO_CLAUDE_CHAT_TOKEN_SHA256=([a-f0-9]{64})/u.exec(env)[1],
           network: /N8N_DOCKER_NETWORK=(\S+)/u.exec(env)[1],
         });
         vps.volume ??= companionVolume();
+        if (vps.upFails) return { code: 1, stdout: "", stderr: "unhealthy" };
         return ok();
       }
       if (command === `${COMPOSE} restart relmio-claude`) {
@@ -345,7 +351,7 @@ test("a CLI-made manual install is replaced in place: the login volume stays, th
 test("unrecognized companions, folders and leftovers are invalid and every change is refused", async () => {
   const cases = {
     "foreign relmio-claude container": (vps) => { vps.container = { Id: foreignId, Name: "/relmio-claude", Config: { Labels: {} } }; },
-    "leftover login volume": (vps) => { vps.volume = companionVolume(); },
+    "unlabeled leftover volume": (vps) => { vps.volume = { Name: "relmio-claude_claude-account", Labels: {} }; },
     "manual bundle with an unknown file": async (vps) => {
       await seedManualInstall(vps);
       vps.files.set("notes.txt", { type: "f", owner: "0:0", mode: "644", contents: "owner notes\n" });
@@ -389,6 +395,24 @@ test("unrecognized companions, folders and leftovers are invalid and every chang
       await assert.rejects(reviewVpsClaude({ remote: vps.remote, action, ...selected, models, review, now }), /not ready/u, `${name}: ${action}`);
     }
   }
+});
+
+test("a labeled orphan login volume is absent, installable, and keeps the Claude login", async () => {
+  const vps = createVps();
+  const loginVolume = companionVolume();
+  vps.volume = loginVolume;
+  const status = await getVpsClaudeStatus({ remote: vps.remote, now });
+  assert.equal(status.state, "absent");
+  assert.equal(status.existingLogin, true);
+  assert.equal(status.installation, null);
+  const plan = await reviewVpsClaude({ remote: vps.remote, action: "install", ...selected, models, review, now });
+  assert.equal(plan.keepsClaudeLogin, true);
+  vps.writable = true;
+  const result = await applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now, entropy });
+  assert.equal(result.state, "installed");
+  assert.equal(vps.volume, loginVolume);
+  assert.equal(vps.calls.some((command) => command.includes("volume rm")), false);
+  assert.ok(n8nUntouched(vps));
 });
 
 test("a manual bundle whose launch file renew.sh left owned by 10001 is still a manual install", async () => {
@@ -496,6 +520,74 @@ test("sign-out runs the official logout inside the companion; removal deletes on
   assert.deepEqual([vps.root, vps.container, vps.volume, vps.files.size], [false, null, null, 0]);
   assert.ok(n8nUntouched(vps));
   assert.equal((await getVpsClaudeStatus({ remote: vps.remote, now })).state, "absent");
+});
+
+test("a failed VPS install after start removes the companion, volume and files and reports the original error", async () => {
+  const vps = createVps();
+  vps.upFails = true;
+  const plan = await reviewVpsClaude({ remote: vps.remote, action: "install", ...selected, models, review, now });
+  vps.writable = true;
+  await assert.rejects(applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now, entropy }), /did not become healthy/u);
+  assert.deepEqual([vps.root, vps.container, vps.volume, vps.files.size], [false, null, null, 0]);
+  assert.ok(n8nUntouched(vps));
+});
+
+test("a failed VPS replace after start removes the new companion files but keeps the login volume", async () => {
+  const vps = createVps();
+  await install(vps);
+  const volume = vps.volume;
+  vps.upFails = true;
+  const plan = await reviewVpsClaude({ remote: vps.remote, action: "replace", ...selected, models, review, now });
+  await assert.rejects(applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now, entropy }), /did not become healthy/u);
+  assert.equal(vps.volume, volume);
+  assert.equal(vps.container, null);
+  assert.equal(vps.root, false);
+  assert.equal(vps.files.size, 0);
+  assert.equal(vps.calls.some((command) => command.includes("volume rm")), false);
+  assert.ok(n8nUntouched(vps));
+});
+
+test("a failed VPS install that reuses a login volume keeps it", async () => {
+  const vps = createVps();
+  const loginVolume = companionVolume();
+  vps.volume = loginVolume;
+  vps.upFails = true;
+  const plan = await reviewVpsClaude({ remote: vps.remote, action: "install", ...selected, models, review, now });
+  assert.equal(plan.keepsClaudeLogin, true);
+  vps.writable = true;
+  await assert.rejects(applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now, entropy }), /did not become healthy/u);
+  assert.equal(vps.volume, loginVolume);
+  assert.deepEqual([vps.root, vps.container, vps.files.size], [false, null, 0]);
+  assert.equal(vps.calls.some((command) => command.includes("volume rm")), false);
+  assert.ok(n8nUntouched(vps));
+});
+
+test("a login volume that appears after review fails closed before any write", async () => {
+  const vps = createVps();
+  const plan = await reviewVpsClaude({ remote: vps.remote, action: "install", ...selected, models, review, now });
+  assert.equal(plan.keepsClaudeLogin, false);
+  const loginVolume = companionVolume();
+  vps.volume = loginVolume;
+  vps.writable = true;
+  await assert.rejects(applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now, entropy }), /safety check/u);
+  assert.equal(vps.volume, loginVolume);
+  assert.deepEqual([vps.root, vps.uploads.length], [false, 0]);
+  assert.equal(vps.calls.some((command) => command.includes("volume rm")), false);
+});
+
+test("rollback refuses a container or volume it does not own that appears when start fails", async () => {
+  const foreignContainer = { Id: foreignId, Name: "/relmio-claude", Config: { Labels: {} } };
+  const unlabeledVolume = { Name: "relmio-claude_claude-account", Labels: {} };
+  for (const [name, swapped, kept] of [["container", { container: foreignContainer }, "container"], ["volume", { volume: unlabeledVolume }, "volume"]]) {
+    const vps = createVps();
+    const plan = await reviewVpsClaude({ remote: vps.remote, action: "install", ...selected, models, review, now });
+    vps.swapOnUp = swapped;
+    vps.writable = true;
+    await assert.rejects(applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now, entropy }), /cleanup could not be confirmed/u, name);
+    assert.equal(vps[kept], swapped[kept], name);
+    assert.equal(vps.calls.some((command) => command.startsWith("docker rm -f") || command.includes("volume rm")), false, name);
+    assert.ok(n8nUntouched(vps), name);
+  }
 });
 
 test("a stale plan cannot act on a companion that changed after review", async () => {

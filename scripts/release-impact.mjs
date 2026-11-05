@@ -51,8 +51,8 @@ export const RULES = [
   [/^src\/(browser\.js|services\/browser-handoff\.js)$/u, ["installers"]],
   [/^src\/infrastructure\/(local-process|process-identity)\.js$/u, ["local-docker", "installers"]],
 
-  // Experimental Claude adapter. Reached from the main CLI, so it runs every check.
-  [/^src\/(claude\/|gateway\/claude-chat\.js$|templates\/claude-companion\/)/u, ["root"]],
+  // Experimental Claude adapter and its wizard services. Reached from the main CLI and server, so they run every check.
+  [/^src\/(claude\/|gateway\/claude-chat\.js$|templates\/claude-companion\/|domain\/local-n8n-claude\.js$|services\/(local-n8n-claude-installer|claude-login|vps-claude)\.js$)/u, ["root"]],
 
   // ChatGPT sidecar, its image files and SIWC sign-in.
   [/^src\/gateway\//u, ["sidecar"]],

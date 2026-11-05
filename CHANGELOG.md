@@ -6,6 +6,20 @@ and npm. Local checks validate the repository metadata; the publishing guide
 checks the registry separately after publication.
 
 ## Unreleased
+### Fixed
+
+- Local Claude install probes now call the companion at `127.0.0.1:14502` with
+  Host `relmio-claude:14502`. A loopback Host was rejected after Compose
+  reported the container healthy, so the one-time n8n key was never returned.
+- A failed local or VPS Claude install after it starts writing removes only
+  that attempt: the companion container, its managed files, and, on a fresh
+  install, the login volume it just created. A failed replace keeps the login
+  volume. The original error is still reported. n8n is not touched.
+- A labeled `relmio-claude_claude-account` volume left behind with no companion
+  folder or container is an absent install that keeps that login. Any other
+  leftover volume is still refused.
+
+
 
 ## [0.24.0] - 2026-11-05
 
@@ -47,6 +61,21 @@ Anthropic, and Anthropic has not approved it.
 - The Claude guides, README and npm README no longer describe Claude as
   CLI-only. Native n8n and the advanced Docker path still use `relmio claude`.
 
+- Owner-run live QA on 2026-11-05 passed local wizard install, sign-in, model
+  check, prompt, removal and reinstall. Hostinger VPS wizard passed SSH, n8n
+  and network discovery only; VPS install, replace, renew, sign-out and removal
+  were not run live.
+
+### Fixed
+
+- Local companion probes now send `Host: relmio-claude:14502`; rejected loopback
+  Host headers had prevented a successful install from returning its one-time
+  key. Failed installs now roll back their own managed files and companion
+  resources.
+- A labeled `relmio-claude_claude-account` login volume with no companion folder
+  or container is reused by a fresh install and kept on failure; other
+  unrecognized leftover volumes remain refused.
+
 ### Security
 
 - VPS Claude actions need a verified direct-root session. The passwordless
@@ -60,8 +89,7 @@ Anthropic, and Anthropic has not approved it.
   the rest. Relmio keeps only the SHA256 of the one-time key.
 - Whether Anthropic permits this use stays unresolved, and the wizard's Claude
   setup path relates to the third-party login restriction in Anthropic's Agent
-  SDK quickstart even though sign-in stays in the official CLI. The browser
-  wizard flows have not been tested live yet.
+  SDK quickstart even though sign-in stays in the official CLI.
 
 ## [0.23.0] - 2026-11-04
 

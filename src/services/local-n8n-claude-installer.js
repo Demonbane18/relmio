@@ -23,6 +23,10 @@ const SHA = /^[a-f0-9]{64}$/u;
 const FILES = ["Dockerfile", "compose.yml", "login.sh", "renew.sh", "app/src/gateway/claude-chat.js", "app/src/claude/launcher.js", "app/package.json", ".env", "launch.json"];
 const DOCKER_ENV = new Set(["DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "BUILDKIT_HOST"]);
 const AUTH_ARGS = ["env", "-i", "HOME=/home/claude", "USER=claude", "LOGNAME=claude", "CLAUDE_CONFIG_DIR=/data/account/config", "PATH=/usr/bin:/bin:/usr/sbin:/sbin", "TMPDIR=/tmp", `/opt/claude/${CANDIDATE_VERSION}/claude`, "auth"];
+// http.get to 127.0.0.1 with Host relmio-claude:14502. fetch() cannot set Host, and companionHost mode rejects loopback Host.
+export const LOCAL_CLAUDE_HEALTH_PROBE = 'const http=require("node:http");let b="";process.stdin.setEncoding("utf8");process.stdin.on("data",x=>{b+=x;if(b.length>256)process.exit(2)});process.stdin.on("end",()=>{if(!/^[A-Za-z0-9_-]{43}$/u.test(b))process.exit(2);let n=0;const once=()=>{const req=http.get({host:"127.0.0.1",port:14502,path:"/health",headers:{Host:"relmio-claude:14502",Authorization:"Bearer "+b},timeout:1000},res=>{res.resume();if(res.statusCode===200){process.stdout.write("ok");return}process.exit(1)});req.on("timeout",()=>req.destroy());req.on("error",()=>{if(++n>=90)process.exit(1);setTimeout(once,1000)})};once()})';
+export const LOCAL_CLAUDE_MODELS_PROBE = 'const http=require("node:http");let b="";process.stdin.setEncoding("utf8");process.stdin.on("data",x=>{b+=x;if(b.length>256)process.exit(2)});process.stdin.on("end",()=>{if(!/^[A-Za-z0-9_-]{43}$/u.test(b))process.exit(2);const req=http.get({host:"127.0.0.1",port:14502,path:"/v1/models",headers:{Host:"relmio-claude:14502",Authorization:"Bearer "+b},timeout:10000},res=>{let d="";res.setEncoding("utf8");res.on("data",c=>d+=c);res.on("end",()=>{if(res.statusCode!==200)process.exit(1);try{process.stdout.write(JSON.stringify(JSON.parse(d).data.map(m=>m.id)))}catch{process.exit(1)}})});req.on("timeout",()=>req.destroy());req.on("error",()=>process.exit(1))})';
+
 const sha = value => createHash("sha256").update(value).digest("hex");
 function noOverrides(env) {
   if (!env || typeof env !== "object" || Array.isArray(env) || Object.entries(env).some(([key, value]) => DOCKER_ENV.has(key.toUpperCase()) && value)) throw new Error("Relmio requires the selected local Docker context without environment overrides.");
@@ -132,7 +136,9 @@ async function resources(deps, root, host, marker) {
   const volumeResult = await deps.runProcess({ file: "docker", args: ["volume", "inspect", "--format", "{{json .}}", VOLUME], cwd: root, dockerHost: host });
   if (volumeResult.code === 0) {
     const volume = json(volumeResult.stdout);
-    if (!marker || volume.Name !== VOLUME || volume.Labels?.["com.docker.compose.project"] !== ALIAS || volume.Labels?.["com.docker.compose.volume"] !== "claude-account") throw new Error("An unowned Claude login volume already exists. Nothing was changed.");
+    const labeled = volume.Name === VOLUME && volume.Labels?.["com.docker.compose.project"] === ALIAS && volume.Labels?.["com.docker.compose.volume"] === "claude-account";
+    // A labeled volume with no marker is a login left by a removed companion. Any other volume stays refused.
+    if (!labeled) throw new Error("An unowned Claude login volume already exists. Nothing was changed.");
   }
   return container;
 }
@@ -268,29 +274,41 @@ export async function installLocalN8nClaude({ plan, confirmed, review }, depende
       if (file.path === "Dockerfile") file.contents += `\nLABEL io.relmio.managed="true" io.relmio.target="${LOCAL_N8N_CLAUDE_TARGET}" io.relmio.install="${installId}"\n`;
       marker.files[file.path] = sha(file.contents);
     }
-    await initialize(deps, root);
-    for (const path of ["app", "app/src", "app/src/gateway", "app/src/claude"]) await deps.fileSystem.mkdir(join(root, path), { mode: 0o755 });
-    for (const file of bundle.files) await privateFile(deps.fileSystem, join(root, file.path), file.contents,
-      { exclusive: true, mode: [".env", "launch.json"].includes(file.path) ? 0o600 : 0o644 });
-    await privateFile(deps.fileSystem, join(root, MARKER), `${JSON.stringify(marker)}\n`, { exclusive: true });
-    await run(deps, root, marker.dockerHost, compose(["config", "--quiet"]));
-    await boundary(deps, root, normalized, marker);
-    await resources(deps, root, marker.dockerHost, marker);
-    await run(deps, root, marker.dockerHost, compose(["build", ALIAS]), { timeoutMs: 600_000 });
-    marker.imageId = await ownedImage(deps, root, marker);
-    await privateFile(deps.fileSystem, join(root, MARKER), `${JSON.stringify(marker)}\n`);
-    await launchHash(deps, root, marker, join(root, "launch.json"), { prepare: true });
-    await attestFiles(deps, root, marker);
-    await run(deps, root, marker.dockerHost, compose(["up", "-d", "--no-deps", ALIAS]));
-    await attestContainer(deps, root, marker);
-    const probe = 'let b="";process.stdin.setEncoding("utf8");process.stdin.on("data",x=>{b+=x;if(b.length>256)process.exit(2)});process.stdin.on("end",async()=>{if(!/^[A-Za-z0-9_-]{43}$/u.test(b))process.exit(2);for(let i=0;i<90;i++){try{const r=await fetch("http://127.0.0.1:14502/health",{headers:{Authorization:"Bearer "+b},signal:AbortSignal.timeout(1000)});if(r.ok){process.stdout.write("ok");return}}catch{}await new Promise(r=>setTimeout(r,1000))}process.exit(1)})';
-    const checked = await run(deps, root, marker.dockerHost, ["exec", "-i", ALIAS, "node", "-e", probe],
-      { input: bundle.key, timeoutMs: 190_000, maxOutputBytes: 4096 });
-    if (checked.stdout.trim() !== "ok") throw new Error("The local Claude private-network health check failed.");
-    return { target: LOCAL_N8N_CLAUDE_TARGET, endpoint: LOCAL_N8N_CLAUDE_ENDPOINT, baseUrl: LOCAL_N8N_CLAUDE_ENDPOINT,
-      protocol: "openai-chat-completions", n8nContainerName: normalized.n8nContainerName, networkName: normalized.networkName,
-      hostPublication: "none", clientKey: bundle.key, credentialShownOnce: true, deploymentMode: "installed",
-      models: [...marker.models], expiresAt: marker.expiresAt };
+    let wrote = false;
+    const priorVolume = await deps.runProcess({ file: "docker", args: ["volume", "inspect", "--format", "{{json .}}", VOLUME], cwd: dirname(resolve(root, "..", "..")), dockerHost: marker.dockerHost });
+    const reuseLogin = priorVolume.code === 0 && json(priorVolume.stdout).Name === VOLUME &&
+      json(priorVolume.stdout).Labels?.["com.docker.compose.project"] === ALIAS &&
+      json(priorVolume.stdout).Labels?.["com.docker.compose.volume"] === "claude-account";
+    try {
+      await initialize(deps, root);
+      wrote = true;
+      for (const path of ["app", "app/src", "app/src/gateway", "app/src/claude"]) await deps.fileSystem.mkdir(join(root, path), { mode: 0o755 });
+      for (const file of bundle.files) await privateFile(deps.fileSystem, join(root, file.path), file.contents,
+        { exclusive: true, mode: [".env", "launch.json"].includes(file.path) ? 0o600 : 0o644 });
+      await privateFile(deps.fileSystem, join(root, MARKER), `${JSON.stringify(marker)}\n`, { exclusive: true });
+      await run(deps, root, marker.dockerHost, compose(["config", "--quiet"]));
+      await boundary(deps, root, normalized, marker);
+      await resources(deps, root, marker.dockerHost, marker);
+      await run(deps, root, marker.dockerHost, compose(["build", ALIAS]), { timeoutMs: 600_000 });
+      marker.imageId = await ownedImage(deps, root, marker);
+      await privateFile(deps.fileSystem, join(root, MARKER), `${JSON.stringify(marker)}\n`);
+      await launchHash(deps, root, marker, join(root, "launch.json"), { prepare: true });
+      await attestFiles(deps, root, marker);
+      await run(deps, root, marker.dockerHost, compose(["up", "-d", "--no-deps", ALIAS]));
+      await attestContainer(deps, root, marker);
+      const checked = await run(deps, root, marker.dockerHost, ["exec", "-i", ALIAS, "node", "-e", LOCAL_CLAUDE_HEALTH_PROBE],
+        { input: bundle.key, timeoutMs: 190_000, maxOutputBytes: 4096 });
+      if (checked.stdout.trim() !== "ok") throw new Error("The local Claude private-network health check failed.");
+      return { target: LOCAL_N8N_CLAUDE_TARGET, endpoint: LOCAL_N8N_CLAUDE_ENDPOINT, baseUrl: LOCAL_N8N_CLAUDE_ENDPOINT,
+        protocol: "openai-chat-completions", n8nContainerName: normalized.n8nContainerName, networkName: normalized.networkName,
+        hostPublication: "none", clientKey: bundle.key, credentialShownOnce: true, deploymentMode: "installed",
+        models: [...marker.models], expiresAt: marker.expiresAt };
+    } catch (error) {
+      if (!wrote) throw error;
+      try { await rollbackInstall(deps, root, marker, { keepVolume: reuseLogin }); }
+      catch { throw new Error(`Claude installation failed and automatic cleanup could not be confirmed. ${error.message}`); }
+      throw error;
+    }
   });
 }
 
@@ -361,6 +379,41 @@ async function removeFiles(deps, root, marker) {
     throw error;
   }
 }
+async function removeFreshRoot(deps, root) {
+  const allowed = new Set(FILES);
+  const walk = async (path = "") => {
+    for (const entry of await deps.fileSystem.readdir(join(root, path), { withFileTypes: true })) {
+      const name = path ? `${path}/${entry.name}` : entry.name;
+      if (entry.isSymbolicLink()) throw new Error("The managed Claude directory changed. It was kept.");
+      if (entry.isDirectory()) {
+        if (![...allowed].some(file => file.startsWith(`${name}/`))) throw new Error("The managed Claude directory changed. It was kept.");
+        await walk(name);
+      } else if (!entry.isFile() || !allowed.has(name)) throw new Error("The managed Claude directory changed. It was kept.");
+    }
+  };
+  await walk();
+  await deps.fileSystem.rm(root, { recursive: true, force: false });
+}
+async function rollbackInstall(deps, root, marker, { keepVolume = false }) {
+  if (await stat(deps.fileSystem, join(root, "compose.yml"))) {
+    await run(deps, root, marker.dockerHost, compose(keepVolume ? ["down"] : ["down", "--volumes"]));
+    if (await resources(deps, root, marker.dockerHost, marker)) throw new Error("The Claude container remains.");
+    if (!keepVolume) {
+      const volume = await deps.runProcess({ file: "docker", args: ["volume", "inspect", VOLUME], cwd: root, dockerHost: marker.dockerHost });
+      if (volume.code === 0) throw new Error("The Claude login volume remains.");
+    }
+  }
+  // ownedImage only accepts this attempt's install label, so a build that tagged the image and then failed is still removed.
+  const imageId = await ownedImage(deps, root, marker, { absentAllowed: true });
+  if (imageId) {
+    await run(deps, root, marker.dockerHost, ["image", "rm", IMAGE]);
+    if (await ownedImage(deps, root, marker, { absentAllowed: true })) throw new Error("The Claude image remains.");
+  }
+  if (!(await stat(deps.fileSystem, root))) return;
+  if (await stat(deps.fileSystem, join(root, MARKER))) await removeFiles(deps, root, marker);
+  else await removeFreshRoot(deps, root);
+}
+
 
 export async function changeLocalN8nClaude({ action, confirmed, review }, dependencies = {}) {
   if (!["renew", "sign-out", "remove"].includes(action)) throw new Error("The local Claude action is invalid.");
@@ -416,7 +469,7 @@ export async function discoverLocalN8nClaudeModels({ clientKey }, dependencies =
   const deps = options(dependencies);
   const root = await resolveLocalN8nClaudeInstallRoot(deps);
   const installed = await attestLocalN8nClaudeInstallation({ installDirectory: root }, deps);
-  const probe = 'let b="";process.stdin.setEncoding("utf8");process.stdin.on("data",x=>{b+=x;if(b.length>256)process.exit(2)});process.stdin.on("end",async()=>{try{if(!/^[A-Za-z0-9_-]{43}$/u.test(b))process.exit(2);const r=await fetch("http://127.0.0.1:14502/v1/models",{headers:{Authorization:"Bearer "+b},signal:AbortSignal.timeout(10000)});if(!r.ok)process.exit(1);const j=await r.json();process.stdout.write(JSON.stringify(j.data.map(m=>m.id)))}catch{process.exit(1)}})';
+  const probe = LOCAL_CLAUDE_MODELS_PROBE;
   const result = await run(deps, root, installed.dockerHost, ["exec", "-i", installed.containerId, "node", "-e", probe],
     { input: clientKey, timeoutMs: 15_000, maxOutputBytes: 4096 });
   const models = json(result.stdout);

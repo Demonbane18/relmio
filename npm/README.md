@@ -251,9 +251,13 @@ or the
   `subscriptionType` to the browser and does not store or log the rest.
 - Recorded checks cover native macOS with n8n 2.46.4, a Hostinger Docker
   companion with n8n 2.44.6 and a local Colima (arm64) Docker companion with
-  n8n 2.46.4. The browser wizard flows have not been tested live yet. Other VPS
-  providers and Docker Desktop remain experimental; those results do not
-  establish acceptance on your host.
+  n8n 2.46.4. On 2026-11-05, the owner-run local **Claude for n8n** wizard
+  passed end to end on Colima 0.10.3 arm64 / Docker 29.5.2, including refusal
+  without writes for an unowned image, install, sign-in, model check, one Haiku
+  Basic LLM Chain prompt, removal without stopping n8n, and reinstall. Hostinger
+  VPS wizard SSH, n8n and network discovery passed; VPS install, replace, renew,
+  sign-out and removal were not run live. Other VPS providers and Docker Desktop
+  remain experimental; results do not establish acceptance on your host.
 - In n8n, use a Basic LLM Chain with **Use Responses API off**, **Max Retries
   0**, **Timeout at least 135000 ms**, and **Batch Size 1**. Keep workflow
   retries off and tools/fallback routes disconnected. For full AI Agent tool

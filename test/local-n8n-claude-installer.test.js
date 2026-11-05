@@ -49,7 +49,10 @@ async function fixture(t, flags = {}) {
     if (a[0] === "container" && a.at(-1) === COMPANION) return out(await container());
     if (a[0] === "network") return out({ Id: flags.changedNetwork ? "f".repeat(64) : NETWORK, Name: "fixture-shared", Driver: "bridge", Internal: false,
       Containers: { [N8N]: { Name: "fixture-n8n" }, ...(started ? { [COMPANION]: { Name: "relmio-claude" } } : {}) } });
-    if (a[0] === "volume" && a[1] === "inspect") return volume ? out({ Name: "relmio-claude_claude-account", Labels: { "com.docker.compose.project": "relmio-claude", "com.docker.compose.volume": "claude-account" } }) : absent();
+    if (a[0] === "volume" && a[1] === "inspect") {
+      if (flags.unlabeledVolume) return out({ Name: "relmio-claude_claude-account", Labels: {} });
+      return volume || flags.orphanVolume ? out({ Name: "relmio-claude_claude-account", Labels: { "com.docker.compose.project": "relmio-claude", "com.docker.compose.volume": "claude-account" } }) : absent();
+    }
     if (a[0] === "image" && a[1] === "inspect") return image ? out({ Id: IMAGE_ID, Config: { Labels: await labels() } }) : absent();
     if (a[0] === "image" && a[1] === "rm") { image = false; return out(""); }
     if (a[0] === "run") {
@@ -64,11 +67,12 @@ async function fixture(t, flags = {}) {
       : out({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "pro", email: "private@example.test", token: "provider-secret" });
     if (a[0] === "exec" && a.includes("logout")) return out("provider-secret");
     if (a[0] === "exec" && a.at(-1).includes("/v1/models")) return out(["claude-sonnet-5-5"]);
+    if (a[0] === "exec" && flags.healthProbeFails && String(a.at(-1)).includes("/health")) return absent();
     if (a[0] === "exec") return out("ok");
     if (a[0] === "compose") {
-      if (a.includes("build")) { image = true; return out(""); }
+      if (a.includes("build")) { image = true; return flags.buildFailsAfterTag ? absent() : out(""); }
       if (a.includes("up")) { started = true; volume = true; return out(""); }
-      if (a.includes("down")) { started = false; volume = false; return out(""); }
+      if (a.includes("down")) { started = false; if (a.includes("--volumes")) volume = false; return out(""); }
       if (a.includes("config")) return out("");
     }
     throw new Error(`Unexpected fixture Docker command: ${a.join(" ")}`);
@@ -168,4 +172,47 @@ test("Claude refuses published ports and a second attached network", async t => 
     const f = await fixture(t, flags);
     await assert.rejects(() => installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies), /safety attestation/u);
   }
+});
+
+test("a failed post-start health probe removes the companion and reports the original error", async t => {
+  const f = await fixture(t, { healthProbeFails: true });
+  await assert.rejects(() => installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies), /Local Claude Docker operation failed/u);
+  await assert.rejects(() => fs.lstat(f.root), { code: "ENOENT" });
+  assert.equal(f.calls.some(spec => spec.args.includes("down") && spec.args.includes("--volumes")), true);
+  assert.equal(f.calls.some(spec => spec.args[0] === "image" && spec.args[1] === "rm"), true);
+  assert.equal(f.calls.some(spec => spec.args.includes(N8N) && spec.args.some(arg => ["stop", "rm", "restart", "kill"].includes(arg))), false);
+  assert.equal((await getLocalN8nClaudeStatus(f.dependencies)).state, "absent");
+});
+
+test("a labeled orphan login volume can be installed again and is kept", async t => {
+  const f = await fixture(t, { orphanVolume: true });
+  const result = await installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies);
+  assert.match(result.clientKey, /^[A-Za-z0-9_-]{43}$/u);
+  assert.equal(f.calls.some(spec => spec.args[0] === "volume" && spec.args[1] === "rm"), false);
+  assert.equal(f.calls.some(spec => spec.args.includes("--volumes")), false);
+  assert.equal((await getLocalN8nClaudeStatus(f.dependencies)).state, "healthy");
+});
+
+test("a failed install that reuses a labeled login volume keeps the volume", async t => {
+  const f = await fixture(t, { orphanVolume: true, healthProbeFails: true });
+  await assert.rejects(() => installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies), /Local Claude Docker operation failed/u);
+  const down = f.calls.filter(spec => spec.args[0] === "compose" && spec.args.includes("down"));
+  assert.equal(down.length, 1);
+  assert.equal(down[0].args.includes("--volumes"), false);
+  assert.equal(f.calls.some(spec => spec.args[0] === "volume" && spec.args[1] === "rm"), false);
+  await assert.rejects(() => fs.lstat(f.root), { code: "ENOENT" });
+});
+
+test("a build that tagged the image and then failed still has its image removed", async t => {
+  const f = await fixture(t, { buildFailsAfterTag: true });
+  await assert.rejects(() => installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies), /Local Claude Docker operation failed/u);
+  assert.equal(f.calls.some(spec => spec.args[0] === "image" && spec.args[1] === "rm"), true);
+  await assert.rejects(() => fs.lstat(f.root), { code: "ENOENT" });
+});
+
+test("an unlabeled leftover login volume is refused and nothing is written", async t => {
+  const f = await fixture(t, { unlabeledVolume: true });
+  await assert.rejects(() => installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies), /unowned Claude login volume/u);
+  assert.equal(f.calls.some(spec => spec.args[0] === "compose"), false);
+  await assert.rejects(() => fs.lstat(f.root), { code: "ENOENT" });
 });

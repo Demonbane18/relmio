@@ -426,16 +426,16 @@ upstream call.
 | Setup | Result |
 | --- | --- |
 | Native adapter with native n8n 2.46.4 on an Apple silicon Mac mini | Passed on 2026-11-04 with Haiku 5.5, Sonnet 5.5 and Opus 5.5 on a Max plan. |
-| Docker companion on a Hostinger VPS (Ubuntu 24.04, x86_64) with n8n 2.44.6 in Docker | Passed on 2026-11-04: login inside the companion, n8n credential and a live prompt. |
-| Docker companion on local Docker (Colima 0.10.3, arm64) with n8n 2.46.4 in Docker | Passed on 2026-11-04: login inside the companion, credential, reachability (401 without the key, 200 with it) and a live Haiku prompt from n8n in about 3 seconds. The bundle came from the pre-packaging prepare script, before the platform pin was added. |
+| Docker companion on a Hostinger VPS (Ubuntu 24.04, x86_64) with n8n 2.44.6 in Docker | Companion install and private model discovery passed on 2026-11-04. On 2026-11-05, owner-run wizard discovery passed after the SSH host key matched the pinned fingerprint and root-password connection; n8n and network discovery passed. An older hand-made pre-release companion was reported unrecognized and left unchanged. Wizard install, replace, renew, sign-out and removal were not run live; unit and mocked-browser tests only. |
+| Docker companion on local Docker (Colima 0.10.3, arm64) with n8n 2.46.4 in Docker | Companion login, credential, reachability and live Haiku prompt passed on 2026-11-04 using the pre-packaging prepare script. On 2026-11-05, owner-run **Claude for n8n** wizard flow passed end to end on macOS with Docker 29.5.2: review showed arm64, pinned SHA256 and four unchecked boxes; an unowned old image was refused without writes; install, one-time key, terminal sign-in, model check and Basic LLM Chain Haiku prompt passed. Remove deleted only the companion, login volume, image and managed files; n8n kept running. Reinstall passed. The first install exposed a rejected probe Host and retained managed files after a lost key; both were fixed before release with `Host: relmio-claude:14502` probes and failure rollback. |
 | Local Docker n8n behind an ngrok tunnel | Passed on 2026-11-04 for an n8n webhook through ngrok. The companion stayed private: it publishes no ports and the tunnel points only at n8n. Docker Desktop is untested. |
-| Browser wizard: Claude on a VPS and on this computer | Not yet tested live. Automated tests use simulated servers and Docker. Results will be recorded here after live checks. |
+| Browser wizard live coverage | Local **Claude for n8n** passed on 2026-11-05 as above. Hostinger VPS discovery passed, but install, replace, renew, sign-out and remove were not run live. VPS behavior beyond discovery has unit and mocked-browser coverage only. |
 | Other VPS providers and native n8n on Linux | Experimental and untested. |
 | n8n's Stop button and streaming through n8n | Untested. |
 
-These passes are the owner's own runs, one account each, of the same adapter
-before it was packaged as `relmio claude`. They do not qualify another machine
-or account, and they predate the wizard flows.
+These owner-run checks cover one account and the listed machines only. The
+2026-11-05 local wizard run does not qualify other machines, accounts or VPS
+wizard actions not run live.
 
 The [technical guide](claude-native-prompt.md) lists the endpoints, limits,
 error codes and the full [verification record](claude-native-prompt.md#verification-record).

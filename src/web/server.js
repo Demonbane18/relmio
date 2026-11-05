@@ -2748,7 +2748,9 @@ function validVpsClaudePin(pin) {
 function createSafeVpsClaudeStatus(status) {
   const { state, installation, candidate } = status ?? {};
   if (!["absent", "manual", "installed", "invalid"].includes(state) || (state === "installed") !== (installation !== null) ||
-    (candidate !== null && (!validVpsClaudePin(candidate) || !["linux-x64", "linux-arm64"].includes(candidate.platform)))) {
+    (candidate !== null && (!validVpsClaudePin(candidate) || !["linux-x64", "linux-arm64"].includes(candidate.platform))) ||
+    (status.existingLogin !== undefined && status.existingLogin !== true) ||
+    (status.existingLogin === true && state !== "absent")) {
     throw vpsClaudeInvalid("status");
   }
   if (state === "installed" && (!["amd64", "arm64"].includes(installation?.arch) || !validModels(installation.models) ||
@@ -2758,6 +2760,7 @@ function createSafeVpsClaudeStatus(status) {
   }
   return {
     state,
+    ...(status.existingLogin === true ? { existingLogin: true } : {}),
     installation: state === "installed" ? {
       network: requireSafeDockerName(installation.network, "Claude network name"), arch: installation.arch,
       models: [...installation.models], expiresAt: installation.expiresAt, approvalExpired: installation.approvalExpired,
@@ -2777,7 +2780,8 @@ function createSafeVpsClaudePlan(plan) {
     !Array.isArray(plan.existingN8nChanges) || plan.existingN8nChanges.length !== 0 || plan.restarts !== 0 ||
     !Array.isArray(plan.publishedPorts) || plan.publishedPorts.length !== 0 || !validModels(plan.models) ||
     (approves ? !isoTime(plan.expiresAt) : plan.expiresAt !== null) ||
-    plan.keepsClaudeLogin !== ["replace", "renew"].includes(plan.action)) {
+    (plan.action === "install" ? typeof plan.keepsClaudeLogin !== "boolean"
+      : plan.keepsClaudeLogin !== ["replace", "renew"].includes(plan.action))) {
     throw vpsClaudeInvalid("plan");
   }
   return {
