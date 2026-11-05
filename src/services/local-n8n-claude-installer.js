@@ -222,6 +222,11 @@ export async function inspectLocalN8nClaudeHost(selection, dependencies = {}) {
 }
 
 async function ownedImage(deps, root, marker, { absentAllowed = false, recorded = false } = {}) {
+  // An install interrupted before its build finished recorded no image.
+  if (recorded && marker.imageId === null) {
+    if (absentAllowed) return null;
+    throw new Error("The local Claude companion image is missing.");
+  }
   const result = await deps.runProcess({ file: "docker", args: ["image", "inspect", "--format", "{{json .}}", recorded ? marker.imageId : IMAGE], cwd: root, dockerHost: marker.dockerHost });
   if (result.code !== 0 && absentAllowed) return null;
   if (result.code !== 0) throw new Error("The local Claude companion image is missing.");

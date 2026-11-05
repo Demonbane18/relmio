@@ -45,6 +45,7 @@ async function fixture(t, flags = {}) {
     calls.push(spec); const a = spec.args;
     // validateProcessSpec in src/infrastructure/local-process.js is not exported; this mirrors its timeout cap so a spec the real runner refuses fails here too.
     if (spec.timeoutMs !== undefined) assert.ok(Number.isInteger(spec.timeoutMs) && spec.timeoutMs >= 1 && spec.timeoutMs <= 600_000, "Local Docker process timeout is invalid.");
+    assert.ok(a.every(arg => typeof arg === "string"), "Local Docker process arguments must be strings.");
     assert.equal((await fs.stat(spec.cwd)).isDirectory(), true, "Docker cwd must already exist");
     if (a[0] === "context") return out(JSON.stringify(flags.remoteHost ? "tcp://example.test:2375" : HOST));
     if (a[0] === "info") return out(flags.arch ?? "aarch64\n");
@@ -262,6 +263,18 @@ test("removal tolerates a pruned image but still rejects changed files and an ex
   const before = f.calls.length;
   assert.deepEqual(await changeLocalN8nClaude({ action: "remove", confirmed: true }, f.dependencies), { target: "n8n-claude-oauth", removed: true });
   assert.equal(f.calls.slice(before).some(spec => spec.args[0] === "run"), false);
+  await assert.rejects(() => fs.lstat(f.root), { code: "ENOENT" });
+});
+
+test("removal works for an install interrupted before its image was recorded", async t => {
+  const f = await fixture(t);
+  await installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies);
+  const markerPath = join(f.root, ".managed-by-relmio.json");
+  const marker = JSON.parse(await fs.readFile(markerPath, "utf8"));
+  await fs.writeFile(markerPath, `${JSON.stringify({ ...marker, imageId: null })}\n`, { mode: 0o600 });
+  f.flags.missingImage = true;
+  f.flags.missingContainer = true;
+  assert.deepEqual(await changeLocalN8nClaude({ action: "remove", confirmed: true }, f.dependencies), { target: "n8n-claude-oauth", removed: true });
   await assert.rejects(() => fs.lstat(f.root), { code: "ENOENT" });
 });
 
