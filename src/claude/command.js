@@ -6,6 +6,7 @@ import { parseArgs } from "node:util";
 import { prepareClaudeCompanion } from "./companion.js";
 import { CANDIDATE_VERSION, readKeyHashFile, runClaudeChat } from "./launcher.js";
 import { MAX_APPROVAL_HOURS, initLocalClaude, prepareLocalClaude } from "./local.js";
+import { runClaudeCompanionLogin } from "../services/claude-login.js";
 
 export const DEFAULT_CLAUDE_MODELS = Object.freeze(["claude-haiku-5-5", "claude-sonnet-5-5", "claude-opus-5-5"]);
 export const CLAUDE_DISCLAIMER = Object.freeze([
@@ -18,7 +19,7 @@ export const CLAUDE_DISCLAIMER = Object.freeze([
   "Text only: no tools, AI Agent tools, n8n AI Assistant, Responses API or images. One request at a time.",
 ]);
 const HELP = Object.freeze([
-  "Usage: relmio claude <serve|local init|local prepare|companion prepare> [options]",
+  "Usage: relmio claude <serve|local init|local prepare|companion prepare|companion login> [options]",
   `Experimental owner-only adapter for the official Claude Code CLI ${CANDIDATE_VERSION} on macOS and Linux.`,
   "  serve [--config <launch.json> --key-hash-file <key.sha256>]",
   "      Run the adapter. Without options it reads RELMIO_CLAUDE_LAUNCH_CONFIG and RELMIO_CLAUDE_CHAT_TOKEN_SHA256.",
@@ -28,6 +29,8 @@ const HELP = Object.freeze([
   "      Ask the review questions, then write launch.json and the access key. Approval lasts 1 hour by default.",
   "  companion prepare <dir> --network <name> [--arch amd64|arm64] [--model <id>]...",
   "      Ask the review questions, then write a Docker companion bundle for n8n's network to an empty folder. Default arch amd64.",
+  "  companion login",
+  "      Sign in in your terminal inside the wizard-managed local Docker companion; print only filtered auth status afterward.",
   `  Default models: ${DEFAULT_CLAUDE_MODELS.join(" ")}`,
 ]);
 const MANIFEST = `https://downloads.claude.ai/claude-code-releases/${CANDIDATE_VERSION}/manifest.json`;
@@ -45,6 +48,7 @@ const COMMANDS = Object.freeze({
     directory: true, required: "network",
     options: { network: { type: "string" }, arch: { type: "string" }, model: { type: "string", multiple: true } },
   },
+  "companion login": { options: {} },
 });
 
 export function parseClaudeArguments(argumentsList) {
@@ -234,6 +238,7 @@ export async function runClaudeCommand({
   initLocal = initLocalClaude,
   prepareLocal = prepareLocalClaude,
   prepareCompanion = prepareClaudeCompanion,
+  companionLogin = runClaudeCompanionLogin,
 } = {}) {
   const request = parseClaudeArguments(argumentsList);
   if (request.command === "help") {
@@ -241,6 +246,16 @@ export async function runClaudeCommand({
     return 0;
   }
   if (platform !== "darwin" && platform !== "linux") throw new Error("relmio claude runs on macOS and Linux only.");
+  if (request.command === "companion login") {
+    if (!isInteractive()) throw new Error("Claude companion sign-in requires an interactive terminal.");
+    const status = await companionLogin({ isTTY: true, environment: env });
+    if (typeof status?.loggedIn !== "boolean" || ![status.authMethod, status.subscriptionType].every(value =>
+      value === null || (typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/u.test(value)))) {
+      throw new Error("Claude companion sign-in status is invalid.");
+    }
+    log(JSON.stringify({ loggedIn: status.loggedIn, authMethod: status.authMethod, subscriptionType: status.subscriptionType }));
+    return 0;
+  }
   if (request.command.endsWith(" prepare") && !isInteractive()) {
     log(`relmio claude ${request.command} needs an interactive terminal for the review questions. Nothing was written.`);
     return 1;

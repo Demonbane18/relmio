@@ -268,6 +268,8 @@ Buildx client state at these reviewed paths:
   `/docker/n8n-openai-oauth/.local-model-operation.lock/buildx`.
 - SuperGrok install/sign-in/sign-out:
   `/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx`.
+- Claude install/replace:
+  `/docker/n8n-openai-oauth/.claude-operation.lock/buildx`.
 - OpenAI bridge install/update:
   `/docker/n8n-openai-oauth/.openai-oauth-operation.lock/buildx`.
 

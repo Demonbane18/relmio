@@ -164,6 +164,7 @@ for (const page of [
   { file: "app.js", end: "\nfunction resetVpsOwner", review: "/api/plan", apply: "/api/install" },
   { file: "assistant.js", end: "\nasync function loadNetworks", review: "/api/assistant/plan", apply: "/api/assistant/install" },
   { file: "supergrok-vps.js", end: "\nfunction selectedBoundary", review: "/api/vps/supergrok/plan", apply: "/api/vps/supergrok/apply", directBody: true },
+  { file: "claude-vps.js", end: "\nfunction selectedBoundary", review: "/api/vps/claude/plan", apply: "/api/vps/claude/apply", directBody: true },
 ]) {
   test(`${page.file} rejects same-name target replacement before review/apply and during async review`, async t => {
     const element = browserFixture(t);

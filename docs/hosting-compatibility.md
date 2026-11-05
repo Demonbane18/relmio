@@ -24,7 +24,31 @@ Relmio's tested hosting paths are local Docker and Hostinger KVM VPS. Other
 Linux VPS hosts, including Hetzner, and all hosting-plan platforms are
 experimental; the provider documentation review is not a live deployment test.
 
-Provider selection in **Hosting options** is distinct from **Local model · your VPS**: the former compares six capability categories, manual plans and endpoint handoffs; the latter uses the existing managed SSH flow for an actual eligible Docker VM. The managed catalog has 15 Linux VM presets (generic, Hostinger KVM, Hetzner, Contabo, AWS EC2, Lightsail VM, DigitalOcean Droplet, OCI Compute, GCE, Azure VM, Linode, Vultr, OVHcloud, Scaleway and UpCloud) plus local Docker. These labels give source-linked login guidance only; they do not attest SSH reachability, image defaults on a customized host, Docker readiness, root access or provider-account permissions.
+Provider selection in **Hosting options** is distinct from **Local model · your VPS**: the former compares component capabilities, manual plans and endpoint handoffs; the latter uses the existing managed SSH flow for an actual eligible Docker VM. The managed catalog has 15 Linux VM presets (generic, Hostinger KVM, Hetzner, Contabo, AWS EC2, Lightsail VM, DigitalOcean Droplet, OCI Compute, GCE, Azure VM, Linode, Vultr, OVHcloud, Scaleway and UpCloud) plus local Docker. These labels give source-linked login guidance only; they do not attest SSH reachability, image defaults on a customized host, Docker readiness, root access or provider-account permissions.
+
+### Claude companion
+
+Claude is available through the managed VM wizard at `/claude-vps` and the
+local Docker wizard at `/local`. It requires n8n in Docker, your own Claude
+Pro or Max plan with extra usage off, and a direct root login for a VPS.
+The wizard reviews the binary pin, models and four owner approvals before a
+separate final confirmation. Sign-in happens in your own terminal.
+Approval expires within 7 days and can be renewed in the wizard.
+
+Experimental. Not affiliated with or endorsed by Anthropic. Uses the official
+Claude Code that you sign in to yourself; Relmio never sees your Claude login.
+Personal use only; Anthropic's terms apply and this may stop working.
+
+Use Basic LLM Chain with OpenAI Chat Model: Use Responses API off,
+Max Retries 0, Timeout at least 135000 ms, Batch Size 1. Text only, one
+request at a time; not AI Agent tools or the n8n AI Assistant.
+Container platforms, endpoint products and SDK sandboxes have no Claude
+artifact: do not copy a Claude login into an artifact.
+See [Claude subscription](claude-subscription.md#set-up-in-the-browser-wizard)
+for the steps and [Security](security.md#claude-companion-custody) for what the
+Docker host can read. Whether Anthropic permits this use is unresolved, and
+the wizard does offer a Claude setup path; see the
+[source check](claude-wizard-source-check-2026-11-04.md).
 
 The authenticated `/hosting` page loads its provider catalog and profile schemas via `/api/hosting/providers`; the existing wizard session token is required, and plan POSTs are same-origin. Validated plan submissions go to `/api/hosting/plan`. They use allowlisted model IDs and declared nonsecret fields to render manual settings, requirements, limitations, source links, connection details and ordered operator instructions. A plan is marked `not-live-tested`. The UI offers individual file downloads and a complete ZIP that keeps relative nested paths and hidden `.dockerignore` files intact. Input changes invalidate an existing review. Neither endpoint reads SSH/Docker state or contacts a cloud account. Generation provisions no resource, executes no command, applies no file, exposes no endpoint and changes no existing n8n definition.
 

@@ -3,8 +3,8 @@
 The local ChatGPT plan flow stores a separately authorized SIWC registration.
 The selected n8n runtime can receive one registration after reviewed
 installation. Direct Codex clients and the read-only Chat Adapter use that
-registration through separate local interfaces. SuperGrok keeps its own
-session and does not require or read ChatGPT credentials. On a VPS or with the
+registration through separate local interfaces. SuperGrok and Claude keep their
+own sessions and do not require or read ChatGPT credentials. On a VPS or with the
 local sidecar, the opt-in [image add-on](#codex-image-add-on) keeps a second,
 separate Codex sign-in. Treat every local bearer and stored provider token as a
 secret.
@@ -57,6 +57,14 @@ handler reads only that runtime's marked session to call xAI's documented CLI
 chat proxy. It does not inspect another app's credentials, import tokens,
 replay browser cookies, or accept an xAI API key. The CLI remains the sole
 credential writer; the HTTP handler never consumes refresh tokens.
+
+The experimental Claude companion runs the pinned official Claude Code in its
+own container. You sign in in your own terminal; the wizard has no paste-code
+field, and Relmio never reads, copies or transmits the Claude login. The login
+stays in the companion's Docker volume under native custody. See
+[Claude companion custody](#claude-companion-custody) for what the host,
+Relmio's server and the browser can see, and for the unresolved Anthropic
+permission question.
 
 Relmio never changes accounts automatically or falls back to separately billed
 API access after authentication, permission, usage, or provider errors. It
@@ -212,7 +220,7 @@ conversational contract for a trusted local backend.
   network ID, so status and sign-out survive n8n recreation or an SSH login
   method change; a changed network is still refused.
 - **Passwordless sudo -n (model only)** is restricted to local-model operations
-  and shared read-only discovery. OAuth bridge, Assistant and SuperGrok VPS
+  and shared read-only discovery. OAuth bridge, Assistant, SuperGrok and Claude VPS
   operations are denied in that context; selecting effective UID 0 via sudo does
   not grant the direct-root route scope.
 - Sudo model uploads stream bounded runtime assets and non-secret deployment
@@ -244,7 +252,7 @@ conversational contract for a trusted local backend.
   classic-builder fallback is not used. Confirmed build-capable actions use
   temporary mode-`0700` Buildx client state inside the owned operation lock,
   with command-local configuration and the built-in default builder. Model
-  install/retry, SuperGrok install/sign-in/sign-out and OAuth bridge builds
+  install/retry, SuperGrok install/sign-in/sign-out, Claude install/replace and OAuth bridge builds
   disclose their exact [state paths](reference.md#vps-authentication-and-privilege).
   Nonbuilding actions do not create that state.
 - Build-state cleanup verifies ownership and inode identity and rejects link,
@@ -272,7 +280,7 @@ conversational contract for a trusted local backend.
   root-owned mode-`0600` regular files with a single hard link; the marker is
   re-attested before and after transfer and promoted only after its content and
   parent identity match. Runtime files are checked against recorded hashes.
-- Across VPS OAuth bridge, local-model and SuperGrok operations, a classified
+- Across VPS OAuth bridge, local-model, SuperGrok and Claude operations, a classified
   unknown SSH command result or interrupted SFTP write prevents automatic
   cleanup/release of the operation lock and any Buildx state. This includes an
   unconfirmed OAuth post-install publication/model check; a later responsive
@@ -412,6 +420,65 @@ model-ready status, including on first install; if an upstream mutable tag
 points to different content, the operation fails instead of accepting or
 automatically substituting the new content.
 
+### Claude companion custody
+
+The experimental Claude companion (**Claude on my server** on a VPS, **Claude
+for n8n** on this computer) runs the pinned official Claude Code in a separate
+container. You sign in in your own terminal: `ssh -t root@<host> sh
+/docker/n8n-openai-oauth/claude/login.sh` on a VPS, `relmio claude companion
+login` locally. The wizard has no paste-code field or endpoint, and Relmio's
+code does not parse or capture the sign-in exchange.
+
+- **Login volume.** The official Claude Code keeps its login in the Docker
+  volume `relmio-claude_claude-account` (`CLAUDE_CONFIG_DIR` is
+  `/data/account/config`). On Linux that is a protected file. Root, Docker
+  administrators on the host and backups of the volume can read it. Relmio never
+  reads, copies or transmits it. Removing the companion deletes the volume and
+  signs Claude out; it does not delete backups or provider-side data.
+- **Sign-in status.** **Check sign-in** runs `claude auth status --json` inside
+  the companion. The raw output reaches Relmio's local server (over SSH for a
+  VPS, through Docker for local) and can include more account details than
+  three fields. The server forwards only `loggedIn`, `authMethod` and
+  `subscriptionType` to the browser and does not store or log the rest. Ready
+  requires `loggedIn: true` and `authMethod: "claude.ai"`. Status does not prove
+  billing settings, permission or model access.
+- **Relmio key.** The key is an independent random bearer that authorizes the
+  companion only. It is not a Claude or OpenAI credential and the Claude process
+  never receives it. Relmio stores only its SHA256. The plaintext appears once in
+  the install or replacement result, in the browser and on the clipboard if you
+  copy it. The model check passes it to a probe inside the container on standard
+  input. For an n8n that Relmio created locally, the wizard imports it into n8n's
+  credential store over Docker stdin, and n8n then holds a copy. The VPS wizard
+  imports nothing. A bundle from `relmio claude companion prepare` still writes
+  `n8n-api-key.txt`.
+- **Writes.** On a VPS, only `/docker/n8n-openai-oauth/claude` and its operation
+  lock `/docker/n8n-openai-oauth/.claude-operation.lock`, after host-key
+  verification, a direct-root login and a separate final confirmation.
+  `launch.json` is owned by `10001:10001` with mode `0600`. Locally, only
+  `~/.relmio/local/n8n-claude-oauth` and its lock. The container has a read-only
+  root filesystem, no capabilities, no-new-privileges, no published port and no
+  Docker socket, and Relmio does not change or restart n8n.
+- **Review answers.** Four owner answers go into `launch.json`, which expires
+  after 7 days minus 1 hour. They record your review. Relmio does not perform
+  it, so never answer yes just to continue.
+- **Network and downloads.** Bearer traffic on the Docker network is
+  unencrypted HTTP, so trust every container on n8n's network. The build
+  downloads the Node image, Debian packages and the checksum-pinned Claude Code
+  binary; those hosts see ordinary request metadata.
+- **Provider side.** Anthropic receives native authentication and inference
+  traffic. Telemetry and retention depend on your Claude account settings and
+  are not controlled by Relmio.
+
+Anthropic's Agent SDK quickstart says that, unless previously approved, third
+parties may not offer Claude.ai login or plan rate limits for their products.
+The wizard offers a Claude setup path, which relates to that restriction even
+though sign-in stays in the official CLI. Relmio has no Anthropic approval, and
+the question is unresolved. The browser wizard has not been tested live yet.
+The [wizard source check](claude-wizard-source-check-2026-11-04.md) records the
+sources. OpenAI flows are unchanged; the check re-read the Sign in with ChatGPT
+Terms (Effective November 4, 2026), and the persistent remote token storage and
+connected-application questions stay open.
+
 ### AI Assistant companion image integrity
 
 The generated AI Assistant companion uses reviewed, immutable
@@ -492,6 +559,10 @@ Local client credentials and the OpenAI session have different jobs:
 - With the image add-on on, a separate Codex access and refresh token stays in
   the sidecar's protected store and is used only for image requests. It is
   never returned to browser JavaScript or n8n.
+- The Claude login stays in the companion's Docker volume under the official
+  Claude Code. Relmio never reads or returns it, and the companion's Relmio key
+  authorizes only that companion. If the host or its backups may be exposed,
+  sign out from the wizard and use Claude's own account controls.
 - Do not expose local endpoints on a LAN, public IP, domain, reverse proxy, or
   hosted service. Keep each bearer in the trusted client that needs it.
 - If a local bearer is disclosed, use the offered ownership-checked

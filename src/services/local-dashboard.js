@@ -6,6 +6,8 @@ import { getLocalN8nAssistantStatus } from "./local-n8n-assistant-installer.js";
 import { getLocalN8nSidecarStatus } from "./local-n8n-sidecar-installer.js";
 import { getLocalN8nSuperGrokStatus } from "./local-n8n-supergrok-installer.js";
 import { getLocalN8nModelStatus } from "./local-n8n-model-installer.js";
+import { getLocalN8nClaudeStatus } from "./local-n8n-claude-installer.js";
+import { createSafeLocalN8nClaudeSnapshot } from "../domain/local-n8n-claude.js";
 
 const SERVICE_DEFINITIONS = Object.freeze([
   Object.freeze({
@@ -27,6 +29,7 @@ const SERVICE_DEFINITIONS = Object.freeze([
     kind: "n8n-assistant",
   }),
   Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok for n8n", kind: "n8n-supergrok" }),
+  Object.freeze({ target: "n8n-claude-oauth", label: "Claude for n8n", kind: "n8n-claude" }),
   Object.freeze({ target: "n8n-local-model", label: "Local model for n8n", kind: "n8n-local-model" }),
 ]);
 const STATES = new Set(["absent", "healthy", "stopped", "staged", "partial", "legacy", "unavailable"]);
@@ -48,6 +51,7 @@ const PROVIDER_DEFINITIONS = Object.freeze([
     authentication: "provider-oauth",
   }),
   Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth" }),
+  Object.freeze({ target: "n8n-claude-oauth", label: "Claude (n8n)", authentication: "provider-oauth" }),
 ]);
 
 function unavailableService(definition) {
@@ -335,6 +339,7 @@ function copySnapshot(definition, snapshot) {
   if (definition.kind === "n8n-stack") return copyStackSnapshot(snapshot);
   if (definition.kind === "n8n-oauth-bridge") return copySidecarSnapshot(snapshot);
   if (definition.kind === "n8n-supergrok") return copySuperGrokSnapshot(snapshot);
+  if (definition.kind === "n8n-claude") return createSafeLocalN8nClaudeSnapshot(snapshot);
   if (definition.kind === "n8n-local-model") return copyModelSnapshot(snapshot);
   return copyAssistantSnapshot(snapshot);
 }
@@ -375,6 +380,7 @@ function actionsFor(definition, state, snapshot) {
   if (definition.kind === "n8n-local-model" && snapshot?.canRetry === true) {
     actions.push("retry-model");
   }
+  if (definition.kind === "n8n-claude") actions.push("manage-claude");
   if (definition.kind === "n8n-supergrok") {
     if (state === "healthy") actions.push("sign-in-grok-build", "sign-out-grok-build");
     if (snapshot?.canRemove === true) actions.push("remove-owned-supergrok");
@@ -494,6 +500,8 @@ async function inspectService(definition, inspectors) {
       result = await inspectors.inspectLocalN8nSidecar();
     } else if (definition.kind === "n8n-supergrok") {
       result = await inspectors.inspectLocalN8nSuperGrok();
+    } else if (definition.kind === "n8n-claude") {
+      result = await inspectors.inspectLocalN8nClaude();
     } else if (definition.kind === "n8n-local-model") {
       result = dashboardModelStatus(await inspectors.inspectLocalN8nModel());
     } else {
@@ -515,6 +523,7 @@ export async function getLocalDashboardStatus({
   inspectLocalN8nSidecar = getLocalN8nSidecarStatus,
   inspectLocalN8nAssistant = getLocalN8nAssistantStatus,
   inspectLocalN8nSuperGrok = getLocalN8nSuperGrokStatus,
+  inspectLocalN8nClaude = getLocalN8nClaudeStatus,
   inspectLocalN8nModel = getLocalN8nModelStatus,
 } = {}) {
   let generatedAt;
@@ -535,6 +544,7 @@ export async function getLocalDashboardStatus({
     inspectLocalN8nSidecar,
     inspectLocalN8nAssistant,
     inspectLocalN8nSuperGrok,
+    inspectLocalN8nClaude,
     inspectLocalN8nModel,
   };
   const [services, providers] = await Promise.all([

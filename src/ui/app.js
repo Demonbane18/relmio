@@ -54,6 +54,8 @@ const localEndpointLink = element("local-endpoint-link");
 bindWizardNavigation(localEndpointLink, "/local", token);
 bindWizardNavigation(element("vps-supergrok-start"), "/supergrok-vps", token);
 bindWizardNavigation(element("vps-supergrok-manage"), "/supergrok-vps", token);
+bindWizardNavigation(element("vps-claude-start"), "/claude-vps", token);
+bindWizardNavigation(element("vps-claude-manage"), "/claude-vps", token);
 bindWizardNavigation(element("vps-local-model-start"), "/local-model-vps", token);
 bindWizardNavigation(element("vps-local-model-manage"), "/local-model-vps", token);
 bindWizardNavigation(element("hosting-options-link"), "/hosting", token);

@@ -413,6 +413,7 @@ const ATTACHED_ADDON_NAMES = Object.freeze({
   "n8n-openai-oauth": "ChatGPT plan sidecar",
   "n8n-local-model": "local model",
   "n8n-supergrok-oauth": "SuperGrok",
+  "n8n-claude-oauth": "Claude",
   "n8n-ai-assistant": "Assistant tools",
 });
 

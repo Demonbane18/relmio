@@ -1,0 +1,195 @@
+/* Claude on your VPS. Components come from relmio-ui.css; this file only
+   lays out the route wizard. Kit tokens only. */
+
+/* One step panel at a time. claude-vps.js marks the current one. */
+.route-content > .route-panel:not([data-current]) {
+  display: none;
+}
+
+.route-form {
+  display: contents;
+}
+
+/* Step headings take programmatic focus when the step changes; they are not controls. */
+.route-panel h2[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* Active progress stays with the stepper on phones. A blocking error, then
+   safety, follow the panel, while the desktop rail retains its two-row layout. */
+@media (min-width: 64rem) {
+  .route-layout {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .route-rail {
+    grid-area: 1 / 1;
+  }
+
+  .route-content {
+    grid-area: 1 / 2 / 3 / 3;
+  }
+
+  .route-rail-foot {
+    grid-area: 2 / 1;
+    align-self: start;
+  }
+}
+
+.route-rail-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rm-space-4);
+  min-width: 0;
+}
+
+.route-intro {
+  display: grid;
+  gap: var(--rm-space-1);
+}
+
+.route-steps .rm-stepper__link {
+  cursor: default;
+}
+
+.route-steps .rm-stepper__link:hover {
+  background: none;
+}
+
+.route-progress {
+  display: grid;
+  gap: var(--rm-space-2);
+}
+
+.route-progress__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rm-space-3);
+}
+
+.route-progress__label {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.route-status,
+.route-error {
+  overflow-wrap: anywhere;
+}
+
+/* The progress card repeats the running step; an error replaces stale status. */
+.claude-vps[data-operation-busy="true"] .route-status,
+.claude-vps:has(.route-error:not([hidden])) .route-status {
+  display: none;
+}
+
+.route-error::before {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin-top: 0.125rem;
+  background-color: var(--rm-danger);
+  content: "";
+  -webkit-mask: var(--rm-icon-alert) center / contain no-repeat;
+  mask: var(--rm-icon-alert) center / contain no-repeat;
+}
+
+/* Panel bodies: a main column and a quieter side column, chosen by the panel's
+   own width. The server form stays in one column until the panel is wide,
+   because its fields need the width more than the notes beside them. */
+.route-panel .rm-panel__body {
+  container-type: inline-size;
+}
+
+.route-columns {
+  display: grid;
+  align-items: start;
+  gap: var(--rm-space-4) var(--rm-space-6);
+  min-width: 0;
+}
+
+@container (min-width: 36rem) {
+  .route-columns:not(.route-columns--form) {
+    grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.72fr);
+  }
+}
+
+@container (min-width: 52rem) {
+  .route-columns--form {
+    grid-template-columns: minmax(0, 1fr) minmax(14rem, 0.6fr);
+  }
+}
+
+.route-main,
+.route-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rm-space-3);
+  min-width: 0;
+}
+
+.route-main {
+  container-type: inline-size;
+}
+
+/* Server address, port and the identity check share one row when there is room. */
+.route-target {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6.5rem;
+  align-items: end;
+  gap: var(--rm-space-3);
+}
+
+.route-target__scan {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+@container (min-width: 30rem) {
+  .route-target {
+    grid-template-columns: minmax(0, 1fr) 6.5rem auto;
+  }
+
+  .route-target__scan {
+    grid-column: auto;
+    min-height: 2.75rem;
+  }
+}
+
+.route-signin {
+  --rm-field-min: 10rem;
+}
+
+.route-fingerprint {
+  font-size: var(--rm-text-sm);
+}
+
+.route-session:empty,
+.route-models:empty,
+.route-state:empty {
+  display: none;
+}
+
+/* Review */
+.route-review-list {
+  grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr);
+}
+
+.route-summary {
+  color: var(--rm-ink-muted);
+  font-size: var(--rm-text-md);
+  overflow-wrap: anywhere;
+}
+
+.route-secret { display: flex; gap: var(--rm-space-2); }
+.route-secret .rm-icon-button { width: 2.75rem; height: 2.75rem; }
+.claude-review-checks { display: grid; gap: var(--rm-space-3); }
+.claude-status-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--rm-space-2); }
+.claude-vps .rm-terminal__body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.claude-vps .route-review-list code { font-size: var(--rm-text-sm); }
+.claude-vps #model-choices { display: grid; gap: var(--rm-space-2); }
+.claude-vps #models-button { align-self: start; }
+@media (min-width: 64rem) {
+  .claude-vps .rm-panel__body { gap: var(--rm-space-3); }
+}

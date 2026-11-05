@@ -56,12 +56,17 @@ const textExtensions = new Set([
   ".yaml",
   ".yml",
 ]);
-// `relmio claude companion prepare` copies these from the installed package; the docs explain the adapter.
+// `relmio claude companion prepare` and the Claude VPS wizard copy these from the installed package; the docs explain the adapter.
 const claudeAdapterFiles = [
   "src/claude/command.js",
   "src/claude/companion.js",
   "src/claude/launcher.js",
   "src/claude/local.js",
+  "src/services/vps-claude.js",
+  "src/ui/claude-vps.html",
+  "src/ui/claude-vps.js",
+  "src/ui/claude-vps.css",
+  "src/ui/guide/content-claude-vps.js",
   "src/gateway/claude-chat.js",
   "src/templates/claude-companion/Dockerfile",
   "src/templates/claude-companion/compose.yml",

@@ -5,13 +5,14 @@ const unavailable = (note) => capability("unavailable", note);
 const manual = (note) => capability("manual", note);
 const external = (note) => capability("external", note);
 const source = (label, url) => ({ label, url });
-const sshPolicy = "Use the actual image account and the existing approved SSH authentication. A verified passwordless sudo -n login can manage the model only; the bridge, Assistant, SearXNG and SuperGrok require already-approved direct UID 0. Never change SSH policy for a provider label.";
+const sshPolicy = "Use the actual image account and the existing approved SSH authentication. A verified passwordless sudo -n login can manage the model only; the bridge, Assistant, SearXNG, SuperGrok and Claude require already-approved direct UID 0. Never change SSH policy for a provider label.";
 const managedComponents = {
   model: capability("managed", "Requires the existing rootful Docker/Compose/Buildx host contract, eligible n8n network and resource checks; sudo -n is model-only."),
   openai: capability("managed", "Unofficial subscription bridge; direct UID-0 login, appropriate provider credential sign-in and separate permission review are required. No OpenAI Platform key or account entitlement is implied."),
   assistant: capability("managed", "Direct UID-0 login, operator-enabled instance-ai and an approved privileged Docker-in-Docker runner are required; n8n remains untouched."),
   searxng: capability("managed", "Optional private SearXNG with JSON search is installed through Assistant companion opt-in; direct UID-0 login, reachable n8n backend and permitted upstream search traffic are required."),
   supergrok: capability("managed", "Experimental private Grok CLI companion needs direct UID-0 login, fresh device authentication and account entitlement."),
+  claude: capability("managed", "Experimental Claude companion needs a root login, n8n in Docker and your own Claude Pro or Max plan with extra usage off. Sign in in your own terminal; renew approval within 7 days."),
 };
 const localComponents = {
   model: capability("managed", "Local Docker model requires the actual supported Engine, architecture, eligible existing n8n network and available memory/disk; no VPS SSH."),
@@ -19,6 +20,7 @@ const localComponents = {
   assistant: capability("managed", "Local Assistant tools need operator-enabled instance-ai and an approved privileged Docker-in-Docker runner; existing n8n stays untouched."),
   searxng: capability("managed", "Optional local private JSON-enabled search is available through Assistant companion opt-in; n8n backend reachability and permitted upstream engines are required."),
   supergrok: capability("managed", "Local experimental SuperGrok companion requires fresh official device login and actual account entitlement."),
+  claude: capability("managed", "Experimental Claude companion for local Docker n8n needs your own Claude Pro or Max plan with extra usage off. Sign in in your own terminal; renew approval within 7 days."),
 };
 
 function vm(id, label, sshHint, sources) {
@@ -30,9 +32,10 @@ const privateModel = manual("Operator-deployed private Ollama service and model 
 const privateSearch = manual("Operator-deployed private JSON-enabled SearXNG service; n8n must reach it and search upstream access remains conditional.");
 const platformBridge = unavailable("No managed OpenAI subscription credential bridge on this platform; do not copy a subscription credential into an artifact.");
 const platformGrok = unavailable("No managed SuperGrok CLI companion on this platform; do not copy a subscription session into an artifact.");
+const platformClaude = unavailable("No managed Claude companion on this platform; do not copy a Claude login into an artifact.");
 
 function platform(id, label, sources, { model = privateModel, searxng = privateSearch, assistant = daytona, sshHint = "This product is not a customer-administered Docker VM; use the reviewed manual deployment, not the managed SSH form." } = {}) {
-  return { id, label, kind: "manual-platform", sshHint, components: { model, openai: platformBridge, assistant, searxng, supergrok: platformGrok }, sources, reviewedOn };
+  return { id, label, kind: "manual-platform", sshHint, components: { model, openai: platformBridge, assistant, searxng, supergrok: platformGrok, claude: platformClaude }, sources, reviewedOn };
 }
 
 function endpoint(id, label, sources, note, sshHint = "This product does not provide Relmio's managed host SSH and rootful Docker contract.") {
@@ -42,6 +45,7 @@ function endpoint(id, label, sources, note, sshHint = "This product does not pro
     assistant: unavailable("No native Relmio sandbox runner installation or self-hosted n8n Assistant configuration on this product."),
     searxng: unavailable("Use an independently deployed authenticated search endpoint; no managed SearXNG installation here."),
     supergrok: platformGrok,
+    claude: platformClaude,
     endpoint: manual(note),
   }, sources, reviewedOn };
 }
@@ -53,6 +57,7 @@ function sandbox(id, label, sources, note) {
     assistant: external(note),
     searxng: unavailable("No managed private SearXNG deployment in this SDK sandbox lane."),
     supergrok: platformGrok,
+    claude: platformClaude,
   }, sources, reviewedOn };
 }
 

@@ -14,6 +14,7 @@ const sessionToken = "guide-engine-test-session-token-0123456789abcdef";
 const PAGES = {
   vps: "index.html", local: "local.html", assistant: "assistant.html",
   "supergrok-vps": "supergrok-vps.html", "local-model-vps": "local-model-vps.html", hosting: "hosting.html",
+  "claude-vps": "claude-vps.html",
 };
 
 // A fake screen: which selectors are on screen, field values, checked boxes, recorded marks.

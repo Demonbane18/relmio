@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Connect Claude to self-hosted n8n through a private companion." />
+    <title>Relmio | Claude on your VPS</title>
+    <link rel="icon" href="/relmio-icon-rounded.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/relmio-ui.css" />
+    <link rel="stylesheet" href="/claude-vps.css" />
+    <link rel="stylesheet" href="/guide.css" />
+    <script src="/session-bootstrap.js"></script>
+    <script src="/theme.js" type="module"></script>
+    <script src="/claude-vps.js" type="module"></script>
+    <script src="/guide.js" type="module"></script>
+  </head>
+  <body class="rm-app rm-app--fit claude-vps" data-stage="1" data-operation-busy="false" data-guide-page="claude-vps">
+    <a class="rm-skip-link" href="#main-content">Skip to Claude setup</a>
+    <header class="rm-topbar">
+      <div class="rm-topbar__inner">
+        <a class="rm-brand" href="/" data-wizard-route="/" aria-label="Relmio home">
+          <img class="rm-brand__logo" src="/relmio-icon-96.png" width="32" height="32" alt="" />
+          <span>Relmio</span>
+        </a>
+        <nav class="rm-nav" aria-label="Primary">
+          <ul class="rm-nav__list">
+            <li><a class="rm-nav__link" href="/" data-wizard-route="/" aria-current="true">Setup</a></li>
+            <li><a class="rm-nav__link" href="/local" data-wizard-route="/local">This computer</a></li>
+            <li><a class="rm-nav__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+            <li><a class="rm-nav__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer">Docs<span class="rm-icon rm-icon--external rm-icon--xs" aria-hidden="true"></span><span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+          </ul>
+        </nav>
+        <div class="rm-topbar__actions">
+          <span class="rm-status rm-topbar__wide" data-tone="success"><span class="rm-status__dot"></span>Runs on this computer</span>
+          <button id="guide-toggle" class="rm-icon-button" type="button" aria-pressed="false" aria-label="Setup guide" title="Setup guide" hidden><span class="rm-icon rm-icon--help" aria-hidden="true"></span></button>
+          <fieldset class="rm-segmented">
+            <legend class="rm-visually-hidden">Color theme</legend>
+            <label class="rm-segmented__item" title="System"><input class="rm-segmented__input" type="radio" name="color-theme" value="system" checked /><span class="rm-icon rm-icon--monitor rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">System</span></label>
+            <label class="rm-segmented__item" title="Light"><input class="rm-segmented__input" type="radio" name="color-theme" value="light" /><span class="rm-icon rm-icon--sun rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Light</span></label>
+            <label class="rm-segmented__item" title="Dark"><input class="rm-segmented__input" type="radio" name="color-theme" value="dark" /><span class="rm-icon rm-icon--moon rm-icon--sm" aria-hidden="true"></span><span class="rm-visually-hidden">Dark</span></label>
+          </fieldset>
+          <a class="rm-chip rm-topbar__wide" data-rm-repo-link href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer" aria-label="Open Relmio version __RELMIO_PACKAGE_VERSION__ on GitHub. Opens in a new tab.">
+            <span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub
+            <span class="rm-chip__meta"><span class="rm-icon rm-icon--star rm-icon--xs" aria-hidden="true"></span><span data-rm-repo-stars>?</span></span>
+            <span class="rm-chip__meta">v__RELMIO_PACKAGE_VERSION__</span>
+          </a>
+          <a class="rm-icon-button rm-topbar__wide" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer" aria-label="Support Relmio on Ko-fi (opens in a new tab)" title="Support Relmio on Ko-fi"><span class="rm-icon rm-icon--coffee" aria-hidden="true"></span></a>
+          <details class="rm-menu">
+            <summary class="rm-icon-button" aria-label="Menu"><span class="rm-icon rm-icon--menu" aria-hidden="true"></span></summary>
+            <div class="rm-menu__panel">
+              <nav aria-label="Primary">
+                <ul class="rm-menu__list">
+                  <li><a class="rm-menu__link" href="/" data-wizard-route="/" aria-current="true">Setup</a></li>
+                  <li><a class="rm-menu__link" href="/local" data-wizard-route="/local">This computer</a></li>
+                  <li><a class="rm-menu__link" href="/hosting" data-wizard-route="/hosting">Hosting options</a></li>
+                  <li><a class="rm-menu__link" href="https://relmio.jpfusin.tech/docs" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--book rm-icon--sm" aria-hidden="true"></span>Docs<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                </ul>
+              </nav>
+              <ul class="rm-menu__list rm-menu__section">
+                <li><button class="rm-menu__link" type="button" data-guide-toggle aria-pressed="false" hidden><span class="rm-icon rm-icon--help rm-icon--sm" aria-hidden="true"></span>Setup guide</button></li>
+                <li><a class="rm-menu__link" href="https://github.com/Demonbane18/relmio" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--github rm-icon--sm" aria-hidden="true"></span>GitHub<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+                <li><a class="rm-menu__link" href="https://ko-fi.com/paldogies" target="_blank" rel="noopener noreferrer"><span class="rm-icon rm-icon--coffee rm-icon--sm" aria-hidden="true"></span>Support on Ko-fi<span class="rm-visually-hidden"> (opens in a new tab)</span></a></li>
+              </ul>
+            </div>
+          </details>
+        </div>
+      </div>
+    </header>
+    <main id="main-content" class="rm-app__main" tabindex="-1">
+      <noscript><p class="rm-callout rm-callout--warning">This setup needs JavaScript to check server identity and show the plan. Enable JavaScript, then reload before continuing.</p></noscript>
+      <div class="rm-split route-layout">
+        <aside class="rm-split__rail route-rail" aria-label="Claude setup progress">
+          <div class="route-intro">
+            <p class="rm-eyebrow">Claude · VPS</p>
+            <h1 class="rm-h3">A private Claude route for n8n <span class="rm-badge rm-badge--accent">Experimental</span></h1>
+            <p class="rm-small rm-muted">Text only. One request at a time. Approval expires within 7 days.</p>
+          </div>
+          <ol class="rm-stepper rm-stepper--track route-steps" aria-label="Steps">
+            <li class="rm-stepper__item" data-stage-marker="1" aria-current="step"><span class="rm-stepper__link"><span class="rm-stepper__marker">1</span><span class="rm-stepper__label">Check server</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="2"><span class="rm-stepper__link"><span class="rm-stepper__marker">2</span><span class="rm-stepper__label">Choose n8n</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="3"><span class="rm-stepper__link"><span class="rm-stepper__marker">3</span><span class="rm-stepper__label">Review</span></span></li>
+            <li class="rm-stepper__item" data-stage-marker="4"><span class="rm-stepper__link"><span class="rm-stepper__marker">4</span><span class="rm-stepper__label">Connect n8n</span></span></li>
+          </ol>
+          <section id="operation-progress" class="rm-card rm-card--compact route-progress" role="status" aria-live="polite" aria-atomic="false" tabindex="-1" hidden>
+            <div class="route-progress__head">
+              <p id="operation-progress-label" class="route-progress__label">No operation is running.</p>
+              <p class="rm-small rm-muted" aria-live="off"><span class="rm-visually-hidden">Elapsed </span><time id="operation-progress-elapsed" datetime="PT0S">00:00</time></p>
+            </div>
+            <div id="operation-progress-bar" class="rm-progress rm-progress--indeterminate" role="progressbar" aria-label="Current Claude setup operation" aria-valuetext="No operation is running."><span class="rm-progress__bar" aria-hidden="true"></span></div>
+            <p id="operation-progress-note" class="rm-small rm-muted">Keep this page open until the step finishes.</p>
+          </section>
+        </aside>
+        <div id="route-steps-content" class="rm-split__content route-content" aria-busy="false">
+          <section id="ssh-panel" class="rm-panel route-panel" aria-labelledby="ssh-title" data-current>
+            <header class="rm-panel__header">
+              <div class="rm-panel__heading">
+                <span class="rm-eyebrow">Step 1 of 4</span>
+                <h2 id="ssh-title" class="rm-h1" tabindex="-1">Check your server</h2>
+                <p class="rm-muted">Confirm the server identity before you sign in. The password clears after each attempt.</p>
+              </div>
+            </header>
+            <form id="ssh-form" class="route-form">
+              <div class="rm-panel__body">
+                <div class="route-columns route-columns--form">
+                  <div class="route-main">
+                    <div class="route-target">
+                      <label class="rm-field"><span class="rm-field__label">Server address</span><input id="host" class="rm-input" autocomplete="off" required placeholder="your-server-ip-or-hostname" /></label>
+                      <label class="rm-field"><span class="rm-field__label">SSH port</span><input id="port" class="rm-input" type="number" value="22" min="1" max="65535" required /></label>
+                      <button id="scan-button" class="rm-button route-target__scan" type="button"><span class="rm-icon rm-icon--shield rm-icon--sm" aria-hidden="true"></span>Check server identity</button>
+                    </div>
+                    <label id="fingerprint-box" class="rm-check rm-check--boxed" hidden><input id="trust-host" type="checkbox" /><span>I checked this server identity. This is the server I mean to use.<span class="rm-check__hint">SSH fingerprint <code id="fingerprint" class="route-fingerprint"></code></span></span></label>
+                    <div class="rm-form-grid route-signin">
+                      <label class="rm-field"><span class="rm-field__label">SSH username</span><input id="username" class="rm-input" autocomplete="username" value="root" required aria-describedby="username-hint" /><span id="username-hint" class="rm-field__hint">Needs a root account (UID 0).</span></label>
+                      <label class="rm-field"><span class="rm-field__label">SSH authentication</span><select id="ssh-authentication" class="rm-select"><option value="password">Password</option><option value="agent">Local SSH agent</option></select></label>
+                      <label class="rm-field"><span class="rm-field__label">Server password</span><input id="password" class="rm-input" type="password" autocomplete="current-password" disabled required aria-describedby="password-hint" /><span id="password-hint" class="rm-field__hint">Unlocks after you confirm the server identity.</span></label>
+                    </div>
+                  </div>
+                  <div class="route-aside">
+                    <p class="rm-small rm-muted">Claude on a VPS is experimental. Use your own Claude Pro or Max plan.</p>
+                    <p class="rm-small rm-muted">Passwordless sudo works only on the Local model page.</p>
+                    <p id="ssh-agent-status" class="rm-small rm-muted" role="status">Checking local SSH agent configuration…</p>
+                    <details class="rm-disclosure">
+                      <summary>About SSH agent sign-in</summary>
+                      <div class="rm-disclosure__body"><p>Load keys into your local agent before you open Relmio. A persistent dashboard keeps its launch environment, so relaunch it after you change the agent. No key files, passphrases or forwarded agent are sent to the server.</p></div>
+                    </details>
+                    <p id="ssh-session" class="rm-small route-session" role="status"></p>
+                  </div>
+                </div>
+              </div>
+              <footer class="rm-panel__footer">
+                <a id="back-link" class="rm-button rm-button--ghost" href="/" data-wizard-route="/"><span class="rm-icon rm-icon--arrow-left rm-icon--sm" aria-hidden="true"></span>Back</a>
+                <button id="ssh-disconnect" class="rm-button" type="button" hidden>Disconnect shared VPS session</button>
+                <button id="connect-button" class="rm-button rm-button--primary rm-push" type="submit" disabled>Connect and inspect n8n<span class="rm-icon rm-icon--arrow-right rm-icon--sm" aria-hidden="true"></span></button>
+              </footer>
+            </form>
+          </section>
+          <section id="selection-panel" class="rm-panel route-panel" aria-labelledby="selection-title" hidden>
+            <header class="rm-panel__header"><div class="rm-panel__heading"><span class="rm-eyebrow">Step 2 of 4</span><h2 id="selection-title" class="rm-h1" tabindex="-1">Choose existing n8n</h2><p class="rm-muted">This step only looks. It runs no commands inside n8n.</p></div></header>
+            <div class="rm-panel__body">
+              <div class="rm-form-grid">
+                <label class="rm-field"><span class="rm-field__label">Running n8n container</span><select id="container" class="rm-select"></select></label>
+                <label class="rm-field"><span class="rm-field__label">Shared private Docker network</span><select id="network" class="rm-select" aria-describedby="network-hint"></select><span id="network-hint" class="rm-field__hint">The companion joins this network. n8n does not change.</span></label>
+              </div>
+              <p id="installation-state" class="rm-callout rm-callout--neutral route-state" role="status"></p>
+            </div>
+            <footer class="rm-panel__footer">
+              <button id="disconnect-button" class="rm-button rm-button--ghost" type="button">Disconnect</button>
+              <button id="refresh-button" class="rm-button" type="button">Refresh status</button>
+              <div class="rm-cluster rm-push">
+                <button class="rm-button rm-button--primary" data-action="install" type="button" hidden>Review installation</button>
+                <button class="rm-button rm-button--primary" data-action="replace" type="button" hidden>Review replacement</button>
+                <button id="selection-continue" class="rm-button rm-button--primary" type="button" hidden>Continue</button>
+              </div>
+            </footer>
+          </section>
+          <section id="approval-panel" class="rm-panel route-panel" aria-labelledby="approval-title" hidden>
+            <header class="rm-panel__header"><div class="rm-panel__heading"><span class="rm-eyebrow">Step 3 of 4 · Owner review</span><h2 id="approval-title" class="rm-h1" tabindex="-1">Review Claude use</h2><p class="rm-muted">Review all four items yourself. Nothing is written yet.</p></div></header>
+            <div class="rm-panel__body">
+              <p class="rm-small">Official Claude Code <span id="candidate-version"></span><br />SHA-256: <code id="candidate-sha"></code></p>
+              <fieldset id="model-choices" class="rm-fieldset"><legend>Approved models</legend><div class="rm-cluster">
+                <label class="rm-check"><input type="checkbox" name="claude-model" value="claude-haiku-5-5" /><span>Haiku 5.5</span></label>
+                <label class="rm-check"><input type="checkbox" name="claude-model" value="claude-sonnet-5-5" checked /><span>Sonnet 5.5</span></label>
+                <label class="rm-check"><input type="checkbox" name="claude-model" value="claude-opus-5-5" /><span>Opus 5.5</span></label>
+              </div><p class="rm-small rm-muted">Model access depends on your plan. Fable is refused.</p></fieldset>
+              <div class="claude-review-checks">
+                <label class="rm-check"><input type="checkbox" data-review="officialBinaryReviewed" /><span>I reviewed this official Claude Code binary and checksum.</span></label>
+                <label class="rm-check"><input type="checkbox" data-review="effectivePolicyReviewed" /><span>I reviewed the effective Claude policy and confirm this personal use is permitted.</span></label>
+                <label class="rm-check"><input type="checkbox" data-review="nativeAuthAndBillingReviewed" /><span>I will sign in myself with my Claude Pro or Max plan, with extra usage off. I reviewed native sign-in and billing.</span></label>
+                <label class="rm-check"><input type="checkbox" data-review="policyChangesControlled" /><span>I will keep the reviewed runtime and policy unchanged, and review again before approval expires within 7 days.</span></label>
+              </div>
+              <p class="rm-small"><a class="rm-link" href="https://relmio.jpfusin.tech/docs/claude-subscription" target="_blank" rel="noopener noreferrer">Claude setup and review guide<span class="rm-visually-hidden"> (opens in a new tab)</span></a></p>
+            </div>
+            <footer class="rm-panel__footer"><button id="cancel-approval" class="rm-button rm-button--ghost" type="button">Back</button><button id="prepare-button" class="rm-button rm-button--primary rm-push" type="button" disabled>Review final plan</button></footer>
+          </section>
+          <section id="review-panel" class="rm-panel route-panel" aria-labelledby="review-title" hidden>
+            <header class="rm-panel__header"><div class="rm-panel__heading"><span class="rm-eyebrow">Step 3 of 4 · Final confirmation</span><h2 id="review-title" class="rm-h1" tabindex="-1">Review the plan</h2><p class="rm-muted">This writes to your server. Back up your workflows first.</p></div></header>
+            <div class="rm-panel__body">
+              <p id="review-summary" class="route-summary"></p>
+              <dl class="rm-dl route-review-list">
+                <div><dt>Server</dt><dd id="ssh-review-identity"></dd></div>
+                <div><dt>n8n / network</dt><dd id="review-boundary"></dd></div>
+                <div><dt>Models</dt><dd id="review-models"></dd></div>
+                <div><dt>Claude Code</dt><dd id="review-version"></dd></div>
+                <div><dt>SHA-256</dt><dd><code id="review-sha"></code></dd></div>
+                <div><dt>Approval expires</dt><dd id="review-expiry"></dd></div>
+              </dl>
+              <details class="rm-disclosure"><summary>Files and safety boundary</summary><div class="rm-disclosure__body"><p>Directory: <code>/docker/n8n-openai-oauth/claude</code>. Endpoint: <code>http://relmio-claude:14502/v1</code>. Lock: <code>/docker/n8n-openai-oauth/.claude-operation.lock</code>.</p><p>No changes or restarts to n8n. No published companion port. Renewal restarts only the Claude companion.</p></div></details>
+              <label class="rm-check rm-check--boxed"><input id="confirm-action" type="checkbox" /><span>I approve this action on only the reviewed Claude companion.</span></label>
+            </div>
+            <footer class="rm-panel__footer"><button id="cancel-review" class="rm-button rm-button--ghost" type="button">Back</button><button id="apply-button" class="rm-button rm-button--primary rm-push" type="button" disabled>Confirm action</button></footer>
+          </section>
+          <section id="settings-panel" class="rm-panel route-panel" aria-labelledby="settings-title" hidden>
+            <header class="rm-panel__header"><div class="rm-panel__heading"><span class="rm-eyebrow">Step 4 of 4</span><h2 id="settings-title" class="rm-h1" tabindex="-1">Sign in and connect n8n</h2><p class="rm-muted">Run this command in your own terminal. Complete Claude sign-in there.</p></div></header>
+            <div class="rm-panel__body">
+              <div class="rm-terminal"><div class="rm-terminal__bar"><span>Your terminal</span><button id="copy-login" class="rm-button rm-button--sm" type="button">Copy command</button></div><pre class="rm-terminal__body" tabindex="0" role="region" aria-label="Claude terminal sign-in command"><code id="login-command"></code></pre></div>
+              <div class="claude-status-row"><p id="login-state" class="rm-small" role="status">Sign-in has not been checked.</p><p id="approval-expiry" class="rm-small" role="status"></p></div>
+              <div class="route-columns">
+                <div class="route-main">
+                  <div class="rm-field"><label class="rm-field__label" for="client-key">n8n API key</label><div class="route-secret"><input id="client-key" class="rm-input rm-input--mono" type="password" autocomplete="off" spellcheck="false" aria-describedby="key-help" /><button id="copy-key" class="rm-icon-button rm-icon-button--outline" type="button" aria-label="Copy n8n API key"><span class="rm-icon rm-icon--copy" aria-hidden="true"></span></button></div><span id="key-help" class="rm-field__hint">Shown once after install or replacement. Save it in n8n, or enter your saved key to check models. This is not a Claude login.</span></div>
+                  <button id="models-button" class="rm-button" type="button">Check models</button>
+                  <p id="models-result" class="rm-small route-models" role="status"></p>
+                  <p class="rm-small">OpenAI credential Base URL: <code>http://relmio-claude:14502/v1</code></p>
+                </div>
+                <div id="n8n-settings" class="rm-callout rm-callout--warning"><div class="rm-callout__content"><strong class="rm-callout__title">Basic LLM Chain + OpenAI Chat Model</strong><p class="rm-callout__body">Use Responses API off. Max Retries 0. Timeout at least 135000 ms. Batch Size 1.</p><p class="rm-callout__body">Text only, one request at a time. Not AI Agent tools or the n8n AI Assistant.</p></div></div>
+              </div>
+              <details class="rm-disclosure"><summary>Manage companion and login storage</summary><div class="rm-disclosure__body"><p>Your Claude login stays in the server's private Docker volume. Root on that server can read it. Relmio never reads, copies or transmits Claude credentials.</p><div class="rm-cluster"><button class="rm-button" data-action="renew" type="button">Renew approval</button><button class="rm-button" data-action="replace" type="button">Replace companion and key</button><button class="rm-button" data-action="sign-out" type="button">Sign out</button><button class="rm-button rm-button--danger" data-action="remove" type="button">Remove companion</button></div></div></details>
+            </div>
+            <footer class="rm-panel__footer"><button id="settings-back" class="rm-button rm-button--ghost" type="button">Back</button><button id="auth-button" class="rm-button rm-button--primary rm-push" type="button">Check sign-in</button></footer>
+          </section>
+        </div>
+        <div class="route-rail-foot">
+          <p id="error-message" class="rm-callout rm-callout--danger route-error" role="alert" tabindex="-1" hidden></p>
+          <p class="rm-small rm-muted">Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</p>
+          <p id="status-message" class="rm-callout rm-callout--neutral route-status" role="status" aria-live="polite">Checking the VPS connection…</p>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

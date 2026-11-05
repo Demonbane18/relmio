@@ -1,9 +1,11 @@
 # Frequently asked questions
 
 Answers about ChatGPT sign-in and plan use, usage limits, image generation,
-local connections, SuperGrok, and private models. Read the
+local connections, SuperGrok, Claude, and private models. Read the
 [OpenAI source check](openai-source-check-2026-10-05.md)
-for implementation evidence and unresolved provider requirements.
+for implementation evidence and unresolved provider requirements. The
+[Claude wizard source check](claude-wizard-source-check-2026-11-04.md) covers
+the Claude questions below.
 
 ## Why is Check the server unavailable?
 
@@ -195,3 +197,43 @@ selected private Docker network, so trust those peers. Image and model downloads
 need internet access. This workflow Chat Model is separate from n8n AI
 Assistant sandbox setup and does not establish reliable tool calling. See
 [Private local models](local-models.md).
+
+## Can I use my Claude plan in the wizard?
+
+Yes, as an experiment, for text workflows in your own n8n. Since Relmio 0.24.0
+the browser wizard can set up a private Claude Code companion on a VPS
+(**Claude on my server**) or in local Docker (**Claude for n8n**). Native n8n
+and the advanced Docker path use the `relmio claude` commands. n8n needs a
+Basic LLM Chain with an OpenAI Chat Model: Use Responses API off, Max Retries 0,
+Timeout at least 135000 ms, Batch Size 1. There are no AI Agent tools, no n8n
+AI Assistant and no Fable. The wizard flows have not been tested live yet. See
+[Claude subscription](claude-subscription.md#set-up-in-the-browser-wizard).
+
+## Does Relmio see my Claude login?
+
+Relmio never reads, copies or transmits your Claude login, and the wizard never
+handles the paste code. You sign in in your own terminal, with
+`ssh -t root@<host> sh /docker/n8n-openai-oauth/claude/login.sh` on a VPS or
+`relmio claude companion login` on this computer. The official Claude Code keeps
+the login in a Docker volume on that host, so root, Docker administrators and
+backups can read it.
+
+**Check sign-in** is different: it runs `claude auth status --json` in the
+companion. The raw output can hold more than three fields and reaches Relmio's
+local server (over SSH for a VPS). Relmio forwards only `loggedIn`,
+`authMethod` and `subscriptionType` to the browser and does not store or log the
+rest. The one-time Relmio key the wizard shows is not a Claude or OpenAI key;
+the server keeps only its SHA256, and n8n stores the key you enter.
+
+## Is the Claude route approved by Anthropic?
+
+No, and whether it is permitted is unresolved. Anthropic's Agent SDK quickstart
+says that, unless previously approved, third-party developers may not offer
+Claude.ai login or rate limits for their products. Relmio has no approval from
+Anthropic. Signing in through the official CLI in your own terminal avoids a
+paste-code relay, but the wizard still offers a Claude setup path, and that
+relates to the restriction. Use it only for your own personal work, with extra
+usage turned off in your Claude account. It may stop working or be disallowed.
+Plan limits are shared with other Claude surfaces, and Relmio cannot see your
+remaining allowance. For AI Agent tool workflows, use n8n's Anthropic Chat Model
+with a Console API key instead.

@@ -139,7 +139,7 @@ network and publication boundaries, Compose state, and generated health checks.
 This does not change an installed service: it does not install, start, restart,
 recreate, remove, or execute inside a container.
 
-Relmio's dashboard always has these eight rows, even when nothing is installed.
+Relmio's dashboard always has these nine rows, even when nothing is installed.
 
 | Dashboard service | Verified connection details | Actions after current attestation |
 |---|---|---|
@@ -150,6 +150,7 @@ Relmio's dashboard always has these eight rows, even when nothing is installed.
 | **AI Assistant tools** | Private Code Sandbox and optional SearXNG | **Set up**, manage optional search, or **Review removal** after ownership attestation |
 | **ChatGPT plan sidecar** | Private `http://n8n-openai-oauth:10531/v1` | **Set up**, **Manage account**, or **Review removal** after current ownership attestation |
 | **SuperGrok for n8n** | Private `http://n8n-supergrok:14502/v1` | **Set up**, official sign-in/sign-out guidance, or **Review removal** only when offered |
+| **Claude for n8n** | Private `http://relmio-claude:14502/v1`; approved models and approval expiry | **Set up**, **Manage Claude** (check sign-in, check models, renew approval, sign out) or **Review removal** only when offered |
 | **Local model for n8n** | Private `http://n8n-local-model:11434/v1`; model readiness and selected ID | **Set up**, **Review model retry**, or **Review removal** only when offered |
 
 The local-model row distinguishes an installed runtime from a downloaded,
@@ -319,3 +320,13 @@ first-use confirmation; **Manage usage** opens ChatGPT settings.
 SuperGrok remains a separate official CLI-managed session. Its sign-in,
 catalog, and inference status do not establish ChatGPT account state or
 permission.
+
+Claude for n8n is a separate official Claude Code session in the companion's
+Docker volume. Sign in in your own terminal with
+`relmio claude companion login`; Relmio never handles the paste code or your
+Claude credentials. A healthy container or a listed model does not prove
+sign-in: **Check sign-in** must show `loggedIn: true` and
+`authMethod: "claude.ai"`. Approval expires within 7 days, and an expired
+approval keeps the row from reporting healthy until **Renew approval** repeats
+the four review questions. Claude state does not establish ChatGPT account
+state or permission. See [Claude subscription](claude-subscription.md#claude-on-this-computer).

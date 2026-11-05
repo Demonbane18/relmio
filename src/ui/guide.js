@@ -5,7 +5,7 @@
 // Pure helpers are exported for the dock and for tests; the bootstrap runs
 // only inside a page.
 
-export const GUIDE_PAGES = Object.freeze(["vps", "local", "assistant", "supergrok-vps", "local-model-vps", "hosting"]);
+export const GUIDE_PAGES = Object.freeze(["vps", "local", "assistant", "supergrok-vps", "claude-vps", "local-model-vps", "hosting"]);
 export const ACTION_LABELS = Object.freeze({
   type: "Type here", press: "Press this", choose: "Choose one", check: "Tick this", read: "Read this", wait: "Wait here",
 });

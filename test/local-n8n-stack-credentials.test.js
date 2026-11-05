@@ -64,6 +64,7 @@ test("credential import targets only running owned n8n, sends key on stdin, then
   for (const [feature, name, url, apiKey] of [
     ["local-model", "Relmio local model", "http://n8n-local-model:11434/v1", "local-only"],
     ["supergrok", "Relmio SuperGrok", "http://n8n-supergrok:14502/v1", "private-supergrok"],
+    ["claude", "Relmio Claude", "http://relmio-claude:14502/v1", "private-claude"],
   ]) {
     assert.deepEqual(await importLocalStackN8nCredential({
       ...args, credential: { feature, apiKey },

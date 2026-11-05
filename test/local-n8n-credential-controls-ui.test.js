@@ -170,6 +170,7 @@ function loadCredentialControls(script, harness, { randomValues, showError } = {
     isN8nAssistant: () => false,
     isN8nLocalModel: () => false,
     isN8nSuperGrok: () => false,
+    isN8nClaude: (target) => target === "n8n-claude-oauth",
     isN8nSidecar: () => false,
     isN8nStack: (target) => target === "local-n8n-stack",
     renderInstallResult() {},

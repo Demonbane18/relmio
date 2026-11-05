@@ -6,11 +6,11 @@ const token = readWizardSession();
 const el = (id) => document.getElementById(id);
 const COMPONENTS = Object.freeze({
   model: "Local model", openai: "OpenAI bridge", assistant: "AI Assistant",
-  searxng: "SearXNG", supergrok: "SuperGrok", endpoint: "External endpoint",
+  searxng: "SearXNG", supergrok: "SuperGrok", claude: "Claude (Experimental)", endpoint: "External endpoint",
 });
 const MANAGED_ROUTES = Object.freeze({
-  "managed-vm": { model: "/local-model-vps", openai: "/", assistant: "/assistant", searxng: "/assistant", supergrok: "/supergrok-vps" },
-  local: { model: "/local", openai: "/local", assistant: "/local", searxng: "/local", supergrok: "/local" },
+  "managed-vm": { model: "/local-model-vps", openai: "/", assistant: "/assistant", searxng: "/assistant", supergrok: "/supergrok-vps", claude: "/claude-vps" },
+  local: { model: "/local", openai: "/local", assistant: "/local", searxng: "/local", supergrok: "/local", claude: "/local" },
 });
 const KIND_LABELS = Object.freeze({
   "managed-vm": "Linux VMs", local: "Local Docker",
@@ -222,6 +222,8 @@ function renderComponent() {
   const component = el("hosting-component").value;
   const capability = provider?.components?.[component];
   const profile = activeProfile();
+  el("hosting-claude-details").hidden = component !== "claude";
+  el("hosting-claude-details").open = false;
   if (capability) {
     el("hosting-capability").replaceChildren(modeBadge(capability.mode), " ", node("span", capability.note));
   } else {

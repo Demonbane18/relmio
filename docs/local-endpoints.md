@@ -1,9 +1,9 @@
 # Local Docker endpoints
 
 Relmio connects local apps and private n8n companions to ChatGPT plan use,
-Codex clients, SuperGrok, and provider-free local models. ChatGPT SIWC
+Codex clients, SuperGrok, Claude, and provider-free local models. ChatGPT SIWC
 registrations are kept separate from personal Codex credentials and from
-SuperGrok sessions.
+SuperGrok and Claude sessions.
 
 | Wizard option | Local interface | Upstream sign-in | Intended client |
 |---|---|---|---|
@@ -12,6 +12,7 @@ SuperGrok sessions.
 | **Grok on this computer** | Loopback `/v1/chat/completions` and simple `POST /chat` | Fresh OAuth/device sign-in through the official Grok CLI | A trusted local backend or development server owned by the same person |
 | **ChatGPT for n8n** | Private `http://n8n-openai-oauth:10531/v1` on one selected Docker network | One-time local Relmio bearer; provider token stays in the sidecar | The selected self-hosted n8n deployment |
 | **Grok for n8n** | Private `http://n8n-supergrok:14502/v1` on one existing Docker network | Separate fresh Grok OAuth session and one-time local bearer | Only the selected local or VPS n8n deployment |
+| **Claude for n8n** | Private `http://relmio-claude:14502/v1` on one existing Docker network | Official Claude Code sign-in in your own terminal and a one-time local Relmio bearer | Only the selected local n8n deployment |
 | **n8n AI Assistant tools** | Private Code Sandbox plus optional SearXNG JSON search on one existing Docker network | A generated sandbox key shown once; model-provider credentials stay in n8n | Only the selected self-hosted n8n deployment |
 | **Local model for n8n** | Private `http://n8n-local-model:11434/v1` on one existing Docker network | No provider sign-in; Ollama API key is ignored | Only the selected self-hosted n8n deployment |
 | **Set up new n8n** | A new owned n8n stack, private by default, with an optional Basic-Auth-protected ngrok URL | n8n credentials stay in its owned data volume; ngrok needs a token only when enabled | A new disposable local n8n installation and its webhooks |
@@ -133,7 +134,7 @@ project on the local computer.
    or run `relmio open` from a persistent install. Then select **Add connection**.
    The first time, the wizard asks whether to start the
    [setup guide](getting-started.md#use-the-setup-guide).
-3. Choose **ChatGPT for n8n**, **Grok for n8n**, **Local model for n8n**,
+3. Choose **ChatGPT for n8n**, **Grok for n8n**, **Claude for n8n**, **Local model for n8n**,
    **Set up new n8n**, or **Grok on this computer**. Open **More connections
    and tools** for Codex endpoints and **n8n AI Assistant tools**.
 4. For ChatGPT, select or create a registration and complete sign-in in the
@@ -922,6 +923,45 @@ The command starts official device sign-in in the companion's managed
 runtime. Use `relmio grok logout --n8n` for explicit sign-out. A healthy runtime
 alone does not prove that its account is signed in. Removal requires its own
 confirmation and affects only the attested companion resources.
+
+## Private Claude companion for existing n8n
+
+The experimental **Claude for n8n** connection (badges **Official sign-in** and
+**Experimental**) installs a separate owned companion, `relmio-claude`, on one
+selected local n8n Docker network. It runs the pinned official Claude Code
+`2.1.317` with your own Claude Pro or Max plan, answers text-only Chat
+Completions at `http://relmio-claude:14502/v1`, publishes no host port and does
+not change or restart n8n. Native n8n uses the `relmio claude` commands
+instead; this wizard has no loopback Claude endpoint for apps on this
+computer.
+
+Enter one to eight exact model IDs (the three 5.5 models by default; Fable is
+refused), select the n8n container and network, answer the four review
+questions (all start unchecked) and confirm the exact plan. Relmio builds the
+companion in `~/.relmio/local/n8n-claude-oauth` and shows a one-time Relmio key.
+For an n8n that Relmio created, it also tries to add an OpenAI credential named
+**Relmio Claude**. For any other n8n, enter the key and Base URL yourself.
+
+Sign in in your own terminal:
+
+```sh
+relmio claude companion login
+```
+
+It needs an interactive terminal on macOS or Linux and runs the official
+sign-in inside the companion. Relmio never handles the paste code or your
+Claude credentials. In the management panel, **Check sign-in** needs
+`loggedIn: true` and `authMethod: "claude.ai"`, and **Check models** lists the
+approved IDs without sending a Claude prompt. **Renew approval** repeats the
+four questions; approval lasts 7 days minus 1 hour. **Sign out** logs the
+companion out. **Remove Claude** deletes the companion, its login volume and
+image, and its managed files; n8n and its network stay.
+
+A companion made with `relmio claude companion prepare` is not adopted. The
+wizard refuses, changes nothing and asks you to remove it first; removing its
+login volume signs Claude out. In n8n use a Basic LLM Chain with an OpenAI
+Chat Model: Use Responses API off, Max Retries 0, Timeout at least 135000 ms,
+Batch Size 1. See [Claude subscription](claude-subscription.md#claude-on-this-computer).
 
 ## Unsupported ChatGPT plan capabilities
 

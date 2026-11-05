@@ -2,7 +2,7 @@
 
 Relmio runs one fresh, unmodified official `claude -p` process for each admitted text request. Authenticated `POST /chat` returns JSON or Relmio SSE. `GET /v1/models` and `POST /v1/chat/completions` provide a text-only OpenAI-compatible facade for your own n8n. A messages array becomes one native user turn; native conversation history is not replayed.
 
-This is an npm-packaged CLI experiment, separate from the browser wizard, existing ChatGPT/SuperGrok connections and managed installers. It does not install n8n, configure n8n credentials automatically, or deploy a server for you.
+This began as an npm-packaged CLI experiment, separate from existing ChatGPT/SuperGrok connections and managed installers. Since Relmio 0.24.0 the browser wizard can also deploy its Docker companion; see [Browser wizard](#browser-wizard-docker-companion). The CLI does not install n8n, configure n8n credentials automatically, or deploy a server for you.
 
 ## Requirements and disclaimer
 
@@ -12,7 +12,7 @@ This is an npm-packaged CLI experiment, separate from the browser wizard, existi
 > [!WARNING]
 > Experimental; not affiliated with or endorsed by Anthropic. Relmio never opens, copies, refreshes or transmits Claude credentials. The official CLI owns login, refresh and provider traffic. Use only your own account for personal, owner-only work. Do not offer access to others or run a shared or hosted subscription service. Anthropic's terms and usage policies apply; Anthropic may change or block this use at any time. Successful inference does not establish provider approval.
 >
-> Anthropic's SDK quickstart says third-party developers may not offer Claude.ai login or plan rate limits for their products unless approved. Relmio provides no Claude login: you log in through the official CLI. Relmio has no Anthropic approval for this gateway. That permission question remains unresolved; this experimental, owner-run use may stop working or be disallowed. See the [current source check](claude-native-prompt-source-check-2026-11-04.md#anthropic-findings).
+> Anthropic's SDK quickstart says third-party developers may not offer Claude.ai login or plan rate limits for their products unless approved. Relmio provides no Claude login: you log in through the official CLI in your own terminal. The wizard does offer a Claude setup path, and that offering relates to the restriction even though sign-in stays in the official CLI. Relmio has no Anthropic approval for this gateway or wizard. That permission question remains unresolved; this experimental, owner-run use may stop working or be disallowed. See the [current source check](claude-wizard-source-check-2026-11-04.md#anthropic-findings).
 >
 > Turn extra usage off in your Claude account before sending prompts. Relmio refuses Fable, but extra-usage billing remains your account's setting, not an adapter-enforced spending cap.
 
@@ -196,7 +196,7 @@ Success contains `status: "completed"`, `text`, exact `resolvedModel`, sanitized
 
 ## Docker companion (VPS or local Docker n8n)
 
-Use a separate companion when n8n already runs in Docker. It joins only n8n's selected existing private network, without editing n8n Compose/image or rebuilding/restarting n8n. It is an operator-applied bundle, not an automatic deployer or permission grant. Never publish its port or mount a Docker socket/personal Claude directory.
+Use a separate companion when n8n already runs in Docker. It joins only n8n's selected existing private network, without editing n8n Compose/image or rebuilding/restarting n8n. With the CLI it is an operator-applied bundle; the [browser wizard](#browser-wizard-docker-companion) can instead deploy the same companion after your review and final confirmation. Neither is a permission grant. Never publish its port or mount a Docker socket/personal Claude directory.
 
 The image downloads official Linux Claude Code `2.1.317` for `amd64` or `arm64` and checks the architecture-specific official SHA256. Preparation architecture must match the Docker host. The bundle pins the Compose build and runtime platform to that architecture. A checksum mismatch requires provenance review, not an edited expected hash to force a pass.
 
@@ -248,6 +248,20 @@ Set the n8n OpenAI credential's Base URL to `http://relmio-claude:14502/v1` and 
 Before expiry, repeat the binary/policy/auth/model/billing review and confirm policy changes remained controlled. The launcher accepts no window longer than seven days. Expired prompts fail even if `/health` and `/v1/models` still work.
 
 The companion's `sh renew.sh` needs an interactive terminal (stdin and stdout TTY), host `python3`, and permission to manage the private launch file. It asks four default-No questions: the official Linux binary and checksum, the companion's effective Claude Code policy on that Docker host, dedicated login with these models and extra usage off, and control of changes until expiry. `auth status` must still show `loggedIn: true` and `authMethod: "claude.ai"`. A missing terminal, any answer other than yes, or end of input writes nothing. Yes on every question updates only the qualification timestamps in the UID-10001 launch file, to slightly less than seven days, and restarts only `relmio-claude`. The questions record a fresh owner review. The script does not inspect the binary, policy, or billing settings. Do not pipe a `y` answer. Changed binary, models, policy, account, or billing require full requalification, not only a new timestamp. Renewal does not rotate the bearer or erase login state.
+
+## Browser wizard (Docker companion)
+
+Since Relmio 0.24.0 the wizard can deploy the same companion that `relmio claude companion prepare` writes: on a VPS from `/claude-vps` (**Claude on my server**) and on this computer from `/local` (**Claude for n8n**). Both are experimental. Native n8n stays CLI-only; the wizard has no loopback endpoint for apps on this computer. Both flows use the CLI's bundle builder, so they share its Dockerfile, Compose file, `login.sh`, `renew.sh`, adapter files, pinned checksums, four review fields and approval of 7 days minus 1 hour. The step-by-step guide is [Set up in the browser wizard](claude-subscription.md#set-up-in-the-browser-wizard).
+
+Sign-in stays in your own terminal. The VPS wizard shows `ssh -t root@<host> sh /docker/n8n-openai-oauth/claude/login.sh`, with `-p <port>` only for a port other than 22 and the username taken from the verified direct-root session. The local wizard shows `relmio claude companion login`, which needs an interactive terminal and runs the pinned `auth login` inside the companion through Relmio's attested local Docker host, with a 900-second limit. Relmio never handles the paste code or Claude credentials.
+
+**Check sign-in** runs `auth status --json` inside the companion with the login script's environment. The raw output reaches Relmio's local server (over SSH for a VPS) and can hold more account details than three fields. The server forwards only `loggedIn`, `authMethod` and `subscriptionType` to the browser, and does not store or log the rest. Ready needs `loggedIn: true` and `authMethod: "claude.ai"`. **Check models** passes the one-time key to a probe inside the container on standard input and returns only the approved model IDs. It sends no Claude prompt, so neither check proves entitlement.
+
+Ownership: a wizard install writes `.managed-by-relmio.json` into the companion folder (schema 1, kind `relmio-claude-companion`, install ID, network, architecture, models, the key's SHA256 and file hashes). The folder is `/docker/n8n-openai-oauth/claude` on a VPS, with the operation lock `/docker/n8n-openai-oauth/.claude-operation.lock`, and `~/.relmio/local/n8n-claude-oauth` locally. The marker goes first, so an interrupted install stays owned and can be replaced or removed. Before each action Relmio checks entries, owners, modes and hashes, and the container: labels, key hash, image `relmio-claude:2.1.317`, user `10001:10001`, read-only root filesystem, all capabilities dropped, no-new-privileges, one network with the `relmio-claude` alias, no published ports, and only the login volume and the read-only `launch.json` bind. On a VPS the hashes leave out `launch.json`, because renewals rewrite it; it is compared with the expected companion configuration instead. Anything unrecognized is refused and nothing is adopted or deleted. Only one `relmio-claude` companion can exist per Docker host.
+
+A VPS folder without a marker but with a `relmio-claude` container labeled `com.relmio.managed=claude-companion` counts as a manual installation made with the CLI. The only action allowed on it is **Replace companion and key**, which keeps the login volume and issues a new key. The local wizard does not take over a manual companion; it refuses and asks you to remove it first.
+
+Renewal needs all four review answers again. On a VPS it replaces `launch.json` the way `renew.sh` does (exclusive `launch.json.next`, owner `10001:10001`, mode `0600`, one link, sync, atomic rename) and restarts only `relmio-claude`. Locally it rewrites `launch.json` and restarts only that container. Sign-out runs `auth logout` inside the companion and checks status afterward. VPS removal deletes the container, the `relmio-claude_claude-account` login volume and the exact bundle files. Local removal runs `docker compose down --volumes`, removes the owned image and the managed files. Unlike `docker compose down` above, wizard removal deletes the login volume. It never touches n8n or its network.
 
 ## Text API and streaming contract
 
@@ -352,6 +366,7 @@ These are sanitized, parent/owner-reported records from the original experiment,
 | 2026-11-04 Hostinger Docker | Ubuntu 24.04 x86_64, Docker 29.2.1, n8n 2.44.6: official image checksum and hardened companion deployment passed. Private model discovery returned 401 without bearer and 200 with bearer for approved Haiku/Sonnet/Opus 5.5. Native login/status passed with `claude.ai` Max; login stored as a mode-0600 file in companion volume. |
 | 2026-11-04 Hostinger n8n UI | Owner-reported credential save, model list and live prompt PASS after Responses API was turned off. The first attempt with Responses on returned 404 for unsupported `/v1/responses` before native startup. |
 | 2026-11-04 local Docker | Owner-run on Colima 0.10.3 (arm64) with n8n 2.46.4 in Docker and an arm64 companion on n8n's private network. Login inside the companion PASS; `/v1/models` from the n8n container 401 without the key and 200 with three models; one live Haiku prompt from n8n PASS in about 3 s. The bundle was prepared with the pre-packaging script, before the `RELMIO_PLATFORM` pin. An n8n webhook through an ngrok tunnel PASS; the tunnel pointed only at n8n and the companion published no ports. Docker Desktop untested. |
+| 2026-11-05 browser wizard | No live run recorded. Install, sign-in check, model check, renewal, sign-out and removal on a VPS and on local Docker are covered by automated tests with simulated SSH and Docker only. Live checks remain open. |
 | Other VPS providers | Experimental, untested. |
 | Remaining checks | n8n Stop/cancellation, streaming through n8n, HTTP Request end-to-end, installed retention/telemetry, broader platforms and distributed-product permission are unverified. |
 
@@ -361,7 +376,8 @@ Observed native login scopes on 2026-11-04 were `org:create_api_key user:profile
 
 ## Sources and attribution
 
-- [Current 2026-11-04 source check](claude-native-prompt-source-check-2026-11-04.md): release-candidate provider/terms/data boundaries.
+- [Current wizard source check](claude-wizard-source-check-2026-11-04.md): the browser wizard, companion data flows, Anthropic permission findings and the OpenAI comparison for this release.
+- [2026-11-04 command-line source check](claude-native-prompt-source-check-2026-11-04.md): release-candidate provider/terms/data boundaries for the 0.23.0 CLI.
 - [Historical 2026-11-03 source check](claude-native-prompt-source-check-2026-11-03.md): original candidate and older OpenAI comparison.
 - [Feasibility review](claude-subscription-n8n-research-2026-11-03.md): rejected relay/replay design and ordinary API-key alternative.
 - [Hermes Claude Subscription DirectSDK](https://hermes-agent.nousresearch.com/docs/plugins/claude-subscription-directsdk): disclosure structure, third-party usage measurements and native-record tolerance informed this experiment. Relmio does not use its upstream relay, credential interception, caller override or external-tool replay. Hermes source licensing does not confer Anthropic approval.

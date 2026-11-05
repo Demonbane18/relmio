@@ -20,6 +20,9 @@ import {
 } from "../services/installer.js";
 import { usageView } from "../services/model-discovery.mjs";
 import { inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels } from "../services/vps-supergrok.js";
+import { getVpsClaudeStatus, reviewVpsClaude, applyVpsClaude, getVpsClaudeAuthStatus, discoverVpsClaudeModels, vpsClaudeLoginCommand } from "../services/vps-claude.js";
+import { CLAUDE_COMPANION } from "../claude/companion.js";
+import { validModels } from "../claude/launcher.js";
 import { inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus } from "../services/vps-local-model.js";
 import { installAssistant } from "../services/assistant-installer.js";
 import { getAuthStatus, listAuthRegistrations, startOAuthLogin } from "../services/oauth.js";
@@ -63,6 +66,11 @@ import {
   LOCAL_N8N_SUPERGROK_TARGET,
   createLocalN8nSuperGrokPlan,
 } from "../domain/local-n8n-supergrok.js";
+import {
+  LOCAL_N8N_CLAUDE_TARGET, createLocalN8nClaudePlan, validateClaudeReview,
+  createSafeLocalN8nClaudePlan, createSafeLocalN8nClaudeInstallResult,
+  createSafeLocalN8nClaudeSnapshot, createSafeLocalN8nClaudeStatus, createSafeLocalN8nClaudeChangeResult,
+} from "../domain/local-n8n-claude.js";
 import { LOCAL_N8N_MODEL_TARGET, LOCAL_N8N_MODEL_ENDPOINT, LOCAL_MODEL_CATALOG, LOCAL_MODEL_RUNTIME_IMAGE, getLocalModelDefinition, createLocalN8nModelPlan } from "../domain/local-n8n-model.js";
 import { LOCAL_MODEL_CATALOG_REVISION } from "../local-model/catalog.mjs";
 import { HOSTING_PROVIDERS } from "../domain/hosting-providers.js";
@@ -114,6 +122,11 @@ import {
   installLocalN8nSuperGrok,
   removeLocalN8nSuperGrok,
 } from "../services/local-n8n-supergrok-installer.js";
+import {
+  getLocalN8nClaudeStatus, installLocalN8nClaude, changeLocalN8nClaude,
+  getLocalN8nClaudeAuthStatus, inspectLocalN8nClaudeHost,
+  discoverLocalN8nClaudeModels,
+} from "../services/local-n8n-claude-installer.js";
 import { getLocalN8nModelStatus, installLocalN8nModel, reviewLocalN8nModelAction, applyLocalN8nModelAction, inspectLocalN8nModelResources } from "../services/local-n8n-model-installer.js";
 import {
   LOCAL_N8N_MANAGED_PARTIAL_STACK_ERROR_CODE,
@@ -144,7 +157,7 @@ const MAX_PENDING_BROWSER_TRANSFERS = 8;
 const BROWSER_PREPARE_PATH = "/__relmio/browser/prepare";
 const BROWSER_BOOTSTRAP_PATH = "/__relmio/browser/bootstrap";
 const BROWSER_TRANSFER_PATH = "/__relmio/browser/transfer";
-const BROWSER_BOOTSTRAP_ROUTES = new Set(["/", "/assistant", "/local", "/supergrok-vps", "/local-model-vps", "/hosting"]);
+const BROWSER_BOOTSTRAP_ROUTES = new Set(["/", "/assistant", "/local", "/supergrok-vps", "/claude-vps", "/local-model-vps", "/hosting"]);
 const BROWSER_BOOTSTRAP_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const PACKAGE_VERSION = packageManifest.version;
 const OAUTH_VPS_CONFLICT_MESSAGE =
@@ -187,6 +200,7 @@ const defaultServices = {
   changeVpsModelChecks,
   getVpsUsageStatus,
   inspectVpsSuperGrok, reviewVpsSuperGrok, installVpsSuperGrok, changeVpsSuperGrok, getVpsGrokLoginStatus, discoverVpsGrokModels,
+  getVpsClaudeStatus, reviewVpsClaude, applyVpsClaude, getVpsClaudeAuthStatus, discoverVpsClaudeModels,
   inspectVpsLocalModel, reviewVpsLocalModel, installVpsLocalModel, changeVpsLocalModel, getVpsLocalModelOperationStatus,
   installAssistant,
   getManagedLocalEndpointStatus,
@@ -196,6 +210,8 @@ const defaultServices = {
   getManagedLocalN8nStackTarget,
   importLocalStackN8nCredential,
   getLocalN8nSuperGrokStatus,
+  getLocalN8nClaudeStatus, getLocalN8nClaudeAuthStatus, inspectLocalN8nClaudeHost, changeLocalN8nClaude,
+  discoverLocalN8nClaudeModels,
   discoverLocalN8nSidecarTargets,
   getLocalN8nSidecarStatus,
   getLocalN8nSidecarUsage,
@@ -222,6 +238,7 @@ const defaultServices = {
   installLocalN8nSidecar,
   installLocalN8nAssistant,
   installLocalN8nSuperGrok,
+  installLocalN8nClaude,
   editLocalN8nAssistantSearxng,
   installLocalN8nModel,
   installLocalN8nStack,
@@ -229,6 +246,7 @@ const defaultServices = {
   prepareLocalN8nAssistantPlan: createLocalN8nAssistantPlan,
   prepareLocalN8nSidecarPlan: createLocalN8nSidecarPlan,
   prepareLocalN8nSuperGrokPlan: createLocalN8nSuperGrokPlan,
+  prepareLocalN8nClaudePlan: createLocalN8nClaudePlan,
   prepareLocalN8nModelPlan: createLocalN8nModelPlan,
   prepareLocalN8nStackPlan: createLocalN8nStackPlan,
   prepareHostingDeploymentPlan: createHostingDeploymentPlan,
@@ -841,7 +859,7 @@ function requireFullVpsScope(connection) {
   if (connection?.scope !== "vps" || connection.identity?.privilege !== "root" ||
     connection.identity?.loginUid !== 0 || connection.identity?.effectiveUid !== 0) {
     throw Object.assign(new Error(
-      "This SSH session is local-model-only. OAuth bridge, Assistant and SuperGrok VPS operations require a verified root session. Disconnect and reconnect using a UID 0 account; local ChatGPT sign-in remains available.",
+      "This SSH session is local-model-only. OAuth bridge, Assistant, SuperGrok and Claude VPS operations require a verified root session. Disconnect and reconnect using a UID 0 account; local ChatGPT sign-in remains available.",
     ), { statusCode: 403 });
   }
 }
@@ -960,7 +978,7 @@ function credentialBearingVpsRoute(path) {
     path === "/api/siwc/vps/runtime-update/review" || path === "/api/siwc/vps/runtime-update/apply" ||
     path.startsWith("/api/siwc/vps/images/") || path.startsWith("/api/siwc/vps/models/") || path === "/api/siwc/vps/usage/status" ||
     path === "/api/assistant/plan" || path === "/api/assistant/install" ||
-    path.startsWith("/api/vps/supergrok/");
+    path.startsWith("/api/vps/supergrok/") || path.startsWith("/api/vps/claude/");
 }
 
 function validatedSshRequest(body) {
@@ -1079,12 +1097,17 @@ function invalidateVpsPlans(state) {
   state.sidecarPlan = null;
   state.assistantPlan = null;
   invalidateSuperGrokPlan(state);
+  invalidateClaudePlan(state);
   invalidateLocalModelVpsPlan(state);
 }
 
 function invalidateSuperGrokPlan(state) {
   state.supergrokPlan = null;
   state.supergrokPlanGeneration += 1;
+}
+function invalidateClaudePlan(state) {
+  state.claudePlan = null;
+  state.claudePlanGeneration += 1;
 }
 function invalidateLocalModelVpsPlan(state) {
   state.localModelVpsPlan = null;
@@ -1101,6 +1124,10 @@ function beginVpsDiscoveryRefresh(state) {
 function beginSuperGrokPlanReview(state) {
   invalidateVpsPlans(state);
   return state.supergrokPlanGeneration;
+}
+function beginClaudePlanReview(state) {
+  invalidateVpsPlans(state);
+  return state.claudePlanGeneration;
 }
 function beginLocalModelVpsReview(state) {
   invalidateVpsPlans(state);
@@ -1635,6 +1662,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/local": ["../ui/local.html", "utf8"],
   "/assistant": ["../ui/assistant.html", "utf8"],
   "/supergrok-vps": ["../ui/supergrok-vps.html", "utf8"],
+  "/claude-vps": ["../ui/claude-vps.html", "utf8"],
   "/local-model-vps": ["../ui/local-model-vps.html", "utf8"],
   "/hosting": ["../ui/hosting.html", "utf8"],
   "/app.js": ["../ui/app.js", "utf8"],
@@ -1643,6 +1671,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/siwc-controls.js": ["../ui/siwc-controls.js", "utf8"],
   "/assistant.js": ["../ui/assistant.js", "utf8"],
   "/supergrok-vps.js": ["../ui/supergrok-vps.js", "utf8"],
+  "/claude-vps.js": ["../ui/claude-vps.js", "utf8"],
   "/local-model-vps.js": ["../ui/local-model-vps.js", "utf8"],
   "/hosting.js": ["../ui/hosting.js", "utf8"],
   "/chat-tester-feedback.js": ["../ui/chat-tester-feedback.js", "utf8"],
@@ -1662,6 +1691,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/guide/content-local.js": ["../ui/guide/content-local.js", "utf8"],
   "/guide/content-assistant.js": ["../ui/guide/content-assistant.js", "utf8"],
   "/guide/content-supergrok-vps.js": ["../ui/guide/content-supergrok-vps.js", "utf8"],
+  "/guide/content-claude-vps.js": ["../ui/guide/content-claude-vps.js", "utf8"],
   "/guide/content-local-model-vps.js": ["../ui/guide/content-local-model-vps.js", "utf8"],
   "/guide/content-hosting.js": ["../ui/guide/content-hosting.js", "utf8"],
   "/guide/errors.js": ["../ui/guide/errors.js", "utf8"],
@@ -1673,6 +1703,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/siwc.css": ["../ui/siwc.css", "utf8"],
   "/assistant.css": ["../ui/assistant.css", "utf8"],
   "/supergrok-vps.css": ["../ui/supergrok-vps.css", "utf8"],
+  "/claude-vps.css": ["../ui/claude-vps.css", "utf8"],
   "/local-model-vps.css": ["../ui/local-model-vps.css", "utf8"],
   "/hosting.css": ["../ui/hosting.css", "utf8"],
   "/guide.css": ["../ui/guide.css", "utf8"],
@@ -1683,7 +1714,7 @@ const UI_FILE_SOURCES = Object.freeze({
   "/fonts/geist-latin.woff2": ["../ui/fonts/geist-latin.woff2"],
   "/fonts/bricolage-grotesque-latin.woff2": ["../ui/fonts/bricolage-grotesque-latin.woff2"],
 });
-const UI_PAGES = new Set(["/", "/local", "/assistant", "/supergrok-vps", "/local-model-vps", "/hosting"]);
+const UI_PAGES = new Set(["/", "/local", "/assistant", "/supergrok-vps", "/claude-vps", "/local-model-vps", "/hosting"]);
 
 async function loadDefaultUiFiles() {
   const entries = await Promise.all(
@@ -1896,6 +1927,10 @@ const LOCAL_DASHBOARD_SERVICE_DEFINITIONS = Object.freeze({
       "remove-owned-supergrok",
     ]),
   }),
+  "n8n-claude-oauth": Object.freeze({
+    label: "Claude for n8n", kind: "n8n-claude",
+    actions: new Set(["setup", "manage-claude", "remove"]),
+  }),
   "n8n-local-model": Object.freeze({
     label: "Local model for n8n",
     kind: "n8n-local-model",
@@ -1920,6 +1955,7 @@ const LOCAL_DASHBOARD_PROVIDER_DEFINITIONS = Object.freeze({
     label: "SuperGrok (n8n)",
     authentication: "provider-oauth",
   }),
+  "n8n-claude-oauth": Object.freeze({ label: "Claude (n8n)", authentication: "provider-oauth" }),
 });
 
 const LOCAL_DASHBOARD_STATES = new Set([
@@ -2060,6 +2096,7 @@ function createSafeDashboardSnapshot(target, snapshot) {
       canRemove: true,
     };
   }
+  if (target === LOCAL_N8N_CLAUDE_TARGET) return createSafeLocalN8nClaudeSnapshot(snapshot);
   if (target === LOCAL_N8N_SUPERGROK_TARGET) {
     if (
       snapshot.target !== LOCAL_N8N_SUPERGROK_TARGET ||
@@ -2203,6 +2240,7 @@ function expectedDashboardActions({ definition, state, snapshot }) {
   if (definition.kind === "n8n-local-model" && snapshot.canRetry === true) {
     actions.push("retry-model");
   }
+  if (definition.kind === "n8n-claude") actions.push("manage-claude");
   if (definition.kind === "n8n-supergrok") {
     if (state === "healthy") {
       actions.push("sign-in-grok-build", "sign-out-grok-build");
@@ -2693,6 +2731,87 @@ function requireVpsSuperGrokBuildBoundary(plan) {
     plan.temporaryBuildStatePath !== (mayBuild ? "/docker/n8n-openai-oauth/.supergrok-operation.lock/buildx" : null)) {
     throw Object.assign(new TypeError("The reviewed SuperGrok build boundary is invalid."), { statusCode: 502 });
   }
+}
+
+const VPS_CLAUDE_ACTIONS = Object.freeze(["install", "replace", "renew", "sign-out", "remove"]);
+const VPS_CLAUDE_LOCK = "/docker/n8n-openai-oauth/.claude-operation.lock";
+
+function vpsClaudeInvalid(subject) {
+  return Object.assign(new TypeError(`The VPS Claude ${subject} is invalid.`), { statusCode: 502 });
+}
+
+function validVpsClaudePin(pin) {
+  return ["amd64", "arm64"].includes(pin?.arch) && typeof pin.version === "string" && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/u.test(pin.version) &&
+    typeof pin.executableSha256 === "string" && /^[a-f0-9]{64}$/u.test(pin.executableSha256);
+}
+
+function createSafeVpsClaudeStatus(status) {
+  const { state, installation, candidate } = status ?? {};
+  if (!["absent", "manual", "installed", "invalid"].includes(state) || (state === "installed") !== (installation !== null) ||
+    (candidate !== null && (!validVpsClaudePin(candidate) || !["linux-x64", "linux-arm64"].includes(candidate.platform)))) {
+    throw vpsClaudeInvalid("status");
+  }
+  if (state === "installed" && (!["amd64", "arm64"].includes(installation?.arch) || !validModels(installation.models) ||
+    (installation.expiresAt !== null && !isoTime(installation.expiresAt)) || typeof installation.approvalExpired !== "boolean" ||
+    !["running", "stopped", "missing"].includes(installation.container) || installation.endpoint !== CLAUDE_COMPANION.endpoint)) {
+    throw vpsClaudeInvalid("status");
+  }
+  return {
+    state,
+    installation: state === "installed" ? {
+      network: requireSafeDockerName(installation.network, "Claude network name"), arch: installation.arch,
+      models: [...installation.models], expiresAt: installation.expiresAt, approvalExpired: installation.approvalExpired,
+      container: installation.container, endpoint: CLAUDE_COMPANION.endpoint,
+    } : null,
+    candidate: candidate === null ? null : {
+      version: candidate.version, arch: candidate.arch, platform: candidate.platform, executableSha256: candidate.executableSha256,
+    },
+  };
+}
+
+// The browser sees only the contract fields; selection ids and review answers stay in the server-side plan.
+function createSafeVpsClaudePlan(plan) {
+  const approves = ["install", "replace", "renew"].includes(plan?.action);
+  if (!VPS_CLAUDE_ACTIONS.includes(plan?.action) || plan.installDirectory !== "/docker/n8n-openai-oauth/claude" ||
+    plan.endpoint !== CLAUDE_COMPANION.endpoint || plan.operationLockPath !== VPS_CLAUDE_LOCK || !validVpsClaudePin(plan) ||
+    !Array.isArray(plan.existingN8nChanges) || plan.existingN8nChanges.length !== 0 || plan.restarts !== 0 ||
+    !Array.isArray(plan.publishedPorts) || plan.publishedPorts.length !== 0 || !validModels(plan.models) ||
+    (approves ? !isoTime(plan.expiresAt) : plan.expiresAt !== null) ||
+    plan.keepsClaudeLogin !== ["replace", "renew"].includes(plan.action)) {
+    throw vpsClaudeInvalid("plan");
+  }
+  return {
+    action: plan.action, installDirectory: plan.installDirectory, endpoint: plan.endpoint,
+    network: requireSafeDockerName(plan.network, "Claude network name"), arch: plan.arch, models: [...plan.models],
+    version: plan.version, executableSha256: plan.executableSha256, expiresAt: plan.expiresAt,
+    keepsClaudeLogin: plan.keepsClaudeLogin, existingN8nChanges: [], restarts: 0, publishedPorts: [], operationLockPath: VPS_CLAUDE_LOCK,
+  };
+}
+
+// The one-time key leaves only for install and replace; nothing else from the VPS passes through.
+function createSafeVpsClaudeApplyResult(result, action) {
+  const deploys = action === "install" || action === "replace";
+  if (result?.state !== (action === "remove" ? "absent" : "installed") ||
+    (deploys ? typeof result.clientKey !== "string" || !/^[A-Za-z0-9_-]{43}$/u.test(result.clientKey) : result.clientKey !== undefined) ||
+    (deploys || action === "renew" ? !isoTime(result.expiresAt) : result.expiresAt !== undefined) ||
+    (action === "sign-out" ? result.loggedIn !== false : result.loggedIn !== undefined)) {
+    throw vpsClaudeInvalid("result");
+  }
+  return {
+    state: result.state,
+    ...(deploys ? { clientKey: result.clientKey } : {}),
+    ...(result.expiresAt === undefined ? {} : { expiresAt: result.expiresAt }),
+    ...(action === "sign-out" ? { loggedIn: false } : {}),
+  };
+}
+
+// Never email or organization: only the three fields that decide readiness.
+function createSafeVpsClaudeAuthStatus(status) {
+  const field = (value) => value === null || (typeof value === "string" && /^[A-Za-z0-9_.:-]{1,64}$/u.test(value));
+  if (typeof status?.loggedIn !== "boolean" || !field(status.authMethod) || !field(status.subscriptionType)) {
+    throw vpsClaudeInvalid("sign-in status");
+  }
+  return { loggedIn: status.loggedIn, authMethod: status.authMethod, subscriptionType: status.subscriptionType };
 }
 
 function createSafeLocalN8nAssistantPlan(plan) {
@@ -3481,6 +3600,12 @@ function requireLocalInstallBody(plan, body) {
     );
     return;
   }
+  if (plan?.kind === "n8n-claude") {
+    requireExactRequestBody(body, ["planId", "confirmed", "review"], "The local Claude install request is invalid.");
+    validateClaudeReview(body.review);
+    if (body.confirmed !== true) throw new Error("Confirm the reviewed local Claude installation.");
+    return;
+  }
   requireExactRequestBody(
     body,
     plan?.kind === "n8n-sidecar"
@@ -3631,6 +3756,7 @@ async function handleApi(request, response, path, state) {
       : await state.services.getLocalDashboardStatus({
           inspectLocalN8nStack: state.services.getLocalN8nStackStatus,
           inspectLocalN8nSuperGrok: state.services.getLocalN8nSuperGrokStatus,
+          inspectLocalN8nClaude: state.services.getLocalN8nClaudeStatus,
           inspectLocalN8nModel: state.services.getLocalN8nModelStatus,
         });
     requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
@@ -3653,6 +3779,16 @@ async function handleApi(request, response, path, state) {
       : await state.services.getLocalN8nSuperGrokStatus();
     requireCurrentLocalDashboardGeneration(state, localDashboardGeneration);
     sendJson(response, 200, createSafeLocalN8nSuperGrokStatus(status));
+    return;
+  }
+
+  if (request.method === "GET" && path === "/api/local/claude/status") {
+    const generation = state.localDashboardGeneration;
+    const result = state.previewMode
+      ? { target: LOCAL_N8N_CLAUDE_TARGET, managed: false, state: "absent" }
+      : await state.services.getLocalN8nClaudeStatus();
+    requireCurrentLocalDashboardGeneration(state, generation);
+    sendJson(response, 200, createSafeLocalN8nClaudeStatus(result));
     return;
   }
 
@@ -3764,6 +3900,21 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  // Read-only: no selection is needed because one Claude companion serves the whole Docker host.
+  if (request.method === "GET" && path === "/api/vps/claude/status") {
+    const connectionUse = acquireVpsConnectionUse(state);
+    try {
+      const { connection } = connectionUse;
+      requireFullVpsScope(connection);
+      const snapshot = { connection, lifecycleGeneration: state.vpsLifecycleGeneration };
+      const status = createSafeVpsClaudeStatus(await state.services.getVpsClaudeStatus({ remote: connection }));
+      requireUnchangedVpsSession(state, snapshot);
+      sendJson(response, 200, { ...status, loginCommand: vpsClaudeLoginCommand(state.connectionIdentity) });
+    } finally {
+      connectionUse.release();
+    }
+    return;
+  }
 
   if (request.method !== "POST") {
     sendJson(response, 405, { error: "Method not allowed." });
@@ -4556,10 +4707,12 @@ async function handleApi(request, response, path, state) {
       body?.target === LOCAL_N8N_SIDECAR_TARGET ||
       body?.target === LOCAL_N8N_ASSISTANT_TARGET ||
       body?.target === LOCAL_N8N_SUPERGROK_TARGET ||
+      body?.target === LOCAL_N8N_CLAUDE_TARGET ||
       body?.target === LOCAL_N8N_MODEL_TARGET
     ) {
       const assistantTarget = body.target === LOCAL_N8N_ASSISTANT_TARGET;
       const superGrokTarget = body.target === LOCAL_N8N_SUPERGROK_TARGET;
+      const claudeTarget = body.target === LOCAL_N8N_CLAUDE_TARGET;
       const modelTarget = body.target === LOCAL_N8N_MODEL_TARGET;
       requireExactLocalPlanBody(
         body,
@@ -4567,7 +4720,8 @@ async function handleApi(request, response, path, state) {
           ? ["target", "n8nContainerId", "dockerNetworkId", "includeSearxng"]
           : modelTarget
             ? ["target", "n8nContainerId", "dockerNetworkId", "modelId"]
-            : ["target", "n8nContainerId", "dockerNetworkId"],
+            : claudeTarget ? ["target", "n8nContainerId", "dockerNetworkId", "models"]
+              : ["target", "n8nContainerId", "dockerNetworkId"],
         assistantTarget
           ? "The local n8n Assistant plan request is invalid."
           : superGrokTarget
@@ -4577,7 +4731,7 @@ async function handleApi(request, response, path, state) {
               : "The local n8n OAuth bridge plan request is invalid.",
       );
       requireLiveLocalAction(state, "Local n8n sidecar planning");
-      if (!assistantTarget && !superGrokTarget && !modelTarget && localOAuthChangeInFlight(state)) {
+      if (!assistantTarget && !superGrokTarget && !claudeTarget && !modelTarget && localOAuthChangeInFlight(state)) {
         throw Object.assign(
           new Error("ChatGPT sign-in is already in progress."),
           { statusCode: 409 },
@@ -4634,6 +4788,15 @@ async function handleApi(request, response, path, state) {
           ...state.services.prepareLocalN8nModelPlan({ ...selected, modelId, hostResources }),
           disposableHarnessWarning: network.disposable === true,
         };
+      } else if (claudeTarget) {
+        const selected = {
+          dockerHost: discovery.dockerHost, n8nContainerId: container.containerId,
+          n8nContainerName: container.containerName, dockerNetworkId: network.dockerNetworkId,
+          networkName: network.networkName,
+        };
+        const { arch } = await state.services.inspectLocalN8nClaudeHost(selected);
+        plan = { ...state.services.prepareLocalN8nClaudePlan({ ...selected, arch, models: body.models }),
+          disposableHarnessWarning: network.disposable === true };
       } else if (superGrokTarget) {
         plan = {
           ...state.services.prepareLocalN8nSuperGrokPlan({
@@ -4742,6 +4905,8 @@ async function handleApi(request, response, path, state) {
             ? createSafeLocalN8nAssistantPlan(plan)
             : plan.kind === "n8n-supergrok"
               ? createSafeLocalN8nSuperGrokPlan(plan)
+            : plan.kind === "n8n-claude"
+              ? createSafeLocalN8nClaudePlan(plan)
             : plan.kind === LOCAL_N8N_MODEL_TARGET
               ? createSafeLocalN8nModelPlan(plan)
               : createSafeLocalPlan(plan),
@@ -4853,6 +5018,10 @@ async function handleApi(request, response, path, state) {
           plan: pending.plan,
           confirmed: body.confirmed,
         });
+      } else if (pending.plan.kind === "n8n-claude") {
+        result = await state.services.installLocalN8nClaude({
+          plan: pending.plan, confirmed: body.confirmed, review: body.review,
+        });
       } else if (pending.plan.kind === LOCAL_N8N_MODEL_TARGET) {
         result = await state.services.installLocalN8nModel({ plan: pending.plan, confirmed: true });
       } else if (pending.plan.kind === "local-n8n-stack") {
@@ -4908,12 +5077,15 @@ async function handleApi(request, response, path, state) {
             ? createSafeLocalN8nAssistantInstallResult(result, pending.plan)
             : pending.plan.kind === "n8n-supergrok"
               ? createSafeLocalN8nSuperGrokInstallResult(result, pending.plan)
+              : pending.plan.kind === "n8n-claude"
+                ? createSafeLocalN8nClaudeInstallResult(result, pending.plan)
               : pending.plan.kind === LOCAL_N8N_MODEL_TARGET
                 ? createSafeLocalModelStatus(result)
                 : createSafeLocalInstallResult(result, pending.plan);
       const feature = pending.plan.kind === "n8n-sidecar" ? "chatgpt"
         : pending.plan.kind === LOCAL_N8N_MODEL_TARGET ? "local-model"
-          : pending.plan.kind === "n8n-supergrok" ? "supergrok" : null;
+          : pending.plan.kind === "n8n-supergrok" ? "supergrok"
+            : pending.plan.kind === "n8n-claude" ? "claude" : null;
       if (feature && result.deploymentMode !== "partial") {
         let managed = null;
         try { managed = await state.services.getManagedLocalN8nStackTarget(); }
@@ -4921,13 +5093,13 @@ async function handleApi(request, response, path, state) {
         if (managed?.containerId === pending.plan.n8nContainerId &&
             managed.marker.dockerHost === pending.plan.dockerHost) {
           const name = { chatgpt: "Relmio ChatGPT plan", "local-model": "Relmio local model",
-            supergrok: "Relmio SuperGrok" }[feature];
+            supergrok: "Relmio SuperGrok", claude: "Relmio Claude" }[feature];
           let n8nCredential = { state: "failed", name };
           try {
             n8nCredential = await state.services.importLocalStackN8nCredential({
               marker: managed.marker, dockerHost: managed.marker.dockerHost,
               credential: { feature, apiKey: feature === "chatgpt" ? result.clientCredential
-                : feature === "supergrok" ? result.clientKey : "local-only" },
+                : ["supergrok", "claude"].includes(feature) ? result.clientKey : "local-only" },
             });
           } catch { /* The one-time key remains available for manual entry. */ }
           if (!["created", "updated", "failed"].includes(n8nCredential?.state) ||
@@ -5137,6 +5309,55 @@ async function handleApi(request, response, path, state) {
     } finally {
       state.localInstallInFlight = false;
     }
+    return;
+  }
+
+  if (path === "/api/local/claude/models") {
+    requireLiveLocalAction(state, "Claude local model check");
+    requireExactRequestBody(body, ["clientKey"], "The Claude model check request is invalid.");
+    const result = await state.services.discoverLocalN8nClaudeModels({ clientKey: body.clientKey });
+    if (!Array.isArray(result?.models) || !result.models.length || result.models.length > 8 ||
+        new Set(result.models).size !== result.models.length || result.models.some(model =>
+          typeof model !== "string" || model.length > 128 || !/^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(model) || model.includes("fable"))) {
+      throw new Error("The Claude model list is invalid.");
+    }
+    sendJson(response, 200, { models: [...result.models] });
+    return;
+  }
+
+  if (path === "/api/local/claude/auth-status") {
+    requireLiveLocalAction(state, "Claude sign-in check");
+    requireExactRequestBody(body, [], "The Claude sign-in check request is invalid.");
+    const result = await state.services.getLocalN8nClaudeAuthStatus();
+    if (typeof result?.loggedIn !== "boolean" ||
+        ![result.authMethod, result.subscriptionType].every(value => value === null ||
+          (typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/u.test(value)))) {
+      throw new Error("The Claude sign-in status is invalid.");
+    }
+    sendJson(response, 200, { loggedIn: result.loggedIn, authMethod: result.authMethod, subscriptionType: result.subscriptionType });
+    return;
+  }
+
+  if (["/api/local/claude/renew", "/api/local/claude/sign-out", "/api/local/claude/remove"].includes(path)) {
+    const generation = state.localDashboardGeneration;
+    const action = path.split("/").at(-1);
+    requireLiveLocalAction(state, "Local Claude change");
+    enforceRateLimit(state, path);
+    requireExactRequestBody(body, action === "renew" ? ["confirmed", "review"] : ["confirmed"], "The local Claude action request is invalid.");
+    if (body.confirmed !== true) throw new Error("Confirm this local Claude action.");
+    if (action === "renew") validateClaudeReview(body.review);
+    if (state.localInstallInFlight || state.localCredentialRotationInFlight ||
+        getPendingLocalCredentialRotation(state) || localOAuthChangeInFlight(state)) {
+      throw Object.assign(new Error("A local endpoint change is already in progress."), { statusCode: 409 });
+    }
+    state.localInstallInFlight = true;
+    state.localPlan = null;
+    state.localInstalledTarget = null;
+    try {
+      const result = await state.services.changeLocalN8nClaude({ action, confirmed: true, ...(action === "renew" ? { review: body.review } : {}) });
+      requireCurrentLocalDashboardGeneration(state, generation);
+      sendJson(response, 200, createSafeLocalN8nClaudeChangeResult(result, action));
+    } finally { state.localInstallInFlight = false; }
     return;
   }
 
@@ -5668,6 +5889,91 @@ async function handleApi(request, response, path, state) {
     return;
   }
 
+  if (path.startsWith("/api/vps/claude/")) {
+    rejectActiveVpsMutation(state);
+    const connectionUse = acquireVpsConnectionUse(state);
+    const { connection } = connectionUse;
+    let releaseMutation;
+    try {
+      requireFullVpsScope(connection);
+      const snapshot = {
+        connection,
+        lifecycleGeneration: state.vpsLifecycleGeneration,
+        discoveryGeneration: state.vpsDiscoveryGeneration,
+      };
+      if (path === "/api/vps/claude/plan") {
+        const action = body?.action;
+        const selects = action === "install" || action === "replace";
+        const approves = selects || action === "renew";
+        if (!VPS_CLAUDE_ACTIONS.includes(action)) throw new Error("Choose a supported Claude action.");
+        if (approves && !Object.hasOwn(body, "review")) {
+          throw new Error("Answer yes to all four Claude review questions first. Nothing was changed.");
+        }
+        requireExactRequestBody(body, selects ? ["action", "containerName", "networkName", "models", "review"]
+          : approves ? ["action", "review"] : ["action"], "The Claude plan request is invalid.");
+        if (selects) requireDiscoveredNetwork(state, body.containerName, body.networkName);
+        const generation = beginClaudePlanReview(state);
+        const reviewed = await state.services.reviewVpsClaude({
+          remote: connection, action,
+          ...(selects ? { containerName: body.containerName, networkName: body.networkName, models: body.models } : {}),
+          ...(approves ? { review: body.review } : {}),
+        });
+        requireUnchangedVpsSession(state, snapshot);
+        if (generation !== state.claudePlanGeneration) {
+          throw Object.assign(new Error("A newer Claude review replaced this plan. Review the current plan before applying it."), { statusCode: 409 });
+        }
+        const plan = createSafeVpsClaudePlan(reviewed);
+        state.claudePlan = { ...reviewed, planId: randomUUID() };
+        sendJson(response, 200, { planId: state.claudePlan.planId, plan });
+      } else if (path === "/api/vps/claude/apply") {
+        enforceRateLimit(state, path);
+        requireExactRequestBody(body, ["planId", "confirmed"], "The Claude apply request is invalid.");
+        const plan = state.claudePlan;
+        if (!plan || !tokenMatches(body.planId, plan.planId)) throw new Error("Review a fresh Claude plan before applying it.");
+        if (body.confirmed !== true) throw new Error("Confirm the exact reviewed Claude action.");
+        const selects = plan.action === "install" || plan.action === "replace";
+        if (selects) requireDiscoveredNetwork(state, plan.containerName, plan.networkName);
+        state.claudePlan = null;
+        releaseMutation = acquireVpsMutationLock(state);
+        snapshot.lifecycleGeneration = state.vpsLifecycleGeneration;
+        const servicePlan = { ...plan };
+        delete servicePlan.planId;
+        const fresh = await state.services.reviewVpsClaude({
+          remote: connection, action: plan.action,
+          ...(selects ? { containerName: plan.containerName, networkName: plan.networkName, models: plan.models } : {}),
+          ...(plan.review ? { review: plan.review } : {}),
+        });
+        createSafeVpsClaudePlan(fresh);
+        if (["action", "installId", "containerId", "networkId", "network", "arch", "executableSha256", "operationLockPath", "keepsClaudeLogin"]
+          .some((key) => fresh[key] !== plan[key]) || JSON.stringify(fresh.models) !== JSON.stringify(plan.models)) {
+          throw new Error("The Claude companion or its n8n selection changed. Review a fresh plan.");
+        }
+        const result = await state.services.applyVpsClaude({ remote: connection, plan: servicePlan, confirmed: true });
+        if (state.connection !== connection || state.vpsLifecycleGeneration !== snapshot.lifecycleGeneration) {
+          throw new Error("The VPS session changed during the Claude action. Reconnect and check its status.");
+        }
+        sendJson(response, 200, createSafeVpsClaudeApplyResult(result, plan.action));
+      } else if (path === "/api/vps/claude/auth-status") {
+        requireExactRequestBody(body, [], "The Claude sign-in check request is invalid.");
+        const result = createSafeVpsClaudeAuthStatus(await state.services.getVpsClaudeAuthStatus({ remote: connection }));
+        requireUnchangedVpsSession(state, snapshot);
+        sendJson(response, 200, result);
+      } else if (path === "/api/vps/claude/models") {
+        try {
+          requireExactRequestBody(body, ["clientKey"], "The Claude model check request is invalid.");
+          const result = await state.services.discoverVpsClaudeModels({ remote: connection, clientKey: body.clientKey });
+          requireUnchangedVpsSession(state, snapshot);
+          if (!validModels(result?.models)) throw vpsClaudeInvalid("model list");
+          sendJson(response, 200, { models: [...result.models] });
+        } finally { body.clientKey = undefined; }
+      } else sendJson(response, 404, { error: "Not found." });
+    } finally {
+      releaseMutation?.();
+      connectionUse.release();
+    }
+    return;
+  }
+
   if (["/api/siwc/vps/status", "/api/siwc/vps/manage", "/api/siwc/vps/inspect-stopped"].includes(path)) {
     requireLiveLocalAction(state, "VPS ChatGPT account management");
     enforceRateLimit(state, path);
@@ -6010,6 +6316,7 @@ async function handleApi(request, response, path, state) {
       };
       state.sidecarPlan = null;
       invalidateSuperGrokPlan(state);
+      invalidateClaudePlan(state);
       invalidateLocalModelVpsPlan(state);
       const account = requireVpsPlanAuthStatus(
         await selectedSiwcAccount(state, { requirePlan: true }),
@@ -6118,6 +6425,7 @@ async function handleApi(request, response, path, state) {
       const instanceAi = requireEnabledInstanceAi(state, body.containerName);
       state.assistantPlan = null;
       invalidateSuperGrokPlan(state);
+      invalidateClaudePlan(state);
       invalidateLocalModelVpsPlan(state);
       state.assistantPlan = {
         planId: randomUUID(),
@@ -6682,6 +6990,8 @@ export async function startWizardServer({
     assistantPlan: null,
     supergrokPlan: null,
     supergrokPlanGeneration: 0,
+    claudePlan: null,
+    claudePlanGeneration: 0,
     localModelVpsPlan: null,
     localModelVpsPlanGeneration: 0,
     localModelActionReview: null,

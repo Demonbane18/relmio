@@ -366,6 +366,14 @@
                       </label>
 
                       <label class="rm-choice target-card">
+                        <input class="rm-choice__input" type="radio" name="target" value="n8n-claude-oauth" />
+                        <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--message rm-icon--lg"></span></span>
+                        <span class="rm-choice__title">Claude for n8n <span class="rm-badge">Official sign-in</span> <span class="rm-badge rm-badge--accent">Experimental</span></span>
+                        <span class="rm-choice__text">For your own text-only workflows, using your Claude plan.</span>
+                        <span class="rm-choice__meta">You need n8n in Docker. Sign in yourself in your terminal.</span>
+                      </label>
+
+                      <label class="rm-choice target-card">
                         <input class="rm-choice__input" type="radio" name="target" value="n8n-local-model" />
                         <span class="rm-choice__icon" aria-hidden="true"><span class="rm-icon rm-icon--bot rm-icon--lg"></span></span>
                         <span class="rm-choice__title">Local model for n8n <span class="rm-badge">No host port</span></span>
@@ -733,6 +741,15 @@
                       </div>
                     </section>
 
+                    <section id="claude-n8n-options" class="rm-card rm-card--compact" hidden aria-labelledby="claude-models-label">
+                      <label class="rm-field" for="claude-models">
+                        <span id="claude-models-label" class="rm-field__label">Claude model IDs</span>
+                        <input id="claude-models" class="rm-input rm-input--mono" value="claude-haiku-5-5, claude-sonnet-5-5, claude-opus-5-5" maxlength="1032" aria-describedby="claude-models-help" />
+                        <small id="claude-models-help" class="rm-field__hint">1 to 8 exact IDs, separated by commas. No Fable. Docker only; for native n8n, use the <a class="rm-link" href="https://relmio.com/docs/claude-subscription" target="_blank" rel="noopener noreferrer">Claude CLI guide<span class="rm-visually-hidden"> (opens in a new tab)</span></a>.</small>
+                      </label>
+                      <p class="rm-small">Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</p>
+                    </section>
+
                     <aside id="supergrok-n8n-reminder" class="rm-callout supergrok-n8n-reminder" hidden aria-live="polite">
                       <span class="rm-icon rm-icon--terminal rm-callout__icon" aria-hidden="true"></span>
                       <div class="rm-callout__content">
@@ -898,6 +915,16 @@
                     </div>
                   </details>
                 </div>
+
+                <section id="claude-review" hidden aria-labelledby="claude-review-title">
+                  <h3 id="claude-review-title" class="rm-h3">Claude approval</h3>
+                  <p id="claude-review-models" class="rm-small"></p>
+                  <p id="claude-review-binary" class="rm-small rm-break"></p>
+                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="officialBinaryReviewed" /><span>I checked the official Claude Code version and SHA256 for this architecture.</span></label>
+                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="effectivePolicyReviewed" /><span>I reviewed the companion's effective policy, managed settings, hooks and MCP servers. None adds tools, commands or changes to sign-in or models.</span></label>
+                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="nativeAuthAndBillingReviewed" /><span>I will sign in to my own Claude plan, keep extra usage off and check for loggedIn true and authMethod claude.ai before use.</span></label>
+                  <label class="rm-check check-row"><input type="checkbox" data-claude-review="policyChangesControlled" /><span>I will keep policy, login and billing unchanged and renew approval after changes or within 7 days.</span></label>
+                </section>
 
                 <aside id="review-policy" class="policy-note"></aside>
               </div>
@@ -1130,6 +1157,7 @@
                     <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-openai-oauth">Add ChatGPT plan</button>
                     <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-local-model">Add local model</button>
                     <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-supergrok-oauth">Add SuperGrok</button>
+                    <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-claude-oauth">Add Claude <span class="rm-badge rm-badge--accent">Experimental</span></button>
                     <button class="rm-button rm-button--sm" type="button" data-stack-addon="n8n-ai-assistant">Add Assistant tools</button>
                   </div>
                 </section>
@@ -1459,6 +1487,34 @@
                   </div>
                 </section>
                 </details>
+
+                <section id="n8n-claude-management" class="rm-card rm-card--compact" hidden aria-labelledby="claude-management-title">
+                  <h3 id="claude-management-title" class="rm-h3">Claude for n8n <span class="rm-badge rm-badge--accent">Experimental</span></h3>
+                  <p class="rm-small">Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.</p>
+                  <div id="claude-one-time-key" hidden><p class="rm-small">Save this Relmio key now. It is shown once and cannot be recovered.</p><div class="result-value"><code id="claude-client-key"></code><button class="rm-button rm-button--sm copy-value" type="button" data-copy-target="claude-client-key" data-copy-label="Claude client key">Copy key</button></div></div>
+                  <p class="rm-small">Sign in in your own terminal. This browser never asks for the paste code:</p>
+                  <div class="result-value"><code id="claude-login-command">relmio claude companion login</code><button class="rm-button rm-button--sm copy-value" type="button" data-copy-target="claude-login-command" data-copy-label="Claude sign-in command">Copy command</button></div>
+                  <button id="claude-check-sign-in" class="rm-button rm-button--sm" type="button">Check sign-in</button>
+                  <p id="claude-auth-status" class="rm-small" role="status">Sign-in has not been checked.</p>
+                  <p id="claude-approval-status" class="rm-small" role="status"></p>
+                  <details class="rm-disclosure"><summary>n8n settings and approval management</summary><div class="rm-disclosure__body">
+                    <p class="rm-small">OpenAI credential: Base URL <code>http://relmio-claude:14502/v1</code>; API Key: the one-time Relmio key. Use Basic LLM Chain + OpenAI Chat Model. Turn Use Responses API off. Max Retries 0, Timeout at least 135000 ms, Batch Size 1. Text only, one request at a time. Not AI Agent tools or the n8n AI Assistant.</p>
+                    <p id="claude-installed-models" class="rm-small"></p>
+                    <label class="rm-field" for="claude-probe-key"><span class="rm-field__label">Relmio key for model check</span><input id="claude-probe-key" class="rm-input rm-input--mono" type="password" autocomplete="off" maxlength="43" aria-describedby="claude-model-check-note" /></label>
+                    <button id="claude-check-models" class="rm-button rm-button--sm" type="button">Check models</button>
+                    <p id="claude-model-check-note" class="rm-small" role="status">Lists the companion's approved models. It does not send a Claude prompt or prove account access.</p>
+                    <p class="rm-small">Claude stores its login only in the companion's Docker volume. Host administrators, Docker users and backups can access it. Relmio never reads or transfers that login.</p>
+                    <p class="rm-small">Renewal asks all four review questions again before replacing approval and restarting only the Claude companion.</p>
+                    <div id="claude-renew-review">
+                      <label class="rm-check check-row"><input type="checkbox" data-claude-renew="officialBinaryReviewed" /><span>I checked the official binary and SHA256.</span></label>
+                      <label class="rm-check check-row"><input type="checkbox" data-claude-renew="effectivePolicyReviewed" /><span>I reviewed effective policy, settings, hooks and MCP servers; no tools or command changes.</span></label>
+                      <label class="rm-check check-row"><input type="checkbox" data-claude-renew="nativeAuthAndBillingReviewed" /><span>My own plan and allowed models remain selected, auth status is claude.ai, and extra usage is off.</span></label>
+                      <label class="rm-check check-row"><input type="checkbox" data-claude-renew="policyChangesControlled" /><span>I will keep policy, login and billing unchanged and renew within 7 days.</span></label>
+                    </div>
+                    <label class="rm-check check-row"><input id="claude-change-confirm" type="checkbox" /><span>I confirm the action I choose below. Removal deletes only Relmio's Claude companion, login volume and managed files. n8n and its network stay.</span></label>
+                    <div class="rm-cluster"><button id="claude-renew" class="rm-button rm-button--sm" type="button" disabled>Renew approval</button><button id="claude-sign-out" class="rm-button rm-button--sm" type="button" disabled>Sign out</button><button id="claude-remove" class="rm-button rm-button--danger rm-button--sm" type="button" disabled>Remove Claude</button></div>
+                  </div></details>
+                </section>
 
                 <details class="rm-disclosure ready-optional">
                   <summary>Remove SuperGrok for n8n</summary>

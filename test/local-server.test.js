@@ -23,6 +23,7 @@ function dashboardProviders() {
     { target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
     { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" },
     { target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
+    { target: "n8n-claude-oauth", label: "Claude (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
   ];
 }
 
@@ -1482,6 +1483,7 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
               "remove-owned-supergrok",
             ],
           },
+          absent("n8n-claude-oauth", "Claude for n8n", "n8n-claude"),
           absent("n8n-local-model", "Local model for n8n", "n8n-local-model"),
         ],
         providers: dashboardProviders(),
@@ -1571,6 +1573,7 @@ test("local dashboard returns only the fixed sanitized inventory contract", asyn
           "remove-owned-supergrok",
         ],
       },
+      absent("n8n-claude-oauth", "Claude for n8n", "n8n-claude"),
       absent("n8n-local-model", "Local model for n8n", "n8n-local-model"),
     ],
     providers: dashboardProviders(),
@@ -1635,6 +1638,7 @@ test("local dashboard accepts only the exact healthy Codex sign-in action matrix
       absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
       absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
       absent("n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"),
+      absent("n8n-claude-oauth", "Claude for n8n", "n8n-claude"),
       absent("n8n-local-model", "Local model for n8n", "n8n-local-model"),
     ],
     providers: dashboardProviders(),
@@ -1750,7 +1754,7 @@ test("local dashboard preview never runs live discovery", async (t) => {
   assert.equal(calls, 0);
   assert.equal(body.previewMode, true);
   assert.equal(body.auth.secretsRevealable, false);
-  assert.equal(body.providers.length, 4);
+  assert.equal(body.providers.length, 5);
   assert.deepEqual(
     body.providers,
     [
@@ -1758,6 +1762,7 @@ test("local dashboard preview never runs live discovery", async (t) => {
       { target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
       { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" },
       { target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
+      { target: "n8n-claude-oauth", label: "Claude (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
     ],
   );
   assert.ok(body.services.every((service) =>
@@ -1801,6 +1806,7 @@ test("local dashboard keeps unattested partial services review-only", async (t) 
           absent("n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"),
           absent("local-n8n-assistant", "AI Assistant tools", "n8n-assistant"),
           absent("n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"),
+          absent("n8n-claude-oauth", "Claude for n8n", "n8n-claude"),
           absent("n8n-local-model", "Local model for n8n", "n8n-local-model"),
         ],
         providers: dashboardProviders(),
@@ -1827,6 +1833,7 @@ test("local dashboard rejects an incomplete or reordered fixed service set", asy
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+    ["n8n-claude-oauth", "Claude for n8n", "n8n-claude"],
     ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
   ];
   const serviceSet = definitions.map(([target, label, kind]) => ({
@@ -1868,6 +1875,7 @@ test("local dashboard derives actions and rejects unsafe Docker versions", async
     ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+    ["n8n-claude-oauth", "Claude for n8n", "n8n-claude"],
     ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
   ];
   const baseStatus = {
@@ -3576,6 +3584,7 @@ test("dashboard discard rejects an inventory read that finishes after the discar
       ["n8n-openai-oauth", "OpenAI OAuth bridge", "n8n-oauth-bridge"],
       ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
       ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+      ["n8n-claude-oauth", "Claude for n8n", "n8n-claude"],
       ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
     ].map(([target, label, kind]) => ({
       target, label, kind, managed: false, state: "absent", snapshot: null,

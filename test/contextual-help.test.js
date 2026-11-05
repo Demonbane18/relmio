@@ -46,7 +46,7 @@ test("invalid or future help metadata produces a safe unknown answer", () => {
 test("every help chapter carries supported source metadata and every local source exists", async () => {
   const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(HELP_METADATA.sourceVersion, manifest.version, "update bundled help metadata when the package version changes");
-  for (const page of ["vps", "local", "assistant", "hosting", "supergrok-vps", "local-model-vps"]) {
+  for (const page of ["vps", "local", "assistant", "hosting", "supergrok-vps", "claude-vps", "local-model-vps"]) {
     const { GUIDE } = await import(`../src/ui/guide/content-${page}.js`);
     assert.equal(validHelpMetadata(GUIDE.metadata), true, page);
   }
@@ -303,7 +303,7 @@ test("topics expose current feature tips and FAQ, then return to the active guid
 });
 
 test("route-wide activation guards leave help usable and block protected controls", async () => {
-  for (const file of ["supergrok-vps.js", "local-model-vps.js"]) {
+  for (const file of ["supergrok-vps.js", "claude-vps.js", "local-model-vps.js"]) {
     const source = await readFile(new URL(`../src/ui/${file}`, import.meta.url), "utf8");
     const start = source.indexOf('for (const name of ["click", "pointerdown", "keydown", "beforeinput", "input", "change", "submit"])');
     const end = source.indexOf("async function perform(", start);

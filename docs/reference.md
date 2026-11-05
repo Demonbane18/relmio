@@ -62,6 +62,7 @@ The temporary state is not created by status or other nonbuilding actions.
 | --- | --- |
 | Model install/retry | `.local-model-operation.lock/buildx` |
 | SuperGrok install/sign-in/sign-out | `.supergrok-operation.lock/buildx` |
+| Claude install/replace | `.claude-operation.lock/buildx` |
 | OpenAI bridge install/update | `.openai-oauth-operation.lock/buildx` |
 
 Creation requires final confirmation and the owned lock. Successful verified

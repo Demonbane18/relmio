@@ -49,6 +49,7 @@ function oauthOnlySnapshot() {
     ["n8n-openai-oauth", "ChatGPT plan sidecar", "n8n-oauth-bridge"],
     ["local-n8n-assistant", "AI Assistant tools", "n8n-assistant"],
     ["n8n-supergrok-oauth", "SuperGrok for n8n", "n8n-supergrok"],
+    ["n8n-claude-oauth", "Claude for n8n", "n8n-claude"],
     ["n8n-local-model", "Local model for n8n", "n8n-local-model"],
   ].map(([target, label, kind]) => ({ target, label, kind, managed: false, state: "absent", snapshot: null, actions: ["setup"] }));
   return {
@@ -62,6 +63,7 @@ function oauthOnlySnapshot() {
       { target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" },
       { target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" },
       { target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
+      { target: "n8n-claude-oauth", label: "Claude (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" },
     ],
   };
 }

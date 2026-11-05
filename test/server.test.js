@@ -299,7 +299,7 @@ test("wizard serves shared UI assets and accessible chat and progress markup", a
   assert.equal(kit.status, 200);
   assert.match(kit.headers.get("content-type") ?? "", /^text\/css/u);
 
-  for (const page of ["/", "/local", "/assistant", "/supergrok-vps", "/local-model-vps", "/hosting"]) {
+  for (const page of ["/", "/local", "/assistant", "/supergrok-vps", "/claude-vps", "/local-model-vps", "/hosting"]) {
     const html = await (await fetch(`${wizard.origin}${page}`)).text();
     assert.doesNotMatch(html, /__RELMIO_PACKAGE_VERSION__/u, `${page} keeps the version placeholder`);
     if (["/", "/local", "/assistant"].includes(page)) {

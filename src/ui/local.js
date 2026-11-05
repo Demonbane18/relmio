@@ -8,6 +8,10 @@ import {
 import { initWizardTopbar } from "./topbar.js";
 import { createDeviceCodeControls } from "./device-code.js";
 
+const CLAUDE_LOCAL_NOTICE = "Experimental. Not affiliated with or endorsed by Anthropic. Uses the official Claude Code that you sign in to yourself; Relmio never sees your Claude login. Personal use only; Anthropic's terms apply and this may stop working.";
+const CLAUDE_N8N_SETTINGS = "Basic LLM Chain + OpenAI Chat Model; Use Responses API off; Max Retries 0; Timeout at least 135000 ms; Batch Size 1. Text only, one request at a time. Not AI Agent tools or the n8n AI Assistant. Renew approval within 7 days.";
+const CLAUDE_REVIEW_KEYS = ["officialBinaryReviewed", "effectivePolicyReviewed", "nativeAuthAndBillingReviewed", "policyChangesControlled"];
+
 const token = readWizardSession();
 
 const element = (id) => document.getElementById(id);
@@ -79,6 +83,7 @@ const DASHBOARD_ACTIONS = Object.freeze([
   "setup", "resume", "remove", "sign-out-chatgpt", "disable-chatgpt-plan", "inspect-stopped-chatgpt",
   "sign-in-grok-build", "sign-out-grok-build", "remove-owned-supergrok",
   "rotate-local-capability", "retry-model",
+  "manage-claude",
 ]);
 const DASHBOARD_SERVICE_DEFINITIONS = Object.freeze([
   Object.freeze({ target: "codex-chatgpt", label: "Codex (ChatGPT plan)", kind: "endpoint" }),
@@ -88,6 +93,7 @@ const DASHBOARD_SERVICE_DEFINITIONS = Object.freeze([
   Object.freeze({ target: "n8n-openai-oauth", label: "ChatGPT plan sidecar", kind: "n8n-oauth-bridge" }),
   Object.freeze({ target: "local-n8n-assistant", label: "AI Assistant tools", kind: "n8n-assistant" }),
   Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok for n8n", kind: "n8n-supergrok" }),
+  Object.freeze({ target: "n8n-claude-oauth", label: "Claude for n8n", kind: "n8n-claude" }),
   Object.freeze({ target: "n8n-local-model", label: "Local model for n8n", kind: "n8n-local-model" }),
 ]);
 const DASHBOARD_PROVIDER_DEFINITIONS = Object.freeze([
@@ -95,6 +101,7 @@ const DASHBOARD_PROVIDER_DEFINITIONS = Object.freeze([
   Object.freeze({ target: "codex-chat", label: "ChatGPT", authentication: "provider-oauth", readiness: "runtime-owned" }),
   Object.freeze({ target: "xai-grok-build", label: "SuperGrok", authentication: "provider-oauth", readiness: "runtime-owned" }),
   Object.freeze({ target: "n8n-supergrok-oauth", label: "SuperGrok (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" }),
+  Object.freeze({ target: "n8n-claude-oauth", label: "Claude (n8n)", authentication: "provider-oauth", readiness: "runtime-owned" }),
 ]);
 const DASHBOARD_SERVICE_STATES = new Set(
   DASHBOARD_STATES.filter((value) => !["checking", "stale"].includes(value)),
@@ -1020,6 +1027,20 @@ function normalizeLocalModelDashboardSnapshot(snapshot) {
   };
 }
 
+function normalizeN8nClaudeDashboardSnapshot(snapshot) {
+  assertDashboardKeys(snapshot, ["target", "endpoint", "auth", "canRemove", "models", "expiresAt", "approvalExpired"]);
+  assertDashboardKeys(snapshot.auth, ["configured", "disclosure"]);
+  if (snapshot.target !== "n8n-claude-oauth" || snapshot.endpoint !== "http://relmio-claude:14502/v1" ||
+      snapshot.auth.configured !== true || snapshot.auth.disclosure !== "one-time" || snapshot.canRemove !== true ||
+      !Array.isArray(snapshot.models) || !snapshot.models.length || snapshot.models.length > 8 ||
+      new Set(snapshot.models).size !== snapshot.models.length || snapshot.models.some(model =>
+        typeof model !== "string" || model.length > 128 || !/^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(model) || model.includes("fable")) ||
+      typeof snapshot.expiresAt !== "string" || !Number.isFinite(Date.parse(snapshot.expiresAt)) ||
+      new Date(snapshot.expiresAt).toISOString() !== snapshot.expiresAt ||
+      typeof snapshot.approvalExpired !== "boolean") throw dashboardContractError();
+  return { ...snapshot, models: [...snapshot.models], auth: { configured: true, disclosure: "one-time" } };
+}
+
 function normalizeDashboardServiceSnapshot(snapshot, definition) {
   if (definition.kind === "endpoint") {
     return normalizeEndpointDashboardSnapshot(snapshot, definition);
@@ -1033,6 +1054,7 @@ function normalizeDashboardServiceSnapshot(snapshot, definition) {
   if (definition.kind === "n8n-supergrok") {
     return normalizeN8nSuperGrokDashboardSnapshot(snapshot);
   }
+  if (definition.kind === "n8n-claude") return normalizeN8nClaudeDashboardSnapshot(snapshot);
   if (definition.kind === "n8n-local-model") {
     return normalizeLocalModelDashboardSnapshot(snapshot);
   }
@@ -1082,6 +1104,7 @@ function expectedDashboardActions(definition, serviceState, snapshot, provider) 
   if (definition.kind === "n8n-local-model" && snapshot.canRetry === true) {
     actions.push("retry-model");
   }
+  if (definition.kind === "n8n-claude") actions.push("manage-claude");
   if (definition.kind === "n8n-supergrok" && serviceState === "healthy") {
     return ["sign-in-grok-build", "sign-out-grok-build", "remove-owned-supergrok"];
   }
@@ -1456,6 +1479,9 @@ function resetDashboardActionReview() {
   element("chat-tester").hidden = true;
   element("n8n-sidecar-removal").hidden = true;
   element("n8n-supergrok-removal").hidden = true;
+  element("n8n-claude-management").hidden = true;
+  element("claude-client-key").textContent = "";
+  element("claude-one-time-key").hidden = true;
   element("n8n-assistant-removal").hidden = true;
   element("n8n-local-model-management").hidden = true;
   invalidateLocalModelReview();
@@ -1654,6 +1680,15 @@ async function runDashboardAction(service, action) {
     return;
   }
   await enterSetupView(wizardTarget, { checkDocker: false });
+  if (service.kind === "n8n-claude") {
+    resetDashboardActionReview();
+    state.installedTarget = service.target;
+    renderClaudeManagement(service.snapshot);
+    element("done-title").textContent = "Manage Claude for n8n";
+    element("done-detail").textContent = "Sign in in your terminal, check sign-in here, or review a separate approval change.";
+    showStep(4);
+    return;
+  }
   if (action === "resume") {
     showStoppedManagedLocalN8nStack();
   } else if (action === "rotate-local-capability") {
@@ -1682,6 +1717,7 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
     "sign-out-grok-build": "Grok Build sign-out guidance",
     "rotate-local-capability": compact ? "Rotate" : "Rotate local capability",
     "retry-model": "Review model retry",
+    "manage-claude": "Manage Claude",
   };
   const button = document.createElement("button");
   button.type = "button";
@@ -1707,6 +1743,7 @@ function renderDashboardAction(service, action, { compact = false, disabled = fa
       "sign-out-grok-build": `Grok Build sign-out guidance for ${service.label}`,
       "rotate-local-capability": `Rotate local capability for ${service.label}`,
       "retry-model": `Review model retry for ${service.label}`,
+      "manage-claude": "Manage Claude for n8n",
     };
     button.setAttribute("aria-label", accessibleLabels[action]);
   }
@@ -2518,6 +2555,7 @@ function clearOneTimeSetupValues() {
     "result-assistant-mode",
     "result-credential",
     "n8n-elsewhere-key",
+    "claude-client-key",
     "result-sandbox-key",
     "result-searxng",
     "result-n8n-settings",
@@ -2532,6 +2570,7 @@ function clearOneTimeSetupValues() {
     "ngrok-authtoken",
     "ngrok-basic-auth-username",
     "ngrok-basic-auth-password",
+    "claude-probe-key",
   ]) {
     element(id).value = "";
   }
@@ -2554,6 +2593,7 @@ function resetPendingSetupState() {
     "enable-assistant-searxng-confirm", "remove-bridge-confirm",
     "remove-supergrok-confirm", "remove-assistant-confirm",
     "remove-n8n-stack-confirm", "include-local-searxng",
+    "claude-change-confirm",
   ]) {
     element(id).checked = false;
   }
@@ -2567,6 +2607,7 @@ function resetPendingSetupState() {
     "enable-assistant-searxng-button", "remove-bridge-button",
     "remove-supergrok-button", "remove-assistant-button", "remove-n8n-stack-button",
     "local-siwc-disable", "local-siwc-logout",
+    "claude-renew", "claude-sign-out", "claude-remove",
   ]) {
     element(id).disabled = true;
   }
@@ -2583,6 +2624,7 @@ function resetPendingSetupState() {
     "installed-usage",
     "n8n-sidecar-removal",
     "n8n-supergrok-removal",
+    "n8n-claude-management", "claude-one-time-key",
     "n8n-assistant-removal",
     "n8n-stack-removal",
     "n8n-stack-resume",
@@ -2873,6 +2915,78 @@ function isN8nSuperGrok(target) {
   return target === "n8n-supergrok-oauth";
 }
 
+function isN8nClaude(target) { return target === "n8n-claude-oauth"; }
+
+function readClaudeModels() {
+  const models = element("claude-models").value.split(",").map(value => value.trim());
+  if (!models.length || models.length > 8 || new Set(models).size !== models.length ||
+      models.some(model => model.length > 128 || !/^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(model) || model.includes("fable"))) {
+    throw new Error("Enter 1 to 8 unique Claude model IDs. Fable models are refused.");
+  }
+  return models;
+}
+
+function readClaudeReview(kind) {
+  return Object.fromEntries(CLAUDE_REVIEW_KEYS.map(key => [key,
+    document.querySelector(`[data-claude-${kind}="${key}"]`)?.checked === true]));
+}
+function claudeReviewAccepted(kind) { return Object.values(readClaudeReview(kind)).every(value => value); }
+
+function renderClaudeManagement(snapshot) {
+  normalizeN8nClaudeDashboardSnapshot(snapshot);
+  element("n8n-claude-management").hidden = false;
+  element("claude-approval-status").textContent = snapshot.approvalExpired
+    ? `Approval expired ${snapshot.expiresAt}. Renew before use.`
+    : `Approval expires ${snapshot.expiresAt}. Sign-in and model access still need checking.`;
+  element("claude-installed-models").textContent = `Approved models: ${snapshot.models.join(", ")}`;
+  element("claude-auth-status").textContent = "Sign-in has not been checked.";
+  element("claude-change-confirm").checked = false;
+  for (const input of document.querySelectorAll("[data-claude-renew]")) input.checked = false;
+  updateClaudeChangeApproval();
+}
+
+function renderClaudeInstallResult(result) {
+  if (!hasExactKeys(result, ["target", "endpoint", "baseUrl", "protocol", "networkName", "n8nContainerName",
+    "hostPublication", "clientCredential", "credentialShownOnce", "deploymentMode", "models", "expiresAt",
+    ...(result.n8nCredential !== undefined ? ["n8nCredential"] : [])]) ||
+      result.endpoint !== "http://relmio-claude:14502/v1" || result.baseUrl !== result.endpoint ||
+      result.protocol !== "openai-chat-completions" || result.hostPublication !== "none" ||
+      !isSafeDockerDisplayName(result.networkName) || !isSafeDockerDisplayName(result.n8nContainerName) ||
+      !/^[A-Za-z0-9_-]{32,256}$/u.test(result.clientCredential ?? "") ||
+      result.credentialShownOnce !== true || result.deploymentMode !== "installed") {
+    throw new Error("The local Claude installer returned an unexpected response.");
+  }
+  const snapshot = { target: result.target, endpoint: result.endpoint, auth: { configured: true, disclosure: "one-time" },
+    canRemove: true, models: result.models, expiresAt: result.expiresAt, approvalExpired: false };
+  normalizeN8nClaudeDashboardSnapshot(snapshot);
+  resetDashboardActionReview();
+  for (const id of ["installed-siwc-models", "local-siwc-owner", "installed-usage"]) element(id).hidden = true;
+  state.installedTarget = result.target;
+  renderClaudeManagement(snapshot);
+  element("claude-one-time-key").hidden = false;
+  element("claude-client-key").textContent = result.clientCredential;
+  element("done-title").textContent = "Claude companion installed";
+  element("done-detail").textContent = "Save the one-time key, then sign in in your own terminal. Installation does not prove Claude model access.";
+  element("done-provider-context").textContent = "Claude · Experimental · private n8n companion";
+  if (result.n8nCredential !== undefined) {
+    if (!hasExactKeys(result.n8nCredential, ["state", "name"]) ||
+        !["created", "updated", "failed"].includes(result.n8nCredential.state) ||
+        result.n8nCredential.name !== "Relmio Claude") throw new Error("The Claude credential result is invalid.");
+    element("n8n-credential-status").hidden = false;
+    element("n8n-credential-status").textContent = result.n8nCredential.state === "failed"
+      ? "Credential import was not confirmed. Check n8n, then use the one-time key for manual setup if needed."
+      : 'Added to n8n as "Relmio Claude". Choose it in your OpenAI Chat Model.';
+  }
+  renderFooterForTarget(result.target);
+}
+
+function updateClaudeChangeApproval() {
+  const confirmed = element("claude-change-confirm").checked && state.installedTarget === "n8n-claude-oauth";
+  element("claude-renew").disabled = !confirmed || !claudeReviewAccepted("renew");
+  element("claude-sign-out").disabled = !confirmed;
+  element("claude-remove").disabled = !confirmed;
+}
+
 function isN8nLocalModel(target) {
   return target === "n8n-local-model";
 }
@@ -2886,7 +3000,7 @@ function isN8nStack(target) {
 }
 
 function isN8nDockerTarget(target) {
-  return isN8nSidecar(target) || isN8nSuperGrok(target) || isN8nLocalModel(target) || isN8nAssistant(target);
+  return isN8nSidecar(target) || isN8nSuperGrok(target) || isN8nClaude(target) || isN8nLocalModel(target) || isN8nAssistant(target);
 }
 
 function assistantModeLabel(mode) {
@@ -3096,7 +3210,7 @@ async function refreshN8nDiscovery() {
   state.n8nContainers = validateN8nDiscovery(result);
   state.n8nDiscoveryLoaded = true;
   element("detected-local-integration-management").hidden =
-    isN8nSuperGrok(state.target) || isN8nLocalModel(state.target) || state.n8nContainers.length === 0;
+    isN8nSuperGrok(state.target) || isN8nClaude(state.target) || isN8nLocalModel(state.target) || state.n8nContainers.length === 0;
   setSelectOptions(
     element("n8n-container"),
     state.n8nContainers.map((container) => ({
@@ -3446,6 +3560,9 @@ function renderTarget() {
 
   const grokBuild = isGrokBuild(state.target);
   const n8nSuperGrok = isN8nSuperGrok(state.target);
+  const claude = isN8nClaude(state.target);
+  element("claude-n8n-options").hidden = !claude;
+  element("claude-models").disabled = !claude;
   const localModel = isN8nLocalModel(state.target);
   renderFooterForTarget(state.target);
   const codexChat = isCodexChat(state.target);
@@ -3458,6 +3575,7 @@ function renderTarget() {
   if (advancedTarget) element("more-connections-and-tools").open = true;
   const routeLabel = localModel
     ? "Local model for n8n"
+    : claude ? "Claude for n8n"
     : n8nSuperGrok
     ? "Grok for n8n"
     : grokBuild
@@ -3481,7 +3599,7 @@ function renderTarget() {
   portInput.required = !n8nTarget && !stack;
   element("n8n-sidecar-fields").hidden = !n8nTarget;
   element("detected-local-integration-management").hidden =
-    n8nSuperGrok || localModel || state.n8nContainers.length === 0;
+    n8nSuperGrok || claude || localModel || state.n8nContainers.length === 0;
   element("n8n-stack-fields").hidden = !stack;
   element("n8n-stack-secrets").hidden = true;
   element("local-model-selector").hidden = !localModel;
@@ -3514,6 +3632,7 @@ function renderTarget() {
   element("target-guidance-title").textContent = stack
     ? "Creates a separate n8n"
     : localModel ? "Runs a model with no sign-in"
+    : claude ? "Sign in to Claude in your terminal"
     : n8nSuperGrok ? "Uses official SuperGrok sign-in"
     : assistant ? "Adds Assistant tools"
     : grokBuild ? "Uses official SuperGrok sign-in"
@@ -3521,6 +3640,7 @@ function renderTarget() {
   element("target-guidance-detail").textContent = stack
     ? "Existing n8n is not changed. Code Sandbox, if selected, uses a privileged host-root-equivalent runner. After setup, you can add ChatGPT plan, a local model and more to this n8n."
     : localModel ? "No host port. Other containers on the selected network can reach the model API, which has no login. Relmio checks memory and disk, then downloads into an owned cache. No cloud fallback."
+    : claude ? CLAUDE_LOCAL_NOTICE
     : n8nSuperGrok ? "Adds only a private sidecar. Run relmio grok login --n8n after install. This browser does not ask for a provider token."
     : assistant ? "Code Sandbox is included. SearXNG is optional and off by default. The runner is privileged and host-root equivalent. For production, use Daytona. The sandbox key is shown once. Set model credentials in n8n."
     : grokBuild ? "Private Chat Completions for local apps. Official Grok sign-in uses its own session. Clients use a separate Relmio key."
@@ -3595,6 +3715,13 @@ function validateLocalModelPlan(plan) {
 function renderPlan(plan) {
   const grokBuild = isGrokBuild(plan.target);
   const n8nSuperGrok = isN8nSuperGrok(plan.target);
+  const claude = isN8nClaude(plan.target);
+  element("claude-review").hidden = !claude;
+  if (claude) {
+    for (const input of document.querySelectorAll("[data-claude-review]")) input.checked = false;
+    element("claude-review-models").textContent = `Models: ${plan.models.join(", ")}. Approval lasts less than 7 days.`;
+    element("claude-review-binary").textContent = `Claude Code ${plan.version} (${plan.arch}), SHA256 ${plan.executableSha256}`;
+  }
   const localModel = isN8nLocalModel(plan.target);
   const codexChat = isCodexChat(plan.target);
   const sidecar = isN8nSidecar(plan.target);
@@ -3629,6 +3756,7 @@ function renderPlan(plan) {
   element("local-install-images-confirm").checked = false;
   element("review-provider-context").textContent = localModel
     ? "Local model · Chat Completions"
+    : claude ? "Claude for n8n · Experimental · Chat Completions"
     : n8nSuperGrok
     ? "SuperGrok for n8n · Chat Completions"
     : sidecar
@@ -3644,6 +3772,10 @@ function renderPlan(plan) {
   element("review-endpoint").textContent = stack ? plan.localUrl : assistant ? (plan.includeSearxng ? "Code Sandbox + SearXNG" : "Code Sandbox only") : plan.endpoint;
   element("review-protocol").textContent = localModel ? "Chat Completions /v1 inside Docker" : stack ? plan.publicAccess === "ngrok" ? "New local n8n with ngrok Basic Auth" : "Private local n8n" : sidecar ? "OpenAI-compatible /v1 inside Docker" : n8nSuperGrok ? "Chat Completions /v1 inside Docker" : assistant ? "n8n Assistant companion services" : grokBuild ? "SuperGrok Chat Completions: /v1/chat/completions" : codexChat ? "Relmio POST /chat" : "Codex App Server JSON-RPC over WebSocket";
   element("review-auth").textContent = localModel ? "None. n8n's API key is an ignored placeholder." : stack ? plan.publicAccess === "ngrok" ? "ngrok token plus Basic Auth, entered only at install" : "Local n8n owner account" : sidecar ? "Verified Relmio SIWC registration; one-time local client key is separate" : n8nSuperGrok ? "Official SuperGrok sign-in; local key shown once" : assistant ? "Model credential is set in n8n, not here" : grokBuild ? "Official SuperGrok sign-in" : "Verified Relmio SIWC registration, with separately granted ChatGPT plan use";
+  if (claude) {
+    element("review-protocol").textContent = "Text-only Chat Completions inside Docker";
+    element("review-auth").textContent = "Official terminal sign-in; separate one-time Relmio key";
+  }
   element("review-browser-row").hidden = n8nTarget || stack;
   element("review-browser").textContent = codexChat ? "No. Trusted local backends and development servers only" : "No. Trusted native local clients only";
   element("review-origins-row").hidden = true;
@@ -3709,6 +3841,11 @@ function renderPlan(plan) {
     replaceListItems(element("review-will-not"), ["Read a ChatGPT credential or provider key. There is no cloud fallback.", managedN8n ? "Restart the selected n8n container or change its network." : "Change the selected n8n container or its network.", "Publish the model on a host port, tunnel, or your network."]);
     element("install-confirm-copy").textContent = `I reviewed the measured Docker limits and authorize install and download of ${plan.modelId} into the owned cache.${managedN8n ? " Relmio may add its credential to this n8n." : ""} Other containers on this network can reach the model API. It has no login.`;
     appendPolicyNotice(element("review-policy"), "Private network, no login on the model API", "Other containers on the selected network can reach the runtime management API. A failed download keeps the cache. Deleting it later needs a separate confirmation. CPU answers can be slow. This does not install Assistant tools.");
+  } else if (claude) {
+    replaceListItems(element("review-will"), ["Build only the pinned Claude companion and private login volume.", "Join the selected Docker network without publishing any host port.", "Write approval only after final confirmation; approval expires within 7 days.", ...(managedN8n ? ["Add its OpenAI credential to this Relmio-created n8n."] : ["Show the local key once for manual n8n setup."])]);
+    replaceListItems(element("review-will-not"), ["Restart, rebuild, stop or recreate n8n.", "Read, copy or transmit your Claude login or paste code.", "Enable tools, Responses API, AI Agent or n8n AI Assistant."]);
+    element("install-confirm-copy").textContent = `I approve this exact Claude companion and the four review answers.${managedN8n ? " Relmio may add its credential to this n8n." : " n8n stays unchanged."}`;
+    appendPolicyNotice(element("review-policy"), "Experimental Claude companion", `${CLAUDE_LOCAL_NOTICE} ${CLAUDE_N8N_SETTINGS}`);
   } else if (n8nSuperGrok) {
     replaceListItems(element("review-will"), ["Create the new SuperGrok sidecar and its private session volume.", "Join the selected Docker network.", "Expose port 14502 only inside that network.", "Check local health. Provider sign-in and model discovery stay separate.", ...(managedN8n ? ["Add an OpenAI credential to the Relmio-created n8n."] : [])]);
     replaceListItems(element("review-will-not"), [managedN8n ? "Restart the selected n8n container or change its network." : "Change the selected n8n container or its network.", "Publish port 14502 on this computer, your network, ngrok, or the internet.", "Ask for, show, or store a SuperGrok provider token in this browser.", "Install Code Sandbox or SearXNG."]);
@@ -3760,7 +3897,7 @@ function prepareInstallPanel() {
   const sidecar = isN8nSidecar(state.plan.target);
   const assistant = isN8nAssistant(state.plan.target);
   const stack = isN8nStack(state.plan.target);
-  const n8nTarget = sidecar || n8nSuperGrok || localModel || assistant || stack;
+  const n8nTarget = sidecar || n8nSuperGrok || isN8nClaude(state.plan.target) || localModel || assistant || stack;
   element("codex-install-warning").hidden = n8nTarget;
   element("local-background-consent-row").hidden = !sidecar;
   element("local-background-consent").checked = false;
@@ -3796,6 +3933,10 @@ function prepareInstallPanel() {
   if (localModel) {
     element("install-intro").textContent = "Relmio checks Docker again, starts only the private runtime, and downloads the model in the background. Return here for verified readiness.";
     setButtonLabel(element("install-button"), "Install private local model");
+  }
+  if (isN8nClaude(state.plan.target)) {
+    element("install-intro").textContent = "Install only the reviewed private Claude companion. Sign in afterward in your own terminal.";
+    setButtonLabel(element("install-button"), "Install Claude for n8n");
   }
 }
 
@@ -4051,7 +4192,9 @@ function renderN8nCredentialStatus(result) {
 }
 
 function renderInstallResult(result) {
+  if (result?.target === "n8n-claude-oauth") { renderClaudeInstallResult(result); return; }
   if (isN8nLocalModel(result?.target)) {
+    element("n8n-claude-management").hidden = true;
     renderLocalModelStatus(result);
     renderN8nCredentialStatus(result);
     state.installedTarget = result.target;
@@ -4177,6 +4320,7 @@ function renderInstallResult(result) {
   ) {
     throw new Error("The local installer returned an unexpected response.");
   }
+  element("n8n-claude-management").hidden = true;
   element("n8n-local-model-management").hidden = true;
   clearLocalModelPoll();
 
@@ -4675,6 +4819,7 @@ element("target-form").addEventListener("submit", async (event) => {
             n8nContainerId: element("n8n-container").value,
             dockerNetworkId: element("n8n-network").value,
             ...(isN8nLocalModel(state.target) ? { modelId: element("local-model-id").value } : {}),
+            ...(isN8nClaude(state.target) ? { models: readClaudeModels() } : {}),
             ...(assistant
               ? {
                   includeSearxng: element("include-local-searxng").checked,
@@ -5222,11 +5367,13 @@ element("enable-assistant-searxng-button").addEventListener("click", async (even
 function updateLocalReviewApproval() {
   element("install-settings-button").disabled = !element("install-confirm").checked ||
     (state.plan?.migrationRequired === true && !element("local-migration-consent").checked) ||
-    (state.plan?.replacementRequired === true && !element("local-replacement-consent").checked);
+    (state.plan?.replacementRequired === true && !element("local-replacement-consent").checked) ||
+    (isN8nClaude(state.plan?.target) && !claudeReviewAccepted("review"));
 }
 element("install-confirm").addEventListener("change", updateLocalReviewApproval);
 element("local-migration-consent").addEventListener("change", updateLocalReviewApproval);
 element("local-replacement-consent").addEventListener("change", updateLocalReviewApproval);
+for (const input of document.querySelectorAll("[data-claude-review]")) input.addEventListener("change", updateLocalReviewApproval);
 element("local-background-consent").addEventListener("change", () => {
   if (isN8nSidecar(state.plan?.target)) {
     element("install-button").disabled = !element("local-background-consent").checked;
@@ -5278,6 +5425,9 @@ element("install-settings-button").addEventListener("click", () => {
     showError(new Error("Review and confirm the local plan first."));
     return;
   }
+  if (isN8nClaude(state.plan.target) && !claudeReviewAccepted("review")) {
+    showError(new Error("Confirm all four Claude review questions.")); return;
+  }
   prepareInstallPanel();
   showStep(3);
   setMessage("The plan is confirmed. Installation has not started yet.");
@@ -5302,6 +5452,9 @@ element("install-button").addEventListener("click", async (event) => {
     showError(new Error("Review and confirm a fresh local plan first."));
     return;
   }
+  if (isN8nClaude(state.plan.target) && !claudeReviewAccepted("review")) {
+    showError(new Error("Confirm all four Claude review questions.")); return;
+  }
   if (isN8nSidecar(state.plan.target) && !element("local-background-consent").checked) {
     showError(new Error("Approve this account's n8n background use before installing the sidecar."));
     return;
@@ -5312,6 +5465,7 @@ element("install-button").addEventListener("click", async (event) => {
   const requestBody = {
     planId: state.planId,
     confirmed: element("install-confirm").checked,
+    ...(isN8nClaude(state.plan.target) ? { review: readClaudeReview("review") } : {}),
     ...(isN8nSidecar(state.plan.target)
       ? { backgroundConsent: element("local-background-consent").checked } : {}),
     ...(state.plan.migrationRequired
@@ -5372,6 +5526,8 @@ element("install-button").addEventListener("click", async (event) => {
                   ? ["created", "updated"].includes(result.n8nCredential?.state)
                     ? "Private SuperGrok sidecar installed and its credential added to n8n. Complete Grok sign-in separately."
                     : "Private SuperGrok sidecar verified. Copy its one-time key and complete Grok sign-in separately."
+                  : result.target === "n8n-claude-oauth"
+                    ? "Claude companion installed. Save the one-time key and sign in in your terminal before use."
                   : result.target === "n8n-ai-assistant"
                     ? "Code Sandbox companions verified. Copy the one-time n8n settings."
                     : result.target === "xai-grok-build"
@@ -6210,3 +6366,73 @@ renderTarget();
 initializeLocalDashboard();
 initializeLocalUsage();
 initializeInstalledImages();
+
+element("claude-models").addEventListener("input", invalidatePlan);
+element("claude-change-confirm").addEventListener("change", updateClaudeChangeApproval);
+for (const input of document.querySelectorAll("[data-claude-renew]")) input.addEventListener("change", updateClaudeChangeApproval);
+element("claude-check-sign-in").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  if (state.installedTarget !== "n8n-claude-oauth" || setBusy(button, true, "Checking Claude sign-in…") === false) return;
+  clearError();
+  try {
+    const result = await api("/api/local/claude/auth-status", { method: "POST", body: {} });
+    if (!hasExactKeys(result, ["loggedIn", "authMethod", "subscriptionType"]) ||
+        typeof result.loggedIn !== "boolean" || ![result.authMethod, result.subscriptionType].every(value =>
+          value === null || (typeof value === "string" && /^[A-Za-z0-9_.-]{1,64}$/u.test(value)))) throw new Error("The Claude sign-in status is invalid.");
+    element("claude-auth-status").textContent = result.loggedIn && result.authMethod === "claude.ai"
+      ? `Claude sign-in confirmed (${result.subscriptionType ?? "subscription unknown"}). This does not prove model access.`
+      : "Not signed in with claude.ai. Run the command in your terminal, then check again.";
+  } catch (error) { showError(error); }
+  finally { setBusy(button, false); }
+});
+for (const action of ["renew", "sign-out", "remove"]) {
+  element(`claude-${action}`).addEventListener("click", async event => {
+    const button = event.currentTarget;
+    if (state.installedTarget !== "n8n-claude-oauth" || !element("claude-change-confirm").checked ||
+        (action === "renew" && !claudeReviewAccepted("renew"))) return;
+    if (setBusy(button, true, "Changing only the Claude companion…") === false) return;
+    clearError();
+    try {
+      const result = await api(`/api/local/claude/${action}`, { method: "POST",
+        body: { confirmed: true, ...(action === "renew" ? { review: readClaudeReview("renew") } : {}) } });
+      if (!hasExactKeys(result, ["target", action === "remove" ? "removed" : "changed", ...(action === "renew" ? ["expiresAt"] : [])]) ||
+          result.target !== "n8n-claude-oauth" || result[action === "remove" ? "removed" : "changed"] !== true ||
+          (action === "renew" && (typeof result.expiresAt !== "string" || !Number.isFinite(Date.parse(result.expiresAt))))) throw new Error("The Claude action result is invalid.");
+      if (action === "remove") {
+        resetDashboardActionReview();
+        state.installedTarget = null;
+        element("done-title").textContent = "Claude for n8n removed";
+        element("done-detail").textContent = "Only Relmio's Claude companion, login volume and managed files were removed. n8n and its network stayed unchanged.";
+      } else {
+        element("claude-auth-status").textContent = action === "sign-out" ? "Claude signed out." : "Approval renewed. Check sign-in before use.";
+        if (action === "renew") element("claude-approval-status").textContent = `Approval expires ${result.expiresAt}.`;
+      }
+      state.dashboardSnapshotStale = true;
+      setMessage("Claude action completed. n8n was not restarted.");
+    } catch (error) { showError(error); }
+    finally {
+      setBusy(button, false);
+      element("claude-change-confirm").checked = false;
+      for (const input of document.querySelectorAll("[data-claude-renew]")) input.checked = false;
+      updateClaudeChangeApproval();
+    }
+  });
+}
+
+element("claude-check-models").addEventListener("click", async event => {
+  const button = event.currentTarget;
+  if (state.installedTarget !== "n8n-claude-oauth") return;
+  const clientKey = element("claude-probe-key").value;
+  element("claude-probe-key").value = "";
+  if (setBusy(button, true, "Checking Claude models…") === false) return;
+  clearError();
+  try {
+    const result = await api("/api/local/claude/models", { method: "POST", body: { clientKey } });
+    if (!hasExactKeys(result, ["models"]) || !Array.isArray(result.models) || !result.models.length ||
+        result.models.length > 8 || new Set(result.models).size !== result.models.length ||
+        result.models.some(model => typeof model !== "string" || model.length > 128 ||
+          !/^claude-[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(model) || model.includes("fable"))) throw new Error("The Claude model list is invalid.");
+    element("claude-model-check-note").textContent = `Companion lists: ${result.models.join(", ")}. No Claude prompt was sent; account access is not proved.`;
+  } catch (error) { showError(error); }
+  finally { setBusy(button, false); }
+});
