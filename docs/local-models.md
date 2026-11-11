@@ -122,8 +122,9 @@ installer; use the separate [manual private-service guide](hosting-compatibility
    inference readiness succeeds, configure n8n below, and disconnect when
    finished.
 
-The VPS path requires **rootful Docker Engine, Docker Compose v2 and its Buildx
-build tooling in the selected administrative context**. The existing Docker
+The VPS path requires **rootful Docker Engine and Docker Compose v2 in the
+selected administrative context**. Docker's Buildx plugin is expected: without
+it the review warns and does not refuse, and builds are untested. The existing Docker
 context must already be `default`, pointing at `unix:///var/run/docker.sock`,
 with unambiguous built-in default builder selection and no
 `instances/default` shadow. Model setup reads only bounded

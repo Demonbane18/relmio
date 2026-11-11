@@ -113,7 +113,7 @@ export const GUIDE = {
           action: "choose",
           title: "Pick your n8n",
           say: "This list shows n8n containers running on your server. A container is a sealed box that runs one app, like n8n. Pick the one you use.",
-          find: "Only running n8n is listed. Start n8n the way you normally do, then press Refresh status.",
+          find: "Only running n8n is listed. Start n8n the way you normally do, then reload this page so Relmio looks for it again.",
           done: "manual",
         },
         {

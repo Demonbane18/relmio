@@ -375,7 +375,8 @@ provider limits.
 The **Local model · your VPS** route provides guidance for 15 Linux VM presets.
 Use your actual SSH account with an existing local agent or approved password,
 verify the host fingerprint, then review the plan. It requires rootful Docker
-Engine, Compose v2 and Buildx build tooling with its existing `default` context
+Engine and Compose v2 (Buildx is expected; without it the review warns and
+builds are untested) with its existing `default` context
 targeting the local n8n daemon, an eligible bridge, measured capacity and a safe
 preexisting root-owned `/docker`. Relmio does not provision the host, install
 Docker/n8n or change SSH policy. Review includes temporary root-only Buildx state

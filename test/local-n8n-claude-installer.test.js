@@ -32,7 +32,8 @@ async function fixture(t, flags = {}) {
   const homeDirectory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), "relmio-claude-local-")));
   t.after(() => fs.rm(homeDirectory, { recursive: true, force: true }));
   const root = join(homeDirectory, ".relmio", "local", "n8n-claude-oauth");
-  const calls = []; let image = false; let started = false; let volume = false; let volumeInstall = null;
+  const calls = []; let image = false; let started = false;
+  let volume = flags.orphanVolume || flags.unlabeledVolume ? { installId: null, loginData: null } : null;
   const marker = async () => JSON.parse(await fs.readFile(join(root, ".managed-by-relmio.json"), "utf8"));
   const labels = async () => ({ "com.relmio.managed": "claude-companion", "com.docker.compose.project": "relmio-claude", "com.docker.compose.service": "relmio-claude",
     "io.relmio.target": "n8n-claude-oauth", "io.relmio.managed": "true", "io.relmio.install": (await marker()).installId });
@@ -84,12 +85,13 @@ async function fixture(t, flags = {}) {
     if (a[0] === "network") return out({ Id: flags.changedNetwork ? "f".repeat(64) : NETWORK, Name: "fixture-shared", Driver: "bridge", Internal: false,
       Containers: { [N8N]: { Name: "fixture-n8n" }, ...(started ? { [COMPANION]: { Name: "relmio-claude" } } : {}) } });
     if (a[0] === "volume" && a[1] === "inspect") {
+      if (!volume) return absent();
       if (flags.unlabeledVolume) return out({ Name: "relmio-claude_claude-account", Labels: {} });
       // A volume keeps the labels of the install that created it, also after that install is removed.
-      return volume || flags.orphanVolume ? out({ Name: "relmio-claude_claude-account", Labels: {
+      return out({ Name: "relmio-claude_claude-account", Labels: {
         "com.docker.compose.project": "relmio-claude", "com.docker.compose.volume": "claude-account",
-        ...(volumeInstall && !flags.foreignVolume ? { "io.relmio.target": "n8n-claude-oauth", "io.relmio.managed": "true", "io.relmio.install": volumeInstall } : {}),
-      } }) : absent();
+        ...(volume.installId && !flags.foreignVolume ? { "io.relmio.target": "n8n-claude-oauth", "io.relmio.managed": "true", "io.relmio.install": volume.installId } : {}),
+      } });
     }
     if (a[0] === "image" && a[1] === "inspect") return image && !flags.missingImage && !(flags.missingTag && a.at(-1) !== IMAGE_ID)
       ? out({ Id: IMAGE_ID, Config: { Labels: await labels() } }) : absent();
@@ -114,22 +116,22 @@ async function fixture(t, flags = {}) {
         image = true;
         if (flags.buildFailureResource) {
           flags.manual = flags.buildFailureResource === "container";
-          flags.foreignVolume = true; volume = true;
+          flags.foreignVolume = true; volume = { installId: null, loginData: null };
           return absent();
         }
         return flags.buildFailsAfterTag ? absent() : out("");
       }
       if (a.includes("up")) {
-        if (!volume && !flags.orphanVolume) volumeInstall = (await marker()).installId;
-        started = true; volume = true; return out("");
+        volume ??= { installId: (await marker()).installId, loginData: null };
+        started = true; return out("");
       }
-      if (a.includes("down")) { started = false; if (a.includes("--volumes")) { volume = false; volumeInstall = null; } return out(""); }
+      if (a.includes("down")) { started = false; if (a.includes("--volumes")) volume = null; return out(""); }
       if (a.includes("config")) return out("");
     }
     throw new Error(`Unexpected fixture Docker command: ${a.join(" ")}`);
   };
   const dependencies = withTestLocalSecurity({ homeDirectory, env: {}, runProcess, now: () => new Date("2026-11-05T00:00:00.000Z") });
-  return { root, calls, flags, dependencies };
+  return { root, calls, flags, dependencies, get volume() { return volume; } };
 }
 
 test("local Claude plan inspection is read-only and refuses a pre-existing non-wizard container", async t => {
@@ -401,6 +403,9 @@ test("status reports the Docker runtime and is healthy only while the companion 
 test("removal can keep the Claude sign-in volume, and a later install reuses it", async t => {
   const f = await fixture(t);
   await installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies);
+  const loginVolume = f.volume;
+  assert.ok(loginVolume);
+  loginVolume.loginData = "synthetic-claude-login";
   for (const request of [{ action: "sign-out", keepLogin: true }, { action: "renew", review: REVIEW, keepLogin: true }, { action: "remove", keepLogin: "yes" }]) {
     const before = f.calls.length;
     await assert.rejects(() => changeLocalN8nClaude({ ...request, confirmed: true }, f.dependencies), /action is invalid/u);
@@ -411,6 +416,8 @@ test("removal can keep the Claude sign-in volume, and a later install reuses it"
   assert.deepEqual(await changeLocalN8nClaude({ action: "remove", confirmed: true, keepLogin: true }, f.dependencies),
     { target: "n8n-claude-oauth", removed: true, loginKept: true });
   assert.equal(f.calls.some(spec => spec.args.includes("--volumes") || (spec.args[0] === "volume" && spec.args[1] === "rm")), false);
+  assert.equal(f.volume, loginVolume, "keepLogin must retain the original volume");
+  assert.equal(f.volume.loginData, "synthetic-claude-login");
   assert.equal(f.calls.some(spec => spec.args[0] === "image" && spec.args[1] === "rm"), true);
   await assert.rejects(() => fs.lstat(f.root), { code: "ENOENT" });
   assert.equal((await getLocalN8nClaudeStatus(f.dependencies)).state, "absent");
@@ -418,9 +425,13 @@ test("removal can keep the Claude sign-in volume, and a later install reuses it"
   const again = await installLocalN8nClaude({ plan: plan(), confirmed: true, review: REVIEW }, f.dependencies);
   assert.match(again.clientKey, /^[A-Za-z0-9_-]{43}$/u);
   assert.equal((await getLocalN8nClaudeStatus(f.dependencies)).state, "healthy");
+  assert.equal(f.volume, loginVolume, "reinstall must reuse the original volume");
+  assert.equal(f.volume.loginData, "synthetic-claude-login", "reinstall must preserve saved login data");
+  assert.equal(f.calls.some(spec => spec.args.includes("--volumes") || (spec.args[0] === "volume" && spec.args[1] === "rm")), false);
   assert.deepEqual(await changeLocalN8nClaude({ action: "remove", confirmed: true }, f.dependencies),
     { target: "n8n-claude-oauth", removed: true, loginKept: false });
   assert.equal(f.calls.some(spec => spec.args.includes("--volumes")), true);
+  assert.equal(f.volume, null, "default removal must delete the login volume");
 });
 
 test("a failed or unstartable Docker step is a server failure, while refusals stay plain errors", async t => {

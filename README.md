@@ -557,7 +557,8 @@ including Hetzner, and all hosting-plan platforms are experimental. See
 managed prerequisites, manual platform routes, and provider limits.
 Use the actual image/administrator username and **Local SSH agent**
 or approved password; verify the host fingerprint before authentication.
-The host needs rootful Docker Engine, Compose v2 and Buildx build tooling with
+The host needs rootful Docker Engine and Compose v2 (Buildx is expected; without
+it the review warns and builds are untested) with
 its existing `default` Docker context targeting the local n8n daemon, existing
 n8n on an eligible bridge, measured capacity and a safe root-owned `/docker`.
 Relmio does not provision the VM, install Docker/n8n, or change SSH policy.
