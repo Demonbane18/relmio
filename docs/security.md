@@ -17,7 +17,9 @@ rotating token data. It keeps credentials on their owning local or installed
 runtime and disables plan use after terminal refresh failure or lost permission.
 The one-hour access-token and rotating 30-day refresh-token values in OpenAI's
 documentation describe SIWC; they are not lifetimes for a personal Codex
-credential. See the [current source check](openai-source-check-2026-10-05.md).
+credential. See the [current source check](openai-source-check-2026-11-11.md).
+The [2026-10-05 source check](openai-source-check-2026-10-05.md) is the
+previous record.
 
 ## Hosted chat demo
 
@@ -263,9 +265,14 @@ conversational contract for a trusted local backend.
   deletion of n8n or model caches. Registry credentials are not copied, moved
   or printed by this state-management path.
 - The root OAuth bridge build context uses a guarded `Dockerfile.dockerignore`
-  allowlist for `Dockerfile` and `openai-oauth-sidecar.mjs`. Credentials,
-  sibling companions and temporary state are excluded. An existing unknown
-  ignore file is not overwritten. Confirmed build confinement is distinct
+  allowlist. It may include `Dockerfile`, `package.json`, `package-lock.json`,
+  and these named files: `services/siwc-session.mjs`,
+  `services/siwc-handoff.mjs`, `services/local-integration-lifecycle-lock.js`,
+  `services/codex-images.mjs`, `services/model-discovery.mjs`,
+  `gateway/openai-oauth-sidecar.mjs`, `infrastructure/local-process.js`, and
+  `infrastructure/process-identity.js`. Credentials, sibling companions and
+  temporary state are excluded. An existing unknown ignore file is not
+  overwritten. Confirmed build confinement is distinct
   from pre-confirmation selection attestation; neither is a host-root sandbox.
 - Managed remote file writes are restricted to `/docker/n8n-openai-oauth`.
   `/docker` must already be root-owned, non-symlink and not group/other writable.
@@ -335,8 +342,11 @@ conversational contract for a trusted local backend.
 - The separate **Set up new n8n** option creates only a new randomly
   identified Relmio-owned Compose project. It never adopts or changes an
   existing n8n. New stacks are private by default. Opting into ngrok exposes
-  only the new n8n route behind Traffic Policy Basic Auth. n8n and the optional
-  inspector bind to `127.0.0.1`; Assistant services publish no host port or
+  only the new n8n route behind Traffic Policy Basic Auth. n8n binds to
+  `127.0.0.1`. The ngrok service publishes no host port. Its agent API listens
+  on `127.0.0.1:4040` inside that container, for the health check, and the
+  tunnel starts with request capture off. Other containers cannot reach that
+  loopback address. Assistant services publish no host port or
   ngrok route. Long-running stack services restart with Docker unless stopped.
   Removal verifies ownership and refuses while add-ons remain attached.
   Basic Auth does not authorize other people to use your ChatGPT plan.
@@ -586,10 +596,20 @@ and [on this computer](local-endpoints.md#turn-on-image-generation-optional).
 - **Stores:** on the VPS, `/docker/n8n-openai-oauth/siwc/codex-images` holds
   the Codex access and refresh tokens, the ChatGPT account ID, email, plan type
   and token expiry. The ID token is not stored. While a sign-in is pending it
-  also holds the device code, which expires after 15 minutes. The folder is
-  `0700`, the files are `0600` and owned by the sidecar user, and symlinks,
-  hard links and group or other permissions are refused. Root on the VPS,
-  and any backup of that folder, can read the refresh token.
+  also holds the device code, which expires after 15 minutes. The session
+  folder is `0700` and owned by the sidecar user. The files are `0600`.
+  Symlinks, hard links and group or other permissions are refused. A new
+  shared parent is created mode `0700` and assigned root:root. An existing
+  folder from an earlier release is set to mode `0700` the next time you
+  confirm a change on that server, such as an install, update, removal,
+  sign-in or sign-out. Checking status, reviewing a plan, sign-in polling
+  and cancelling an image sign-in never change it. That change does not
+  reset the existing group. A package upgrade does not change it either.
+  The nested session directory stays mode `0700`, UID/GID `1000:1000`, at the
+  same token path. Before that tightening, a host account with the sidecar
+  user's UID could read the session through a mode-`0755` parent. Root, a
+  Docker administrator, and any backup of that folder can still read the
+  refresh token.
   On this computer, the sidecar's `siwc-store` Docker volume holds the same
   files under `codex-images`. Administrators and Docker users on this
   computer, and any backup of Docker's data, can read the refresh token.
@@ -783,11 +803,13 @@ the documented local open-source SIWC flow: it needs no commercial approval,
 partner-issued client ID, or client secret. The user still separately grants
 ChatGPT plan use. Account eligibility and applicable Terms remain distinct;
 the VPS token-storage question is unresolved. See the
-[2026-10-05 source check](openai-source-check-2026-10-05.md).
+[2026-11-11 source check](openai-source-check-2026-11-11.md). The
+[2026-10-05 source check](openai-source-check-2026-10-05.md) remains the
+previous record.
 
 ### Policy evidence and scope
 
-The [current source check](openai-source-check-2026-10-05.md) records the
+The [current source check](openai-source-check-2026-11-11.md) records the
 official SIWC and plan-usage sources together with the corresponding local
 implementation and open questions:
 
@@ -795,8 +817,8 @@ implementation and open questions:
 | --- | --- |
 | The local open-source SIWC flow uses dynamic registration, protected local storage, a verified identity, a separate ChatGPT plan grant, and the public Responses API. No commercial approval, partner client ID, or client secret is required. | Local/self-hosted documented flow only; eligibility, requested/granted plan permission, model access, and successful inference remain separate checks. |
 | The website's `/api/chat` returns `410 Gone`; the local path does not enable it. OpenAI's public cookbook request-access note applies to paid or remotely hosted apps. | Hosted site work is outside this migration. |
-| OpenAI's self-hosted VM guide and SIWC Terms do not resolve persistent remote token storage. | No provider-approval claim is made for VPS token transfer/storage. |
-| SIWC Terms §2 limits use to the connected application and rules out general-purpose API access for other tools. Relmio is not listed in OpenAI's partner directory. | Whether an OpenAI-compatible endpoint for n8n fits §2, and whether Relmio counts as a supported open-source tool, are open questions for OpenAI. |
+| SIWC Terms §1, effective November 4, 2026, says persistent authentication tokens must be local and user-controlled, not in a remote or managed environment. The self-hosted VM guide describes a protected transfer. Service Terms updated November 10, 2026 incorporate the SIWC Terms. | Those texts do not resolve persistent VPS storage. No provider-approval claim is made. |
+| SIWC Terms §3.1, effective November 4, 2026, limits plan use to the authenticated user's activity or expressly authorized automation, on a runtime only that user controls, inside the connected application. A consent checkbox does not authorize another person's triggers or unrelated-tool access. Relmio is absent from the partner directory returned on 2026-11-11. | Whether an OpenAI-compatible endpoint for n8n fits that rule is open. This review claims no Terms compliance. |
 
 These findings are source observations, not legal advice, runtime acceptance,
 or an interpretation of an owner's separate hosted application.
@@ -840,7 +862,7 @@ only a sanitized reproduction with the repository owner.
 
 **Historical implementation record:** this source check describes the former
 Codex credential-copy sidecar, not the current local SIWC implementation. See
-[the 2026-10-05 source check](openai-source-check-2026-10-05.md) for current
+[the 2026-11-11 source check](openai-source-check-2026-11-11.md) for current
 source observations. The earlier findings remain historical permission and
 retention evidence; they do not establish current approval.
 
@@ -944,7 +966,7 @@ or share credentials, bypass limits, or place them in a planner artifact.
 **Historical source review:** this OpenAI review predates the current local
 SIWC implementation. Its bridge and permission observations describe the
 former credential-copy route, not current runtime behavior. See the
-[2026-10-05 SIWC source check](openai-source-check-2026-10-05.md) for current
+[2026-11-11 SIWC source check](openai-source-check-2026-11-11.md) for current
 implementation evidence and unresolved hosted/VM requirements.
 
 
@@ -1068,7 +1090,7 @@ the existing subscription bridge remain unknown. See
 
 **Historical source check:** the OpenAI findings below describe the local-model
 change at that date, not the current ChatGPT plan sidecar. See
-[the 2026-10-05 source check](openai-source-check-2026-10-05.md) for current
+[the 2026-11-11 source check](openai-source-check-2026-11-11.md) for current
 SIWC behavior and unresolved provider questions.
 
 **Scope and method.** The current official [Sign in with ChatGPT article](https://help.openai.com/en/articles/20001410-sign-in-with-chatgpt),
@@ -1135,7 +1157,7 @@ live acceptance for another provider is established by this source check.
 
 **Historical source check:** the OpenAI findings below describe the selector
 change and prior credential-copy bridge, not current SIWC plan use. See
-[the 2026-10-05 source check](openai-source-check-2026-10-05.md) for the
+[the 2026-11-11 source check](openai-source-check-2026-11-11.md) for the
 current implementation record.
 
 **Scope and source review.** On 2026-09-27, the official OpenAI
@@ -1259,7 +1281,7 @@ retention remain unknown.
 
 **Historical source check:** this review records a pre-SIWC candidate and its
 prior credential-copy route. Its implementation details are not current.
-Consult [the 2026-10-05 source check](openai-source-check-2026-10-05.md) for
+Consult [the 2026-11-11 source check](openai-source-check-2026-11-11.md) for
 the local SIWC implementation and current open questions.
 
 Current official OpenAI sources were fetched again, starting with [Sign in

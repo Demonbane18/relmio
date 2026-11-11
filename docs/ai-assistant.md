@@ -23,10 +23,16 @@ manage the Assistant, whose configuration contains generated secrets; do not
 enable root/password SSH to work around that limit. After SSH host-key
 confirmation, read-only n8n discovery, a selected existing Docker network, and
 final confirmation exactly set to true, Relmio may first create
-`/docker/n8n-openai-oauth` and write its shared mode-0600 Relmio root marker.
-The root-owned, non-symlink `/docker` parent must already exist without
-group/other write permission. Relmio then creates only the `assistant-sandbox`
-child there. The SSH path does not write existing n8n project files.
+`/docker/n8n-openai-oauth` as mode `0700` root:root. An existing folder from
+an earlier release is set to mode `0700` only when you confirm a change on
+that server, such as an install, update, removal, sign-in or sign-out.
+Checking status, reviewing a plan, sign-in polling and cancelling an image
+sign-in never change it. Relmio then writes its shared mode-0600 Relmio root
+marker. That change does not reset an existing folder's group. The root-owned,
+non-symlink `/docker` parent must already exist without group/other write
+permission. Relmio does not create `/docker`. The Assistant plan warns, and
+does not refuse, when the selected n8n already runs n8n's own `sandbox-api`
+service: the install would add a second privileged runner. Relmio then creates only the `assistant-sandbox` child there. The SSH path does not write existing n8n project files.
 Both paths use an independent Compose project
 identity recorded in a strict, mode-0600 Assistant marker and keep n8n
 configuration operator-owned.

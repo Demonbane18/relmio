@@ -74,14 +74,20 @@ const changelogComponents: Components = {
   h2: ({ children }) => <h2 id={releaseId(nodeText(children))}>{children}</h2>,
 };
 
-/** A repository guide. Headings get the ids the outline links to. */
+/** A repository guide. Headings get the ids the outline links to. The title
+    gets the status badge unless its text already names the status. */
 export function GuideMarkdown({ content, status }: { content: string; status?: string }) {
   const components: Components = {
     ...guideComponents,
     h1: ({ children }) => (
       <h1 className="rm-h1" id={headingId(children)}>
         {children}
-        {status ? <>{" "}<span className="rm-badge rm-badge--accent">{status}</span></> : null}
+        {status && !nodeText(children).toLowerCase().includes(status.toLowerCase()) ? (
+          <>
+            {" "}
+            <span className="rm-badge rm-badge--accent">{status}</span>
+          </>
+        ) : null}
       </h1>
     ),
   };

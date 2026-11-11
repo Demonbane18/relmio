@@ -5,9 +5,10 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { buildClaudeCompanionBundle, parseClaudeAuthStatus, renewClaudeLaunchConfig } from "../src/claude/companion.js";
-import { PRECHECK_COMMAND } from "../src/domain/safety.js";
+import { PRECHECK_COMMAND, SHARED_ROOT_COMMAND, SHARED_ROOT_TIGHTEN_COMMAND } from "../src/domain/safety.js";
 import {
   VPS_OPERATION_LOCKS, cleanupVpsBuildStateCommand, createVpsBuildStateCommand, createVpsLockCommand, releaseVpsLockCommand,
 } from "../src/domain/vps-build-state.js";
@@ -126,7 +127,7 @@ function createVps({ arch = "x86_64", foreignAlias = false } = {}) {
       }
       // Everything below changes the VPS.
       write();
-      if (command.includes("install -d -m 0755 /docker/n8n-openai-oauth &&")) return ok();
+      if (command.startsWith(`${SHARED_ROOT_COMMAND} && `) || command === SHARED_ROOT_TIGHTEN_COMMAND) return ok();
       if (command === createVpsLockCommand(LOCK)) return ok("11:22\n");
       if (command === createVpsBuildStateCommand(LOCK, "11:22")) return ok("11:33\n");
       if (command === cleanupVpsBuildStateCommand(LOCK, "11:22", "11:33") || command === releaseVpsLockCommand(LOCK, "11:22")) return ok();
@@ -475,8 +476,8 @@ test("an expired approval shows in status and can still be renewed while the lau
   const later = NOW + 8 * DAY;
   vps.container.State = { Running: true, Restarting: true, Health: { Status: "unhealthy" } };
   const status = await getVpsClaudeStatus({ remote: vps.remote, now: () => later });
-  assert.deepEqual([status.installation.approvalExpired, status.installation.container], [true, "stopped"]);
-  await assert.rejects(reviewVpsClaude({ remote: vps.remote, action: "sign-out", now: () => later }), /safety check/u);
+  assert.deepEqual([status.installation.approvalExpired, status.installation.container], [true, "restarting"]);
+  await assert.rejects(reviewVpsClaude({ remote: vps.remote, action: "sign-out", now: () => later }), /stopped or restarting/u);
   const plan = await reviewVpsClaude({ remote: vps.remote, action: "renew", review, now: () => later });
   const applying = vps.calls.length;
   const result = await applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now: () => later });
@@ -484,6 +485,77 @@ test("an expired approval shows in status and can still be renewed while the lau
   // A restarting launcher cannot answer `claude auth status`, so the owner's review answers stand alone.
   assert.ok(vps.calls.slice(applying).every((command) => !command.endsWith(" auth status --json")));
   assert.equal(vps.restarts, 1);
+});
+
+test("a restarting or unhealthy companion is never reported as running, and health starting still is", async () => {
+  const vps = createVps();
+  await install(vps);
+  vps.writable = false;
+  const container = async (state) => {
+    vps.container.State = state;
+    return (await getVpsClaudeStatus({ remote: vps.remote, now })).installation.container;
+  };
+  // Docker reports Running: true for a container in a restart loop.
+  assert.equal(await container({ Status: "restarting", Running: true, Restarting: true, Health: { Status: "unhealthy" } }), "restarting");
+  assert.equal(await container({ Status: "restarting", Running: true }), "restarting");
+  assert.equal(await container({ Status: "running", Running: true, Restarting: false, Health: { Status: "unhealthy" } }), "unhealthy");
+  // The health check first reports about a minute after every start.
+  assert.equal(await container({ Status: "running", Running: true, Restarting: false, Health: { Status: "starting" } }), "running");
+  assert.equal(await container({ Status: "running", Running: true, Restarting: false, Health: { Status: "healthy" } }), "running");
+  assert.equal(await container({ Status: "exited", Running: false, Restarting: false, Health: { Status: "unhealthy" } }), "stopped");
+});
+
+test("checks that need a running companion refuse a restarting one with the repair step, not the ownership sentence", async () => {
+  const vps = createVps();
+  const { result } = await install(vps);
+  vps.writable = false;
+  vps.container.State = { Status: "restarting", Running: true, Restarting: true, Health: { Status: "unhealthy" } };
+  const refused = (error) => {
+    assert.match(error.message, /stopped or restarting.*inspect its logs.*lock recovery/u);
+    assert.doesNotMatch(error.message, /safety check/u);
+    // The server shows at most 240 characters and no absolute path.
+    assert.ok(error.message.length <= 240);
+    assert.doesNotMatch(error.message, /\/[a-z]+\//u);
+    return true;
+  };
+  const before = vps.calls.length;
+  await assert.rejects(getVpsClaudeAuthStatus({ remote: vps.remote, now }), refused);
+  await assert.rejects(discoverVpsClaudeModels({ remote: vps.remote, clientKey: result.clientKey, now }), refused);
+  await assert.rejects(reviewVpsClaude({ remote: vps.remote, action: "sign-out", now }), refused);
+  assert.ok(vps.calls.slice(before).every((command) => !command.startsWith("docker exec ")));
+  assert.deepEqual(vps.inputs.filter(({ input }) => input === result.clientKey), []);
+
+  // A companion that is up but failing its health check can still be checked.
+  vps.container.State = { Status: "running", Running: true, Restarting: false, Health: { Status: "unhealthy" } };
+  assert.equal((await getVpsClaudeAuthStatus({ remote: vps.remote, now })).loggedIn, true);
+  // A changed companion keeps the ownership sentence in every state.
+  vps.container.HostConfig.ReadonlyRootfs = false;
+  await assert.rejects(getVpsClaudeAuthStatus({ remote: vps.remote, now }), /safety check/u);
+});
+
+test("Replace companion and key allows restarting or unhealthy companions and retains their login volume", async () => {
+  for (const state of [
+    { Status: "restarting", Running: true, Restarting: true, Health: { Status: "unhealthy" } },
+    { Status: "running", Running: true, Restarting: false, Health: { Status: "unhealthy" } },
+  ]) {
+    const vps = createVps();
+    const first = await install(vps);
+    const loginVolume = vps.volume;
+    const brokenId = "d".repeat(64);
+    vps.container.Id = brokenId;
+    vps.container.State = state;
+    const plan = await reviewVpsClaude({ remote: vps.remote, action: "replace", ...selected, models, review, now });
+    assert.equal(plan.keepsClaudeLogin, true, state.Status);
+    const result = await applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now, entropy: (size) => Buffer.alloc(size, 9) });
+    assert.equal(result.state, "installed", state.Status);
+    assert.notEqual(result.clientKey, first.result.clientKey);
+    assert.equal(vps.volume, loginVolume, state.Status);
+    assert.ok(vps.calls.every((command) => !command.includes("volume rm")), state.Status);
+    assert.equal((await getVpsClaudeStatus({ remote: vps.remote, now })).installation.container, "running", state.Status);
+    // Retaining the volume also retains any account lock. This fake models successful startup;
+    // replacement does not clear a stranded lock or guarantee recovery after an unclean stop.
+    assert.ok(n8nUntouched(vps), state.Status);
+  }
 });
 
 test("the sign-in check returns only loggedIn, authMethod and subscriptionType even when Claude prints the email", async () => {
@@ -883,4 +955,113 @@ test("Claude status, sign-in check and model check pass only contract fields to 
   const listed = await f.post("/api/vps/claude/models", { clientKey: "k".repeat(43) });
   assert.deepEqual(await listed.json(), { models });
   assert.equal((await f.post("/api/vps/claude/models", { clientKey: "k".repeat(43), installId: "x" })).status, 400);
+});
+
+test("the Claude status route passes the restarting and unhealthy container values and rejects unknown ones", async (t) => {
+  let container = "running";
+  const f = await serverFixture(t, (services) => {
+    services.getVpsClaudeStatus = async () => ({
+      state: "installed",
+      installation: { network: selected.networkName, arch: "amd64", models, expiresAt: approvalUntil(NOW), approvalExpired: false, container, endpoint: ENDPOINT },
+      candidate: { version: "2.1.317", arch: "amd64", platform: "linux-x64", executableSha256: "e".repeat(64) },
+    });
+  });
+  for (const value of ["running", "stopped", "missing", "restarting", "unhealthy"]) {
+    container = value;
+    const response = await f.get("/api/vps/claude/status");
+    assert.equal(response.status, 200, value);
+    assert.equal((await response.json()).installation.container, value);
+  }
+  for (const value of ["healthy", "starting", undefined]) {
+    container = value;
+    assert.equal((await f.get("/api/vps/claude/status")).status, 502, String(value));
+  }
+});
+
+test("login.sh needs only sh and docker on the host and shows the three status fields", { skip: process.platform === "win32" }, async (t) => {
+  const directory = await fs.mkdtemp(join(tmpdir(), "relmio-claude-login-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const bin = join(directory, "bin");
+  const log = join(directory, "docker.log");
+  await fs.mkdir(bin);
+  // The stub answers the two Claude commands and runs the companion's node formatter with this
+  // test's node, as the image would. Nothing else is on PATH: no python3 and no host node.
+  await fs.writeFile(join(bin, "docker"), `#!/bin/sh
+printf '%s\\n' "$*" >> "$DOCKER_LOG"
+case "$*" in
+  *" auth login") exit 0 ;;
+  *" auth status --json") printf '%s\\n' "$AUTH_STATUS"; exit "$AUTH_STATUS_CODE" ;;
+  "exec -i relmio-claude node -e "*) shift 5; exec "$REAL_NODE" -e "$1" ;;
+esac
+exit 64
+`, { mode: 0o755 });
+  await fs.chmod(join(bin, "docker"), 0o755);
+  const script = fileURLToPath(new URL("../src/templates/claude-companion/login.sh", import.meta.url));
+  const login = (status, code = 0) => spawnSync("/bin/sh", [script], { encoding: "utf8", env: {
+    PATH: bin, DOCKER_LOG: log, AUTH_STATUS: status, AUTH_STATUS_CODE: String(code), REAL_NODE: process.execPath,
+  } });
+
+  const signedIn = login(JSON.stringify({ loggedIn: true, authMethod: "claude.ai", subscriptionType: "max", email: "owner@example.test", orgName: "Owner Org" }));
+  assert.equal(signedIn.status, 0, signedIn.stderr);
+  assert.equal(signedIn.stderr, "");
+  assert.deepEqual(JSON.parse(signedIn.stdout.trim().split("\n").at(-1)), { loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" });
+  assert.doesNotMatch(signedIn.stdout, /owner@example\.test|Owner Org/u);
+  // Sign-in runs first; the two halves of the status pipeline start together.
+  const calls = (await fs.readFile(log, "utf8")).trim().split("\n");
+  assert.equal(calls.length, 3);
+  assert.match(calls[0], /^exec -it -w \/data\/account\/empty relmio-claude env -i .* auth login$/u);
+  assert.ok(calls.slice(1).some((call) => / auth status --json$/u.test(call)));
+  assert.ok(calls.slice(1).some((call) => call.startsWith("exec -i relmio-claude node -e ")));
+
+  // Claude reports a missing login with exit 1 and JSON; the script still ends cleanly.
+  const signedOut = login(JSON.stringify({ loggedIn: false }), 1);
+  assert.equal(signedOut.status, 0, signedOut.stderr);
+  assert.deepEqual(JSON.parse(signedOut.stdout.trim().split("\n").at(-1)), { loggedIn: false, authMethod: null, subscriptionType: null });
+
+  // Output that is not JSON ends with one plain line instead of a stack trace.
+  const unreadable = login("Claude is not available");
+  assert.equal(unreadable.status, 1);
+  assert.equal(unreadable.stderr.trim(), "Companion login status could not be read.");
+});
+
+test("only confirmed Claude changes that passed their checks set the shared folder mode, before their first write", async () => {
+  const tightenedAt = (vps) => vps.calls.flatMap((command, index) => (command === SHARED_ROOT_TIGHTEN_COMMAND ? [index] : []));
+  const vps = createVps();
+  const { result } = await install(vps);
+  // The install set the folder with its own command, after its confirmation.
+  assert.equal(vps.calls.filter((command) => command.startsWith(`${SHARED_ROOT_COMMAND} && `)).length, 1);
+
+  // Status, the sign-in and model checks and every review are reads.
+  vps.writable = false;
+  await getVpsClaudeStatus({ remote: vps.remote, now });
+  await getVpsClaudeAuthStatus({ remote: vps.remote, now });
+  await discoverVpsClaudeModels({ remote: vps.remote, clientKey: result.clientKey, now });
+  for (const action of ["renew", "sign-out", "remove"]) await reviewVpsClaude({ remote: vps.remote, action, review, now });
+  await reviewVpsClaude({ remote: vps.remote, action: "replace", ...selected, models, review, now });
+  assert.deepEqual(tightenedAt(vps), []);
+
+  // A renewal refused for a missing Claude login changes nothing.
+  vps.writable = true;
+  const signedIn = vps.auth;
+  vps.auth = { loggedIn: false };
+  const refusedRenewal = await reviewVpsClaude({ remote: vps.remote, action: "renew", review, now });
+  await assert.rejects(applyVpsClaude({ remote: vps.remote, plan: refusedRenewal, confirmed: true }, { now }), /not signed in to a Claude plan/u);
+  await assert.rejects(applyVpsClaude({ remote: vps.remote, plan: refusedRenewal, confirmed: false }, { now }), /Confirm/u);
+  assert.deepEqual(tightenedAt(vps), []);
+  vps.auth = signedIn;
+
+  const firstWrite = {
+    renew: (command) => command === createVpsClaudeLaunchWriteCommand(),
+    "sign-out": (command) => command.endsWith(" auth logout"),
+    remove: (command) => command.startsWith("docker rm -f "),
+  };
+  for (const [count, action] of [[1, "renew"], [2, "sign-out"], [3, "remove"]]) {
+    const plan = await reviewVpsClaude({ remote: vps.remote, action, review, now });
+    const start = vps.calls.length;
+    await applyVpsClaude({ remote: vps.remote, plan, confirmed: true }, { now });
+    const at = tightenedAt(vps);
+    assert.equal(at.length, count, action);
+    assert.ok(vps.calls.indexOf(createVpsLockCommand(LOCK), start) < at.at(-1), action);
+    assert.ok(at.at(-1) < vps.calls.findIndex((command, index) => index >= start && firstWrite[action](command)), action);
+  }
 });

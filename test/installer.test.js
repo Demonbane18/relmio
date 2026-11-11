@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, rm, mkdir, writeFile, readFile, link, symlink, lstat } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile, link, symlink, lstat, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -9,7 +9,8 @@ import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 
 import {
-  INSTALL_ROOT, PRECHECK_COMMAND, SIDECAR_MANAGED_CONTEXT_GUARD,
+  INSTALL_ROOT, PRECHECK_COMMAND, SHARED_ROOT_COMMAND, SHARED_ROOT_MARKER_CONTENT, SHARED_ROOT_TIGHTEN_COMMAND,
+  SIDECAR_MANAGED_CONTEXT_GUARD,
   SIWC_STAGING_PATH, SIWC_MIGRATION_PENDING_PATH, SIWC_MIGRATED_PATH,
   createVerificationCommands,
 } from "../src/domain/safety.js";
@@ -1723,4 +1724,188 @@ test("model check changes refuse missing confirmation, a changed sidecar or a he
   }
   assert.equal((await failure(JSON.stringify({ error: "__proto__" }))).message, generic.message);
   for (const error of [older, generic, ...known]) assert.equal(error.message.includes("remote text"), false);
+});
+
+// What the owner status route sends: it attests the selected n8n target, then reads the status.
+async function ownerStatusRequest(remote, scope) {
+  const before = remote.commands.length;
+  const attested = await reviewVpsSiwcTarget({ remote, networkName: "proxy", containerName: "n8n" });
+  const status = await getVpsSiwcInstallationStatus({
+    ...scope, reviewedTarget: { ...scope.reviewedTarget, ...attested }, targetAttested: true,
+  });
+  return { status, commands: remote.commands.slice(before).map(entry => entry.command) };
+}
+
+test("one owner status request reads the n8n target and the staging record once", async t => {
+  const { remote, scope } = await installedOwner(t);
+  const { status, commands } = await ownerStatusRequest(remote, scope);
+  assert.equal(status.state, "owned");
+  assert.equal(status.account.registrationId, registrationId);
+  // Was 15: the n8n network and container were inspected three times and the staging record read twice.
+  assert.equal(commands.length, 10);
+  assert.equal(new Set(commands).size, commands.length);
+  // A caller holding an earlier review still gets its own attestation of that target.
+  const before = remote.commands.length;
+  await getVpsSiwcInstallationStatus(scope);
+  const later = remote.commands.slice(before).map(entry => entry.command);
+  assert.equal(later.filter(command => command === "docker inspect --format '{{json .}}' n8n").length, 1);
+  assert.equal(later.length, 10);
+});
+
+test("the single-read owner status still refuses what the repeated reads refused", async t => {
+  const verification = createVerificationCommands();
+  // A changed n8n network is refused by the staging record's reviewed destination.
+  const moved = await installedOwner(t);
+  moved.remote.faults.networkId = "f".repeat(64);
+  await assert.rejects(ownerStatusRequest(moved.remote, moved.scope), /staging owner or reviewed destination changed/u);
+
+  // An unsafe managed context is refused by the context guard.
+  const unsafe = await installedOwner(t);
+  unsafe.remote.faults.guard = () => ({ code: 43, stdout: "" });
+  await assert.rejects(ownerStatusRequest(unsafe.remote, unsafe.scope), /Owned SIWC context check failed/u);
+
+  // An edited managed file, a foreign container and a missing staging record are each refused.
+  const edited = await installedOwner(t);
+  edited.remote.files.set(`${INSTALL_ROOT}/Dockerfile`, Buffer.from("edited"));
+  await assert.rejects(ownerStatusRequest(edited.remote, edited.scope), /staged SIWC file changed/u);
+
+  const foreign = await installedOwner(t);
+  const exec = foreign.remote.exec.bind(foreign.remote);
+  foreign.remote.exec = async (command, options) => {
+    const result = await exec(command, options);
+    return command === verification.ownerContainer
+      ? { ...result, stdout: JSON.stringify({ ...JSON.parse(result.stdout), Name: "/someone-else" }) } : result;
+  };
+  await assert.rejects(ownerStatusRequest(foreign.remote, foreign.scope), /owned VPS container, image, storage or execution changed/u);
+
+  const unfinished = await installedOwner(t);
+  unfinished.remote.files.delete(SIWC_STAGING_PATH);
+  await assert.rejects(ownerStatusRequest(unfinished.remote, unfinished.scope), /not finalized/u);
+});
+
+// An install from an earlier release: the shared folder exists with mode 0755. The lock and
+// shared-folder commands run in a real shell against that disposable folder; every other
+// command stays with the fake remote. Only GNU stat's output and the root owner are simulated.
+const modeStat = `const fs=require('node:fs'); const a=process.argv.slice(1); try { const s=fs.lstatSync(a.at(-1)); const v={d:s.dev,i:s.ino,u:0,h:s.nlink,a:(s.mode&4095).toString(8),s:s.size}; process.stdout.write(a[1].replace(/%([diuhas])/g,(_,k)=>v[k])+'\\n'); } catch { process.exitCode=1; }`;
+const shellQuote = value => `'${value.replaceAll("'", "'\\''")}'`;
+const setsSharedFolderMode = command => /\b(?:chmod|chown)\b/u.test(command) ||
+  /\b(?:mkdir|install)\b[^;&|]*\s\/docker\/n8n-openai-oauth(?=[\s;&|)]|$)/u.test(command);
+
+async function existingSharedFolder(t, remote) {
+  const scratch = await mkdtemp(join(tmpdir(), "relmio-vps-folder-mode-"));
+  t.after(() => rm(scratch, { recursive: true, force: true }));
+  const docker = join(scratch, "docker"), root = join(docker, "n8n-openai-oauth");
+  await mkdir(root, { recursive: true });
+  await chmod(docker, 0o755);
+  await chmod(root, 0o755);
+  await writeFile(join(root, ".managed-by-relmio-root"), SHARED_ROOT_MARKER_CONTENT, { mode: 0o644 });
+  const mounts = join(scratch, "mountinfo");
+  await writeFile(mounts, "");
+  const exec = remote.exec.bind(remote);
+  remote.exec = async (command, options) => {
+    if (!command.includes("/.openai-oauth-operation.lock") && !command.startsWith(SHARED_ROOT_TIGHTEN_COMMAND)) {
+      return exec(command, options);
+    }
+    remote.commands.push({ command });
+    const script = `stat() { ${shellQuote(process.execPath)} -e ${shellQuote(modeStat)} -- "$@"; }\n` +
+      command.replaceAll("/docker", docker).replaceAll("/proc/self/mountinfo", mounts);
+    try { return { code: 0, stdout: (await promisify(execFile)("/bin/sh", ["-c", script])).stdout }; }
+    catch (error) { return { code: typeof error.code === "number" ? error.code : 99, stdout: error.stdout ?? "" }; }
+  };
+  return { lock: join(root, ".openai-oauth-operation.lock"), mode: async () => (await lstat(root)).mode & 0o7777 };
+}
+
+test("a pending image sign-in status, its unconfirmed poll and an unconfirmed cancel leave an existing 0755 shared folder alone", {
+  skip: process.platform === "win32" && "the lock is a remote Linux /bin/sh script over Linux paths",
+}, async t => {
+  const { remote, scope } = await installedOwner(t);
+  const verification = createVerificationCommands();
+  const { containerId } = await reviewVpsSiwcReplacement(scope);
+  const pending = { userCode: "ABCD-EFGH", verificationUrl: "https://auth.openai.com/codex/device",
+    expiresAt: "2026-10-06T12:15:00.000Z" };
+  remote.faults.images = command => ({ code: 0, stdout: JSON.stringify(
+    [verification.imagesLoginCancel, verification.imagesSignOut].includes(command) ? { state: "off" } : { state: "pending", pending }) });
+  const folder = await existingSharedFolder(t, remote);
+  const change = fields => changeVpsCodexImages({ ...scope, expectedContainerId: containerId, ...fields });
+
+  const start = remote.commands.length;
+  // A status read is how the wizard adopts a sign-in that is already pending.
+  assert.equal((await getVpsCodexImagesStatus(scope)).state, "pending");
+  assert.equal((await getVpsSiwcInstallationStatus(scope)).state, "owned");
+  // The page then polls on its own, and a cancel needs no confirmation either.
+  assert.equal((await change({ action: "login-poll", confirmed: false })).state, "pending");
+  assert.equal((await change({ action: "login-cancel", confirmed: false })).state, "off");
+  // The owner page sends confirmed: true with a cancel without asking, so that is no final confirmation.
+  assert.equal((await change({ action: "login-cancel", confirmed: true })).state, "off");
+  const unconfirmed = remote.commands.slice(start).map(item => item.command);
+  assert.equal(unconfirmed.filter(command => command.includes(LOCK_ACQUIRE)).length, 3, "poll and both cancels took the lock");
+  assert.deepEqual(unconfirmed.filter(setsSharedFolderMode), []);
+  assert.equal(await folder.mode(), 0o755);
+  await assert.rejects(lstat(folder.lock), { code: "ENOENT" });
+
+  // A change the owner confirmed sets the folder to 0700, under the lock and before its own write.
+  const confirmedStart = remote.commands.length;
+  assert.equal((await change({ action: "login-start", confirmed: true })).state, "pending");
+  const confirmed = remote.commands.slice(confirmedStart).map(item => item.command);
+  assert.deepEqual(confirmed.filter(setsSharedFolderMode), [SHARED_ROOT_TIGHTEN_COMMAND]);
+  const acquired = confirmed.findIndex(command => command.includes(LOCK_ACQUIRE));
+  const tightened = confirmed.indexOf(SHARED_ROOT_TIGHTEN_COMMAND);
+  assert.ok(acquired >= 0 && acquired < tightened && tightened < confirmed.indexOf(verification.imagesLoginStart));
+  assert.equal(await folder.mode(), 0o700);
+  await assert.rejects(lstat(folder.lock), { code: "ENOENT" });
+});
+
+test("only confirmed bridge changes set the shared folder mode, once, after their own checks", async t => {
+  const verification = createVerificationCommands();
+  const { remote, scope } = await installedOwner(t);
+  const { containerId } = await reviewVpsSiwcReplacement(scope);
+  remote.faults.images = () => ({ code: 0, stdout: JSON.stringify({ state: "off" }) });
+  remote.faults.models = () => ({ code: 0, stdout: JSON.stringify(modelView) });
+  const modeCommands = async operation => {
+    const start = remote.commands.length;
+    await operation();
+    return remote.commands.slice(start).map(item => item.command).filter(setsSharedFolderMode);
+  };
+  const refused = operation => modeCommands(() => assert.rejects(operation));
+
+  // Reads, reviews and the confirmed inspection of a stopped account never set it.
+  for (const read of [
+    () => getVpsSiwcInstallationStatus(scope), () => reviewVpsSiwcReplacement(scope),
+    () => getVpsCodexImagesStatus(scope), () => getVpsModelDiscovery(scope), () => getVpsUsageStatus(scope),
+    () => reviewVpsSiwcRuntimeUpdate(scope, changed),
+    () => changeVpsCodexImages({ ...scope, action: "login-poll", expectedContainerId: containerId }),
+    () => changeVpsCodexImages({ ...scope, action: "login-cancel", expectedContainerId: containerId, confirmed: true }),
+  ]) assert.deepEqual(await modeCommands(read), []);
+
+  // A confirmed request that fails its own re-attestation changes nothing.
+  assert.deepEqual(await refused(changeVpsModelChecks({ ...scope, enabled: true, expectedContainerId: "f".repeat(64), confirmed: true })), []);
+  assert.deepEqual(await refused(changeVpsCodexImages({ ...scope, action: "sign-out", expectedContainerId: "f".repeat(64), confirmed: true })), []);
+  const { account } = await getVpsSiwcInstallationStatus(scope);
+  assert.deepEqual(await refused(manageVpsSiwcInstallation({ ...scope, action: "sign-out",
+    expectedGeneration: randomUUID(), confirmed: true })), []);
+  const review = await reviewVpsSiwcRuntimeUpdate(scope, changed);
+  assert.deepEqual(await refused(updateVpsSiwcRuntime({ ...scope, review: { ...review, containerId: "f".repeat(64) }, confirmed: true }, changed)), []);
+
+  // Each confirmed change sets it exactly once.
+  for (const change of [
+    () => changeVpsModelChecks({ ...scope, enabled: false, expectedContainerId: containerId, confirmed: true }),
+    () => changeVpsCodexImages({ ...scope, action: "login-start", expectedContainerId: containerId, confirmed: true }),
+    () => changeVpsCodexImages({ ...scope, action: "sign-out", expectedContainerId: containerId, confirmed: true }),
+    async () => updateVpsSiwcRuntime({ ...scope, review: await reviewVpsSiwcRuntimeUpdate(scope, changed), confirmed: true }, changed),
+    () => manageVpsSiwcInstallation({ ...scope, action: "disable-plan", expectedGeneration: account.generation, confirmed: true }),
+  ]) assert.deepEqual(await modeCommands(change), [SHARED_ROOT_TIGHTEN_COMMAND]);
+
+  // The stopped account's confirmed inspection is a read under the lock.
+  assert.deepEqual(await modeCommands(() => inspectStoppedVpsSiwcInstallation({ ...scope, confirmed: true })), []);
+  assert.equal(remote.commands.some(item => item.command === verification.stop), true);
+
+  // A fresh install creates or sets the folder with the install command, after its confirmation.
+  const fresh = await fixture(t);
+  const target = fakeRemote({ destinationRoot: fresh.destinationRoot });
+  const install = fields => installSidecar({ remote: target.remote, networkName: "proxy", registration: fresh.registration,
+    authBinding: fresh.authBinding, reviewedTarget: target.reviewedTarget, backgroundConsent, ...fields });
+  await assert.rejects(install({ confirmed: false }));
+  assert.deepEqual(target.remote.commands, []);
+  await install({ confirmed: true });
+  assert.deepEqual(target.remote.commands.map(item => item.command).filter(setsSharedFolderMode), [SHARED_ROOT_COMMAND]);
 });

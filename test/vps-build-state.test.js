@@ -226,7 +226,10 @@ test("disconnect after lock creation reports the exact retained lease without cl
   await assert.rejects(withVpsOperationLock(f.remote, VPS_OPERATION_LOCKS.model, () => { entered = true; }), error => {
     assert.equal(error.cause, disconnected);
     assert.equal(error.operationLockRetained, true);
-    assert.ok(error.safeMessage.includes(VPS_OPERATION_LOCKS.model));
+    // The browser text names the lock by file name; an absolute path would be withheld.
+    assert.ok(error.safeMessage.includes(".local-model-operation.lock"));
+    assert.doesNotMatch(error.safeMessage, /\/docker\//u);
+    assert.equal(error.code, "vps_operation_lock");
     return true;
   });
   assert.equal(entered, false);

@@ -30,14 +30,18 @@ The website's `/api/chat` remains off and returns `410 Gone`; local setup does
 not enable hosted chat. See the
 [full GitHub guide](https://github.com/Demonbane18/relmio/blob/main/README.md)
 and the
-[2026-10-05 OpenAI source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md)
-for setup, data handling, limits, and unresolved prerequisites. The
-[v0.22.2 addendum](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-07.md#addendum-v0222-release)
+[2026-11-11 OpenAI source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-11-11.md)
+for the current comparison. The
+[2026-10-05 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md)
 and the
+[v0.22.2 addendum](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-07.md#addendum-v0222-release)
+stay historical. The
 [Claude wizard source check](https://github.com/Demonbane18/relmio/blob/main/docs/claude-wizard-source-check-2026-11-04.md)
-cover this release. OpenAI flows are unchanged; the Claude check re-read the
-Sign in with ChatGPT Terms (Effective November 4, 2026), and the persistent
-remote token storage and connected-application questions stay open.
+covers the Claude path. Requested ChatGPT scopes and the SIWC token path are
+unchanged in this wave. Shared-folder protection, SSH config password
+retention, error diagnostics, help, and image-sign-in polling did change.
+The persistent remote token storage and connected-application questions stay
+open. This check claims no Terms compliance.
 
 The local wizard's **Test AI Chat** console keeps partial response text visible
 while it streams. Status distinguishes connection setup, waiting for the first
@@ -67,7 +71,7 @@ Prompt:
 ```bash
 npx --yes --ignore-scripts relmio@latest
 ```
-This command selects stable Relmio 0.23.0, including the setup guide.
+This command selects stable Relmio 0.25.0, including the setup guide.
 Hosted installers use the same stable default.
 
 
@@ -93,20 +97,27 @@ want the setup route for this computer.
 The first time the wizard opens, it asks whether to start the setup guide.
 Relmio, the mascot, then points at each box and button in turn, says what to
 enter or press, and explains errors with the next step. **Help** remains
-available after you skip the walkthrough. It explains the current prerequisite,
-offers the current feature's tips and bundled FAQ, and **Show me** highlights
-the relevant control without activating it. The **Setup guide** button in the
-top bar turns the walkthrough on or off later. Once you
-answer, Relmio saves only that choice, in `ui-preferences.json` in its
+available after you skip the walkthrough. It explains the current step, lists
+topics under **This step**, **Questions** and **Words**, and **Show me**
+highlights the relevant control without activating it. Hiding the guide folds
+it into a chip that shows the current tip title. The **Setup guide** button in the
+top bar turns the walkthrough on or off later. Relmio saves only that on or
+off choice, in `ui-preferences.json` in its
 ChatGPT sign-in folder (`~/.n8n-openai-oauth`, or `N8N_OPENAI_OAUTH_HOME` when
-set). See
+set). Read marks stay in the current tab. See
 [Use the setup guide](https://relmio.jpfusin.tech/docs/getting-started#use-the-setup-guide).
 
 No Node.js yet? The [hosted install guide](https://relmio.jpfusin.tech/install)
 has native curl, Homebrew, PowerShell, and Command Prompt options. Homebrew
-installs the persistent `relmio` command; it does not launch the browser. The
-curl, PowerShell, and Command Prompt launchers open the foreground wizard with
-the same platform security checks.
+installs the persistent `relmio` command and Node.js. It does not open the
+wizard, so run `relmio` next. The curl, PowerShell, and Command Prompt
+launchers open the foreground wizard with the same platform security checks.
+Registry installs with npm 10 or 11 honour the packaged
+`npm-shrinkwrap.json`; npm 12 and later ignore it. Installing this package
+from a local tarball file does not honour it either, and the Homebrew formula uses that file install,
+so Homebrew is not pinned by the shrinkwrap. Setup, example and diagram
+screenshots stay in the GitHub repository and are not in this package. The
+banner above is still packaged.
 
 ## Dashboard commands
 
@@ -159,13 +170,24 @@ automatically; inspect the retained resources.
 
 The documented local OSS flow needs no commercial approval, partner-issued
 client, or secret. The user still separately grants ChatGPT plan use and
-confirms the first-use notice. The VPS guide and SIWC Terms do not resolve
-persistent remote token storage; the implementation makes no provider-approval
-claim for VPS use. The Terms' connected-application rule may also conflict
-with an OpenAI-compatible endpoint for n8n, and Relmio is not in OpenAI's
-partner directory. Both questions are open. Read the
+confirms the first-use notice. That checkbox does not authorize another
+person's activity or an unrelated tool to spend the plan. SIWC Terms §3.1,
+effective November 4, 2026, limits plan use to the authenticated user's
+activity or expressly authorized automation, on a runtime only that user
+controls, inside the connected application. Service Terms updated November 10,
+2026 incorporate the SIWC Terms. Whether an OpenAI-compatible n8n endpoint
+fits that rule is open. Relmio was absent from the partner directory returned
+on 2026-11-11. SIWC Terms §1 says persistent authentication tokens must be
+local and user-controlled, not in a remote or managed environment. The
+self-hosted VM guide describes a protected transfer. Those texts do not
+resolve persistent VPS storage, and this implementation makes no
+provider-approval claim. OpenAI's Usage Policies page fetched on 2026-11-11
+is effective November 20, 2026, announced October 21, 2026. That intermediary
+approval requirement is not yet in force on the check date. It is not a
+finding that every local open-source SIWC use is banned, and this check
+establishes no approval under it. Read the
 [VPS guide](https://relmio.jpfusin.tech/docs/vps-and-n8n) and
-[2026-10-05 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md).
+[2026-11-11 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-11-11.md).
 
 Relmio also refuses to adopt an earlier SuperGrok development install that
 lacks its fresh-session marker. Review that installation separately before
@@ -195,7 +217,10 @@ process for each text request. It needs pinned Claude Code `2.1.317` and your
 own reviewed subscription login. Since 0.24.0 the browser wizard can set up its
 private Docker companion beside an existing n8n: choose **Claude on my server**
 in the VPS wizard (`relmio vps`) or **Claude for n8n** in the local wizard
-(`relmio local`). The wizard shows one sign-in command, and you run it yourself
+(`relmio local`). The VPS route and **Hosting options** are not limited to
+macOS and Linux. The VPS Claude page is untested on Windows. The companion on
+this computer needs macOS or Linux and is unavailable on native Windows. The
+wizard shows one sign-in command, and you run it yourself
 in your own terminal: `ssh -t root@<host> sh /docker/n8n-openai-oauth/claude/login.sh`
 for a VPS, `relmio claude companion login` for this computer. Relmio never
 handles the paste code or your Claude credentials. Native n8n and the advanced
@@ -298,7 +323,7 @@ providers.
 The hosting catalog generates operator-applied plans; it grants no OpenAI
 permission or model entitlement. The local ChatGPT plan sidecar is separate
 from the website, whose `/api/chat` returns `410 Gone`. The
-[2026-10-05 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md)
+[2026-11-11 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-11-11.md)
 records current local behavior and unresolved hosted/VM requirements.
 
 
@@ -504,7 +529,7 @@ and a fresh SIWC sign-in. The published SIWC Terms and VM guide do not resolve
 persistent remote VM token storage; the VPS implementation is not presented as
 provider-approved. Read the
 [VPS guide](https://relmio.jpfusin.tech/docs/vps-and-n8n) and
-[source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-10-05.md).
+[2026-11-11 source check](https://github.com/Demonbane18/relmio/blob/main/docs/openai-source-check-2026-11-11.md).
 
 For SuperGrok, choose **SuperGrok for n8n**, select
 its container and network, then review the private installation. Copy the

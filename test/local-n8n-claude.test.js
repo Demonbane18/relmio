@@ -50,11 +50,23 @@ test("Claude views strip non-contract fields and preserve only one-time local ke
   assert.equal(JSON.stringify(safe).includes("must-not-leak"), false);
   assert.throws(() => createSafeLocalN8nClaudeInstallResult({ ...result, models: ["claude-other"] }, plan));
   assert.throws(() => createSafeLocalN8nClaudeInstallResult({ ...result, networkName: "other" }, plan));
-  const status = createSafeLocalN8nClaudeStatus({ target: plan.target, managed: true, state: "partial",
-    snapshot: { target: plan.target, endpoint: plan.endpoint, auth: { configured: true, disclosure: "one-time", token: "must-not-leak" },
-      models: plan.models, expiresAt, approvalExpired: true, canRemove: true, clientKey: "must-not-leak" } });
+  const snapshot = { target: plan.target, endpoint: plan.endpoint, auth: { configured: true, disclosure: "one-time", token: "must-not-leak" },
+    models: plan.models, expiresAt, approvalExpired: true, canRemove: true, runtime: "restarting", clientKey: "must-not-leak" };
+  const status = createSafeLocalN8nClaudeStatus({ target: plan.target, managed: true, state: "partial", snapshot });
   assert.equal(status.snapshot.approvalExpired, true);
+  assert.equal(status.snapshot.runtime, "restarting");
   assert.equal(JSON.stringify(status).includes("must-not-leak"), false);
   assert.throws(() => createSafeLocalN8nClaudeStatus({ target: plan.target, managed: false, state: "healthy" }));
-  assert.deepEqual(createSafeLocalN8nClaudeChangeResult({ target: plan.target, removed: true, token: "secret" }, "remove"), { target: plan.target, removed: true });
+  // The runtime is a closed list, and only a running companion may be reported healthy.
+  for (const runtime of [undefined, "healthy", "paused", true]) {
+    assert.throws(() => createSafeLocalN8nClaudeStatus({ target: plan.target, managed: true, state: "partial", snapshot: { ...snapshot, runtime } }));
+  }
+  for (const runtime of ["starting", "restarting", "unhealthy", "stopped"]) {
+    assert.throws(() => createSafeLocalN8nClaudeStatus({ target: plan.target, managed: true, state: "healthy", snapshot: { ...snapshot, runtime } }));
+  }
+  assert.equal(createSafeLocalN8nClaudeStatus({ target: plan.target, managed: true, state: "healthy", snapshot: { ...snapshot, runtime: "running" } }).snapshot.runtime, "running");
+  assert.deepEqual(createSafeLocalN8nClaudeChangeResult({ target: plan.target, removed: true, loginKept: true, token: "secret" }, "remove"),
+    { target: plan.target, removed: true, loginKept: true });
+  assert.throws(() => createSafeLocalN8nClaudeChangeResult({ target: plan.target, removed: true }, "remove"));
+  assert.deepEqual(createSafeLocalN8nClaudeChangeResult({ target: plan.target, changed: true, loginKept: true }, "sign-out"), { target: plan.target, changed: true });
 });

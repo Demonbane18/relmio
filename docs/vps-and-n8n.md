@@ -20,14 +20,39 @@ guidance, not credentials to try automatically.
 
 The local plan route is not an OpenAI Platform API key. ChatGPT identity,
 plan-use permission, model availability, and successful requests are distinct.
-See the [OpenAI source check](openai-source-check-2026-10-04.md) for capability,
-account, and data-handling limits.
+See the [2026-11-11 source check](openai-source-check-2026-11-11.md) for the current comparison. The [2026-10-04 source check](openai-source-check-2026-10-04.md) is historical.
 
-Relmio's managed files stay below `/docker/n8n-openai-oauth`; the safe,
-root-owned `/docker` parent must already exist. Docker manages the companion's
-approved images, containers and volumes in its own data root. Relmio does not
-edit, rebuild, recreate, execute inside, stop, or restart your n8n Compose
-project or image. No companion publishes a host port.
+Relmio's managed files stay below `/docker/n8n-openai-oauth`. The root-owned,
+non-symlink `/docker` parent must already exist, and Relmio does not create it.
+On your own server, create that parent with:
+
+```sh
+sudo install -d -o root -g root -m 0755 /docker
+```
+
+That command prepares only the parent directory. It does not authorize an
+install, and `sudo` does not unlock the root-only ChatGPT, Assistant,
+SuperGrok or Claude routes. If `/docker` is already there, inspect it first.
+Do not replace a symlink.
+
+A new `/docker/n8n-openai-oauth` folder is created as mode `0700` root:root.
+An existing folder from an earlier release is set to mode `0700` the next
+time you confirm a change on that server, such as an install, update,
+removal, sign-in or sign-out. Checking status, reviewing a plan, sign-in
+polling and cancelling an image sign-in never change it. That change does
+not reset the folder's existing group. Updating the npm package does not
+change an older install either. The nested `siwc` store stays mode `0700`, owned by UID/GID
+`1000:1000`, and remains mounted at `/home/node/.relmio-siwc`. Tokens are not
+moved or given to root. Before that change, a host account with that
+same UID could read the session through a mode-`0755` parent. After the
+parent is `0700`, that account cannot traverse it. Root, a Docker
+administrator and a backup of the folder can still read the files. This is
+file permission, not encryption.
+
+Docker manages the companion's approved images, containers and volumes in its
+own data root. Relmio does not edit, rebuild, recreate, execute inside, stop,
+or restart your n8n Compose project or image. No companion publishes a host
+port.
 
 Build-capable actions use temporary mode-`0700` Buildx state inside the reviewed
 operation lock. Verified cleanup removes owned temporary state only; ambiguous
@@ -104,6 +129,80 @@ review. An interrupted install stays bound to the full reviewed target. After
 the install completes, status and sign-out need only the same SSH host
 identity and Docker network ID, so they keep working if n8n is recreated or
 you change the SSH login method. A changed network is still refused.
+
+### What the server check reports
+
+After you connect, the page shows a host report built from the connection
+probe and cached discovery. It does not open a second connection or call
+OpenAI. The connection keeps bounded host facts: operating system, kernel,
+architecture, Docker Engine, Compose and Buildx versions, memory, CPU count,
+and short Docker security-option names. Unknown facts stay empty. The report
+starts closed, with one summary line that counts warnings and names a failed
+check, if any. Opening it shows the facts line and only warnings and problems,
+not a row for every pass. These facts do not prove a later build, network
+connectivity, model access, or provider
+approval. After authentication, Relmio removes the password property from its
+SSH config objects. That is not secure erasure of the password from memory.
+
+Missing Buildx is a warning. Compose can still build. If a build fails, install
+Docker's Buildx plugin and try the reviewed action again. Docker Engine older
+than 28, Compose older than 2.38, less than 2 GiB of memory, or fewer than two
+CPUs are warnings, not refusals. An arm64 CPU warns on every flow: Relmio is
+untested on arm64 servers. A known CPU other than `x86_64` or `aarch64`
+refuses a new SuperGrok, Claude or self-hosted model install. The ChatGPT
+bridge and the Assistant get a warning on that CPU and are not refused by it.
+Unknown CPU facts do not refuse the install. Claude's Replace companion and
+key action runs the architecture check again; other management actions on
+an installed companion do not.
+
+A refusal carries a code, and **Help** states what to do. The
+[symptom table](troubleshooting.md#symptom-table) lists each code. In short:
+
+- `ssh_root_login_disabled`, `ssh_not_root` and `ssh_auth_refused`: use a
+  direct root login for ChatGPT, Assistant, SuperGrok and Claude. Only the
+  self-hosted model accepts passwordless `sudo -n`. Relmio does not ask you
+  to enable root login or edit sudoers.
+- `vps_prereq_docker_dir`: create `/docker` yourself with the command above,
+  then check again.
+- `vps_prereq_linux`, `vps_prereq_uid`, `vps_prereq_tools`,
+  `vps_prereq_probe`, `vps_prereq_docker_cli`, `vps_prereq_docker_context`,
+  `vps_prereq_docker_engine`, `vps_prereq_compose` and `vps_prereq_rootless`:
+  fix the named Linux, Docker or Compose prerequisite on the server. Relmio
+  does not switch the Docker context, start a rootless engine or repair the
+  host.
+- `vps_prereq_builder_config` and `vps_prereq_default_builder`: have an
+  administrator review the saved builder settings. Do not run
+  `docker buildx inspect`. Relmio does not switch builders.
+- `vps_operation_lock`: wait if another action is running. Otherwise leave
+  the lock folder and follow
+  [operation-lock recovery](maintenance.md#vps-build-state-and-operation-lock-recovery).
+- `vps_network_unsupported`: choose another network already attached to n8n,
+  or have n8n's administrator prepare a user-defined network. Relmio does not
+  change n8n.
+- `vps_step_compose_config`, `vps_step_build`, `vps_step_start` and
+  `vps_step_image_check`: the helper's Compose check, image build, start or
+  image inspection failed. Read the next action on the page. n8n was not
+  changed.
+- `vps_host_unsupported_cpu`: use an `x86_64` or `aarch64` server for that
+  setup. Nothing was written.
+
+**Hosting options** shows root-sign-in guidance beside Managed for the
+root-only components. Choosing a provider does not change the sign-in name,
+authentication or privilege you already entered. See
+[SSH agent and administrative access](hosting-compatibility.md#ssh-agent-and-administrative-access).
+The catalog marks Hostinger KVM VPS and Local Docker as tested; every other
+VM provider stays Experimental.
+
+Installed SuperGrok status, sign-in, sign-out and removal require the same
+Docker network and n8n container name. They keep working if n8n is recreated
+under that name on that network. A different n8n on that network is refused.
+A different or recreated network is refused, and the message names the
+network SuperGrok was installed on.
+A fresh install plan is still bound to the n8n container you reviewed.
+
+If the selected n8n already runs n8n's own `sandbox-api` service, the
+Assistant plan warns that installation adds a second privileged runner. It
+does not refuse the install.
 
 The destination runtime has a distinct persistent host ID. Relmio freezes the
 source registration before transferring it and clears sender tokens only after
@@ -307,9 +406,14 @@ Read these points before you turn it on:
 - Device code sign-in must be on in ChatGPT security settings, or allowed by
   your workspace admin.
 - Sign in with the same ChatGPT account as the sidecar.
-- The Codex access and refresh tokens are stored on the VPS in owner-only
-  files under `/docker/n8n-openai-oauth/siwc/codex-images`. Anyone with root
-  or Docker access on the server, or a copy of that folder, can read them.
+- The Codex access and refresh tokens are stored on the VPS in files owned by
+  the sidecar user under `/docker/n8n-openai-oauth/siwc/codex-images`. The
+  shared parent is mode `0700` after the next confirmed change on
+  that server, such as an install, update, removal, sign-in or sign-out, so a
+  host account with the sidecar user's UID can no longer walk in through an
+  older mode-`0755` parent. Root, a Docker administrator, or a copy of that
+  folder can still read the tokens. Checking status, reviewing a plan,
+  sign-in polling and cancelling an image sign-in never change the mode.
 
 The easiest time to turn it on is while you install the sidecar. On the
 **Review** step, open **Image generation (optional)**, read the notes and
@@ -336,7 +440,10 @@ select its n8n container and network, then:
 3. Choose **Open the Codex sign-in page**
    (`https://auth.openai.com/codex/device`), sign in, and enter the code the
    panel shows. The code expires after 15 minutes. Relmio checks every
-   5 seconds; use **Cancel image sign-in** to stop.
+   5 seconds while this browser tab is visible. Hiding the tab waits, then
+   checks once when the tab is shown again. That pause does not stop n8n
+   requests, ChatGPT plan use, or every other wizard poll, and it does not
+   revoke the image sign-in. Use **Cancel image sign-in** to stop.
 
 When you approve, the panel says `Images on for` your account and Relmio
 disconnects from the VPS. If you decline or the code expires, image
@@ -491,4 +598,4 @@ call, and 2 MiB of streamed arguments in total. It rejects a named
 messages. Tool roundtrips passed live on one ChatGPT account on a local macOS
 setup on 2026-10-05; a VPS install was not tested live. Discovery does not
 establish account access. See [Configure n8n nodes](n8n-configuration.md) and
-the [dated source check](openai-source-check-2026-10-05.md).
+the [2026-11-11 source check](openai-source-check-2026-11-11.md). The [2026-10-05 source check](openai-source-check-2026-10-05.md) is historical.

@@ -30,6 +30,15 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // API responses and build assets need no document policy.
-  matcher: ["/((?!api/|_next/static|_next/image|favicon.ico).*)"],
+  // Pages need the policy. API responses, build assets, fonts and other public
+  // files, and router prefetches (which load no document) do not.
+  matcher: [
+    {
+      source: "/((?!api/|_next/static|_next/image|favicon.ico|fonts/|.*\\.(?:png|svg|sh|ps1|cmd)$).*)",
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
+  ],
 };

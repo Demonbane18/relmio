@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extname, join, resolve } from "node:path";
+import { extname, join, posix, resolve } from "node:path";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -14,32 +14,31 @@ import {
 } from "../scripts/build-npm-package.js";
 
 const execFileAsync = promisify(execFile);
-const reviewedBinaryFiles = new Set([
-  "docs/images/brand/relmio-concept-source.png",
+// The complete set of published binary files. Screenshots and source art stay in the repository only.
+const reviewedBinaryFiles = [
   "docs/images/brand/relmio-logo.png",
-  "docs/images/diagrams/relmio-two-lanes.png",
-  "docs/images/examples/gpt-56-ai-agent-luna-run.png",
-  "docs/images/examples/gpt-56-ai-agent-sol-run.png",
-  "docs/images/examples/gpt-56-ai-agent-workflow.png",
-  "docs/images/examples/gpt-56-luna-chat-model-run.png",
-  "docs/images/examples/gpt-56-model-selector.png",
-  "docs/images/examples/gpt-56-sol-chat-model-run.png",
-  "docs/images/examples/hosted-chat-connected.png",
-  "docs/images/examples/n8n-openai-credential-connected.png",
-  "docs/images/examples/sidecar-docker-containers-running.png",
-  "docs/images/examples/telegram-model-results.png",
-  "docs/images/examples/telegram-n8n-workflow-execution.png",
-  "docs/images/setup/00-install-methods.png",
-  "docs/images/setup/01-local-sign-in-ready.png",
-  "docs/images/setup/02-vps-identity-confirmed.png",
-  "docs/images/setup/03-n8n-detected.png",
-  "docs/images/setup/04-install-plan.png",
-  "docs/images/setup/05-bridge-ready.png",
   "src/ui/fonts/bricolage-grotesque-latin.woff2",
   "src/ui/fonts/geist-latin.woff2",
-  "src/ui/relmio-icon.png",
   "src/ui/relmio-icon-96.png",
-]);
+];
+// Everything published outside src/ and the documentation pages, listed exactly. npm-shrinkwrap.json is the
+// repository lockfile: it pins the packages below the direct dependencies for registry installs.
+const reviewedFilesOutsideSource = [
+  "CHANGELOG.md",
+  "LICENSE",
+  "NOTICE",
+  "README.md",
+  "SPEC.md",
+  "docs/images/brand/relmio-banner-animated.svg",
+  "docs/images/brand/relmio-logo-rounded.svg",
+  "docs/images/brand/relmio-logo.png",
+  "npm-shrinkwrap.json",
+  "package.json",
+  "scripts/build-npm-package.js",
+  "scripts/check-release-metadata.js",
+  "scripts/check-syntax.js",
+  "scripts/preview.js",
+];
 const forbiddenBasename =
   /^(?:\.env(?:\..*)?|auth\.json|credentials?\.json|.*\.(?:key|p12|pem|pfx|ppk))$/iu;
 const textExtensions = new Set([
@@ -190,14 +189,51 @@ test("npm package contains only allowed files and every advertised local script"
     packedPaths.filter((path) => forbiddenBasename.test(path.split("/").at(-1))),
     [],
   );
+  assert.deepEqual(
+    packedPaths.filter((path) => !path.startsWith("src/") && !/^docs\/[^/]+\.md$/u.test(path)),
+    reviewedFilesOutsideSource,
+  );
+  assert.deepEqual(
+    packedPaths.filter((path) => !textExtensions.has(extname(path))),
+    reviewedBinaryFiles,
+  );
+  assert.equal(
+    await readFile(join(stagingDirectory, "npm-shrinkwrap.json"), "utf8"),
+    await readFile("package-lock.json", "utf8"),
+  );
+  // A `!path` entry in `files` stays in the repository and reaches neither the tarball nor the
+  // staging folder, which the Windows portable archive copies whole.
+  const unpublished = manifest.files.filter((entry) => entry.startsWith("!")).map((entry) => entry.slice(1));
+  assert.deepEqual(unpublished, [
+    "src/ui/relmio-icon.png",
+    "docs/images/setup",
+    "docs/images/examples",
+    "docs/images/diagrams",
+    "docs/images/brand/relmio-concept-source.png",
+  ]);
+  for (const path of unpublished) {
+    await access(path);
+    await assert.rejects(access(join(stagingDirectory, path)), { code: "ENOENT" }, path);
+    assert.equal(packedPaths.some((packed) => packed === path || packed.startsWith(`${path}/`)), false, path);
+  }
   for (const path of packedPaths) {
-    if (!textExtensions.has(extname(path))) {
-      assert.ok(reviewedBinaryFiles.has(path), `unreviewed binary file: ${path}`);
-      continue;
-    }
+    if (!textExtensions.has(extname(path))) continue;
     const contents = await readFile(join(stagingDirectory, path), "utf8");
     for (const { label, pattern } of forbiddenContent) {
       assert.doesNotMatch(contents, pattern, `${path} contains a ${label}`);
+    }
+    if (extname(path) !== ".md") continue;
+    // Every image a published document displays must be published too: relative Markdown or HTML
+    // images, and files the README loads from this package through jsDelivr.
+    const displayed = [
+      ...[...contents.matchAll(/!\[[^\]]*\]\(([^)\s]+)/gu), ...contents.matchAll(/<img[^>]+src="([^"]+)"/gu)]
+        .map(([, target]) => target)
+        .filter((target) => !/^[a-z][a-z0-9+.-]*:/iu.test(target))
+        .map((target) => posix.join(posix.dirname(path), target.split("#", 1)[0])),
+      ...[...contents.matchAll(/cdn\.jsdelivr\.net\/npm\/relmio@[^/\s"]+\/([^\s")]+)/gu)].map(([, target]) => target),
+    ];
+    for (const target of displayed) {
+      assert.ok(packedPaths.includes(target), `${path} displays an unpublished file: ${target}`);
     }
   }
 });

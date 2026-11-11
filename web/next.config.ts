@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   // The Content-Security-Policy header comes from proxy.ts with a per-request nonce.
   async headers() {
     return [{
@@ -12,6 +13,11 @@ const nextConfig: NextConfig = {
         { key: "X-Frame-Options", value: "DENY" },
         { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), browsing-topics=()" },
       ],
+    }, {
+      // Every page preloads both fonts. Their file names carry no hash, so they
+      // are cached for 30 days rather than marked immutable.
+      source: "/fonts/:path*",
+      headers: [{ key: "Cache-Control", value: "public, max-age=2592000, stale-while-revalidate=31536000" }],
     }];
   },
   // Browsers and crawlers still ask for /favicon.ico.

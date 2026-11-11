@@ -9,9 +9,11 @@ const between = (text, start, end) => {
   assert.ok(from >= 0 && to > from, `missing ${start}`);
   return text.slice(from, to);
 };
+// Page helpers the detail and snapshot renderers call. The status helper is the real one.
 const footerHelpers = (script) => [
   between(script, "function isCodexChat(target)", "\nfunction assistantModeLabel"),
   between(script, "function renderFooterForTarget(target)", "\nfunction renderTarget"),
+  between(script, "function dashboardServiceStatus(service)", "\nfunction dashboardBoundary"),
 ].join("\n");
 const snapshot = () => ({ generatedAt: "2026-09-05T00:00:00.000Z", services: [
   { target: "codex-chatgpt", label: "Codex (ChatGPT login)", kind: "endpoint", managed: true, state: "healthy", snapshot: { target: "codex-chatgpt", endpoint: "ws://127.0.0.1:14500/", auth: { configured: true, disclosure: "rotate-only" }, canRotateCredential: true }, actions: ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"] },
@@ -42,12 +44,15 @@ test("expired inventory refuses actions and marks the verified snapshot stale", 
 
 test("dashboard initialization enters through safe discard and refresh preserves focus and scroll", async () => {
   const script = await source(); const section = between(script, "function initializeLocalDashboard", "\nfunction parseRelmioStreamEvent");
-  const calls = []; const listeners = new Map();
-  const initialize = runInNewContext(`${section}; initializeLocalDashboard;`, { document: { querySelectorAll: () => [] }, element: (id) => ({ addEventListener: (event, handler) => listeners.set(`${id}:${event}`, handler) }), async enterDashboardView(options) { calls.push(options ?? null); }, async refreshProjectMeta() { calls.push("meta"); }, enterSetupView() {}, renderDashboardFailure() {}, showError() {}, syncDashboardNavigation() {}, window: { addEventListener() {} } });
+  const calls = []; const listeners = new Map(); const state = { dashboardBusy: false };
+  const initialize = runInNewContext(`${section}; initializeLocalDashboard;`, { state, document: { querySelectorAll: () => [] }, element: (id) => ({ addEventListener: (event, handler) => listeners.set(`${id}:${event}`, handler) }), async enterDashboardView(options) { calls.push(options ?? null); }, async refreshProjectMeta() { calls.push("meta"); }, enterSetupView() {}, renderDashboardFailure() {}, showError() {}, syncDashboardNavigation() {}, window: { addEventListener() {} } });
   initialize(); await Promise.resolve(); await Promise.resolve();
   assert.deepEqual(calls, [null]);
   listeners.get("dashboard-refresh:click")(); await Promise.resolve();
   assert.deepEqual(JSON.parse(JSON.stringify(calls[1])), { preserveFocus: true, preserveScroll: true });
+  // The button stays focusable while a check runs, so a second press must not start another.
+  state.dashboardBusy = true; listeners.get("dashboard-refresh:click")(); await Promise.resolve();
+  assert.equal(calls.length, 2);
 });
 
 test("dashboard timer rerenders stale inventory and reduced motion selects auto scrolling", async () => {
@@ -81,7 +86,7 @@ test("stale dashboard rerender restores focus to the matching Codex endpoint cop
     Date: class extends Date { static now() { return now; } }, DASHBOARD_SERVICE_DEFINITIONS: view.services.map(({ target, label }) => ({ target, label })), document, element,
     state: { dashboardBusy: false, dashboardFocusIdentity: null, dashboardSelectedTarget: "codex-chatgpt", dashboardSnapshot: null, dashboardStaleTimer: null },
     window: { clearTimeout() {}, setTimeout(callback, delay) { timer = { callback, delay }; return 1; } },
-    assistantModeLabel: () => "Disabled", copyText: async () => {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n", dashboardServiceDescription: () => "Verified service", dashboardStateLabel: (value) => value, dashboardStateNode: () => node("span"), dashboardStatusDot: () => node("span"), flashCopied() {}, formatDashboardTime: () => "now", renderDashboardAction: () => null, renderDashboardCompactService: () => node("li"), renderDashboardProvider: () => node("li"), renderDashboardSectionStatus: () => node("li"), renderDashboardServiceRow(service) { const item = node("li"); const select = node("button"); select.dataset.dashboardService = service.target; select.dataset.dashboardControl = "select"; item.append(select); return item; }, renderDashboardTruth() {},
+    assistantModeLabel: () => "Disabled", copyText: async () => {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n", dashboardServiceDescription: () => "Verified service", dashboardStateLabel: (value) => value, dashboardStateNode: () => node("span"), dashboardStatusDot: () => node("span"), flashCopied() {}, localTime: () => node("time"), renderDashboardAction: () => null, renderDashboardCompactService: () => node("li"), renderDashboardProvider: () => node("li"), renderDashboardSectionStatus: () => node("li"), renderDashboardServiceRow(service) { const item = node("li"); const select = node("button"); select.dataset.dashboardService = service.target; select.dataset.dashboardControl = "select"; item.append(select); return item; }, renderDashboardTruth() {},
   });
   const copy = () => descend(element("dashboard-service-facts")).find((item) => item.tagName === "button");
   controls(view, { stale: false }); const before = copy();
@@ -96,18 +101,18 @@ test("dashboard copy allowlist includes endpoint and n8n URLs but never credenti
   const detail = runInNewContext(`${footerHelpers(script)}\n${facts}\n${details}; renderDashboardServiceDetail;`, { document: { createElement: node }, element, state: { dashboardSnapshot: snapshot() }, assistantModeLabel: () => "Disabled", copyText: async () => {}, flashCopied() {}, dashboardBoundary: () => "Verified", dashboardComponentSummary: () => "n8n, ngrok", dashboardServiceDescription: () => "Verified", dashboardStateLabel: (value) => value, dashboardStatusDot: () => node("span"), renderDashboardAction: () => null });
   const buttons = () => element("dashboard-service-facts").children.flatMap((row) => row.children.flatMap((child) => child.children?.filter((item) => item.tagName === "button") ?? []));
   detail(snapshot().services[0]); assert.deepEqual(buttons().map((button) => button.attributes.get("aria-label")), ["Copy Codex (ChatGPT login) endpoint"]);
-  detail({ target: "local-n8n-stack", label: "Local n8n stack", kind: "n8n-stack", managed: true, state: "healthy", actions: [], snapshot: { endpoints: { n8nLocal: "http://127.0.0.1:5678/", ngrokPublic: "https://workflow.example.invalid/", ngrokInspector: "http://127.0.0.1:4040/" }, components: { n8n: true, ngrok: true }, assistantMode: "disabled" } });
-  assert.deepEqual(buttons().map((button) => button.attributes.get("aria-label")), ["Copy local n8n URL", "Copy public n8n URL", "Copy ngrok inspector URL"]);
+  detail({ target: "local-n8n-stack", label: "Local n8n stack", kind: "n8n-stack", managed: true, state: "healthy", actions: [], snapshot: { endpoints: { n8nLocal: "http://127.0.0.1:5678/", ngrokPublic: "https://workflow.example.invalid/" }, components: { n8n: true, ngrok: true }, assistantMode: "disabled" } });
+  assert.deepEqual(buttons().map((button) => button.attributes.get("aria-label")), ["Copy local n8n URL", "Copy public n8n URL"]);
   detail({ target: "local-n8n-assistant", label: "AI Assistant tools", kind: "n8n-assistant", managed: true, state: "healthy", actions: [], snapshot: { components: { codeSandbox: true } } });
   assert.equal(buttons().length, 0);
 });
 
 test("returning to dashboard discards pending setup reviews and one-time values", async () => {
   const script = await source();
-  const transition = between(script, "function clearOneTimeSetupValues", "\nfunction syncDashboardNavigation");
+  const transition = `${between(script, "function setClaudeOneTimeKey(key)", "\nfunction renderClaudeStatus")}\n${between(script, "function clearOneTimeSetupValues", "\nfunction syncDashboardNavigation")}`;
   const clearPoll = between(script, "function clearLocalModelPoll()", "\nfunction renderLocalModelStatus");
   const nodes = new Map();
-  const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, replaceChildren(...children) { this.children = children; }, removeAttribute(name) { if (name === "href") this.href = ""; }, focus() {} }).get(id);
+  const element = (id) => nodes.get(id) ?? nodes.set(id, { id, checked: true, dataset: {}, disabled: false, hidden: false, textContent: `pending-${id}`, value: `pending-${id}`, replaceChildren(...children) { this.children = children; }, removeAttribute(name) { if (name === "href") this.href = ""; }, focus() {} }).get(id);
   const state = { assistantSearxngReview: { reviewId: "pending" }, assistantSearxngReviewId: "pending", dashboardFocusIdentity: { service: "codex-chatgpt" }, installedTarget: "local-n8n-assistant", localModelPollTimer: 7, localModelGeneration: 0, plan: { target: "local-n8n-assistant" }, planId: "pending" };
   const calls = []; const clearedTimers = [];
   const openDisclosures = [{ open: true }, { open: true }];
@@ -130,6 +135,10 @@ test("returning to dashboard discards pending setup reviews and one-time values"
   assert.equal(state.localModelPollTimer, null);
   assert.equal(state.localModelGeneration, 1);
   assert.equal(element("n8n-local-model-management").hidden, true);
+  // The one-time Claude key leaves the page, and the guide no longer sees a fresh key.
+  assert.equal(element("claude-client-key").textContent, "");
+  assert.equal(element("claude-one-time-key").hidden, true);
+  assert.equal(element("claude-copy-key").dataset.guideState, "none");
 });
 
 test("dashboard direct hashes and browser history retain one current navigation link", async () => {

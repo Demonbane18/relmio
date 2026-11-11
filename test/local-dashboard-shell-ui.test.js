@@ -119,44 +119,116 @@ test("dashboard rejects unauthorized provider actions and unknown services", asy
   assert.throws(() => normalize(invalidAction), /unexpected dashboard/u);
 });
 
-test("fresh inventory renders successfully and stale inventory preserves runtime truth", async () => {
-  const script = await loadScript();
-  const renderSource = sourceBetween(script, "function renderDashboardSnapshot", "\nfunction renderDashboardFailure");
+const claudeSnapshot = (overrides = {}) => ({ target: "n8n-claude-oauth", endpoint: "http://relmio-claude:14502/v1",
+  auth: { configured: true, disclosure: "one-time" }, canRemove: true, models: ["claude-sonnet-5-5"],
+  expiresAt: "2026-11-17T03:02:51.040Z", approvalExpired: false, runtime: "running", ...overrides });
+
+function withClaude(serviceState, overrides) {
+  const snapshot = oauthOnlySnapshot();
+  snapshot.services[7] = { ...snapshot.services[7], managed: true, state: serviceState,
+    snapshot: claudeSnapshot(overrides), actions: ["manage-claude", "remove"] };
+  return snapshot;
+}
+
+function snapshotRenderer(script) {
+  // The real labels and status rules, so the Overview is checked against what rows show.
+  const renderSource = `${sourceBetween(script, "function dashboardStateLabel", "\nfunction dashboardBoundary")}\n${sourceBetween(script, "function renderDashboardSnapshot", "\nfunction renderDashboardFailure")}`;
   const truths = new Map();
   const nodes = new Map();
   const element = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { dataset: {}, hidden: false, disabled: false, replaceChildren() {}, setAttribute() {}, textContent: "" });
+    if (!nodes.has(id)) nodes.set(id, { attributes: new Map(), children: [], dataset: {}, hidden: false, disabled: false, textContent: "",
+      replaceChildren(...children) { this.children = children; }, setAttribute(name, value) { this.attributes.set(name, value); } });
     return nodes.get(id);
   };
-  const state = { dashboardBusy: false, dashboardFocusIdentity: null, dashboardSelectedTarget: null };
+  const state = { dashboardBusy: true, dashboardFocusIdentity: null, dashboardSelectedTarget: null };
   const render = runInNewContext(`${renderSource}; renderDashboardSnapshot;`, {
-    captureDashboardFocusIdentity() { return null; }, clearDashboardStaleTimer() {}, dashboardProviderForTarget() { return null; }, dashboardStateLabel(value) { return value; }, dashboardStateNode() { return {}; }, dashboardStatusDot() { return {}; }, document: { body: { dataset: {} }, createElement() { return { append() {}, textContent: "" }; } }, element, formatDashboardTime() { return "Sep 5"; }, isDashboardSnapshotStale() { return false; }, renderDashboardCompactService() { return {}; }, renderDashboardProvider() { return {}; }, renderDashboardSectionStatus() { return {}; }, renderDashboardServiceDetail() {}, renderDashboardServiceRow() { return {}; }, renderDashboardTruth(id, label, status) { truths.set(id, { label, status }); }, restoreDashboardFocus() {}, scheduleDashboardStaleExpiry() {}, state,
+    captureDashboardFocusIdentity() { return null; }, clearDashboardStaleTimer() {}, dashboardProviderForTarget() { return null; },
+    dashboardStateNode() { return {}; }, dashboardStatusDot() { return {}; },
+    document: { body: { dataset: {} }, createElement() { return { append() {}, textContent: "" }; } }, element,
+    localTime(iso) { return { tagName: "time", dateTime: iso }; }, isDashboardSnapshotStale() { return false; },
+    renderDashboardCompactService() { return {}; }, renderDashboardProvider() { return {}; }, renderDashboardSectionStatus() { return {}; },
+    renderDashboardServiceDetail() {}, renderDashboardServiceRow(service) { return { target: service.target }; },
+    renderDashboardTruth(id, label, status) { truths.set(id, { label, status }); }, restoreDashboardFocus() {}, scheduleDashboardStaleExpiry() {}, state,
   });
-  const snapshot = oauthOnlySnapshot();
+  return { element, render, state, truths };
+}
+
+test("fresh inventory names what is installed and stale inventory preserves runtime truth", async () => {
+  const { element, render, truths } = snapshotRenderer(await loadScript());
+  render(oauthOnlySnapshot(), { stale: false });
+  assert.equal(element("dashboard-installed").textContent, "No connections installed");
+  assert.equal(element("dashboard-installed-names").textContent, "Connections");
+
+  const snapshot = withClaude("healthy");
   snapshot.services[0] = { ...snapshot.services[0], managed: true, state: "healthy", snapshot: { target: "codex-chatgpt", endpoint: "ws://127.0.0.1:14500/", auth: { configured: true, disclosure: "rotate-only" }, canRotateCredential: true }, actions: ["sign-in-chatgpt", "sign-out-chatgpt", "rotate-local-capability"] };
   render(snapshot, { stale: false });
   assert.deepEqual(truths.get("dashboard-inventory-freshness"), { label: "Current", status: "healthy" });
+  assert.equal(element("dashboard-installed").textContent, "2 connections installed");
+  assert.equal(element("dashboard-installed-names").textContent, "Codex (ChatGPT plan), Claude for n8n");
+  // Installed connections lead the list; the others keep their order.
+  assert.deepEqual(element("dashboard-services").children.map(({ target }) => target).slice(0, 3),
+    ["codex-chatgpt", "n8n-claude-oauth", "codex-chat"]);
+  // The check time is a <time> with the exact instant, never the raw timestamp as text.
+  assert.deepEqual(JSON.parse(JSON.stringify(element("dashboard-last-checked").children)),
+    ["Checked ", { tagName: "time", dateTime: snapshot.generatedAt }]);
+
   render(snapshot, { stale: true });
   assert.deepEqual(truths.get("dashboard-runtime-health"), { label: "Healthy", status: "healthy" });
-  assert.deepEqual(truths.get("dashboard-provider-readiness"), { label: "Provider-managed · not inspected", status: "absent" });
   assert.deepEqual(truths.get("dashboard-inventory-freshness"), { label: "Refresh needed", status: "stale" });
+  assert.equal(element("dashboard-last-checked").children[0], "Last verified ");
+  assert.equal(element("dashboard-refresh").attributes.get("aria-busy"), "false");
 });
 
-test("dashboard failure replaces loading state with unavailable, action-free rows", async () => {
+test("the Overview is healthy only when the Claude companion runs with a current approval", async () => {
+  const { render, truths } = snapshotRenderer(await loadScript());
+  const health = (snapshot) => { render(snapshot, { stale: false }); return truths.get("dashboard-runtime-health"); };
+  assert.deepEqual(health(withClaude("healthy")), { label: "Healthy", status: "healthy" });
+  // Docker reports "starting" for a minute after every install: calm, and still not healthy.
+  assert.deepEqual(health(withClaude("partial", { runtime: "starting" })), { label: "Starting", status: "starting" });
+  for (const runtime of ["restarting", "unhealthy", "stopped"]) {
+    assert.deepEqual(health(withClaude("partial", { runtime })), { label: "Needs recovery", status: "partial" }, runtime);
+  }
+  assert.deepEqual(health(withClaude("partial", { approvalExpired: true })), { label: "Needs recovery", status: "partial" });
+  // A healthy state never hides a lapsed approval or a companion that is not running.
+  assert.deepEqual(health(withClaude("healthy", { approvalExpired: true })), { label: "Needs recovery", status: "partial" });
+  assert.deepEqual(health(withClaude("healthy", { runtime: "restarting" })), { label: "Needs recovery", status: "partial" });
+});
+
+test("a refresh keeps its button focusable and a failed inventory takes focus", async () => {
   const script = await loadScript();
-  const source = sourceBetween(script, "function renderDashboardFailure", "\nasync function loadLocalDashboard");
+  const focused = [];
   const nodes = new Map();
   const element = (id) => {
-    if (!nodes.has(id)) nodes.set(id, { children: [], className: "", dataset: {}, disabled: true, hidden: false, focus() {}, querySelector() { return { className: "dashboard-status-dot state-checking" }; }, replaceChildren(...children) { this.children = children; }, setAttribute() {}, textContent: "Checking" });
+    if (!nodes.has(id)) nodes.set(id, { attributes: new Map(), children: [], className: "", dataset: {}, disabled: false, hidden: false, focus() { focused.push(id); }, querySelector() { return { className: "dashboard-status-dot state-checking" }; }, replaceChildren(...children) { this.children = children; }, setAttribute(name, value) { this.attributes.set(name, value); }, textContent: "Checking" });
     return nodes.get(id);
   };
   const definitions = oauthOnlySnapshot().services.map(({ target, label, kind }) => ({ target, label, kind }));
-  const render = runInNewContext(`${source}; renderDashboardFailure;`, { clearDashboardStaleTimer() {}, DASHBOARD_SERVICE_DEFINITIONS: definitions, dashboardStatusDot() { return {}; }, document: { body: { dataset: {} }, createElement() { return { append() {}, textContent: "" }; } }, element, renderDashboardRelayPath() {}, renderDashboardTruth(id, label) { element(id).textContent = label; }, renderDashboardCompactService(service) { return { service, lastElementChild: { textContent: "" } }; }, renderDashboardSectionStatus() { return {}; }, renderDashboardServiceRow(service) { return { service }; }, renderDashboardSnapshot() { throw new Error("must not render a missing snapshot"); }, state: { dashboardBusy: true, dashboardSnapshot: null } });
-  render();
+  const rerendered = [];
+  const state = { dashboardBusy: false, dashboardSnapshot: null };
+  const [checking, fail] = runInNewContext(`${sourceBetween(script, "function renderDashboardChecking", "\nfunction renderDashboardSnapshot")}\n${sourceBetween(script, "function renderDashboardFailure", "\nasync function loadLocalDashboard")}; [renderDashboardChecking, renderDashboardFailure];`, { captureDashboardFocusIdentity() { return null; }, clearDashboardStaleTimer() {}, DASHBOARD_SERVICE_DEFINITIONS: definitions, dashboardStatusDot() { return {}; }, document: { body: { dataset: {} }, createElement() { return { append() {}, textContent: "" }; }, querySelectorAll() { return []; } }, element, renderDashboardRelayPath() {}, renderDashboardTruth(id, label) { element(id).textContent = label; }, renderDashboardCompactService(service) { return { service, lastElementChild: { textContent: "" } }; }, renderDashboardSectionStatus() { return {}; }, renderDashboardServiceRow(service) { return { service }; }, renderDashboardSnapshot(snapshot, options) { rerendered.push(options); focused.push("row"); }, state });
+
+  // A disabled button would drop keyboard focus to the page while the check runs.
+  checking();
+  assert.equal(element("dashboard-refresh").disabled, false);
+  assert.equal(element("dashboard-refresh").attributes.get("aria-busy"), "true");
+  assert.equal(state.dashboardBusy, true);
+  assert.equal(element("dashboard-installed").textContent, "Checking");
+
+  fail();
+  assert.equal(element("dashboard-refresh").attributes.get("aria-busy"), "false");
   assert.equal(element("dashboard-services").children.length, definitions.length);
   assert.ok(element("dashboard-services").children.every(({ service }) => service.state === "unavailable" && service.actions.length === 0));
   assert.equal(element("dashboard-runtime-health").textContent, "Unavailable");
+  assert.equal(element("dashboard-installed").textContent, "Unavailable");
   assert.equal(element("dashboard-inventory-freshness").textContent, "Unavailable");
+  assert.equal(element("dashboard-error").hidden, false);
+  assert.deepEqual(focused, ["dashboard-error"], "the blocking error takes focus");
+
+  // With an earlier inventory the stale rerender restores row focus first; the error still ends with focus.
+  state.dashboardSnapshot = oauthOnlySnapshot();
+  fail();
+  assert.equal(rerendered.at(-1).stale, true);
+  assert.deepEqual(focused.slice(-2), ["row", "dashboard-error"]);
 });
 
 test("provider guidance dispatches without starting provider authentication", async () => {
@@ -275,7 +347,7 @@ test("stale private n8n SuperGrok inventory refuses removal review", async () =>
   assert.match(element("dashboard-error").textContent, /expired/u);
 });
 
-test("provider runtime guidance clears completion chrome and ordinary setup restores it", async () => {
+test("guidance and management views clear completion chrome and ordinary setup restores it", async () => {
   const script = await loadScript();
   const stepSource = sourceBetween(script, "function showStep(step,", "\nasync function api");
   const guidanceSource = sourceBetween(
@@ -302,11 +374,12 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
       textContent: "",
     };
   };
-  for (const id of ["setup-progress", "done-step-caption", "success-mark", "done-title", "done-detail"]) {
+  for (const id of ["setup-progress", "done-step-caption", "success-mark", "done-title", "done-detail", "page-title"]) {
     nodes.set(id, makeNode());
   }
   const panels = [1, 2, 3, 4].map((step) => makeNode({ step: String(step) }));
   const markers = [1, 2, 3, 4].map((step) => makeNode({ stepMarker: String(step) }));
+  const state = {};
   const [showStep, showGuidance] = runInNewContext(
     `${stepSource}\n${guidanceSource}\n[showStep, showDashboardProviderRuntimeGuidance];`,
     {
@@ -325,7 +398,7 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
       preferredScrollBehavior() { return "auto"; },
       resetDashboardActionReview() {},
       setMessage() {},
-      state: {},
+      state,
       window: { scrollTo() {} },
     },
   );
@@ -347,11 +420,30 @@ test("provider runtime guidance clears completion chrome and ordinary setup rest
   showStep(1);
   assert.equal(nodes.get("setup-progress").hidden, false);
   assert.equal(nodes.get("done-step-caption").hidden, false);
-  assert.equal(nodes.get("success-mark").hidden, false);
+  assert.equal(nodes.get("page-title").textContent, "Add a local connection");
   assert.equal(markers[0].attributes.get("aria-current"), "step");
+  // Recovery and failure views on the Ready panel keep the steps but show no success mark.
   showStep(4);
   assert.ok(markers.slice(0, 3).every((marker) => marker.dataset.state === "done"));
   assert.equal(markers[3].attributes.get("aria-current"), "step");
+  assert.equal(nodes.get("success-mark").hidden, true);
+  // Only an install that just finished shows it.
+  showStep(4, { installed: true });
+  assert.equal(nodes.get("success-mark").hidden, false);
+
+  // A management entry is not a finished install: no stepper, caption or success mark.
+  state.managing = true;
+  showStep(4);
+  assert.equal(nodes.get("page-title").textContent, "Manage a connection");
+  assert.equal(nodes.get("setup-progress").hidden, true);
+  assert.equal(nodes.get("done-step-caption").hidden, true);
+  assert.equal(nodes.get("success-mark").hidden, true);
+  assert.ok(markers.every((marker) => !marker.dataset.state && !marker.attributes.has("aria-current")));
+  // Leaving the Ready panel starts a setup again.
+  showStep(1);
+  assert.equal(state.managing, false);
+  assert.equal(nodes.get("page-title").textContent, "Add a local connection");
+  assert.equal(nodes.get("setup-progress").hidden, false);
 });
 
 test("provider rows name each local runtime while preserving neutral provider readiness", async () => {

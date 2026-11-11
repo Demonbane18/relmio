@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import test from "node:test";
+import { documentationBySlug } from "../app/docs/generated-content.ts";
+import { matchingSections, sectionHref } from "../app/docs/markdownText.ts";
 
 async function requestApp(path = "/", init = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
@@ -123,11 +125,13 @@ test("server-renders the Relmio home page with the shared top bar", async () => 
   assertSharedTopBar(html, "Home");
 
   assert.match(html, /<figure[^>]*data-scene-running[^>]*>[\s\S]*?<svg[^>]*aria-hidden="true"[^>]*>/u);
-  assert.match(html, /aria-label="Setup options"/);
+  assert.match(html, /<div\b[^>]*role="group"[^>]*aria-label="Setup options"/u);
+  assert.doesNotMatch(html, /<nav\b[^>]*aria-label="Setup options"/u);
   assert.match(html, /aria-pressed="true"/);
   for (const option of [
     "n8n with ChatGPT sign-in",
     "SuperGrok OAuth",
+    "Claude for n8n",
     "n8n Code Sandbox",
     "Codex Chat Adapter",
     "Codex App Server",
@@ -135,6 +139,17 @@ test("server-renders the Relmio home page with the shared top bar", async () => 
   ]) {
     assert.match(html, new RegExp(option, "u"));
   }
+  const selector = html.match(/<section\b[^>]*id="how-it-works"[\s\S]*?<\/section>/u)?.[0] ?? "";
+  const claudeButton = [...selector.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/gu)]
+    .map(([button]) => button)
+    .find((button) => button.includes("Claude for n8n"));
+  assert.ok(claudeButton, "Claude is a selectable route");
+  assert.match(claudeButton, />Experimental<\/span>/u);
+  assert.equal((selector.match(/Not affiliated with or endorsed by Anthropic/gu) ?? []).length, 1);
+  const claudeHref = selector.match(/href="([^"]+)"[^>]*>Read the Claude guide<\/a>/u)?.[1];
+  assert.equal(claudeHref, "/docs/claude-subscription");
+  assert.ok(documentationBySlug.has(claudeHref.slice("/docs/".length)), "Claude guide slug exists");
+  assert.equal((await requestApp(claudeHref)).status, 200);
   assert.match(html, /href="\/install"[^>]*>[\s\S]*?Install Relmio/u);
   assert.match(text, /does not edit the existing n8n container, image, or workflows/u);
   const notice = html.match(/<section[^>]*id="chat"[\s\S]*?<\/section>/u)?.[0] ?? "";
@@ -276,6 +291,8 @@ test("server-renders canonical generated Markdown documentation routes", async (
   assert.match(indexHtml, /href="\/docs\/vps-supergrok"/u);
   assert.match(indexHtml, /aria-label="Documentation navigation"/u);
   assert.match(indexHtml, /Find a guide/u);
+  const description = indexHtml.match(/<meta name="description" content="([^"]+)"/u)?.[1] ?? "";
+  assert.ok(description.length >= 145 && description.length <= 160, description);
   assert.match(
     troubleshootingHtml,
     /Canonical guide · Source <code>docs\/troubleshooting\.md<\/code>/u,
@@ -286,12 +303,42 @@ test("server-renders canonical generated Markdown documentation routes", async (
   assertSharedTopBar(indexHtml, "Docs");
 });
 
+test("explicit guide summaries appear on index cards and in page metadata", async () => {
+  const indexHtml = await (await requestApp("/docs")).text();
+  for (const slug of ["troubleshooting", "security"]) {
+    const summary = documentationBySlug.get(slug).summary;
+    assert.equal(typeof summary, "string");
+    assert.ok(summary.length > 0 && summary.length <= 160);
+    const links = [...indexHtml.matchAll(new RegExp(`<a\\b[^>]*href="/docs/${slug}"[^>]*>([\\s\\S]*?)</a>`, "gu"))];
+    assert.ok(links.some(([, content]) => content.replace(/<[^>]*>/gu, "").includes(summary)), slug);
+    const html = await (await requestApp(`/docs/${slug}`)).text();
+    assert.equal(html.match(/<meta name="description" content="([^"]+)"/u)?.[1], summary);
+  }
+});
+
+test("section search links land on rendered heading anchors", async () => {
+  const sections = JSON.parse(await readFile(new URL("../app/docs/generated-sections.json", import.meta.url), "utf8"));
+  const pages = new Map();
+  for (const query of ["fingerprint", "windows", "host key"]) {
+    const section = matchingSections(sections, query)[0];
+    assert.ok(section, query);
+    const link = new URL(sectionHref(section), "http://localhost");
+    if (!pages.has(link.pathname)) {
+      const response = await requestApp(link.pathname);
+      assert.equal(response.status, 200, query);
+      pages.set(link.pathname, await response.text());
+    }
+    assert.equal(link.hash, `#${section.id}`);
+    assert.match(pages.get(link.pathname), new RegExp(`<h[1-3]\\b[^>]*id="${section.id}"`, "u"), query);
+  }
+});
+
 test("marks the experimental Claude guide in the guide list and on its page", async () => {
   const response = await requestApp("/docs/claude-subscription");
   assert.equal(response.status, 200);
   const html = await response.text();
   const heading = html.match(/<h1\b[^>]*>[\s\S]*?<\/h1>/u)?.[0] ?? "";
-  assert.match(heading, /<span class="rm-badge rm-badge--accent">Experimental<\/span>/u);
+  assert.equal((heading.replace(/<[^>]*>/gu, "").match(/experimental/giu) ?? []).length, 1);
   assert.match(html, /<p[^>]*>Canonical guide · Source <code>docs\/claude-subscription\.md<\/code><\/p>/u);
   assert.match(html, /href="\/docs\/claude-subscription"[^>]*>.*?Claude subscription<span class="rm-badge rm-badge--accent">Experimental<\/span>/su);
   assert.match(html, /not affiliated with or endorsed by Anthropic/iu);
@@ -308,13 +355,19 @@ test("copy button copies current displayed code after it changes", async () => {
   const jsx = (type, props) => ({ type, props });
   let announcement = "";
   let copied = "";
+  let hasCopied = false;
+  let copyFails = false;
+  let resetCopy;
   const code = { textContent: "old command" };
   runInNewContext(compiled, {
     exports,
     require(name) {
       if (name === "react") return {
         useEffect() {}, useRef: () => ({ current: undefined }),
-        useState: (initial) => [initial, (value) => { if (typeof initial === "string") announcement = value; }],
+        useState: (initial) => [
+          typeof initial === "string" ? announcement : hasCopied,
+          (value) => { if (typeof initial === "string") announcement = value; else hasCopied = value; },
+        ],
       };
       if (name === "react/jsx-runtime") return { jsx, jsxs: jsx, Fragment: "fragment" };
       if (name === "./classNames") return { classNames: (...names) => names.join(" ") };
@@ -322,8 +375,11 @@ test("copy button copies current displayed code after it changes", async () => {
       throw new Error(`Unexpected import: ${name}`);
     },
     document: { getElementById: () => code },
-    navigator: { clipboard: { async writeText(text) { copied = text; } } },
-    window: { clearTimeout() {}, setTimeout() { return 1; } },
+    navigator: { clipboard: { async writeText(text) {
+      if (copyFails) throw new Error("Clipboard unavailable.");
+      copied = text;
+    } } },
+    window: { clearTimeout() {}, setTimeout(callback) { resetCopy = callback; return 1; } },
   });
   const rendered = exports.CopyButton({ targetId: "rendered-code", label: "command" });
   const button = rendered.props.children[0];
@@ -332,6 +388,60 @@ test("copy button copies current displayed code after it changes", async () => {
   assert.equal(copied, "displayed command");
   assert.equal(announcement, "Copied command.");
   assert.equal(button.props["aria-label"], "Copy command");
+  assert.equal(exports.CopyButton({ targetId: "rendered-code", label: "command" }).props.children[0].props["data-copied"], "");
+  resetCopy();
+  assert.equal(exports.CopyButton({ targetId: "rendered-code", label: "command" }).props.children[0].props["data-copied"], undefined);
+  copyFails = true;
+  await button.props.onClick();
+  assert.equal(hasCopied, false, "a failed copy must not show success");
+  assert.match(announcement, /Copy failed/u);
+});
+
+test("theme changes crossfade only when supported and motion is allowed", async () => {
+  const source = await readFile(new URL("../app/providers.tsx", import.meta.url), "utf8");
+  const compiled = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText;
+  const jsx = (type, props) => ({ type, props });
+  for (const [supported, reducedMotion] of [[true, false], [true, true], [false, false]]) {
+    const exports = {};
+    const dataset = {};
+    const stored = new Map();
+    let transitions = 0;
+    let selectedMode;
+    const document = { documentElement: { dataset } };
+    if (supported) {
+      document.startViewTransition = (update) => { transitions++; update(); };
+    }
+    runInNewContext(compiled, {
+      exports,
+      document,
+      window: {
+        matchMedia: () => ({ matches: reducedMotion }),
+        localStorage: { setItem: (key, value) => stored.set(key, value) },
+      },
+      require(name) {
+        if (name === "react") return {
+          createContext: () => ({ Provider: "theme-provider" }),
+          useEffect() {},
+          useMemo: (getValue) => getValue(),
+          useCallback: (callback) => callback,
+          useState: (initial) => [initial, (value) => { selectedMode = value; }],
+        };
+        if (name === "react/jsx-runtime") return { jsx, jsxs: jsx };
+        throw new Error(`Unexpected import: ${name}`);
+      },
+    });
+    const { setMode } = exports.Providers({ children: null }).props.value;
+    setMode("dark");
+    assert.equal(dataset.theme, "dark");
+    assert.equal(selectedMode, "dark");
+    assert.equal(stored.get("relmio-color-mode"), "dark");
+    assert.equal(transitions, supported && !reducedMotion ? 1 : 0);
+    setMode("system");
+    assert.equal(dataset.theme, undefined);
+    assert.equal(stored.get("relmio-color-mode"), "system");
+  }
 });
 
 test("renders a command-first self-hosted n8n install page", async () => {
@@ -371,6 +481,11 @@ test("renders a command-first self-hosted n8n install page", async () => {
   assert.doesNotMatch(html, /\bwinget install\b/i);
   assert.match(html, /Homebrew is public/);
   assert.match(html, /trusts only the Relmio formula/);
+  const homebrewPanel = html.match(/<div\b[^>]*id="install-method-homebrew-panel"[\s\S]*?<p class="rm-terminal__note">([\s\S]*?)<\/p>/u)?.[1] ?? "";
+  const homebrewNote = homebrewPanel.replace(/<[^>]*>/gu, "");
+  assert.match(homebrewNote, /installs the relmio command and Node\.js/u);
+  assert.match(homebrewNote, /does not open the wizard/u);
+  assert.match(homebrewNote, /run relmio next/u);
   assert.match(
     html,
     /irm https:\/\/relmio\.jpfusin\.tech\/install\.ps1 \| iex/,

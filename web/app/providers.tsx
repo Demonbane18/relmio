@@ -68,7 +68,16 @@ export function Providers({ children }: { children: ReactNode }) {
 
   const setMode = useCallback((nextMode: ThemeMode) => {
     setModeState(nextMode);
-    applyMode(nextMode);
+    // A short crossfade confirms the change (timing in the kit). Reduced motion
+    // and browsers without view transitions switch at once.
+    if (
+      typeof document.startViewTransition === "function" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      document.startViewTransition(() => applyMode(nextMode));
+    } else {
+      applyMode(nextMode);
+    }
     try {
       window.localStorage.setItem(storageKey, nextMode);
     } catch {

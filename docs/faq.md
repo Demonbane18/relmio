@@ -2,8 +2,9 @@
 
 Answers about ChatGPT sign-in and plan use, usage limits, image generation,
 local connections, SuperGrok, Claude, and private models. Read the
-[OpenAI source check](openai-source-check-2026-10-05.md)
-for implementation evidence and unresolved provider requirements. The
+[2026-11-11 OpenAI source check](openai-source-check-2026-11-11.md)
+for the current comparison. The
+[2026-10-05 source check](openai-source-check-2026-10-05.md) remains historical. The
 [Claude wizard source check](claude-wizard-source-check-2026-11-04.md) covers
 the Claude questions below.
 
@@ -150,7 +151,7 @@ hosted route, not the documented local open-source flow. Local use needs no
 commercial approval, partner-issued client ID, or client secret; it follows the
 documented SIWC registration and separate plan-consent flow. This documentation
 change does not implement hosted chat. See the
-[source check](openai-source-check-2026-10-05.md).
+[2026-11-11 source check](openai-source-check-2026-11-11.md). The [2026-10-05 source check](openai-source-check-2026-10-05.md) is historical.
 
 ## Is a VPS transfer approved by OpenAI?
 
@@ -160,15 +161,26 @@ a matching destination receipt. An uncertain transfer stays frozen, and the
 destination is the only refresh owner after completion. When that sign-in
 needs renewing, Relmio makes a new registration for the same account and
 replaces the old one. OpenAI's guides instead repeat the sign-in with the saved
-client ID and the VM's own host ID. OpenAI's self-hosted VM
-guide describes transfers, while SIWC Terms also say persistent tokens must be
-local and user-controlled. The published wording does not resolve that tension.
+client ID and the VM's own host ID. The self-hosted VM guide describes a
+protected transfer. SIWC Terms §1, effective November 4, 2026, says persistent
+authentication tokens must be local and user-controlled, not in a remote or
+managed environment. Service Terms updated November 10, 2026 incorporate the
+SIWC Terms. Those texts do not resolve persistent VPS storage. This page
+claims no Terms compliance.
 
-The SIWC Terms also limit use to the connected application and say not to
-provide general-purpose API access for other tools. Whether an
-OpenAI-compatible endpoint for n8n fits that rule needs an answer from OpenAI.
-Relmio is not listed in OpenAI's partner directory, and the published sources
-do not define whether it counts as a supported open-source tool.
+SIWC Terms §3.1 limits plan use to the authenticated user's activity or
+expressly authorized automation, on a runtime only that user controls, inside
+the connected application. A consent checkbox does not authorize another
+person's triggers or unrelated-tool access. Whether an OpenAI-compatible
+endpoint for n8n fits that rule is open. Relmio was absent from the partner
+directory returned on 2026-11-11. Absence from that list is not proof that
+the documented open-source registration flow requires partner approval.
+
+OpenAI's Usage Policies page fetched on 2026-11-11 is effective November 20,
+2026, announced October 21, 2026. Its prior-review requirement for
+model-access intermediaries is not yet in force on the check date. It does
+not, by itself, ban every local open-source SIWC use, and this check
+establishes no approval under it.
 
 The wizard verifies the SSH fingerprint before authentication and asks for a
 separate final confirmation before remote writes. Relmio does not edit, restart,
@@ -202,8 +214,11 @@ Assistant sandbox setup and does not establish reliable tool calling. See
 
 Yes, as an experiment, for text workflows in your own n8n. Since Relmio 0.24.0
 the browser wizard can set up a private Claude Code companion on a VPS
-(**Claude on my server**) or in local Docker (**Claude for n8n**, macOS or
-Linux only). Native n8n and the advanced Docker path use the `relmio claude`
+(**Claude on my server**) or in local Docker (**Claude for n8n**). The VPS
+route and **Hosting options** are not limited to macOS and Linux. The VPS
+Claude page is untested on Windows. The companion on this computer needs
+macOS or Linux and is unavailable on native Windows. Native n8n and the
+advanced Docker path use the `relmio claude`
 commands. n8n needs a
 Basic LLM Chain with an OpenAI Chat Model: Use Responses API off, Max Retries 0,
 Timeout at least 135000 ms, Batch Size 1. There are no AI Agent tools, no n8n

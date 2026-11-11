@@ -105,8 +105,8 @@ See the [direct OAuth route](supergrok-oauth-route-decision.md) and
   for provider/image guidance and Render's separate manual private-service path.
 - For AI Assistant tools, enough capacity for the privileged Docker-in-Docker runner.
 - For a new local n8n stack, one unused loopback port is required. ngrok is
-  optional; if enabled, it needs a token, reserved hostname, Basic Auth
-  credentials, and a second unused loopback port. See [New local n8n with
+  optional; if enabled, it needs a token, reserved hostname, and Basic Auth
+  credentials. It does not need a second loopback port. See [New local n8n with
   optional ngrok](local-n8n-stack.md) for the full requirements.
 - A user-authorized ChatGPT registration with the separately granted
   `chatgpt.tokens.use.direct` permission for model use; an identity-only
@@ -936,9 +936,11 @@ instead; this wizard has no loopback Claude endpoint for apps on this
 computer.
 
 Enter one to eight exact model IDs (the three 5.5 models by default; Fable is
-refused), select the n8n container and network, answer the four review
-questions (all start unchecked) and confirm the exact plan. Relmio builds the
-companion in `~/.relmio/local/n8n-claude-oauth` and shows a one-time Relmio key.
+refused), select the n8n container and network, then review in two stages.
+The first stage is the four review questions, all unchecked. Continue only
+after all four are checked. The plan then waits for a separate final
+confirmation. Relmio builds the companion in `~/.relmio/local/n8n-claude-oauth`
+and shows a one-time Relmio key.
 For an n8n that Relmio created, it also tries to add an OpenAI credential named
 **Relmio Claude**. For any other n8n, enter the key and Base URL yourself.
 
@@ -954,8 +956,12 @@ Claude credentials. In the management panel, **Check sign-in** needs
 `loggedIn: true` and `authMethod: "claude.ai"`, and **Check models** lists the
 approved IDs without sending a Claude prompt. **Renew approval** repeats the
 four questions; approval lasts 7 days minus 1 hour. **Sign out** logs the
-companion out. **Remove Claude** deletes the companion, its login volume and
-image, and its managed files; n8n and its network stay.
+companion out. **Manage Claude** shows Running, Starting, Restarting,
+Unhealthy or Stopped. Starting is normal for about the first minute.
+**Remove Claude** deletes the companion, its image and its managed files.
+**Keep my Claude sign-in for a reinstall** leaves the login volume, including
+any account lock in it. That option does not clear the lock. n8n and its
+network stay.
 
 A companion made with `relmio claude companion prepare` is not adopted. The
 wizard refuses, changes nothing and asks you to remove it first; removing its
